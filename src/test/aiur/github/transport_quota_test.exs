@@ -420,9 +420,10 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     assert_receive :request_starting, 1_000
 
-    assert_receive {:sqlite_wait, %{sqlite_lock_wait_ms: lock_wait_ms}, %{command_type: :acquire}}
-                   when lock_wait_ms >= 3_500,
-                   7_000
+    assert_receive(
+      {:sqlite_wait, %{sqlite_lock_wait_ms: lock_wait_ms}, %{command_type: :acquire}} when lock_wait_ms >= 3_500,
+      7_000
+    )
 
     Port.command(lock, "\n")
     assert_receive {^lock, {:data, "released\n"}}, 1_000
