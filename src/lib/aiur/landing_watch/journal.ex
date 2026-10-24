@@ -5,6 +5,8 @@ defmodule Aiur.LandingWatch.Journal do
   alias Aiur.JsonStore
   alias Aiur.LandingWatch.MergeGroupJournal
 
+  @merge_group_failure_attempt_limit 1_000
+
   @spec state(keyword()) :: {:ok, map()} | {:error, term()}
   def state(opts \\ []) do
     case JsonStore.read(path(opts), %{}) do
@@ -264,11 +266,12 @@ defmodule Aiur.LandingWatch.Journal do
 
       {updated, counts} =
         Enum.reduce(identities, {attempts, %{}}, fn identity, {updated, counts} ->
-          count = Map.get(updated, identity, 0) + 1
+          count = min(Map.get(updated, identity, 0) + 1, @merge_group_failure_attempt_limit)
           {Map.put(updated, identity, count), Map.put(counts, identity, count)}
         end)
 
-      {:ok, Map.put(state, "merge_group_failure_attempts", updated), counts}
+      bounded = updated |> Enum.sort_by(&elem(&1, 1), :desc) |> Enum.take(@merge_group_failure_attempt_limit) |> Map.new()
+      {:ok, Map.put(state, "merge_group_failure_attempts", bounded), counts}
     end)
   end
 

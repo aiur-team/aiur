@@ -49,6 +49,15 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidenceTest do
     assert ["src/test/aiur/sample_test.exs"] = MergeGroupFailureEvidence.test_paths(log)
   end
 
+  test "browser spec annotations identify the spec path without using the job shard name" do
+    log = "new-failure :: BrowserSpec :: src/browser/tests/build-home-tools-parity.browser.spec.mjs"
+
+    assert ["src/browser/tests/build-home-tools-parity.browser.spec.mjs"] = MergeGroupFailureEvidence.test_paths(log)
+
+    assert ["BrowserSpec :: src/browser/tests/build-home-tools-parity.browser.spec.mjs"] =
+             MergeGroupFailureEvidence.test_identities(log)
+  end
+
   test "known flaky module signatures match ExUnit's rendered failure header" do
     root = Aiur.TestSupport.tmp_root!("merge-group-known-flake")
     path = Path.join(root, ".github/known-flaky-tests.txt")

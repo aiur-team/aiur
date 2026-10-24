@@ -3,6 +3,23 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
 
   alias Aiur.LandingWatch.{Journal, MergeGroupFailureProcessor}
 
+  test "a second browser spec failure routes to rework and holds the head without enqueueing" do
+    parent = self()
+    path = journal_path()
+    identity = "BrowserSpec :: src/browser/tests/build-home-tools-parity.browser.spec.mjs"
+
+    assert :ok = process_browser_failure(501, path, parent)
+    assert_received {:enqueue, 17}
+    refute_received {:rework, 17}
+
+    assert :ok = process_browser_failure(502, path, parent)
+    assert_received {:rework, 17, _failures}
+    refute_received {:enqueue, 17}
+    assert {:ok, true} = Journal.merge_group_head_held?(17, "head-17", journal_path: path)
+    assert {:ok, 1} = Journal.merge_group_failure_attempts(17, "head-17", identity, journal_path: path)
+    Aiur.TestCleanup.rm_rf!(path)
+  end
+
   test "a second failure of the same spec routes the PR to rework" do
     parent = self()
     path = journal_path()
@@ -108,7 +125,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
   end
 
   # Existing-behavior regression guard; it is not counted as new repeat-routing coverage.
-  test "a quarantined first failure still re-enqueues" do
+  test "a quarantined first failure re-enqueues once and records its identity" do
     parent = self()
     path = journal_path()
 
@@ -121,7 +138,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     assert_received {:enqueue, 17}
     refute_received {:rework, 17}
 
-    assert {:ok, 0} =
+    assert {:ok, 1} =
              Journal.merge_group_failure_attempts(
                17,
                "head-17",
@@ -129,6 +146,16 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
                journal_path: path
              )
 
+    Aiur.TestCleanup.rm_rf!(path)
+  end
+
+  test "failure attempt journal is capped" do
+    path = journal_path()
+    failures = for n <- 1..1_005, do: {n, "head-#{n}", ["spec-#{n}"]}
+
+    assert {:ok, _counts} = Journal.record_merge_group_failure_attempts(failures, journal_path: path)
+    assert {:ok, state} = Journal.state(journal_path: path)
+    assert map_size(state["merge_group_failure_attempts"]) == 1_000
     Aiur.TestCleanup.rm_rf!(path)
   end
 
@@ -189,13 +216,44 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
       revalidate_fun: fn _, _, _ -> :ok end,
       attribution_fun: fn _ -> {:ok, :clean} end,
       comment_fun: fn _, _, _ -> :ok end,
-      rework_fun: fn pr, _, _ ->
+      rework_fun: fn pr, _failures, _ ->
         send(parent, {:rework, pr.number})
         :ok
       end
     ]
 
     MergeGroupFailureProcessor.process_completed([run], [observation()], "main", Keyword.merge(opts, extra_opts))
+  end
+
+  defp process_browser_failure(run_id, journal, parent) do
+    run = failed_run(run_id, "failure")
+    log = "new-failure :: BrowserSpec :: src/browser/tests/build-home-tools-parity.browser.spec.mjs"
+
+    opts = [
+      journal_path: journal,
+      recent_main_failure_paths_fun: fn _, _ -> {:ok, ["src/browser/tests/build-home-tools-parity.browser.spec.mjs"]} end,
+      known_failure_patterns: [],
+      changed_paths_fun: fn _, _ -> {:ok, []} end,
+      changed_paths_by_pr: %{17 => []},
+      ticket_state_fun: fn _, _ -> {:ok, %{state: "human-review", paused?: false, held?: false}} end,
+      jobs_fun: fn _, _ -> {:ok, [%{"id" => run_id + 1, "name" => "browser smoke (3/9)", "conclusion" => "failure"}]} end,
+      job_log_fun: fn _, _ -> {:ok, log} end,
+      repo_fun: fn -> {:ok, {"owner", "repo"}} end,
+      enqueue_fun: fn node, _, _ ->
+        send(parent, {:enqueue, 17})
+        {:ok, "entry-#{node}"}
+      end,
+      approved_fun: fn _, _ -> {:ok, true} end,
+      revalidate_fun: fn _, _, _ -> :ok end,
+      attribution_fun: fn _ -> {:ok, :clean} end,
+      comment_fun: fn _, _, _ -> :ok end,
+      rework_fun: fn pr, failures, _ ->
+        send(parent, {:rework, pr.number, failures})
+        :ok
+      end
+    ]
+
+    MergeGroupFailureProcessor.process_completed([run], [observation()], "main", opts)
   end
 
   defp failure_log(tests) do
