@@ -73,7 +73,12 @@ def terminate_process_group():
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-    child.wait()
+    try:
+        child.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        # A child in uninterruptible kernel sleep can outlive SIGKILL. Do not
+        # let that make the caller cancellation handler unbounded as well.
+        print("aiur: governed gh child did not exit after SIGKILL", file=sys.stderr)
 
 def descendant_pids(root):
     parents = {}
@@ -102,16 +107,24 @@ def descendant_pids(root):
         found.update(children)
         descendants.extend(children)
 
+class CallerSignal(Exception):
+    def __init__(self, signum):
+        self.signum = signum
+
 def stop_child(signum, _frame):
-    terminate_process_group()
-    writer.join(timeout=0.5)
-    raise SystemExit(128 + signum)
+    # Do not wait inside the signal handler: it may interrupt Popen.wait while
+    # that method holds its internal waitpid lock. Cleanup runs after unwinding.
+    raise CallerSignal(signum)
 
 signal.signal(signal.SIGTERM, stop_child)
 signal.signal(signal.SIGINT, stop_child)
 signal.signal(signal.SIGHUP, stop_child)
 try:
     child.wait(timeout=seconds)
+except CallerSignal as cancelled:
+    terminate_process_group()
+    writer.join(timeout=0.5)
+    raise SystemExit(128 + cancelled.signum)
 except subprocess.TimeoutExpired:
     terminate_process_group()
     writer.join(timeout=0.5)

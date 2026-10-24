@@ -40,13 +40,14 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
     sleep_bin = Path.join(context.workspace, "instant-sleep")
     File.mkdir_p!(sleep_bin)
-    File.write!(Path.join(sleep_bin, "sleep"), "#!/bin/sh\nexit 0\n")
+    sleep_calls = Path.join(context.workspace, "hold-sleep-calls")
+    File.write!(Path.join(sleep_bin, "sleep"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AIUR_SLEEP_CALLS_FILE\"\nexit 0\n")
     File.chmod!(Path.join(sleep_bin, "sleep"), 0o755)
-    started_at = System.monotonic_time(:millisecond)
 
     assert {output, 75} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
                PATH: sleep_bin <> ":" <> System.get_env("PATH", ""),
+               AIUR_SLEEP_CALLS_FILE: sleep_calls,
                AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
                AIUR_GITHUB_STATE_CACHE_ROOT: "",
                AIUR_GITHUB_BUDGET_ENABLED: "0",
@@ -57,8 +58,8 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
              )
 
     assert output =~ "GitHub quota hold (#{hold_name}) active"
-    assert System.monotonic_time(:millisecond) - started_at < 1_000
     refute File.exists?(context.calls)
+    refute File.exists?(sleep_calls)
   end
 
   test "a core hold does not block an explicitly GraphQL command", context do

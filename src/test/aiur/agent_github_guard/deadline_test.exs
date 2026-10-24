@@ -72,16 +72,22 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
   test "a caller group kill does not leave a broker descendant running", context do
     broker = Path.join(context.workspace, "caller-kill-broker.py")
     broker_pid_file = Path.join(context.workspace, "caller-kill-broker.pid")
+    broker_pgid_file = Path.join(context.workspace, "caller-kill-broker.pgid")
     child_pid_file = Path.join(context.workspace, "caller-kill-child.pid")
+    child_pgid_file = Path.join(context.workspace, "caller-kill-child.pgid")
     supervisor_pgid_file = Path.join(context.workspace, "caller-kill-supervisor.pgid")
 
     File.write!(broker, """
     import os, subprocess, time
     with open(os.environ["AIUR_GH_CALLER_KILL_BROKER_PID_FILE"], "w", encoding="ascii") as output:
         output.write(str(os.getpid()))
+    with open(os.environ["AIUR_GH_CALLER_KILL_BROKER_PGID_FILE"], "w", encoding="ascii") as output:
+        output.write(str(os.getpgrp()))
     child = subprocess.Popen(["/bin/sh", "-c", "trap '' TERM; exec sleep 30"])
     with open(os.environ["AIUR_GH_CALLER_KILL_CHILD_PID_FILE"], "w", encoding="ascii") as output:
         output.write(str(child.pid))
+    with open(os.environ["AIUR_GH_CALLER_KILL_CHILD_PGID_FILE"], "w", encoding="ascii") as output:
+        output.write(str(os.getpgid(child.pid)))
     pid = os.getppid()
     while pid > 1:
         with open(f"/proc/{pid}/stat", encoding="ascii") as stat_file:
@@ -109,7 +115,9 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
             AIUR_GITHUB_BUDGET_KEY: String.duplicate("e", 64),
             AIUR_GITHUB_BUDGET_BROKER: broker,
             AIUR_GH_CALLER_KILL_BROKER_PID_FILE: broker_pid_file,
+            AIUR_GH_CALLER_KILL_BROKER_PGID_FILE: broker_pgid_file,
             AIUR_GH_CALLER_KILL_CHILD_PID_FILE: child_pid_file,
+            AIUR_GH_CALLER_KILL_CHILD_PGID_FILE: child_pgid_file,
             AIUR_GH_CALLER_KILL_PGID_FILE: supervisor_pgid_file,
             AIUR_GH_CALL_TIMEOUT_SECONDS: "30"
           ],
@@ -139,11 +147,91 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     wait_until(fn -> File.exists?(child_pid_file) and File.exists?(supervisor_pgid_file) end)
     child_pid = child_pid_file |> File.read!() |> String.to_integer()
     pgid = supervisor_pgid_file |> File.read!() |> String.trim()
+    assert File.read!(broker_pgid_file) == pgid
+    assert File.read!(child_pgid_file) == pgid
 
     assert {"", 0} = System.cmd("kill", ["-KILL", "-#{pgid}"])
     wait_until(fn -> process_gone?(child_pid) end)
     assert process_gone?(child_pid)
     assert_receive {^port, {:exit_status, _status}}, 2_000
+  end
+
+  test "SIGTERM exits the supervisor and kills a TERM-ignoring broker descendant", context do
+    broker = Path.join(context.workspace, "term-broker.py")
+    broker_pid_file = Path.join(context.workspace, "term-broker.pid")
+    child_pid_file = Path.join(context.workspace, "term-child.pid")
+    supervisor_pid_file = Path.join(context.workspace, "term-supervisor.pid")
+
+    File.write!(broker, """
+    import os, subprocess, time
+    with open(os.environ["AIUR_GH_TERM_BROKER_PID_FILE"], "w", encoding="ascii") as output:
+        output.write(str(os.getpid()))
+    child = subprocess.Popen(["/bin/sh", "-c", "trap '' TERM; exec sleep 30"])
+    with open(os.environ["AIUR_GH_TERM_CHILD_PID_FILE"], "w", encoding="ascii") as output:
+        output.write(str(child.pid))
+    pid = os.getppid()
+    while pid > 1:
+        with open(f"/proc/{pid}/stat", encoding="ascii") as stat_file:
+            fields = stat_file.read().rsplit(")", 1)[1].split()
+        with open(f"/proc/{pid}/cmdline", "rb") as cmdline_file:
+            command_line = cmdline_file.read()
+        if b"@aiur-deadline-body@" in command_line:
+            with open(os.environ["AIUR_GH_TERM_SUPERVISOR_PID_FILE"], "w", encoding="ascii") as output:
+                output.write(str(pid))
+            break
+        pid = int(fields[1])
+    else:
+        raise RuntimeError("deadline supervisor was not found")
+    time.sleep(30)
+    """)
+
+    File.chmod!(broker, 0o700)
+
+    env =
+      guard_env(context) ++
+        Enum.map(
+          [
+            AIUR_GITHUB_BUDGET_ENABLED: "1",
+            AIUR_GITHUB_BUDGET_ROOT: Path.join(context.state_path, "term-budget"),
+            AIUR_GITHUB_BUDGET_KEY: String.duplicate("f", 64),
+            AIUR_GITHUB_BUDGET_BROKER: broker,
+            AIUR_GH_TERM_BROKER_PID_FILE: broker_pid_file,
+            AIUR_GH_TERM_CHILD_PID_FILE: child_pid_file,
+            AIUR_GH_TERM_SUPERVISOR_PID_FILE: supervisor_pid_file,
+            AIUR_GH_CALL_TIMEOUT_SECONDS: "30"
+          ],
+          fn {name, value} -> {Atom.to_string(name), value} end
+        )
+
+    port =
+      Port.open({:spawn_executable, System.find_executable("setsid")}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: Enum.map([context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
+        env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
+      ])
+
+    on_exit(fn ->
+      Enum.each([supervisor_pid_file, broker_pid_file, child_pid_file], fn path ->
+        if File.exists?(path) do
+          pid = path |> File.read!() |> String.to_integer()
+          _ = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+        end
+      end)
+
+      if Port.info(port), do: Port.close(port)
+    end)
+
+    wait_until(fn -> File.exists?(child_pid_file) and File.exists?(supervisor_pid_file) end)
+    child_pid = child_pid_file |> File.read!() |> String.to_integer()
+    supervisor_pid = supervisor_pid_file |> File.read!() |> String.trim()
+
+    assert {"", 0} = System.cmd("kill", ["-TERM", supervisor_pid])
+    assert_receive {^port, {:exit_status, _status}}, 3_000
+    wait_until(fn -> process_gone?(String.to_integer(supervisor_pid)) end)
+    wait_until(fn -> process_gone?(child_pid) end)
+    assert process_gone?(child_pid)
   end
 
   test "repeated broker wait responses fail at the admission bound before gh runs", context do
