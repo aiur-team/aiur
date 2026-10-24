@@ -4,16 +4,16 @@ defmodule Aiur.ControlCallTestProbe do
   alias Aiur.ControlCall
 
   def actor, do: IO.puts(ControlCall.actor())
-  def read_wait, do: wait_for_test_release()
-  def write_wait, do: wait_for_test_release()
+  def read_wait(parent_name), do: wait_for_test_release(parent_name)
+  def write_wait(parent_name), do: wait_for_test_release(parent_name)
 
   def explode do
     IO.puts("before failure")
     raise "control call probe failure"
   end
 
-  defp wait_for_test_release do
-    parent = Process.whereis(:control_call_test_parent)
+  defp wait_for_test_release(parent_name) do
+    parent = Process.whereis(parent_name)
     send(parent, {:control_call_probe_started, self()})
 
     receive do
@@ -26,11 +26,6 @@ defmodule Aiur.ControlCallTest do
   use ExUnit.Case, async: false
 
   alias Aiur.ControlCall
-
-  setup do
-    Process.register(self(), :control_call_test_parent)
-    :ok
-  end
 
   test "parses an allowlisted literal call and refuses a foreign module" do
     assert {:ok, %{module: Aiur.AgentControlCLI, function: :agents, args: [[all: true]], scope: :read}} =
@@ -133,14 +128,30 @@ defmodule Aiur.ControlCallTest do
   end
 
   test "run kills a timed out read task" do
-    assert {:ok, read_call} = ControlCall.parse("Aiur.ControlCallTestProbe.read_wait()")
+    parent_name = unique_parent_name()
+    parent = self()
+    Process.register(self(), parent_name)
+
+    on_exit(fn ->
+      if Process.whereis(parent_name) == parent, do: Process.unregister(parent_name)
+    end)
+
+    assert {:ok, read_call} = ControlCall.parse("Aiur.ControlCallTestProbe.read_wait(#{inspect(parent_name)})")
     assert {:error, :timeout} = ControlCall.run(read_call, 500, "token:t")
     assert {:control_call_probe_started, pid} = receive_message()
     refute Process.alive?(pid)
   end
 
   test "run leaves a timed out write task running until completion" do
-    assert {:ok, write_call} = ControlCall.parse("Aiur.ControlCallTestProbe.write_wait()")
+    parent_name = unique_parent_name()
+    parent = self()
+    Process.register(self(), parent_name)
+
+    on_exit(fn ->
+      if Process.whereis(parent_name) == parent, do: Process.unregister(parent_name)
+    end)
+
+    assert {:ok, write_call} = ControlCall.parse("Aiur.ControlCallTestProbe.write_wait(#{inspect(parent_name)})")
     assert {:error, :timeout} = ControlCall.run(write_call, 500, "token:t")
     assert {:control_call_probe_started, pid} = receive_message()
     assert Process.alive?(pid)
@@ -149,6 +160,8 @@ defmodule Aiur.ControlCallTest do
     assert {:control_call_probe_finished, ^pid} = receive_message()
     assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1_000
   end
+
+  defp unique_parent_name, do: String.to_atom("control_call_test_parent_#{System.unique_integer([:positive])}")
 
   defp receive_message do
     receive do
