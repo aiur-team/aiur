@@ -49,6 +49,30 @@ defmodule Aiur.LandingWatch.Journal do
     end)
   end
 
+  @doc "Claims one refresh for a specific base-fix event and reserves its shared slot atomically."
+  @spec reserve_base_fix_refresh(pos_integer(), String.t(), integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  def reserve_base_fix_refresh(pr, head, now, event, opts) when is_integer(pr) and is_binary(head) and is_binary(event) do
+    update(opts, &claim_base_fix_refresh(&1, pr, head, now, event))
+  end
+
+  defp claim_base_fix_refresh(state, pr, head, now, event) do
+    events = get_in(state, ["base_fix_refreshes", to_string(pr)]) || []
+
+    if event in events do
+      {:error, :base_fix_refresh_already_claimed}
+    else
+      reserve_base_fix_refresh_slot(state, pr, head, now, event, events)
+    end
+  end
+
+  defp reserve_base_fix_refresh_slot(state, pr, head, now, event, events) do
+    with {:ok, state} <- reserve_rerun_entry(state, key(pr, head), now),
+         {:ok, state, :ok} <- MergeGroupJournal.take_requeue_slot(state, now) do
+      rows = Map.get(state, "base_fix_refreshes", %{})
+      {:ok, Map.put(state, "base_fix_refreshes", Map.put(rows, to_string(pr), [event | events]))}
+    end
+  end
+
   @doc "Reserves a per-head attempt and as many shared slots as available for individual workflow reruns."
   @spec reserve_automatic_reruns(pos_integer(), String.t(), integer(), pos_integer(), keyword()) ::
           {:ok, pos_integer()} | {:error, term()}
@@ -327,13 +351,21 @@ defmodule Aiur.LandingWatch.Journal do
           "merge_group_run_failures",
           "quarantine_merge_group_runs",
           "merge_group_requeues",
-          "ci_merges"
+          "ci_merges",
+          "conflict_update_arms"
         ] or
           MapSet.member?(retained, entry_key)
       end)
 
-    {:ok, retain_head_holds(state, holds, retained)}
+    {:ok, state |> retain_head_holds(holds, retained) |> retain_conflict_arms(retained)}
   end
+
+  defp retain_conflict_arms(%{"conflict_update_arms" => arms} = state, retained) when is_map(arms) do
+    numbers = MapSet.new(retained, &(&1 |> String.split(":") |> hd()))
+    Map.put(state, "conflict_update_arms", Map.filter(arms, fn {number, _} -> MapSet.member?(numbers, number) end))
+  end
+
+  defp retain_conflict_arms(state, _retained), do: state
 
   defp retain_head_holds(state, holds, retained) do
     holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)
