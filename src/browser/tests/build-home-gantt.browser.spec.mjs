@@ -216,14 +216,26 @@ test('B5/B7 fixture route switches Gantt and Timeline with the legend, time labe
 test('Gantt hides history time labels at 150 px width or less', async ({ page }) => {
   const result = await page.evaluate(() => {
     initCards()
-    const ticket = row('short-history', NOW - 4 * H, NOW)
+    const ticket = row('short-history', NOW - 4 * H, NOW, { pts: 3 })
     state.ctx.D.byId[ticket.id] = ticket
-    const card = cards.makeCard({ t: ticket, sec: 'hist', h: 150 })
-    card.style.width = '150px'; document.body.append(card)
-    const time = card.querySelector('.bd-time')
-    return { hasTime: !!time, display: getComputedStyle(time).display, width: card.getBoundingClientRect().width }
+    const inspect = width => {
+      const card = cards.makeCard({ t: ticket, sec: 'hist', h: width })
+      card.style.width = `${width}px`; document.body.append(card)
+      const time = card.querySelector('.bd-time')
+      const badge = card.querySelector('.bd-badges span')
+      return { hasTime: !!time, display: getComputedStyle(time).display, width: card.getBoundingClientRect().width,
+        badgeFont: badge && parseFloat(getComputedStyle(badge).fontSize) }
+    }
+    return [250, 150, 96].map(inspect)
   })
-  expect(result).toEqual({ hasTime: true, display: 'none', width: 150 })
+  expect(result).toHaveLength(3)
+  for (const [index, width] of [250, 150, 96].entries()) {
+    const card = result[index]
+    expect(card.hasTime).toBe(true)
+    expect(card.width).toBe(width)
+    expect(card.display).toBe(width <= 150 ? 'none' : 'block')
+    expect(card.badgeFont).toBeCloseTo(13 * (width <= 150 ? 0.62 : 0.7), 2)
+  }
 })
 
 test('B4 EC-20 rendered card heights stay equal across zones while tick labels differ', async ({ browser }) => {
@@ -330,12 +342,32 @@ for (const width of [1440, 390]) test(`Gantt dependency edges connect existing c
   await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
   await page.goto('/build-fixture/live?view=gantt')
   await expect(page.locator('#bd-content')).toBeVisible()
-  const result = await page.evaluate(() => [...document.querySelectorAll('#bd-edges .bd-eh')].map(hit => {
-    const line = hit.nextElementSibling, arrow = line?.nextElementSibling
-    const dependent = document.querySelector(`.bd-card[data-id="${CSS.escape(hit.dataset.e)}"]`)
-    const coords = line?.getAttribute('d')?.match(/-?[\d.]+/g)?.map(Number) ?? []
-    return { dependent: !!dependent, lineFollowsHit: line?.matches('.bd-e'), arrowFollowsLine: arrow?.matches('.bd-ea'), samePath: line?.getAttribute('d') === hit.getAttribute('d'), finite: coords.length >= 8 && coords.every(Number.isFinite), distinctEndpoints: coords.length >= 8 && (coords[0] !== coords[6] || coords[1] !== coords[7]) }
-  }))
+  const result = await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    const content = document.querySelector('#bd-content').getBoundingClientRect()
+    const same = (actual, expected) => Math.abs(actual - expected) <= 1
+    const matches = (actual, expected) => actual.length >= 8 &&
+      same(actual[0], expected[0]) && same(actual[1], expected[1]) && same(actual[6], expected[2]) && same(actual[7], expected[3])
+    return [...document.querySelectorAll('#bd-edges .bd-eh')].map(hit => {
+      const line = hit.nextElementSibling, arrow = line?.nextElementSibling
+      const dependent = document.querySelector(`.bd-card[data-id="${CSS.escape(hit.dataset.e)}"]`)
+      const coords = line?.getAttribute('d')?.match(/-?[\d.]+/g)?.map(Number) ?? []
+      const ticket = ctx.D.byId[hit.dataset.e]
+      const startsAtDependency = (ticket?.deps ?? []).some(id => {
+        const dependency = document.querySelector(`.bd-card[data-id="${CSS.escape(id)}"]`)
+        if (!dependency || !dependent) return false
+        const a = dependency.getBoundingClientRect(), b = dependent.getBoundingClientRect()
+        const ar = { left: a.left - content.left, right: a.right - content.left, top: a.top - content.top, bottom: a.bottom - content.top, width: a.width, height: a.height }
+        const br = { left: b.left - content.left, right: b.right - content.left, top: b.top - content.top, bottom: b.bottom - content.top, width: b.width, height: b.height }
+        if (ar.bottom <= br.top + 6) return matches(coords, [ar.left + ar.width / 2, ar.bottom, br.left + br.width / 2, br.top - 3])
+        const right = ar.right <= br.left
+        const from = [right ? ar.right : ar.left, ar.top + ar.height / 2]
+        const to = [right ? br.left - 3 : br.right + 3, br.top + Math.min(18, br.height / 2)]
+        return matches(coords, [...from, ...to])
+      })
+      return { dependent: !!dependent, startsAtDependency, lineFollowsHit: line?.matches('.bd-e'), arrowFollowsLine: arrow?.matches('.bd-ea'), samePath: line?.getAttribute('d') === hit.getAttribute('d'), finite: coords.length >= 8 && coords.every(Number.isFinite), distinctEndpoints: coords.length >= 8 && (coords[0] !== coords[6] || coords[1] !== coords[7]) }
+    })
+  })
   expect(result.length).toBeGreaterThan(0)
-  expect(result.every(edge => edge.dependent && edge.lineFollowsHit && edge.arrowFollowsLine && edge.samePath && edge.finite && edge.distinctEndpoints)).toBe(true)
+  expect(result.every(edge => edge.dependent && edge.startsAtDependency && edge.lineFollowsHit && edge.arrowFollowsLine && edge.samePath && edge.finite && edge.distinctEndpoints)).toBe(true)
 })

@@ -1,13 +1,9 @@
-/**
- * Opens the frozen design reference and the product with one clock and matrix
- * contract for the browser checks that still need paired pages.
- */
+/** Shared setup for Build home browser behavior and rendering checks. */
 import { test } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { openVisualRoute } from './visual.mjs'
 import { dashboardCredentials } from '../tests/support/layout-worker.mjs'
-import { DESIGN_ROOT, DESIGN_ORIGIN, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage } from './design-parity-environment.mjs'
+import { FIXTURE_META, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage } from './design-parity-environment.mjs'
 export { FIXTURE_META }
 
 // CI run 37775013284: identical logo renders differ by up to 8/255 per channel.
@@ -23,16 +19,15 @@ export function parityContextOptions(cell) {
   return { viewport, deviceScaleFactor, isMobile, hasTouch, timezoneId: FIXTURE_META.tz, locale: 'en-US', colorScheme: cell.theme, reducedMotion: cell.reducedMotion ?? 'no-preference', serviceWorkers: 'block' }
 }
 
-function routeQuery(route, { query = '', ticket }, dataset) {
-  const url = new URL(route, DESIGN_ORIGIN)
+function routeQuery(route, { query = '', ticket }) {
+  const url = new URL(route, 'http://fixture.invalid')
   for (const [key, value] of new URLSearchParams(query.replace(/^\?/, ''))) url.searchParams.set(key, value)
-  if (dataset) url.searchParams.set('example', dataset)
   if (ticket) url.searchParams.set('ticket', ticket)
   return `${url.pathname}${url.search}`
 }
 
-async function prepare(page, phase, side, motion = false, pauseAtSelector) {
-  if (motion || (phase === 'loading' && side === 'design')) {
+async function prepare(page, phase, motion = false, pauseAtSelector) {
+  if (motion) {
     await page.clock.install({ time: FIXTURE_META.now - 1000 })
     await page.clock.pauseAt(FIXTURE_META.now)
   }
@@ -53,40 +48,6 @@ async function prepare(page, phase, side, motion = false, pauseAtSelector) {
   }, pauseAtSelector)
 }
 
-async function refuseLiveTicket(dataset, ticket) {
-  if (!ticket || dataset === 'offline') return
-  const fixture = JSON.parse(await readFile(new URL(`../../test/fixtures/build_home/${dataset}.json`, import.meta.url), 'utf8'))
-  if (fixture.sections.now.some(t => `AIUR-${t.num}` === ticket && t.agent?.state === 'active')) throw new Error(`ticket ${ticket} runs the design's mock live stream`)
-}
-
-export async function openDesign(page, cell, opts = {}) {
-  await page.bringToFront()
-  const { dataset = cell.dataset ?? 'live', phase = 'board' } = opts
-  if (!FIXTURE_META.datasets.includes(dataset)) throw new Error(`unknown design dataset ${dataset}`)
-  if (!['board', 'loading', 'shell'].includes(phase)) throw new Error(`unknown parity phase ${phase}`)
-  await verifyDesignSource()
-  const route = routeQuery('/Aiur%20Dashboard.html', opts, dataset)
-  await refuseLiveTicket(dataset, new URL(route, DESIGN_ORIGIN).searchParams.get('ticket'))
-  await prepare(page, phase, 'design', opts.motion, opts.pauseAtSelector)
-  await routeDesign(page)
-  await page.goto(`${DESIGN_ORIGIN}/blank`)
-  await page.evaluate(({ theme, palette }) => {
-    localStorage.setItem('aiur-theme', theme)
-    localStorage.setItem('aiur-palette', palette)
-    localStorage.setItem('aiur-nav-collapsed', '0')
-  }, cell)
-  await page.goto(`${DESIGN_ORIGIN}${route}`)
-  if (!await page.locator('.panel[data-panel="build"].is-active').count()) await page.evaluate(() => window.AiurHost.switchTab('build'))
-  await waitParityReady(page, phase, 'design', opts.motion, opts.pauseAtSelector)
-  if (opts.motion) {
-    const phase = await page.evaluate(() => performance.now() % 16)
-    if (phase) await page.clock.runFor(16 - phase)
-    await page.clock.setSystemTime(FIXTURE_META.now)
-  }
-  await assertCellState(page, cell)
-  return page
-}
-
 // This is the sole owner of C3-T01's dataset-switch URL.
 export function productUrl(dataset) { return `/build-fixture/${encodeURIComponent(dataset)}` }
 export async function selectProductDataset(page, dataset) {
@@ -98,17 +59,17 @@ export async function selectProductDataset(page, dataset) {
 export async function openProduct(page, cell, opts = {}) {
   const { dataset = cell.dataset ?? 'live', phase = 'board', productRoute = '/' } = opts
   if (!['board', 'loading', 'shell'].includes(phase)) throw new Error(`unknown parity phase ${phase}`)
-  await prepare(page, phase, 'product', opts.motion, opts.pauseAtSelector)
+  await prepare(page, phase, opts.motion, opts.pauseAtSelector)
   const origin = new URL(test.info().project.use.baseURL).origin
   await guardNetwork(page, [origin])
   await selectProductDataset(page, phase === 'loading' ? 'hold' : dataset)
-  const route = new URL(routeQuery(productRoute, opts), DESIGN_ORIGIN)
-  const designTicket = route.searchParams.get('ticket')
-  if (designTicket) route.searchParams.set('ticket', FIXTURE_META.ids?.[designTicket] ?? designTicket)
+  const route = new URL(routeQuery(productRoute, opts), 'http://fixture.invalid')
+  const ticket = route.searchParams.get('ticket')
+  if (ticket) route.searchParams.set('ticket', FIXTURE_META.ids?.[ticket] ?? ticket)
   try { await openVisualRoute(page, { theme: cell.theme, palette: cell.palette, route: `${route.pathname}${route.search}`, mode: 'writable' }) }
   catch (error) { checkPage(page); throw new Error(`product target unavailable: socket not connected or route unavailable: ${error.message}`) }
   if (opts.productPending || (opts.productAnchor && !await page.locator(opts.productAnchor).count())) { checkPage(page); return page }
-  await waitParityReady(page, phase, 'product', opts.motion, opts.pauseAtSelector)
+  await waitParityReady(page, phase, opts.motion)
   if (opts.motion) {
     const phase = await page.evaluate(() => performance.now() % 16)
     if (phase) await page.clock.runFor(16 - phase)
@@ -116,25 +77,6 @@ export async function openProduct(page, cell, opts = {}) {
   }
   await assertCellState(page, cell)
   return page
-}
-
-export async function openParityPair(browser, cell, opts = {}) {
-  const options = parityContextOptions(cell)
-  const designContext = await browser.newContext(options)
-  const productContext = await browser.newContext({ ...options, baseURL: test.info().project.use.baseURL })
-  const pair = { design: await designContext.newPage(), product: await productContext.newPage(), cell: { ...cell, dataset: opts.dataset ?? cell.dataset ?? 'live' },
-    close: async () => { await designContext.close(); await productContext.close() } }
-  try {
-    await openDesign(pair.design, pair.cell, opts)
-    await openProduct(pair.product, pair.cell, opts)
-    return pair
-  } catch (error) {
-    // Retain honest evidence even when the product route is not yet implemented.
-    try { await capturePairEvidence(pair) }
-    catch (evidenceError) { throw new AggregateError([error, evidenceError], error.message) }
-    finally { await pair.close() }
-    throw error
-  }
 }
 
 export async function captureStable(target, opts, page, viewportClip = false) {
@@ -172,10 +114,4 @@ export async function captureStable(target, opts, page, viewportClip = false) {
     await delay(100)
   }
   throw new Error('design did not settle after 10 captures')
-}
-
-export async function capturePairEvidence(pair) {
-  for (const side of ['design', 'product']) {
-    if (!pair[side].isClosed()) await pair[side].screenshot({ path: test.info().outputPath(`${side}.png`), animations: 'disabled', caret: 'hide', scale: 'device' })
-  }
 }
