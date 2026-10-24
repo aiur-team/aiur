@@ -19,7 +19,8 @@
     "src/lib/aiur/landing_watch/quarantine_lifter.ex",
     "src/lib/aiur/landing_watch/quarantine_pr.ex",
     "src/lib/aiur/landing_watch/workflow_timeouts.ex",
-    "src/lib/aiur/orchestrator/merge_attribution.ex"
+    "src/lib/aiur/orchestrator/merge_attribution.ex",
+    "src/lib/aiur/landing_watch/conflict_update.ex"
   ],
-  "reason": "#3777: merge tracker and quarantine jobs use the governed GitHub transport; #4569: failed-group evidence reads remain on that transport; #5594: revalidate and dequeue a stuck queue head"
+  "reason": "#3777: merge tracker and quarantine jobs use the governed GitHub transport; #4569: failed-group evidence reads remain on that transport; #5594: revalidate and dequeue a stuck queue head; #6088: re-arm auto-merge and fetch conflicting files after a daemon update-branch"
 }
