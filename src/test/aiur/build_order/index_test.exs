@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.IndexTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Epic, Index, Lifecycle, ProviderHealth}
+  alias Aiur.Heroicons
   alias AiurWeb.Build.Payload
 
   test "joins history facts, resolved membership, timing, edges and merged PR" do
@@ -82,14 +83,44 @@ defmodule Aiur.BuildOrder.IndexTest do
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, cx: 3, pts: 3}])
     feature = fn slug, date -> %{slug: slug, label: slug, hue: 42, epics: [%{key: "f-#{slug}", label: slug}], from: date, to: :none, baseline: :none} end
     p = put_in(p, [:features], {:ok, %{features: %{"aaa" => feature.("aaa", ~U[2026-10-01 00:00:00Z]), "zzz" => feature.("zzz", ~U[2026-09-01 00:00:00Z])}, owners: %{}, also: %{}, health: health()}})
+    p = Map.put(p, :pack_metadata, %{"workstreams" => [%{"id" => "aaa", "icon" => "home", "summary" => "Feature summary", "wave" => "0b"}]})
     assert {:ok, index} = assemble(p)
     assert index.order == ~w(bugs design infra docs f-zzz f-aaa unsorted)
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
-    for key <- ~w(bugs design infra docs), do: assert(Payload.scrub(index.epics[key]) == design["epics"][key])
-    assert index.epics["f-aaa"] == %{key: "f-aaa", label: "aaa", hue: 42, icon: "layers", feature: "aaa", temp: true}
+    for key <- ~w(bugs design infra docs) do
+      assert Payload.scrub(Map.delete(index.epics[key], :svg)) == design["epics"][key]
+      assert index.epics[key].svg =~ "<svg"
+    end
+
+    assert index.epics["f-aaa"] == %{
+             key: "f-aaa",
+             label: "aaa",
+             hue: 42,
+             icon: "home",
+             svg: Heroicons.svg("home"),
+             summary: "Feature summary",
+             wave: "0b",
+             feature: "aaa",
+             temp: true
+           }
+
+    assert index.features["aaa"].icon == "home"
+    assert index.features["aaa"].summary == "Feature summary"
+    assert index.features["aaa"].wave == "0b"
     assert index.counts == Map.new(index.order, &{&1, if(&1 == "unsorted", do: 4, else: 0)})
     assert index.all["4"].cx == 3 and index.all["4"].pts == 3
+  end
+
+  test "feature without a pack icon uses the generic Heroicon" do
+    p = parts([row(70)])
+    feature = %{slug: "plain", label: "Plain", hue: 42, epics: [%{key: "f-plain", label: "Plain"}], from: now(), to: :none, baseline: :none}
+    p = put_in(p, [:features], {:ok, %{features: %{"plain" => feature}, owners: %{}, also: %{}, health: health()}})
+
+    assert {:ok, index} = assemble(p)
+    assert index.features["plain"].icon == Heroicons.generic_name()
+    assert index.features["plain"].svg == Heroicons.svg(Heroicons.generic_name())
+    assert index.epics["f-plain"].icon == Heroicons.generic_name()
   end
 
   test "feature progress counts indexed rows and planned members by local epic" do

@@ -5,12 +5,22 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
 
   alias Aiur.BuildOrder.PackPaths
   alias Aiur.GitHub.Config
+  alias Aiur.Heroicons
   alias Aiur.TrackerIdentity
 
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
   @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
   @pack_source_precedence_description "workspace > state > environment > configured > explicit"
+
+  @doc false
+  @spec feature_metadata() :: map()
+  def feature_metadata do
+    case load_packs() do
+      [pack | _] -> pack.metadata
+      [] -> %{"workstreams" => []}
+    end
+  end
 
   @doc false
   @spec load_packs(keyword()) :: [map()]
@@ -28,6 +38,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
     |> Enum.sort(&pack_before?/2)
     |> assign_default_root_numbers()
     |> assign_default_icons()
+    |> Enum.map(&sanitize_workstream_icons/1)
   end
 
   # A single explicit pack is a test/demo override. Every normal catalog source,
@@ -122,7 +133,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
           completed: declared_completed? or status_completed?(status),
           completed_at: status_completed_at(status),
           status: status,
-          metadata: Map.take(json, ["workstreams", "phases", "external_gates"]),
+          metadata: Map.take(json, ["workstreams", "phases", "external_gates", "label_projection"]),
           materialized?: Enum.any?(tickets, &is_integer(&1.number)),
           tickets: tickets
         }
@@ -370,6 +381,58 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
   defp ticket_number(%{"ticket" => nil}), do: {:ok, nil}
   defp ticket_number(%{"github" => %{"number" => ticket}}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
   defp ticket_number(_attributes), do: :error
+
+  defp sanitize_workstream_icons(pack) do
+    workstreams = Map.get(pack.metadata, "workstreams", [])
+    projection = Map.get(pack.metadata, "label_projection", %{})
+
+    general =
+      case Aiur.Config.settings() do
+        {:ok, settings} -> settings.build_order.general_epics
+        _ -> []
+      end
+
+    {workstreams, collisions} =
+      Enum.map_reduce(List.wrap(workstreams), [], fn
+        %{"id" => id, "icon" => icon} = workstream, found when is_binary(id) and is_binary(icon) ->
+          collision =
+            Enum.find(general, fn epic ->
+              collides_on_member?(epic, id, icon, pack, projection)
+            end)
+
+          if collision, do: {Map.put(workstream, "icon", Heroicons.generic_name()), [{id, collision.key} | found]}, else: {workstream, found}
+
+        workstream, found ->
+          {workstream, found}
+      end)
+
+    Enum.each(Enum.uniq_by(collisions, &elem(&1, 0)), fn {id, epic} ->
+      Logger.warning("planning feature #{id} icon collides with matching general epic #{epic}; using generic icon")
+    end)
+
+    %{pack | metadata: Map.put(pack.metadata, "workstreams", workstreams)}
+  end
+
+  defp collides_on_member?(epic, id, icon, pack, projection) do
+    same_icon? = Heroicons.canonical_name(epic.icon) == Heroicons.canonical_name(icon)
+
+    same_icon? and
+      Enum.any?(pack.tickets, fn ticket ->
+        ticket.lane == id and not MapSet.disjoint?(MapSet.new(epic.labels), projected_labels(ticket, id, projection))
+      end)
+  end
+
+  defp projected_labels(ticket, workstream_id, projection) do
+    workstreams = Map.get(projection, "workstreams", %{})
+    phases = Map.get(projection, "phases", %{})
+    complexities = Map.get(projection, "complexities", %{})
+    required = Map.get(projection, "required_ticket_labels", [])
+    lane = if is_map(workstreams), do: Map.get(workstreams, workstream_id), else: nil
+    phase = if is_map(phases), do: Map.get(phases, to_string(ticket.phase)), else: nil
+    complexity = if is_map(complexities), do: Map.get(complexities, to_string(ticket.complexity)), else: nil
+    labels = List.wrap(required) ++ [Map.get(projection, "build_order"), lane, phase, complexity]
+    labels |> Enum.filter(&is_binary/1) |> Enum.map(&String.downcase/1) |> MapSet.new()
+  end
 
   @default_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
 

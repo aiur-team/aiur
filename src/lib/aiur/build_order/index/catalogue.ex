@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
   @moduledoc false
   alias Aiur.BuildOrder.{Epic, FeatureStats, SourceFreshness}
   alias Aiur.BuildOrder.Index.Rows
+  alias Aiur.Heroicons
   @statuses Map.new(~w(done failed not_planned closed running queued open)a, &{Atom.to_string(&1), &1})
 
   @spec general(map()) :: {:ok, list()} | {:error, :epic_config_unavailable | :settings_loading}
@@ -23,26 +24,70 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
     facts = Map.new(rows, fn {_id, row} -> {row.num, fact(parts, row)} end) |> include_undated(parts)
     stats = if registry == :unknown, do: %{}, else: FeatureStats.compute_all(registry, facts, now: now)
 
-    features =
-      Map.new(sorted, fn {slug, f} ->
-        {slug,
-         %{
-           key: slug,
-           label: f.label,
-           hue: f.hue,
-           epics: Enum.map(f.epics, & &1.key),
-           from: SourceFreshness.ms(f.from),
-           to: SourceFreshness.ms(f.to),
-           oldest: oldest(slug, registry, rows),
-           stats: FeatureStats.to_json(stats[slug])
-         }}
-      end)
-
-    epics = Map.new(general, fn e -> {e.key, e |> Map.take([:key, :label, :hue, :icon]) |> Map.put(:general, true)} end)
-    feature_epics = for {slug, f} <- sorted, e <- f.epics, into: %{}, do: {e.key, %{key: e.key, label: e.label, hue: f.hue, icon: "layers", feature: slug, temp: true}}
+    feature_metadata = feature_metadata(parts)
+    feature_rows = feature_rows(sorted, feature_metadata, stats, fn slug -> oldest(slug, registry, rows) end)
+    epics = general_epics(general)
+    feature_epics = feature_epics(sorted, feature_metadata)
     order = Enum.map(general, & &1.key) ++ Enum.flat_map(sorted, fn {_, f} -> Enum.map(f.epics, & &1.key) end) ++ ["unsorted"]
-    %{features: features, epics: epics |> Map.merge(feature_epics) |> Map.put("unsorted", Epic.unsorted()), order: order}
+    %{features: feature_rows, epics: epics |> Map.merge(feature_epics) |> Map.put("unsorted", Epic.unsorted()), order: order}
   end
+
+  defp feature_rows(sorted, metadata_by_id, stats, oldest_for) do
+    Map.new(sorted, fn {slug, feature} ->
+      metadata = Map.get(metadata_by_id, slug, %{})
+
+      {slug,
+       %{
+         key: slug,
+         label: feature.label,
+         hue: feature.hue,
+         icon: Map.get(metadata, "icon") || Heroicons.generic_name(),
+         svg: Heroicons.svg(metadata["icon"]),
+         summary: metadata["summary"],
+         wave: wave_label(metadata["wave"]),
+         epics: Enum.map(feature.epics, & &1.key),
+         from: SourceFreshness.ms(feature.from),
+         to: SourceFreshness.ms(feature.to),
+         oldest: oldest_for.(slug),
+         stats: FeatureStats.to_json(stats[slug])
+       }}
+    end)
+  end
+
+  defp general_epics(general) do
+    Map.new(general, fn epic ->
+      {epic.key, epic |> Map.take([:key, :label, :hue, :icon]) |> Map.put(:svg, Heroicons.svg(epic.icon)) |> Map.put(:general, true)}
+    end)
+  end
+
+  defp feature_epics(sorted, metadata_by_id) do
+    for {slug, feature} <- sorted, epic <- feature.epics, into: %{}, do: {epic.key, feature_epic(slug, feature, epic, metadata_by_id)}
+  end
+
+  defp feature_epic(slug, feature, epic, metadata_by_id) do
+    metadata = Map.get(metadata_by_id, slug, %{})
+
+    %{
+      key: epic.key,
+      label: epic.label,
+      hue: feature.hue,
+      icon: Map.get(metadata, "icon") || Heroicons.generic_name(),
+      svg: Heroicons.svg(Map.get(metadata, "icon")),
+      summary: Map.get(metadata, "summary"),
+      wave: wave_label(Map.get(metadata, "wave")),
+      feature: slug,
+      temp: true
+    }
+  end
+
+  defp feature_metadata(%{pack_metadata: %{"workstreams" => workstreams}}) when is_list(workstreams),
+    do: Map.new(workstreams, fn workstream -> {workstream["id"], workstream} end)
+
+  defp feature_metadata(_parts), do: %{}
+
+  defp wave_label(value) when is_integer(value) and value >= 0, do: Integer.to_string(value)
+  defp wave_label(value) when is_binary(value), do: value
+  defp wave_label(_value), do: nil
 
   defp oldest(slug, registry, rows) do
     rows

@@ -62,19 +62,23 @@ defmodule AiurWeb.Build.PayloadSchema do
       "capacity" => object(%{"max" => nullable(:positive), "observed_at" => nullable(:integer), "stale" => nullable(:boolean)}),
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
-      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted))},
+      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted svg summary wave))},
       "features" =>
         {:dictionary,
          object(%{
            "key" => :string,
            "label" => :string,
            "hue" => :number,
+           "icon" => :string,
+           "svg" => nullable(:string),
+           "summary" => nullable(:string),
+           "wave" => nullable(:string),
            "epics" => list(:string),
            "from" => nullable(:integer),
            "to" => nullable(:integer),
            "oldest" => nullable(:integer),
            "stats" => nullable(object(feature_stats()))
-         })},
+         }, ["icon", "svg", "summary", "wave"])},
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
       "feature_progress" =>

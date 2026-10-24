@@ -27,6 +27,32 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
     assert log =~ "invalid_display_identifier"
   end
 
+  test "workstream metadata survives loading and colliding icons fall back once" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    workstream = %{"id" => "core", "title" => "Core", "icon" => "bug-ant", "summary" => "A concise feature", "wave" => "0b"}
+
+    data =
+      @pack
+      |> Jason.decode!()
+      |> Map.put("repository", Config.repo())
+      |> Map.put("workstreams", [workstream])
+      |> Map.put("label_projection", %{"workstreams" => %{"core" => "bug"}, "required_ticket_labels" => []})
+
+    File.write!(path, Jason.encode!(data))
+
+    log =
+      capture_log(fn ->
+        [root] = PlanningSource.catalog().data.entries
+        {:ok, selected} = PlanningSource.demand(root.identity)
+        feature = hd(selected.data.pack_metadata["workstreams"])
+        assert feature["summary"] == "A concise feature"
+        assert feature["wave"] == "0b"
+        assert feature["icon"] == "squares-2x2"
+      end)
+
+    assert log =~ "feature core icon collides"
+  end
+
   test "duplicate member identifiers reject the pack with a specific cause" do
     path = Application.fetch_env!(:aiur, :build_order_planning_pack)
     pack = Jason.decode!(@pack)
