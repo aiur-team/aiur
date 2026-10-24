@@ -136,6 +136,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
+       aiur message --status <request-id>          inspect a queued message
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings

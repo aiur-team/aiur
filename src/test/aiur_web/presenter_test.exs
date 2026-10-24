@@ -113,6 +113,8 @@ defmodule AiurWeb.PresenterTest do
 
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
+    assert payload.contract == "aiur.status"
+    assert payload.contract_version == 1
     assert payload.counts == %{running: 1, retrying: 1, idle: 1}
     assert payload.agent_totals == %{seconds_running: 73}
 
@@ -158,6 +160,8 @@ defmodule AiurWeb.PresenterTest do
            }
 
     assert {:ok, issue_payload} = Presenter.issue_payload("MT-700", orchestrator_name, 5_000)
+    assert issue_payload.contract == "aiur.ticket"
+    assert issue_payload.contract_version == 1
     refute Map.has_key?(issue_payload.running, :tokens)
     assert issue_payload.running.waiting_reason == :waiting_for_ci
     assert issue_payload.running.live_conversation.generation_handle == conversation_handle
