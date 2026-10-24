@@ -54,9 +54,8 @@ defmodule Aiur.Orchestrator.ClosedTicketTranscriptArchive do
       destination = archive_path(root, safe_identifier, opts)
 
       with :ok <- File.mkdir_p(destination),
-           :ok <- copy_transcripts(logs, destination, max_file_bytes),
-           :ok <- prune_archives(root, retention_limit) do
-        :ok
+           :ok <- copy_transcripts(logs, destination, max_file_bytes) do
+        prune_archives(root, retention_limit)
       end
     else
       false -> :ok
