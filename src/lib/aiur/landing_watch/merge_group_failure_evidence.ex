@@ -9,6 +9,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   @spec test_paths(binary()) :: [String.t()]
   def test_paths(log) when is_binary(log) do
+    log = strip_actions_timestamps(log)
+
     exunit_paths =
       Regex.scan(
         ~r/^\s*\d+\)\s+test .+\([^)]+\)\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
@@ -25,6 +27,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   @spec test_identities(binary()) :: [String.t()]
   def test_identities(log) when is_binary(log) do
+    log = strip_actions_timestamps(log)
+
     exunit_identities =
       Regex.scan(
         ~r/^\s*\d+\)\s+(test .+\([^)]+\))\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
@@ -59,6 +63,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
     Enum.uniq(annotations ++ playwright)
   end
+
+  defp strip_actions_timestamps(log), do: Regex.replace(~r/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /m, log, "")
 
   defp normalize_browser_path("browser/tests/" <> _ = path), do: "src/" <> path
   defp normalize_browser_path(path), do: path

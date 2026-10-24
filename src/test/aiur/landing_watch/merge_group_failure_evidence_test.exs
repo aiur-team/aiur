@@ -87,6 +87,22 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidenceTest do
            ] = MergeGroupFailureEvidence.test_identities(log)
   end
 
+  test "timestamped Actions lines retain raw browser and ExUnit failure identities" do
+    log = """
+    2026-10-24T18:20:20.5688806Z   1) tests/build-home-list-parity.browser.spec.mjs:30:27 › list parity
+    2026-10-24T18:20:20.5688810Z   1) test exhausts process capacity (Aiur.ProcessExhaustionTest)
+    2026-10-24T18:20:20.5688811Z      src/test/aiur/process_exhaustion_test.exs:42
+    """
+
+    assert ["src/test/aiur/process_exhaustion_test.exs", "src/browser/tests/build-home-list-parity.browser.spec.mjs"] =
+             MergeGroupFailureEvidence.test_paths(log)
+
+    assert [
+             "test exhausts process capacity (Aiur.ProcessExhaustionTest) :: src/test/aiur/process_exhaustion_test.exs",
+             "BrowserSpec :: src/browser/tests/build-home-list-parity.browser.spec.mjs"
+           ] = MergeGroupFailureEvidence.test_identities(log)
+  end
+
   test "known flaky module signatures match ExUnit's rendered failure header" do
     root = Aiur.TestSupport.tmp_root!("merge-group-known-flake")
     path = Path.join(root, ".github/known-flaky-tests.txt")
