@@ -63,6 +63,14 @@ export async function freezeGanttComposition(pair) {
   })
   await Promise.all([pair.design, pair.product].map(async page => {
     await page.clock.setSystemTime(FIXTURE_META.now)
+    // Keep live-card halos at one fixed phase for deterministic snapshots;
+    // motion continuity is covered by the dedicated halo browser spec.
+    await page.evaluate(() => document.querySelectorAll('.bd-glow').forEach(el => {
+      for (const animation of el.getAnimations()) if (animation.animationName === 'bdRot') {
+        animation.pause()
+        animation.currentTime = 0
+      }
+    }))
     await installScrollPaint(page)
   }))
 }
