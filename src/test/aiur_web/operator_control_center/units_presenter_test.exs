@@ -1,6 +1,8 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{State, StatusReport}
   alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsURL}
 
@@ -75,8 +77,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     refute_received :activity_read
   end
 
-  test "Units rows preserve internal attempt and context measurements from status snapshots" do
+  test "Units rows preserve internal attempt, context, and usage reset measurements" do
     identity = identity("NODE-usage", "41")
+    issue = %Issue{id: "NODE-usage", identifier: "41", state: "in-progress", tracker_identity: identity}
+
+    # Build the internal row with the orchestrator snapshot builder, so a key it drops never reaches the presenter.
+    entry = %{
+      identifier: "41",
+      issue: issue,
+      paused_reason: :usage_limit_exhausted,
+      control: %{status: :paused},
+      usage_limit_reset_at: "2026-07-17T13:00:00Z",
+      telemetry_attempt_id: "attempt-current",
+      turn_count: 3,
+      context_usage: %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0, session_id: "private-session"}
+    }
+
+    [internal_row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(%State{running: %{issue.id => entry}})).running
 
     catalog =
       UnitsPresenter.load(
@@ -84,21 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
           generated_at: "2026-07-17T12:00:00Z",
           provider_health: %{fleet: :ok, decisions: :ok},
           units_status_snapshot: %{
-            running: [
-              %{
-                tracker_identity: identity,
-                bucket: :running,
-                telemetry_attempt_id: "attempt-current",
-                turn_count: 3,
-                turn_count_observed?: true,
-                context_usage: %{
-                  used_tokens: 1200,
-                  window_tokens: 4000,
-                  used_percent: 30.0,
-                  session_id: "private-session"
-                }
-              }
-            ],
+            running: [internal_row],
             retrying: [],
             idle: [],
             snapshot_freshness: %{status: :current, observed_at: "2026-07-17T12:00:00Z", age_seconds: 0}
@@ -112,6 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
     assert [row] = catalog.snapshot.rows
     assert row.telemetry_attempt_id == "attempt-current"
+    assert row.runtime.usage_limit_reset_at == "2026-07-17T13:00:00Z"
     assert row.context_usage == %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0}
     refute Map.has_key?(row.context_usage, :session_id)
     assert row.turn_count == 3

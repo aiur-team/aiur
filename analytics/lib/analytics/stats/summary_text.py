@@ -24,6 +24,9 @@ def summarize(result, metric, groups):
     text = f'{metric.get("label", metric["id"])}: n {a["n"]} vs {b["n"]}'
     if metric["kind"] == "rate":
         text += f', rates {fmt(a["rate"])} to {fmt(b["rate"])}'
+    elif "survival" in result:
+        km = [result["survival"]["groups"][g] for g in groups]
+        text += f', Kaplan-Meier median {measurement(km[0]["median"], metric)} to {measurement(km[1]["median"], metric)}'
     else:
         text += f', median {measurement(a.get("median"), metric)} to {measurement(b.get("median"), metric)}'
     if result["status"] != "insufficient_data" and result.get("primary_effect"):
@@ -35,6 +38,10 @@ def summarize(result, metric, groups):
         text += f', effect unavailable, p {fmt(result["p_raw"])} ({result["adjustment"]} {fmt(result["p_adj"])})'
     if "composition_shift" in result["flags"]:
         text += ', stratum mix changed; ' + ('standardized effect shown' if result.get("primary_effect") else 'standardized effect unavailable')
+    if "median_not_reached" in result["flags"] and "survival" in result:
+        open_rows = sum(g["n_censored"] for g in result["groups"].values())
+        total = sum(g["n"] for g in result["survival"]["groups"].values())
+        text += f'; median not yet reached ({fmt(open_rows / total * 100)}% still open)'
     text += f'; {result["status"]}, {result["direction"]}'
     text += f'; {sum(result["excluded_counts"].values())} units excluded'
     text += '; flags: ' + (', '.join(result["flags"]) or 'none')

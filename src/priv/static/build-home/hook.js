@@ -5,6 +5,7 @@ import { decide } from './protocol.js';
 import { acceptSnapshot, applyDiff } from './store.js';
 import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
+import { markFirstBoard } from './perf.js';
 import './clock.js';
 import './render.js';
 import './columns.js';
@@ -19,8 +20,11 @@ import './trees.js';
 import './band.js';
 import './states.js';
 import './list.js';
-import './modal/frame.js';
+import { controlMessage } from './modal/frame.js';
 import './modal/conversation.js';
+import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
+import './modal/composer.js';
+import './modal/command.js';
 
 export function writeOwnData() {
   if (ctx.bdTrees != null) ctx.root.dataset.bdTrees = ctx.bdTrees;
@@ -36,7 +40,7 @@ function showServerState(ds) {
 }
 function firstPaint() {
   ctx.inited = true; S.loading = false;
-  renderChrome(); fx.viewport(); fx.relayout(); fx.jumpNow(true); S.ready = true;
+  renderChrome(); fx.viewport(); fx.relayout(); markFirstBoard(); fx.jumpNow(true); S.ready = true;
   ctx.life.frame('ticket', () => fx.openFromURL());
 }
 function repaint() { renderChrome(); fx.relayout(); fx.update(); }
@@ -62,7 +66,10 @@ export function receive(msg) {
         return;
       }
       fx.tickCardAges();
-      if (msg.kind === 'snapshot') { if (first) firstPaint(); else repaint(); }
+      if (msg.kind === 'snapshot') {
+        if (first) firstPaint();
+        else { repaint(); fx.modalSync({ upsert: ctx.D.all }); }
+      }
       else { fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); }
       writeOwnData();
       break;
@@ -102,7 +109,11 @@ export function createBuildHomeHook() {
       fx.wireTrees();
       fx.renderTools(); fx.initModal();
       writeOwnData();
+      this.handleEvent('build-ticket-control', controlMessage);
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));
+      this.handleEvent('build-ticket-doc', applyDoc); this.handleEvent('build-queue-add', applyQueueAdd);
+      this.handleEvent('send-status', msg => fx.sendStatus(msg));
+      this.handleEvent('modal:command', msg => fx.renderCommand(msg));
       this.handleEvent('build-diff', receive); this.handleEvent('build:url', onServerURL);
       showServerState(this.el.dataset); resync();
     },
@@ -113,7 +124,7 @@ export function createBuildHomeHook() {
     },
     reconnected() {
       if (!this.buildActive) return;
-      ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline(); fx.reconnectConversation();
+      ctx.socket = 'up'; writeOwnData(); resync(); flushURL(); fx.renderOffline(); fx.reconnectConversation(); reconnectDoc();
     },
     destroyed() {
       this.buildLife?.dispose();

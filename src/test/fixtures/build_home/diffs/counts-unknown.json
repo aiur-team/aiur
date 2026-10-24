@@ -39,6 +39,11 @@
         "observed_at": 1791408000000,
         "reason": null,
         "truncated": false
+      },
+      "estimates": {
+        "state": "ok",
+        "observed_at": 1791408000000,
+        "reason": null
       }
     }
   }

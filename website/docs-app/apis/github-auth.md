@@ -31,7 +31,7 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 | Issues | Read and write |
 | Pull requests | Read and write |
 | Checks | Read (CI failure annotations) |
-| Actions | Read for main-watch workflow attribution; write for canary and automatic failed-job reruns. |
+| Actions | Read for main-watch attribution and queued-run census; write for canary and automatic failed-job reruns. |
 | Administration, Secrets, Workflows | Never |
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
@@ -180,3 +180,7 @@ The path scope and webhook signature are independent locks:
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
+
+The dashboard Host allowlist exempts only `POST /api/v1/github/webhook`; the receiver verifies GitHub's HMAC signature before accepting a delivery. Other paths remain restricted to `server.public_url`, loopback, and additional `server.allowed_hosts`.
+
+The Cloudflare tunnel may preserve `Host: hooks.aiur.dev` without adding its public hostname to the dashboard allowlist.

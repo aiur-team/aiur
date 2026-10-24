@@ -198,6 +198,10 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   end
 
   defp claim_release_reason({:github, :rate_limited, details}) when is_map(details), do: {:rate_limit_exhausted, details}
+
+  defp claim_release_reason({:workspace_hook_timeout, "before_run", timeout_ms}) when is_integer(timeout_ms),
+    do: {:workspace_hook_timeout, %{hook: "before_run", timeout_ms: timeout_ms}}
+
   defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
 
   @doc false

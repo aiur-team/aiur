@@ -53,7 +53,7 @@ test('card open, header identity, notices, focus trap and all close paths', asyn
     await page.locator('#bm-title').focus(); await page.keyboard.press('Shift+Tab')
     await expect(page.locator('#tk-modal a[href]:visible, #tk-modal button:not([disabled]):visible').last()).toBeFocused()
     await page.keyboard.press('Tab')
-    await expect(page.locator('#tk-head a').first()).toBeFocused()
+    await expect(page.locator('#tk-head [data-a="pause"]')).toBeFocused()
     if (close === 'button') await page.locator('#bd-tk-close').click()
     if (close === 'escape') {
       expect(await page.evaluate(() => { const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }); document.dispatchEvent(e); return e.defaultPrevented })).toBe(true)
@@ -272,7 +272,7 @@ test('unknown header values, real links, PR absence, pack safety and hostile tex
   await expect(page.locator('[data-unknown="pts"]')).toHaveText('? pts')
   await expect(page.locator('.bm-agent .ax-mono')).toHaveText('A')
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(page.locator('.bm-agent .ax-mono')).toBeVisible()
+  await expect(page.locator('.bm-agent .ax-mono')).toBeHidden()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await expect(page.locator('.bm-agent')).not.toHaveAttribute('title', /null/)
   const hostile = { ...base, title: '<img src=x onerror="window.__xss=1">', epic: 'missing', feature: '<script>bad</script>', pr: { num: 233, state: 'merged' } }

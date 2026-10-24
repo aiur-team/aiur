@@ -5,17 +5,19 @@ defmodule AiurWeb.Build.DataSource do
   @callback snapshot(keyword()) :: {:ok, map()} | {:error, term()}
   @callback earlier(integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback ticket(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @callback ticket_doc_identity(String.t(), keyword()) :: {:ok, Aiur.TrackerIdentity.t()} | :no_identity | {:error, term()}
   @callback daemon(keyword()) :: map() | nil
-  @optional_callbacks daemon: 1
+  @callback unit_row(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @optional_callbacks daemon: 1, unit_row: 2, ticket_doc_identity: 2
 
   @spec source() :: module() | {module(), keyword()}
   def source, do: Application.get_env(:aiur, :build_data_source, AiurWeb.Build.IndexSource)
 
   @spec call(module() | {module(), keyword()}, atom(), [term()]) :: term()
   def call({module, opts}, function, args) when is_atom(module) and is_list(opts),
-    do: apply(module, function, merge_opts(args, opts))
+    do: dispatch(module, function, merge_opts(args, opts))
 
-  def call(module, function, args) when is_atom(module), do: apply(module, function, merge_opts(args, []))
+  def call(module, function, args) when is_atom(module), do: dispatch(module, function, merge_opts(args, []))
 
   @doc "The source's last observed daemon block, or nil when it keeps none."
   @spec last_daemon(module() | {module(), keyword()}, keyword()) :: map() | nil
@@ -34,6 +36,18 @@ defmodule AiurWeb.Build.DataSource do
 
   @spec ticket(String.t(), keyword()) :: {:error, :not_wired}
   def ticket(_id, _opts), do: {:error, :not_wired}
+
+  @spec unit_row(String.t(), keyword()) :: {:error, :not_wired}
+  def unit_row(_id, _opts), do: {:error, :not_wired}
+
+  @spec ticket_doc_identity(String.t(), keyword()) :: {:ok, Aiur.TrackerIdentity.t()} | :no_identity | {:error, term()}
+  defdelegate ticket_doc_identity(id, opts), to: AiurWeb.Build.TicketDoc, as: :live_identity
+
+  defp dispatch(module, :ticket_doc_identity, args) do
+    if function_exported?(module, :ticket_doc_identity, 2), do: apply(module, :ticket_doc_identity, args), else: :no_identity
+  end
+
+  defp dispatch(module, function, args), do: apply(module, function, args)
 
   defp merge_opts([], opts), do: [opts]
 

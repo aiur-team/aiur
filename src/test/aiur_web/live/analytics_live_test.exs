@@ -484,8 +484,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert render_click(view, "range", %{"range" => "full"}) =~ "Run analytics"
     LiveViewAsync.render_when_complete(view)
     assert render_click(view, "sort", %{"by" => "mem"}) =~ "Cost per ticket"
-    assert render_click(view, "select_none", %{}) =~ "Units"
-    assert render_click(view, "select_all", %{}) =~ "Units"
+    assert render_click(view, "select_none", %{}) =~ "Run analytics"
+    assert render_click(view, "select_all", %{}) =~ "Run analytics"
     assert render_click(view, "toggle_unit", %{"key" => "ticket:404"}) =~ "Run analytics"
   end
 

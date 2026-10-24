@@ -187,6 +187,20 @@ defmodule Aiur.OpenTicketSourceTest do
     assert_receive {:view_originated, false, %{method: :get}}, 2_000
   end
 
+  describe "ticket_labels/2" do
+    test "returns nil for a closed ticket absent from the open snapshot" do
+      server = start_source(request_fun: one_page([gh_issue(10, "Open", ["nuc:todo"])]))
+      assert OpenTicketSource.refresh_sync(server).status == :available
+
+      assert ["nuc:todo"] = OpenTicketSource.ticket_labels(10, server)
+      assert is_nil(OpenTicketSource.ticket_labels(11, server))
+    end
+
+    test "returns nil when the label snapshot is unavailable" do
+      assert is_nil(OpenTicketSource.ticket_labels(12, :missing_open_ticket_source))
+    end
+  end
+
   defp start_source(opts) do
     defaults = [
       name: nil,

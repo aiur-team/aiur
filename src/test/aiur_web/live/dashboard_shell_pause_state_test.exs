@@ -52,7 +52,7 @@ defmodule AiurWeb.DashboardShellPauseStateTest do
 
   test "every shell page renders the orchestrator's current global pause state" do
     for {paused, label} <- [{false, "Pause new starts"}, {true, "Resume new starts"}] do
-      for path <- ["/analytics", "/build-orders", "/build", "/streamdeck", "/post-deploy"] do
+      for path <- ["/analytics", "/build-orders", "/", "/build", "/units", "/streamdeck", "/post-deploy"] do
         assert {:ok, _} = GlobalPause.set_global_pause(paused)
         {:ok, view, html} = live(authorized_conn(), path)
 

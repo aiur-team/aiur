@@ -1,13 +1,14 @@
 defmodule Aiur.TestSupport.LifecycleLeakGuard do
   @moduledoc """
-  Suite guard against agent runners that outlive their test (#4733).
+  Suite guard against agent runners and tool executors that outlive their test.
 
   The lifecycle recorder is global app env, so a runner a finished test left
   alive writes its records into whichever test is running now. In the suite
   this module wraps the `:signal` lifecycle sink, the path runner writes take.
   It drops a write from a process whose `$callers` or `$ancestors` chain
   reaches a finished `Aiur.TestSupport` test (one whose teardown completed),
-  kills that process, and the next test teardown fails naming that test.
+  records the finding, and kills the process only in fail mode. Report mode
+  records findings without changing other tests' outcomes.
   """
 
   alias Aiur.RunTelemetry.Lifecycle
@@ -15,6 +16,8 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
   @tests __MODULE__.Tests
   @leaks __MODULE__.Leaks
   @owners __MODULE__.Owners
+  @mode_env "AIUR_LIFECYCLE_LEAK_GUARD_MODE"
+  @report_env "AIUR_LIFECYCLE_LEAK_REPORT"
 
   @doc "Creates the suite tables; call once from the long-lived test_helper process."
   def start! do
@@ -23,6 +26,9 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
     :ets.new(@owners, [:named_table, :public, :set])
     :ok
   end
+
+  @doc "Returns whether findings are fatal; defaults to report-only for staged rollout."
+  def mode, do: if(System.get_env(@mode_env) == "fail", do: :fail, else: :report)
 
   @doc "Registers the calling test process, makes sure the guard sink is installed, and returns the test pid."
   def track(%{module: module, test: test}) do
@@ -43,15 +49,25 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
 
   @doc "Teardown's last step: marks the test finished and reports leaks captured before cleanup."
   def finish!(test_pid, scope_violation, runner_leaks \\ nil) do
-    runner_leaks = runner_leaks || live_runners(test_pid)
+    runner_leaks = runner_leaks || live_owned_processes(test_pid)
     stop_runners(runner_leaks)
 
     finish(test_pid)
 
     cond do
       scope_violation -> raise(scope_violation)
-      runner_leaks != [] -> raise "test left dispatched agent runners alive: #{inspect(Enum.map(runner_leaks, fn {pid, test} -> {test, pid} end))}"
+      runner_leaks != [] -> report_or_fail!(Enum.map(runner_leaks, fn {pid, test} -> finding(test, "owned lifecycle process #{inspect(pid)} remained alive at teardown") end))
       true -> check!()
+    end
+  end
+
+  def fail_mode?, do: mode() == :fail
+
+  def install_late_log_handler! do
+    case :logger.add_handler(__MODULE__.LogHandler, __MODULE__.LogHandler, %{level: :warning}) do
+      :ok -> :ok
+      {:error, {:already_exist, _}} -> :ok
+      {:error, reason} -> raise "could not install lifecycle leak log handler: #{inspect(reason)}"
     end
   end
 
@@ -85,14 +101,17 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
         :ok
 
       leaks ->
-        lines = Enum.map_join(leaks, "\n", fn {:leak, test, writer, event} -> "  #{test}: #{inspect(writer)} wrote #{event}" end)
-        raise "a process from a finished test still writes lifecycle records; stop it in on_exit:\n" <> lines
+        findings = Enum.map(leaks, fn {:leak, test, writer, event} -> finding(test, "#{inspect(writer)} wrote lifecycle event #{event}") end)
+        report_or_fail!(findings)
     end
   end
 
   def record(ticket, attempt_id, event, boundary, metadata \\ %{}, opts \\ []) do
     if leaked?(event), do: :ok, else: Lifecycle.record(ticket, attempt_id, event, boundary, metadata, opts)
   end
+
+  def record!(ticket, attempt_id, event, boundary, metadata \\ %{}, opts \\ []),
+    do: record(ticket, attempt_id, event, boundary, metadata, opts)
 
   def observe_backend_message(ticket, attempt_id, backend, message, opts \\ []) do
     if leaked?("backend_message"), do: :ok, else: Lifecycle.observe_backend_message(ticket, attempt_id, backend, message, opts)
@@ -110,6 +129,63 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
   end
 
   @doc false
+  def report_late_log(pid, message) do
+    case owner(pid, []) do
+      test_pid when is_pid(test_pid) ->
+        case :ets.lookup(@tests, test_pid) do
+          [{^test_pid, test, true}] ->
+            report_finished_test_log(pid, test, message)
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp report_finished_test_log(pid, test, message) do
+    :ets.insert(@leaks, {:leak, test, {pid, dictionary_value(pid, :"$initial_call", nil)}, "late log: #{message}"})
+    maybe_kill_late_logger(pid)
+  end
+
+  defp maybe_kill_late_logger(pid) do
+    if fail_mode?(), do: Process.exit(pid, :kill)
+  end
+
+  def owner_for_log(pid) do
+    case owner(pid, []) do
+      test_pid when is_pid(test_pid) ->
+        case :ets.lookup(@tests, test_pid) do
+          [{^test_pid, test, true}] -> {:finished, test}
+          [{^test_pid, test, false}] -> {:active, test}
+          _ -> :unknown
+        end
+
+      _ ->
+        :unknown
+    end
+  end
+
+  defp finding(test, detail), do: "#{test}: #{detail}"
+
+  defp report_or_fail!(findings) do
+    report = Enum.join(findings, "\n")
+
+    case System.get_env(@report_env) do
+      path when is_binary(path) ->
+        File.mkdir_p!(Path.dirname(path))
+        File.write!(path, report <> "\n", [:append])
+
+      _ ->
+        IO.puts(:stderr, "Lifecycle leak guard findings:\n" <> report)
+    end
+
+    if mode() == :fail, do: raise("lifecycle leak guard failed:\n" <> report), else: :ok
+  end
+
+  @doc false
   def live_runners(test_pid) do
     Process.list()
     |> Enum.filter(fn pid ->
@@ -118,6 +194,13 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
     end)
     |> Enum.map(&{&1, test_name(test_pid)})
     |> Enum.filter(fn {runner, _test} -> Process.alive?(runner) end)
+  end
+
+  @doc false
+  def live_owned_processes(test_pid) do
+    Process.list()
+    |> Enum.filter(fn pid -> Process.alive?(pid) and owned_process?(pid) and runner_owner(pid, []) == test_pid end)
+    |> Enum.map(&{&1, test_name(test_pid)})
   end
 
   defp runner_owner(pid, seen) do
@@ -199,4 +282,45 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
 
   defp launch_runner?(pid),
     do: match?({Aiur.Orchestrator.Dispatcher.Launch, _, _}, dictionary_value(pid, :"$initial_call", nil))
+
+  defp owned_process?(pid), do: launch_runner?(pid) or executor_or_poller?(pid)
+
+  @doc false
+  def stop_owned_processes(processes), do: stop_runners(processes)
+
+  defp executor_or_poller?(pid) do
+    case dictionary_value(pid, :"$initial_call", nil) do
+      {module, _, _} when module in [Aiur.AgentRunner.ToolExecutor, Aiur.Events.GithubCIPoller, Aiur.Events.GithubCommentsPoller] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+end
+
+defmodule Aiur.TestSupport.LifecycleLeakGuard.LogHandler do
+  @moduledoc "Attributes late warning and error logs to the test-owned process that emitted them."
+  @behaviour :logger_handler
+
+  alias Aiur.TestSupport.LifecycleLeakGuard
+
+  def adding_handler(config), do: {:ok, config}
+  def changing_config(_set_or_update, _old, new), do: {:ok, new}
+  def removing_handler(_config), do: :ok
+
+  def log(%{level: level, msg: msg, meta: %{pid: pid}}, config) when level in [:warning, :error] do
+    case LifecycleLeakGuard.owner_for_log(pid) do
+      {:finished, _test_name} ->
+        LifecycleLeakGuard.report_late_log(pid, inspect(msg))
+        :ok
+
+      _ ->
+        :ok
+    end
+
+    config
+  end
+
+  def log(_event, config), do: config
 end

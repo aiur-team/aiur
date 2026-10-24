@@ -30,7 +30,11 @@ defmodule Aiur.LandingWatch.MergeGroups do
         MergeGroupQuarantine.process_completed(completed, fresh_observations, base, opts)
 
       routing_opts =
-        Keyword.put(opts, :quarantined_run_ids, MergeGroupQuarantine.quarantined_run_ids(opts))
+        opts
+        |> Keyword.put(:quarantined_run_ids, MergeGroupQuarantine.quarantined_run_ids(opts))
+        |> Keyword.put(:completed_merge_group_runs, completed)
+        |> Keyword.put(:all_observations, fresh_observations)
+        |> Keyword.put(:base_branch, base)
 
       with :ok <-
              MergeGroupFailureProcessor.process_completed(

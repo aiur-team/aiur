@@ -5,6 +5,7 @@ R-optional	Aiur.Accounts.Shims.Claude	baseline 22b2fa407c5d4218d25d63b1aa17472ae
 R-optional	Aiur.Accounts.Shims.Codex	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertLedger	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.BuildOrder.EstimateCLI	MP-E8-C7-T03 guarded CLI entry invokes the optional build-order estimate command, matching build-orders and epic controls
 R-optional	Aiur.BuildOrdersCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.BuildQueueCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.DaemonHeartbeatChecker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -30,6 +31,7 @@ R-optional	Aiur.Usage.PriceTable.Window	baseline 22b2fa407c5d4218d25d63b1aa17472
 R-optional	Aiur.UsageAggregate.Checkpoint	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageAggregate.Projection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.UsageEnvelope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.Api.Usage.TicketUsage	#5692 ticket-usage CLI prints the HTTP usage payload so both transports share one versioned wire shape
 R-optional	AiurWeb.OperatorControlCenter.Analytics.Charts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.Analytics.Presenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	AiurWeb.OperatorControlCenter.Analytics.ScopeResolver	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

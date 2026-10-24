@@ -1,13 +1,7 @@
-# Module, full ExUnit test name (describe prefix included, as failures print it), and tracking ticket. Tabs delimit fields.
-Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#4463
-Aiur.AgentRunner.ToolExecutor.PublicationFailuresTest	*	#5674
-Aiur.Core.AgentRunnerCheckpointQueueTest	*	#4463
-Aiur.GitHub.MonotonicDepositTest	*	#5605
-Aiur.LandingWatch.MainRecoveryRerunTest	*	#5605
-Aiur.LandingWatch.MergeGroupFailureRequeueTest	the fifth group requeue in fifteen minutes is not enqueued	#5633
-Aiur.MainWatch.FixerTest	*	#5605
-Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#4463
-Aiur.PerClassCadenceTest	*	#5605
-Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#4463
-AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620
-AiurWeb.ZeroFetchPageOpenTest	*	#5605
+# Module, full ExUnit test name (describe prefix included, as failures print it), owner fix ticket, and YYYY-MM-DD expiry. Tabs delimit four fields.
+Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#5511	2026-12-31
+Aiur.Core.AgentRunnerCheckpointQueueTest	*	#5516	2026-12-31
+Aiur.OpenAICompat.CommandRunnerBudgetTest	a direct system gh API path is intercepted by the workspace guard	#5669	2026-12-31
+Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#5519	2026-12-31
+Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
+AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31
