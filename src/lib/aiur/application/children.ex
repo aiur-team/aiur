@@ -45,10 +45,6 @@ defmodule Aiur.Application.Children do
         Application.get_env(:aiur, :ls_remote_ticker_enabled?, true)
       )
 
-    build_index? =
-      dashboard? and
-        Keyword.get(opts, :build_index?, Application.get_env(:aiur, :build_index?, true))
-
     primary_instance? =
       Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0) == "primary"
 
@@ -166,7 +162,9 @@ defmodule Aiur.Application.Children do
       Aiur.Voice.child_specs(),
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
-      {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
+      {Aiur.Events.IdGenerator,
+       floor_files: &Aiur.IdFloorSources.floor_files/0,
+       legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
@@ -222,7 +220,11 @@ defmodule Aiur.Application.Children do
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
-      {Aiur.StartTrigger.ProgressStore, seed: &Aiur.CIApprovalStore.load/0, reader: &BlockerProgress.approval/2, identity: &BlockerProgress.identity/1, repo: &Config.repo/0},
+      {Aiur.StartTrigger.ProgressStore,
+       seed: &Aiur.CIApprovalStore.load/0,
+       reader: &BlockerProgress.approval/2,
+       identity: &BlockerProgress.identity/1,
+       repo: &Config.repo/0},
       Aiur.Webhooks.DeliveryLog,
       Aiur.GitHub.CodeOwners,
       {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
@@ -247,11 +249,14 @@ defmodule Aiur.Application.Children do
       BuildOrders.child_specs(:history, opts),
       Aiur.TicketContext.child_specs(:late, opts),
       BuildOrders.child_specs(:late, opts),
-      {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
+      {Aiur.OpenTicketSource,
+       poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
       # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
       BuildOrders.child_specs(:view_state_sweep, opts),
       Aiur.GitHub.Listeners,
-      {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      {Aiur.Orchestrator,
+       name: Aiur.Orchestrator,
+       initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
@@ -312,14 +317,14 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
-        dashboard_final_children(dashboard?, build_index?, opts)
+        dashboard_final_children(dashboard?, opts)
     )
   end
 
-  defp dashboard_final_children(dashboard?, build_index?, opts) do
+  defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: AiurWeb.DashboardAuth.ChallengeStore)) ++
       BuildOrders.child_specs(:estimates, opts) ++
-      List.wrap(if(build_index?, do: {AiurWeb.Build.IndexSupervisor, idle_without_subscribers?: true}))
+      List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
 
   defp dashboard_cache_children(dashboard?) do
@@ -327,7 +332,8 @@ defmodule Aiur.Application.Children do
       if(dashboard?,
         do: [
           Aiur.RunTelemetry.RetainedCache,
-          {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
+          {AiurWeb.OperatorControlCenter.Analytics.Prewarmer,
+           prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
         ]
       )
     )
