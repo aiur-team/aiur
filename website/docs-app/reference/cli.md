@@ -10,6 +10,7 @@ Without local config, `aiur` and `aiurdev` use `~/.aiur/config`. Global launches
 | --- | --- |
 | Executor access | An agent can operate a run from a terminal without asking a human to type commands. |
 | Surface parity | The CLI targets feature parity with the [GUI](/guide/gui) and [TUI](/guide/tui). |
+
 Global launches require Issues write access; conflicting repos fail. Omit `tracker.github.repo` for portable settings; exported credentials override `.env`. Run the command from the repository that owns the run. An instance is keyed to that project, so control commands without `--instance` address that repository's daemon.
 
 ## What the CLI does
@@ -63,6 +64,7 @@ Launch mode determines which interfaces remain available:
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
 | Host precedence | `--host` wins over `server.host`, which wins over `AIUR_DEFAULT_DASHBOARD_HOST` or the `127.0.0.1` default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
+
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
 
 ## Inspect and operate a running daemon
@@ -426,9 +428,7 @@ An open **blocking** ask is also printed by plain `aiur status`; no extra flag i
 
 An agent attention is a visibility signal rather than a gate — the agent keeps running after it opens one — so attentions are listed by `aiur commands` but are not counted as blocking.
 
-Answering a Command also dismisses every other unanswered Command — open or deferred — asking the same question on the same ticket, so a question filed more than once clears in one answer. A blocking Command an agent is genuinely waiting on is never swept up this way, because dismissing it would deliver nothing to that agent.
-
-Dismissing a Command closes it and moves it to history. If the Command's agent is still live, it is told to use its judgement and proceed; an agent that is gone is not notified.
+Answering a Command dismisses duplicate unanswered Commands on the same ticket, including deferred ones. A blocking Command is not swept up, since the waiting agent needs its answer. Dismissing a Command closes it; a live agent is told to use its judgement, while a gone agent gets no notice.
 
 ## Operational facts that change an incident response
 
