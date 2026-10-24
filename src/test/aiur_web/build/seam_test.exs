@@ -46,7 +46,6 @@ defmodule AiurWeb.Build.SeamTest do
     # C8-T03 reads the existing nonblocking snapshot facade with cadence-aware tolerance.
     # Keep these reader dependencies confined to Freshness, not the rest of the web seam.
     freshness = Path.join(@root, "lib/aiur_web/build/freshness.ex")
-    now_rows = Path.join(@root, "lib/aiur_web/build/now_rows.ex")
     # MP-E8-C11-T03 confines workspace, snapshot and live-history reads to the
     # replaceable wave-0b adapter; controllers still use ConversationSource.
     conversation = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b.ex")
@@ -59,13 +58,12 @@ defmodule AiurWeb.Build.SeamTest do
     # only the document presenter subscribes to detail updates and renders Markdown.
     document = Path.join(@root, "lib/aiur_web/build/ticket_doc.ex")
     identity = Path.join(@root, "lib/aiur_web/build/ticket_doc_identity.ex")
-    assert offenders(files -- [freshness, now_rows, conversation, events, document, identity], &allowed?/1) == []
+    assert offenders(files -- [freshness, conversation, events, document, identity], &allowed?/1) == []
     assert offenders([document], &(allowed?(&1) or &1 in ~w(Aiur.PubSub AiurWeb.Markdown))) == []
     assert offenders([identity], &(allowed?(&1) or &1 == "Aiur.OpenTicketSource")) == []
     assert offenders([conversation], &(allowed?(&1) or &1 in adapter_facades)) == []
     assert offenders([events], &(allowed?(&1) or &1 in event_facades)) == []
     assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence))) == []
-    assert offenders([now_rows], &(allowed?(&1) or &1 == "Aiur.PollCadence")) == []
   end
 
   test "stores do not reference AiurWeb (future regression guard)" do
