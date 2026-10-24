@@ -49,7 +49,15 @@ Canceled runs get one exact-head rerun through the recovery journal. Landing wat
 
 Immediately before first enqueue, the watcher rechecks the approved head and requires GitHub to report `MERGEABLE` with a `CLEAN` or `UNSTABLE` merge state. A conflict is handled by the existing rebase-only rework path; an unavailable or unknown verdict holds for the next poll.
 
-An approved, non-draft PR that conflicts with its base and is not in the merge queue first gets the daemon's own `PUT /pulls/{n}/update-branch` with `expected_head_sha`, on the agent credential. This covers a conflict seen by the poll, by the pre-enqueue read, and after GitHub drops the PR from the queue for `merge_conflict`. Each PR head gets at most one call per base SHA (the poll's `baseRefOid`), and each call takes a slot of the shared automatic-requeue cap (four per 15 minutes); a full cap holds the PR for a later poll. An accepted update re-arms auto-merge (one GraphQL mutation), so the PR re-enters the queue after CI with no rework turn. A refused update (HTTP 422) routes the ticket to rebase-only rework, and the comment names the conflicting files from a local `git merge-tree` in a persistent bare cache (`~/.aiur/repo/<owner>/<repo>/conflict-files.git`; git fetch, not REST). A queued PR is never updated, because a dequeue resets the merge groups. Unapproved, request-changes, and draft PRs are never updated. The update adds no per-poll reads.
+Before rework, the watcher tries GitHub's `update-branch` itself for a conflicting PR. This covers a conflict seen by the poll, by the pre-enqueue read, or after GitHub drops the PR from the queue for `merge_conflict`.
+
+It updates only an approved, non-draft PR outside the merge queue. Its ticket must belong to this instance and sit in `human-review`, `ci-wait` or `merging` with no Executor hold. Other PRs keep the rework path. A queued PR is never updated, because a dequeue resets the merge groups.
+
+The call is `PUT /pulls/{n}/update-branch` with `expected_head_sha`, on the agent credential. Each PR head gets at most one call per base SHA (`baseRefOid`). Each call takes a slot of the shared automatic-requeue cap (four per 15 minutes); a full cap holds the PR.
+
+An accepted update re-arms auto-merge with one GraphQL mutation, so the PR re-enters the queue after CI. A failed arm is retried on later polls, only on a head whose parent is the updated head; after five failures the watcher raises an attention.
+
+A refused update (HTTP 422) routes to rebase-only rework, and the comment says so. It names the conflicting files from a local `git merge-tree` in `~/.aiur/repo/<owner>/<repo>/conflict-files.git`. That is a git fetch with per-PR refs, not a REST read. The update adds no per-poll reads.
 
 GitHub's merge-group checks remain authoritative for the base and queued PRs. A later base or queue change can still make a candidate unmergeable after admission.
 

@@ -258,6 +258,8 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   defp conflict_files_line(%{conflict_files: [_ | _] = files}),
     do: "GitHub refused to update the branch. Conflicting files: " <> Enum.map_join(files, ", ", &"`#{&1}`") <> ".\n\n"
 
+  defp conflict_files_line(%{conflict_files: []}), do: "GitHub refused to update the branch. The conflicting files could not be listed.\n\n"
+
   defp conflict_files_line(_), do: ""
 
   defp pause_label, do: "#{Config.settings!().tracker.github.label_prefix}:paused"

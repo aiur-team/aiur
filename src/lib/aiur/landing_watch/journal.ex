@@ -327,13 +327,21 @@ defmodule Aiur.LandingWatch.Journal do
           "merge_group_run_failures",
           "quarantine_merge_group_runs",
           "merge_group_requeues",
-          "ci_merges"
+          "ci_merges",
+          "conflict_update_arms"
         ] or
           MapSet.member?(retained, entry_key)
       end)
 
-    {:ok, retain_head_holds(state, holds, retained)}
+    {:ok, state |> retain_head_holds(holds, retained) |> retain_conflict_arms(retained)}
   end
+
+  defp retain_conflict_arms(%{"conflict_update_arms" => arms} = state, retained) when is_map(arms) do
+    numbers = MapSet.new(retained, &(&1 |> String.split(":") |> hd()))
+    Map.put(state, "conflict_update_arms", Map.filter(arms, fn {number, _} -> MapSet.member?(numbers, number) end))
+  end
+
+  defp retain_conflict_arms(state, _retained), do: state
 
   defp retain_head_holds(state, holds, retained) do
     holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)

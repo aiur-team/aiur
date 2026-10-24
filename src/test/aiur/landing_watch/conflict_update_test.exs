@@ -47,11 +47,84 @@ defmodule Aiur.LandingWatch.ConflictUpdateTest do
     assert_received {:transition, "17", "rework", _}
     assert_received {:comment, "17", body}
     assert body =~ "Rebase only"
+    assert body =~ "GitHub refused to update the branch."
     assert body =~ "Conflicting files: `lib/a.ex`, `docs/b.md`."
     refute_received {:auto_merge, _}
 
     assert :ok = LandingWatch.poll(Keyword.put(opts, :ticket_state_fun, fn "17", _ -> {:ok, %{state: "rework", paused?: false}} end))
     refute_received {:update_branch, _, _}
+  end
+
+  test "a refusal whose files cannot be listed still states the refusal" do
+    parent = self()
+    opts = cycle_opts(parent, conflicting(), @refused) |> Keyword.put(:conflict_files_fun, fn _, _ -> {:error, :conflict_fetch_failed} end)
+
+    assert :ok = LandingWatch.poll(opts)
+    assert_received {:comment, "17", body}
+    assert body =~ "GitHub refused to update the branch. The conflicting files could not be listed."
+  end
+
+  # Each state is its own test, so removing the ownership guard fails every one of them.
+  for {label, state} <- [
+        {"another instance's prefix (looks up as other)", %{state: "other", paused?: false}},
+        {"a foreign ticket", %{state: "foreign", paused?: false}},
+        {"a rework ticket with a live agent", %{state: "rework", paused?: false}},
+        {"an in-progress ticket", %{state: "in-progress", paused?: false}},
+        {"an Executor-held review ticket", %{state: "human-review", paused?: false, held?: true}}
+      ] do
+    @state state
+    test "#{label} is never updated" do
+      opts = cycle_opts(self(), conflicting(), {:ok, %{}}) |> Keyword.put(:ticket_state_fun, fn "17", _ -> {:ok, @state} end)
+      assert :skip = ConflictUpdate.attempt(conflicting(), opts)
+      refute_received {:update_branch, _, _}
+    end
+  end
+
+  test "a PR with no ticket branch is never updated" do
+    unlinked = %{conflicting() | rest: %{"head" => %{"ref" => "feature/no-ticket"}}}
+    assert :skip = ConflictUpdate.attempt(unlinked, cycle_opts(self(), unlinked, {:ok, %{}}))
+    refute_received {:update_branch, _, _}
+  end
+
+  test "a failed auto-merge arm is retried on the merge head and never on an unrelated push" do
+    parent = self()
+    arms = :atomics.new(1, [])
+
+    auto_merge = fn id, _ ->
+      send(parent, {:auto_merge, id})
+      if :atomics.add_get(arms, 1, 1) == 1, do: {:error, :not_ready}, else: :ok
+    end
+
+    opts = cycle_opts(parent, conflicting(), {:ok, %{}}) |> Keyword.put(:auto_merge_fun, auto_merge)
+    assert :ok = LandingWatch.poll(opts)
+    assert_received {:update_branch, 17, "head-sha"}
+    assert_received {:auto_merge, "PR_node"}
+
+    # GitHub still shows the old head: nothing to arm yet.
+    assert :ok = LandingWatch.poll(opts)
+    refute_received {:auto_merge, _}
+
+    # The merge head carries no approval; only the arm row lets it through.
+    merge_head = %{conflicting() | head: "merge-sha", head_parents: ["head-sha", "main-1"], mergeable: "MERGEABLE", raw: %{conflicting().raw | "headRefOid" => "merge-sha"}}
+    merge_opts = Keyword.put(opts, :observe_fun, fn _ -> {:ok, [merge_head]} end)
+    assert :ok = LandingWatch.poll(merge_opts)
+    assert_received {:auto_merge, "PR_node"}
+
+    assert :ok = LandingWatch.poll(merge_opts)
+    refute_received {:auto_merge, _}
+    refute_received {:update_branch, _, _}
+    refute_received {:transition, _, _, _}
+  end
+
+  test "an arm row never arms a head that does not descend from the updated head" do
+    parent = self()
+    opts = cycle_opts(parent, conflicting(), {:ok, %{}}) |> Keyword.put(:auto_merge_fun, fn _, _ -> {:error, :not_ready} end)
+    assert :ok = LandingWatch.poll(opts)
+
+    other_push = %{conflicting() | head: "agent-sha", head_parents: ["some-other-sha"], mergeable: "MERGEABLE", raw: %{conflicting().raw | "headRefOid" => "agent-sha"}}
+    armed = Keyword.put(opts, :auto_merge_fun, fn id, _ -> send(parent, {:auto_merge, id}) && :ok end)
+    assert :ok = LandingWatch.poll(Keyword.put(armed, :observe_fun, fn _ -> {:ok, [other_push]} end))
+    refute_received {:auto_merge, _}
   end
 
   test "a queued conflicting PR is never updated; it is withdrawn and routed as before" do
@@ -111,6 +184,8 @@ defmodule Aiur.LandingWatch.ConflictUpdateTest do
 
     opts = [conflict_remote: origin, conflict_cache: Path.join(root, "cache.git")]
     assert {:ok, ["a.txt"]} = ConflictUpdate.conflict_files(%{number: 9, base: "main"}, opts)
+    # Per-PR refs, so a second daemon's fetch for another PR cannot replace this head.
+    assert {_, 0} = System.cmd("git", ["-C", Path.join(root, "cache.git"), "rev-parse", "--verify", "refs/aiur/conflict/9/head"])
   end
 
   defp cycle_opts(parent, observation, update_result) do
@@ -166,6 +241,7 @@ defmodule Aiur.LandingWatch.ConflictUpdateTest do
       head: "head-sha",
       base: "main",
       base_oid: "main-1",
+      head_parents: ["parent-sha"],
       draft?: false,
       review_decision: "APPROVED",
       mergeable: "CONFLICTING",
