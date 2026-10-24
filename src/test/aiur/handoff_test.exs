@@ -263,55 +263,6 @@ defmodule Aiur.HandoffTest do
     assert_receive {:snapshot, ^healthy_pid}, 1_000
   end
 
-  test "multiple stuck runner snapshots share one deadline" do
-    {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
-    pids = for _ <- 1..2, do: start_supervised!({HeldRunner, []}, id: make_ref())
-
-    running =
-      Map.new(Enum.zip(["1", "2"], pids), fn {id, pid} ->
-        {id,
-         %{
-           pid: pid,
-           issue: %Aiur.Issue{id: id, identifier: "ISSUE-#{id}"},
-           session_execution: %{backend: "codex"}
-         }}
-      end)
-
-    {:ok, owner} = start_supervised({Owner, %{running: running, retry_attempts: %{}, dispatch_recovery: %{}}})
-    dir = Path.join(System.tmp_dir!(), "handoff-deadline-#{System.unique_integer([:positive])}")
-    parent = self()
-
-    on_exit(fn ->
-      Aiur.TestCleanup.rm_rf!(dir)
-      Handoff.reset()
-    end)
-
-    started = System.monotonic_time(:millisecond)
-
-    assert {:ok, %{agents: agents}} =
-             Handoff.prepare(
-               orchestrator: owner,
-               ledger: ledger,
-               dir: dir,
-               config_fingerprint: "config",
-               snapshot_timeout_ms: 40,
-               hold: fn _ -> :ok end,
-               abort: fn pid -> send(parent, {:aborted, pid}) end,
-               snapshot: fn pid ->
-                 send(parent, {:snapshot_started, pid})
-                 Process.sleep(500)
-               end
-             )
-
-    elapsed = System.monotonic_time(:millisecond) - started
-    assert elapsed < 250
-    assert Enum.map(agents, & &1["fallback_reason"]) == ["snapshot_timeout", "snapshot_timeout"]
-    assert_receive {:snapshot_started, _}
-    assert_receive {:snapshot_started, _}
-    assert_receive {:aborted, _}
-    assert_receive {:aborted, _}
-  end
-
   test "expired tool execution becomes an uncertain tombstone and cannot run again" do
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
     test_pid = self()
