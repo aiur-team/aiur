@@ -4,6 +4,8 @@ tracker:
   # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
   # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states:
+    # Runtime reason labels (agent:ci-red, agent:retrying, etc.) are modifiers,
+    # not workflow states; keep them out of active_states.
     - todo
     - in-progress
     - human-review

@@ -55,11 +55,14 @@ export async function inspectPage(page, name) {
       commands: '.decision-inbox',
       'build-orders': '.bo-catalog-table, .bo-selected-summary',
       build: '#build-root',
+      'build-home': '#build-root',
       analytics: '#analytics-page .an-kpis'
     }[pageName]
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
-    const buildRoot = pageName === 'build' ? document.querySelector('#build-root') : null
+    const buildRoot = pageName === 'build' || pageName === 'build-home'
+      ? document.querySelector('#build-root')
+      : null
     const buildSkeletonSelector = '.bd-skel, .bd-skel-lanes'
     const buildBandSelector = '.bd-now-empty'
     const buildUnavailable = buildRoot?.querySelector('.bd-loading')?.innerText.replace(/\s+/g, ' ').trim() || ''
