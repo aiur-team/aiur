@@ -3,6 +3,8 @@ defmodule Aiur.Config.Schema.Server do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.TrustedProxyEntry
+
   @primary_key false
   embedded_schema do
     # 0 = bind a free OS-assigned loopback port. The dashboard must bind so
@@ -42,5 +44,5 @@ defmodule Aiur.Config.Schema.Server do
 
   @doc false
   @spec valid_proxy_entry?(String.t()) :: boolean()
-  def valid_proxy_entry?(entry), do: Aiur.Config.TrustedProxyEntry.valid?(entry)
+  def valid_proxy_entry?(entry), do: TrustedProxyEntry.valid?(entry)
 end

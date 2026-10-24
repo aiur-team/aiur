@@ -5,6 +5,8 @@ defmodule AiurWeb.TrustedProxy do
   import Plug.Conn
   import Bitwise
 
+  alias Aiur.Config.TrustedProxyEntry
+
   @impl Plug
   def init(opts), do: opts
 
@@ -30,7 +32,7 @@ defmodule AiurWeb.TrustedProxy do
 
   @doc false
   @spec valid_entry?(String.t()) :: boolean()
-  def valid_entry?(entry), do: Aiur.Config.TrustedProxyEntry.valid?(entry)
+  def valid_entry?(entry), do: TrustedProxyEntry.valid?(entry)
 
   @doc false
   @spec trusted?(:inet.ip_address(), [String.t()]) :: boolean()
