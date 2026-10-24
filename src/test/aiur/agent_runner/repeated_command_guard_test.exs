@@ -74,13 +74,13 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
     assert body =~ "5 consecutive calls"
     assert body =~ "act on it or stop and hand off"
     assert {:completed, %Issue{paused: true}} = result
-    assert_receive {:pause_marker, "AIUR-6016", label}
+    assert_receive {:pause_marker, "AIUR-6016", label}, 100
     assert String.ends_with?(label, ":paused")
-    assert_receive {:attention, "ticket.AIUR-6016.agent.attention.repeated-identical-command", opts}
+    assert_receive {:attention, "ticket.AIUR-6016.agent.attention.repeated-identical-command", opts}, 100
     assert opts[:needs_attention]
     assert opts[:message] =~ "tail -40 build.log"
     assert opts[:message] =~ "6 times"
-    assert_receive {:worker_control_state, "issue-repeat", :paused, %{kind: :repeated_identical_command}}
+    assert_receive {:worker_control_state, "issue-repeat", :paused, %{kind: :repeated_identical_command}}, 100
   end
 
   test "Claude Bash result is paired with its tool call and intervening sleep resets the streak" do
