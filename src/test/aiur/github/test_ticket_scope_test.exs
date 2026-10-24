@@ -302,6 +302,23 @@ defmodule Aiur.GitHub.TestTicketScopeTest do
     assert Aiur.TestTicketScope.allow_write?(%{method: :patch, url: tracker_issue_url(3379)}) == :ok
   end
 
+  test "ordinary runs never see or write the pinned sandbox tickets of their repository" do
+    System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
+    pinned = "../../../../.aiur-test-tickets.json" |> Path.expand(__DIR__) |> File.read!() |> Jason.decode!()
+    [_, pinned_repo] = Regex.run(~r{github\.com[:/](.+?)(?:\.git)?\z}, pinned["expected_remote"])
+    [first | _] = ids = Enum.map(pinned["tickets"], &Integer.to_string/1)
+    issues = Enum.map(["3379" | ids], &%{identifier: &1})
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: pinned_repo)
+    assert {:ok, [%{identifier: "3379"}]} = Aiur.TestTicketScope.filter_result({:ok, issues})
+    refute Aiur.TestTicketScope.allowed_identifier?(first)
+    assert {:error, {:outside_test_ticket_scope, ^first}} = Aiur.TestTicketScope.allow_write?(%{method: :patch, url: tracker_issue_url(first)})
+    assert Aiur.TestTicketScope.allow_write?(%{method: :patch, url: tracker_issue_url(3379)}) == :ok
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    assert {:ok, ^issues} = Aiur.TestTicketScope.filter_result({:ok, issues})
+  end
+
   test "unscoped write endpoints fail closed" do
     assert {:error, {:outside_test_ticket_scope, "unknown"}} =
              Aiur.TestTicketScope.allow_write?(%{method: :post, url: "https://api.github.com/repos/#{tracker_repository()}/issues"})
