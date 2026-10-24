@@ -223,3 +223,5 @@ promotion.
 Do not start Aiur or implement the first ticket as a convenience.
 
 Add `experiment:feature` to the promoted root to measure it automatically; see `website/docs-app/concepts/experiments.md` (Measuring a feature).
+
+Workstream metadata: choose a unique Heroicons v2 outline icon, a one-line summary of at most 100 characters, and an optional wave in `build-order.json`. Feature icons must differ from matching general-epic icons on every ticket. See `references/planning-contract.md`.

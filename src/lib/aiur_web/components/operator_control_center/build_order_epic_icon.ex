@@ -10,6 +10,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
 
   use Phoenix.Component
 
+  alias Aiur.Heroicons
+
   # Epic (build lane) -> Heroicons v2 outline icon name. "adhoc" is the runtime
   # Ad Hoc overlay lane, tracked separately from the planning lanes.
   @lane_icons %{
@@ -26,25 +28,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
     "api" => "cloud",
     "billing" => "credit-card"
   }
-
-  @generic_icon "squares-2x2"
-  @explicit_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
-
-  # Vendored by the `:heroicons` dep (source only); present at compile time.
-  @outline_dir "deps/heroicons/optimized/24/outline"
-
-  @svgs (for name <- Map.values(@lane_icons) ++ @explicit_icons ++ [@generic_icon], into: %{} do
-           path = Path.join(@outline_dir, "#{name}.svg")
-           @external_resource path
-
-           svg =
-             path
-             |> File.read!()
-             |> String.replace(~r/\s+data-slot="icon"/, "")
-             |> String.trim()
-
-           {name, svg}
-         end)
 
   # Distinct accent colours per epic, used in the column headings and the epic
   # breakdown list (NOT on the ticket cards, which keep a neutral icon).
@@ -96,10 +79,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   @spec planning_lanes() :: [String.t()]
   def planning_lanes, do: ["plan-graph", "runtime", "dashboard-ui", "accounting", "platform"]
 
-  defp svg_for(lane) when is_binary(lane) do
-    name = Map.get(@lane_icons, lane, lane)
-    Map.get(@svgs, name, Map.fetch!(@svgs, @generic_icon))
-  end
-
-  defp svg_for(_lane), do: Map.fetch!(@svgs, @generic_icon)
+  defp svg_for(lane) when is_binary(lane), do: lane |> then(&Map.get(@lane_icons, &1, &1)) |> Heroicons.svg()
+  defp svg_for(_lane), do: Heroicons.svg(nil)
 end

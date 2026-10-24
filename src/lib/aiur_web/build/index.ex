@@ -10,6 +10,7 @@ defmodule AiurWeb.Build.Index do
   @signals %{
     build_order_history_changed: ~w(history health catch_up planned not_queued)a,
     build_order_features_changed: [:features],
+    build_order_planning_pack_changed: [:pack_metadata],
     build_estimates_changed: [:estimates],
     poll_state_changed: [:capacity],
     epic_overrides_changed: [:overrides],
@@ -19,7 +20,7 @@ defmodule AiurWeb.Build.Index do
     ticket_activity_changed: ~w(now planned not_queued)a,
     running_changed: ~w(now planned not_queued)a
   }
-  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued estimates capacity)a
+  @read_parts ~w(history health catch_up features overrides settings repository open queue now planned not_queued estimates capacity pack_metadata)a
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))

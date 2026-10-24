@@ -1,5 +1,6 @@
 defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
   use AiurWeb.BuildOrder.PlanningSourceCase
+  alias AiurWeb.BuildOrder.PlanningSource.PackLoader
 
   test "invalid pack identities are logged without hiding the valid pack" do
     valid = Application.fetch_env!(:aiur, :build_order_planning_pack)
@@ -25,6 +26,65 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
 
     assert log =~ invalid
     assert log =~ "invalid_display_identifier"
+  end
+
+  test "workstream metadata survives loading and colliding icons fall back once" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    workstream = %{"id" => "core", "title" => "Core", "icon" => "bug-ant", "summary" => "A concise feature", "wave" => "0b"}
+
+    data =
+      @pack
+      |> Jason.decode!()
+      |> Map.put("repository", Config.repo())
+      |> Map.put("workstreams", [workstream])
+      |> Map.put("label_projection", %{"workstreams" => %{"core" => "bug"}, "required_ticket_labels" => []})
+
+    File.write!(path, Jason.encode!(data))
+
+    log =
+      capture_log(fn ->
+        [root] = PlanningSource.catalog().data.entries
+        {:ok, selected} = PlanningSource.demand(root.identity)
+        feature = hd(selected.data.pack_metadata["workstreams"])
+        assert feature["summary"] == "A concise feature"
+        assert feature["wave"] == "0b"
+        assert feature["icon"] == "squares-2x2"
+      end)
+
+    assert log =~ "feature core icon collides"
+  end
+
+  test "feature metadata includes workstreams from every loaded pack" do
+    directory = Aiur.TestSupport.tmp_root!("planning-metadata-packs")
+    File.mkdir_p!(directory)
+    first_path = Path.join(directory, "first.json")
+    second_path = Path.join(directory, "second.json")
+
+    first =
+      @pack
+      |> Jason.decode!()
+      |> Map.put("repository", Config.repo())
+      |> Map.put("root_number", 3042)
+      |> Map.put("workstreams", [%{"id" => "queue", "title" => "Build queue"}])
+
+    second =
+      first
+      |> Map.put("build_order_id", "#{Config.repo()}:second")
+      |> Map.put("root_number", 3044)
+      |> Map.put("workstreams", [%{"id" => "home", "title" => "Home"}])
+
+    File.write!(first_path, Jason.encode!(first))
+    File.write!(second_path, Jason.encode!(second))
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, [first_path, second_path])
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      Aiur.TestCleanup.rm_rf!(directory)
+    end)
+
+    workstreams = PackLoader.feature_metadata()["workstreams"]
+    assert Enum.map(workstreams, &{&1["root_number"], &1["id"]}) |> Enum.sort() == [{3042, "queue"}, {3044, "home"}]
   end
 
   test "duplicate member identifiers reject the pack with a specific cause" do

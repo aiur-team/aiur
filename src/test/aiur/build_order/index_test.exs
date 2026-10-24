@@ -2,13 +2,27 @@ defmodule Aiur.BuildOrder.IndexTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Epic, Index, Lifecycle, ProviderHealth}
+  alias Aiur.Heroicons
   alias AiurWeb.Build.Payload
 
   test "joins history facts, resolved membership, timing, edges and merged PR" do
     r = row(7, %{labels: ["bug", "complexity:2"], merged_at: ~U[2026-10-07 14:20:00Z], pr_number: 233, agent_model: "codex", agent_effort: "high"})
     p = parts([r])
     feature = %{slug: "pag", label: "Pagination", hue: 175, epics: [%{key: "f-pag", label: "Page"}], from: r.created_at, to: :none, baseline: :none}
-    p = put_in(p, [:features], {:ok, %{features: %{"pag" => feature}, owners: %{7 => %{feature: "pag", epic: "f-pag", joined_at: r.created_at}}, also: %{}, health: health()}})
+
+    p =
+      put_in(
+        p,
+        [:features],
+        {:ok,
+         %{
+           features: %{"pag" => feature},
+           owners: %{7 => %{feature: "pag", epic: "f-pag", joined_at: r.created_at, at_basis: :unknown, source: "cli", actor: "test", confirmed: true}},
+           also: %{},
+           health: health()
+         }}
+      )
+
     assert {:ok, index} = assemble(p)
     t = index.all["7"]
 
@@ -81,14 +95,119 @@ defmodule Aiur.BuildOrder.IndexTest do
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, cx: 3, pts: 3}])
     feature = fn slug, date -> %{slug: slug, label: slug, hue: 42, epics: [%{key: "f-#{slug}", label: slug}], from: date, to: :none, baseline: :none} end
     p = put_in(p, [:features], {:ok, %{features: %{"aaa" => feature.("aaa", ~U[2026-10-01 00:00:00Z]), "zzz" => feature.("zzz", ~U[2026-09-01 00:00:00Z])}, owners: %{}, also: %{}, health: health()}})
+    p = Map.put(p, :pack_metadata, %{"workstreams" => [%{"id" => "aaa", "title" => "Aaa", "icon" => "home", "summary" => "Feature summary", "wave" => "0b"}]})
     assert {:ok, index} = assemble(p)
     assert index.order == ~w(bugs design infra docs f-zzz f-aaa unsorted)
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
-    for key <- ~w(bugs design infra docs), do: assert(Payload.scrub(index.epics[key]) == design["epics"][key])
-    assert index.epics["f-aaa"] == %{key: "f-aaa", label: "aaa", hue: 42, icon: "layers", feature: "aaa", temp: true}
+    for key <- ~w(bugs design infra docs) do
+      assert Payload.scrub(Map.delete(index.epics[key], :svg)) == design["epics"][key]
+      assert index.epics[key].svg =~ "<svg"
+    end
+
+    assert index.epics["f-aaa"] == %{
+             key: "f-aaa",
+             label: "aaa",
+             hue: 42,
+             icon: "home",
+             svg: Heroicons.svg("home"),
+             summary: "Feature summary",
+             wave: "0b",
+             feature: "aaa",
+             temp: true
+           }
+
+    assert index.features["aaa"].icon == "home"
+    assert index.features["aaa"].summary == "Feature summary"
+    assert index.features["aaa"].wave == "0b"
+
     assert index.counts == Map.new(index.order, &{&1, if(&1 == "unsorted", do: 4, else: 0)})
     assert index.all["4"].cx == 3 and index.all["4"].pts == 3
+  end
+
+  test "feature without a pack icon uses the generic Heroicon" do
+    p = parts([row(70)])
+    feature = %{slug: "plain", label: "Plain", hue: 42, epics: [%{key: "f-plain", label: "Plain"}], from: now(), to: :none, baseline: :none}
+    p = put_in(p, [:features], {:ok, %{features: %{"plain" => feature}, owners: %{}, also: %{}, health: health()}})
+
+    assert {:ok, index} = assemble(p)
+    assert index.features["plain"].icon == Heroicons.generic_name()
+    assert index.features["plain"].svg == Heroicons.svg(Heroicons.generic_name())
+    assert index.epics["f-plain"].icon == Heroicons.generic_name()
+  end
+
+  test "root-imported lane features receive default workstream metadata" do
+    root_feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-home", label: "Platform program · Home"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    p =
+      parts([row(3043)])
+      |> put_in(
+        [:features],
+        {:ok,
+         %{
+           features: %{"bo-3042" => root_feature},
+           owners: %{},
+           also: %{},
+           health: health()
+         }}
+      )
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "home", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(p)
+    assert index.features["bo-3042"].icon == "home"
+    assert index.features["bo-3042"].summary == "Show the platform program and its Build Order work clearly."
+    assert index.features["bo-3042"].wave == "0"
+    assert index.epics["f-bo-3042-home"].icon == "home"
+  end
+
+  test "platform program build-queue lane receives its default icon" do
+    feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-build-queue", label: "Platform program · Build queue"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    parts =
+      parts([row(3043)])
+      |> put_in([:features], {:ok, %{features: %{"bo-3042" => feature}, owners: %{}, also: %{}, health: health()}})
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "build-queue", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(parts)
+    assert index.features["bo-3042"].icon == "queue-list"
+    assert index.epics["f-bo-3042-build-queue"].icon == "queue-list"
+  end
+
+  test "platform program kernel lane receives its default icon" do
+    feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-kernel", label: "Platform program · Kernel"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    parts =
+      parts([row(3043)])
+      |> put_in([:features], {:ok, %{features: %{"bo-3042" => feature}, owners: %{}, also: %{}, health: health()}})
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "kernel", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(parts)
+    assert index.features["bo-3042"].icon == "cpu-chip"
+    assert index.epics["f-bo-3042-kernel"].icon == "cpu-chip"
   end
 
   test "producer fields win over older history fields" do

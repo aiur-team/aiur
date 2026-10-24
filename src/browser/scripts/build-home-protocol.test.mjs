@@ -80,10 +80,12 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
 
 test('intake sorts by ord then num without mutating the snapshot', () => {
   const snapshot = fixture('live');
+  snapshot.icons = { 'squares-2x2': '<svg/>' };
   const [a, b] = snapshot.sections.now;
   snapshot.sections.now = [{ ...b, ord: 1 }, { ...a, ord: 1 }];
   const original = structuredClone(snapshot);
   assert.deepEqual(intake(snapshot).now.map(r => r.num), [a.num, b.num].sort((x, y) => x - y));
+  assert.deepEqual(intake(snapshot).icons, snapshot.icons);
   assert.deepEqual(snapshot, original);
 });
 

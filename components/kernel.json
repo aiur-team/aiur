@@ -11,6 +11,7 @@
     "src/lib/aiur/fs.ex",
     "src/lib/aiur/git.ex",
     "src/lib/aiur/handoff/protection.ex",
+    "src/lib/aiur/heroicons.ex",
     "src/lib/aiur/journal.ex",
     "src/lib/aiur/json_safe.ex",
     "src/lib/aiur/json_store.ex",

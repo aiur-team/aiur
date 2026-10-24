@@ -27,6 +27,14 @@ defmodule AiurWeb.Build.IndexReaderTest do
     def handle_call(:fleet_view, _from, snapshot), do: {:reply, snapshot, snapshot}
   end
 
+  test "index reader includes configured workstream metadata for catalogue projection" do
+    metadata = %{"workstreams" => [%{"id" => "queue", "title" => "Build queue", "icon" => "queue-list", "summary" => "Queue work", "wave" => 1}]}
+    read = IndexReader.read(:all, parts(), pack_metadata_fun: fn -> metadata end)
+
+    assert read.pack_metadata == metadata
+    assert read.pack_metadata["workstreams"] |> hd() |> Map.fetch!("wave") == 1
+  end
+
   defmodule OpenTicketServer do
     use GenServer
 

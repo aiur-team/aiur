@@ -177,9 +177,13 @@
   width: 7px;
   height: 7px;
   flex: none;
-  transform: rotate(45deg);
-  border-radius: 1px;
-  background: oklch(.66 .14 var(--ft));
+  color: oklch(.66 .14 var(--ft));
+}
+.lr-f svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  transform: translate(-3px, -3px);
 }
 
 /* C:757 */ .c-ep, .lr-mu {
@@ -444,4 +448,3 @@
     grid-template-columns: 1fr !important;
   }
 }
-
