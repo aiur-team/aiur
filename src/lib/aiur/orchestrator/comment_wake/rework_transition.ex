@@ -1,6 +1,9 @@
+# Cohesion: the reviewer identity/freshness gates, bounded attempt check, and
+# asynchronous rework write form one guarded transition.
 defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   @moduledoc "Asynchronous review gates and bounded rework state writes."
 
+  alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Orchestrator.CommentWake.ReworkRetries
   alias Aiur.Orchestrator.OperatorMessages
@@ -13,41 +16,92 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   alias Aiur.Signal
 
   @doc false
-  @spec with_comment_transition(State.t(), String.t() | integer(), String.t() | integer(), String.t() | atom(), map(), term(), pos_integer(), function()) :: State.t()
-  def with_comment_transition(state, issue_key, telemetry_ticket, source, event, attempt_id, attempt, continuation) do
+  @spec with_comment_transition(
+          State.t(),
+          String.t() | integer(),
+          String.t() | integer(),
+          String.t() | atom(),
+          map(),
+          term(),
+          pos_integer(),
+          function()
+        ) :: State.t()
+  def with_comment_transition(
+        state,
+        issue_key,
+        telemetry_ticket,
+        source,
+        event,
+        attempt_id,
+        attempt,
+        continuation
+      ) do
     entry = State.find_running_by_identifier(state.running, telemetry_ticket)
 
-    TrackerTasks.run(state, {:comment_gate, issue_key, source, make_ref()}, fn -> comment_rework_gate(issue_key, event) end, fn current, result ->
-      if TrackerTasks.same_runner?(State.find_running_by_identifier(current.running, telemetry_ticket), entry) do
-        apply_comment_gate(current, result, %{
-          issue_key: issue_key,
-          ticket: telemetry_ticket,
-          source: source,
-          event: event,
-          attempt_id: attempt_id,
-          attempt: attempt,
-          entry: entry,
-          continuation: continuation
-        })
-      else
-        current
+    TrackerTasks.run(
+      state,
+      {:comment_gate, issue_key, source, make_ref()},
+      fn -> comment_rework_gate(issue_key, event) end,
+      fn current, result ->
+        current_entry = State.find_running_by_identifier(current.running, telemetry_ticket)
+
+        if TrackerTasks.same_runner?(current_entry, entry) or
+             (is_nil(entry) and is_map(current_entry)) do
+          apply_comment_gate(current, result, %{
+            issue_key: issue_key,
+            ticket: telemetry_ticket,
+            source: source,
+            event: event,
+            attempt_id: attempt_id,
+            attempt: attempt,
+            entry: entry,
+            continuation: continuation
+          })
+        else
+          current
+        end
       end
-    end)
+    )
   end
 
   defp comment_write_pending?(state, issue_key) do
     Enum.any?(state.tracker_tasks, fn
-      {_ref, %{key: {:comment_write, key, _source, _event}}} -> to_string(key) == to_string(issue_key)
-      _ -> false
+      {_ref, %{key: {:comment_write, key, _source, _event}}} ->
+        to_string(key) == to_string(issue_key)
+
+      _ ->
+        false
     end)
   end
 
   defp comment_rework_gate(issue_key, event) do
     cond do
-      not CommentWake.trusted_comment_event?(event) -> {:skip, :untrusted_author}
-      CommentWake.benign_review_pass_comment?(event) -> {:skip, :benign_review_pass_comment}
-      reason = ReviewFreshness.rework_skip_reason(event) -> {:skip, reason}
-      true -> ReworkGate.verify_unresolved_review_threads(issue_key, rework_threads_opts(event))
+      not CommentWake.trusted_comment_event?(event) and not configured_human_review?(event) ->
+        {:skip, :untrusted_author}
+
+      CommentWake.benign_review_pass_comment?(event) ->
+        {:skip, :benign_review_pass_comment}
+
+      reason = ReviewFreshness.rework_skip_reason(event) ->
+        {:skip, reason}
+
+      true ->
+        ReworkGate.verify_unresolved_review_threads(issue_key, rework_threads_opts(event))
+    end
+  end
+
+  defp configured_human_review?(event) do
+    changes_requested_review?(event) and human_merger_review?(event)
+  end
+
+  defp human_merger_review?(event) do
+    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
+    reviewer = get_in(comment, ["user", "login"]) || get_in(comment, [:user, :login])
+    allowed? = Map.get(event, :human_merger_allowed_fun, &Config.human_merger_allowed?/1)
+
+    case reviewer do
+      login when is_binary(login) -> allowed?.(login)
+      _missing_reviewer -> false
     end
   end
 
@@ -56,8 +110,18 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
 
     if comment_write_pending?(state, context.issue_key) do
       state
-      |> OperatorMessages.enqueue_event_digest_item(to_string(context.ticket), [context.event], context.event)
-      |> ReworkRetries.schedule_comment_rework_retry(context.ticket, context.source, context.event, context.attempt, :rework_write_in_progress)
+      |> OperatorMessages.enqueue_event_digest_item(
+        to_string(context.ticket),
+        [context.event],
+        context.event
+      )
+      |> ReworkRetries.schedule_comment_rework_retry(
+        context.ticket,
+        context.source,
+        context.event,
+        context.attempt,
+        :rework_write_in_progress
+      )
     else
       start_comment_rework(state, head_sha, context)
     end
@@ -68,13 +132,32 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   defp start_comment_rework(state, head_sha, context) do
     identifier = to_string(context.issue_key)
 
-    case ReworkGate.verify_rework_attempt(state, identifier, head_sha, rework_attempt_alert_opts(context.event)) do
+    case ReworkGate.verify_rework_attempt(
+           state,
+           identifier,
+           head_sha,
+           rework_attempt_alert_opts(context.event)
+         ) do
       {:ok, state} ->
         TrackerTasks.run(
           state,
           {:comment_write, context.issue_key, context.source, make_ref()},
-          fn -> write_comment_rework(context.issue_key, context.ticket, context.source, context.event, context.attempt_id) end,
-          fn current, written -> apply_comment_rework_write(current, written, {context.continuation, context.entry, head_sha, identifier, context.ticket}) end
+          fn ->
+            write_comment_rework(
+              context.issue_key,
+              context.ticket,
+              context.source,
+              context.event,
+              context.attempt_id
+            )
+          end,
+          fn current, written ->
+            apply_comment_rework_write(
+              current,
+              written,
+              {context.continuation, context.entry, head_sha, identifier, context.ticket, context.event}
+            )
+          end
         )
 
       {:skip, reason, current} ->
@@ -172,7 +255,12 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   end
 
   defp write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
-    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &TicketTransition.write_state(&1, &2, writer: :comment_wake))
+    update_issue_state_fun =
+      Map.get(
+        event,
+        :comment_update_issue_state_fun,
+        &TicketTransition.write_state(&1, &2, writer: :comment_wake)
+      )
 
     case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
@@ -194,7 +282,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   defp apply_comment_rework_write(
          current,
          written,
-         {continuation, entry, head_sha, identifier, ticket}
+         {continuation, entry, head_sha, identifier, ticket, event}
        ) do
     if TrackerTasks.same_runner?(State.find_running_by_identifier(current.running, ticket), entry) do
       case written do
@@ -202,7 +290,30 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
         {:error, _} = error -> continuation.({error, current})
       end
     else
+      apply_rework_write_after_runner_change(
+        current,
+        written,
+        {continuation, entry, head_sha, identifier, ticket, event}
+      )
+    end
+  end
+
+  defp apply_rework_write_after_runner_change(
+         current,
+         written,
+         {continuation, nil, head_sha, identifier, ticket, event}
+       ) do
+    if is_map(State.find_running_by_identifier(current.running, ticket)) do
+      current = OperatorMessages.enqueue_event_digest_item(current, to_string(ticket), [event], event)
+
+      case written do
+        :ok -> State.bump_rework_attempt(current, identifier, head_sha)
+        {:error, _} = error -> continuation.({error, current})
+      end
+    else
       current
     end
   end
+
+  defp apply_rework_write_after_runner_change(current, _written, _context), do: current
 end
