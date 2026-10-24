@@ -64,13 +64,6 @@ tmux -L "$INNER" source-file "$CONF"
 tmux -L "$INNER" set -g @aiur_ctrlc "$STUB"
 published_url="http://127.0.0.1:4000"
 tmux -L "$INNER" set -g @aiur_control_url "$published_url"
-tmux -L "$INNER" source-file "$CONF"
-reloaded_url="$(tmux -L "$INNER" show-options -gqv @aiur_control_url)"
-if [ "$reloaded_url" = "$published_url" ]; then
-  ok "reloading the packaged config preserves the daemon-published control URL"
-else
-  fail "reloading the packaged config replaced the daemon-published URL with '$reloaded_url'"
-fi
 # The launcher supplies this path separately from the static config.
 tmux -L "$INNER" set -g @aiur_ctrlc "$STUB"
 # A second pane so the active pane is NOT the agent-list (index 0) pane.

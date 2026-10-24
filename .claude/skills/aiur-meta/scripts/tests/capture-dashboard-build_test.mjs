@@ -162,8 +162,8 @@ test('production /build DOM inspection detects the Live empty band with active a
   assert.ok(result.issues.some(({ kind }) => kind === 'build-agent-state-unavailable'))
 })
 
-test('the /build capture waits for hydration and treats a hydration timeout as attention', async () => {
-  async function capture({ root, timeout = false }) {
+test('the Build and Build-home captures wait for hydration and treat a hydration timeout as attention', async () => {
+  async function capture(name, route, { root, timeout = false }) {
     const fakeDocument = {
       title: 'Build',
       body: { innerText: '' },
@@ -200,16 +200,22 @@ test('the /build capture waits for hydration and treats a hydration timeout as a
       screenshot: async () => {}
     }
 
-    return runPageCapture(page, 'build', '/build', [], 'http://dashboard.test')
+    return runPageCapture(page, name, route, [], 'http://dashboard.test')
   }
 
-  const settled = await capture({ root: {
+  const settledBuild = await capture('build', '/build', { root: {
     querySelector: (selector) => selector.includes('.bd-mk.empty') ? {} : null,
     querySelectorAll: () => []
   } })
-  assert.equal(settled.verdict, 'healthy', JSON.stringify(settled.issues))
+  assert.equal(settledBuild.verdict, 'healthy', JSON.stringify(settledBuild.issues))
 
-  const timedOut = await capture({ root: { querySelector: () => null, querySelectorAll: () => [] }, timeout: true })
+  const settledHome = await capture('build-home', '/', { root: {
+    querySelector: (selector) => selector.includes('.bd-mk.empty') ? {} : null,
+    querySelectorAll: () => []
+  } })
+  assert.equal(settledHome.verdict, 'healthy', JSON.stringify(settledHome.issues))
+
+  const timedOut = await capture('build-home', '/', { root: { querySelector: () => null, querySelectorAll: () => [] }, timeout: true })
   assert.equal(timedOut.verdict, 'attention')
   assert.ok(timedOut.issues.some(({ kind }) => kind === 'navigation'))
   assert.ok(timedOut.issues.some(({ kind }) => kind === 'build-not-hydrated'))

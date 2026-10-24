@@ -54,10 +54,12 @@ process_start_identity() {
 }
 
 default_run_root="$state_root/default-run-id"
-env -u AIUR_EXECUTOR_RUN_ID -u AIUR_TMUX_SESSION \
+env -u AIUR_EXECUTOR_RUN_ID -u AIUR_TMUX_SOCKET AIUR_TMUX_SESSION=stale-session \
   AIUR_EXECUTOR_STATE_DIR="$default_run_root" "$script" due >/dev/null
 [ -s "$default_run_root/default/retrospective-state.json" ] ||
   fail "missing run ID did not use the documented default"
+[ ! -e "$default_run_root/stale-session/retrospective-state.json" ] ||
+  fail "stale tmux session name was used outside a live Aiur tmux session"
 
 tmux_stub_dir="$state_root/tmux-bin"
 mkdir -p "$tmux_stub_dir"

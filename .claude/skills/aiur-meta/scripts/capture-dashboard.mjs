@@ -395,7 +395,7 @@ export async function runPageCapture(page, name, route, knownNoise, baseUrl = BA
   try {
     const response = await page.goto(new URL(route, baseUrl).toString(), { waitUntil: 'domcontentloaded', timeout: 45_000 })
     status = response?.status() ?? null
-    if (name === 'build') {
+    if (name === 'build' || name === 'build-home') {
       await page.waitForFunction(() => {
         const root = document.querySelector('#build-root')
         if (!root) return false

@@ -6,7 +6,7 @@ set -euo pipefail
 # hour, and atomically advances an independent retrospective timer.
 
 mode="${1:-due}"
-default_run_id="${AIUR_TMUX_SESSION:-default}"
+default_run_id="default"
 if [ -n "${AIUR_TMUX_SOCKET:-}" ] && [ -n "${AIUR_TMUX_SESSION:-}" ] && command -v tmux >/dev/null 2>&1; then
   session_id="$(tmux -L "$AIUR_TMUX_SOCKET" display-message -p -t "$AIUR_TMUX_SESSION" '#{session_id}' 2>/dev/null || true)"
   if [[ "$session_id" =~ ^\$([0-9]+)$ ]]; then
