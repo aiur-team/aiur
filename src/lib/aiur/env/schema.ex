@@ -192,7 +192,9 @@ defmodule Aiur.Env.Schema do
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},
 
     # --- Runtime (launcher-managed) ---
+    {"AIUR_SECRETS_FROM_ENV", type: :boolean, group: :runtime, purpose: "Disable dotenv files so hosted secrets must be supplied by the daemon environment."},
     {"AIUR_BG_STATE_DIR", type: :path, group: :runtime, purpose: "Directory for cookie, state and per-instance files.", default: "~/.config/aiur"},
+    {"AIUR_STATE_PERSISTENT", type: :boolean, group: :runtime, purpose: "Declare that the hosted state directory survives daemon restarts; otherwise env-only mode requires AIUR_SECRET_KEY_BASE."},
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},
     {"AIUR_TMUX_SESSION", type: :string, group: :runtime, purpose: "tmux session name the launcher uses."},
     {"AIUR_TMUX_SOCKET", type: :string, group: :runtime, purpose: "tmux socket name the launcher uses."},
