@@ -26,7 +26,7 @@ export function stText(t) {
   if (t.sec === 'hist') return Object.hasOwn(HIST, t.status) ? HIST[t.status][1] : 'State unknown';
   if (t.sec === 'now') {
     const stateLabel = agentState(t.agent?.state).label;
-    return t.agent?.state === 'usage_limited' && Number.isFinite(t.agent?.resume_at)
+    return t.agent?.pause === 'usage_limit_exhausted' && Number.isFinite(t.agent?.resume_at)
       ? stateLabel + ' (resumes at ' + new Date(t.agent.resume_at).toISOString().slice(11, 16) + ' UTC)'
       : stateLabel;
   }
@@ -90,7 +90,8 @@ export function listHTML(D, state, history, P, now) {
     const key = ticket.agent?.state === 'active' ? 'running'
       : ticket.agent?.state === 'retrying' ? 'retrying'
         : ['error', 'retries', 'command'].includes(ticket.agent?.state) ? 'stuck'
-          : ['paused', 'parked', 'usage_limited', 'ci_wait'].includes(ticket.agent?.state) ? 'paused' : 'unknown';
+          : ['paused', 'parked', 'usage_limited', 'paused-usage-limit', 'paused-decision', 'paused-agent', 'ci_wait', 'merge-queued', 'blocked', 'handed-off'].includes(ticket.agent?.state) ? 'paused'
+            : ['ci-red', 'body-fix'].includes(ticket.agent?.state) ? 'stuck' : 'unknown';
     nowCounts[key]++;
   }
   const nowSummary = Object.entries(nowCounts).filter(([key, count]) => key === 'running' || count > 0)
