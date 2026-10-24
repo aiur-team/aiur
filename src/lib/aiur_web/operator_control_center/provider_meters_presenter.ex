@@ -25,6 +25,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   alias Aiur.CodingAgent
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialDataAccess
+  alias AiurWeb.RemainingMeter
 
   @real_failures [:authentication, :malformed, :timeout, :transport]
 
@@ -277,7 +278,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       standing: standing,
       standing_label: standing_label(standing),
       used_percent: used_percent,
-      remaining_percent: Map.get(window, :remaining_percent),
+      remaining_percent: Map.get(window, :remaining_percent) || RemainingMeter.percent(used_percent),
       used: Map.get(window, :used),
       limit: Map.get(window, :limit),
       remaining: Map.get(window, :remaining),
@@ -310,14 +311,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   # numeric usage percentage; unsupported and empty-supported windows carry no
   # implied value. Zero is a real exact value, distinct from unknown.
   defp meter(:supported, used_percent) when is_number(used_percent) do
-    %{kind: :exact, now: round(clamp_percent(used_percent)), min: 0, max: 100}
+    %{kind: :exact, now: used_percent |> RemainingMeter.percent() |> round(), min: 0, max: 100}
   end
 
   defp meter(_coverage, _used_percent), do: %{kind: :none}
-
-  defp clamp_percent(percent) when percent < 0, do: 0
-  defp clamp_percent(percent) when percent > 100, do: 100
-  defp clamp_percent(percent), do: percent
 
   defp credits(%{status: status} = credits) do
     %{status: status, label: credit_status_label(status), amount: Map.get(credits, :amount)}
