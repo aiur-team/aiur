@@ -137,6 +137,14 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
         envelope_opts =
           Keyword.put(opts, :prior_work, Map.get(envelope, :prior_work, Keyword.get(opts, :prior_work, false)))
+          |> Keyword.put(
+            :stalled_alert_outstanding,
+            Map.get(
+              envelope,
+              :stalled_alert_outstanding,
+              Keyword.get(opts, :stalled_alert_outstanding, false)
+            )
+          )
 
         dispatch_to_worker.(state, issue, envelope_attempt, envelope_host, envelope_opts)
     end
