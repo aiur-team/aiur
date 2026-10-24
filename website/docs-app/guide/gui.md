@@ -57,7 +57,7 @@ The theme starts dark until you toggle it. Both choices stay in this browser; an
 
 Drag the navigation edge to switch between icons and labels, or focus the edge and use the arrow keys. The choice stays in this browser. On phones, navigation stays visible in a fixed bottom bar. A red dot on Commands means an answer is waiting; unavailable counts keep their notice instead of showing zero.
 
-The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts). Each line shows the percentage used, a bar, and the reset time next to a recycle icon. Freshness, observation age and the last probe error are in the line's tooltip. A stale line is dimmed. A missing reading shows `unknown`, not zero.
+The **Models** pane shows a named weekly line for each [Claude account](/guide/claude-accounts), with a remaining-percentage bar and reset time. Full means 100% left; empty means unusable until reset. Warning colours appear near empty. The tooltip shows freshness, age and last probe error; stale lines are dimmed. Missing readings show `unknown`, not zero.
 
 The pane shows only providers with a real account: a routed backend, a keyed API, or a provider with an observation. Unconfigured placeholders are not shown.
 
@@ -231,7 +231,7 @@ Retained Analytics charts use at most 180 evenly spaced resource observations pe
 
 Full log combines newest runs that fit its bounded projection with current telemetry. Latest-run fallback and Full log decode at most 45 MiB per cold load. The source line reports included runs and omissions, and names skipped newer runs in Latest-run. Analytics is unavailable if none fit; without materialized history, raw files over 1 MiB are unavailable.
 
-The Build page usage strip shows API budgets and provider windows or credits. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
+The Build page usage strip shows API budgets and provider windows or credits. Bars and labels show what remains: full is 100% left, empty is unusable until reset, with warning colours near empty. Hover or focus a usage line for account details, observation age, GitHub snapshot age, and budget holds.
 
 Build cards keep agent pause causes distinct: provider usage limits read `Paused · usage limit` with a reset time when the runtime reports one, CI handoffs read `Waiting for CI`, and `Parked` identifies other non-reserving pauses.
 

@@ -237,7 +237,7 @@ defmodule Aiur.Application do
         Logger.info("Distribution active as #{inspect(distribution_module.node_name())}")
 
       {:error, reason} ->
-        Logger.debug("Distribution not active: #{inspect(reason)}; pane subcommand will not connect")
+        raise "unsafe distributed daemon startup: #{inspect(reason)}"
     end
 
     :ok

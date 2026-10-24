@@ -25,6 +25,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"workspace recover", "cmd_workspace_recover ENG-123 7", :write, []},
     {"message", "cmd_message 123 hello from operator", :write, []},
     {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
+    {"message status", "cmd_message --status 7", :read, []},
     {"set max agents", "cmd_set max-agents 5", :write, []},
     {"feature show", "cmd_feature show demo --json", :read, []},
     {"feature edit", "cmd_feature edit demo --label Demo --add-epic lane=Lane", :write, []},

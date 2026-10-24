@@ -23,6 +23,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   def recover(_issue, %{pending_reason: :ci_cancelled, merge_queue_entry: entry} = result, _opts) when is_map(entry),
     do: result
 
+  def recover(_issue, %{pending_reason: :required_checks_unavailable} = result, _opts), do: result
+
   def recover(issue, %{pending_reason: :ci_cancelled, pr_number: number, head_sha: sha} = result, opts)
       when is_integer(number) and is_binary(sha) do
     if recovery_enabled?(opts), do: recover_cancelled(issue, result, number, sha, opts), else: result
