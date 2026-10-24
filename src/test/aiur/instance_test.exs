@@ -94,7 +94,7 @@ defmodule Aiur.InstanceTest do
 
     snapshot = %{
       tickets: [%{number: 4429, labels: ["agent:human-review"]}, %{number: 4430, labels: ["agent:human-review"]}],
-      decisions: [%{ticket: 4430, blocking: true}, %{ticket: 4429, blocking: true}],
+      decisions: [%{ticket: 4430, blocking: true, created_at: DateTime.add(now, -20, :minute)}, %{ticket: 4429, blocking: true, created_at: DateTime.add(now, -20, :minute)}],
       pull_requests: [pr.(4447, 4429), pr.(4448, 4430)],
       merge_groups: [group.(4447), group.(4448)]
     }
@@ -102,7 +102,7 @@ defmodule Aiur.InstanceTest do
     findings = Aiur.ExecutorSweep.findings(snapshot: snapshot, now: now)
     assert Enum.map(SweepFilter.own(snapshot).decisions, & &1.ticket) == [4429]
     assert for(%{kind: "unreviewed_pr", ticket_state: "human-review", pull_request: n} <- findings, do: n) == [4447]
-    assert for(%{kind: "stale_merge_group", merge_group: name} <- findings, do: name) == ["run 4447"]
+    assert [%{queued_runs: 1, running_runs: 0, age_ms: 4_800_000}] = Enum.filter(findings, &(&1.kind == "runner_starvation"))
   end
 
   test "aiur status names the active rules and the ignored count" do
