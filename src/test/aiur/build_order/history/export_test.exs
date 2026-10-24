@@ -140,6 +140,15 @@ defmodule Aiur.BuildOrder.History.ExportTest do
       end
     end
 
+    test "a held body without a fetch timestamp omits its missing age facts" do
+      {:ok, _page} = result = Export.page(opts([row(1)], issue_body: fn 1 -> {:ok, %{data: %{"body" => "held"}, fetched_at_ms: nil}} end))
+      one = ticket(result, 1)
+
+      assert one.body == %{excerpt: "held", truncated: false}
+      assert "body.observed_at" in one.unknown
+      assert "body.age_ms" in one.unknown
+    end
+
     # Only the head of a long body is sanitised, so the cut must neither change
     # an ordinary excerpt nor let a secret the cut leaves open through.
     test "a long body gives the same excerpt as sanitising it whole, and no open key block leaks" do
@@ -160,6 +169,14 @@ defmodule Aiur.BuildOrder.History.ExportTest do
 
       assert excerpt =~ "[REDACTED:credential]"
       refute excerpt =~ "MIIEvQ"
+    end
+
+    test "a multibyte body is not marked truncated before its character excerpt limit" do
+      body = String.duplicate("😀", 1_600)
+      one = ticket(Export.page(opts([row(1)], issue_body: fn 1 -> {:ok, %{data: %{"body" => body}, fetched_at_ms: 0}} end)), 1)
+
+      assert one.body.excerpt == body
+      refute one.body.truncated
     end
 
     # GitHub sends `"body": null` for an empty description: that is known empty.
@@ -247,12 +264,15 @@ defmodule Aiur.BuildOrder.History.ExportTest do
 
   test "a long line without line breaks is cut at a word, and an unbroken one is still capped" do
     for body <- [String.duplicate("word ", 1_000), String.duplicate("a", 5_000)] do
-      held = ticket(Export.page(opts([row(1)], issue_body: fn 1 -> {:ok, %{data: %{"body" => body}}} end)), 1).body
+      one = ticket(Export.page(opts([row(1)], issue_body: fn 1 -> {:ok, %{data: %{"body" => body}}} end)), 1)
+      held = one.body
 
       assert held.truncated
       assert String.length(held.excerpt) in 1_595..1_600
-      # A held body with no fetch time has an unknown age, never a zero one.
-      assert %{observed_at: nil, age_ms: nil} = held
+      refute Map.has_key?(held, :observed_at)
+      refute Map.has_key?(held, :age_ms)
+      assert "body.observed_at" in one.unknown
+      assert "body.age_ms" in one.unknown
     end
   end
 

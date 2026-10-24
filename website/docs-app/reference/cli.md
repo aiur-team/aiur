@@ -203,8 +203,7 @@ The discard file is a deliberate operator signal outside the workspace, not an a
 If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace. The terminal sweep at the next Aiur start tries again. If a new run of a reopened ticket holds the workspace when the delete is due, Aiur keeps the workspace and the save, and the notice does not expire.
 
 To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
-## Build history commands
-See [feature, epic and history export commands](/reference/build-history-commands) for local collections, membership, provenance, original-scope baselines, and `aiur history export`.
+## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
 
 ## Dashboard page commands
 `aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages and show the same data.

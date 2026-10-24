@@ -137,6 +137,7 @@ defmodule Aiur.BuildOrder.History.Export do
   end
 
   defp fact({record, unknown}, key, {:ok, value}), do: {Map.put(record, key, value), unknown}
+  defp fact({record, unknown}, key, {:ok, value, missing}), do: {Map.put(record, key, value), Enum.reverse(missing) ++ unknown}
   defp fact({record, unknown}, key, :unknown), do: {record, [Atom.to_string(key) | unknown]}
 
   defp known(value) when value in [:unknown, nil], do: :unknown
@@ -178,8 +179,12 @@ defmodule Aiur.BuildOrder.History.Export do
     {window, cut?} = window(body)
 
     case DisplaySanitizer.sanitize_projection(window, @excerpt_limit, @sanitize) do
-      {:ok, excerpt, truncated?} -> {:ok, Map.merge(%{excerpt: excerpt, truncated: truncated? or cut?}, fetched(Map.get(entry, :fetched_at_ms), now))}
-      :error -> :unknown
+      {:ok, excerpt, truncated?} ->
+        {freshness, missing} = fetched(Map.get(entry, :fetched_at_ms), now)
+        {:ok, Map.merge(%{excerpt: excerpt, truncated: truncated? or cut?}, freshness), missing}
+
+      :error ->
+        :unknown
     end
   end
 
@@ -195,7 +200,8 @@ defmodule Aiur.BuildOrder.History.Export do
 
   defp window(body) do
     head = String.slice(body, 0, @window_chars)
-    cut = Enum.find([last_boundary(head, "\n"), last_boundary(head, " ")], &(&1 > @excerpt_limit))
+    minimum_cut = head |> String.slice(0, @excerpt_limit) |> byte_size()
+    cut = Enum.find([last_boundary(head, "\n"), last_boundary(head, " ")], &(&1 > minimum_cut))
 
     cond do
       head == body -> {body, false}
@@ -212,10 +218,10 @@ defmodule Aiur.BuildOrder.History.Export do
   end
 
   defp fetched(at_ms, now) when is_integer(at_ms) do
-    %{observed_at: DateTime.from_unix!(at_ms, :millisecond), age_ms: max(DateTime.to_unix(now, :millisecond) - at_ms, 0)}
+    {%{observed_at: DateTime.from_unix!(at_ms, :millisecond), age_ms: max(DateTime.to_unix(now, :millisecond) - at_ms, 0)}, []}
   end
 
-  defp fetched(_at_ms, _now), do: %{observed_at: nil, age_ms: nil}
+  defp fetched(_at_ms, _now), do: {%{}, ["body.observed_at", "body.age_ms"]}
 
   defp bodies(records) do
     held = Enum.count(records, &Map.has_key?(&1, :body))
