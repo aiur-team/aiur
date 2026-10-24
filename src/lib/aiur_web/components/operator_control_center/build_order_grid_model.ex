@@ -12,6 +12,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   """
 
   alias Aiur.BuildOrder.{Metadata, RootSummary}
+  alias Aiur.GitHub.{Config, Labels}
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
 
@@ -370,12 +371,24 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_state(_key), do: :plain
 
   defp core_status_word(:status_completed, _execution, _text), do: "merged"
-  defp core_status_word(:status_working, _execution, _text), do: "agent live"
-  defp core_status_word(:status_ready, _execution, _text), do: "dependency-ready"
-  defp core_status_word(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
-  defp core_status_word(:status_waiting, %{waiting_reason: :waiting_for_ci}, _text), do: "CI waiting"
-  defp core_status_word(_key, _execution, text) when is_binary(text) and text != "", do: text
-  defp core_status_word(_key, _execution, _text), do: "status unavailable"
+
+  defp core_status_word(key, execution, text) do
+    runtime_reason_word(execution) || core_status_fallback(key, execution, text)
+  end
+
+  defp runtime_reason_word(execution) do
+    case Labels.runtime_labels(Map.get(execution, :labels), [Map.get(execution, :pause_reason), Map.get(execution, :waiting_reason)], Config.label_prefix()) do
+      [] -> nil
+      labels -> Enum.join(labels, ",")
+    end
+  end
+
+  defp core_status_fallback(:status_working, _execution, _text), do: "agent live"
+  defp core_status_fallback(:status_ready, _execution, _text), do: "dependency-ready"
+  defp core_status_fallback(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
+  defp core_status_fallback(:status_waiting, %{waiting_reason: :waiting_for_ci}, _text), do: "CI waiting"
+  defp core_status_fallback(_key, _execution, text) when is_binary(text) and text != "", do: text
+  defp core_status_fallback(_key, _execution, _text), do: "status unavailable"
 
   defp adhoc_status_word(:merged), do: "merged"
   defp adhoc_status_word(:working), do: "agent live"

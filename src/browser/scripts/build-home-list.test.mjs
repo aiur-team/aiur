@@ -21,12 +21,17 @@ test('U2 unknown state does not become Running', () => {
   }
 });
 test('usage limits and CI wait keep their causes; unknown states never become Parked', () => {
-  const usage = row('now', { agent: { state: 'usage_limited', resume_at: 1791408000000 } });
+  const usage = row('now', { agent: { state: 'usage_limited', pause: 'usage_limit_exhausted', resume_at: 1791408000000 } });
   assert.equal(stText(usage), 'Paused · usage limit (resumes at 21:20 UTC)');
   assert.notEqual(stText(usage), 'Parked');
-  assert.equal(stText(row('now', { agent: { state: 'usage_limited', resume_at: null } })), 'Paused · usage limit');
+  assert.equal(stText(row('now', { agent: { state: 'usage_limited', pause: 'usage_limit_exhausted', resume_at: null } })), 'Paused · usage limit');
   assert.equal(stText(row('now', { agent: { state: 'ci_wait' } })), 'Waiting for CI');
   assert.equal(stText(row('now', { agent: { state: null } })), 'State unknown');
+});
+test('labelled usage-limit state keeps its resume time and paused count', () => {
+  const usage = row('now', { agent: { state: 'paused-usage-limit', pause: 'usage_limit_exhausted', resume_at: 1791408000000 } });
+  assert.equal(stText(usage), 'agent:paused-usage-limit (resumes at 21:20 UTC)');
+  assert.match(html({ now: [usage] }), /1 paused/);
 });
 test('U3 closures preserve their reason', () => {
   for (const [status, cls, label] of [['not_planned', 'np', 'Not planned'], ['closed', 'closed', 'Closed'], ['running', 'unknown', 'State unknown']]) {
