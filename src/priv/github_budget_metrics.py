@@ -1,3 +1,5 @@
+"""Timing helpers and background WAL checkpoints for the resident broker."""
+
 import json
 import os
 import queue
@@ -45,6 +47,9 @@ class SessionConnection:
 
 
 def configure_connection(conn):
+    # Keep automatic WAL checkpoints out of request COMMIT; checkpoint I/O is
+    # handled by the passive background worker below. One-shot CLI commands do
+    # not start that worker and keep SQLite's automatic checkpoint behavior.
     if CHECKPOINT_REQUESTS is not None:
         conn.execute("PRAGMA wal_autocheckpoint = 0")
 

@@ -71,7 +71,9 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
     # The same retries leave the configured ten-second window while they would
     # still be inside the default 300-second window, so the alert resolves.
     check(11_001)
-    assert_receive {:emitted, @resolved_topic, _}, 1000
+    assert_receive {:emitted, @resolved_topic, resolved_opts}, 1000
+    assert resolved_opts[:message] =~ "timeout rate recovered"
+    assert resolved_opts[:reason] =~ "retry rate dropped back below threshold"
   end
 
   test "the incident timeout pattern raises one alert and clears after recovery" do
@@ -100,6 +102,8 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
     check(368_001)
     assert_receive {:emitted, @resolved_topic, resolved_opts}, 1000
     assert resolved_opts[:needs_attention] == false
+    assert resolved_opts[:message] =~ "timeout rate recovered"
+    assert resolved_opts[:reason] =~ "retry rate dropped back below threshold"
   end
 
   test "a single isolated timeout raises nothing" do
@@ -155,6 +159,8 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
 
     :ok = BrokerTimeout.record_checkpoint_recovered(name: @name)
     check(2_000)
-    assert_receive {:emitted, @resolved_topic, _}, 1000
+    assert_receive {:emitted, @resolved_topic, resolved_opts}, 1000
+    assert resolved_opts[:message] =~ "checkpoint recovered"
+    assert resolved_opts[:reason] =~ "age returned below ten minutes"
   end
 end
