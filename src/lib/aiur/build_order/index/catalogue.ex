@@ -99,18 +99,25 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
         metadata_with_defaults(slug, metadata)
 
       _missing ->
-        Enum.find_value(feature.epics, metadata_with_defaults(slug, %{}), fn epic ->
-          case epic_lane(slug, epic.key) do
-            nil ->
-              nil
+        metadata_from_feature_epics(feature.epics, slug, metadata_by_root)
+    end
+  end
 
-            lane ->
-              case metadata_for_lane(lane, slug, metadata_by_root) do
-                %{} = metadata when map_size(metadata) > 0 -> metadata
-                _empty -> nil
-              end
-          end
-        end)
+  defp metadata_from_feature_epics(epics, slug, metadata_by_root) do
+    default = metadata_with_defaults(slug, %{})
+
+    Enum.find_value(epics, default, fn epic ->
+      case epic_lane(slug, epic.key) do
+        nil -> nil
+        lane -> nonempty_metadata_for_lane(lane, slug, metadata_by_root)
+      end
+    end)
+  end
+
+  defp nonempty_metadata_for_lane(lane, slug, metadata_by_root) do
+    case metadata_for_lane(lane, slug, metadata_by_root) do
+      %{} = metadata when map_size(metadata) > 0 -> metadata
+      _empty -> nil
     end
   end
 
