@@ -185,6 +185,7 @@ defmodule Aiur.MixProject do
       {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
       {:ecto, "~> 3.13.6"},
+      {:postgrex, "~> 0.22.4"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:voice_converse, path: "../packages/elixir/voice_converse"},
