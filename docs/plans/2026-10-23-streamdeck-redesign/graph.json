@@ -1,0 +1,628 @@
+{
+ "feature_slug": "streamdeck-redesign",
+ "plan_version": 1,
+ "researched_commit": "6a7d6b445",
+ "nodes": [
+  {
+   "id": "SD-101",
+   "complexity": 3,
+   "area": "area:daemon",
+   "wave": 1,
+   "depends_on": [],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-401",
+    "SD-403"
+   ],
+   "fan_out": 8,
+   "phase": 1,
+   "issue": 6025
+  },
+  {
+   "id": "SD-102",
+   "complexity": 4,
+   "area": "area:daemon",
+   "wave": 2,
+   "depends_on": [
+    "SD-101"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [],
+   "fan_out": 11,
+   "phase": 2,
+   "issue": 6026
+  },
+  {
+   "id": "SD-103",
+   "complexity": 4,
+   "area": "area:ui",
+   "wave": 3,
+   "depends_on": [
+    "SD-102",
+    "SD-201"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-201",
+    "SD-407",
+    "SD-408"
+   ],
+   "fan_out": 3,
+   "phase": 3,
+   "issue": 6027
+  },
+  {
+   "id": "SD-104",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 3,
+   "depends_on": [
+    "SD-102",
+    "SD-201"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-201"
+   ],
+   "fan_out": 2,
+   "phase": 3,
+   "issue": 6028
+  },
+  {
+   "id": "SD-105",
+   "complexity": 3,
+   "area": "area:daemon",
+   "wave": 5,
+   "depends_on": [
+    "SD-202",
+    "SD-401",
+    "SD-402",
+    "SD-403",
+    "SD-303",
+    "SD-304",
+    "SD-103",
+    "SD-104"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-202",
+    "SD-401",
+    "SD-403"
+   ],
+   "fan_out": 1,
+   "phase": 5,
+   "issue": 6029
+  },
+  {
+   "id": "SD-201",
+   "complexity": 3,
+   "area": "area:daemon",
+   "wave": 2,
+   "depends_on": [
+    "SD-101"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-102",
+    "SD-103",
+    "SD-104"
+   ],
+   "fan_out": 11,
+   "phase": 2,
+   "issue": 6030
+  },
+  {
+   "id": "SD-202",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 3,
+   "depends_on": [
+    "SD-101",
+    "SD-102",
+    "SD-201"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-105",
+    "SD-203",
+    "SD-204",
+    "SD-205"
+   ],
+   "fan_out": 5,
+   "phase": 3,
+   "issue": 6031
+  },
+  {
+   "id": "SD-203",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 4,
+   "depends_on": [
+    "SD-102",
+    "SD-201",
+    "SD-202"
+   ],
+   "external_blocked_by": [
+    5998
+   ],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-202",
+    "SD-204",
+    "SD-205"
+   ],
+   "fan_out": 1,
+   "phase": 4,
+   "issue": 6032
+  },
+  {
+   "id": "SD-204",
+   "complexity": 2,
+   "area": "area:ui",
+   "wave": 4,
+   "depends_on": [
+    "SD-102",
+    "SD-201",
+    "SD-202"
+   ],
+   "external_blocked_by": [
+    5999
+   ],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-202",
+    "SD-203",
+    "SD-205"
+   ],
+   "fan_out": 1,
+   "phase": 4,
+   "issue": 6033
+  },
+  {
+   "id": "SD-205",
+   "complexity": 2,
+   "area": "area:ui",
+   "wave": 4,
+   "depends_on": [
+    "SD-401",
+    "SD-102",
+    "SD-201",
+    "SD-202"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-202",
+    "SD-203",
+    "SD-204",
+    "SD-405"
+   ],
+   "fan_out": 2,
+   "phase": 4,
+   "issue": 6034
+  },
+  {
+   "id": "SD-206",
+   "complexity": 2,
+   "area": "area:daemon",
+   "wave": 3,
+   "depends_on": [
+    "SD-201"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [
+    "SD-102"
+   ],
+   "serializes_with": [
+    "SD-302",
+    "SD-403",
+    "SD-404"
+   ],
+   "fan_out": 2,
+   "phase": 3,
+   "issue": 6035
+  },
+  {
+   "id": "SD-207",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 1,
+   "depends_on": [],
+   "external_blocked_by": [
+    5945
+   ],
+   "suggested_after": [
+    "SD-103"
+   ],
+   "serializes_with": [
+    "SD-103",
+    "SD-406"
+   ],
+   "fan_out": 2,
+   "phase": 2,
+   "issue": 6036
+  },
+  {
+   "id": "SD-301",
+   "complexity": 3,
+   "area": "area:daemon",
+   "wave": 2,
+   "depends_on": [
+    "SD-101"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-201",
+    "SD-302",
+    "SD-303",
+    "SD-304"
+   ],
+   "fan_out": 3,
+   "phase": 2,
+   "issue": 6037
+  },
+  {
+   "id": "SD-302",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 4,
+   "depends_on": [
+    "SD-301",
+    "SD-206"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-201",
+    "SD-301",
+    "SD-303",
+    "SD-304"
+   ],
+   "fan_out": 1,
+   "phase": 4,
+   "issue": 6038
+  },
+  {
+   "id": "SD-303",
+   "complexity": 3,
+   "area": "area:daemon",
+   "wave": 3,
+   "depends_on": [
+    "SD-101",
+    "SD-301"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [
+    "#5181 parked"
+   ],
+   "serializes_with": [
+    "SD-105",
+    "SD-201",
+    "SD-301",
+    "SD-302",
+    "SD-304"
+   ],
+   "fan_out": 3,
+   "phase": 3,
+   "issue": 6039
+  },
+  {
+   "id": "SD-304",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 4,
+   "depends_on": [
+    "SD-303"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-105",
+    "SD-201",
+    "SD-303"
+   ],
+   "fan_out": 2,
+   "phase": 4,
+   "issue": 6040
+  },
+  {
+   "id": "SD-401",
+   "complexity": 2,
+   "area": "area:ui",
+   "wave": 2,
+   "depends_on": [
+    "SD-101"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-101",
+    "SD-105",
+    "SD-403"
+   ],
+   "fan_out": 4,
+   "phase": 1,
+   "issue": 6041
+  },
+  {
+   "id": "SD-402",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 3,
+   "depends_on": [
+    "SD-401",
+    "SD-102"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-205",
+    "SD-403"
+   ],
+   "fan_out": 2,
+   "phase": 3,
+   "issue": 6042
+  },
+  {
+   "id": "SD-403",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 2,
+   "depends_on": [
+    "SD-101"
+   ],
+   "external_blocked_by": [
+    5589
+   ],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-101",
+    "SD-105",
+    "SD-401",
+    "SD-404",
+    "SD-405"
+   ],
+   "fan_out": 4,
+   "phase": 1,
+   "issue": 6043
+  },
+  {
+   "id": "SD-404",
+   "complexity": 3,
+   "area": "area:ui",
+   "wave": 3,
+   "depends_on": [
+    "SD-403",
+    "SD-201",
+    "SD-102"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-205",
+    "SD-403",
+    "SD-405"
+   ],
+   "fan_out": 1,
+   "phase": 3,
+   "issue": 6044
+  },
+  {
+   "id": "SD-405",
+   "complexity": 2,
+   "area": "area:ui",
+   "wave": 5,
+   "depends_on": [
+    "SD-403",
+    "SD-205",
+    "SD-102"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-205",
+    "SD-403",
+    "SD-404"
+   ],
+   "fan_out": 1,
+   "phase": 5,
+   "issue": 6045
+  },
+  {
+   "id": "SD-406",
+   "complexity": 4,
+   "area": "area:ui",
+   "wave": 4,
+   "depends_on": [
+    "SD-201",
+    "SD-102",
+    "SD-103",
+    "SD-207"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-201",
+    "SD-207",
+    "SD-407"
+   ],
+   "fan_out": 2,
+   "phase": 4,
+   "issue": 6046
+  },
+  {
+   "id": "SD-407",
+   "complexity": 4,
+   "area": "area:voice",
+   "wave": 5,
+   "depends_on": [
+    "SD-406",
+    "SD-201"
+   ],
+   "external_blocked_by": [
+    4142,
+    4145,
+    5729
+   ],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-406",
+    "SD-408"
+   ],
+   "fan_out": 2,
+   "phase": 5,
+   "issue": 6047
+  },
+  {
+   "id": "SD-408",
+   "complexity": 2,
+   "area": "area:voice",
+   "wave": 6,
+   "depends_on": [
+    "SD-407"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [
+    "SD-105",
+    "SD-407"
+   ],
+   "fan_out": 1,
+   "phase": 6,
+   "issue": 6048
+  },
+  {
+   "id": "SD-901",
+   "complexity": 2,
+   "area": "area:ui",
+   "wave": 7,
+   "depends_on": [
+    "SD-101",
+    "SD-102",
+    "SD-103",
+    "SD-104",
+    "SD-105",
+    "SD-201",
+    "SD-202",
+    "SD-203",
+    "SD-204",
+    "SD-205",
+    "SD-206",
+    "SD-207",
+    "SD-301",
+    "SD-302",
+    "SD-303",
+    "SD-304",
+    "SD-401",
+    "SD-402",
+    "SD-403",
+    "SD-404",
+    "SD-405",
+    "SD-406",
+    "SD-407",
+    "SD-408"
+   ],
+   "external_blocked_by": [],
+   "suggested_after": [],
+   "serializes_with": [],
+   "fan_out": 0,
+   "phase": 7,
+   "issue": 6049
+  }
+ ],
+ "waves": {
+  "1": [
+   "SD-101",
+   "SD-207"
+  ],
+  "2": [
+   "SD-102",
+   "SD-201",
+   "SD-301",
+   "SD-401",
+   "SD-403"
+  ],
+  "3": [
+   "SD-103",
+   "SD-104",
+   "SD-202",
+   "SD-206",
+   "SD-303",
+   "SD-402",
+   "SD-404"
+  ],
+  "4": [
+   "SD-203",
+   "SD-204",
+   "SD-205",
+   "SD-302",
+   "SD-304",
+   "SD-406"
+  ],
+  "5": [
+   "SD-105",
+   "SD-405",
+   "SD-407"
+  ],
+  "6": [
+   "SD-408"
+  ],
+  "7": [
+   "SD-901"
+  ]
+ },
+ "critical_path_points": 23,
+ "phases": {
+  "1": [
+   "SD-101",
+   "SD-401",
+   "SD-403"
+  ],
+  "2": [
+   "SD-102",
+   "SD-201",
+   "SD-207",
+   "SD-301"
+  ],
+  "3": [
+   "SD-103",
+   "SD-104",
+   "SD-202",
+   "SD-206",
+   "SD-303",
+   "SD-402",
+   "SD-404"
+  ],
+  "4": [
+   "SD-203",
+   "SD-204",
+   "SD-205",
+   "SD-302",
+   "SD-304",
+   "SD-406"
+  ],
+  "5": [
+   "SD-105",
+   "SD-405",
+   "SD-407"
+  ],
+  "6": [
+   "SD-408"
+  ],
+  "7": [
+   "SD-901"
+  ]
+ },
+ "phase_rule": "phase = longest-path wave, except SD-401/SD-403 pulled into phase 1 (defect fixes) and SD-207 into phase 2 (external blocker only)",
+ "epic_issue": 6024,
+ "parent_epic_issue": 5840,
+ "plan_pr": 6023
+}
