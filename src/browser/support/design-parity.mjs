@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { openVisualRoute } from './visual.mjs'
 import { dashboardCredentials } from '../tests/support/layout-worker.mjs'
 import { DESIGN_ROOT, DESIGN_ORIGIN, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage } from './design-parity-environment.mjs'
-export { DESIGN_ROOT, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage }
+export { FIXTURE_META }
 
 // CI run 37775013284: identical logo renders differ by up to 8/255 per channel.
 export const PARITY_THRESHOLD = 0.04
