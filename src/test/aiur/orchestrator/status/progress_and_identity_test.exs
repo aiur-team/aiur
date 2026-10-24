@@ -406,13 +406,16 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     parent = self()
 
     store =
-      spawn(fn ->
-        receive do
-          {:"$gen_call", from, {:open_blocking_decision_ids_by_ticket, identifiers}} ->
-            send(parent, {:decision_count_batch, identifiers})
-            GenServer.reply(from, {:ok, %{"MT-ONE" => ["cmd-1", "cmd-2"], "MT-TWO" => []}})
-        end
-      end)
+      start_supervised!(
+        {Task,
+         fn ->
+           receive do
+             {:"$gen_call", from, {:open_blocking_decision_ids_by_ticket, identifiers}} ->
+               send(parent, {:decision_count_batch, identifiers})
+               GenServer.reply(from, {:ok, %{"MT-ONE" => ["cmd-1", "cmd-2"], "MT-TWO" => []}})
+           end
+         end}
+      )
 
     assert RowFacts.open_decision_counts(["MT-ONE", "MT-TWO", "MT-ONE"], store) == %{
              "MT-ONE" => {2, :available},
@@ -420,6 +423,5 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
            }
 
     assert_received {:decision_count_batch, ["MT-ONE", "MT-TWO"]}
-    Process.exit(store, :normal)
   end
 end

@@ -118,11 +118,14 @@ defmodule AiurWeb.Build.IndexDaemonTest do
     refute_received {:index_read, _}
 
     subscriber =
-      spawn(fn ->
-        :ok = Index.subscribe(name)
-        send(parent, :subscribed)
-        receive(do: (:stop -> :ok))
-      end)
+      start_supervised!(
+        {Task,
+         fn ->
+           :ok = Index.subscribe(name)
+           send(parent, :subscribed)
+           receive(do: (:stop -> :ok))
+         end}
+      )
 
     assert_receive :source_subscribed, 1000
     assert_receive :subscribed, 1000
@@ -130,9 +133,9 @@ defmodule AiurWeb.Build.IndexDaemonTest do
     assert_receive :daemon_read, 1000
 
     monitor_ref = Process.monitor(subscriber)
-    Process.exit(subscriber, :kill)
-    assert_receive {:DOWN, ^monitor_ref, :process, ^subscriber, :killed}, 1000
-    assert_eventually(fn -> :sys.get_state(pid).active? == false end)
+    send(subscriber, :stop)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^subscriber, :normal}, 1000
+    refute :sys.get_state(pid).active?
 
     send(pid, {:running_changed, %{}})
     send(pid, :daemon_tick)
@@ -145,18 +148,6 @@ defmodule AiurWeb.Build.IndexDaemonTest do
       {:build_changes, _} -> drain()
     after
       0 -> :ok
-    end
-  end
-
-  defp assert_eventually(fun, attempts \\ 50)
-  defp assert_eventually(_fun, 0), do: flunk("condition not met in time")
-
-  defp assert_eventually(fun, attempts) do
-    if fun.() do
-      :ok
-    else
-      Process.sleep(10)
-      assert_eventually(fun, attempts - 1)
     end
   end
 end
