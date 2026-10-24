@@ -110,6 +110,10 @@ function renderListImpl() {
   const anchor = previous.find(el => el.getBoundingClientRect().top >= top);
   const offset = anchor ? anchor.getBoundingClientRect().top - top : null, scroll = vp.scrollTop;
   ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
+  if (S.list !== 'tickets') {
+    vp.innerHTML = '<div class="bd-list-placeholder">' + (S.list === 'features' ? 'Features' : 'Epics') + ' view is not available yet</div>';
+    vp.scrollTop = 0; bindOnce(vp); return;
+  }
   vp.innerHTML = listHTML(ctx.D, S, H, ctx.snap, nowMs());
   const all = rows(), next = anchor && all.find(el => el.dataset.id === anchor.dataset.id);
   vp.scrollTop = next ? vp.scrollTop + next.getBoundingClientRect().top - top - offset : scroll;
