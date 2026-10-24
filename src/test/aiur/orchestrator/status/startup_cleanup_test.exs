@@ -268,8 +268,9 @@ defmodule Aiur.Orchestrator.Status.StartupCleanupTest do
       # The sweep saves and deletes in one task, off the Orchestrator (#2743).
       assert_receive {:workspace_cleanup_finished, "610", :ok}, 10_000
       refute File.exists?(terminal_workspace)
-      assert [_] = Path.wildcard(Path.join([workspace_root, "closed-ticket-logs", "610", "*", "agent.ndjson"]))
-      assert File.read!(hd(Path.wildcard(Path.join([workspace_root, "closed-ticket-logs", "610", "*", "agent.ndjson"])))) == "diagnostic transcript"
+      archived_transcript = Path.wildcard(Path.join([workspace_root, "log", "closed-ticket-transcripts", "610", "*", "agent.ndjson"]))
+      assert [_] = archived_transcript
+      assert File.read!(hd(archived_transcript)) == "diagnostic transcript"
       assert :none == SessionHandle.load("610", "codex")
     after
       restore_application_env(:github_client_module, previous_github_client)

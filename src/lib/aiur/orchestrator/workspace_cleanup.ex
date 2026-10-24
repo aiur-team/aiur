@@ -32,6 +32,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   alias Aiur.Alerts.ClosedTicket
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
   alias Aiur.Orchestrator.{DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
+  alias Aiur.Orchestrator.ClosedTicketTranscriptArchive
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
   @type terminal_cleanup :: {ticket :: String.t(), workspace_identifier :: String.t(), worker_host :: String.t() | nil}
@@ -138,27 +139,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   end
 
   defp archive_workspace_logs(identifier, worker_host) do
-    with nil <- worker_host,
-         {:ok, workspace} <- Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), worker_host),
-         source <- Path.join(workspace, "logs"),
-         true <- File.dir?(source) do
-      archive_root = Path.join(Config.settings!().workspace.root, "closed-ticket-logs")
-      archive = Path.join([archive_root, Layout.safe_identifier(identifier), Integer.to_string(System.system_time(:millisecond))])
-
-      with :ok <- File.mkdir_p(Path.dirname(archive)),
-           do: copy_logs(source, archive)
-    else
-      worker when is_binary(worker) -> {:error, :remote_transcript_archive_unsupported}
-      false -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp copy_logs(source, destination) do
-    case File.cp_r(source, destination) do
-      {:ok, _files} -> :ok
-      {:error, reason, _file} -> {:error, reason}
-    end
+    ClosedTicketTranscriptArchive.archive(identifier, worker_host)
   end
 
   @doc false

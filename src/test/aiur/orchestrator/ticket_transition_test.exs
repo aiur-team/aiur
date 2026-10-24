@@ -137,6 +137,7 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
 
       assert :ok = TicketTransition.write_reason_modifier("7", :remove, suffix, writer: :issue_sync, tracker: Client)
       assert_received {:adapter_marker, :remove, "7", ^label}
+    end
   end
 
   test "none expectation and replay preserve adapter semantics" do
