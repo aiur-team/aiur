@@ -16,6 +16,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   alias Aiur.AgentRunner.{
     RepeatedCommandGuard,
+    RepeatedCommandStop,
     SessionResume,
     ToolExecutor,
     TurnAlerts,
@@ -26,11 +27,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.AgentTools.Dispatch
   alias Aiur.CodingAgent
   alias Aiur.Config
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Issue
-  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.DispatchPolicy
-  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Signal
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
@@ -233,65 +231,14 @@ defmodule Aiur.AgentRunner.TurnLoop do
       {:error, reason} = error ->
         case reason do
           {:repeated_identical_command, command, count} ->
-            stop_on_repeated_command(turn_context, command, count)
+            RepeatedCommandStop.stop_on_repeated_command(turn_context, command, count)
 
           {:turn_cap, cap, count} ->
-            stop_on_turn_cap(turn_context, cap, count)
+            RepeatedCommandStop.stop_on_turn_cap(turn_context, cap, count)
 
           _ ->
             settle_turn_error(turn_context, backend, reason, error)
         end
-    end
-  end
-
-  defp stop_on_repeated_command(turn_context, command, count) do
-    message =
-      "Stopped #{turn_context.issue.identifier}: read-only command output repeated #{count} times: #{inspect(command)}. Review the result before resuming."
-
-    pause_repeated_turn(turn_context, message, "repeated-identical-command", :repeated_identical_command)
-  end
-
-  defp stop_on_turn_cap(turn_context, cap, count) do
-    message = "Stopped #{turn_context.issue.identifier}: per-turn #{cap} cap reached at #{count}. Review the result before resuming."
-    pause_repeated_turn(turn_context, message, "turn-#{cap}-cap", :turn_cap)
-  end
-
-  defp pause_repeated_turn(turn_context, message, alert_name, pause_kind) do
-    %{
-      issue: issue,
-      workspace: workspace,
-      worker_host: worker_host,
-      codex_update_recipient: recipient,
-      orchestrator: orchestrator
-    } = turn_context
-
-    _ = Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-
-    marker_result =
-      TicketTransition.write_marker(
-        issue.identifier,
-        :add,
-        "#{GitHubConfig.label_prefix()}:paused",
-        writer: :approval_pause
-      )
-
-    Signal.alert("ticket.#{issue.identifier}.agent.attention.#{alert_name}",
-      issue: issue,
-      workspace: workspace,
-      worker_host: worker_host,
-      message: message,
-      reason: message,
-      needs_attention: true,
-      severity: "warning"
-    )
-
-    case marker_result do
-      :ok ->
-        MessageHandler.send_control_state(recipient, issue, :paused, %{kind: pause_kind})
-        return_completed(turn_context, %{issue | paused: true})
-
-      {:error, reason} ->
-        {:error, {:turn_guard_pause_marker_failed, reason}}
     end
   end
 

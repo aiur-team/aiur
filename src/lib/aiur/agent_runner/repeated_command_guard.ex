@@ -57,26 +57,36 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
 
   defp observe_command_event(message) do
     case {Process.get(@key), command_event(message)} do
-      {%{} = context, {:started, id, command}} when is_binary(id) and is_binary(command) ->
-        Process.put(@key, put_in(context, [:pending_commands, id], command))
+      {%{} = context, {:started, id, command}} ->
+        store_pending_command(context, id, command)
 
-      {%{} = context, {:completed, id, output}} when is_binary(id) and is_binary(output) ->
-        case Map.pop(context.pending_commands, id) do
-          {command, pending} when is_binary(command) ->
-            observe_shell_command(%{context | pending_commands: pending}, command, output)
+      {%{} = context, {:completed, id, output}} ->
+        observe_pending_command(context, id, output)
 
-          _ ->
-            :ok
-        end
-
-      {%{} = context, {:complete, command, output}}
-      when is_binary(command) and is_binary(output) ->
+      {%{} = context, {:complete, command, output}} ->
         observe_shell_command(context, command, output)
 
       _ ->
         :ok
     end
   end
+
+  defp store_pending_command(context, id, command) when is_binary(id) and is_binary(command),
+    do: Process.put(@key, put_in(context, [:pending_commands, id], command))
+
+  defp store_pending_command(_context, _id, _command), do: :ok
+
+  defp observe_pending_command(context, id, output) when is_binary(id) and is_binary(output) do
+    case Map.pop(context.pending_commands, id) do
+      {command, pending} when is_binary(command) ->
+        observe_shell_command(%{context | pending_commands: pending}, command, output)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp observe_pending_command(_context, _id, _output), do: :ok
 
   defp observe_shell_command(context, command, output) do
     commands = context.commands + 1
@@ -117,35 +127,42 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   # The provider event path cannot rewrite an already-reported tool result.
   # The caller queues this text as an Executor message for delivery at a safe
   # checkpoint.
-  defp command_event(%{event: :notification, payload: payload}) when is_map(payload) do
-    method = get(payload, :method)
-    params = get(payload, :params) || %{}
-    item = get(params, :item) || %{}
+  defp command_event(%{event: :notification, payload: payload}) when is_map(payload),
+    do: notification_command_event(payload)
 
-    cond do
-      method == "item/completed" and get(item, :type) == "commandExecution" ->
-        {:complete, get(item, :command), get(item, :aggregatedOutput) || ""}
+  defp command_event(%{event: :tool_call, payload: %{name: "exec_command", arguments: arguments} = payload}),
+    do: {:started, payload[:id], get(arguments, :command)}
 
-      method == "item/created" and get(item, :type) == "tool_call" and get(item, :name) == "Bash" ->
-        {:started, get(item, :id), get(get(item, :input) || %{}, :command)}
-
-      method == "item/created" and get(item, :type) == "tool_result" ->
-        {:completed, get(item, :tool_use_id) || get(item, :id), normalize_output(get(item, :content))}
-
-      true ->
-        :none
-    end
-  end
-
-  defp command_event(%{event: :tool_call, payload: %{name: "exec_command", arguments: arguments} = payload}) do
-    {:started, payload[:id], arguments["command"] || arguments[:command]}
-  end
-
-  defp command_event(%{event: :tool_result, payload: %{name: "exec_command", output: output} = payload}) do
-    {:completed, payload[:id], output}
-  end
+  defp command_event(%{event: :tool_result, payload: %{name: "exec_command", output: output} = payload}),
+    do: {:completed, payload[:id], output}
 
   defp command_event(_message), do: :none
+
+  defp notification_command_event(payload) do
+    method = get(payload, :method)
+    item = payload |> get(:params) |> then(&(get(&1 || %{}, :item) || %{}))
+    notification_command_event(method, get(item, :type), item)
+  end
+
+  defp notification_command_event("item/completed", "commandExecution", item),
+    do: {:complete, codex_command(item), get(item, :aggregatedOutput) || ""}
+
+  defp notification_command_event("item/created", "tool_call", item) do
+    if get(item, :name) == "Bash",
+      do: {:started, get(item, :tool_use_id) || get(item, :id), item |> get(:input) |> then(&get(&1 || %{}, :command))}
+  end
+
+  defp notification_command_event("item/created", "tool_result", item),
+    do: {:completed, get(item, :tool_use_id) || get(item, :id), normalize_output(get(item, :content))}
+
+  defp notification_command_event(_method, _type, _item), do: :none
+
+  defp codex_command(item) do
+    case get(item, :commandActions) do
+      [first | _] when is_map(first) -> get(first, :command) || get(item, :command)
+      _ -> get(item, :command)
+    end
+  end
 
   defp normalize_output(output) when is_binary(output), do: output
 

@@ -51,16 +51,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
 
-      case RepeatedCommandGuard.observe_message(message) do
-        {:steer, body} ->
-          case Keyword.get(lifecycle_opts, :repeated_command_steerer) do
-            sender when is_function(sender, 1) -> sender.(body)
-            _ -> :ok
-          end
-
-        _ ->
-          :ok
-      end
+      maybe_steer_repeated_command(message, lifecycle_opts)
 
       transcript_event = transcript_event_from(message, backend, turn_id)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
@@ -71,6 +62,13 @@ defmodule Aiur.AgentRunner.MessageHandler do
       LiveObserver.maybe_observe_live_conversation(issue, transcript_event, lifecycle_opts)
       maybe_broadcast_turn_event(issue, message, turn_id)
       send_codex_update(recipient, issue, message)
+    end
+  end
+
+  defp maybe_steer_repeated_command(message, lifecycle_opts) do
+    case {RepeatedCommandGuard.observe_message(message), Keyword.get(lifecycle_opts, :repeated_command_steerer)} do
+      {{:steer, body}, sender} when is_function(sender, 1) -> sender.(body)
+      _ -> :ok
     end
   end
 
