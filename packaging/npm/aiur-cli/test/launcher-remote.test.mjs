@@ -244,7 +244,7 @@ test("remote requests carry the exact expression used by local RPC", () => {
       expect(request.body.contract).toBe("aiur.control.call");
       expect(request.body.contract_version).toBe(1);
       expect(request.body.command).toBe(args[0]);
-      expect(request.body.timeout_ms).toBe(10_000);
+      expect(request.body.timeout_ms).toBe(args[0] === "message" ? 70_000 : 10_000);
       expect(request.body.max_scope).toBe("write");
       expect(request.authorization).toBe("Bearer remote-secret-token");
     }

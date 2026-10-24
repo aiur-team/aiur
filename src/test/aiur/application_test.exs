@@ -71,8 +71,10 @@ defmodule Aiur.ApplicationTest do
       assert :ok = AiurApp.start_distribution(SuccessStubDistribution)
     end
 
-    test "logs at debug when distribution refuses to start" do
-      assert :ok = AiurApp.start_distribution(FailureStubDistribution)
+    test "refuses startup when distribution setup fails" do
+      assert_raise RuntimeError, ~r/unsafe distributed daemon startup/, fn ->
+        AiurApp.start_distribution(FailureStubDistribution)
+      end
     end
   end
 

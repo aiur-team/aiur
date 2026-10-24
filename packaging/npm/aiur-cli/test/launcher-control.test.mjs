@@ -37,6 +37,7 @@ function setupControlRpc() {
       'if [ "$1" = "rpc" ]; then',
       '  expr="${*:2}"',
       '  echo "RPC_EXPR:$expr" >>"$AIUR_TEST_OUT"',
+      '  echo "RPC_TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}" >>"$AIUR_TEST_OUT"',
       '  case "${AIUR_FAKE_RPC_MODE:-ok}" in',
       // Transport succeeds; the control CLI prints output + the exit marker.
       '    ok) echo ":ok"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
@@ -134,6 +135,30 @@ test("workspace-recover safely encodes the ticket and validates its generation",
     expect(result.stderr).toContain("workspace-recover");
     expect(existsSync(captureFile)).toBe(false);
   }
+});
+
+test("message gives the daemon enough time to enqueue and reconcile a loaded send", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  const result = runControl(launcher, releaseDir, env, ["message", "44", "binding decision"]);
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.message("44", Base.decode64!("YmluZGluZyBkZWNpc2lvbg=="))',
+  );
+  expect(readFileSync(captureFile, "utf8")).toContain("RPC_TIMEOUT:70");
+});
+
+test("message status accepts a positive request id", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const env = { AIUR_FAKE_RPC_MODE: "ok", AIUR_FAKE_EPMD_REGISTERED: "1" };
+
+  const result = runControl(launcher, releaseDir, env, ["message", "--status", "17"]);
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("Aiur.AgentControlCLI.message_status(17)");
+  expect(runControl(launcher, releaseDir, env, ["message", "--status", "0"]).status).toBe(64);
 });
 
 test("control rpc surfaces the real error when the node is up but the rpc fails", () => {

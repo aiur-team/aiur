@@ -56,6 +56,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate unset_setting(key), to: Aiur.ControlCLI.Settings, as: :unset
   defdelegate unset_setting(key, opts), to: Aiur.ControlCLI.Settings, as: :unset
   defdelegate message(issue, text, message_id \\ nil), to: Aiur.Orchestrator.ControlCLI.Message
+  @spec message_status(pos_integer()) :: :ok
+  defdelegate message_status(request_id), to: Aiur.Orchestrator.ControlCLI.Message, as: :status
   defdelegate pause(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume(targets), to: Aiur.Orchestrator.ControlCLI
   defdelegate park(targets), to: Aiur.ControlCLI.Park, as: :run

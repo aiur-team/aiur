@@ -25,6 +25,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"workspace recover", "cmd_workspace_recover ENG-123 7", :write, []},
     {"message", "cmd_message 123 hello from operator", :write, []},
     {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
+    {"message status", "cmd_message --status 7", :read, []},
     {"set max agents", "cmd_set max-agents 5", :write, []},
     {"set runtime setting", "cmd_set agent.max_concurrent_builds 2", :write, []},
     {"unset runtime setting", "cmd_set --unset agent.max_concurrent_builds", :write, []},
