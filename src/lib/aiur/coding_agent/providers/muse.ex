@@ -18,7 +18,7 @@ defmodule Aiur.CodingAgent.Providers.Muse do
       init: Aiur.Muse.Init,
       default_command: Defaults.command(),
       install_hint: "Install Muse CLI and sign in with muse auth before selecting this backend",
-      skill_install: %{path: ".agents/skills"},
+      skill_install: %{path: ".agents/skills", link_to: ".claude/skills"},
       model_catalog: &ModelCatalog.extract/1,
       model_probe: &ModelCatalog.probe/2,
       models: ["muse-spark-1.3-contributor"],
