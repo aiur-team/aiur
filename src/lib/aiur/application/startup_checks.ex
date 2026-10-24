@@ -37,15 +37,17 @@ defmodule Aiur.Application.StartupChecks do
   @spec validate_hosted_mode({:ok, Aiur.Config.Schema.t()} | {:error, term()}, keyword()) :: :ok | {:error, term()}
   def validate_hosted_mode(settings, opts \\ [])
 
-  def validate_hosted_mode({:ok, settings}, opts),
-    do: HostedModeCheck.validate(settings, Keyword.put(opts, :booted_mode, nil))
+  def validate_hosted_mode({:ok, settings}, opts) do
+    opts = Keyword.put_new_lazy(opts, :booted_mode, fn -> Application.get_env(:aiur, :booted_instance_mode) end)
+    HostedModeCheck.validate(settings, opts)
+  end
 
   def validate_hosted_mode({:error, reason}, _opts), do: {:error, reason}
 
   @doc "Raise an actionable startup error when hosted execution is unsafe."
-  @spec validate_hosted_mode!({:ok, Aiur.Config.Schema.t()} | {:error, term()}) :: :ok
-  def validate_hosted_mode!(settings) do
-    case validate_hosted_mode(settings) do
+  @spec validate_hosted_mode!({:ok, Aiur.Config.Schema.t()} | {:error, term()}, keyword()) :: :ok
+  def validate_hosted_mode!(settings, opts \\ []) do
+    case validate_hosted_mode(settings, opts) do
       :ok -> :ok
       {:error, reason} -> raise ArgumentError, AiurConfig.format_config_error(reason)
     end

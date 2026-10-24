@@ -19,11 +19,20 @@ backend set and every registered agent-environment contributor before starting
 supervision and again before dispatch after a config reload. Missing or unknown
 declarations are unsafe.
 
+Hosted mode also rejects Remote Control (`agent.remote_control`, `+remote`
+routes, and `model:remote` labels), foreground tmux panes, tmux-backed REPL
+agents, and the test harness's `--allow-remote` bypass.
+
 Hosted mode requires bounded agent permissions, network access denied by
-default, and credentials kept in trusted daemon-side components. The current
-built-in backends each expose an agent-side boundary, so Aiur refuses hosted
-startup until the relevant isolation work lands. Local mode remains the default
-and preserves existing execution behavior.
+default, and credentials kept in trusted daemon-side components. Codex must
+use an approval policy other than `never`, a bounded thread sandbox, and a
+bounded per-turn sandbox with network access disabled.
+
+The current production backends each expose at least one agent-side boundary,
+so no production backend can pass hosted startup until the hosted-safe backend
+work lands in #5701. Local mode remains the default and preserves existing
+execution behavior without running hosted-only registry or
+environment-contributor checks.
 
 The mode is immutable for a running daemon. Editing `instance.mode` on reload
 is rejected in either direction; restart Aiur to change it. A rejection lists

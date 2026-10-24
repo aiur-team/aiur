@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
 
   alias Aiur.AgentEnvironment.Contributor
   alias Aiur.Config.AgentSettings
+  alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
   alias Aiur.Harness.Capabilities
 
@@ -18,7 +19,7 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
   @spec validate(Schema.t(), keyword()) :: :ok | {:error, term()}
   def validate(settings, opts \\ []) do
     mode = settings.instance.mode
-    booted_mode = Keyword.get(opts, :booted_mode, Application.get_env(:aiur, :booted_instance_mode))
+    booted_mode = input(opts, :booted_mode, fn -> Application.get_env(:aiur, :booted_instance_mode) end)
 
     cond do
       is_binary(booted_mode) and booted_mode != mode ->
@@ -32,16 +33,102 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
     end
   end
 
+  @doc "Validate ticket-level settings that can opt a dispatch into Remote Control."
+  @spec validate_dispatch(Schema.t(), Aiur.Issue.t(), keyword()) :: :ok | {:error, term()}
+  def validate_dispatch(settings, issue, opts \\ [])
+
+  def validate_dispatch(%{instance: %{mode: "hosted"}} = settings, issue, opts) do
+    with :ok <- validate(settings, opts) do
+      remote_override? = input(opts, :remote_override?, fn -> Aiur.CodingAgent.remote_control_forced?(issue) end)
+      dispatch_backend = input(opts, :dispatch_backend, fn -> Aiur.CodingAgent.backend_for(issue) end)
+      entries = input(opts, :registry_entries, &Aiur.CodingAgent.backends/0)
+
+      violations =
+        if(remote_override?, do: ["model:remote overrides are not allowed"], else: []) ++
+          transport_violations(dispatch_backend, Map.get(entries, dispatch_backend, %{}))
+
+      if violations == [], do: :ok, else: {:error, {:unsafe_hosted_mode, violations}}
+    end
+  end
+
+  def validate_dispatch(_settings, _issue, _opts), do: :ok
+
+  @doc "Reject the test harness remote-bypass flag in hosted mode."
+  @spec validate_allow_remote(String.t()) :: :ok | {:error, String.t()}
+  def validate_allow_remote("hosted"),
+    do: {:error, "--allow-remote is not allowed when instance.mode is hosted"}
+
+  def validate_allow_remote(_mode), do: :ok
+
   defp validate_hosted(settings, opts) do
-    violations = backend_violations(settings, opts) ++ contributor_violations(opts)
+    violations =
+      execution_surface_violations(opts) ++
+        configuration_violations(settings) ++
+        backend_violations(settings, opts) ++
+        contributor_violations(opts)
+
     if violations == [], do: :ok, else: {:error, {:unsafe_hosted_mode, violations}}
   end
 
+  defp execution_surface_violations(opts) do
+    interactive_cli? =
+      input(opts, :interactive_cli?, fn ->
+        Application.get_env(:aiur, :interactive_cli, false) and
+          not Application.get_env(:aiur, :headless, false)
+      end)
+
+    if interactive_cli?, do: ["local tmux panes are not allowed"], else: []
+  end
+
+  defp configuration_violations(settings) do
+    codex_configuration_violations(settings) ++ remote_control_violations(settings)
+  end
+
+  defp codex_configuration_violations(settings) do
+    approval_policy = settings.agent.codex.approval_policy
+    thread_sandbox = settings.agent.codex.thread_sandbox
+
+    approval_violations =
+      if approval_policy in ["untrusted", "on-failure", "on-request", "granular"] do
+        []
+      else
+        ["agent.codex.approval_policy must require approval, got #{inspect(approval_policy)}"]
+      end
+
+    sandbox_violations =
+      if thread_sandbox in ["workspace-write", "read-only"] do
+        []
+      else
+        ["agent.codex.thread_sandbox must be bounded, got #{inspect(thread_sandbox)}"]
+      end
+
+    approval_violations ++ sandbox_violations
+  end
+
+  defp remote_control_violations(settings) do
+    global =
+      if settings.agent.remote_control do
+        ["agent.remote_control is not allowed"]
+      else
+        []
+      end
+
+    routes =
+      settings.agent.routing_candidates
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.filter(&(is_binary(&1) and RoutingValue.routing_remote_flag?(&1)))
+      |> Enum.sort()
+      |> Enum.map(&"agent.routing route #{inspect(&1)} enables +remote")
+
+    global ++ routes
+  end
+
   defp backend_violations(settings, opts) do
-    entries = Keyword.get_lazy(opts, :registry_entries, &Aiur.CodingAgent.backends/0)
+    entries = input(opts, :registry_entries, &Aiur.CodingAgent.backends/0)
 
     dispatchable =
-      Keyword.get_lazy(opts, :dispatchable_backends, fn ->
+      input(opts, :dispatchable_backends, fn ->
         settings
         |> AgentSettings.agent_backend_configs()
         |> Aiur.CodingAgent.dispatchable_backends()
@@ -50,11 +137,13 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
     dispatchable
     |> Enum.sort()
     |> Enum.flat_map(fn backend ->
-      facts = entries |> Map.get(backend, %{}) |> Capabilities.hosted_security_for_entry()
+      entry = Map.get(entries, backend, %{})
+      facts = Capabilities.hosted_security_for_entry(entry)
 
       permission_violations(backend, facts.permission_boundary, settings) ++
         network_violations(backend, facts.network_boundary, settings) ++
-        credential_violations(backend, facts.credential_boundary)
+        credential_violations(backend, facts.credential_boundary) ++
+        transport_violations(backend, entry)
     end)
   end
 
@@ -95,9 +184,17 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
   defp credential_violations(backend, boundary),
     do: ["backend #{backend} does not keep credentials daemon-side (#{inspect(boundary)})"]
 
+  defp transport_violations(backend, entry) do
+    if get_in(entry, [:delivery, :transport]) == :tmux_pane do
+      ["backend #{backend} uses a local tmux REPL transport"]
+    else
+      []
+    end
+  end
+
   defp contributor_violations(opts) do
     opts
-    |> Keyword.get_lazy(:contributor_boundaries, &Contributor.hosted_credential_boundaries/0)
+    |> input(:contributor_boundaries, &Contributor.hosted_credential_boundaries/0)
     |> Enum.sort_by(fn {contributor, _boundary} -> inspect(contributor) end)
     |> Enum.flat_map(fn
       {_contributor, :daemon} -> []
@@ -107,4 +204,12 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
 
   defp field(map, "type"), do: Map.get(map, "type", Map.get(map, :type))
   defp field(map, "networkAccess"), do: Map.get(map, "networkAccess", Map.get(map, :networkAccess))
+
+  defp input(opts, key, default) do
+    case Keyword.fetch(opts, key) do
+      {:ok, fun} when is_function(fun, 0) -> fun.()
+      {:ok, value} -> value
+      :error -> default.()
+    end
+  end
 end

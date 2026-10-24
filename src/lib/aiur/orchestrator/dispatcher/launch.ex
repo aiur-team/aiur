@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.RetryEngine
@@ -88,6 +89,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts) when is_list(opts) do
     with false <- Aiur.Handoff.dispatch_held?(),
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
+         :ok <- HostedModeCheck.validate_dispatch(hosted_mode_settings(opts), prepared, opts),
          {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
       state = %{state | model_fallback_waiting: MapSet.delete(state.model_fallback_waiting, selected_issue.id)}
       dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts)
@@ -113,6 +115,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         end
     end
   end
+
+  defp hosted_mode_settings(opts),
+    do: Keyword.get_lazy(opts, :hosted_mode_settings, &Aiur.Config.settings!/0)
 
   defp dispatch_after_workspace_wait_or_thrash_check(state, selected_issue, attempt, preferred_worker_host, opts) do
     workspace_ownership = state.dispatch_recovery.workspace_ownership

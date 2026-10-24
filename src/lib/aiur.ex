@@ -183,7 +183,7 @@ defmodule Aiur.Application do
     to: Aiur.Application.StartupChecks
 
   defdelegate validate_hosted_mode(settings, opts \\ []), to: Aiur.Application.StartupChecks
-  defdelegate validate_hosted_mode!(settings), to: Aiur.Application.StartupChecks
+  defdelegate validate_hosted_mode!(settings, opts \\ []), to: Aiur.Application.StartupChecks
 
   defdelegate child_specs(opts), to: Aiur.Application.Children
 
