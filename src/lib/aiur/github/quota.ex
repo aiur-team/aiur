@@ -40,6 +40,7 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
 
   alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, SnapshotCache, Windows}
+  alias Aiur.Instance.LeaseStore
   alias Aiur.Signal
 
   @empty_coverage %{resources: %{}, estimated?: false}
@@ -269,7 +270,7 @@ defmodule Aiur.GitHub.Quota do
     }
 
     SnapshotCache.put(self(), snapshot, System.monotonic_time(:millisecond), System.system_time(:millisecond))
-    _ = Aiur.Instance.LeaseStore.publish_github_quota_snapshot(snapshot)
+    _ = LeaseStore.publish_github_quota_snapshot(snapshot)
     state = maybe_alert_stale_sample(state, now)
     {:reply, snapshot, state}
   end
