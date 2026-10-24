@@ -298,12 +298,11 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
-    # The gap row's degraded build must render its missing wait as "—", and a
-    # missing fleet figure must never be coerced into a confident "0".
-    assert html =~ "—"
-    assert html =~ ">degraded<"
-    refute html =~ ">0s<"
-    # The measured row still carries its exact values (not blurred by the gap).
+    {:ok, document} = Floki.parse_document(html)
+    [gap_row] = Enum.filter(Floki.find(document, "#analytics-pressure-table tbody tr"), &(Floki.find(&1, "td") |> Enum.at(4) |> Floki.text() == "degraded"))
+    gap_wait = gap_row |> Floki.find("td") |> List.last() |> Floki.text()
+    assert gap_wait == "—"
+    refute gap_wait == "0s"
     assert html =~ "13"
     assert html =~ "189s"
   end
@@ -592,7 +591,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "latest run"
-    assert html =~ "Add a Build Order selection to scope this page to its members"
+    assert html =~ "This is a 1-ticket window: only one ticket has telemetry in the latest run."
   end
 
   test "charts only the current session, not every session in the durable stream" do
