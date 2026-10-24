@@ -420,6 +420,9 @@
 }
 
 /* C:195 */ .bd-sech em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-style: normal;
   font-weight: 500;
   letter-spacing: .02em;
