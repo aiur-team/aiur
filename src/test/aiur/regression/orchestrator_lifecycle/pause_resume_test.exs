@@ -39,7 +39,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       running = %{"active" => running_entry("active", "L10A", :working), "paused" => running_entry("paused", "L10P", :paused)}
       :sys.replace_state(pid, &%{&1 | session_max_concurrent_agents: 1, running: running})
 
-      assert {:error, :max_concurrent_agents_reached} = Orchestrator.resume_agent(name, "L10P")
+      assert {:error, {:max_concurrent_agents_reached, %{used: 1, active: 1, paused_holds: 0, limit: 1}}} = Orchestrator.resume_agent(name, "L10P")
       refute_receive {:resume_agent, _}, 100
     end
 
