@@ -53,48 +53,45 @@ defmodule Aiur.Instance.LeaseStore.RepositoryLease do
 
   @doc false
   @spec handle(atom(), map(), String.t(), pos_integer() | nil, String.t() | nil) :: term()
-  def handle(state, action, repo, ttl_ms, _instance_id) do
-    query =
-      case action do
-        :claim ->
-          {"""
-           INSERT INTO aiur_repository_leases (repository, instance_id, heartbeat_at, expires_at)
-           VALUES ($1, $2, clock_timestamp(), clock_timestamp() + make_interval(secs => $3))
-           ON CONFLICT (repository) DO UPDATE SET instance_id = EXCLUDED.instance_id,
-             heartbeat_at = EXCLUDED.heartbeat_at, expires_at = EXCLUDED.expires_at
-           WHERE aiur_repository_leases.expires_at <= clock_timestamp()
-              OR aiur_repository_leases.instance_id = EXCLUDED.instance_id
-           RETURNING repository
-           """, [repo, instance_id(state), ttl_ms / 1_000], fn %{num_rows: rows} -> if(rows == 1, do: :acquired, else: :held) end}
+  def handle(state, action, repo, ttl_ms, _instance_id), do: query(state, query_spec(action, repo, ttl_ms, state))
 
-        :renew ->
-          {"""
-           UPDATE aiur_repository_leases SET heartbeat_at = clock_timestamp(),
-             expires_at = clock_timestamp() + make_interval(secs => $3)
-           WHERE repository = $1 AND instance_id = $2 AND expires_at > clock_timestamp()
-           RETURNING repository
-           """, [repo, instance_id(state), ttl_ms / 1_000], fn %{num_rows: rows} -> if(rows == 1, do: :ok, else: {:error, :lease_lost}) end}
-
-        :read ->
-          {"SELECT instance_id, heartbeat_at, expires_at FROM aiur_repository_leases WHERE repository = $1 AND expires_at > clock_timestamp()", [repo],
-           fn
-             %{rows: [[id, heartbeat_at, expires_at]]} -> {:ok, %{instance_id: id, heartbeat_at: heartbeat_at, expires_at: expires_at}}
-             %{rows: []} -> {:ok, nil}
-           end}
-      end
-
-    {sql, params, mapper} = query
-
-    result =
-      case state.conn && Postgrex.query(state.conn, sql, params, timeout: 5_000) do
-        {:ok, response} -> mapper.(response)
-        {:error, error} -> {:error, {:store_unavailable, error}}
-        nil -> {:error, {:store_unavailable, :not_connected}}
-      end
-
-    result
+  defp query(state, {sql, params, mapper}) do
+    case state.conn && Postgrex.query(state.conn, sql, params, timeout: 5_000) do
+      {:ok, response} -> mapper.(response)
+      {:error, error} -> {:error, {:store_unavailable, error}}
+      nil -> {:error, {:store_unavailable, :not_connected}}
+    end
   rescue
-    error -> {{:error, {:store_unavailable, error}}, state}
+    error -> {:error, {:store_unavailable, error}}
+  end
+
+  defp query_spec(:claim, repo, ttl_ms, state) do
+    {"""
+     INSERT INTO aiur_repository_leases (repository, instance_id, heartbeat_at, expires_at)
+     VALUES ($1, $2, clock_timestamp(), clock_timestamp() + make_interval(secs => $3))
+     ON CONFLICT (repository) DO UPDATE SET instance_id = EXCLUDED.instance_id,
+       heartbeat_at = EXCLUDED.heartbeat_at, expires_at = EXCLUDED.expires_at
+     WHERE aiur_repository_leases.expires_at <= clock_timestamp()
+        OR aiur_repository_leases.instance_id = EXCLUDED.instance_id
+     RETURNING repository
+     """, [repo, instance_id(state), ttl_ms / 1_000], fn %{num_rows: rows} -> if(rows == 1, do: :acquired, else: :held) end}
+  end
+
+  defp query_spec(:renew, repo, ttl_ms, state) do
+    {"""
+     UPDATE aiur_repository_leases SET heartbeat_at = clock_timestamp(),
+       expires_at = clock_timestamp() + make_interval(secs => $3)
+     WHERE repository = $1 AND instance_id = $2 AND expires_at > clock_timestamp()
+     RETURNING repository
+     """, [repo, instance_id(state), ttl_ms / 1_000], fn %{num_rows: rows} -> if(rows == 1, do: :ok, else: {:error, :lease_lost}) end}
+  end
+
+  defp query_spec(:read, repo, _ttl_ms, _state) do
+    {"SELECT instance_id, heartbeat_at, expires_at FROM aiur_repository_leases WHERE repository = $1 AND expires_at > clock_timestamp()", [repo],
+     fn
+       %{rows: [[id, heartbeat_at, expires_at]]} -> {:ok, %{instance_id: id, heartbeat_at: heartbeat_at, expires_at: expires_at}}
+       %{rows: []} -> {:ok, nil}
+     end}
   end
 
   defp call(action, repository, opts) do
