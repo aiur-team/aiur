@@ -547,7 +547,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns = %{
       payload: payload,
       now: DateTime.utc_now(),
-      repository_leader: Keyword.get(opts, :repository_leader, %{leader: "instance-west", lease_age: "12s"}),
       time_zone: "Etc/UTC",
       # This helper renders DashboardLive directly, bypassing mount/3, so it has
       # to seed every assign mount/3 seeds — including the server-owned sidebar
@@ -892,10 +891,6 @@ defmodule AiurWeb.DashboardLiveTest do
     }
 
     unavailable_units = render_payload(fleet_payload)
-    assert unavailable_units =~ "Repository leader:"
-    assert unavailable_units =~ "instance-west"
-    assert unavailable_units =~ "lease age 12s"
-
     available_payload =
       Map.put(fleet_payload, :analytics, %{
         available?: true,
