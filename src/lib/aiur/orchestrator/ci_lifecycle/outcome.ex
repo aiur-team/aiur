@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
+  alias Aiur.Orchestrator.CiLifecycle.OwnerlessPass
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
@@ -161,19 +162,32 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   defp stale_approved_head?(_issue, _result), do: false
 
   defp transition_ci_pass(state, issue, result) do
-    if LifecycleFence.handoff_blocked?(state, issue) do
-      Transition.log_fenced_ci_handoff(issue, @active_handoff_state)
-      state
-    else
-      Poll.run_ci_effect(
-        state,
-        issue,
-        "transition_ci_pass",
-        fn -> write_ci_pass_state({issue, result}) end,
-        fn arg1, arg2 ->
-          apply_ci_pass_transition(arg1, arg2, {issue, result})
-        end
-      )
+    cond do
+      LifecycleFence.handoff_blocked?(state, issue) ->
+        Transition.log_fenced_ci_handoff(issue, @active_handoff_state)
+        state
+
+      not OwnerlessPass.runtime_owned?(state, issue) ->
+        # With no agent to resume, a green CI result completes the agent
+        # handoff: leave the ticket in review instead of creating an orphan claim.
+        OwnerlessPass.transition_to_review(
+          state,
+          issue,
+          result,
+          &clear_ci_test_failure_retry/2,
+          &remember_ci_approved_head/3
+        )
+
+      true ->
+        Poll.run_ci_effect(
+          state,
+          issue,
+          "transition_ci_pass",
+          fn -> write_ci_pass_state({issue, result}) end,
+          fn arg1, arg2 ->
+            apply_ci_pass_transition(arg1, arg2, {issue, result})
+          end
+        )
     end
   end
 

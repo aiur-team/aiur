@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   # Log capture is global; preserve the original module's serial execution.
   use Aiur.TestSupport
+  import ExUnit.CaptureLog
 
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, State}
@@ -75,6 +76,43 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
         CommentWake.mark_pr_merged_issue_done(state, "424242", pr_body: "Closes #424242", open_pull_requests_fun: fn _identifier -> {:ok, []} end)
 
       assert result == state
+    end
+
+    test "a merged PR terminalizes a ticket that is mid-flap in in-progress" do
+      issue = %Issue{
+        id: "issue-mid-flap",
+        identifier: "42",
+        state: "in-progress",
+        tracker_identity: tracker_identity("42")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          }
+      }
+
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #42",
+          target_state: "done",
+          update_issue_state_fun: fn "42", "done" ->
+            send(parent, {:terminal_target, "agent:done"})
+            :ok
+          end,
+          clear_session_handle_fun: fn _identifier -> :ok end,
+          observe_membership_fun: fn _identity, :completed -> :ok end,
+          set_terminal_verification_pending_fun: fn _identity, false -> :ok end,
+          terminate_running_issue_fun: fn current, issue_id, true -> %{current | running: Map.delete(current.running, issue_id)} end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
+        )
+
+      assert_received {:terminal_target, "agent:done"}
+      refute Map.has_key?(result.running, issue.id)
     end
 
     test "records completed membership before terminating a merged running issue" do
