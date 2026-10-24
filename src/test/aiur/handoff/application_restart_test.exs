@@ -9,6 +9,7 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     provider = start_sleeping_group(shell)
     relay = start_sleeping_group(shell)
     runtime_root = Aiur.TestSupport.tmp_root!("handoff-timeout-provider")
+    File.mkdir_p!(runtime_root)
     File.write!(Path.join(runtime_root, "provider-process-groups"), "#{elem(provider, 1)}\n#{elem(relay, 1)}\n")
 
     try do
@@ -205,6 +206,7 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     try do
       case collect_output(port, "", deadline) do
         {:timeout, output} ->
+          on_timeout.()
           kill_process_group(pid)
           {:timeout, output, pid}
 
