@@ -2,18 +2,20 @@ defmodule Aiur.Instance do
   @moduledoc """
   Ticket ownership filter for multi-instance runs (`instance.ignore`).
 
-  A ticket is *foreign* when another daemon owns it: its number is listed in
+  A ticket is *foreign* when another live daemon owns it (or shared ownership
+  cannot be read), or its number is listed in
   `instance.ignore.tickets`, it carries a label in `instance.ignore.labels`, or
   it carries a `<prefix>:*` label for a prefix in `instance.ignore.label_prefixes`.
   Per-ticket observers and the Executor wake projection skip foreign tickets.
-  Dispatch is scoped separately by `tracker.github.label_prefix` and never
-  consults this module. Rules are read from the live config on every call, so
-  they hot-reload.
+  Dispatch takes a shared lease after its tracker-label eligibility check.
+  Ignore rules are read from the live config on every call, so they hot-reload.
   """
 
   require Logger
 
   alias Aiur.Config.Schema.Instance.Ignore
+  alias Aiur.Instance.Identity
+  alias Aiur.Instance.LeaseStore
 
   @counter_key {__MODULE__, :ignored}
 
@@ -21,7 +23,7 @@ defmodule Aiur.Instance do
   True when `ticket` is owned by another instance. `labels` may be omitted when
   the caller does not have them; label rules then fall back to the open-ticket
   snapshot. If config or the label snapshot is unavailable, filtering fails
-  closed while ownership rules are active.
+  closed while ownership rules or shared coordination are active.
   """
   @spec foreign?(term(), [String.t() | map()] | nil) :: boolean()
   def foreign?(ticket, labels \\ nil) do
@@ -34,6 +36,10 @@ defmodule Aiur.Instance do
   @doc false
   @spec foreign?(term(), [String.t() | map()] | nil, Ignore.t()) :: boolean()
   def foreign?(ticket, labels, %Ignore{} = rules) do
+    foreign_by_shared_lease?(ticket) or foreign_by_rules?(ticket, labels, rules)
+  end
+
+  defp foreign_by_rules?(ticket, labels, rules) do
     number = number(ticket)
 
     cond do
@@ -58,8 +64,12 @@ defmodule Aiur.Instance do
   @spec foreign_pr?([term()] | nil) :: boolean()
   def foreign_pr?(closing) when is_list(closing) do
     case rules_result() do
-      {:ok, rules} -> not empty?(rules) and Enum.any?(closing, &foreign?(&1, nil, rules))
-      {:error, _reason} -> closing != []
+      {:ok, rules} ->
+        (not empty?(rules) and Enum.any?(closing, &foreign?(&1, nil, rules))) or
+          Enum.any?(closing, &foreign_by_shared_lease?/1)
+
+      {:error, _reason} ->
+        closing != []
     end
   end
 
@@ -122,18 +132,43 @@ defmodule Aiur.Instance do
   @doc "One `aiur status` line naming the active ignore rules and the since-boot ignored count."
   @spec status_line(map()) :: String.t()
   def status_line(status \\ status()) do
-    rules = Enum.map_join([:tickets, :labels, :label_prefixes], " ", &"#{&1}=[#{Enum.join(status[&1], ",")}]")
+    rules =
+      Enum.map_join(
+        [:tickets, :labels, :label_prefixes],
+        " ",
+        &"#{&1}=[#{Enum.join(status[&1], ",")}]"
+      )
+
     "INSTANCE IGNORE #{rules} ignored_since_boot=#{status.ignored_since_boot}"
   end
 
   defp empty?(%Ignore{tickets: [], labels: [], label_prefixes: []}), do: true
   defp empty?(_rules), do: false
 
+  defp foreign_by_shared_lease?(ticket) do
+    foreign_by_shared_lease?(ticket, &LeaseStore.holder/1)
+  end
+
+  @doc false
+  @spec foreign_by_shared_lease?(term(), (term() -> term())) :: boolean()
+  def foreign_by_shared_lease?(ticket, holder_fun) when is_function(holder_fun, 1) do
+    case holder_fun.(ticket) do
+      {:held, holder_id} -> holder_id != Identity.current()
+      value when value in [:unheld, :disabled] -> false
+      _unknown_or_error -> true
+    end
+  rescue
+    _ -> true
+  end
+
   defp label_matches?(label, rules) do
     label = label |> label_name() |> String.downcase()
 
     Enum.any?(rules.labels, &(String.downcase(&1) == label)) or
-      Enum.any?(rules.label_prefixes, &String.starts_with?(label, String.downcase(String.trim_trailing(&1, ":")) <> ":"))
+      Enum.any?(
+        rules.label_prefixes,
+        &String.starts_with?(label, String.downcase(String.trim_trailing(&1, ":")) <> ":")
+      )
   end
 
   defp label_name(%{"name" => name}), do: to_string(name)

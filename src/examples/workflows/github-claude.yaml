@@ -55,6 +55,7 @@ tracker:
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
 instance:
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # primary | secondary; one primary per repository
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
@@ -119,6 +120,7 @@ server:
   # public_url: https://aiur.example.com
   # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
+# dashboard_auth: {google: {allowed_emails: [operator@example.com]}, passkeys: false, session_max_age_days: 30, browser_basic_auth: true}
 polling:
   idle_widen_factor: 5.0
   # Per-class cadences override interval_seconds for one class (#2309). The
@@ -153,6 +155,9 @@ agent:
   max_concurrent_agents: 5
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
+  # max_repeated_identical_commands: 5
+  # max_commands_per_turn: 1000
+  # max_input_tokens_per_turn: 20000000
 claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md

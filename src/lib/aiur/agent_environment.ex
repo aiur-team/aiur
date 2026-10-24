@@ -27,7 +27,7 @@ defmodule Aiur.AgentEnvironment do
   # own.
   @restart_build_env_names ~w(AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_RECEIPT AIUR_RESTART_BUILD_VERIFIES)
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
-  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE)
+  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE AIUR_LEASE_DATABASE_URL)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY(?:__[A-Z0-9_-]+)?\z/
   # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
@@ -131,6 +131,7 @@ defmodule Aiur.AgentEnvironment do
        Enum.join(
          @erlang_distribution_env_names ++
            @daemon_dump_env_names ++
+           ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
            @restart_build_env_names ++
            @parent_log_env_names ++
            @operator_only_env_names ++
@@ -253,6 +254,7 @@ defmodule Aiur.AgentEnvironment do
       Enum.map(
         @erlang_distribution_env_names ++
           @daemon_dump_env_names ++
+          ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
           @restart_build_env_names ++
           @parent_log_env_names ++
           @operator_only_env_names ++
@@ -516,11 +518,8 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  defp scheduler_options(cap) do
-    System.get_env("ELIXIR_ERL_OPTIONS", "")
-    |> then(&Regex.replace(@scheduler_option, &1, ""))
-    |> String.split()
-    |> Kernel.++(["+S", "#{cap}:#{cap}"])
-    |> Enum.join(" ")
-  end
+  defp scheduler_options(cap), do: scheduler_options(cap, System.get_env("ELIXIR_ERL_OPTIONS", ""))
+
+  defp scheduler_options(cap, options),
+    do: options |> then(&Regex.replace(@scheduler_option, &1, "")) |> String.split() |> Kernel.++(["+S", "#{cap}:#{cap}"]) |> Enum.join(" ")
 end

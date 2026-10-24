@@ -6,6 +6,66 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
   alias Aiur.Workspace.WipPreservation
 
   describe "before_run refresh/recreate decision table (#569→#577→#653→#661)" do
+    test "keeps a stale index lock held by a live process" do
+      test_root = test_root("held-index-lock")
+
+      try do
+        {workspace, _trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "REG-LOCK-HELD-1")
+        lock = Path.join([workspace, ".git", "index.lock"])
+        File.write!(lock, "live writer")
+        set_mtime!(lock, DateTime.add(DateTime.utc_now(), -180, :second))
+        {:ok, lock_io} = File.open(lock, [:read])
+
+        issue = %Issue{
+          id: "issue-lock-held-1",
+          identifier: "REG-LOCK-HELD-1",
+          title: "Preserve active index lock",
+          state: "in-progress",
+          labels: ["agent:in-progress"]
+        }
+
+        result = Workspace.run_before_run_hook(workspace, issue)
+        :ok = File.close(lock_io)
+
+        assert {:error, {:git_metadata_lock_held, ^lock, age, 11, pid}} = result
+
+        assert age >= 120
+        assert pid == String.to_integer(System.pid())
+        assert File.read!(lock) == "live writer"
+      after
+        Aiur.TestCleanup.rm_rf!(test_root)
+      end
+    end
+
+    test "stale empty index lock is removed before before_run refresh" do
+      test_root = test_root("stale-index-lock")
+
+      try do
+        {workspace, trace_file} =
+          bootstrap_dirty_refresh_workspace!(test_root, "REG-LOCK-1", expect_index_lock_absent: true)
+
+        File.write!(Path.join(workspace, "README.md"), "initial\n")
+        lock = Path.join([workspace, ".git", "index.lock"])
+        File.write!(lock, "")
+        set_mtime!(lock, DateTime.add(DateTime.utc_now(), -180, :second))
+
+        issue = %Issue{
+          id: "issue-lock-1",
+          identifier: "REG-LOCK-1",
+          title: "Recover stale index lock",
+          state: "in-progress",
+          labels: ["agent:in-progress"]
+        }
+
+        assert :ok = Workspace.run_before_run_hook(workspace, issue)
+        refute File.exists?(lock)
+        assert trace_count(trace_file, issue.identifier) == 1
+        assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
+      after
+        Aiur.TestCleanup.rm_rf!(test_root)
+      end
+    end
+
     test "clean workspace: before_run refreshes and returns :ok without recreate" do
       test_root = test_root("clean")
 
@@ -329,6 +389,13 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
     trace_file = Path.join(test_root, "before-run.trace")
     refusal_output = Keyword.get(opts, :refusal_output)
 
+    lock_assertion =
+      if Keyword.get(opts, :expect_index_lock_absent) do
+        "if [ -e .git/index.lock ]; then echo 'Stale index lock reached before_run hook.' >&2; exit 66; fi"
+      else
+        ""
+      end
+
     File.mkdir_p!(source_repo)
     File.write!(Path.join(source_repo, "README.md"), "initial\n")
     git!(["-C", source_repo, "init", "-b", "main"])
@@ -350,6 +417,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
       hook_before_run: """
       PATH="/usr/bin:/bin:$PATH"
       basename "$PWD" >> #{shell_quote(trace_file)}
+      #{lock_assertion}
       if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
         git clone #{shell_quote(remote_repo)} .
@@ -380,5 +448,10 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
 
   defp shell_quote(value) do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+  end
+
+  defp set_mtime!(path, datetime) do
+    unix = DateTime.to_unix(datetime)
+    {_, 0} = System.cmd("touch", ["-d", "@#{unix}", path])
   end
 end
