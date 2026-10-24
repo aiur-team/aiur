@@ -17,9 +17,7 @@ defmodule Aiur.MergePolicyCLI do
   defp labels(%{ci: "wait", full_ci_labels: ["main-fix"]}), do: ""
   defp labels(policy), do: " full_ci=[#{Enum.join(policy.full_ci_labels, ",")}]"
 
-  defp disabled("secondary"),
-    do: "[landing_watch,quarantine_lifter,merge_queue_watchdog,main_watch]"
-
+  defp disabled("secondary"), do: "[landing_watch,quarantine_lifter,merge_queue_watchdog,main_watch]"
   defp disabled(_role), do: "none"
 
   defp watch(_policy, "secondary"), do: "off(secondary)"
@@ -31,8 +29,7 @@ defmodule Aiur.MergePolicyCLI do
 
   defp main(%{main_watch: %{enabled: true}}, state), do: " " <> main_state(state)
 
-  defp main(_policy, %{watcher: watcher} = state) when watcher != :not_running,
-    do: " " <> main_state(state)
+  defp main(_policy, %{watcher: watcher} = state) when watcher != :not_running, do: " " <> main_state(state)
 
   defp main(_policy, _state), do: ""
 
@@ -56,8 +53,7 @@ defmodule Aiur.MergePolicyCLI do
     "main=red" <> observation(state, now_ms) <> since <> fixer
   end
 
-  def main_state(%{status: :green} = state, now_ms),
-    do: "main=green" <> observation(state, now_ms)
+  def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)
 
   def main_state(_state, _now_ms), do: "main=unknown"
 
