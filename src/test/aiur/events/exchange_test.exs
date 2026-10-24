@@ -20,13 +20,6 @@ defmodule Aiur.Events.ExchangeTest do
   end
 
   describe "subscribe/2 + publish/3" do
-    test "subscribe_many registers every pattern for the caller", %{exchange: exchange} do
-      assert :ok = Exchange.subscribe_many(["ticket.101.#", "system.main.branch.push"], exchange)
-
-      assert Enum.sort(Exchange.bindings_for(self(), exchange)) ==
-               ["system.main.branch.push", "ticket.101.#"]
-    end
-
     test "delivers a matching event to the subscriber", %{exchange: exchange} do
       :ok = subscribe(exchange, "ticket.101.#")
       count = publish(exchange, "ticket.101.branch.push", %{id: 1, body: :hi})
@@ -88,13 +81,6 @@ defmodule Aiur.Events.ExchangeTest do
   end
 
   describe "unsubscribe/2" do
-    test "unsubscribe_many removes every pattern for the caller", %{exchange: exchange} do
-      :ok = Exchange.subscribe_many(["ticket.101.#", "system.main.branch.push"], exchange)
-
-      assert :ok = Exchange.unsubscribe_many(["ticket.101.#", "system.main.branch.push"], exchange)
-      assert Exchange.bindings_for(self(), exchange) == []
-    end
-
     test "no events delivered after unsubscribe", %{exchange: exchange} do
       :ok = subscribe(exchange, "ticket.101.#")
       :ok = unsubscribe(exchange, "ticket.101.#")

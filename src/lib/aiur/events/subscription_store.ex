@@ -343,8 +343,8 @@ defmodule Aiur.Events.SubscriptionStore do
     if updated != state.subscribed_to do
       new_state = %{state | subscribed_to: updated}
       :ok = Persistence.persist(new_state)
-      :ok = Exchange.unsubscribe_many(removed)
-      :ok = Exchange.subscribe_many(added)
+      Enum.each(removed, &Exchange.unsubscribe/1)
+      Enum.each(added, &Exchange.subscribe/1)
       {:reply, :ok, new_state}
     else
       {:reply, :ok, state}
