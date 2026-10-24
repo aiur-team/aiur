@@ -131,6 +131,7 @@ defmodule Aiur.AgentEnvironment do
        Enum.join(
          @erlang_distribution_env_names ++
            @daemon_dump_env_names ++
+           ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
            @restart_build_env_names ++
            @parent_log_env_names ++
            @operator_only_env_names ++
@@ -253,6 +254,7 @@ defmodule Aiur.AgentEnvironment do
       Enum.map(
         @erlang_distribution_env_names ++
           @daemon_dump_env_names ++
+          ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
           @restart_build_env_names ++
           @parent_log_env_names ++
           @operator_only_env_names ++
@@ -516,11 +518,8 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  defp scheduler_options(cap) do
-    System.get_env("ELIXIR_ERL_OPTIONS", "")
-    |> then(&Regex.replace(@scheduler_option, &1, ""))
-    |> String.split()
-    |> Kernel.++(["+S", "#{cap}:#{cap}"])
-    |> Enum.join(" ")
-  end
+  defp scheduler_options(cap), do: scheduler_options(cap, System.get_env("ELIXIR_ERL_OPTIONS", ""))
+
+  defp scheduler_options(cap, options),
+    do: options |> then(&Regex.replace(@scheduler_option, &1, "")) |> String.split() |> Kernel.++(["+S", "#{cap}:#{cap}"]) |> Enum.join(" ")
 end
