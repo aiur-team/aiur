@@ -95,6 +95,49 @@ defmodule Aiur.AgentRunner.HandoffTest do
     assert_receive {:finished, {:ok, :turn_completed}}, 30_000
   end
 
+  @tag :tmp_dir
+  test "a parked runner drains relay frames after the snapshot reply", %{tmp_dir: workspace} do
+    parent = self()
+
+    runner =
+      spawn(fn ->
+        {:ok, port} = Adapter.start_port(workspace, "exec cat")
+        session = %{backend: "codex", port: port, thread_id: "thread-held", workspace: workspace}
+        send(parent, {:ready, self(), port})
+
+        receive do
+          {:capture, from, ref} -> Handoff.capture(session, nil, from, ref)
+        end
+      end)
+
+    assert_receive {:ready, ^runner, port}, 5_000
+    ref = make_ref()
+    send(runner, {:capture, self(), ref})
+    assert_receive {^ref, {:ok, record}}, 5_000
+    on_exit(fn -> Fallback.stop(record) end)
+
+    Enum.each(1..200, fn n -> send(runner, {port, {:data, {:eol, "frame-#{n}"}}}) end)
+    assert wait_for_mailbox_below(runner, 100)
+    assert {:message_queue_len, queue_len} = Process.info(runner, :message_queue_len)
+    assert queue_len < 100
+
+    Process.exit(runner, :kill)
+  end
+
+  defp wait_for_mailbox_below(pid, limit, attempts \\ 100)
+  defp wait_for_mailbox_below(_pid, _limit, 0), do: false
+
+  defp wait_for_mailbox_below(pid, limit, attempts) do
+    case Process.info(pid, :message_queue_len) do
+      {:message_queue_len, count} when count < limit ->
+        true
+
+      _ ->
+        Process.sleep(10)
+        wait_for_mailbox_below(pid, limit, attempts - 1)
+    end
+  end
+
   test "before_turn preflight abort returns the unchanged session to the caller" do
     parent = self()
     session = %{backend: "codex", thread_id: "thread-1", os_pid: 1}
