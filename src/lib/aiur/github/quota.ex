@@ -269,6 +269,7 @@ defmodule Aiur.GitHub.Quota do
     }
 
     SnapshotCache.put(self(), snapshot, System.monotonic_time(:millisecond), System.system_time(:millisecond))
+    _ = Aiur.Instance.LeaseStore.publish_github_quota_snapshot(snapshot)
     state = maybe_alert_stale_sample(state, now)
     {:reply, snapshot, state}
   end

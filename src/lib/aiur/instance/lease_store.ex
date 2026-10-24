@@ -164,6 +164,26 @@ defmodule Aiur.Instance.LeaseStore do
   @spec list_live(keyword()) :: {:ok, [map()]} | {:error, term()}
   def list_live(opts \\ []), do: request(opts, :list_live)
 
+  defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points, opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate release_github_budget(lease_id), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate release_github_budget(lease_id, opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate publish_github_budget_hold(credential_key, resource, until_at), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate publish_github_budget_hold(credential_key, resource, until_at, opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate github_budget_hold(credential_key, resource), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate github_budget_hold(credential_key, resource, opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate publish_provider_meter(snapshot), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate publish_provider_meter(snapshot, opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate shared_provider_meter(provider), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate shared_provider_meter(provider, opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate publish_github_quota_snapshot(snapshot), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate publish_github_quota_snapshot(snapshot, opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate github_quota_snapshots(), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate github_quota_snapshots(opts), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate budget_coordination_status(), to: Aiur.Instance.LeaseStore.SharedState
+  defdelegate budget_coordination_status(opts), to: Aiur.Instance.LeaseStore.SharedState
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -177,6 +197,7 @@ defmodule Aiur.Instance.LeaseStore do
       reconnect_ms: Keyword.get(opts, :reconnect_initial_ms, @reconnect_initial_ms),
       reconnect_max_ms: Keyword.get(opts, :reconnect_max_ms, @reconnect_max_ms),
       outage?: false,
+      known_instance_count: max(Keyword.get(opts, :known_instance_count, 1), 1),
       retry_timer: nil
     }
 
@@ -275,7 +296,13 @@ defmodule Aiur.Instance.LeaseStore do
         &Postgres.decode_instances/1
       )
 
-    reply_with_reconnect(result, state)
+    case result do
+      {:ok, instances} when is_list(instances) ->
+        {:reply, result, %{state | known_instance_count: max(length(instances), 1)}}
+
+      _ ->
+        reply_with_reconnect(result, state)
+    end
   end
 
   def handle_call(:list_live, _from, state) do
@@ -290,7 +317,24 @@ defmodule Aiur.Instance.LeaseStore do
         &Postgres.decode_instances/1
       )
 
-    reply_with_reconnect(result, state)
+    case result do
+      {:ok, instances} when is_list(instances) ->
+        {:reply, result, %{state | known_instance_count: max(length(instances), 1)}}
+
+      _ ->
+        reply_with_reconnect(result, state)
+    end
+  end
+
+  def handle_call({:shared_state, message}, _from, state) do
+    case Aiur.Instance.LeaseStore.SharedState.handle_call(message, state) do
+      {:reply, {:error, {:store_unavailable, reason}} = reply, next_state} when is_pid(next_state.conn) ->
+        next_state = report_unavailable(%{next_state | conn: nil}, reason) |> schedule_reconnect()
+        {:reply, reply, next_state}
+
+      response ->
+        response
+    end
   end
 
   @impl true

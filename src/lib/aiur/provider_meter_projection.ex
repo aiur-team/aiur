@@ -148,6 +148,7 @@ defmodule Aiur.ProviderMeterProjection do
 
   @impl true
   def handle_call(:snapshot, _from, state) do
+    state = merge_shared_observations(state)
     now = state.clock.()
 
     views =
@@ -159,10 +160,13 @@ defmodule Aiur.ProviderMeterProjection do
   end
 
   def handle_call({:provider_view, provider}, _from, state) when provider in @providers do
+    state = merge_shared_observations(state)
     {:reply, consumer_view(provider, state.clock.(), state), state}
   end
 
   def handle_call({:redacted_snapshot, provider}, _from, state) do
+    state = merge_shared_observations(state)
+
     reply =
       if host_scoped?(provider) do
         HostObservations.redacted_snapshot(state.host_observations, provider)
@@ -204,6 +208,8 @@ defmodule Aiur.ProviderMeterProjection do
   @impl true
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{provider: provider} = snapshot}, state)
       when provider in @providers do
+    if snapshot.identity_scope == :account, do: Aiur.Instance.LeaseStore.publish_provider_meter(snapshot)
+
     {:noreply,
      %{
        state
@@ -213,6 +219,23 @@ defmodule Aiur.ProviderMeterProjection do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp merge_shared_observations(state) do
+    Enum.reduce(@providers, state, fn provider, acc ->
+      case Aiur.Instance.LeaseStore.shared_provider_meter(provider) do
+        {:ok, %ProviderMeterSnapshot{} = shared} ->
+          observations = retain(acc.observations, provider, shared)
+          %{acc | observations: observations}
+
+        _unavailable ->
+          acc
+      end
+    end)
+  rescue
+    _unavailable -> state
+  catch
+    :exit, _reason -> state
+  end
 
   # An observation with no observed_at cannot be aged, and an older observation
   # must never displace a newer one — broadcast order is not guaranteed.

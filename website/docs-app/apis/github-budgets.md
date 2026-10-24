@@ -4,6 +4,20 @@
 
 Aiur's resident Python broker reuses one SQLite connection and batches commands per process. Shell `gh` guards share its database, so daemons using one credential share quota ledgers.
 
+### Multiple daemon instances
+
+When several daemons use the same GitHub credential pool, configure all of them
+with the same `AIUR_LEASE_DATABASE_URL`. The coordination store shares daemon
+admissions and active rate-limit holds across the fleet. If the store is
+unavailable, each daemon divides its configured hourly ceilings by the last
+instance count it observed. Agent-side `gh` traffic continues to use each
+host's local broker and ledger; the coordination database URL is not passed to
+agent processes.
+
+Provider meter observations with account identity are also published through
+the coordination store, so another daemon can use the latest observed account
+reading. These are readings, not a shared provider-side admission counter.
+
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
 A broker admission waits up to five seconds (1.5 seconds on the Orchestrator process) for transient shared-lease saturation before returning a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. The network request deadline starts after admission.
@@ -85,7 +99,7 @@ rows against `limit - remaining` on the credential's own window:
 | Line | What to do |
 | --- | --- |
 | `reconciles` | The ranking accounts for the window's spend. |
-| `N points unattributed (spend outside this process)` | Expected. Anything else using the same credential — a shell `gh` call, another Aiur instance — is spend this process never saw. It bounds how much of the window the ranking explains. |
+| `N points unattributed (spend outside this process)` | Expected. Anything else using the same credential — a shell `gh` call or external script — is spend this process never saw. It bounds how much of the window the ranking explains. |
 | `DOES NOT reconcile — attributed more than was spent` | A double count in the accounting. Points cannot be spent twice, so this is a defect worth reporting. |
 | `not measurable` | No window has been observed yet. Not the same as zero spend. |
 
@@ -109,7 +123,9 @@ window rolls. Wait for the reset before comparing attribution against the creden
 
 As the table above says, it is expected. It counts anything sharing the
 credential that this process did not issue: a shell `gh` call, a script minting
-its own installation token, another Aiur instance.
+its own installation token. Another Aiur daemon's admissions and holds are
+shared when both use the coordination store, although point attribution remains
+local to each daemon.
 
 A monitoring loop sampling the API on the same credential *is itself* unattributed spend, so an investigation can widen the gap it is measuring. Baseline with the fleet quiet and your own tooling stopped.
 
