@@ -106,7 +106,8 @@ export const recordedSeconds = {
   'test:tokens': 27,
   'test:shell-parity': 169,
   'test:build-home': 89,
-  'test:build-home-motion': 508,
+  // Existing full-suite baseline 508s + newly activated feature subset 276s (local 2026-10-23).
+  'test:build-home-motion': 784,
   'test:build-home-offline': 12,
   'test:build-home-render': 190,
   'test:build-home-columns': 636,

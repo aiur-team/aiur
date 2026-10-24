@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
   if (root) await page.route('**/build-home/home.css*', async route => route.fulfill({ contentType: 'text/css', body: await readFile(root + '/src/priv/static/build-home/home.css', 'utf8') }))
   if (root) await page.route('**/build-home/*.js', async route => route.fulfill({ contentType: 'text/javascript', body: await readFile(root + '/src/priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), 'utf8') }))
 })
-test.afterEach(async ({ page }) => { expect(page.featureErrors).toEqual([]) })
+test.afterEach(async ({ page }) => { await page.request.get('/build-control/earlier'); expect(page.featureErrors).toEqual([]) })
 async function open(page, query = '?feature=pag', dataset = 'live') {
   await page.goto('/build-fixture/' + dataset + query)
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
@@ -65,16 +65,26 @@ for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} st
   await open(page, `?feature=${slug}&fmode=compact`)
   await expect(page.locator('#bd-fh')).toBeEmpty()
   await expect(page.locator('.bd-card.dim, .bd-card.also, .bd-card.feat-on, .bd-card.ghost, .bd-mk.gap')).toHaveCount(0)
+  await expect(page).toHaveURL(new RegExp('feature=' + slug))
+  const positions = () => page.evaluate(() => ({ cols: m.ctx.cols, sections: Object.fromEntries(['hist', 'plan', 'nq'].map(sec => [sec, m.ctx.L.secs[sec].items.map(it => [it.t.id, it.key, it.y, it.h])])) }))
+  const inactive = await positions()
+  await open(page, '')
+  expect(await positions()).toEqual(inactive)
   await page.goto(`/build-fixture/live?feature=${slug}&view=list`)
   await expect(page.locator('.bd-list')).toBeVisible()
   await expect(page.locator('.lr.dim')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 test('first-paint feature focus loads oldest history, back/forward restores focus', async ({ page }) => {
+  await page.request.get('/build-control/earlier?delay=300')
   await open(page, '?feature=khala')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'loading')
+  const bandTop = () => page.evaluate(() => m.ctx.bandEl.getBoundingClientRect().top - m.ctx.vp.getBoundingClientRect().top)
+  const before = await bandTop()
   await expect(page.locator('.bd-fh-name')).toContainText('Khala')
   await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.khala.oldest)).toBe(true)
   expect(await page.evaluate(() => m.ctx.D.hist.filter(t => t.feature === 'khala').length)).toBeGreaterThan(0)
+  expect(Math.abs(await bandTop() - before)).toBeLessThanOrEqual(1)
   await page.evaluate(() => { const a = document.createElement('a'); a.id = 'feature-navigation'; a.href = '/build-fixture/live?feature=pag'; a.dataset.phxLink = 'patch'; a.dataset.phxLinkState = 'push'; a.textContent = 'Pagination feature'; document.body.appendChild(a) })
   await page.locator('#feature-navigation').click()
   await expect(page.locator('.bd-fh-name')).toContainText('Events pagination')
@@ -100,6 +110,18 @@ for (const action of ['clear', 'switch', 'destroy']) test(`${action} during an i
     await expect.poll(() => page.evaluate(() => m.S.histFrom <= m.ctx.D.features.pag.oldest)).toBe(true)
     expect(await page.evaluate(() => m.S.histFrom > m.ctx.D.features.khala.oldest)).toBe(true)
   } else expect(await page.evaluate(() => calls)).toBe(1)
+})
+test('a feature page error stops loading and preserves server figures', async ({ page }) => {
+  await open(page, '')
+  await page.request.get('/build-control/earlier?fail=1')
+  const values = await page.evaluate(() => {
+    const { ctx, fx } = m, push = ctx.push; window.errorCalls = 0
+    ctx.push = (event, params) => { if (event === 'load-earlier') errorCalls++; return push(event, params) }
+    fx.setFeature('khala'); return ctx.D.features.khala.stats
+  })
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'error')
+  await expect(page.locator('.bd-kv b').nth(0)).toHaveText(`${values.done}/${values.total}`)
+  expect(await page.evaluate(() => ({ calls: errorCalls, retry: hist.H.retryArmed }))).toEqual({ calls: 1, retry: false })
 })
 test('late feature activation and live dependencies rebuild compact ghosts', async ({ page }) => {
   await open(page, '?feature=late&fmode=compact')

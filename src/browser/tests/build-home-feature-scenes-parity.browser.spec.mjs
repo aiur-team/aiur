@@ -1,9 +1,16 @@
 import { test, expect } from '@playwright/test'
-import { openParityPair, expectDesignParity } from '../support/design-parity.mjs'
+import { readFile } from 'node:fs/promises'
+import { estimatePatch } from '../scripts/build-home-now-patch.mjs'
+import { openParityPair, expectDesignParity, waitParityReady } from '../support/design-parity.mjs'
 import { prepareFilterCapture } from '../support/build-home-filter-parity.mjs'
 import { pairedBrowser } from '../support/build-home-feature-parity-source.mjs'
 import { FIXTURE_META } from '../support/design-parity-environment.mjs'
 
+const reference = estimatePatch(await readFile(new URL('../../test/fixtures/build_home/design-source/assets/build.js', import.meta.url), 'utf8'))
+const anchor = '  window.AiurBuild = {'
+expect(reference.split(anchor)).toHaveLength(2)
+// Expose only the original renderer, as the existing render-parity fixture does.
+const probe = reference.replace(anchor, '  window.__featureRedraw = () => drawEdges(true); window.__featureStop = () => { S.ready = false; snapping = true; };\n' + anchor)
 const cells = [
   ...['live', 'dense'].flatMap(dataset => [1440, 1024].flatMap(width => ['dark', 'light'].map(theme => ({ dataset, width, theme, mode: 'focus', section: 'now' })))),
   ...['dark', 'light'].map(theme => ({ dataset: 'live', width: 1440, theme, mode: 'compact', section: 'hist', feature: 'khala' })),
@@ -17,10 +24,11 @@ async function align(pair) {
     const oldest = ctx.D.features[S.feature]?.oldest
     return oldest == null || S.histFrom <= oldest || !H.more
   })).toBe(true)
+  await expect(pair.product.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
   const count = page => page.locator('#bd-sec-hist .bd-sech em').last().textContent()
   const target = await count(pair.product)
   for (let day = 0; await count(pair.design) !== target; day++) {
-    if (day > 220) throw new Error('History windows differ')
+    if (day > 220) throw new Error('History windows differ: ' + await count(pair.design) + ' vs ' + target)
     await pair.design.locator('#bd-vp').evaluate(vp => { vp.scrollTop = 0; vp.dispatchEvent(new Event('scroll')) })
     await pair.design.clock.runFor(32)
   }
@@ -35,12 +43,25 @@ for (const cell of cells) test(`feature scene ${Object.values(cell).join(' ')}`,
   const query = `feature=${cell.feature || 'pag'}&fmode=${cell.mode}&view=${cell.view || 'graph'}`
   const pair = await openParityPair(await pairedBrowser(browser), { viewport: { width: cell.width, height: 900 }, theme: cell.theme, palette: 'gruvbox', reducedMotion: cell.reduce ? 'reduce' : 'no-preference' }, { dataset: cell.dataset, query, motion: true })
   try {
+    await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: probe }))
+    const referenceURL = new URL(pair.design.url())
+    if (cell.mode === 'compact') referenceURL.searchParams.set('fmode', 'focus')
+    await pair.design.goto(referenceURL.href); await waitParityReady(pair.design, 'board', 'design', true)
     if (cell.view !== 'list') await align(pair)
+    // Static scene capture: freeze only automatic paging/snap after real span loading.
+    // Feature state still comes from the URL and the original mode button.
+    await pair.design.evaluate(() => window.__featureStop())
+    await pair.product.evaluate(async () => { const { S, ctx } = await import('/build-home/state.js'); S.ready = false; ctx.snapping = true })
+    if (cell.mode === 'compact') await pair.design.locator('#bd-fh [data-m=compact]').click()
     await prepareFilterCapture(pair)
     const boxes = await Promise.all([pair.design, pair.product].map(p => p.locator('#build-root').boundingBox()))
     const width = Math.floor(Math.min(...boxes.map(b => b.width)))
     for (const page of [pair.design, pair.product]) {
       await page.locator('#build-root').evaluate((el, width) => { el.style.width = width + 'px' }, width)
+      // The reference observes window resize; the product also observes its root.
+      // Re-render both after aligning shell widths so their layout uses that width.
+      if (page === pair.design) await page.evaluate(() => window.AiurBuild.render())
+      else await page.evaluate(async () => (await import('/build-home/state.js')).fx.relayout())
       await page.clock.runFor(800)
       if (cell.section === 'now') { await page.locator('#bd-nowbtn').click(); await page.clock.runFor(800) }
       else await page.locator('#bd-vp').evaluate((vp, sec) => new Promise(resolve => {
@@ -67,7 +88,8 @@ for (const cell of cells) test(`feature scene ${Object.values(cell).join(' ')}`,
       await page.clock.setSystemTime(FIXTURE_META.now)
       await page.screenshot({ animations: 'allow' })
     }
-    for (const side of ['design', 'product']) await test.info().attach(side + '-edge-diagnostics', { body: Buffer.from(JSON.stringify(await pair[side].evaluate(() => [...document.querySelectorAll('svg.bd-edges path')].map(el => ({ d: el.getAttribute('d'), cls: el.getAttribute('class'), style: Object.fromEntries(['stroke', 'strokeWidth', 'strokeDasharray', 'strokeDashoffset', 'filter', 'opacity', 'transform', 'animation'].map(k => [k, getComputedStyle(el)[k]])), svg: el.ownerSVGElement.getBoundingClientRect().toJSON() }))))), contentType: 'application/json' })
+    await pair.design.evaluate(() => window.__featureRedraw())
+    await pair.product.evaluate(async () => (await import('/build-home/state.js')).fx.drawEdges(true))
     await expectDesignParity(pair, { name: `feature-scene-${Object.values(cell).join('-')}`, region: '#bd-vp', viewportClip: true })
   } finally { await pair.close() }
 })

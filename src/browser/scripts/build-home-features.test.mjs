@@ -43,13 +43,14 @@ test('known figures and sparkline keep exact design coordinates without titles',
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';
   let calls = 0;
-  ctx.push = async () => { calls++; S.feature = null; return { kind: 'error' }; };
+  ctx.push = async () => { calls++; return { kind: 'error' }; };
   fx.renderHeads = () => {};
   ctx.D.features.null = { oldest: 1 }; S.feature = null;
   await loadFeatureSpan(null); assert.equal(calls, 0);
   S.feature = 'f';
   await loadFeatureSpan('f'); assert.equal(calls, 1);
-  await loadFeatureSpan('f'); assert.equal(calls, 1);
+  assert.equal(H.state, 'error'); assert.equal(S.feature, 'f');
+  S.feature = null; await loadFeatureSpan('f'); assert.equal(calls, 1);
   ctx.life.disposed = true;
 });
 test('fixture mapper supplies the actual oldest owner or also closure', async () => {
