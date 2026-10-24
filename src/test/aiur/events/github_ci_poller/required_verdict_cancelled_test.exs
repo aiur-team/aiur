@@ -1,7 +1,7 @@
 defmodule Aiur.Events.GithubCIPoller.RequiredVerdictCancelledTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Events.GithubCIPoller.{Evaluation, RequiredVerdict}
+  alias Aiur.Events.GithubCIPoller.Evaluation
 
   test "cancelled pull request jobs settle a failed gate as pending after required checks load" do
     jobs = [
@@ -30,7 +30,15 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdictCancelledTest do
 
     result = %{decision: :failed, failures: [%{name: "ci gate"}]}
 
+    pr = %{"head" => %{"sha" => "head"}, "mergeQueueEntry" => %{"state" => "UNMERGEABLE"}}
+
     assert %{decision: :pending, pending_reason: :required_checks_unavailable} =
-             RequiredVerdict.settle(result, jobs, "head", required_checks: {:error, :offline})
+             Evaluation.enforce_required_checks(
+               result,
+               jobs,
+               %{"statuses" => []},
+               pr,
+               required_checks: {:error, :offline}
+             )
   end
 end

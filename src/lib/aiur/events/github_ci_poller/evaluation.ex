@@ -7,7 +7,7 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   map. It makes no request and writes no state.
   """
 
-  alias Aiur.Events.GithubCIPoller.RequiredVerdict
+  alias Aiur.Events.GithubCIPoller.{CancelledRun, RequiredVerdict}
 
   @successful_conclusions ~w(success neutral skipped)
   @failed_statuses ~w(error failure)
@@ -105,7 +105,9 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
 
     settled = RequiredVerdict.settle(result, runs, head_sha, opts)
 
-    if settled[:pending_reason] == :ci_cancelled do
+    cancelled_run? = CancelledRun.cancelled?(%{"event" => "pull_request"}, runs)
+
+    if cancelled_run? do
       settled
     else
       settled

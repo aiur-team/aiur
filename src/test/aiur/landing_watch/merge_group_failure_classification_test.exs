@@ -131,6 +131,30 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
              )
   end
 
+  test "a timeout cancellation with a failed gate is infrastructure, not a cancelled group" do
+    timeout_job = %{
+      "name" => "browser smoke",
+      "conclusion" => "cancelled",
+      "started_at" => "2026-10-15T13:30:00Z",
+      "completed_at" => "2026-10-15T13:45:00Z"
+    }
+
+    jobs = [
+      %{"name" => "changes", "conclusion" => "success"},
+      %{"name" => "soak", "conclusion" => "skipped"},
+      timeout_job,
+      %{"name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:infra, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6053, "cancelled", "pr-42-a"),
+               jobs,
+               [],
+               timeout_minutes_by_job: %{"browser smoke" => 15}
+             )
+  end
+
   test "recorded inherited ci gate failure is classified separately from PR test failures" do
     log = fixture("run-38742654941-inherited.log")
 

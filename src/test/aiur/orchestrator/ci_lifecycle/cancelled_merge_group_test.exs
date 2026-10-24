@@ -71,6 +71,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.CancelledMergeGroupTest do
     identifier = unique_identifier("cancelled-unmergeable-merge-group")
     RecordingGitHubClient.record_to(self())
     ticket = issue(identifier, "ci-wait")
+    test_pid = self()
     base = %State{}
 
     state = %{
@@ -111,7 +112,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.CancelledMergeGroupTest do
            }}
         end,
         cancelled_merge_group_fun: fn 71, _opts ->
-          MergeFailureClassifier.cancelled_group?(%{"event" => "merge_group", "conclusion" => "cancelled"}, incident_jobs())
+          cancelled? =
+            MergeFailureClassifier.cancelled_group?(%{"event" => "merge_group", "conclusion" => "cancelled"}, incident_jobs())
+
+          send(test_pid, {:cancelled_merge_group_checked, cancelled?})
+          cancelled?
         end,
         withdraw_landing: fn _number -> flunk("cancelled CI must not dequeue the approved PR") end,
         parked_ready_alert_loader: fn -> MapSet.new() end,
@@ -119,6 +124,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.CancelledMergeGroupTest do
       )
 
     refute_received {:tracker_update, ^identifier, "rework", _}
+    assert_received {:cancelled_merge_group_checked, true}
     assert next.running == %{}
   end
 
