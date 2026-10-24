@@ -359,19 +359,6 @@
     }
   },
   {
-    "id": "now-band-eta-pending",
-    "kind": "copy",
-    "selector": "#bd-vp",
-    "cells": {},
-    "reason": "C7-T03 replaces ETA placeholder with capacity-aware etaLabel; removed by C7-T03",
-    "approval": {
-      "status": "pending-sign-off",
-      "by": null,
-      "date": null,
-      "ref": "MP-E8-C9-T08 Decisions 3 / C7-T03"
-    }
-  },
-  {
     "id": "gantt-start-unknown",
     "kind": "copy",
     "selector": "#build-root",
@@ -410,6 +397,60 @@
       "by": "Kevin",
       "date": "2026-10-21",
       "ref": "https://github.com/aiur-team/aiur/issues/3152#issuecomment-6308707152"
+    }
+  },
+  {
+    "id": "filter-navigation-capture-scope",
+    "kind": "property",
+    "selector": "#build-root",
+    "property": "complete build content excluding exterior navigation paint",
+    "reason": "Filter captures and filter.dim omit only exterior navigation, including its fixed mobile overlay. Build root, usage, toolbar and viewport geometry must remain identical. Navigation parity belongs to #3171; no build content is masked.",
+    "approval": {
+      "status": "approved",
+      "by": "Kevin",
+      "date": "2026-10-21",
+      "ref": "https://github.com/aiur-team/aiur/issues/3153#issuecomment-6308707429"
+    }
+  },
+  {
+    "id": "filter-retrying-option",
+    "spec": "build-home-filters-parity.browser.spec.mjs",
+    "kind": "property",
+    "selector": "#bd-filters",
+    "property": "Agent options include Retrying with queued swatch",
+    "reason": "Add only the existing product Retrying state to the in-memory reference. Full DOM and pixel comparisons remain enforced; no option or capture is masked.",
+    "approval": {
+      "status": "approved",
+      "by": "Kevin",
+      "date": "2026-10-23",
+      "ref": "dec_d92d050693d7f45c / act_866e4ee3350221492be2"
+    }
+  },
+  {
+    "id": "filter-integrated-agent-causes",
+    "spec": "build-home-filters-parity.browser.spec.mjs",
+    "kind": "property",
+    "selector": "#bd-filters",
+    "property": "Agent options preserve runtime labels, usage-limit pauses and CI waits from the shared AST",
+    "reason": "Main shipped runtime labels in #5890 and distinct usage/CI causes in #5856. The in-memory reference includes their exact labels, order and swatches; full DOM and pixel comparisons remain enforced without masks.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/pull/5890 / https://github.com/aiur-team/aiur/pull/5856"
+    }
+  },
+  {
+    "id": "phone-filter-scroll",
+    "kind": "design-style",
+    "selector": ".bd-filters",
+    "css": "@container bd (max-width: 640px) { .bd-toolbar .bd-filters { overflow-x: auto !important; } }",
+    "reason": "Restore C:142 phone filter scrolling after later desktop overflow:visible overrides. All five controls remain reachable inside the row without widening the page; full build-content comparisons remain enforced.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/3153"
     }
   },
   {

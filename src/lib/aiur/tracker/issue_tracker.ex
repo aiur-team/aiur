@@ -26,6 +26,7 @@ defmodule Aiur.Tracker.IssueTracker do
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
+  @callback foreign_state_label?([String.t()]) :: boolean()
   @callback fetch_issue_states_by_ids_conditional([String.t()], map()) ::
               {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
@@ -61,6 +62,7 @@ defmodule Aiur.Tracker.IssueTracker do
                       open_issue_labels: 1,
                       refresh_open_issue_labels: 0,
                       fetch_issue_states_by_ids_conditional: 2,
+                      foreign_state_label?: 1,
                       update_issue_state: 3,
                       add_label: 2,
                       remove_label: 2,

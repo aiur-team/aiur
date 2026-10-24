@@ -233,7 +233,8 @@ defmodule Aiur.GitHub.IssueState do
         context.issue_number,
         current_issue_body,
         context.prefix,
-        exclude: [new_label]
+        exclude: [new_label],
+        clear_terminal_state_overrides: Keyword.get(context.opts, :clear_terminal_state_overrides, false)
       )
     end
   end
@@ -252,7 +253,7 @@ defmodule Aiur.GitHub.IssueState do
   defp fetch_current_issue_body(context) do
     case Issues.fetch_issue_raw_conditional(
            context.issue_number,
-           issue_read_opts(context) |> Keyword.put(:revalidate, true)
+           guarded_issue_read_opts(context)
          ) do
       {:ok, issue_body, _outcome} -> {:ok, issue_body}
       {:error, _reason} = error -> error
@@ -317,8 +318,9 @@ defmodule Aiur.GitHub.IssueState do
   defp issue_read_opts(%{request_fun: request_fun, token: token}),
     do: [token: token, request_fun: request_fun]
 
-  # Expected-state guards need an authoritative body: an ETag can validate a
-  # stale stored snapshot when equal updated_at values allowed a racing deposit.
+  # Guards and state-label removal need an authoritative body: an ETag can
+  # validate a stale stored snapshot when equal updated_at values allowed a
+  # racing deposit. This costs a full issue read instead of a free 304.
   defp guarded_issue_read_opts(context), do: Keyword.put(issue_read_opts(context), :unconditional, true)
 
   defp retry_local_holds(request_fun, opts) do
@@ -349,49 +351,9 @@ defmodule Aiur.GitHub.IssueState do
 
   defp restore_local_hold_error(response), do: response
 
-  @spec remove_state_labels(function(), String.t(), String.t(), String.t(), String.t(), map(), String.t(), keyword()) ::
-          :ok | {:error, term()}
-  def remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, opts \\ []) do
-    excluded = Keyword.get(opts, :exclude, []) |> Enum.map(&normalize_label_name/1)
+  defdelegate remove_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, opts \\ []), to: Aiur.GitHub.IssueState.LabelCleanup
 
-    issue_body
-    |> Map.get("labels", [])
-    |> Enum.map(&Map.get(&1, "name", ""))
-    |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
-    |> Enum.reject(fn label ->
-      preserved_prefixed_label?(label, prefix) or normalize_label_name(label) in excluded
-    end)
-    |> Enum.reduce_while(:ok, fn label, :ok ->
-      case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
-  @spec remove_active_state_labels(function(), String.t(), String.t(), String.t(), String.t(), map(), String.t()) ::
-          :ok | {:error, term()}
-  def remove_active_state_labels(
-        request_fun,
-        token,
-        owner,
-        repo,
-        issue_number,
-        issue_body,
-        prefix
-      ) do
-    issue_body
-    |> Map.get("labels", [])
-    |> Enum.map(&Map.get(&1, "name", ""))
-    |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
-    |> Enum.reject(&(StatePolicy.terminal_state_label?(&1, prefix) or preserved_prefixed_label?(&1, prefix)))
-    |> Enum.reduce_while(:ok, fn label, :ok ->
-      case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
+  defdelegate remove_active_state_labels(request_fun, token, owner, repo, issue_number, issue_body, prefix, opts \\ []), to: Aiur.GitHub.IssueState.LabelCleanup
 
   @spec delete_issue_label(function(), String.t(), String.t(), String.t(), String.t(), String.t()) ::
           :ok | {:error, term()}

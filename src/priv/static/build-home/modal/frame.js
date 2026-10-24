@@ -1,10 +1,11 @@
 import { S, ctx, fx, onReset } from '../state.js';
 import { writeURL } from '../url.js';
 import { $, $$ } from '../dom.js';
+import { controlBodies, applyControl, receiveControl, wireAgentControl, resetControls } from './agent-control.js';
 import { trap, restore } from './focus.js';
 import { bodyKind, headerHTML, errorHTML } from './header.js';
 
-export const MS = { t: null, req: 0, origin: null, state: null };
+export const MS = { t: null, req: 0, origin: null, state: null, control: controlBodies };
 const closers = new Set(), bodies = new Map();
 export function registerBody(kind, fn) {
   const key = kind === 'conversation' ? 'renderConversation' : 'renderDocBody';
@@ -37,6 +38,7 @@ export function renderHead(t) {
   const active = document.activeElement, inside = $('#tk-head').contains(active);
   const key = inside ? { id: active.id, action: active.dataset.a } : null;
   $('#tk-head').innerHTML = headerHTML(t);
+  applyControl($('#tk-head'), t);
   if (key) {
     const candidate = $$('#tk-head [id], #tk-head [data-a]').find(el => key.id ? el.id === key.id : el.dataset.a === key.action);
     if (candidate) candidate.focus(); else $('#bm-title').focus();
@@ -55,7 +57,10 @@ function error(nextId, state, reason) {
   $('#tk-body').replaceChildren(); show(); remember(nextId);
 }
 function notice(event, payload) {
-  if (ctx.socket === 'up') ctx.push(event, payload).catch(() => {
+  const req = MS.req, life = ctx.life;
+  if (ctx.socket === 'up') ctx.push(event, payload).then(reply => {
+    if (req === MS.req && life === ctx.life && !life.disposed && event === 'open-ticket' && reply?.kind === 'ticket') controlMessage({ ...reply, kind: 'control', id: payload.id });
+  }).catch(() => {
     if (ctx.root) ctx.root.dataset.modalNotice = 'disconnected';
   });
 }
@@ -77,6 +82,7 @@ export async function openById(nextId, opts = {}) {
   } catch { reply = { kind: 'error', reason: 'disconnected' }; }
   if (req !== MS.req || life !== ctx.life || life.disposed) return;
   clearTimeout(pendingTimer); pendingTimer = null;
+  if (reply?.kind === 'ticket' && Object.hasOwn(reply, 'control')) controlMessage({ ...reply, kind: 'control', id: nextId });
   const t = ctx.D?.byId[nextId] || (reply?.kind === 'ticket' && reply.row?.id === nextId ? reply.row : null);
   if (t) renderRow(t, opts);
   else error(nextId, reply?.reason === 'not_found' ? 'not_found' : 'unavailable', reply?.reason);
@@ -84,7 +90,7 @@ export async function openById(nextId, opts = {}) {
 export function openFromURL() { if (S.ticket) return openById(S.ticket); }
 export function closeModal({ url = true, notify = true, focus = true } = {}) {
   const origin = MS.origin, savedId = originId;
-  MS.req++; cleanup();
+  MS.req++; cleanup(); resetControls();
   $('#tk-backdrop')?.classList.remove('show'); $('#tk-modal')?.classList.remove('bdm');
   document.body.style.overflow = '';
   MS.t = null; MS.origin = null; MS.state = null; id = null; originId = null;
@@ -116,7 +122,9 @@ async function copyLink(button) {
   button.classList.toggle('ok', copied); button.title = copied ? 'Copied' : 'Copy failed · ' + url.href;
   button.setAttribute('aria-label', copied ? 'Link copied' : 'Copy link');
 }
+export function controlMessage(body) { receiveControl($('#tk-head'), MS.t, body); }
 export function initModal() {
+  wireAgentControl($('#tk-head'), () => MS.t);
   const back = $('#tk-backdrop');
   ctx.life.on(back, 'click', event => {
     if (event.target === back || event.target.closest('#bd-tk-close')) closeModal();
