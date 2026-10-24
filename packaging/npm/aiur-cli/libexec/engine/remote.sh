@@ -9,10 +9,6 @@ validate_remote_instance_name() {
     echo "aiur: --instance expects a name containing only letters, numbers, '.', '_' or '-'" >&2
     return 64
   }
-  [ "$name" != "all" ] || {
-    echo "aiur: --instance all is not supported by this client build" >&2
-    return 64
-  }
 }
 
 remote_command_has_as() {
@@ -141,7 +137,10 @@ load_remote_instance() {
       if (current == "") return
       if (current_url == "") invalid("instance " current " is missing url")
       if ((current_token_file == "") == (current_token_env == "")) invalid("instance " current " must set exactly one of token_file or token_env")
-      if (current == target) {
+      if (target == "*") {
+        print current "\t" current_url
+        found = 1
+      } else if (current == target) {
         print "url\t" current_url
         if (current_token_file != "") print "token_file\t" current_token_file
         else print "token_env\t" current_token_env
@@ -179,6 +178,7 @@ load_remote_instance() {
         if (text !~ /^[A-Za-z0-9._-]+:[[:space:]]*(#.*)?$/) invalid("invalid instance name")
         current = text
         sub(/:[[:space:]]*(#.*)?$/, "", current)
+        if (current == "all") invalid("instance name all is reserved")
         if (seen_name[current]) invalid("duplicate instance " current)
         seen_name[current] = 1
         next
@@ -212,7 +212,7 @@ load_remote_instance() {
       finish_instance()
       if (!seen_version) invalid("missing version")
       if (!seen_instances) invalid("missing instances map")
-      if (!found) exit 64
+      if (!found && target != "*") exit 64
     }
   ' "$file")"; then
     :
@@ -223,6 +223,8 @@ load_remote_instance() {
     fi
     return 64
   fi
+
+  if [ "$name" = "*" ]; then printf '%s\n' "$record"; return 0; fi
 
   while IFS=$'\t' read -r key value; do
     case "$key" in
@@ -369,6 +371,8 @@ remote_build_label() {
 run_remote_rpc_with_timeout() {
   local expression="$1" name="$AIUR_REMOTE_INSTANCE" runtime token timeout_seconds timeout_ms curl_timeout
   local request_file response_file http_status curl_status=0 output code reason detail required_scope build
+
+  if [ "$name" = all ]; then run_remote_all_rpc "$expression"; return $?; fi
 
   validate_remote_instance_name || return $?
   load_remote_instance "$name" || return $?

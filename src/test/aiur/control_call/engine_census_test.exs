@@ -96,6 +96,18 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     assert missing == [], "unclassified public AgentControlCLI functions: #{inspect(missing)}"
   end
 
+  test "the client fan-out read fixture stays inside the server read allowlist" do
+    path = Path.expand("../../../../packaging/npm/aiur-cli/test/fixtures/control-read-commands.json", __DIR__)
+    fixture = path |> File.read!() |> Jason.decode!()
+
+    assert fixture["version"] == 1
+
+    for %{"argv" => argv, "expression" => expression} <- fixture["commands"] do
+      assert {:ok, %{scope: :read}} = ControlCall.parse(expression, remote: true, max_scope: :read),
+             "#{Enum.join(argv, " ")} is not a server-approved read: #{expression}"
+    end
+  end
+
   test "real engine wrappers emit allowlisted expressions with their expected scope" do
     for {name, command, expected_scope, env} <- @wrapper_cases do
       expression = capture_rpc(command, env)
