@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.{Issue, Orchestrator, SystemPressure, Workflow}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, PressureAdmission, Slots, State}
+  alias Aiur.Orchestrator.Dispatcher.Capacity
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -11,7 +12,8 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
       target_cpu_pressure: 10.0,
       load_ramp_step: 1,
       load_cooldown_seconds: 60,
-      min_free_memory_mb: 4096
+      min_free_memory_mb: 4096,
+      cgroup_memory_threshold: 0.8
     )
 
     :ok
@@ -79,6 +81,120 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
     Application.put_env(:aiur, :cpu_pressure_source_override, fn -> {:error, :enoent} end)
     assert PressureAdmission.sample().load_threshold == 1.5
     assert Dispatcher.auto_resume_admission(state) == {:hold, :load}
+  end
+
+  test "a quota-backed cgroup CPU pressure probe wins over low host loadavg" do
+    root = Path.join(System.tmp_dir!(), "aiur-cgroup-pressure-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    File.write!(Path.join(root, "cpu.max"), "200000 100000")
+    File.write!(Path.join(root, "cpu.pressure"), "some avg10=60 avg60=30 avg300=10 total=2\n")
+    previous_root = Application.get_env(:aiur, :cgroup_root_override)
+    previous_pressure = Application.get_env(:aiur, :cpu_pressure_source_override)
+    previous_load = Application.get_env(:aiur, :loadavg_source_override)
+
+    on_exit(fn ->
+      restore_app_env(:cgroup_root_override, previous_root)
+      restore_app_env(:cpu_pressure_source_override, previous_pressure)
+      restore_app_env(:loadavg_source_override, previous_load)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    Application.put_env(:aiur, :cgroup_root_override, root)
+    Application.put_env(:aiur, :cpu_pressure_source_override, fn -> {:ok, "some avg10=0 avg60=0 avg300=0 total=0"} end)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.01 0.01 0.01 1/1 1"} end)
+
+    sample = PressureAdmission.sample()
+    result = PressureAdmission.cpu_gate(Map.merge(sample, %{schedulers: 2, load_threshold: 1.5}))
+    assert result == {:hold, %{signal: :cpu_pressure, measured: 30.0, threshold: 20.0}}
+  end
+
+  test "quota containers do not fall back to host load when cgroup PSI is absent" do
+    root = Path.join(System.tmp_dir!(), "aiur-cgroup-no-psi-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    File.write!(Path.join(root, "cpu.max"), "200000 100000")
+    previous_root = Application.get_env(:aiur, :cgroup_root_override)
+    previous_load = Application.get_env(:aiur, :loadavg_source_override)
+
+    on_exit(fn ->
+      restore_app_env(:cgroup_root_override, previous_root)
+      restore_app_env(:loadavg_source_override, previous_load)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    Application.put_env(:aiur, :cgroup_root_override, root)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "99.0 99.0 99.0 1/1 1"} end)
+
+    sample = PressureAdmission.sample()
+    assert sample.cpu_pressure == :unavailable
+    assert sample.load == :unavailable
+    assert :dispatch = PressureAdmission.cpu_gate(Map.merge(sample, %{schedulers: 2, load_threshold: 1.5}))
+  end
+
+  test "cgroup memory above the configured share holds new dispatch" do
+    root = Path.join(System.tmp_dir!(), "aiur-cgroup-memory-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    File.write!(Path.join(root, "memory.current"), "891289600")
+    File.write!(Path.join(root, "memory.max"), "1073741824")
+    File.write!(Path.join(root, "memory.stat"), "inactive_file 0\n")
+    previous_root = Application.get_env(:aiur, :cgroup_root_override)
+    previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
+
+    on_exit(fn ->
+      restore_app_env(:cgroup_root_override, previous_root)
+      restore_app_env(:meminfo_source_override, previous_meminfo)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    Application.put_env(:aiur, :cgroup_root_override, root)
+    Application.put_env(:aiur, :meminfo_source_override, fn -> flunk("cgroup memory must be preferred") end)
+
+    probes = Capacity.admission_probes()
+    assert probes.memory_mb == 174
+    assert probes.memory_threshold_mb == 204
+    assert {:hold, %{signal: :memory}} = DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true))
+  end
+
+  test "cgroup memory admission discounts inactive file pages" do
+    root = Path.join(System.tmp_dir!(), "aiur-cgroup-inactive-file-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    File.write!(Path.join(root, "memory.current"), "943718400")
+    File.write!(Path.join(root, "memory.max"), "1073741824")
+    File.write!(Path.join(root, "memory.stat"), "inactive_file 104857600\n")
+    previous_root = Application.get_env(:aiur, :cgroup_root_override)
+
+    on_exit(fn ->
+      restore_app_env(:cgroup_root_override, previous_root)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    Application.put_env(:aiur, :cgroup_root_override, root)
+    probes = Capacity.admission_probes()
+
+    # 900 MiB current minus 100 MiB inactive file leaves 800 MiB active,
+    # below the 80% (819.2 MiB) admission limit.
+    assert probes.memory_mb == 224
+    assert :dispatch = DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true))
+  end
+
+  test "explicit concurrent-agent configuration overrides cgroup memory sizing" do
+    root = Path.join(System.tmp_dir!(), "aiur-cgroup-default-cap-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    estimated_agent_bytes = Aiur.Config.default_agent_memory_estimate_mb() * 1_048_576
+    File.write!(Path.join(root, "cpu.max"), "800000 100000")
+    File.write!(Path.join(root, "memory.max"), Integer.to_string(estimated_agent_bytes * 3))
+    previous_root = Application.get_env(:aiur, :cgroup_root_override)
+
+    on_exit(fn ->
+      restore_app_env(:cgroup_root_override, previous_root)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    Application.put_env(:aiur, :cgroup_root_override, root)
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: nil)
+    assert Aiur.Config.max_concurrent_agents() == 3
+
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 20)
+    assert Aiur.Config.max_concurrent_agents() == 20
   end
 
   test "AIMD ramps to 20 under low PSI despite high load and occupied builds" do
@@ -219,4 +335,7 @@ defmodule Aiur.Orchestrator.PressureAdmissionTest do
       queued_demand?: true
     }
   end
+
+  defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 end

@@ -17,6 +17,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.build_nice` | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. Build processes under registered agent relays remain counted by soft load/run-queue admission; build capacity also counts them. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
+| `agent.cgroup_memory_threshold` | float or nil | 0.8 | Holds new dispatch when cgroup v2 `memory.current - inactive_file` exceeds this share of `memory.max`. Null disables the container gate. |
 | `agent.ci_recovery_enabled` | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
 | `agent.ci_recovery_max_per_hour` | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
 | `agent.ci_recovery_max_per_poll` | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
@@ -32,6 +33,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime cap; the parked worker is released to rework or human-review. 0 disables it. |
 | `agent.max_commands_per_turn` | integer or nil | nil | Optional per-turn tool-call cap; null disables it. Suggested starting value: 1,000. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The adaptive envelope reduces effective concurrency below this ceiling under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
+| `agent.max_concurrent_agents` | integer or nil | derived from available capacity | Global simultaneous-agent cap. When omitted under cgroup v2, it is the minimum of `max(2, schedulers + floor(schedulers / 4))` and `max(1, floor(memory.max / 4 GiB))`; finite CPU quota supplies floored schedulers. Explicit config wins. The adaptive envelope reduces effective concurrency under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. These caps also constrain fixer tickets. |
 | `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 disables the concurrency cap. Busy or queued builds wait at the build gate without holding fleet dispatch. |
 | `agent.max_consecutive_noop_turns` | integer | 3 | No-op continuations before attention; open PRs hand off to CI/review. Otherwise the worker parks for at most two minutes. Productive turns reset the count; `0` disables it. |
@@ -44,7 +46,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
 | `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
-| `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
+| `agent.min_free_memory_mb` | integer or nil | nil | Host `MemAvailable` floor shared by dispatch and the Mix build gate. For containers with a usable cgroup v2 memory limit, the dispatch memory gate uses `memory.current - inactive_file` instead. |
 | `agent.mix_scheduler_cap` | integer | 4 | Caps schedulers in agent-launched Mix BEAMs. |
 | `agent.non_closing_merge_marker` | string | `needs-triage` | Marker for a merged PR that references the ticket but does not close it. |
 | `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
