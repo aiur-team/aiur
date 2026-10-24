@@ -143,6 +143,12 @@ defmodule Aiur.SessionHandle do
     update_payload(identifier, opts, &Map.delete(&1, "resume_failures"))
   end
 
+  @doc "Clear the abandoned-thread marker after a fresh session completes a turn."
+  @spec clear_abandoned_thread(String.t(), keyword()) :: :ok
+  def clear_abandoned_thread(identifier, opts \\ []) do
+    update_payload(identifier, opts, &Map.delete(&1, "abandoned_thread"))
+  end
+
   @doc """
   Forget the resumable thread so the next start is clean, and remember that it
   was abandoned so that start continues the prior work. Other state is kept.
