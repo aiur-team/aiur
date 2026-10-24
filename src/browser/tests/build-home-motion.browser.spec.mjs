@@ -3,7 +3,6 @@ import { installScrollPaint, flushScrollPaint } from '../support/build-home-scro
 import { normalizeColumnCapture } from '../support/build-home-columns-motion.mjs'
 import { prepareTreeMotion, prepareTreeFrame } from '../support/build-home-tree-motion.mjs'
 import { prepareFilterCapture } from '../support/build-home-filter-parity.mjs'
-// One spec keeps the required mutations, sequence contracts, and sign-off gate collected together.
 import { openVisualRoute } from '../support/visual.mjs'
 import { test, expect } from '@playwright/test'
 import { openDesign, openProduct, selectProductDataset, guardNetwork, parityContextOptions, FIXTURE_META } from '../support/design-parity.mjs'
@@ -54,7 +53,6 @@ test('clock probe: design scroll advances one frame', async ({ browser }) => {
   } finally { await context.close() }
 })
 
-// Independent checks remain runnable while #3116 supplies the product fixture route.
 import { motionPathMatches, compareRecords, domState, pausedAnimations, scrollFrames, waitMinimapScroll } from '../support/build-home-motion.mjs'
 
 const record = value => ({ name: 'probe', samples: [{ scrollTop: value }], dom: { nodes: [] } })
@@ -237,7 +235,6 @@ test('harness self-check: shared loader accepts path globs and rejects misplaced
   }
 })
 
-// C1-T03: all interactions use the narrowed cells; inventory/grain use every colour cell.
 const full = process.env.AIUR_PARITY_FULL === '1'
 const colourCells = PARITY_MATRIX.filter(c => !c.reducedMotion).flatMap(c => ['no-preference', 'reduce'].map(reducedMotion => ({ ...c, reducedMotion })))
 const interactionCells = full ? colourCells : [
@@ -258,7 +255,6 @@ function collectAllowlist(design, product, entries) {
   expect(compareRecords(design, product, entries), JSON.stringify({ design: design.reason, product: product.reason })).toEqual([])
 }
 
-// Barrier keeps both pages on each chosen frame while the shared screenshot helper runs.
 function frameBarrier(pair, name, reduce) {
   let count = 0, resolve, pending, aborted = false
   const errors = []
