@@ -482,11 +482,13 @@ PATH="$tmux_shim_dir:$PATH" \
   AIUR_DASHBOARD_USERNAME="test-user" \
   AIUR_DASHBOARD_PASSWORD="test-password" \
   AIUR_TMUX_SOCKET_DIR="$sweep_socket_dir" \
-  "$script" visual-check >/dev/null 2>&1
+  "$script" visual-check >/dev/null 2> "$state_root/sweep.err"
 sweep_status=$?
 set -e
 [ "$sweep_status" -eq 0 ] || fail "socket sweep did not discover a publishing aiur tmux server"
 grep -q 'metric-column-missing' "$sweep_retro" || fail "socket sweep did not append its capture verdict"
+grep -q 'visual-check sources: dashboard URL=tmux socket (aiur-alpha); username=caller environment; password=caller environment' "$state_root/sweep.err" ||
+  fail "socket sweep did not report the URL and credential sources"
 
 # Two live daemons publishing different dashboards is ambiguous. Picking by
 # glob order would silently audit the wrong fleet, so discovery must refuse
@@ -583,7 +585,7 @@ env -u AIUR_DASHBOARD_USERNAME -u AIUR_DASHBOARD_PASSWORD \
   AIUR_EXECUTOR_RETRO_FILE="$daemon_env_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$env_dump_capture" \
   AIUR_TMUX_SOCKET_DIR="$daemon_env_socket_dir" \
-  "$script" visual-check >/dev/null 2>&1
+  "$script" visual-check >/dev/null 2> "$state_root/daemon-env.err"
 daemon_env_status=$?
 set -e
 [ "$daemon_env_status" -eq 0 ] || fail "daemon-environment credential fallback failed with status $daemon_env_status"
@@ -591,6 +593,8 @@ daemon_env_evidence="$(find "$daemon_env_retro.d" -name env.json -print -quit)"
 [ -n "$daemon_env_evidence" ] || fail "daemon-environment fallback did not invoke the capture"
 jq -e '.username == "daemon-user" and .password == "daemon-secret"' "$daemon_env_evidence" >/dev/null ||
   fail "daemon-environment credentials did not reach the capture"
+grep -q 'visual-check sources: dashboard URL=tmux socket (aiur-d); username=daemon environment; password=daemon environment' "$state_root/daemon-env.err" ||
+  fail "daemon-environment fallback did not report the URL and credential sources"
 
 # The pane-env fallback must not masquerade as the beam read: the pane shell
 # has no credentials here, so if the capture received them it can only have

@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Watch do
   alias Aiur.Commands
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.WaitingReason
   import Aiur.Orchestrator.ControlCLI.Output, only: [display_identifier: 1]
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1]
@@ -61,10 +62,18 @@ defmodule Aiur.Orchestrator.StatusCLI.Watch do
     }
   end
 
-  defp watch_state(%{tracker_paused: true}), do: "paused"
-  defp watch_state(%{tracker_paused: "true"}), do: "paused"
-  defp watch_state(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
-  defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
+  defp watch_state(status) do
+    prefix = GitHubConfig.label_prefix()
+    labels = TicketTransition.runtime_labels(Map.get(status, :labels), [Map.get(status, :pause_reason), Map.get(status, :waiting_reason)], prefix)
+
+    cond do
+      labels != [] -> Enum.join(labels, ",")
+      Map.get(status, :tracker_paused) in [true, "true"] -> "#{prefix}:paused"
+      Map.get(status, :work_state) == :starting -> "#{prefix}:in-progress"
+      Map.get(status, :work_state) == :retrying -> "#{prefix}:retrying"
+      true -> to_string(status[:tracker_state] || status[:state] || "")
+    end
+  end
 
   defp watch_activity(%{tracker_paused: paused, reason: reason})
        when paused in [true, "true"] and not is_nil(reason),
@@ -182,7 +191,7 @@ defmodule Aiur.Orchestrator.StatusCLI.Watch do
     [
       String.pad_trailing(row.id, 7),
       " ",
-      String.pad_trailing(AgentsTable.truncate(row.state, 13), 13),
+      String.pad_trailing(AgentsTable.truncate(row.state, 24), 24),
       " ",
       String.pad_trailing(format_complexity(row.complexity), 2),
       " ",
