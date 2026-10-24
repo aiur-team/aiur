@@ -14,8 +14,18 @@ defmodule Aiur.GitHub.StateWriteCoordinator do
     states = Enum.filter(labels, &(String.downcase(&1) in state_labels(context.prefix)))
 
     case states do
-      [label] when label == intended_label ->
-        :ok
+      [label] ->
+        if String.downcase(label) == String.downcase(intended_label) do
+          :ok
+        else
+          emit(
+            context,
+            "state_label_replaced_after_swap",
+            "State-label removal left issue #{context.issue_number} with #{label} instead of #{intended_label}."
+          )
+
+          {:error, {:state_label_replaced_after_swap, label}}
+        end
 
       [] ->
         emit(

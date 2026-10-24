@@ -77,7 +77,10 @@ defmodule Aiur.GitHub.IssueStateTest do
                  local_hold_sleep_fun: fn _ -> :ok end
                )
 
-      assert Map.new(:ets.tab2list(request_counts)) == %{get: 4, post: 1, delete: 0}
+      assert Map.new(:ets.tab2list(request_counts)) == %{get: 5, post: 1, delete: 2}
+      assert_received {:held_state_request, %{method: :delete, url: deleted_label}}
+      assert deleted_label =~ "sym%3Arework" or deleted_label =~ "sym:rework"
+      assert_received {:held_state_request, %{method: :delete, url: ^deleted_label}}
     end
 
     test "swap keeps the queued marker" do
@@ -444,7 +447,13 @@ defmodule Aiur.GitHub.IssueStateTest do
   end
 
   defp held_state_response(%{method: :get}, count, _reset_at, rework, both) do
-    body = if count < 3, do: rework, else: if(count == 3, do: both, else: %{"state" => "open", "labels" => [%{"name" => "sym:in-progress"}]})
+    body =
+      case count do
+        count when count < 3 -> rework
+        count when count in [3, 4] -> both
+        _ -> %{"state" => "open", "labels" => [%{"name" => "sym:in-progress"}]}
+      end
+
     {:ok, %{status: 200, body: body}}
   end
 

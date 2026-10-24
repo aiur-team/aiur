@@ -2,7 +2,7 @@
 defmodule Aiur.GitHub.StateWriteCoordinatorTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{IssueState, ResourceStore}
+  alias Aiur.GitHub.{IssueState, ResourceStore, StateWriteCoordinator}
   alias Aiur.Orchestrator.TicketTransition
 
   setup do
@@ -46,6 +46,33 @@ defmodule Aiur.GitHub.StateWriteCoordinatorTest do
     assert results == [:ok, :ok]
     assert Agent.get(labels, &state_labels/1) in [["sym:in-progress"], ["sym:rework"]]
     Agent.stop(labels)
+  end
+
+  test "a single different remaining state reports a replaced label and compares case-insensitively" do
+    parent = self()
+
+    alert = fn topic, metadata ->
+      send(parent, {:replacement_alert, topic, metadata})
+      :ok
+    end
+
+    context = %{
+      issue_number: "6110",
+      prefix: "sym",
+      opts: [emit_state_label_alert_fun: alert]
+    }
+
+    assert {:error, {:state_label_replaced_after_swap, "SYM:REWORK"}} =
+             StateWriteCoordinator.verify_state_labels(context, "sym:in-progress", ["SYM:REWORK"])
+
+    assert_received {:replacement_alert, "ticket.6110.state_label_replaced_after_swap", metadata}
+    assert metadata[:severity] == "critical"
+    assert metadata[:message] =~ "instead of sym:in-progress"
+
+    assert :ok =
+             StateWriteCoordinator.verify_state_labels(context, "SYM:IN-PROGRESS", ["sym:in-progress"])
+
+    refute_received {:replacement_alert, _, _}
   end
 
   test "an empty removal response restores the target and emits an alert" do

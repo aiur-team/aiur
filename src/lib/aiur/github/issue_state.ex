@@ -239,6 +239,7 @@ defmodule Aiur.GitHub.IssueState do
           :ok -> :ok
           {:error, {:state_label_restore_failed, _label, _reason}} = error -> error
           {:error, {:state_label_verification_failed, _reason}} = error -> error
+          {:error, {:state_label_replaced_after_swap, _label}} = error -> error
           {:error, {:contradictory_state_labels_after_swap, _labels}} = error -> error
           {:error, _reason} = error -> compensate_added_state_label(context, new_label, error)
         end
