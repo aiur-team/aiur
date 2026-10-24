@@ -3,7 +3,7 @@ defmodule Aiur.Events.UniversalSubscriptionsTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Events.{SubscriptionStore, UniversalSubscriptions}
+  alias Aiur.Events.{Exchange, SubscriptionStore, UniversalSubscriptions}
   alias Aiur.Workflow
 
   test "attaches the complete universal topic set" do
@@ -38,6 +38,10 @@ defmodule Aiur.Events.UniversalSubscriptionsTest do
       :ok = SubscriptionStore.attach(identifier)
       :ok = SubscriptionStore.add_subscription(identifier, "system.retired.branch.push", "base_branch:auto")
       :ok = SubscriptionStore.add_subscription(identifier, "system.trunk.branch.push", "manual:operator")
+      [{store_pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier)
+
+      assert "system.retired.branch.push" in Exchange.bindings_for(store_pid)
+      assert "system.trunk.branch.push" in Exchange.bindings_for(store_pid)
 
       :ok = SubscriptionStore.reconcile_and_add_subscriptions(identifier, UniversalSubscriptions.topics(identifier))
 
@@ -47,6 +51,9 @@ defmodule Aiur.Events.UniversalSubscriptionsTest do
       assert reasons["system.trunk.branch.push"] == "manual:operator"
       refute Map.has_key?(reasons, "system.retired.branch.push")
       assert reasons["ticket.#{identifier}.operator.progress_request"] == "progress_checkin:auto"
+      bindings = Exchange.bindings_for(store_pid)
+      refute "system.retired.branch.push" in bindings
+      assert "ticket.#{identifier}.operator.progress_request" in bindings
     after
       :ok = SubscriptionStore.stop(identifier)
     end

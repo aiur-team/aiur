@@ -72,6 +72,13 @@ defmodule Aiur.Events.Exchange do
     GenServer.call(server, {:subscribe, pattern, self()})
   end
 
+  @doc "Subscribes the calling process to each pattern in one exchange call."
+  @spec subscribe_many([String.t()], GenServer.server()) :: :ok
+  def subscribe_many(patterns, server \\ __MODULE__) when is_list(patterns) do
+    Enum.each(patterns, &validate_pattern!/1)
+    GenServer.call(server, {:subscribe_many, patterns, self()})
+  end
+
   @doc """
   Removes a binding for `(pattern, calling pid)`. No-op if the binding
   doesn't exist.
@@ -79,6 +86,12 @@ defmodule Aiur.Events.Exchange do
   @spec unsubscribe(String.t(), GenServer.server()) :: :ok
   def unsubscribe(pattern, server \\ __MODULE__) when is_binary(pattern) do
     GenServer.call(server, {:unsubscribe, pattern, self()})
+  end
+
+  @doc "Removes the calling process's bindings for each pattern in one exchange call."
+  @spec unsubscribe_many([String.t()], GenServer.server()) :: :ok
+  def unsubscribe_many(patterns, server \\ __MODULE__) when is_list(patterns) do
+    GenServer.call(server, {:unsubscribe_many, patterns, self()})
   end
 
   @doc """
@@ -148,6 +161,12 @@ defmodule Aiur.Events.Exchange do
     {:reply, :ok, %{state | monitors: Map.put(state.monitors, ref, {pattern, pid})}}
   end
 
+  def handle_call({:subscribe_many, patterns, pid}, _from, %{table: table} = state) do
+    {monitors, rows} = monitor_bindings(patterns, pid)
+    true = :ets.insert(table, rows)
+    {:reply, :ok, %{state | monitors: Map.merge(state.monitors, monitors)}}
+  end
+
   def handle_call({:unsubscribe, pattern, pid}, _from, %{table: table} = state) do
     state =
       case find_ref_for(table, pattern, pid) do
@@ -160,6 +179,11 @@ defmodule Aiur.Events.Exchange do
           %{state | monitors: Map.delete(state.monitors, ref)}
       end
 
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:unsubscribe_many, patterns, pid}, _from, %{table: table} = state) do
+    state = Enum.reduce(patterns, state, &remove_binding(table, &1, pid, &2))
     {:reply, :ok, state}
   end
 
@@ -196,6 +220,25 @@ defmodule Aiur.Events.Exchange do
     case :ets.match_object(table, {pattern, pid, :_}) do
       [{^pattern, ^pid, ref} | _] -> ref
       _ -> nil
+    end
+  end
+
+  defp monitor_bindings(patterns, pid) do
+    Enum.reduce(patterns, {%{}, []}, fn pattern, {monitors, rows} ->
+      ref = Process.monitor(pid)
+      {Map.put(monitors, ref, {pattern, pid}), [{pattern, pid, ref} | rows]}
+    end)
+  end
+
+  defp remove_binding(table, pattern, pid, state) do
+    case find_ref_for(table, pattern, pid) do
+      nil ->
+        state
+
+      ref ->
+        Process.demonitor(ref, [:flush])
+        :ets.match_delete(table, {pattern, pid, ref})
+        %{state | monitors: Map.delete(state.monitors, ref)}
     end
   end
 
