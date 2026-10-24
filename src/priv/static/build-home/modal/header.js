@@ -44,12 +44,12 @@ function links(t) {
 export function headerHTML(t) {
   const e = lookup(ctx.D?.epics, t.epic || 'unsorted') || lookup(ctx.D?.epics, 'unsorted'), f = lookup(ctx.D?.features, t.feature), st = status(t);
   const known = Number.isFinite(t.pct) && t.pct >= 0 && t.pct <= 100;
-  return '<div class="bm-h"><span class="bm-ep"' + (Number.isFinite(e?.hue) ? ' style="--h:' + e.hue + '"' : '') + ' title="' + esc(e?.label || 'Unsorted') + '">' + (e?.svg || lookup(I, e?.icon) || '') + '</span>' +
+  return '<div class="bm-h"><span class="bm-ep"' + (Number.isFinite(e?.hue) ? ' style="--h:' + e.hue + '"' : '') + ' title="' + esc(e?.label || 'Unsorted') + '">' + (ctx.D?.icons?.[e?.icon] || e?.svg || lookup(I, e?.icon) || '') + '</span>' +
     '<div class="bm-tt">' + title(t) + '<div class="bm-meta"><span class="bm-st ' + st.tone + '"' +
     (t.sec === 'plan' && t.num != null && !Number.isFinite(t.qpos) ? ' title="Queue position unknown"' : '') +
     (t.sec === 'now' && known ? ' style="--ph:' + Math.round(42 + t.pct * 1.03) + '"' : '') + '><i></i>' + st.label +
     (t.sec === 'now' ? ' · <b id="bm-pct"' + (known ? '' : ' data-unknown="pct" title="Progress unknown"') + '>' + (known ? t.pct : '?') + '%</b>' : '') + '</span><span>' + esc(e?.label || 'Unsorted') + '</span>' +
-    (t.feature ? '<span' + (f ? ' title="' + esc(f.summary || f.label) + '"' : ' title="Feature not in the loaded catalog"') + '>' + (f?.svg || '◆ ') + esc(f?.label || t.feature) + '</span>' : '') +
+    (t.feature ? '<span' + (f ? ' title="' + esc(f.summary || f.label) + '"' : ' title="Feature not in the loaded catalog"') + '>' + (ctx.D?.icons?.[f?.icon] || f?.svg || '◆ ') + esc(f?.label || t.feature) + '</span>' : '') +
     '<span' + (Number.isFinite(t.pts) ? '' : ' data-unknown="pts"') + '>' + (Number.isFinite(t.pts) ? t.pts : '?') + ' pts</span></div></div>' +
     '<div class="bm-act">' + agent(t) + links(t) + close() + '</div></div>';
 }
