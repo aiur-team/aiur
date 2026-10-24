@@ -7,6 +7,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/build-fixture/live')
   await page.waitForURL(url => url.pathname === '/build')
   await page.locator('[data-phx-main].phx-connected').waitFor()
+  await page.waitForLoadState('networkidle')
   await expect.poll(() => page.evaluate(async () => !!(await import('/build-home/state.js')).ctx.D?.now.length)).toBe(true)
 })
 
