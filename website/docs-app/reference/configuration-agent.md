@@ -30,18 +30,18 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
 | `agent.load_resume_max_age_seconds` | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one, holding the first fresh sample. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime cap; the parked worker is released to rework or human-review. 0 disables it. |
+| `agent.max_commands_per_turn` | integer or nil | nil | Optional per-turn tool-call cap; null disables it. Suggested starting value: 1,000. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The adaptive envelope reduces effective concurrency below this ceiling under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. These caps also constrain fixer tickets. |
 | `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 disables the concurrency cap. Busy or queued builds wait at the build gate without holding fleet dispatch. |
-| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review becomes `agent:error`; otherwise the current label is kept. After the first no-op turn the worker parks and waits for a queued ticket event or operator message instead of re-prompting (a pushed rework PR is handed off right away); the count survives the wake, so the bound caps wakes that still change nothing. A productive turn resets the count; 0 disables the bound. The park lasts at most two minutes: on timeout the worker resumes with a normal turn and the surviving count still ends an idle ticket. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | No-op continuations before attention; open PRs hand off to CI/review. Otherwise the worker parks for at most two minutes. Productive turns reset the count; `0` disables it. |
 | `agent.max_cpu_pressure` | float or nil | 20.0 | Linux CPU PSI `some avg60` ceiling in percent (greater than 0, at most 100). Holds new dispatch above the ceiling; null disables it. Independent of scheduler count; avg10 is diagnostic and does not gate dispatch. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
+| `agent.max_input_tokens_per_turn` | integer or nil | nil | Optional turn input-token cap; null disables it. Suggested starting value: 20,000,000. |
 | `agent.max_load_average` | float or nil | 1.5 | Per-scheduler load ceiling used only when CPU PSI is unavailable. Uses CPU corroboration when available, otherwise raw load; null disables it. |
+| `agent.max_repeated_identical_commands` | integer | 5 | Identical reads before steering; one more stops. `0` disables it. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
-| `agent.max_repeated_identical_commands` | integer | 5 | Consecutive identical read-only command results before Aiur steers the worker; if it repeats again, the turn stops and raises an attention. `0` disables detection. |
-| `agent.max_commands_per_turn` | integer or nil | nil | Optional maximum tool calls in one turn; null disables the cap. A starting proposal is 1,000 calls. |
-| `agent.max_input_tokens_per_turn` | integer or nil | nil | Optional maximum reported input tokens in one turn; null disables the cap. A starting proposal is 20,000,000 tokens. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
 | `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
@@ -67,7 +67,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.target_cpu_pressure` | float or nil | 10.0 | AIMD target for Linux CPU PSI `some avg60`, in percent (greater than 0, at most 100); null disables it. After 3 fresh above-target samples and the decrease cooldown, floors the reduction at half occupied slots or the recorded safe level, capped at the current envelope. Ramps only below 80% of target. Unavailable samples reset the streak and never count as zero. |
 | `agent.target_load_average` | float or nil | 1.0 | Per-scheduler adaptive target used only when CPU PSI is unavailable; null disables it. Keeps the legacy 3-sample decrease streak, cooldown, and below-target recovery. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
-| `agent.unreviewed_pr_age_limit_minutes` | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
+| `agent.unreviewed_pr_age_limit_minutes` | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; repeats at that interval. |
 
 ### Routes in `agent.priority`
 
