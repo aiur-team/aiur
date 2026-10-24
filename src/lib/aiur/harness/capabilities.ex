@@ -3,6 +3,33 @@ defmodule Aiur.Harness.Capabilities do
 
   alias Aiur.CodingAgent.Registry
 
+  @type hosted_security :: %{
+          permission_boundary: :codex_sandbox | :claude_permission_mode | :enforced | :unknown,
+          network_boundary: :codex_sandbox | :denied | :unrestricted | :unknown,
+          credential_boundary: :daemon | :agent | :unknown
+        }
+
+  @doc "Return hosted-execution security facts for a registered harness."
+  @spec hosted_security(String.t()) :: {:ok, hosted_security()} | {:error, :unknown_backend}
+  def hosted_security(backend) do
+    case Map.fetch(Registry.entries(), backend) do
+      {:ok, entry} -> {:ok, hosted_security_for_entry(entry)}
+      :error -> {:error, :unknown_backend}
+    end
+  end
+
+  @doc "Project declared hosted-execution facts, defaulting every missing boundary to unknown."
+  @spec hosted_security_for_entry(map()) :: hosted_security()
+  def hosted_security_for_entry(entry) do
+    hosted = if is_map(entry[:hosted_execution]), do: entry.hosted_execution, else: %{}
+
+    %{
+      permission_boundary: Map.get(hosted, :permission_boundary, :unknown),
+      network_boundary: Map.get(hosted, :network_boundary, :unknown),
+      credential_boundary: Map.get(hosted, :credential_boundary, :unknown)
+    }
+  end
+
   @doc "Return delivery primitives for a registered harness; unknown keys never get a guessed profile."
   @spec delivery_primitives(String.t()) :: {:ok, map()} | {:error, :unknown_backend}
   def delivery_primitives(backend) do
