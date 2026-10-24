@@ -53,6 +53,12 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
 
   def validate_dispatch(_settings, _issue, _opts), do: :ok
 
+  @doc false
+  @spec validate_configured_dispatch(Aiur.Issue.t(), keyword()) :: :ok | {:error, term()}
+  def validate_configured_dispatch(issue, opts) do
+    opts |> Keyword.get_lazy(:hosted_mode_settings, &Aiur.Config.settings!/0) |> validate_dispatch(issue, opts)
+  end
+
   @doc "Reject the test harness remote-bypass flag in hosted mode."
   @spec validate_allow_remote(String.t()) :: :ok | {:error, String.t()}
   def validate_allow_remote("hosted"),

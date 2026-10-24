@@ -38,7 +38,7 @@ defmodule Aiur.Config.Schema.Instance do
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-00 instance.mode
-    # @config-detail instance.mode | string | `local` | `hosted` enables fail-closed startup and reload checks for agent permission, network, and credential isolation. Read once at daemon start; change it with a restart. |
+    # @config-detail instance.mode | string | `local` | `hosted` enables fail-closed startup, reload, and dispatch checks for permission, network, credential, Remote Control, local-pane, and REPL isolation. Current production backends remain ineligible until #5701. Read once at daemon start; change it with a restart. |
     field(:mode, :string, default: "local")
     # @config-reference config-configuration-00 instance.role
     # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
