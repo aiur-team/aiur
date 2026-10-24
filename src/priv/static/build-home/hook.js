@@ -25,6 +25,7 @@ import './modal/conversation.js';
 import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
 import './modal/composer.js';
 import './modal/command.js';
+import './filters.js';
 
 export function writeOwnData() {
   if (ctx.bdTrees != null) ctx.root.dataset.bdTrees = ctx.bdTrees;
@@ -107,7 +108,7 @@ export function createBuildHomeHook() {
       this.buildActive = shell();
       if (!this.buildActive) return;
       fx.wireTrees();
-      fx.renderTools(); fx.initModal();
+      fx.renderTools(); fx.renderFilters(); fx.initModal();
       writeOwnData();
       this.handleEvent('build-ticket-control', controlMessage);
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));
