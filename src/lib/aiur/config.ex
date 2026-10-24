@@ -260,11 +260,15 @@ defmodule Aiur.Config do
   defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
   defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings
-  defdelegate default_max_concurrent_agents(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers, memory_max_bytes), to: Aiur.Config.CapacitySettings
+  defdelegate default_agent_memory_estimate_mb(), to: Aiur.Config.CapacitySettings
   defdelegate run_queue_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_builds(), to: Aiur.Config.CapacitySettings
   defdelegate build_start_stagger_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate min_free_memory_mb(), to: Aiur.Config.CapacitySettings
+  defdelegate cgroup_memory_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_max_hold_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_retain_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate mix_scheduler_cap(), to: Aiur.Config.CapacitySettings

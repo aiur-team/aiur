@@ -85,12 +85,11 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.max_dispatches_per_ticket | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
     field(:max_dispatches_per_ticket, :integer, default: 0)
     # Ceiling for new fleet admissions. When omitted (nil), it derives from the
-    # measured host capacity (see `Config.default_max_concurrent_agents/1`):
-    # schedulers + 1/4 schedulers, which matches the measured ~19-20 concurrent
-    # agents on a 16-core host. Explicit config still wins. The load envelope
-    # reduces effective concurrency below this ceiling under host pressure.
+    # CPU rule and, under cgroup v2, the memory limit divided by the named
+    # per-agent estimate. Explicit config still wins. The load envelope reduces
+    # concurrency under pressure.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.max_concurrent_agents | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The adaptive envelope reduces effective concurrency below this ceiling under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
+    # @config-reference config-configuration-agent-00 agent.max_concurrent_agents | integer or nil | derived from available capacity | Global simultaneous-agent cap. When omitted under cgroup v2, it is the minimum of `max(2, schedulers + floor(schedulers / 4))` and `max(1, floor(memory.max / 4 GiB))`; finite CPU quota supplies floored schedulers. Explicit config wins. The adaptive envelope reduces effective concurrency under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
     field(:max_concurrent_agents, :integer)
     # Per-scheduler runnable-process ceiling for the instantaneous run-queue
     # dispatch gate. nil disables the gate (the 1-minute load gate and envelope
@@ -115,8 +114,13 @@ defmodule Aiur.Config.Schema.Agent do
     field(:build_start_stagger_seconds, :integer, default: 0)
     # Optional Linux MemAvailable floor shared by normal dispatch and the local
     # Mix build gate. Omitted means memory admission is disabled.
-    # @config-reference config-configuration-agent-00 agent.min_free_memory_mb | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.min_free_memory_mb | integer or nil | nil | Host `MemAvailable` floor shared by dispatch and the Mix build gate. For containers with a usable cgroup v2 memory limit, the dispatch memory gate uses `memory.current - inactive_file` instead. |
     field(:min_free_memory_mb, :integer)
+    # Fraction of cgroup v2 memory.max that may be used before dispatch holds.
+    # nil disables the container-specific memory gate.
+    # @config-reference config-configuration-agent-00 agent.cgroup_memory_threshold | float or nil | 0.8 | Holds new dispatch when cgroup v2 `memory.current - inactive_file` exceeds this share of `memory.max`. Null disables the container gate. |
+    field(:cgroup_memory_threshold, :float, default: 0.8)
     # Absolute wall-clock cap (seconds) on how long any one build-gate slot may
     # be held (#2349). The detached lease holder releases the slot at the cap
     # and the daemon raises a needs-attention alert naming the command. 0
@@ -369,6 +373,7 @@ defmodule Aiur.Config.Schema.Agent do
         :build_nice,
         :build_start_stagger_seconds,
         :min_free_memory_mb,
+        :cgroup_memory_threshold,
         :build_gate_max_hold_seconds,
         :build_gate_retain_seconds,
         :max_turns,
@@ -424,6 +429,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:build_nice, greater_than_or_equal_to: 0, less_than_or_equal_to: 19)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
+    |> validate_number(:cgroup_memory_threshold, greater_than: 0, less_than_or_equal_to: 1)
     |> validate_number(:build_gate_max_hold_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:build_gate_retain_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:max_turns, greater_than: 0)

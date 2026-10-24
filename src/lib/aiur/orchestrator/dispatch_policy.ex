@@ -129,10 +129,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
         {downstream_rank, position} = Hints.sort_key(issue.id)
-        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), downstream_rank, priority_rank(issue.priority), position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), priority_rank(issue.priority), downstream_rank, position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 
       _ ->
-        {1, 0, priority_rank(nil), 0, issue_created_at_sort_key(nil), ""}
+        {1, priority_rank(nil), 0, 0, issue_created_at_sort_key(nil), ""}
     end)
   end
 
