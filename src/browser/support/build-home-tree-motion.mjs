@@ -1,14 +1,7 @@
-import { alignBoard, primeBoardPaint } from './build-home-band-canvas.mjs'
+import { alignBoard } from './build-home-band-canvas.mjs'
 
 export async function prepareTreeMotion(pair) {
   await alignBoard(pair)
-}
-
-export async function prepareTreeFrame(pair, region) {
-  await primeBoardPaint(pair, '#bd-lanes')
-  await primeBoardPaint(pair, '#bd-sb')
-  // Transparent overlay frames include the board behind their sibling host.
-  return region === '#bd-tree' ? '.bd-vpw' : region
 }
 
 async function scrollTree(page, centerCard = false) {

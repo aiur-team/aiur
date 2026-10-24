@@ -1,8 +1,7 @@
 // MP-E8-C12-T04: the Build home inside a phone WebView. The phone app opens this page in a
 // WebView, so at 360/390/430 px it must never scroll sideways, keep the fixed bottom nav off the
 // last control, answer taps where the desktop uses hover, and keep the design's phone geometry.
-// Full-page pixels are not compared here: mobile parity is DOM, geometry and typography
-// (accepted scope decision dec_2043ed93d73bbe63, see build-home-render-parity).
+// Pixels are not compared with the design (#6061); this spec checks DOM, geometry and typography.
 import { expect, test } from '@playwright/test'
 import { openParityPair } from '../support/design-parity.mjs'
 import { PHONE_CELLS, PHONE_DATASETS, geom, openPhoneProduct, phoneCell } from '../support/build-home-phone.mjs'

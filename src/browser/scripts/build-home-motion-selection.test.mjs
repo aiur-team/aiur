@@ -1,4 +1,3 @@
-import { fullBandCommands } from './run-build-home-band-full.mjs'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -31,17 +30,6 @@ function collect(config, full, grep, selectedSpec = spec, extra = []) {
   return { titles: titles.sort(), qualified: qualified.sort(), config: report.config }
 }
 
-test('chain parity defaults to four routine cells and retains the tagged full matrix', () => {
-  const chains = 'tests/build-home-chains-parity.browser.spec.mjs'
-  const routine = collect('playwright.design-parity.config.mjs', false, undefined, chains).titles
-  assert.deepEqual(routine, ['dark aiur', 'dark gruvbox', 'light aiur', 'light gruvbox']
-    .map(cell => 'P1–P4 chain pixel parity 1440 ' + cell).sort())
-  const full = collect('playwright.design-parity.config.mjs', true, '@full-parity', chains).titles
-  assert.equal(full.length, 12)
-  for (const width of [1440, 1024, 390]) assert.equal(full.filter(title => title.includes(' ' + width + ' ')).length, 4)
-  assert.deepEqual(collect('playwright.design-parity.config.mjs', true, '@routine-parity', chains).titles, routine)
-})
-
 test('routine motion collects every determinism case; full mode preserves the original matrix', () => {
   const routine = collect('playwright.build-home-motion.config.mjs', false)
   assert.equal(routine.titles.filter(title => title.startsWith('design determinism:')).length, 76)
@@ -69,31 +57,4 @@ test('routine band motion keeps the mobile snap sequences', () => {
     assert.equal(titles.filter(title => title === 'snap.' + name).length, 1, name)
   assert.equal(titles.length, 10)
   assert.ok(scripts['test:core'].includes('npm run test:build-home-band-motion'))
-})
-
-
-test('routine parity keeps mobile live/offline pixels in every theme and palette', () => {
-  const spec = 'tests/build-home-now-band-parity.browser.spec.mjs'
-  const { titles, config } = collect('playwright.build-home-band.config.mjs', false, undefined, spec)
-  assert.equal(config.workers, 1, 'a fixture server must not mix datasets from concurrent workers')
-  const expected = []
-  for (const dataset of ['live', 'offline']) for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
-    expected.push(`band pixels and card geometry: ${dataset} 390 ${theme} ${palette}`)
-    expected.push(`mobile composed headers without masks: ${dataset} ${theme} ${palette}`)
-  }
-  assert.deepEqual(titles, expected.sort())
-})
-
-test('full job partitions preserve all 104 pixel and 32 motion cells exactly once', () => {
-  for (const index of [0, 1]) {
-    const commands = [1, 2, 3, 4].map(part => fullBandCommands(part)[index])
-    const sample = commands[0], selectedSpec = sample[1], grep = sample.includes('--grep') ? sample[sample.indexOf('--grep') + 1] : undefined
-    const whole = collect('playwright.design-parity.config.mjs', false, grep, selectedSpec).qualified
-    const placed = commands.flatMap(args => collect('playwright.design-parity.config.mjs', false, grep, selectedSpec,
-      ['--fully-parallel', args.find(arg => arg.startsWith('--shard='))]).qualified)
-    assert.equal(whole.length, index === 0 ? 104 : 32)
-    assert.equal(new Set(placed).size, whole.length)
-    assert.deepEqual(placed.sort(), whole)
-  }
-  assert.throws(() => fullBandCommands(0), /1..4/)
 })

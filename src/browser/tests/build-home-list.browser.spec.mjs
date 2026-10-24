@@ -61,6 +61,15 @@ test('B1 list registration renders sections and counts in design order', async (
   for (const sec of ['now', 'plan', 'nq', 'hist']) await expect(page.locator('.lr.' + sec)).toHaveCount(result.expected[sec])
   expect(await page.locator('.lr.hist').evaluateAll(els => els.map(el => el.dataset.id))).toEqual(result.hist)
 })
+// Moved from the removed list design-parity spec (#6061).
+test('narrow widths drop the epic column, then the agent column', async ({ page }) => {
+  const hidden = () => Promise.all(['.c-ep', '.c-ag'].map(column => page.locator('.lr-h ' + column).evaluate(el => getComputedStyle(el).display === 'none')))
+  expect(await hidden()).toEqual([false, false])
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect.poll(hidden).toEqual([true, false])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(hidden).toEqual([true, true])
+})
 test('B2 delegated Enter opens once across renders and remounts', async ({ page }) => {
   for (let mount = 0; mount < 2; mount++) {
     if (mount) {

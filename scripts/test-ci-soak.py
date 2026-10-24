@@ -176,7 +176,7 @@ class SoakTest(unittest.TestCase):
             [str(self.browser), 'scripts/run-browser-tests.mjs', 'tests/p.spec.mjs',
              '--config', 'playwright.design-parity.config.mjs', '--repeat-each=5'],
             [str(self.browser), 'scripts/run-browser-tests.mjs', 'tests/build-home-x-parity.browser.spec.mjs',
-             '--config', 'playwright.design-parity.config.mjs', '--repeat-each=5']])
+             '--repeat-each=5']])
         # The real Playwright config refuses to load unless the listing gets an allocated port.
         listed = json.loads(self.list_calls.read_text().splitlines()[0])
         self.assertTrue(1 <= int(listed[1]) <= 65535)

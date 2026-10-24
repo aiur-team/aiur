@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { open, reveal, tree, lock, card } from './support/build-home-chains.mjs'
-import { installFitObserver } from './support/build-home-chains-parity.mjs'
+import { installFitObserver } from './support/build-home-chains-fit.mjs'
 import { settleAnimations } from './support/browser-helpers.mjs'
 
 // Product-only states absent from the mock design; initial pixels await DESIGN-E8 S-34 sign-off.
