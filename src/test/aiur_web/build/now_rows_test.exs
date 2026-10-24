@@ -1,7 +1,8 @@
 defmodule AiurWeb.Build.NowRowsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  alias Aiur.PollCadence
   alias Aiur.TrackerIdentity
-  alias AiurWeb.Build.{NowRows, Payload}
+  alias AiurWeb.Build.{Freshness, NowRows, Payload}
   @repo {"owner", "repo"}
   @time "2026-10-07T21:20:00Z"
   @ms 1_791_408_000_000
@@ -130,6 +131,10 @@ defmodule AiurWeb.Build.NowRowsTest do
   end
 
   test "empty, unavailable, stale and truncated catalogs preserve source truth" do
+    on_exit(&PollCadence.forget_effective_interval_ms/0)
+    :ok = PollCadence.publish_effective_interval_ms(120_000)
+    assert Freshness.snapshot_tolerance_ms() == 240_000
+
     empty = NowRows.build(catalog([], :empty), repository: @repo)
 
     assert empty == %{
@@ -138,7 +143,7 @@ defmodule AiurWeb.Build.NowRowsTest do
                state: "ok",
                observed_at: @ms,
                reason: nil,
-               stale_after_ms: AiurWeb.Build.Freshness.snapshot_tolerance_ms()
+               stale_after_ms: 240_000
              }
            }
 
@@ -152,7 +157,7 @@ defmodule AiurWeb.Build.NowRowsTest do
              state: "stale",
              observed_at: @ms,
              reason: "fleet_stale",
-             stale_after_ms: AiurWeb.Build.Freshness.snapshot_tolerance_ms()
+             stale_after_ms: 240_000
            }
 
     assert NowRows.build(Map.put(catalog([]), :truncated?, true), repository: @repo).source.reason == "membership_truncated"
