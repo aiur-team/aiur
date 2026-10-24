@@ -16,6 +16,18 @@ defmodule Aiur.TestSupport.SupervisorExit do
 
   def exit_reason, do: :persistent_term.get(@reason_key)
 
+  def runtime_child_errors([]), do: []
+
+  def runtime_child_errors(leaks) do
+    reason_note =
+      case exit_reason() do
+        nil -> ""
+        reason -> " (Aiur.Supervisor exit reason: #{inspect(reason)})"
+      end
+
+    ["plain ExUnit tests left shared runtime children down: #{Enum.join(leaks, ", ")}#{reason_note}"]
+  end
+
   def handle_info({:DOWN, ref, :process, _object, reason}, state) do
     if ref == :persistent_term.get(@monitor_key) do
       record_exit(reason, :persistent_term.get(@pid_key))

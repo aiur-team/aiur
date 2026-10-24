@@ -124,15 +124,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   end
 
   defp suite_runtime_child_errors do
-    case :persistent_term.get(@runtime_child_leaks_key, []) do
-      [] ->
-        []
-
-      leaks ->
-        exit_reason = SupervisorExit.exit_reason()
-        reason_note = if is_nil(exit_reason), do: "", else: " (Aiur.Supervisor exit reason: #{inspect(exit_reason)})"
-        ["plain ExUnit tests left shared runtime children down: #{Enum.join(leaks, ", ")}#{reason_note}"]
-    end
+    SupervisorExit.runtime_child_errors(:persistent_term.get(@runtime_child_leaks_key, []))
   end
 
   @doc false
