@@ -6,6 +6,7 @@ defmodule Aiur.AgentEnvironment do
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
   alias Aiur.AgentEnvironment.Contributor
   alias Aiur.AgentEnvironment.GitHubPath
+  alias Aiur.AgentEnvironment.SchedulerOptions
   alias Aiur.Config.Paths
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -466,7 +467,7 @@ defmodule Aiur.AgentEnvironment do
 
     [
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
-      {"ELIXIR_ERL_OPTIONS", Aiur.AgentEnvironment.SchedulerOptions.build(cap)}
+      {"ELIXIR_ERL_OPTIONS", SchedulerOptions.build(cap)}
     ]
   end
 
