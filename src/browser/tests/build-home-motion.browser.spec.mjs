@@ -283,7 +283,11 @@ function frameBarrier(pair, name, reduce) {
         })
       }
       if (name === 'snap.scroll-curve') await Promise.all([pair.design, pair.product].map(flushScrollPaint))
-      if (name.startsWith('snap.')) await primeBoardPaint(pair)
+      if (name.startsWith('snap.')) {
+        // Freeze live-card halos at one phase so snapshot frames compare deterministically.
+        await Promise.all([pair.design, pair.product].map(page => page.evaluate(() => document.querySelectorAll('.bd-glow').forEach(el => el.getAnimations().filter(animation => animation.animationName === 'bdRot').forEach(animation => { animation.pause(); animation.currentTime = 0 })))))
+        await primeBoardPaint(pair)
+      }
       const captureRegion = name.startsWith('tree.') ? await prepareTreeFrame(pair, region) : region
       await expectDesignParity(pair, { name: [name, pair.cell.dataset, pair.cell.viewport.width, pair.cell.theme, pair.cell.palette, pair.cell.reducedMotion, fraction].join("-"), region: captureRegion, preserveAnimations: true })
     }
