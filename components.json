@@ -84,6 +84,7 @@
     "components/ticket-context.json",
     "components/tracker.json",
     "components/tui.json",
+    "components/voice-client.json",
     "components/voice-conversation-core.json",
     "components/voice-conversation.json",
     "components/voice-stt.json",
