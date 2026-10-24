@@ -323,7 +323,8 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
       }
       if (name.startsWith('snap.')) { await alignBoard(pair) }
       if (name.startsWith('tree.')) await prepareTreeMotion(pair)
-      if (name === 'filter.dim') await prepareFilterCapture(pair)
+      // CSS ignores the fake clock; finish only the initial dot-grid resize before the click.
+      if (name === 'filter.dim') { await prepareFilterCapture(pair); for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(el => el.getAnimations().filter(a => a.transitionProperty === 'background-size').forEach(a => a.finish())) }
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)
       const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
       if (name.startsWith('columns.') && (!design.samples.length || !product.samples.length))
