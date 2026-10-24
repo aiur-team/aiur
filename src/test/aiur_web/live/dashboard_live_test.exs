@@ -832,13 +832,13 @@ defmodule AiurWeb.DashboardLiveTest do
     end)
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
+    :ok = ObservabilityPubSub.subscribe()
     {:ok, view, initial_html} = live(build_conn(), "/units")
     # Before the first fleet view is available, keep counts unknown and label
     # the state as startup loading rather than empty or unavailable.
     assert initial_html =~ "Loading Units…"
     refute Enum.any?(["0+", "Pause state unknown", "snapshot_unpublished", "No fleet data"], &String.contains?(initial_html, &1))
 
-    :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
     assert RefreshTrace.count(fn -> :ok = StatusReport.notify_dashboard(:sys.get_state(pid)) end) == 0
 
