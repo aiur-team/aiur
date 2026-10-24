@@ -5,7 +5,8 @@
   "kind": "in-app",
   "paths": [
     ".claude/skills/**",
-    "src/prompts/**"
+    "src/prompts/**",
+    "packages/nightly-release/**"
   ],
   "facades": [
     "*"
