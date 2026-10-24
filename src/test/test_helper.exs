@@ -1,6 +1,12 @@
 Code.require_file("support/test_environment.ex", __DIR__)
 Aiur.TestEnvironment.clear_inherited!()
 
+# Container probes must never observe the host's real cgroup from tests unless
+# a test explicitly installs its own fake cgroup tree.
+test_cgroup_root = Path.join(System.tmp_dir!(), "aiur-test-cgroup-disabled-#{System.unique_integer([:positive])}")
+if File.exists?(test_cgroup_root), do: raise("test cgroup root must not exist: #{test_cgroup_root}")
+Application.put_env(:aiur, :cgroup_root_override, test_cgroup_root)
+
 run_orchestrator_guard_probes = System.get_env("AIUR_RUN_ORCHESTRATOR_GUARD_PROBES") == "1"
 
 # Dashboard routes fail closed when credentials are absent. Keep the broad
