@@ -71,16 +71,19 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidenceTest do
     log = """
       1) [chromium] › tests/settings/toolbar.spec.mjs:30:27 › toolbar parity
       2) tests/home.spec.mjs:4:12 › home tools
+      3) tests/build-home-tools-parity.spec.mjs:73:11 › parity
     """
 
     assert [
              "src/browser/tests/settings/toolbar.spec.mjs",
-             "src/browser/tests/home.spec.mjs"
+             "src/browser/tests/home.spec.mjs",
+             "src/browser/tests/build-home-tools-parity.spec.mjs"
            ] = MergeGroupFailureEvidence.test_paths(log)
 
     assert [
              "BrowserSpec :: src/browser/tests/settings/toolbar.spec.mjs",
-             "BrowserSpec :: src/browser/tests/home.spec.mjs"
+             "BrowserSpec :: src/browser/tests/home.spec.mjs",
+             "BrowserSpec :: src/browser/tests/build-home-tools-parity.spec.mjs"
            ] = MergeGroupFailureEvidence.test_identities(log)
   end
 

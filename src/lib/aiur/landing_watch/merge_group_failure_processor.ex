@@ -260,10 +260,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     prs
     |> Enum.map(&Enum.find(observations, fn observation -> observation.number == &1 end))
     |> Enum.reject(&is_nil/1)
-    |> Enum.reduce(:ok, fn
-      _pr, {:error, _} = error -> error
-      pr, :ok -> LandingWatch.rework(pr, failures, Keyword.put(opts, :run_url, run_link))
-    end)
+    |> Enum.reduce(:ok, &rework_if_ok(&1, &2, failures, run_link, opts))
   end
 
   defp blamed_pr(%{log: log, blame_complete: true}, prs, opts) when is_binary(log) do
@@ -458,6 +455,11 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     prs = if is_binary(branch) and String.starts_with?(branch, prefix), do: pr_numbers(branch), else: []
     {:ok, prs}
   end
+
+  defp rework_if_ok(_pr, {:error, _} = error, _failures, _run_link, _opts), do: error
+
+  defp rework_if_ok(pr, :ok, failures, run_link, opts),
+    do: LandingWatch.rework(pr, failures, Keyword.put(opts, :run_url, run_link))
 
   defp pr_numbers(branch) when is_binary(branch) do
     Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first)
