@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
   alias Aiur.Harness.Capabilities
+  alias Aiur.Orchestrator.HostedAuthPolicy
 
   @impl true
   def applies?(_settings), do: true
@@ -69,7 +70,7 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
   defp validate_hosted(settings, opts) do
     violations =
       execution_surface_violations(opts) ++
-        configuration_violations(settings) ++
+        configuration_violations(settings, opts) ++
         backend_violations(settings, opts) ++
         contributor_violations(opts)
 
@@ -86,8 +87,10 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
     if interactive_cli?, do: ["local tmux panes are not allowed"], else: []
   end
 
-  defp configuration_violations(settings) do
-    codex_configuration_violations(settings) ++ remote_control_violations(settings)
+  defp configuration_violations(settings, opts) do
+    codex_configuration_violations(settings) ++
+      remote_control_violations(settings) ++
+      fallback_authentication_violations(settings, opts)
   end
 
   defp codex_configuration_violations(settings) do
@@ -128,6 +131,27 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
       |> Enum.map(&"agent.routing route #{inspect(&1)} enables +remote")
 
     global ++ routes
+  end
+
+  defp fallback_authentication_violations(settings, opts) do
+    entries = input(opts, :registry_entries, &Aiur.CodingAgent.backends/0)
+
+    fallback_targets =
+      entries
+      |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :rate_limit_fallback_target, false) end)
+      |> Enum.map(fn {backend, _entry} -> backend end)
+
+    case AgentSettings.rate_limit_fallback_backend(settings, fallback_targets) do
+      nil ->
+        []
+
+      backend ->
+        if HostedAuthPolicy.api_key_only_fallback?(Map.get(entries, backend, %{})) do
+          []
+        else
+          ["agent usage-limit fallback #{inspect(backend)} is not statically API-key-only"]
+        end
+    end
   end
 
   defp backend_violations(settings, opts) do
