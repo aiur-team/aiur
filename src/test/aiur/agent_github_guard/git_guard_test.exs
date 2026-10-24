@@ -1,4 +1,5 @@
 defmodule Aiur.AgentGitHubGuard.GitGuardTest do
+  # Cohesion: these tests exercise the installed git wrapper across push, ref, and workspace policies.
   use Aiur.AgentGitHubGuardCase, async: true
 
   test "git push rejects a credential-bearing GitHub remote", context do
