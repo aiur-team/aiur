@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
+  alias Aiur.Orchestrator.CiLifecycle.OwnerlessPass
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
@@ -15,6 +16,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.LifecycleFence
   alias Aiur.Orchestrator.Reconciler
@@ -46,7 +48,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
       true ->
-        Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result))
+        pending_ci_wait(state, issue, result)
     end
   end
 
@@ -161,19 +163,16 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   defp stale_approved_head?(_issue, _result), do: false
 
   defp transition_ci_pass(state, issue, result) do
-    if LifecycleFence.handoff_blocked?(state, issue) do
-      Transition.log_fenced_ci_handoff(issue, @active_handoff_state)
-      state
-    else
-      Poll.run_ci_effect(
-        state,
-        issue,
-        "transition_ci_pass",
-        fn -> write_ci_pass_state({issue, result}) end,
-        fn arg1, arg2 ->
-          apply_ci_pass_transition(arg1, arg2, {issue, result})
-        end
-      )
+    cond do
+      LifecycleFence.handoff_blocked?(state, issue) ->
+        Transition.log_fenced_ci_handoff(issue, @active_handoff_state)
+        state
+
+      not OwnerlessPass.runtime_owned?(state, issue) ->
+        OwnerlessPass.settle(state, issue, result, &clear_ci_test_failure_retry/2, &remember_ci_approved_head/3)
+
+      true ->
+        Poll.run_ci_effect(state, issue, "transition_ci_pass", fn -> write_ci_pass_state({issue, result}) end, &apply_ci_pass_transition(&1, &2, {issue, result}))
     end
   end
 
@@ -436,10 +435,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         |> TerminalEvent.publish_ci_terminal_event(issue, result, :passed)
 
       {:error, reason} ->
-        Logger.warning(
-          "CI pass transition skipped: #{State.issue_context(issue)} " <>
-            "reason=#{inspect(reason)}"
-        )
+        Logger.warning("CI pass transition skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
 
         state
     end
@@ -473,10 +469,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         |> TerminalEvent.publish_ci_terminal_event(issue, result, :failed)
 
       {:error, reason} ->
-        Logger.warning(
-          "CI failure transition skipped: #{State.issue_context(issue)} " <>
-            "reason=#{inspect(reason)}"
-        )
+        Logger.warning("CI failure transition skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
 
         state
     end
@@ -496,5 +489,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
         state
     end
+  end
+
+  # Pending CI never overrides rework or in-progress (#6108); "" (no state) keeps the contradictory-label repair (#2366).
+  defp pending_ci_wait(state, issue, result) do
+    if DispatchPolicy.normalize_issue_state(Transition.effective_ci_state(issue)) in ["", @human_review_state, "merging"],
+      do: Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result)),
+      else: state
   end
 end

@@ -386,7 +386,8 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     refute_received {:rerun, _}
     assert_received {:update_branch, 17, "head-sha"}
     assert_received {:comment, 17, body}
-    assert body =~ "Landing watcher updated the branch from the base after failed CI (ci gate) on approved head `head-sha`: #{reason}."
+    assert body =~ "Landing watcher updated the branch from the base after failed CI (ci gate) on approved head `head-sha`:"
+    assert body =~ reason
     assert {:ok, []} = Journal.rerun_backlog(journal_path: path)
   end
 
