@@ -66,6 +66,6 @@ defmodule Aiur.GitHub.IssueStateCleanupReadTest do
     end
 
     assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
-    assert :ets.lookup_element(gets, :count, 2) == 3
+    assert :ets.lookup_element(gets, :count, 2) == 4
   end
 end

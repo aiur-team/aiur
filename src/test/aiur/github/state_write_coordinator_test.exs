@@ -1,3 +1,4 @@
+# Cohesion: these tests cover per-ticket GitHub state-write serialization and recovery.
 defmodule Aiur.GitHub.StateWriteCoordinatorTest do
   use Aiur.TestSupport
 
@@ -49,19 +50,22 @@ defmodule Aiur.GitHub.StateWriteCoordinatorTest do
 
   test "an empty removal response restores the target and emits an alert" do
     parent = self()
+    {:ok, labels} = Agent.start_link(fn -> ["sym:todo"] end)
 
     request_fun = fn
       %{method: :get} = request ->
         send(parent, {:recovery_request, request.method})
-        {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}]}}}
+        {:ok, %{status: 200, body: %{"state" => "open", "labels" => label_objects_from_list(labels)}}}
 
       %{method: :post, body: %{"labels" => ["sym:in-progress"]}} = request ->
         send(parent, {:recovery_request, request.method})
+        Agent.update(labels, &Enum.uniq(["sym:in-progress" | &1]))
         send(parent, {:state_label_add, "sym:in-progress"})
         {:ok, %{status: 200}}
 
       %{method: :delete} = request ->
         send(parent, {:recovery_request, request.method})
+        Agent.update(labels, fn _ -> [] end)
         {:ok, %{status: 200, body: []}}
 
       request ->
@@ -85,6 +89,7 @@ defmodule Aiur.GitHub.StateWriteCoordinatorTest do
     assert_received {:recovery_request, :get}
     assert_received {:recovery_request, :get}
     assert_received {:recovery_request, :get}
+    assert_received {:recovery_request, :get}
     assert_received {:recovery_request, :post}
     assert_received {:recovery_request, :delete}
     assert_received {:recovery_request, :post}
@@ -94,6 +99,7 @@ defmodule Aiur.GitHub.StateWriteCoordinatorTest do
     assert metadata[:needs_attention]
     assert metadata[:severity] == "critical"
     assert metadata[:message] =~ "restoring sym:in-progress"
+    Agent.stop(labels)
   end
 
   test "a removal without returned labels uses one verification read and restores zero state" do
@@ -216,6 +222,9 @@ defmodule Aiur.GitHub.StateWriteCoordinatorTest do
 
   defp label_objects(agent),
     do: Agent.get(agent, &Enum.map(&1.labels, fn label -> %{"name" => label} end))
+
+  defp label_objects_from_list(labels),
+    do: Agent.get(labels, &Enum.map(&1, fn label -> %{"name" => label} end))
 
   defp state_labels(state),
     do:
