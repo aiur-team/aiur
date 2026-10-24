@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.Orchestrator.{PauseResume, Reconciler, RetryEngine, RuntimeWatchdog, State, TokenAccounting}
 
@@ -209,6 +210,27 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
 
     assert Map.has_key?(next_state.running, "issue-1")
     assert next_state.retry_attempts == %{}
+  end
+
+  test "stalled alert names the command for its resolved backend" do
+    now = DateTime.utc_now()
+    topic = "ticket.repo#1.agent.stalled"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    entry =
+      running_entry(now)
+      |> Map.put(:session_execution, %{backend: "claude"})
+      |> Map.put(:last_codex_timestamp, DateTime.add(now, -5, :second))
+
+    state = %State{running: %{"issue-1" => entry}}
+
+    next = RuntimeWatchdog.restart_stalled_issue(state, "issue-1", entry, now, 1_000)
+
+    assert_received {:event, %{topic: ^topic} = event}
+    assert event["message"] =~ "claude backend command (aiur-claude)"
+    assert event["message"] =~ "made no progress"
+    cancel_retry(next, "issue-1")
   end
 
   defp running_entry(now) do
