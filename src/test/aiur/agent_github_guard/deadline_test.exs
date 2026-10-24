@@ -129,7 +129,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
         :binary,
         :exit_status,
         :stderr_to_stdout,
-        args: Enum.map([context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
+        args: Enum.map(["--wait", context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
         env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
       ])
 
@@ -151,9 +151,9 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     assert File.read!(child_pgid_file) == pgid
 
     assert {"", 0} = System.cmd("kill", ["-KILL", "-#{pgid}"])
+    assert_receive {^port, {:exit_status, _status}}, 2_000
     wait_until(fn -> process_gone?(child_pid) end)
     assert process_gone?(child_pid)
-    assert_receive {^port, {:exit_status, _status}}, 2_000
   end
 
   test "SIGTERM exits the supervisor and kills a TERM-ignoring broker descendant", context do
@@ -166,7 +166,8 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     supervisor_pgid_file = Path.join(context.workspace, "term-supervisor.pgid")
 
     File.write!(broker, """
-    import os, subprocess, time
+    import os, signal, subprocess, time
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
     with open(os.environ["AIUR_GH_TERM_BROKER_PID_FILE"], "w", encoding="ascii") as output:
         output.write(str(os.getpid()))
     with open(os.environ["AIUR_GH_TERM_BROKER_PGID_FILE"], "w", encoding="ascii") as output:
@@ -243,7 +244,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     assert File.read!(broker_pgid_file) == pgid
     assert File.read!(child_pgid_file) == pgid
 
-    assert {"", 0} = System.cmd("kill", ["-TERM", "-#{pgid}"])
+    assert {"", 0} = System.cmd("kill", ["-TERM", supervisor_pid])
     assert_receive {^port, {:exit_status, 143}}, 3_000
     wait_until(fn -> process_gone?(String.to_integer(supervisor_pid)) end)
     wait_until(fn -> process_gone?(broker_pid) end)
