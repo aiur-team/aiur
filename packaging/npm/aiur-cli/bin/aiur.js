@@ -32,6 +32,26 @@ function fail(message) {
   process.exit(1);
 }
 
+function usageError(message) {
+  process.stderr.write(`aiur: ${message}\n`);
+  process.exit(64);
+}
+
+function remoteTarget(argv) {
+  const args = [...argv];
+  let instance;
+  if (args[0] === "--instance") {
+    if (!args[1]) usageError("--instance requires a name");
+    instance = args[1];
+    args.splice(0, 2);
+  } else if (args[0]?.startsWith("--instance=")) {
+    instance = args[0].slice("--instance=".length);
+    if (!instance) usageError("--instance requires a name");
+    args.shift();
+  }
+  return { args, instance };
+}
+
 function resolveReleaseDir() {
   // A pre-set AIUR_RELEASE_DIR (the dev shim, or local `npm pack` install
   // verification) wins over platform-package resolution.
@@ -237,8 +257,9 @@ function requiresInteractiveTools(argv) {
 
 function main() {
   const releaseDir = resolveReleaseDir();
+  const target = remoteTarget(process.argv.slice(2));
 
-  if (requiresInteractiveTools(process.argv.slice(2))) {
+  if (requiresInteractiveTools(target.args)) {
     ensureTmux();
     ensureOpencode();
   }
@@ -246,13 +267,20 @@ function main() {
   const pkgRoot = path.resolve(__dirname, "..");
   const launcher = path.join(pkgRoot, "libexec", "aiur-engine.sh");
 
-  const result = spawnSync(launcher, process.argv.slice(2), {
+  const env = {
+    ...process.env,
+    AIUR_JS_RUNTIME: process.execPath,
+    AIUR_RELEASE_DIR: releaseDir,
+    AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
+  };
+  delete env.AIUR_REMOTE_INSTANCE;
+  const engineArgs = target.instance
+    ? ["--instance", target.instance, ...target.args]
+    : target.args;
+
+  const result = spawnSync(launcher, engineArgs, {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      AIUR_RELEASE_DIR: releaseDir,
-      AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
-    },
+    env,
   });
 
   if (result.error) {

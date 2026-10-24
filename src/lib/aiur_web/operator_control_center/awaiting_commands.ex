@@ -60,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
 
     socket
     |> assign(:retained_counts, counts)
-    |> assign(:nav_counts, nav_counts(counts))
+    |> assign(:nav_counts, Map.merge(Map.take(socket.assigns[:nav_counts] || %{}, [:build]), nav_counts(counts)))
   end
 
   @doc "Nav badge counts derived from the same read, and the same field, as the banner."

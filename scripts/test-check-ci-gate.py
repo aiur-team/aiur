@@ -13,6 +13,13 @@ SPEC.loader.exec_module(MODULE)
 
 
 class RequiredJobsTest(unittest.TestCase):
+    # Regression guard: passes on main too; this PR does not change check-ci-gate.py.
+    def test_fast_pr_requires_only_fast_jobs_regression_guard(self):
+        self.assertEqual(
+            MODULE.required_jobs('pull_request', False, False, False),
+            ['changes', 'workflow-security', 'pre-handoff', 'lint', 'soak', 'affected-tests'],
+        )
+
     def test_web_pr_requires_browser_shards(self):
         self.assertIn('browser', MODULE.required_jobs('pull_request', False, False, True))
 

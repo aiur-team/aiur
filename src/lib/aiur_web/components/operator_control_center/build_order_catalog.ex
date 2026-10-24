@@ -19,6 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   def build_order_catalog(assigns) do
     ~H"""
     <section class="bo-surface bo-surface-flush" aria-label="Build Orders">
+      <h2 id="build-order-catalog-heading" class="bo-catalog-heading">Build Order catalog</h2>
       <%!-- On a repository with no webhooks the catalog is only as new as the
             last re-converge, so an operator needs a way to buy one without
             restarting the daemon (#2544). Server-side rate limited. --%>

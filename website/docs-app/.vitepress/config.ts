@@ -184,6 +184,7 @@ export default withMermaid(defineConfig({
             { text: 'Configuration', link: '/reference/configuration' },
             { text: 'Configuration: agent', link: '/reference/configuration-agent' },
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
+            { text: 'Configuration: voice', link: '/reference/configuration-voice' },
             { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
             { text: 'PR checks', link: '/reference/pr-checks' },

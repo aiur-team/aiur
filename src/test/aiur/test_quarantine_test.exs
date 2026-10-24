@@ -5,9 +5,9 @@ defmodule Aiur.TestQuarantineTest do
   alias Aiur.TestQuarantine.Detector
 
   test "parses comments, exact test names, and ticket provenance" do
-    source = "# test, name, ticket\nAiur.ExampleTest\tkeeps the exact name\t#42\n"
+    source = "# test, name, ticket, expiry\nAiur.ExampleTest\tkeeps the exact name\t#42\t2026-12-31\n"
 
-    assert {:ok, [%{module: "Aiur.ExampleTest", name: "keeps the exact name", ticket: "#42"}]} =
+    assert {:ok, [%{module: "Aiur.ExampleTest", name: "keeps the exact name", ticket: "#42", expires: ~D[2026-12-31]}]} =
              TestQuarantine.parse(source)
   end
 
@@ -15,7 +15,12 @@ defmodule Aiur.TestQuarantineTest do
     assert {:error, {:invalid_quarantine_entry, 2}} = TestQuarantine.parse("# valid comment\nnot a valid row\n")
   end
 
-  test "the checked-in quarantine list parses with sorted rows and ticket provenance" do
+  test "rejects malformed expiry dates with a clear source line" do
+    assert {:error, {:invalid_quarantine_entry, 1, "expected module, name, ticket, and YYYY-MM-DD expiry"}} =
+             TestQuarantine.parse("Aiur.ExampleTest\tkeeps the exact name\t#42\t2026-13-40\n")
+  end
+
+  test "the checked-in quarantine list parses with sorted rows, owner tickets and expiries" do
     test_root = Path.join(File.cwd!(), "test")
     path = Path.join(test_root, "quarantine.txt")
     assert {:ok, entries} = TestQuarantine.read(path)
@@ -24,6 +29,7 @@ defmodule Aiur.TestQuarantineTest do
     assert identities == Enum.sort(identities)
     assert length(identities) == length(Enum.uniq(identities))
     assert Enum.all?(entries, &(&1.ticket =~ ~r/^#?[1-9][0-9]*$/))
+    assert Enum.all?(entries, &match?(%Date{}, &1.expires))
 
     test_modules = test_root |> Path.join("**/*_test.exs") |> Path.wildcard() |> test_module_names()
 

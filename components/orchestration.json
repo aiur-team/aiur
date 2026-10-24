@@ -50,6 +50,8 @@
   ],
   "optional": [
     "build-queue",
+    "executor-attention",
+    "github",
     "github-listeners"
   ],
   "owns": {

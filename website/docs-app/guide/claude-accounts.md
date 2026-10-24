@@ -51,6 +51,41 @@ Usage percentages and freshness come from the daemon's last poll. If Aiur is
 not running, the command still shows account identity and reports usage as
 unavailable; it does not make a separate usage request.
 
+The daemon polls Claude usage every `polling.usage_interval_seconds` while
+agents run or a dashboard is in focus, in any `account_selection` mode. A
+shorter `agent.headroom_reading_max_age_seconds` clamps that cadence down to
+the provider's 120-second polling floor. A max age below 120 seconds can become
+stale between probes. Older readings show as `stale`.
+
+When polls fail, Claude rows show `last_error`. After an earlier good reading
+the row is `stale` with that reading's age. Three failures in a row log one
+warning.
+
+A running daemon serves the same rows over HTTP, behind dashboard basic auth:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Each row is the matching `aiur accounts --json` row, limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at`, `age_ms` and, on Claude rows, `last_error`. |
+| `GET /api/v1/usage/accounts?harness=codex` | The same envelope, limited to one harness. |
+
+Every row has a `freshness` value:
+
+| `freshness` | Numbers |
+| --- | --- |
+| `fresh`, `cached` | Current Claude meter reading. |
+| `stale` | Claude reading older than `agent.headroom_reading_max_age_seconds`; numbers are kept and `age_ms` shows how old they are. A failing poll after an earlier good reading is also `stale`, with numbers `null`. |
+| `ledger` | Read from the usage ledger (a backend with one account). |
+| `stale_ledger` | Ledger reading past the max age; numbers are `null`, `age_ms` is kept. |
+| `usage_not_observed` | Claude account the daemon has not polled yet. |
+| `usage_not_polled` | Backend without a per-account meter or a usable ledger reading. |
+| `usage_unavailable` | API-key account; no per-key meter. |
+| other | Reason the last poll failed, for example `no_oauth_token`. |
+
+A missing reading is `null`, never `0`. Each row carries only the listed
+fields, and `identity` carries only `email`, `organization`, `seatTier` and
+`account_id`. Responses are `Cache-Control: no-store` and never include
+credentials, API keys or profile paths.
+
 ## Enable accounts for dispatch
 
 Add account names to the repository's `.aiur/config`. Names in the list are

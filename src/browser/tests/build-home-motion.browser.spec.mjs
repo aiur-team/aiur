@@ -1,4 +1,4 @@
-import { alignBoard, alignEtaMask, primeBoardPaint } from '../support/build-home-band-canvas.mjs'
+import { alignBoard, primeBoardPaint } from '../support/build-home-band-canvas.mjs'
 import { installScrollPaint, flushScrollPaint } from '../support/build-home-scroll-paint.mjs'
 import { normalizeColumnCapture } from '../support/build-home-columns-motion.mjs'
 import { prepareTreeMotion, prepareTreeFrame } from '../support/build-home-tree-motion.mjs'
@@ -274,15 +274,17 @@ function frameBarrier(pair, name, reduce) {
         for (const page of [pair.design, pair.product]) chrome.push([page, await page.locator('#bd-tools').evaluate(el => {
           const value = el.style.visibility; el.style.visibility = 'hidden'; return value
         })])
-        // Span changes rebuild the header, replacing the pending ETA slot.
-        if (name !== 'snap.list-view') await alignEtaMask(pair)
         // Tall fixed viewports must fit inside both screenshot documents.
         for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(el => {
           document.body.style.minHeight = Math.ceil(el.getBoundingClientRect().bottom + scrollY) + 'px'
         })
       }
       if (name === 'snap.scroll-curve') await Promise.all([pair.design, pair.product].map(flushScrollPaint))
-      if (name.startsWith('snap.')) await primeBoardPaint(pair)
+      if (name.startsWith('snap.')) {
+        // Freeze live-card halos at one phase so snapshot frames compare deterministically.
+        await Promise.all([pair.design, pair.product].map(page => page.evaluate(() => document.querySelectorAll('.bd-glow').forEach(el => el.getAnimations().filter(animation => animation.animationName === 'bdRot').forEach(animation => { animation.pause(); animation.currentTime = 0 })))))
+        await primeBoardPaint(pair)
+      }
       const captureRegion = name.startsWith('tree.') ? await prepareTreeFrame(pair, region) : region
       await expectDesignParity(pair, { name: [name, pair.cell.dataset, pair.cell.viewport.width, pair.cell.theme, pair.cell.palette, pair.cell.reducedMotion, fraction].join("-"), region: captureRegion, preserveAnimations: true })
     }
@@ -321,9 +323,8 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
           if (name.startsWith('columns.')) await normalizeColumnCapture(page)
         }))
       }
-      if (name.startsWith('snap.')) { await alignBoard(pair); await alignEtaMask(pair); pair.allowlist = pair.allowlist.map(e => e.id === 'now-band-eta-pending' ? { ...e, kind: 'pixel-mask', selector: '.bd-now-eta' } : e) }
+      if (name.startsWith('snap.')) { await alignBoard(pair) }
       if (name.startsWith('tree.')) await prepareTreeMotion(pair)
-      if (name === 'snap.list-view') pair.allowlist = pair.allowlist.filter(e => e.id !== 'now-band-eta-pending')
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)
       const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
       if (name.startsWith('columns.') && (!design.samples.length || !product.samples.length))
@@ -369,7 +370,7 @@ for (const selectedCell of colourCells) test.describe(`product inventory/grain $
     await openDesign(pair.design, selectedCell, { motion: true, phase })
     await openProduct(pair.product, selectedCell, { motion: true, phase })
     const reduce = selectedCell.reducedMotion === 'reduce'
-    if (selector === '.bd-now') { await alignBoard(pair); await alignEtaMask(pair); pair.allowlist = pair.allowlist.map(e => e.id === 'now-band-eta-pending' ? { ...e, kind: 'pixel-mask', selector: '.bd-now-eta' } : e) }
+    if (selector === '.bd-now') { await alignBoard(pair) }
     const barrier = frameBarrier(pair, name, reduce)
     const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, selector, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, selector, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
     collectAllowlist(design, product, scopedEntries(pair.allowlist, selectedCell))

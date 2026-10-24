@@ -56,6 +56,12 @@ defmodule AiurWeb.Build.IndexSource do
   @impl true
   def ticket(id, opts), do: call({:ticket, id}, opts)
 
+  @impl true
+  def unit_row(id, opts), do: call({:unit_row, id}, opts)
+
+  @impl true
+  defdelegate ticket_doc_identity(id, opts), to: AiurWeb.Build.TicketDoc, as: :live_identity
+
   defp call(message, opts), do: guard(fn -> GenServer.call(server(opts), message, timeout(opts)) end)
 
   defp guard(fun) do

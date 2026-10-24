@@ -4,7 +4,7 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
 
   alias Aiur.Conversation.History
   alias Aiur.Workspace.Layout
-  alias AiurWeb.Build.ConversationSource.Entries
+  alias AiurWeb.Build.ConversationSource.{Entries, Wave0bEvents}
   alias AiurWeb.EndpointConfig
 
   @impl true
@@ -56,6 +56,15 @@ defmodule AiurWeb.Build.ConversationSource.Wave0b do
   @impl true
   def page(ref, cursor, opts) when is_binary(cursor), do: read(ref, cursor, :page, opts)
   def page(_, _, _), do: {:error, :invalid_cursor}
+
+  @impl true
+  def events(ref, opts), do: Wave0bEvents.read(ref, opts)
+
+  @impl true
+  def events_subscribe(identity, _opts), do: Wave0bEvents.subscribe(identity)
+
+  @impl true
+  def events_unsubscribe(topic, _opts), do: Wave0bEvents.unsubscribe(topic)
 
   @impl true
   def subscribe(ref, _opts), do: subscription(ref, :build_conversation_subscribe_fun, &History.live_subscribe/1)

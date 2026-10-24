@@ -71,6 +71,13 @@ defmodule Aiur.LandingWatch.ConflictRouting do
   @doc "Takes the PR out of the queue, then routes it through `rework` with a rebase-only follow-up."
   @spec route(map(), (map(), [map()], keyword() -> :ok | {:error, term()}), keyword()) :: :ok | {:error, term()}
   def route(observation, rework, opts) do
+    ticket = Aiur.TicketBranch.ticket_id(get_in(observation[:rest] || %{}, ["head", "ref"]))
+
+    # Another instance's conflicting PR is that instance's to withdraw (#5803).
+    if ticket != nil and Aiur.Instance.skip?(ticket, nil, :landing_conflict), do: :ok, else: route_owned(observation, rework, opts)
+  end
+
+  defp route_owned(observation, rework, opts) do
     marker = "conflict-rework"
 
     with :ok <- withdraw(observation, opts),
