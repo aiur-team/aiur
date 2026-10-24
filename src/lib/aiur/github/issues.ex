@@ -931,8 +931,6 @@ defmodule Aiur.GitHub.Issues do
 
     %Issue{
       id: to_string(number),
-      # Keep the GitHub API identifier numeric; shared lease keys derive their
-      # repository qualification from this issue's tracker identity.
       identifier: to_string(number),
       tracker_identity: tracker_identity(gh_issue, owner, repo),
       title: gh_issue["title"],
