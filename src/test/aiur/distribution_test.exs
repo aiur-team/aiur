@@ -80,7 +80,7 @@ defmodule Aiur.DistributionTest do
 
   describe "parse_epmd_output/1" do
     test "parses an IPv4 loopback address from lsof output" do
-      output = "epmd 123 root 3u IPv4 123 0t0 TCP 127.0.0.1:4369 (LISTEN)\n"
+      output = "lsof: WARNING: can't stat() fuse.sshfs file system\nepmd 123 root 3u IPv4 123 0t0 TCP 127.0.0.1:4369 (LISTEN)\n"
 
       assert {:ok, [{127, 0, 0, 1}]} = Distribution.parse_epmd_output(output)
     end
@@ -96,6 +96,29 @@ defmodule Aiur.DistributionTest do
                  epmd_address: [{0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 0, 0}],
                  dist_address: {127, 0, 0, 1}
                )
+    end
+
+    test "treats stderr warnings as noise and rejects output without a listener" do
+      assert {:error, :epmd_unverifiable} = Distribution.parse_epmd_output("lsof: WARNING: unable to read process details\n")
+    end
+  end
+
+  describe "parse_proc_listeners/3" do
+    test "decodes IPv4, IPv6, and wildcard listen sockets on the EPMD port" do
+      tcp4 =
+        "sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n0: 0100007F:1111 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 1\n1: 00000000:1111 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 2\n2: 0100007F:1112 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 3\n"
+
+      tcp6 =
+        "sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n0: 00000000000000000000000001000000:1111 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 4\n"
+
+      assert {:ok, [{127, 0, 0, 1}, {0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 1}]} =
+               Distribution.parse_proc_listeners(tcp4, tcp6, 4369)
+    end
+
+    test "reports an unverifiable state when procfs has no EPMD listener" do
+      header = "sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n"
+
+      assert {:error, :epmd_unverifiable} = Distribution.parse_proc_listeners(header, header, 4369)
     end
   end
 

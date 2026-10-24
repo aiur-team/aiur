@@ -142,7 +142,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
-       aiur doctor [--repair]         check mise shims; repair only with consent
+       aiur doctor [--repair]         check distribution and mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur pre-pr           merge origin/main locally and run cheap PR gates
        aiur --version

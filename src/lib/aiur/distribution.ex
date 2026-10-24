@@ -26,7 +26,8 @@ defmodule Aiur.Distribution do
   end
 
   @doc false
-  @spec check(keyword()) :: :ok | {:error, :not_distributed | :epmd_not_local | :dist_not_local | :baked_cookie}
+  @spec check(keyword()) ::
+          :ok | {:error, :not_distributed | :epmd_not_local | :epmd_unverifiable | :dist_not_local | :baked_cookie}
   def check(opts) do
     if Keyword.fetch!(opts, :alive?) do
       cond do
@@ -45,7 +46,7 @@ defmodule Aiur.Distribution do
 
   @doc false
   @spec node_name((-> atom())) :: atom() | nil
-  def node_name(node_self_fn) do
+  def node_name(node_self_fn) when is_function(node_self_fn, 0) do
     case node_self_fn.() do
       :nonode@nohost -> nil
       name -> name
@@ -113,27 +114,44 @@ defmodule Aiur.Distribution do
   end
 
   defp epmd_address_bound do
-    case System.cmd("sh", ["-c", "pid=$(pgrep -x epmd | head -n 1); [ -n \"$pid\" ] && lsof -nP -a -p \"$pid\" -iTCP -sTCP:LISTEN 2>/dev/null"], stderr_to_stdout: true) do
-      {output, 0} ->
-        parse_epmd_output(output)
-
-      _ ->
-        {:error, :epmd_not_local}
+    case proc_epmd_listeners() do
+      {:ok, []} -> {:error, :epmd_unverifiable}
+      {:ok, addresses} -> {:ok, addresses}
+      :unavailable -> lsof_epmd_listeners()
     end
   end
 
   @doc false
-  @spec parse_epmd_output(String.t()) :: {:ok, [tuple()]} | {:error, :epmd_not_local}
+  @spec parse_epmd_output(String.t()) :: {:ok, [tuple()]} | {:error, :epmd_unverifiable}
   def parse_epmd_output(output) when is_binary(output) do
-    matches = Regex.scan(~r/(\*|(?:\d{1,3}\.){3}\d{1,3}|\[[0-9a-fA-F:]+\]):(\d+)/, output, capture: :all_but_first)
-    epmd_addresses(matches)
+    port = epmd_port()
+
+    matches =
+      Regex.scan(~r/(\*|(?:\d{1,3}\.){3}\d{1,3}|\[[0-9a-fA-F:]+\]):(\d+)/, output, capture: :all_but_first)
+      |> Enum.filter(fn [_address, listener_port] -> listener_port == port end)
+
+    parse_epmd_matches(matches)
   end
 
-  defp epmd_addresses([]), do: {:error, :epmd_not_local}
+  @doc false
+  @spec parse_proc_listeners(String.t(), String.t(), String.t() | integer()) ::
+          {:ok, [tuple()]} | {:error, :epmd_unverifiable}
+  def parse_proc_listeners(tcp4, tcp6, port) when is_binary(tcp4) and is_binary(tcp6) do
+    with {:ok, port} <- parse_epmd_port(port) do
+      addresses = parse_proc_table(tcp4, :inet, port) ++ parse_proc_table(tcp6, :inet6, port)
 
-  defp epmd_addresses(matches) do
+      case addresses do
+        [] -> {:error, :epmd_unverifiable}
+        _ -> {:ok, addresses}
+      end
+    end
+  end
+
+  defp parse_epmd_matches([]), do: {:error, :epmd_unverifiable}
+
+  defp parse_epmd_matches(matches) do
     addresses = Enum.map(matches, &parse_epmd_address/1)
-    if Enum.all?(addresses, &(not is_nil(&1))), do: {:ok, addresses}, else: {:error, :epmd_not_local}
+    if Enum.all?(addresses, &(not is_nil(&1))), do: {:ok, addresses}, else: {:error, :epmd_unverifiable}
   end
 
   defp parse_epmd_address(["*", _port]), do: {0, 0, 0, 0}
@@ -152,6 +170,108 @@ defmodule Aiur.Distribution do
       _ -> nil
     end
   end
+
+  defp proc_epmd_listeners do
+    if :os.type() == {:unix, :linux} do
+      with {:ok, tcp4} <- File.read("/proc/net/tcp"),
+           {:ok, tcp6} <- File.read("/proc/net/tcp6"),
+           {:ok, port} <- parse_epmd_port(epmd_port()) do
+        {:ok, parse_proc_table(tcp4, :inet, port) ++ parse_proc_table(tcp6, :inet6, port)}
+      else
+        _ -> :unavailable
+      end
+    else
+      :unavailable
+    end
+  end
+
+  defp parse_proc_table(contents, family, port) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.drop(1)
+    |> Enum.flat_map(fn line ->
+      case String.split(line) do
+        [_slot, local_address, _remote_address, "0A" | _rest] ->
+          parse_proc_socket(local_address, family, port)
+
+        _ ->
+          []
+      end
+    end)
+  end
+
+  defp parse_proc_socket(local_address, family, port) do
+    case String.split(local_address, ":", parts: 2) do
+      [address_hex, port_hex] ->
+        parse_proc_socket_address(address_hex, port_hex, family, port)
+
+      _ ->
+        []
+    end
+  end
+
+  defp parse_proc_socket_address(address_hex, port_hex, family, port) do
+    with {parsed_port, ""} <- Integer.parse(port_hex, 16),
+         true <- parsed_port == port,
+         address when not is_nil(address) <- decode_proc_address(address_hex, family) do
+      [address]
+    else
+      _ -> []
+    end
+  end
+
+  defp decode_proc_address(address_hex, :inet) when byte_size(address_hex) == 8 do
+    address_hex
+    |> hex_bytes()
+    |> Enum.reverse()
+    |> List.to_tuple()
+  end
+
+  defp decode_proc_address(address_hex, :inet6) when byte_size(address_hex) == 32 do
+    address_hex
+    |> String.graphemes()
+    |> Enum.chunk_every(8)
+    |> Enum.flat_map(fn word -> word |> Enum.chunk_every(2) |> Enum.reverse() |> Enum.map(&Enum.join/1) end)
+    |> Enum.chunk_every(2)
+    |> Enum.map(fn [high, low] -> String.to_integer(high <> low, 16) end)
+    |> List.to_tuple()
+  end
+
+  defp decode_proc_address(_address_hex, _family), do: nil
+
+  defp hex_bytes(address_hex) do
+    address_hex
+    |> String.graphemes()
+    |> Enum.chunk_every(2)
+    |> Enum.map(fn byte -> byte |> Enum.join() |> String.to_integer(16) end)
+  end
+
+  defp lsof_epmd_listeners do
+    with lsof when is_binary(lsof) <- System.find_executable("lsof"),
+         port when is_binary(port) <- epmd_port() do
+      case System.cmd(lsof, ["-nP", "-iTCP:#{port}", "-sTCP:LISTEN"], stderr_to_stdout: true) do
+        {output, 0} -> parse_epmd_output(output)
+        _ -> {:error, :epmd_unverifiable}
+      end
+    else
+      _ -> {:error, :epmd_unverifiable}
+    end
+  rescue
+    _ -> {:error, :epmd_unverifiable}
+  end
+
+  defp epmd_port, do: System.get_env("ERL_EPMD_PORT") || "4369"
+
+  defp parse_epmd_port(port) when is_integer(port) and port in 1..65_535, do: {:ok, port}
+
+  defp parse_epmd_port(port) when is_binary(port) do
+    case Integer.parse(port) do
+      {parsed, ""} when parsed in 1..65_535 -> {:ok, parsed}
+      _ -> {:error, :epmd_unverifiable}
+    end
+  end
+
+  defp parse_epmd_port(_port), do: {:error, :epmd_unverifiable}
 
   defp release_cookie do
     case release_root() do
@@ -188,6 +308,9 @@ defmodule Aiur.Distribution do
 
   defp unsafe_reason(:epmd_not_local),
     do: "epmd listener is not loopback; verify ERL_EPMD_ADDRESS=127.0.0.1"
+
+  defp unsafe_reason(:epmd_unverifiable),
+    do: "epmd listener could not be verified; Linux needs readable /proc/net/tcp and /proc/net/tcp6, and other systems need lsof"
 
   defp unsafe_reason(:dist_not_local),
     do: "Erlang distribution listener is not loopback; verify inet_dist_use_interface"
