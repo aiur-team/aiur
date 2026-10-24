@@ -6,10 +6,10 @@ defmodule Aiur.Application.StartupChecks do
 
   require Logger
 
+  alias Aiur.CodingAgent.ProviderCredential
   alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
-  alias Aiur.CodingAgent.ProviderCredential
   alias Aiur.Orchestrator.HostedModeCheck
 
   @doc false
