@@ -19,7 +19,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "query AiurCIPollBatch"
-      assert body["query"] =~ "checkSuite { id app { databaseId } }"
+      assert body["query"] =~ "checkSuite { id app { databaseId } workflow { databaseId } }"
       assert body["query"] =~ "mergeQueueEntry { id state }"
       assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100)"
       assert body["query"] =~ "reviews(last: 100) { nodes { state commit { oid } } }"
