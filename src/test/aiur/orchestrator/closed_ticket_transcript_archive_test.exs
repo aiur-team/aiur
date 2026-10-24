@@ -21,14 +21,14 @@ defmodule Aiur.Orchestrator.ClosedTicketTranscriptArchiveTest do
       assert :ok = ClosedTicketTranscriptArchive.archive("42", nil, archive_opts)
       first = Path.wildcard(Path.join([log_root, "closed-ticket-transcripts", "42", "*", "agent.md"]))
       assert [_] = first
-      assert File.read!(hd(first)) == "abcd\n[transcript truncated at 4 bytes]\n"
+      assert File.read!(hd(first)) == "[transcript truncated at 4 bytes]\ncdef"
       refute File.exists?(Path.join(Path.dirname(hd(first)), "event-publications.ndjson"))
 
       File.write!(Path.join(logs, "agent.md"), "second archive")
       assert :ok = ClosedTicketTranscriptArchive.archive("42", nil, archive_opts)
       retained = Path.wildcard(Path.join([log_root, "closed-ticket-transcripts", "42", "*", "agent.md"]))
       assert [_] = retained
-      assert File.read!(hd(retained)) == "seco\n[transcript truncated at 4 bytes]\n"
+      assert File.read!(hd(retained)) == "[transcript truncated at 4 bytes]\nhive"
     after
       Aiur.TestCleanup.rm_rf!(root)
     end
@@ -74,6 +74,23 @@ defmodule Aiur.Orchestrator.ClosedTicketTranscriptArchiveTest do
   end
 
   test "skips remote transcript archiving so terminal cleanup can remove the workspace" do
-    assert :ok = ClosedTicketTranscriptArchive.archive("42", "builder@remote")
+    root = Aiur.TestSupport.tmp_root!("remote-ticket-transcript-archive")
+    workspace = Path.join(root, "workspace")
+    logs = Path.join(workspace, "logs")
+    archive_root = Path.join(root, "archive")
+    File.mkdir_p!(logs)
+    File.write!(Path.join(logs, "agent.md"), "remote transcript")
+
+    try do
+      assert :ok =
+               ClosedTicketTranscriptArchive.archive("42", "builder@remote",
+                 archive_root: archive_root,
+                 workspace_path_fun: fn "42", nil -> {:ok, workspace} end
+               )
+
+      refute File.exists?(archive_root)
+    after
+      Aiur.TestCleanup.rm_rf!(root)
+    end
   end
 end

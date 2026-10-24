@@ -60,7 +60,6 @@ defmodule Aiur.Orchestrator.ClosedTicketTranscriptArchive do
       end
     else
       false -> :ok
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -72,46 +71,51 @@ defmodule Aiur.Orchestrator.ClosedTicketTranscriptArchive do
 
   defp copy_transcripts(source, destination, max_file_bytes) do
     Enum.reduce_while(@transcript_files, :ok, fn name, :ok ->
-      source_file = Path.join(source, name)
-      destination_file = Path.join(destination, name)
-
-      case File.lstat(source_file) do
-        {:ok, %File.Stat{type: :regular, size: size}} ->
-          case copy_prefix(source_file, destination_file, min(size, max_file_bytes)) do
-            :ok ->
-              if size > max_file_bytes do
-                marker = "\n[transcript truncated at #{max_file_bytes} bytes]\n"
-
-                case File.write(destination_file, marker, [:append]) do
-                  :ok -> {:cont, :ok}
-                  {:error, reason} -> {:halt, {:error, reason}}
-                end
-              else
-                {:cont, :ok}
-              end
-
-            {:error, reason} ->
-              {:halt, {:error, reason}}
-          end
-
-        {:error, :enoent} ->
-          {:cont, :ok}
-
-        {:ok, _other} ->
-          {:cont, :ok}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
+      case copy_transcript_file(source, destination, name, max_file_bytes) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp copy_prefix(source, destination, byte_count) do
-    case File.copy(source, destination, byte_count) do
-      {:ok, ^byte_count} -> :ok
-      {:ok, copied} -> {:error, {:short_transcript_copy, copied, byte_count}}
-      {:error, reason} -> {:error, reason}
+  defp copy_transcript_file(source, destination, name, max_file_bytes) do
+    source_file = Path.join(source, name)
+
+    case File.lstat(source_file) do
+      {:ok, %File.Stat{type: :regular, size: size}} ->
+        copy_transcript_tail(source_file, Path.join(destination, name), size, max_file_bytes)
+
+      {:error, :enoent} ->
+        :ok
+
+      {:ok, _other} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp copy_transcript_tail(source, destination, size, max_file_bytes) do
+    offset = max(size - max_file_bytes, 0)
+    byte_count = min(size, max_file_bytes)
+
+    with {:ok, input} <- File.open(source, [:read, :binary, :raw]) do
+      try do
+        case :file.pread(input, offset, byte_count) do
+          {:ok, tail} -> write_transcript_tail(destination, tail, size > max_file_bytes, max_file_bytes)
+          :eof -> {:error, :transcript_disappeared_during_copy}
+          {:error, reason} -> {:error, reason}
+        end
+      after
+        File.close(input)
+      end
+    end
+  end
+
+  defp write_transcript_tail(destination, tail, truncated?, max_file_bytes) do
+    marker = if truncated?, do: "[transcript truncated at #{max_file_bytes} bytes]\n", else: ""
+    File.write(destination, marker <> tail, [:binary])
   end
 
   defp prune_archives(root, retention_limit) do

@@ -31,8 +31,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   alias Aiur.Alerts.ClosedTicket
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
-  alias Aiur.Orchestrator.{DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
-  alias Aiur.Orchestrator.ClosedTicketTranscriptArchive
+  alias Aiur.Orchestrator.{ClosedTicketTranscriptArchive, DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
   @type terminal_cleanup :: {ticket :: String.t(), workspace_identifier :: String.t(), worker_host :: String.t() | nil}
