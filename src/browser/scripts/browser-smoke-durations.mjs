@@ -123,6 +123,8 @@ export const recordedSeconds = {
   'test:build-home-cards:4': 298,
   'test:build-home-states-parity': 200,
   'test:build-home-list-unit': 1,
+  // Local browser-suite run on f1631fd43 took 6.3s; rounded up conservatively.
+  'test:browser-suite -- build-home-grain-animation-capture': 7,
   // Usage: CI job 117605146944 reported 268.0s; round up conservatively.
   'test:build-home-usage': 269,
   // Run 39091360816, job 117578322274: agents took 21.8s (rounded up).
