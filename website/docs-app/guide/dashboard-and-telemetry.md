@@ -122,9 +122,24 @@ decisions:
 
 See the [OCC-7 supervisor Decision API contract](https://github.com/aiur-team/aiur/blob/main/docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md) for routes, payloads, retry semantics, and audit guarantees.
 
+### Status API contracts
+
+The operational status responses have stable v1 envelopes. `GET /api/v1/state`
+returns `contract: "aiur.status"`; `GET /api/v1/<ticket>` returns
+`contract: "aiur.ticket"`; and `aiur agents --json` returns
+`contract: "aiur.agents"`. Each includes `contract_version: 1`.
+
+Their draft 2020-12 schemas and generated TypeScript types (`FleetStatus`,
+`TicketStatus`, and `AgentsStatus`) are in `@aiur/contracts`. Version 1 permits
+additive fields; clients should ignore fields they do not recognize. A breaking
+shape change uses a new contract version and schema beside v1.
+
 ### Per-ticket usage API
 
-`GET /api/v1/<ticket>/usage` returns one ticket's model usage as versioned JSON (`schema_version: 1`). It uses the dashboard Basic Auth of `/api/v1/state` and sends `Cache-Control: no-store`.
+`GET /api/v1/<ticket>/usage` returns versioned JSON with
+`contract: "aiur.ticket_usage"` and `contract_version: 1`. Its schema and generated
+`TicketUsage` type are in `@aiur/contracts`. The endpoint retains `schema_version: 1`,
+uses the same Basic Auth as `/api/v1/state`, and sends `Cache-Control: no-store`.
 
 `<ticket>` is a GitHub issue number in the configured repository. The usage ledger resolves it to the ticket's tracker identity.
 
@@ -165,7 +180,8 @@ phase, latest progress reading and its progress events.
 The endpoint is read-only, uses the same dashboard Basic auth as
 `/api/v1/state`, and sends `Cache-Control: no-store`. The response carries
 `contract: "aiur.ticket_progress"` and `contract_version: 1`. A missing or
-unreadable event log reads as an empty `events` list.
+unreadable event log reads as an empty `events` list. Its schema and generated
+`TicketProgress` type are in `@aiur/contracts`.
 
 An unknown or inactive ticket answers `200` with `unknown` fields and an empty
 `events` list; it is never reported as idle or 0%. A malformed identifier or
