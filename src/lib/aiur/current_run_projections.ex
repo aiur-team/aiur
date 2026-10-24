@@ -47,7 +47,8 @@ defmodule Aiur.CurrentRunProjections do
   @impl true
   def init(opts) do
     state = State.new(opts)
-    state = if state.active?, do: activate(state), else: state
+    safe_subscribe(state.membership_subscribe_fun)
+    state = if state.active?, do: activate(state), else: activate_idle(state)
 
     state =
       if state.active? and Keyword.get(opts, :refresh_on_init?, true) do
@@ -111,12 +112,10 @@ defmodule Aiur.CurrentRunProjections do
 
   def handle_info(:clock_tick, state), do: {:noreply, state}
 
-  def handle_info(:reconcile_tick, %{active?: true} = state) do
+  def handle_info(:reconcile_tick, state) do
     state = %{state | reconcile_timer_ref: schedule(:reconcile_tick, state.reconcile_interval_ms)}
     {:noreply, Refresh.request_full(state)}
   end
-
-  def handle_info(:reconcile_tick, state), do: {:noreply, state}
 
   def handle_info({:current_run_source_result, ref, key, result}, %{refresh: %{ref: ref} = refresh} = state) do
     refresh = SourceCollector.put_result(refresh, key, result)
@@ -141,10 +140,10 @@ defmodule Aiur.CurrentRunProjections do
   end
 
   def handle_info({:current_run_membership_changed, _payload}, state),
-    do: {:noreply, schedule_refresh(state)}
+    do: {:noreply, membership_refresh(state)}
 
   def handle_info({:current_run_membership_health_changed, _payload}, state),
-    do: {:noreply, schedule_refresh(state)}
+    do: {:noreply, membership_refresh(state)}
 
   def handle_info({:ticket_activity_changed, _payload}, state),
     do: {:noreply, schedule_refresh(state)}
@@ -186,15 +185,18 @@ defmodule Aiur.CurrentRunProjections do
       state
       | active?: true,
         clock_timer_ref: schedule(:clock_tick, state.clock_interval_ms),
-        reconcile_timer_ref: schedule(:reconcile_tick, state.reconcile_interval_ms)
+        reconcile_timer_ref: state.reconcile_timer_ref || schedule(:reconcile_tick, state.reconcile_interval_ms)
     }
+  end
+
+  defp activate_idle(state) do
+    %{state | reconcile_timer_ref: schedule(:reconcile_tick, state.reconcile_interval_ms)}
   end
 
   defp deactivate_if_idle(%{idle_without_subscribers?: true} = state) do
     cancel_timer(state.clock_timer_ref)
-    cancel_timer(state.reconcile_timer_ref)
 
-    %{state | active?: false, clock_timer_ref: nil, reconcile_timer_ref: nil, refresh_pending?: false}
+    %{state | active?: false, clock_timer_ref: nil, refresh_pending?: false}
   end
 
   defp deactivate_if_idle(state), do: state
@@ -218,6 +220,13 @@ defmodule Aiur.CurrentRunProjections do
 
   defp schedule_refresh(%{active?: true} = state), do: Refresh.schedule(state)
   defp schedule_refresh(state), do: state
+
+  defp membership_refresh(%{active?: true} = state), do: Refresh.schedule(state)
+
+  defp membership_refresh(%{idle_without_subscribers?: true} = state),
+    do: Refresh.schedule(state)
+
+  defp membership_refresh(state), do: state
 
   defp cancel_timer(nil), do: :ok
   defp cancel_timer(ref), do: Process.cancel_timer(ref)

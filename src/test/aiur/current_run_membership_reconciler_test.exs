@@ -262,6 +262,36 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     refute_receive {:observed, _, _}, 100
   end
 
+  test "the periodic reconcile tick re-observes unchanged rows with a full snapshot" do
+    parent = self()
+    reconciler_name = Module.concat(__MODULE__, "PeriodicFull#{System.unique_integer([:positive])}")
+    ids = Enum.map(1..3, &"I-periodic-#{&1}")
+
+    snapshot =
+      start_supervised!({Agent, fn -> %{running: [], retrying: [], idle: Enum.map(ids, &row(&1, []))} end})
+
+    {:ok, reconciler} =
+      Reconciler.start_link(
+        name: reconciler_name,
+        snapshot_fun: fn -> Agent.get(snapshot, & &1) end,
+        observe_fun: fn identity, lifecycle ->
+          send(parent, {:observed, identity.provider_id, lifecycle})
+          {:ok, %{}}
+        end,
+        terminal_states_fun: &MapSet.new/0,
+        subscribe_fun: fn -> :ok end,
+        membership_subscribe_fun: fn -> :ok end,
+        reconciliation_fun: fn _status -> :ok end,
+        reconcile_interval_ms: 75
+      )
+
+    Process.unlink(reconciler)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(reconciler) end)
+
+    Enum.each(ids, fn id -> assert_receive {:observed, ^id, :queued}, 1_000 end)
+    Enum.each(ids, fn id -> assert_receive {:observed, ^id, :queued}, 1_000 end)
+  end
+
   test "an unavailable source marks reconciliation freshness unavailable" do
     parent = self()
 

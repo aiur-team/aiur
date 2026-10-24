@@ -35,6 +35,7 @@ defmodule Aiur.CurrentRunProjections.State do
       checkpoint_completed_at: nil,
       checkpoint_interval_ms: positive_integer(opts, :checkpoint_interval_ms, 1_000),
       subscribe_funs: Keyword.get(opts, :subscribe_funs, default_subscribe_funs()),
+      membership_subscribe_fun: Keyword.get(opts, :membership_subscribe_fun, &CurrentRunMembership.subscribe/0),
       idle_without_subscribers?: Keyword.get(opts, :idle_without_subscribers?, false),
       active?: not Keyword.get(opts, :idle_without_subscribers?, false),
       subscribers: %{},
@@ -71,7 +72,6 @@ defmodule Aiur.CurrentRunProjections.State do
 
   defp default_subscribe_funs do
     [
-      &Aiur.CurrentRunMembership.subscribe/0,
       &Aiur.TicketActivity.subscribe/0,
       &Aiur.AgentPubSub.subscribe_running/0,
       &Aiur.AgentPubSub.subscribe_status/0,
