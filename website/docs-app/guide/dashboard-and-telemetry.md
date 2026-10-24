@@ -41,6 +41,15 @@ is marked as still settling; an unhealthy refresh is marked as degraded.
 
 ### Build timeline filters
 
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
+Done, Weighted, and scope figures. Unknown figures show `—` with a reason on
+hover.
+
+Focus dims unrelated tickets; Compact replaces unrelated runs with gap
+markers and retains loaded dependencies as dashed ghost cards. Earlier history
+loads back to the feature’s oldest closed member. Clear the feature with ×.
+
+
 The Build toolbar filters by Epic, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL.
 
 Epic hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
