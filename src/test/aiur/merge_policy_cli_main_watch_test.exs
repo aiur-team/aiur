@@ -10,6 +10,8 @@ defmodule Aiur.MergePolicyCLIMainWatchTest do
   test "green status exposes the age of the observed completed run" do
     state = %{status: :green, sha: "abc123", completed_at: 1_000}
     assert Aiur.MergePolicyCLI.main_state(state, 181_000) == "main=green sha=abc123 age=180s"
+    assert Aiur.MergePolicyCLI.main_state(Map.put(state, :event, "push"), 181_000) == "main=green (push) sha=abc123 age=180s"
+    assert Aiur.MergePolicyCLI.main_state(Map.put(state, :event, "merge_group"), 181_000) == "main=green (merge_group) sha=abc123 age=180s"
   end
 
   test "unavailable is primary while last known color, SHA and growing age remain visible" do
