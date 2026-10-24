@@ -171,6 +171,7 @@ for (const name of Object.keys(SEQUENCES)) for (const reduce of [false, true]) {
 }
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { pairedBrowser } from '../support/build-home-feature-parity-source.mjs'
 import { DESIGN_ROOT, loadAllowlist, expectDesignParity, openParityPair, PARITY_MATRIX, waitParityReady, compareParityPixels, applyAllowlist } from '../support/design-parity.mjs'
 
 const plants = [
@@ -299,7 +300,7 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
   for (const name of Object.keys(SEQUENCES).filter(n => !['inventory', 'grain.static'].includes(n))) test(name, async ({ browser }) => {
     test.setTimeout(120_000)
     const owner = ownerFor(name), reduce = selectedCell.reducedMotion === 'reduce'
-    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('feature.') || name.startsWith('columns.') || name.startsWith('snap.') || name.startsWith('tree.') || name === 'filter.dim' ? undefined : owner.anchor, productPending: owner.pending })
+    const pair = await openParityPair(await pairedBrowser(browser), selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('feature.') || name.startsWith('columns.') || name.startsWith('snap.') || name.startsWith('tree.') || name === 'filter.dim' ? undefined : owner.anchor, productPending: owner.pending })
     try {
       const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count() && !(name.startsWith('columns.') && await pair.product.locator('#bd-content.flow').count())) || (name === 'snap.scroll-curve' && !await pair.product.locator('.bd-cal [data-span="7"]').count())
       if (absent) missingPorts.add(`${name}: ${owner.owners.join(', ')}`)

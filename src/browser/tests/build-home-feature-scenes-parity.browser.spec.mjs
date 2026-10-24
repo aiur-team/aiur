@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { estimatePatch } from '../scripts/build-home-now-patch.mjs'
-import { openParityPair, expectDesignParity, waitParityReady } from '../support/design-parity.mjs'
+import { openParityPair, expectDesignParity, waitParityReady, PARITY_VIEWPORTS } from '../support/design-parity.mjs'
 import { prepareFilterCapture } from '../support/build-home-filter-parity.mjs'
 import { pairedBrowser } from '../support/build-home-feature-parity-source.mjs'
 import { FIXTURE_META } from '../support/design-parity-environment.mjs'
@@ -41,7 +41,7 @@ const state = page => page.evaluate(() => ({
 for (const cell of cells) test(`feature scene ${Object.values(cell).join(' ')}`, async ({ browser }) => {
   test.setTimeout(180000)
   const query = `feature=${cell.feature || 'pag'}&fmode=${cell.mode}&view=${cell.view || 'graph'}`
-  const pair = await openParityPair(await pairedBrowser(browser), { viewport: { width: cell.width, height: 900 }, theme: cell.theme, palette: 'gruvbox', reducedMotion: cell.reduce ? 'reduce' : 'no-preference' }, { dataset: cell.dataset, query, motion: true })
+  const pair = await openParityPair(await pairedBrowser(browser), { ...PARITY_VIEWPORTS.find(view => view.viewport.width === cell.width), theme: cell.theme, palette: 'gruvbox', reducedMotion: cell.reduce ? 'reduce' : 'no-preference' }, { dataset: cell.dataset, query, motion: true })
   try {
     await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: probe }))
     const referenceURL = new URL(pair.design.url())
@@ -87,6 +87,21 @@ for (const cell of cells) test(`feature scene ${Object.values(cell).join(' ')}`,
       if (visible) { await page.locator(`.bd-card[data-id="${visible}"]`).hover({ timeout: 5000 }); await page.mouse.move(0, 0); await page.clock.runFor(800) }
       await page.clock.setSystemTime(FIXTURE_META.now)
       await page.screenshot({ animations: 'allow' })
+    }
+    if (cell.view === 'list') for (const page of [pair.design, pair.product]) {
+      // Same viewport isolation as list parity: preserve paint and remove shell raster origins.
+      const paint = await page.locator('#bd-vp').evaluate(vp => {
+        const box = vp.getBoundingClientRect(), root = vp.closest('.bd-root'), top = vp.scrollTop, cs = getComputedStyle(vp)
+        const fields = ['backgroundColor', 'backgroundImage', 'backgroundSize', 'fontFamily', 'fontSize', 'lineHeight'], before = fields.map(k => cs[k])
+        const host = document.createElement('div'); host.className = root.className
+        Object.assign(host.style, { position: 'fixed', top: '0', left: '0', width: box.width + 'px', height: box.height + 'px', background: 'var(--bg)', zIndex: '9999' })
+        for (const key of ['--board-bg', '--dot']) host.style.setProperty(key, cs.getPropertyValue(key))
+        document.body.append(host); host.append(vp)
+        Object.assign(vp.style, { width: box.width + 'px', height: box.height + 'px', minHeight: '0', flex: 'none', margin: '0' }); vp.scrollTop = top
+        document.documentElement.style.scrollBehavior = 'auto'; window.scrollTo({ top: 0, behavior: 'instant' })
+        return [before, fields.map(k => getComputedStyle(vp)[k])]
+      })
+      expect(paint[1]).toEqual(paint[0])
     }
     await pair.design.evaluate(() => window.__featureRedraw())
     await pair.product.evaluate(async () => (await import('/build-home/state.js')).fx.drawEdges(true))

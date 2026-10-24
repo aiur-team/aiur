@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { pairedBrowser } from '../support/build-home-feature-parity-source.mjs'
-import { openParityPair, expectDesignParity } from '../support/design-parity.mjs'
+import { openParityPair, expectDesignParity, PARITY_VIEWPORTS } from '../support/design-parity.mjs'
 for (const feature of ['pag', 'khala']) for (const width of [1440, 1024, 390]) for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) test(`feature header ${feature} ${width} ${theme} ${palette}`, async ({ browser }) => {
   test.setTimeout(120000)
-  const pair = await openParityPair(await pairedBrowser(browser), { viewport: { width, height: 900 }, theme, palette }, { dataset: 'live', query: `feature=${feature}`, motion: true })
+  const pair = await openParityPair(await pairedBrowser(browser), { ...PARITY_VIEWPORTS.find(cell => cell.viewport.width === width), theme, palette }, { dataset: 'live', query: `feature=${feature}`, motion: true })
   try {
     // Isolate the header at one raster origin and width, outside shell chrome and paging reflow.
     await expect.poll(() => pair.product.evaluate(async () => {
