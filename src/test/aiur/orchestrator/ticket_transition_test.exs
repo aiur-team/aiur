@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.TicketTransitionTest do
   use Aiur.TestSupport
   import ExUnit.CaptureLog
+  alias Aiur.GitHub.Labels
   alias Aiur.{Issue, TicketMarkers, Tracker, Workflow}
   alias Aiur.LandingWatch.Journal
   alias Aiur.Orchestrator.{PauseResume, TicketTransition}
@@ -65,6 +66,68 @@ defmodule Aiur.Orchestrator.TicketTransitionTest do
     assert meta == %{issue_id: "7", identifier: "T-7", action: :state, to: "in-progress", expected: "todo", writer: :retry_engine, outcome: :ok}
     assert log =~ "writer=retry_engine outcome=:ok"
     assert log =~ "expected=\"todo\""
+  end
+
+  test "write_state adds the CI reason label before removing the previous CI reason" do
+    Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", identifier: "7", state: "todo", labels: ["agent:ci-red", "agent:paused", "agent:blocked"]}])
+
+    assert :ok =
+             TicketTransition.write_state("7", "ci-wait",
+               writer: :ci_lifecycle,
+               reason_modifiers: ["merge-queued"]
+             )
+
+    assert_received {:memory_tracker_state_update, "7", "ci-wait"}
+    assert_received {:memory_tracker_add_label, "7", "agent:merge-queued"}
+    assert_received {:memory_tracker_remove_label, "7", "agent:ci-red"}
+
+    assert {:ok, [%Issue{labels: labels}]} =
+             Tracker.fetch_issue_states_by_ids(["7"])
+
+    # The CI swap leaves reasons owned by other writers alone.
+    refute_received {:memory_tracker_remove_label, "7", "agent:blocked"}
+    assert labels == ["agent:paused", "agent:blocked"]
+  end
+
+  test "write_state with the current labels writes only the CI reason labels that change" do
+    assert :ok =
+             TicketTransition.write_state("7", "ci-wait",
+               writer: :ci_lifecycle,
+               tracker: Client,
+               reason_modifiers: ["merge-queued"],
+               current_labels: ["agent:merge-queued", "agent:human-review"]
+             )
+
+    assert_received {:adapter_state, "7", "ci-wait", []}
+    refute_received {:adapter_marker, _action, "7", _label}
+
+    assert :ok = TicketTransition.write_state("7", "rework", writer: :ci_lifecycle, tracker: Client, reason_modifiers: ["ci-red"], current_labels: ["agent:merge-queued"])
+    assert_received {:adapter_marker, :add, "7", "agent:ci-red"}
+    assert_received {:adapter_marker, :remove, "7", "agent:merge-queued"}
+    refute_received {:adapter_marker, _action, "7", _label}
+  end
+
+  test "clearing transient runtime reasons preserves dependency blocker and stale body marker" do
+    labels = Labels.reason_modifier_labels("agent")
+    Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", identifier: "7", state: "done", labels: labels}])
+
+    assert :ok = TicketTransition.clear_transient_reason_modifiers("7", writer: :agent_teardown)
+
+    assert {:ok, [%Issue{labels: labels}]} = Tracker.fetch_issue_states_by_ids(["7"])
+    assert Enum.sort(labels) == ["agent:blocked", "agent:body-fix"]
+  end
+
+  test "every canonical reason modifier can be added and cleared without changing the workflow state" do
+    modifiers = Labels.reason_modifier_suffixes()
+
+    for suffix <- modifiers do
+      label = "agent:" <> suffix
+      assert :ok = TicketTransition.write_reason_modifier("7", :add, suffix, writer: :issue_sync, tracker: Client)
+      assert_received {:adapter_marker, :add, "7", ^label}
+
+      assert :ok = TicketTransition.write_reason_modifier("7", :remove, suffix, writer: :issue_sync, tracker: Client)
+      assert_received {:adapter_marker, :remove, "7", ^label}
+    end
   end
 
   test "none expectation and replay preserve adapter semantics" do
