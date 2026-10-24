@@ -8,7 +8,7 @@ The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch 
 
 A broker admission waits up to five seconds (1.5 seconds on the Orchestrator process) for transient shared-lease saturation before returning a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. The network request deadline starts after admission.
 
-Broker commands use the admission deadline: up to 1.5 seconds in the Orchestrator and 5 seconds for other clients. This lets SQLite lock contention resolve within the caller's admission window while keeping overloaded-ledger waits bounded; timeout handling preserves fresh cached dependency decisions.
+Broker commands share the admission deadline: up to 1.5 seconds in the Orchestrator and 5 seconds for other clients. The broker has no shorter per-command cap, so SQLite contention can use the time already allowed for admission without extending that window. Timeout handling preserves fresh cached dependency decisions.
 
 Main-watch polling, and the base-branch fixer it drives, may hold one lease above the in-flight caps. Cooldowns, hourly ceilings and pacing still apply to it.
 

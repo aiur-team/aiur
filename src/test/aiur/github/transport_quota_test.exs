@@ -353,14 +353,45 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     db_path = Path.join(budget_dir, "budget.sqlite3")
     File.mkdir_p!(budget_dir)
-    lock = Port.open({:spawn_executable, System.find_executable("python3")}, [:binary, :exit_status, args: ["-c", lock_script, db_path]])
+    assert Budget.database_path() == db_path
+    assert %{cooldown_until_ms: 0} = Budget.snapshot("measured-p99-token")
+    lock = Port.open({:spawn_executable, System.find_executable("python3")}, [:binary, :exit_status, :use_stdio, args: ["-c", lock_script, db_path]])
     on_exit(fn -> if Port.info(lock), do: Port.close(lock) end)
 
     assert_receive {^lock, {:data, "locked\n"}}, 1_000
+    refute_receive {^lock, {:data, "released\n"}}, 100
 
     Req.Test.stub(__MODULE__, fn conn -> Req.Test.json(conn, []) end)
     request = %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/5566", token: "measured-p99-token"}
     test_pid = self()
+    telemetry_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        telemetry_id,
+        [:aiur, :github, :budget_broker, :command],
+        fn _event, measurements, metadata, owner ->
+          send(owner, {:budget_command, measurements, metadata})
+        end,
+        test_pid
+      )
+
+    sqlite_wait_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        sqlite_wait_id,
+        [:aiur, :github, :budget_broker, :sqlite_wait],
+        fn _event, measurements, metadata, owner ->
+          send(owner, {:sqlite_wait, measurements, metadata})
+        end,
+        test_pid
+      )
+
+    on_exit(fn ->
+      :telemetry.detach(telemetry_id)
+      :telemetry.detach(sqlite_wait_id)
+    end)
 
     pending_request =
       Task.async(fn ->
@@ -369,37 +400,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       end)
 
     assert_receive :request_starting, 1_000
-    assert wait_for_pending_acquire(100)
 
-    Process.send_after(self(), :release_database_lock, 3_500)
-    assert_receive :release_database_lock, 4_000
+    assert_receive {:sqlite_wait, %{sqlite_lock_wait_ms: lock_wait_ms}, %{command_type: :acquire}} when lock_wait_ms >= 1_000, 3_500
     Port.command(lock, "\n")
     assert_receive {^lock, {:data, "released\n"}}, 1_000
 
     assert {:ok, %{status: 200}} = Task.await(pending_request, 2_000)
-  end
-
-  defp wait_for_pending_acquire(0), do: false
-
-  defp wait_for_pending_acquire(attempts) do
-    pending? =
-      case :sys.get_state(Aiur.GitHub.BudgetBroker) do
-        %{pending: pending} ->
-          Enum.any?(pending, fn
-            {_id, {_from, _timer, _submitted, _mailbox, :acquire}} -> true
-            _other -> false
-          end)
-
-        _other ->
-          false
-      end
-
-    if pending? do
-      true
-    else
-      Process.sleep(10)
-      wait_for_pending_acquire(attempts - 1)
-    end
+    assert_receive {:budget_command, %{sqlite_lock_wait_ms: lock_wait_ms}, %{outcome: :completed, command_type: :acquire}}, 1_000
+    assert lock_wait_ms >= 1_000
   end
 
   test "does not hide a secondary-limit response behind a retry", %{budget_dir: budget_dir} do

@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.BudgetBroker do
   require Logger
 
   @telemetry_event [:aiur, :github, :budget_broker, :command]
+  @sqlite_wait_event [:aiur, :github, :budget_broker, :sqlite_wait]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -110,6 +111,19 @@ defmodule Aiur.GitHub.BudgetBroker do
 
   defp reply_line(line, state) do
     case Jason.decode(line) do
+      {:ok, %{"event" => "sqlite_lock_wait", "ids" => ids, "sqlite_lock_wait_ms" => wait_ms}} when is_list(ids) and is_number(wait_ms) ->
+        Enum.each(ids, fn id ->
+          case Map.get(state.pending, id) do
+            {_from, _timer, _submitted, _mailbox, command_type} ->
+              :telemetry.execute(@sqlite_wait_event, %{sqlite_lock_wait_ms: wait_ms}, %{command_type: command_type})
+
+            _completed_or_unknown ->
+              :ok
+          end
+        end)
+
+        state
+
       {:ok, %{"id" => id, "output" => output, "status" => status} = reply} ->
         metrics =
           Map.take(reply, [
