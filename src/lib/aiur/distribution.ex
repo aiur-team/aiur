@@ -115,12 +115,18 @@ defmodule Aiur.Distribution do
   defp epmd_address_bound do
     case System.cmd("sh", ["-c", "pid=$(pgrep -x epmd | head -n 1); [ -n \"$pid\" ] && lsof -nP -a -p \"$pid\" -iTCP -sTCP:LISTEN 2>/dev/null"], stderr_to_stdout: true) do
       {output, 0} ->
-        addresses = Regex.scan(~r/\*:(\d+)|([0-9.]+):(\d+)|\[([0-9a-fA-F:]+)\]:(\d+)/, output)
-        epmd_addresses(addresses)
+        parse_epmd_output(output)
 
       _ ->
         {:error, :epmd_not_local}
     end
+  end
+
+  @doc false
+  @spec parse_epmd_output(String.t()) :: {:ok, [tuple()]} | {:error, :epmd_not_local}
+  def parse_epmd_output(output) when is_binary(output) do
+    matches = Regex.scan(~r/(\*|(?:\d{1,3}\.){3}\d{1,3}|\[[0-9a-fA-F:]+\]):(\d+)/, output, capture: :all_but_first)
+    epmd_addresses(matches)
   end
 
   defp epmd_addresses([]), do: {:error, :epmd_not_local}
@@ -130,13 +136,15 @@ defmodule Aiur.Distribution do
     if Enum.all?(addresses, &(not is_nil(&1))), do: {:ok, addresses}, else: {:error, :epmd_not_local}
   end
 
-  defp parse_epmd_address([_, port, "", "", "", ""]) when port != "", do: {0, 0, 0, 0}
+  defp parse_epmd_address(["*", _port]), do: {0, 0, 0, 0}
 
-  defp parse_epmd_address([_, "", address, port, "", ""]) when address != "" and port != "",
-    do: parse_ip(address)
+  defp parse_epmd_address(["[" <> address, _port]) do
+    address
+    |> String.trim_trailing("]")
+    |> parse_ip()
+  end
 
-  defp parse_epmd_address([_, "", "", "", address, port]) when address != "" and port != "",
-    do: parse_ip(address)
+  defp parse_epmd_address([address, _port]), do: parse_ip(address)
 
   defp parse_ip(address) do
     case :inet.parse_address(String.to_charlist(address)) do

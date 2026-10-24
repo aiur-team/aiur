@@ -78,6 +78,27 @@ defmodule Aiur.DistributionTest do
     end
   end
 
+  describe "parse_epmd_output/1" do
+    test "parses an IPv4 loopback address from lsof output" do
+      output = "epmd 123 root 3u IPv4 123 0t0 TCP 127.0.0.1:4369 (LISTEN)\n"
+
+      assert {:ok, [{127, 0, 0, 1}]} = Distribution.parse_epmd_output(output)
+    end
+
+    test "parses IPv6 and wildcard listeners from lsof output" do
+      output = "epmd 123 root 3u IPv6 123 0t0 TCP [::1]:4369 (LISTEN)\nepmd 123 root 4u IPv4 124 0t0 TCP *:4369 (LISTEN)\n"
+
+      assert {:ok, [{0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 0, 0}]} = Distribution.parse_epmd_output(output)
+
+      assert {:error, :epmd_not_local} =
+               Distribution.check(
+                 alive?: true,
+                 epmd_address: [{0, 0, 0, 0, 0, 0, 0, 1}, {0, 0, 0, 0}],
+                 dist_address: {127, 0, 0, 1}
+               )
+    end
+  end
+
   describe "hidden_pane_nodes/0" do
     test "returns a list" do
       assert is_list(Distribution.hidden_pane_nodes())
