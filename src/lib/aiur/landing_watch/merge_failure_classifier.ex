@@ -3,7 +3,7 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
 
   alias Aiur.LandingWatch.MergeGroupFailureEvidence
 
-  @type classification :: :infra | :known_non_pr | :inherited | :pr_caused
+  @type classification :: :cancelled | :infra | :known_non_pr | :inherited | :pr_caused
 
   @spec classify(map(), [map()], [map()], keyword()) ::
           {:ok, {classification(), map() | nil}} | {:error, term()}
@@ -46,12 +46,22 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
 
   defp classification(evidence, run, observations, opts) do
     cond do
+      cancelled_group?(run, evidence) -> :cancelled
       Enum.any?(evidence, &infra_evidence?(&1, opts)) -> :infra
       Enum.any?(evidence, &inherited_evidence?/1) -> :inherited
       Enum.any?(evidence, &known_non_pr_evidence?(&1, run, observations, opts)) -> :known_non_pr
       true -> :pr_caused
     end
   end
+
+  defp cancelled_group?(%{"event" => "merge_group"}, evidence) when evidence != [] do
+    gate_failed? = Enum.any?(evidence, &(&1.job["name"] == "ci gate" and &1.job["conclusion"] == "failure"))
+    upstream = Enum.reject(evidence, &(&1.job["name"] == "ci gate"))
+
+    gate_failed? and upstream != [] and Enum.all?(upstream, &(&1.job["conclusion"] == "cancelled"))
+  end
+
+  defp cancelled_group?(_run, _evidence), do: false
 
   defp logs_for_jobs(jobs, log_fun, opts) do
     Enum.reduce_while(jobs, {:ok, []}, fn job, {:ok, acc} ->

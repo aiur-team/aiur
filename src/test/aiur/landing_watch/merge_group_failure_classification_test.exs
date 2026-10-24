@@ -42,6 +42,32 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
              )
   end
 
+  test "an all-cancelled merge-group run with only a failed gate is cancelled" do
+    jobs = [
+      %{"name" => "test", "conclusion" => "cancelled"},
+      %{"name" => "lint", "conclusion" => "cancelled"},
+      %{"name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:cancelled, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6050, "failure", "pr-42-a"),
+               jobs,
+               [],
+               job_log_fun: fn _, _ -> {:ok, ""} end
+             )
+
+    mixed = List.replace_at(jobs, 1, %{"name" => "lint", "conclusion" => "failure"})
+
+    assert {:ok, {:pr_caused, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6051, "failure", "pr-42-a"),
+               mixed,
+               [],
+               job_log_fun: fn _, _ -> {:ok, ""} end
+             )
+  end
+
   test "only a cancellation that reaches its timeout is infrastructure" do
     log = fixture("run-38742645458-browser.log")
     run = group_run(407, "failure", "pr-17-a")

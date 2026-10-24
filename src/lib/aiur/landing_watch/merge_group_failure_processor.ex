@@ -138,6 +138,9 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp route_classification(:infra, _failure, run, observations, prs, _blame_opts, opts),
     do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "infrastructure failure", opts)
 
+  defp route_classification(:cancelled, _failure, run, observations, prs, _blame_opts, opts),
+    do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "cancelled merge-group run", opts)
+
   defp route_classification(:inherited, _failure, run, observations, prs, _blame_opts, opts),
     do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "inherited merge-group failure", opts)
 
