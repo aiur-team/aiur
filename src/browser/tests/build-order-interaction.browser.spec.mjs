@@ -1,4 +1,3 @@
-import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { openFixture } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
@@ -7,22 +6,8 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // `BuildOrderGrid` client hook. The hook owns zoom (a CSS transform on the grid
 // stage, stepped in 10% increments and clamped to 10%–160%), fit (scale the
 // full grid width into the viewport), native-scroll pan, and dependency
-// highlighting on hover / pin. Cards stay keyboard-openable (Enter/Space opens
-// their ticket context). These specs exercise that contract against both the
-// production route and the synthetic fixture graph.
-
-async function openCatalog(page) {
-  await page.goto('/build-orders')
-  await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
-  await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
-}
-
-async function openGraph(page, title) {
-  await page.locator('.bo-catalog-link', { hasText: title }).click()
-  const graph = page.locator('#selected-build-order-graph')
-  await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
-  return graph
-}
+// highlighting on hover / pin. These specs exercise that contract against the
+// synthetic fixture graph.
 
 function stageTransform(graph) {
   return graph.locator('[data-bo-grid-stage]').evaluate((node) => node.style.transform || 'none')
@@ -120,95 +105,6 @@ test('only a modifier wheel zooms and a background drag pans the canvas', async 
     })
     expect(panned.overflowing).toBe(true)
     expect(panned.scrollLeft).toBeGreaterThan(0)
-  } finally {
-    await context.close()
-  }
-})
-
-test('cards stay keyboard-openable and dependency highlight pins without mutations', async ({ browser }) => {
-  const context = await browser.newContext({ httpCredentials: dashboardCredentials, viewport: { width: 1280, height: 900 } })
-  const page = await context.newPage()
-
-  try {
-    await openCatalog(page)
-    const graph = await openGraph(page, 'Release dashboard')
-    await expect(graph.locator('[data-bo-card]')).toHaveCount(7)
-
-    // Every card is focusable and carries a stable node id independent of coordinates.
-    const cards = graph.locator('[data-bo-card]')
-    await expect(cards.first()).toHaveAttribute('tabindex', '0')
-
-    // Hovering a card highlights its dependency chain and marks it as the source.
-    const target = graph.locator('.bo-node', { hasText: 'Readiness target' })
-    await target.hover()
-    await expect(target).toHaveClass(/is-hl-source/)
-    await expect(graph.locator('.bo-node.is-hl-linked')).not.toHaveCount(0)
-
-    // Clicking the blocks tag pins the highlight and locks the graph.
-    await target.locator('[data-bo-pin]').click()
-    await expect(graph).toHaveClass(/is-locked/)
-    await expect(target).toHaveClass(/is-pinned/)
-    // Clicking the tag again releases the pin.
-    await target.locator('[data-bo-pin]').click()
-    await expect(graph).not.toHaveClass(/is-locked/)
-
-    // Enter on a focused openable card opens its ticket context dialog.
-    await target.focus()
-    await page.keyboard.press('Enter')
-    const dialog = page.getByRole('dialog', { name: 'Readiness target' })
-    await expect(dialog).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(dialog).toHaveCount(0)
-
-    // No interaction ever introduces a mutation: still only context navigation
-    // and epic/sidebar collapse toggles. These do not write data — `toggle-nav`
-    // flips a per-session view preference held in assigns. Any other event here
-    // means a real mutation reached this route.
-    // `toggle-global-pause` is shell chrome present on every route: it mutates
-    // daemon-wide provisioning, not Build Order data, and is disabled unless
-    // the dashboard is writable.
-    const readOnlyEvents = ['open-ticket-context', 'toggle-build-order-epic', 'toggle-nav', 'toggle-global-pause']
-    const clicks = await page.locator('[phx-click]').evaluateAll((els) => els.map((el) => el.getAttribute('phx-click')))
-    expect(clicks.every((event) => readOnlyEvents.includes(event))).toBe(true)
-    await expect(page.locator('form')).toHaveCount(0)
-
-    // Accessibility stays clean while a highlight is active.
-    await target.hover()
-    for (const palette of ['gruvbox', 'aiur']) {
-      for (const theme of ['light', 'dark']) {
-        await page.evaluate(({ palette, theme }) => {
-          document.documentElement.dataset.palette = palette
-          document.documentElement.dataset.theme = theme
-        }, { palette, theme })
-        await page.waitForFunction(() => document.body.getAnimations().every(animation => animation.playState !== 'running'))
-        const results = await new AxeBuilder({ page }).analyze()
-        expect(results.violations, `${palette} ${theme}`).toEqual([])
-      }
-    }
-  } finally {
-    await context.close()
-  }
-})
-
-test('zoom state is isolated per selected root', async ({ browser }) => {
-  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
-  const page = await context.newPage()
-
-  try {
-    await openCatalog(page)
-    const graph = await openGraph(page, 'Release dashboard')
-    await expect(graph).toHaveAttribute('data-bo-grid-key', '42:7')
-    await graph.getByRole('button', { name: 'Zoom in' }).click()
-    await expect(graph.locator('[data-bo-zoom-level]')).toHaveText('110%')
-
-    await page.getByRole('link', { name: 'Back to all Build Orders' }).click()
-    await openGraph(page, 'Stale planning lane')
-
-    // A different root gets its own grid key and its own fresh zoom state — the
-    // previous root's 110% never bleeds across.
-    const next = page.locator('#selected-build-order-graph')
-    await expect(next).toHaveAttribute('data-bo-grid-key', '43:8')
-    await expect(next.locator('[data-bo-zoom-level]')).toHaveText('100%')
   } finally {
     await context.close()
   }

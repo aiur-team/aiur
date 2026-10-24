@@ -13,7 +13,7 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 | `build_order.general_epics.label` | string | required | Column header text, without control characters. |
 | `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a subscriber's first read, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no catalog subscriber means no read. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
@@ -60,13 +60,13 @@ never been read.
 Selecting a root and holding it open consume zero GitHub reads.
 
 The **catalog** itself is different: it is the most expensive single query in the
-system, and since #2312 it is demand-gated on an open Build Order page. Opening
-`/build-orders` renders the stored snapshot immediately (with its age), then buys
-one refresh on mount.
+system, and since #2312 it is demand-gated on a catalog subscriber. The dashboard
+has none, so the catalog reconciles on the cadence below only while another
+subscriber exists.
 
-While any Build Order page stays open the catalog reconciles on the cadence
-below; closing the last page stops it entirely, so a headless run — the normal
-case — buys none of it.
+`aiur build-orders` reads the held catalog, and
+`Aiur.BuildOrder.GraphProjection.refresh_catalog/1` is the explicit catalog
+refresh.
 
 `Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
 It exists so that removing the viewer cadence does not also remove an operator's
@@ -106,9 +106,9 @@ follow the *effective* interval: the one the daemon actually scheduled.
 - So an idle fleet widens the catalog's reads and the staleness window exactly
   as it widens the tracker, and a fleet that picks up work narrows both back
   together.
-- The widening matters only while a page is open: the catalog is event-sourced
-  (#2325) and demand-gated (#2312), so with no Build Order page open it neither
-  polls nor reads — it costs nothing rather than merely running slowly.
+- The widening matters only while a catalog subscriber exists: the catalog is
+  event-sourced (#2325) and demand-gated (#2312), so with no subscriber it
+  neither polls nor reads — it costs nothing rather than merely running slowly.
 
 `ticket_detail_freshness_ms` follows the **base** interval instead. It is a
 staleness window for the ticket-detail drawer, read once when the daemon starts
