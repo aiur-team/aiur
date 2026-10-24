@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
   require Logger
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{CiLifecycle, Parking, PauseResume, State, TicketTransition}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchCandidates, DispatchPolicy, Parking, PauseResume, State, TicketTransition}
 
   # A before_run hook failure parks the agent alive in
   # `AgentRunner.wait_for_before_run_resume/3`; resuming re-runs the hook inside
@@ -22,10 +22,10 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
         refresh_running_entry_issue(state, issue, running_entry)
 
       %{completed_provenance: true} = running_entry ->
-        PauseResume.replace_completed_issue(state, running_entry, issue)
+        maybe_replace_completed_runner(state, running_entry, issue)
 
       %{control: %{status: :completed}} = running_entry ->
-        PauseResume.replace_completed_issue(state, running_entry, issue)
+        maybe_replace_completed_runner(state, running_entry, issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
         Parking.reconcile_deactivated(state, running_entry, issue, &refresh_running_entry_issue/3, &reactivate_deactivated_issue/3)
@@ -39,6 +39,34 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
 
       _ ->
         refresh_running_issue_state(state, issue)
+    end
+  end
+
+  defp maybe_replace_completed_runner(state, running_entry, issue) do
+    if completed_replacement_deferred?(state, issue) do
+      Logger.info("Deferring completed runner replacement for ready higher-priority work: #{State.issue_context(issue)}")
+      state
+    else
+      PauseResume.replace_completed_issue(state, running_entry, issue)
+    end
+  end
+
+  @doc false
+  @spec completed_replacement_deferred?(State.t(), Issue.t()) :: boolean()
+  def completed_replacement_deferred?(state, issue) do
+    ready =
+      state.last_polled_issues
+      |> Map.values()
+      |> Enum.reject(&(&1.id == issue.id))
+      |> Enum.filter(&DispatchPolicy.dispatch_candidate?(&1, state))
+
+    case ready do
+      [] ->
+        false
+
+      candidates ->
+        ordered = DispatchCandidates.order([issue | candidates], DispatchPolicy.terminal_state_set(), candidates)
+        match?([%Issue{id: id} | _] when id != issue.id, ordered)
     end
   end
 
