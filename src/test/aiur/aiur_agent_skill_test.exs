@@ -523,6 +523,15 @@ defmodule Aiur.AiurAgentSkillTest do
     assert taxonomy =~ "keep unrelated prep moving"
   end
 
+  test "GitHub guard failures preserve their diagnostic in agent alerts" do
+    shared_prompt =
+      File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
+      |> one_line()
+
+    assert shared_prompt =~ "include that exact diagnostic in any alert or decision"
+    assert shared_prompt =~ "do not replace it with a generic \"GitHub is stuck\" summary"
+  end
+
   # #1763: two agents staged a workpad body at `/tmp/wp_new.md`, the second write
   # won, and one ticket's workpad was published carrying the other's plan and PR
   # number. The `PATCH` returned 200, so only a body diff would have caught it.

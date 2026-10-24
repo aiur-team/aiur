@@ -50,7 +50,7 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    assert output =~ "python3 and timeout are required to enforce the governed gh call deadline"
     refute File.exists?(context.calls)
   end
 
@@ -67,7 +67,7 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                PATH: path
              )
 
-    assert output =~ "python3 is required to enforce the governed gh call deadline"
+    assert output =~ "python3 and timeout are required to enforce the governed gh call deadline"
     refute File.exists?(context.calls)
   end
 

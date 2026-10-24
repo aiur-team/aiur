@@ -90,11 +90,15 @@ PY
 budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
-  # Admission is deliberately bounded independently of the outer governed-gh
-  # deadline. A saturated lease table or cache claim must not consume the
-  # entire call budget before `gh` even starts.
+  # Lease contention is allowed to use the governed call's full deadline; a
+  # short admission cutoff turns ordinary parallel work into needless retries.
+  # Keep a lower override for deterministic tests of the named busy failure.
   budget_waited_ms=0
-  budget_wait_limit_ms=5000
+  budget_wait_limit_ms=${AIUR_GITHUB_ADMISSION_WAIT_MS:-120000}
+  case "$budget_wait_limit_ms" in
+    ''|*[!0-9]*) budget_wait_limit_ms=120000 ;;
+  esac
+  if [ "$budget_wait_limit_ms" -gt 120000 ]; then budget_wait_limit_ms=120000; fi
 
   # Free endpoints (the shared EndpointPolicy table marks only `rate_limit`
   # non-billable) are still admitted and leased for ordering, but their

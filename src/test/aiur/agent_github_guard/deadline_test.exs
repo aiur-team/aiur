@@ -1,6 +1,27 @@
 defmodule Aiur.AgentGitHubGuard.DeadlineTest do
   use Aiur.AgentGitHubGuardCase, async: true
 
+  test "an interpreter that stalls before installing its timer is bounded by the shell watchdog", context do
+    bin = Path.join(context.workspace, "stalled-interpreter-bin")
+    python = Path.join(bin, "python3")
+    pid_file = Path.join(context.workspace, "stalled-python.pid")
+    File.mkdir_p!(bin)
+    File.write!(python, "#!/bin/sh\nprintf '%s' \"$$\" > \"$AIUR_GH_STALLED_PYTHON_PID_FILE\"\nexec sleep 10\n")
+    File.chmod!(python, 0o700)
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {_output, 124} =
+             run_guard(context, ["api", "rate_limit"],
+               AIUR_GH_CALL_TIMEOUT_SECONDS: "1",
+               AIUR_GITHUB_BUDGET_ENABLED: "0",
+               AIUR_GH_STALLED_PYTHON_PID_FILE: pid_file,
+               PATH: bin <> ":" <> System.get_env("PATH", "")
+             )
+
+    assert System.monotonic_time(:millisecond) - started_at < 4_000
+    assert process_gone?(pid_file |> File.read!() |> String.to_integer())
+  end
+
   test "a broker that never answers is terminated with the governed call", context do
     broker = Path.join(context.workspace, "never-answers.py")
     pid_file = Path.join(context.workspace, "broker.pid")
@@ -49,11 +70,12 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
              run_guard(context, ["api", "rate_limit"],
                AIUR_GITHUB_BUDGET_ROOT: Path.join(context.state_path, "busy-budget"),
                AIUR_GITHUB_BUDGET_KEY: String.duplicate("b", 64),
-               AIUR_GITHUB_BUDGET_BROKER: broker
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_ADMISSION_WAIT_MS: "1000"
              )
 
-    assert output =~ "GitHub budget broker busy; admission wait exceeded 5000ms"
-    assert System.monotonic_time(:millisecond) - started_at < 8_000
+    assert output =~ "GitHub budget broker busy; admission wait exceeded 1000ms"
+    assert System.monotonic_time(:millisecond) - started_at < 4_000
     refute File.exists?(context.calls)
   end
 
