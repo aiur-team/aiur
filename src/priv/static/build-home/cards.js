@@ -8,7 +8,6 @@ import { progress } from './now-state.js';
 import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
-import { estOf } from './gantt.js';
 import { labelCard } from './a11y.js';
 import { estHours, estLabel } from './estimate.js';
 
