@@ -1,3 +1,5 @@
+# Keep runtime inspection and pure address parsing together: startup uses the
+# same fail-closed interpretation that the injected socket-table tests verify.
 defmodule Aiur.Distribution do
   @moduledoc """
   Runtime checks and monitoring for Aiur's local-only Erlang distribution.
