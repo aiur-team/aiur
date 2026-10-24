@@ -72,6 +72,21 @@ test('the checked-in list parses', () => {
   assert.ok(Array.isArray(readQuarantine()))
 })
 
+test('the build-home composer failure annotation resolves to its quarantine entry', () => {
+  const [line] = failedSpecAnnotationLines([{
+    file: path.join(browserRoot, 'tests/build-home-composer.browser.spec.mjs'),
+    status: 'failed'
+  }])
+  const [, module, spec] = line.match(/::(new-failure :: .*)$/)[1].split(' :: ')
+  const entry = readQuarantine().find(candidate => candidate.spec === spec)
+
+  assert.deepEqual(entry, { spec: 'src/browser/tests/build-home-composer.browser.spec.mjs', ticket: '#6089' })
+  assert.deepEqual(quarantineNotices([entry]), [
+    'Skipped by quarantine (#6089): tests/build-home-composer.browser.spec.mjs; set AIUR_RUN_QUARANTINED=1 to run it.'
+  ])
+  assert.equal(module, 'BrowserSpec')
+})
+
 test('a malformed entry fails loudly instead of quarantining nothing', () => {
   assert.throws(() => parseQuarantine('BrowserSpec\tsrc/browser/tests/a.browser.spec.mjs'), /line 1/)
   assert.throws(() => parseQuarantine('Spec\tsrc/browser/tests/a.browser.spec.mjs\t#1'), /line 1/)
