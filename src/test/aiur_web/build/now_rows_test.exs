@@ -138,7 +138,7 @@ defmodule AiurWeb.Build.NowRowsTest do
                state: "ok",
                observed_at: @ms,
                reason: nil,
-               stale_after_ms: Aiur.PollCadence.snapshot_tolerance_ms(15_000, class: :dispatch)
+               stale_after_ms: AiurWeb.Build.Freshness.snapshot_tolerance_ms()
              }
            }
 
@@ -152,7 +152,7 @@ defmodule AiurWeb.Build.NowRowsTest do
              state: "stale",
              observed_at: @ms,
              reason: "fleet_stale",
-             stale_after_ms: Aiur.PollCadence.snapshot_tolerance_ms(15_000, class: :dispatch)
+             stale_after_ms: AiurWeb.Build.Freshness.snapshot_tolerance_ms()
            }
 
     assert NowRows.build(Map.put(catalog([]), :truncated?, true), repository: @repo).source.reason == "membership_truncated"
