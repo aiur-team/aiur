@@ -30,7 +30,7 @@ defmodule Aiur.CodingAgent.RouteFailure do
 
   require Logger
 
-  alias Aiur.Application.StartupChecks
+  alias Aiur.CodingAgent.ProviderCredential
   alias Aiur.Issue
   alias Aiur.ModelAvailability
   alias Aiur.Signal
@@ -125,7 +125,7 @@ defmodule Aiur.CodingAgent.RouteFailure do
   defp emit(:auth_rejected, issue, route, _reason, opts) do
     backend = ModelAvailability.backend_key(route)
     availability_opts = Keyword.get(opts, :availability_opts, [])
-    fingerprint = StartupChecks.credential_fingerprint(backend, Aiur.Config.settings!(), System.get_env()) || "unavailable"
+    fingerprint = ProviderCredential.fingerprint(backend, Aiur.Config.settings!(), System.get_env()) || "unavailable"
 
     settings = Aiur.Config.settings!()
     path = if settings.instance.mode == "hosted", do: Path.join(System.get_env("AIUR_BG_STATE_DIR") || Path.expand("~/.config/aiur"), "model-usage.json"), else: ModelAvailability.path()
