@@ -76,7 +76,7 @@ defmodule AiurWeb.Build.PayloadSchema do
              "to" => nullable(:integer),
              "stats" => nullable(object(feature_stats()))
            },
-           ["svg"]
+           ["icon", "svg", "summary", "wave"]
          )},
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
