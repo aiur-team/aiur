@@ -285,6 +285,8 @@ defmodule Aiur.Workspace.GitMetadata do
   end
 
   defp probe_lock_file(path) do
+    # Recovery runs before the probe. If a lock still exists, preserve it and
+    # let the exclusive create report that Git metadata is currently busy.
     with :ok <- File.mkdir_p(Path.dirname(path)),
          {:ok, io} <- File.open(path, [:write, :exclusive]) do
       File.close(io)
