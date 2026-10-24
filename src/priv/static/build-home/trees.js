@@ -7,6 +7,7 @@ import { writeURL } from './url.js';
 import { colKey, histDays } from './layout.js';
 import { esc, $ } from './dom.js';
 import { I } from './icons.js';
+import { timed } from './perf.js';
 
 let fitToken = 0, hoverGen = 0, openRoot = null, returnFocus = null;
 onReset(() => { fitToken++; hoverGen++; openRoot = null; returnFocus = null; ctx.fitHistory = null; });
@@ -211,4 +212,4 @@ export function wireTrees() {
   });
 }
 Object.assign(fx, { onHover, onLeave, toggleLock, setHover, lockTree, unlock, fitTree, treeRange,
-  openTree, closeTree, reapply, wireTrees, chainOf: id => chainOf(ctx.D, id) });
+  openTree, closeTree, reapply, wireTrees, chainOf: timed('chainOf', id => chainOf(ctx.D, id)) });
