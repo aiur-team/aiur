@@ -66,13 +66,16 @@ defmodule Aiur.GitHub.ResourceStore.MergeTest do
             spin = fn spin -> if :atomics.get(barrier, 1) == 0, do: spin.(spin), else: :ok end
             spin.(spin)
 
-            for _step <- 1..per_writer do
-              ResourceStore.update_resource(
-                key,
-                fn held -> %{"gen" => Map.get(held || %{}, "gen", 0) + 1, "state" => "open"} end,
-                source: :mutation
-              )
-            end
+            results =
+              for _step <- 1..per_writer do
+                ResourceStore.update_resource(
+                  key,
+                  fn held -> %{"gen" => Map.get(held || %{}, "gen", 0) + 1, "state" => "open"} end,
+                  source: :mutation
+                )
+              end
+
+            send(me, {:merge_results, self(), results})
           end)
         end
 
@@ -82,17 +85,32 @@ defmodule Aiur.GitHub.ResourceStore.MergeTest do
           Enum.each(tasks, &Task.await(&1, 60_000))
         end)
 
+      results =
+        for _task <- tasks do
+          receive do
+            {:merge_results, _pid, writer_results} -> writer_results
+          after
+            0 -> flunk("a merge writer completed without reporting its update results")
+          end
+        end
+
       send(sampler, :stop)
 
       assert_receive {:sampled, backwards}, 10_000
 
       final = ResourceStore.data(key)
+      result_counts = results |> List.flatten() |> Enum.frequencies()
+      abandoned_writes = Regex.scan(~r/abandoned a contended write for #{Regex.escape(inspect(key))}/, log) |> length()
+
+      assert result_counts == %{ok: writers * per_writer},
+             "every merge call must return :ok; observed result counts #{inspect(result_counts)}"
 
       assert backwards == [],
              "the held body went backwards: #{inspect(backwards)} (as {highest_seen, then_observed}); final body #{inspect(final)}"
 
       assert final == %{"gen" => writers * per_writer, "state" => "open"},
-             "every merge must survive; a lower count is a lost update. observed backwards steps: #{inspect(backwards)}"
+             "every merge must survive; observed result counts #{inspect(result_counts)}, " <>
+               "abandoned writes #{abandoned_writes}, backwards steps #{inspect(backwards)}, final body #{inspect(final)}"
 
       # A write the compare-and-swap could not land must be abandoned, never
       # forced: forcing it deposits a body derived from a read the table has long

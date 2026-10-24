@@ -83,7 +83,7 @@ defmodule Aiur.GitHub.ResourceStore.Cas do
   #     reader served `open` for a ticket Aiur has closed.
   @update_spin_attempts 8
   @update_yield_attempts 64
-  @update_backoff_attempts 128
+  @update_backoff_attempts 512
   @update_attempts @update_spin_attempts + @update_yield_attempts + @update_backoff_attempts
 
   @spec update(:ets.table(), term(), (map() -> map())) :: :ok
