@@ -2,21 +2,7 @@
 
 ## API budgets
 
-Aiur's resident Python broker reuses one SQLite connection and batches commands per process. Shell `gh` guards share its database, so daemons using one credential share quota ledgers.
-
-### Multiple daemon instances
-
-When several daemons use the same GitHub credential pool, configure all of them
-with the same `AIUR_LEASE_DATABASE_URL`. The coordination store shares daemon
-admissions and active rate-limit holds across the fleet. If the store is
-unavailable, each daemon divides its configured hourly ceilings by the last
-instance count it observed. Agent-side `gh` traffic continues to use each
-host's local broker and ledger; the coordination database URL is not passed to
-agent processes.
-
-Provider meter observations with account identity are also published through
-the coordination store, so another daemon can use the latest observed account
-reading. These are readings, not a shared provider-side admission counter.
+Daemons sharing a GitHub credential pool use the same `AIUR_LEASE_DATABASE_URL` to share admissions, active holds and quota snapshots; account-scoped provider readings are shared there too. If the store is unavailable, daemon hourly ceilings divide by the last observed instance count. Agent `gh` calls keep their host-local ledger, and agents never receive the database URL.
 
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
