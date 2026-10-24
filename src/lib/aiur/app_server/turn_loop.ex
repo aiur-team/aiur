@@ -56,8 +56,9 @@ defmodule Aiur.AppServer.TurnLoop do
 
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = state.pending_line <> to_string(chunk)
-        result = handle_incoming(session, %{state | pending_line: ""}, complete_line)
+        # Callbacks may wait for nested RPC responses from this same relay.
         :ok = Transport.acknowledge(port)
+        result = handle_incoming(session, %{state | pending_line: ""}, complete_line)
         continue_or_return(session, result)
 
       {^port, {:data, {:noeol, chunk}}} ->

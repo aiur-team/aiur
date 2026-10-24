@@ -262,6 +262,9 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   def handle_call(:close, from, state) do
+    state = acknowledge_pending(state)
+    if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
+
     case send_json(state.socket, %{op: "stop", grace_ms: 10_000}) do
       :ok ->
         Process.send_after(self(), :close_timeout, 12_000)
@@ -281,7 +284,7 @@ defmodule Aiur.AppServer.RelayPort do
   @impl true
   def handle_info({:tcp, socket, line}, %{socket: socket} = state) do
     state = consume(state.pending <> line, %{state | pending: ""})
-    state = if state.manual_ack?, do: state, else: acknowledge_pending(state)
+    state = if state.manual_ack? and is_nil(state.closing), do: state, else: acknowledge_pending(state)
     if is_nil(state.pending_offset), do: :inet.setopts(socket, active: :once)
     {:noreply, state}
   end
