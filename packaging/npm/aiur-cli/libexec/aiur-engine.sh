@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr history ticket ticket_usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote remote_all control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr history ticket ticket_usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -72,7 +72,7 @@ unset __aiur_engine_module
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
-       aiur --instance <name> <command>  run a supported control command against a named remote instance
+       aiur --instance <name|all> <command>  run a supported control command against one or every remote instance
        aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
@@ -197,6 +197,7 @@ aiur_engine_main() {
   AIUR_CONTROL_COMMAND="${cmd:-run}"
   if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
     validate_remote_instance_name || return $?
+    [ "$AIUR_REMOTE_INSTANCE" != all ] || ensure_remote_all_read_command "$@" || return $?
     ensure_remote_command_allowed "$@" || return $?
   fi
   case "$cmd" in
