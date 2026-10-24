@@ -11,7 +11,6 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     previous_budget_dir = Application.get_env(:aiur, :github_budget_dir)
     previous_budget_settings = Application.get_env(:aiur, :github_budget_settings_override)
     previous_deadline = Application.get_env(:aiur, :github_request_deadline_ms)
-    previous_admission_timeout = Application.get_env(:aiur, :github_budget_admission_timeout_ms)
     previous_poll_owner = Application.get_env(:aiur, :github_poll_owner)
     previous_selector_options = Application.get_env(:aiur, :github_credential_selector_options)
     quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
@@ -37,7 +36,6 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       restore_env(:github_budget_dir, previous_budget_dir)
       restore_env(:github_budget_settings_override, previous_budget_settings)
       restore_env(:github_request_deadline_ms, previous_deadline)
-      restore_env(:github_budget_admission_timeout_ms, previous_admission_timeout)
       restore_env(:github_poll_owner, previous_poll_owner)
       restore_env(:github_credential_selector_options, previous_selector_options)
       Aiur.TestCleanup.rm_rf!(budget_dir)
@@ -336,8 +334,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
   } do
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
-    Application.put_env(:aiur, :github_request_deadline_ms, 10_000)
-    Application.put_env(:aiur, :github_budget_admission_timeout_ms, 8_000)
+    Application.put_env(:aiur, :github_request_deadline_ms, 5_000)
 
     Application.put_env(:aiur, :github_budget_settings_override, %{
       max_inflight: 4,
@@ -384,33 +381,19 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     test_pid = self()
     telemetry_id = {__MODULE__, make_ref()}
+    events = [[:aiur, :github, :budget_broker, :command], [:aiur, :github, :budget_broker, :sqlite_wait]]
 
     :ok =
-      :telemetry.attach(
+      :telemetry.attach_many(
         telemetry_id,
-        [:aiur, :github, :budget_broker, :command],
-        fn _event, measurements, metadata, owner ->
-          send(owner, {:budget_command, measurements, metadata})
+        events,
+        fn event, measurements, metadata, owner ->
+          send(owner, {List.last(event), measurements, metadata})
         end,
         test_pid
       )
 
-    sqlite_wait_id = {__MODULE__, make_ref()}
-
-    :ok =
-      :telemetry.attach(
-        sqlite_wait_id,
-        [:aiur, :github, :budget_broker, :sqlite_wait],
-        fn _event, measurements, metadata, owner ->
-          send(owner, {:sqlite_wait, measurements, metadata})
-        end,
-        test_pid
-      )
-
-    on_exit(fn ->
-      :telemetry.detach(telemetry_id)
-      :telemetry.detach(sqlite_wait_id)
-    end)
+    on_exit(fn -> :telemetry.detach(telemetry_id) end)
 
     pending_request =
       Task.async(fn ->
@@ -430,7 +413,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     assert {:ok, %{status: 200}} = Task.await(pending_request, 2_000)
 
-    assert_receive {:budget_command, %{duration_ms: duration_ms, sqlite_lock_wait_ms: lock_wait_ms}, %{outcome: :completed, command_type: :acquire}},
+    assert_receive {:command, %{duration_ms: duration_ms, sqlite_lock_wait_ms: lock_wait_ms}, %{outcome: :completed, command_type: :acquire}},
                    1_000
 
     assert duration_ms >= 3_500
