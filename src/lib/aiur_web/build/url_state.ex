@@ -5,11 +5,16 @@ defmodule AiurWeb.Build.URLState do
   @views ~w(gantt list)
   @spans [1, 2, 3, 5, 7, 10, 14, 21, 30]
   @tstates ["merged", "failed", "in progress", "queued", "held", "blocked", "open", "not planned"]
-  @astates ~w(active error retrying retries command paused parked none)
+  @astates ~w(active error retrying retries command paused parked merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off none)
   # ponytail: C5-T01/C6-T01 share this slug shape; widen together if their slugs change.
   @slug ~r/\A[A-Za-z0-9._-]{1,64}\z/
   @model_key ~r/\A[a-z0-9][a-z0-9._-]{0,31}\z/
-  @agent_presets %{active: ["active"], alert: ~w(error retries command), paused: ~w(paused parked), stuck: ~w(error retries command)}
+  @agent_presets %{
+    active: ["active"],
+    alert: ~w(error retries command),
+    paused: ~w(paused parked),
+    stuck: ~w(error retries command)
+  }
   @ticket_presets %{active: ["in progress"], alert: ["in progress"], paused: ["in progress"], stuck: ["in progress"], queued: ~w(queued held blocked), finished: ~w(merged failed)}
   @defaults %{view: "graph", span: 1, feature: nil, fmode: "focus", epic: [], model: [], tstate: [], astate: [], live_min: false, trees: false, ticket: nil}
 

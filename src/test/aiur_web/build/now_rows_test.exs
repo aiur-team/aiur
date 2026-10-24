@@ -11,6 +11,11 @@ defmodule AiurWeb.Build.NowRowsTest do
       {row(%{runtime: %{bucket: :running, work_state: :error}}), "error"},
       {row(%{runtime: %{bucket: :running, work_state: :paused}, open_command_count: 2}), "command"},
       {row(%{reasons: %{pause: :ci_wait}}), "ci_wait"},
+      {row(%{reasons: %{pause: :usage_limit_exhausted}}), "paused-usage-limit"},
+      {row(%{reasons: %{waiting: :waiting_for_dependency}}), "blocked"},
+      {row(%{reasons: %{waiting: :waiting_for_human}}), "paused-decision"},
+      {row(%{reasons: %{pause: :agent_pause_request}}), "paused-agent"},
+      {row(%{labels: ["agent:ci-wait", "agent:ci-red"]}), "ci-red"},
       {row(%{reasons: %{pause: :operator_pause}}), "paused"},
       {row(%{open_command_count: nil}), "active"},
       {row(%{runtime: %{bucket: :running, work_state: :deactivated}}), nil}
@@ -24,20 +29,22 @@ defmodule AiurWeb.Build.NowRowsTest do
   end
 
   test "policy stuck reasons beat command and paused; retry backoff stays distinct from failure" do
-    for waiting <- [:tracker_unavailable, :backing_off, :unresponsive] do
+    for waiting <- [:tracker_unavailable, :unresponsive] do
       assert facts(row(%{reasons: %{waiting: waiting, pause: :operator_pause}, open_command_count: 1})).agent.state == "error"
     end
+
+    assert facts(row(%{reasons: %{waiting: :backing_off, pause: :operator_pause}, open_command_count: 1})).agent.state == "retrying"
 
     retrying = facts(row(%{runtime: %{bucket: :retrying, work_state: :retrying}}))
     assert retrying.agent.state == "retrying"
     assert retrying.status == "queued"
-    assert facts(row(%{reasons: %{waiting: :waiting_for_human}})).agent.state == "command"
+    assert facts(row(%{reasons: %{waiting: :waiting_for_human}})).agent.state == "paused-decision"
     assert facts(row(%{runtime: %{bucket: :running, work_state: :starting}})).agent.state == "active"
   end
 
-  test "pause causes stay distinct; only other non-reserving causes are parked" do
+  test "parked reasons use the orchestrator predicate; cooperative pauses stay paused" do
     usage = facts(row(%{reasons: %{pause: :usage_limit_exhausted}, runtime: %{bucket: :running, work_state: :paused, usage_limit_reset_at: @time}}))
-    assert usage.agent.state == "usage_limited"
+    assert usage.agent.state == "paused-usage-limit"
     assert usage.agent.pause == "usage_limit_exhausted"
     assert usage.agent.resume_at == @ms
     refute usage.agent.state == "parked"
@@ -46,13 +53,17 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert ci.agent.state == "ci_wait"
     assert ci.agent.pause == "ci_wait"
 
-    for reason <- [:blocker_dependency, :max_agent_duration, :github_budget_hold] do
+    for reason <- [:max_agent_duration, :github_budget_hold] do
       assert facts(row(%{reasons: %{pause: reason}})).agent.state == "parked"
     end
 
-    for reason <- [:operator_pause, :global_pause, :label_override, :agent_pause_request] do
+    assert facts(row(%{reasons: %{pause: :blocker_dependency}})).agent.state == "blocked"
+
+    for reason <- [:operator_pause, :global_pause, :label_override] do
       assert facts(row(%{reasons: %{pause: reason}})).agent.state == "paused"
     end
+
+    assert facts(row(%{reasons: %{pause: :agent_pause_request}})).agent.state == "paused-agent"
 
     assert facts(row(%{runtime: %{bucket: :running, work_state: :sleeping}})).agent.state == "paused"
   end
@@ -158,12 +169,13 @@ defmodule AiurWeb.Build.NowRowsTest do
     joined =
       Enum.map(expected_rows, fn expected ->
         actual = Payload.scrub(output[expected["id"]])
-        assert Map.take(actual["agent"], ~w(model name state effort)) == Map.take(expected["agent"], ~w(model name state effort))
+        expected_agent = if expected["agent"]["state"] == "parked", do: Map.put(expected["agent"], "state", "blocked"), else: expected["agent"]
+        assert Map.take(actual["agent"], ~w(model name state effort)) == Map.take(expected_agent, ~w(model name state effort))
         assert actual["agent"]["pause"] == nil
         assert actual["agent"]["resume_at"] == nil
         assert actual["pct"] == expected["pct"]
         assert abs(actual["start"] - expected["start"]) <= 1
-        merged = Map.merge(expected, actual)
+        merged = expected |> Map.put("agent", expected_agent) |> Map.merge(actual)
         assert Payload.row(merged) == {:ok, merged}
         merged
       end)
