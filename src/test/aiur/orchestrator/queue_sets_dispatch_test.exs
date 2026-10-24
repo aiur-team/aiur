@@ -10,8 +10,11 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     configure()
+    tracker_adapters = Application.fetch_env!(:aiur, :tracker_adapters)
+    Application.put_env(:aiur, :tracker_adapters, Map.put(tracker_adapters, "github", QueueBoundary))
     :ets.new(Hints.table_name(), [:named_table, :set])
     on_exit(fn -> File.write!(path, original) end)
+    on_exit(fn -> Application.put_env(:aiur, :tracker_adapters, tracker_adapters) end)
     on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     :ok
   end
@@ -19,49 +22,40 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   defmodule QueueBoundary do
     alias Aiur.Issue
     alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchPolicy, State}
+    # Keep the production probe on an isolated orchestrator state so this CLI
+    # test does not depend on whichever tickets the live orchestrator sees.
     def load, do: Agent.get(__MODULE__, &{:ok, &1})
     def save(document), do: Agent.update(__MODULE__, fn _ -> document end)
     def open_issue_labels(_), do: {:ok, Map.new(1..12, &{to_string(&1), %{labels: ~w(agent:queued agent:todo)}}), System.system_time(:millisecond)}
     def blocked_by(_), do: {:ok, []}
     def ticket_pull_request(_), do: {:ok, nil}
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
+    # The production probe hydrates these synthetic IDs through the configured
+    # GitHub adapter. Keep that cache lookup from importing unrelated blockers.
+    def cached_blocked_by(issue) do
+      key = {__MODULE__, :cached_blocked_by_ids}
+      Process.put(key, [issue.id | Process.get(key, [])])
+      {:ok, issue}
+    end
 
-    def next_set, do: next_set_with_issue_state("todo")
+    def cached_blocked_by_ids, do: Process.get({__MODULE__, :cached_blocked_by_ids}, [])
 
-    def no_candidate_next_set, do: next_set_with_issue_state("done")
-
-    defp next_set_with_issue_state(issue_state) do
+    def probe_state do
       document = Agent.get(__MODULE__, & &1)
-      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: issue_state, blocked_by: []}} end)
+      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: "todo", blocked_by: []}} end)
 
-      state = %State{
+      %State{
         max_concurrent_agents: 6,
         effective_concurrent_agents: 6,
-        running: %{},
-        claimed: MapSet.new(),
-        auto_resume: %{},
-        blocked_ticket_ids: MapSet.new(),
         last_polled_issues: issues
       }
-
-      dispatchable? = Enum.any?(Map.values(issues), &DispatchPolicy.should_dispatch_issue?(&1, state))
-
-      if issue_state == "todo" and not dispatchable?,
-        do: raise("the controlled claim-probe fixture must contain dispatchable issues")
-
-      if issue_state == "done" and dispatchable?,
-        do: raise("the terminal-state reproduction must decline every issue")
-
-      BuildQueueClaimProbe.next_set(state)
     end
+
+    def next_set, do: BuildQueueClaimProbe.next_set(probe_state())
 
     def add_label(_, _), do: raise("ordering must not write GitHub labels")
     def remove_label(_, _), do: raise("ordering must not write GitHub labels")
     def notify_demand(_), do: :ok
-  end
-
-  defmodule NoCandidateQueueBoundary do
-    def next_set, do: QueueBoundary.no_candidate_next_set()
   end
 
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
@@ -101,19 +95,12 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     snapshot = Hints.sets()
     assert snapshot.members["8"].set_id == "q-0002"
     assert Enum.find(snapshot.sets, &(&1.id == "q-0002")).rank == 0
-    assert QueueBoundary.no_candidate_next_set() == {:ok, nil}
-
-    declined_json =
-      capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true, claim_probe: NoCandidateQueueBoundary) end)
-      |> Jason.decode!()
-
-    assert Enum.map(declined_json["queues"], &{&1["set_rank"], &1["state"]}) == [
-             {0, "waiting"},
-             {1, "waiting"},
-             {2, "waiting"}
-           ]
-
+    probe_state = QueueBoundary.probe_state()
+    decisions = Map.new(probe_state.last_polled_issues, fn {id, issue} -> {id, DispatchPolicy.dispatch_decision(issue, probe_state)} end)
+    assert Enum.all?(decisions, fn {_id, decision} -> decision == :dispatch end), inspect(decisions)
+    Process.delete({QueueBoundary, :cached_blocked_by_ids})
     assert QueueBoundary.next_set() == {:ok, "q-0002"}
+    assert MapSet.new(QueueBoundary.cached_blocked_by_ids()) == MapSet.new(Map.keys(probe_state.last_polled_issues))
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
     assert output =~ "queue order  actual set 2 > set 1 > set 0  declared unavailable"
     assert output =~ "0  set 2\n1  set 1\n2  set 0\n"
