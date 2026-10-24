@@ -65,6 +65,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
           state
           |> clear_ci_test_failure_retry(issue)
           |> remember_ci_approved_head(issue, result)
+          |> WaitRewake.cancel_ci_wait_rewake(issue.id)
           |> ResultProjection.stash_last_ci_result(issue, result)
         else
           transition_ci_pass(state, issue, result)
