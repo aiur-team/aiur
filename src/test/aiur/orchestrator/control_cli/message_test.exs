@@ -25,8 +25,9 @@ defmodule Aiur.Orchestrator.ControlCLI.MessageTest do
   end
 
   test "message status prints the current delivery state" do
-    Application.put_env(:aiur, :agent_control_cli_message_status_fun, fn request_id, _timeout ->
+    Application.put_env(:aiur, :agent_control_cli_message_status_fun, fn request_id, timeout ->
       assert request_id == 7
+      assert timeout >= 1_000
       {:ok, :delivered}
     end)
 

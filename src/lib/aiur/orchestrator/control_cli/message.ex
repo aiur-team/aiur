@@ -122,7 +122,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
   defp await_message_delivery(_request_id), do: :unobserved
 
   defp poll_message_delivery(request_id, deadline) do
-    case message_delivery_status(request_id, max(remaining_ms(deadline), @message_confirm_poll_ms)) do
+    case message_delivery_status(request_id, @message_confirm_poll_ms) do
       # The agent has the message: claimed (`:delivered`) or already acted on
       # it (`:consumed`). This is the only outcome that may claim delivery.
       {:ok, status} when status in [:delivered, :consumed] ->
@@ -171,13 +171,12 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
     end
   end
 
-  # Once enqueue returned a request id, confirmation is best-effort. Keep this
-  # read short so it cannot turn a successful queue receipt into a second long
-  # wait behind the same busy orchestrator.
+  # Confirmation reads are short because they run repeatedly after enqueue.
+  # Explicit status reads use the caller's full timeout instead.
   defp message_delivery_status(request_id, timeout_ms) do
     Application.get_env(:aiur, :agent_control_cli_message_status_fun, &AgentChat.delivery_status/2).(
       request_id,
-      min(timeout_ms, @message_confirm_poll_ms)
+      timeout_ms
     )
   end
 

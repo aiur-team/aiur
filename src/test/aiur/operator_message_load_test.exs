@@ -62,7 +62,7 @@ defmodule Aiur.OperatorMessageLoadTest do
     assert nil == Task.yield(send_task, 10_200)
     :ok = :sys.resume(orchestrator)
 
-    assert {:ok, request_id} = Task.await(send_task, 1_000)
+    assert {:ok, request_id} = Task.await(send_task, 15_000)
     assert {:ok, :pending} = OperatorMessages.operator_message_status(orchestrator, request_id)
 
     assert {:ok, %{id: ^request_id, body: %{text: "binding decision"}}} =

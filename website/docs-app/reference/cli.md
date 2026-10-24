@@ -149,7 +149,7 @@ Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label
 
 If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-budget` mutation in time, the command exits 124 and reports `outcome unknown`. The queued request may still apply after the command exits. Check the ticket status and log before retrying; a reset is confirmed by its completed dispatch-budget reset alert.
 
-The daemon allows 30 seconds for enqueue; the CLI allows 70 seconds for enqueue and keyed reconciliation. A successful send reports delivered or queued with a request id. Check later with `aiur message --status REQUEST_ID`. If the RPC times out, the result is unknown and the message may still be queued; retry only with the same `--message-id`.
+The daemon enqueue RPC allows 30 seconds; the CLI allows 70 seconds total. Dashboard and HTTP sends allow 30 seconds (60 with reconciliation). CLI reports delivered or queued with a request id; check with `aiur message --status REQUEST_ID`. On timeout, the message may still be queued; retry only with the same `--message-id`.
 
 Only a retry with the same `--message-id` is safe. It returns the first copy instead of queueing a second one. The same text sent without that id is a new message. The HTTP API accepts an optional `message_id` too; a request without one is never deduplicated.
 
