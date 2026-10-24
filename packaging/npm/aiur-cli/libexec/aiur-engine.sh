@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr ticket ticket_usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote node_name control commands executor_commands report_commands test-private-state lifecycle restart handoff upgrade pre_pr history ticket ticket_usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -92,6 +92,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur history export [--unsorted] [--after <n>] [--limit <k>] [--json]  local ticket history for classification
        aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur epic clear <ids...> [--as <who>] [--json]
@@ -135,6 +136,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
+       aiur message --status <request-id>          inspect a queued message
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur pr merge <N> --reviewed-sha <sha> [--dry-run] [--approve-body-file <file>] [--inherited <check>]
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
@@ -143,7 +145,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
-       aiur doctor [--repair]         check mise shims; repair only with consent
+       aiur doctor [--repair]         check distribution and mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur pre-pr           merge origin/main locally and run cheap PR gates
        aiur --version
@@ -188,6 +190,7 @@ aiur_engine_main() {
       ;;
     --instance=*)
       export AIUR_REMOTE_INSTANCE="${1#--instance=}"
+      [ -n "$AIUR_REMOTE_INSTANCE" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
       shift
       ;;
   esac
@@ -306,6 +309,7 @@ aiur_engine_main() {
       shift
       cmd_build_orders "$@"
       ;;
+    history) shift; cmd_history "$@" ;;
     analytics) shift; cmd_analytics "$@" ;;
     github-cost) shift; cmd_github_cost "$@" ;;
     experiments) shift; cmd_experiments "$@" ;;

@@ -31,6 +31,7 @@
       "AIUR_WORKSPACE_ROOT_FILE",
       "ELIXIR_ERL_OPTIONS",
       "ERL_EPMD_ADDRESS",
+      "ERL_EPMD_PORT",
       "MISE_DATA_DIR"
     ],
     "state": [
@@ -63,6 +64,7 @@
     "AIUR_WORKSPACE_ROOT_FILE",
     "ELIXIR_ERL_OPTIONS",
     "ERL_EPMD_ADDRESS",
+    "ERL_EPMD_PORT",
     "MISE_DATA_DIR"
   ],
   "capabilities": []

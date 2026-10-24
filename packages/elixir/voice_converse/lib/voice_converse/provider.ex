@@ -53,6 +53,7 @@ defmodule VoiceConverse.Provider do
           optional(:parts) => %{stt: term(), llm: term(), tts: term()},
           optional(:client_parts) => [:browser_stt | :browser_tts | :text_in],
           optional(:privacy) => map(),
+          optional(:base_urls) => [String.t()],
           optional(:price_hint) => term()
         }
 
@@ -86,6 +87,7 @@ defmodule VoiceConverse.Provider do
           required(:text) => String.t(),
           required(:credentials) => {module(), provider_id :: atom()},
           required(:format) => Events.AgentAudio.format(),
+          optional(:base_url) => String.t(),
           optional(:voice_id) => String.t(),
           optional(atom()) => term()
         }
