@@ -497,5 +497,4 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 
 ## Further sections
 
-- [`agent`, host-pressure admission, `agent.claude`, `agent.codex`, model discovery](/reference/configuration-agent)
-- [`build_order` and resolution notes](/reference/configuration-build-order)
+- [`agent`, host-pressure admission, `agent.claude`, `agent.codex`, model discovery](/reference/configuration-agent) · [`build_order` and resolution notes](/reference/configuration-build-order)

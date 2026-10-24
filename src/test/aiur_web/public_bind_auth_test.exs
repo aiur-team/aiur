@@ -56,10 +56,30 @@ defmodule AiurWeb.PublicBindAuthTest do
   end
 
   test "router routes return unauthenticated 2xx only for the explicit public path set" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
+    System.delete_env("AIUR_DASHBOARD_USERNAME")
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+    endpoint_config = previous_endpoint_config || []
+    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.put(endpoint_config, :dashboard_auth_required, false))
+
+    on_exit(fn ->
+      if previous_username, do: System.put_env("AIUR_DASHBOARD_USERNAME", previous_username), else: System.delete_env("AIUR_DASHBOARD_USERNAME")
+      if previous_password, do: System.put_env("AIUR_DASHBOARD_PASSWORD", previous_password), else: System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+      case previous_endpoint_config do
+        nil -> Application.delete_env(:aiur, AiurWeb.Endpoint)
+        config -> Application.put_env(:aiur, AiurWeb.Endpoint, config)
+      end
+    end)
+
     EndpointStubs.put(
       public_bind: true,
-      dashboard_auth_required: true,
-      browser_basic_auth: false,
+      # Disable ordinary router auth so this walk proves the endpoint guard
+      # protects paths that router pipelines do not.
+      dashboard_auth_required: false,
+      browser_basic_auth: true,
       allowed_hosts: ["www.example.com"]
     )
 
