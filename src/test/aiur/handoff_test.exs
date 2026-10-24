@@ -391,13 +391,6 @@ defmodule Aiur.HandoffTest do
   test "a prepare that fails after the snapshot leaves live runners finishing their turn", %{
     tmp_dir: workspace
   } do
-    # Keep lazy module loading out of the live-turn window. In a fresh VM the
-    # first provider event can otherwise wait on the code server for unrelated
-    # application modules and make this runner-liveness assertion flaky.
-    for module <- Application.spec(:aiur, :modules) do
-      Code.ensure_loaded!(module)
-    end
-
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
     gate = Path.join(workspace, "go")
     script = Path.join(workspace, "provider.py")
@@ -412,9 +405,9 @@ defmodule Aiur.HandoffTest do
     parent = self()
     issue = %Aiur.Issue{id: "1", identifier: "ISSUE-1"}
 
-    runner =
-      spawn(fn ->
-        {:ok, port} = Adapter.start_port(workspace, "python3 #{script}")
+    {runner, runner_monitor} =
+      spawn_monitor(fn ->
+        {:ok, port} = Adapter.start_port(workspace, "python3 #{script}", fn _port -> :ok end, relay: false)
         session = %{backend: "codex", port: port, thread_id: "thread-1", workspace: workspace}
 
         session =
@@ -427,6 +420,7 @@ defmodule Aiur.HandoffTest do
           })
 
         send(parent, :ready)
+        send(parent, {:turn_loop_started, self(), port})
 
         result =
           TurnLoop.receive_loop(
@@ -438,6 +432,9 @@ defmodule Aiur.HandoffTest do
       end)
 
     assert_receive :ready, 5_000
+    assert_receive {:turn_loop_started, ^runner, port}, 5_000
+    assert is_port(port)
+    :erlang.trace(runner, true, [:receive, :send, {:tracer, self()}])
 
     {:ok, owner} =
       start_supervised(
@@ -462,9 +459,23 @@ defmodule Aiur.HandoffTest do
                config_fingerprint: "config"
              )
 
+    assert_receive {:trace, ^runner, :receive, {:handoff_abort, abort_waiter, abort_ref}}, 1_000
+    assert abort_waiter == self()
+    assert_receive {:trace, ^runner, :send, {:handoff_aborted, ^abort_ref}, ^abort_waiter}, 1_000
+
     refute GenServer.call(owner, :held?)
     File.touch!(gate)
-    # The first decode in a fresh VM loads every app module, so allow for it.
-    assert_receive {:finished, {:ok, :turn_completed}, "thread-1"}, 30_000
+
+    result =
+      receive do
+        {:finished, result, thread_id} -> {:finished, result, thread_id}
+        {:DOWN, ^runner_monitor, :process, ^runner, reason} -> {:runner_crashed, reason}
+      after
+        30_000 ->
+          {:runner_timeout, %{runner: Process.info(runner, [:current_function, :status, :message_queue_len]), port: Port.info(port)}}
+      end
+
+    Process.demonitor(runner_monitor, [:flush])
+    assert {:finished, {:ok, :turn_completed}, "thread-1"} = result
   end
 end
