@@ -96,15 +96,17 @@ test('whole days, forward union, feature locks and compact dependencies', async 
 
 test('feature lanes lock and unsorted stays last; flow clears headers', async ({ page }) => {
   const result = await page.evaluate(() => {
-    S.feature = Object.keys(ctx.D.features)[0]
+    // Pick a feature with at least one own-epic lane: compact mode also shows unlocked dependent lanes.
+    S.feature = Object.keys(ctx.D.features).find(f => { S.feature = f; return cols.visibleCols().some(k => ctx.D.features[f].epics.includes(k)) }) ?? null
     cols.applyCols(cols.visibleCols(), true)
-    const locks = ctx.D.features[S.feature].epics.filter(k => ctx.laneEls.has(k)).map(k => ctx.laneEls.get(k).classList.contains('lock') && !!ctx.laneEls.get(k).querySelector('em svg'))
+    const locks = (ctx.D.features[S.feature]?.epics ?? []).filter(k => ctx.laneEls.has(k)).map(k => ctx.laneEls.get(k).classList.contains('lock') && !!ctx.laneEls.get(k).querySelector('em svg'))
     S.feature = null; cols.applyCols(['bugs', 'unsorted'], true)
     const unsorted = ctx.laneEls.get('unsorted')
     const cls = unsorted.className, label = unsorted.querySelector('span').textContent
     S.flow = true; S.K = 2; cols.applyCols(cols.visibleCols(), true)
     return { locks, cls, label, lanes: ctx.laneEls.size, guides: ctx.guideEls.size, caption: ctx.lanesEl.querySelector('.bd-lane-g').textContent, hidden: ctx.svg.classList.contains('hide'), bands: ctx.bandMap, bandCount: ctx.L.band.BK, viewportWidth: ctx.vp.clientWidth, nowCount: ctx.D.now.length, group: ctx.colMap.g }
   })
+  expect(result.locks.length, 'selected fixture feature has visible lanes').toBeGreaterThan(0)
   expect(result.locks.every(Boolean)).toBe(true)
   expect(result.cls).toContain('unsorted'); expect(result.label).toBe('Unsorted')
   expect(result.lanes).toBe(0); expect(result.guides).toBe(0); expect(result.caption).toBe('Colour = epic'); expect(result.hidden).toBe(true)

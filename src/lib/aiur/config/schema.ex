@@ -15,6 +15,7 @@ defmodule Aiur.Config.Schema do
     BuildQueue,
     Codex,
     Compaction,
+    DashboardAuth,
     Decisions,
     ElevenLabs,
     EnvResolver,
@@ -94,6 +95,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:monitoring, Monitoring, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:dashboard_auth, DashboardAuth, on_replace: :update, defaults_to_struct: true)
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:experiments, Experiments, on_replace: :update, defaults_to_struct: true)
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
@@ -234,6 +236,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:monitoring, with: &Monitoring.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
+    |> cast_embed(:dashboard_auth, with: &DashboardAuth.changeset/2)
     |> cast_embed(:opencode, with: &Opencode.changeset/2)
     |> cast_embed(:experiments, with: &Experiments.changeset/2)
     |> cast_embed(:events, with: &Events.changeset/2)
@@ -296,8 +299,9 @@ defmodule Aiur.Config.Schema do
     agent = %{settings.agent | codex: codex, mix_scheduler_cap: settings.agent.mix_scheduler_cap || 4}
 
     elevenlabs = resolve_elevenlabs(settings.elevenlabs)
+    instance = %{settings.instance | ignore: settings.instance.ignore || %Aiur.Config.Schema.Instance.Ignore{}}
 
-    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs}
+    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs, instance: instance}
   end
 
   defp resolve_elevenlabs(%ElevenLabs{enabled: false} = elevenlabs),
