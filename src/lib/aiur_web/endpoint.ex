@@ -22,12 +22,14 @@ defmodule AiurWeb.Endpoint do
 
   @before_compile AiurWeb.EndpointCallGuard
 
+  plug(AiurWeb.TrustedProxy)
   LiveView.mount(@session_options)
   Streamdeck.mount(@session_options)
   Voice.mount(@session_options)
 
   plug(AiurWeb.Session, @session_options)
   plug(:fetch_session)
+  plug(AiurWeb.PublicBindGuard)
   plug(:authenticate_static_asset)
 
   plug(Plug.Static,

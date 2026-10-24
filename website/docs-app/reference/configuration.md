@@ -408,9 +408,12 @@ These policy keys never grant transport access by themselves. The supervisor API
 | `server.host` | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
 | `server.public_url` | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
+| `server.trusted_proxies` | array | `[]` | CIDRs allowed to supply `X-Forwarded-Proto`, `X-Forwarded-Host`, and `X-Forwarded-For`; `platform` trusts private proxy-network peers. |
 | `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
 
 Unset `server.host` binds `127.0.0.1` (or `AIUR_DEFAULT_DASHBOARD_HOST`); explicit config/`--host` override. `0.0.0.0` exposes LAN. Loopback permits `*.ts.net` Hosts and HTTPS origins while loopback-bound. For Tailscale, build and restart, set `server.public_url` (e.g. `https://<host>.ts.net:4001`), then restart again. `server.allowed_hosts` adds hosts.
+
+For a reverse proxy, set `server.public_url` to the external HTTPS URL and list the proxy peer CIDRs in `server.trusted_proxies`. Only those peers may change the request scheme, host, or client IP with forwarded headers. `platform` trusts private IPv4 and IPv6 proxy-network peers; use it only when the platform isolates that network from untrusted workloads. A public bind also requires `dashboard_auth.browser_basic_auth: false` and configured Google sign-in with a non-empty email allowlist or an enrolled passkey. `/auth` sign-in and passkey routes, `/healthz`, `/readyz`, and the signed GitHub webhook receiver remain unauthenticated; other paths require authentication.
 
 Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed.
 

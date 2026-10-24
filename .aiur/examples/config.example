@@ -290,7 +290,7 @@ alerts:
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_tags: {}, capture_label_prefixes: ["experiment:", "cohort:", "feature:"], capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
 # server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); 0.0.0.0 exposes the LAN
-# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com, localhost, 127.0.0.1] }
+# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com], trusted_proxies: [10.0.0.0/8] }
 # dashboard_auth: { google: { allowed_emails: [operator@example.com] }, passkeys: false, session_max_age_days: 30, browser_basic_auth: true }
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur
 # dashboard owns Funnel HTTPS 443 and should alert on a stale target.
