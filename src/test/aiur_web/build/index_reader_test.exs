@@ -64,7 +64,7 @@ defmodule AiurWeb.Build.IndexReaderTest do
     assert {:ok, index} = assemble(read)
     assert index.sources.agents.state == "ok"
     assert index.all["12"].sec == "now"
-    assert index.all["12"].agent.state == "command"
+    assert index.all["12"].agent.state == "paused-decision"
     assert index.all["12"].start != nil
     assert index.all["12"].agent.model == "claude"
     assert index.all["12"].agent.name == "Claude"
