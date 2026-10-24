@@ -1,3 +1,5 @@
+# Keep checks in one suite so ordering, unknown-source handling, and the shared snapshot
+# fixture are exercised together across the Executor's unified health sweep.
 defmodule Aiur.ExecutorSweep.ChecksTest do
   use Aiur.TestSupport
 
@@ -69,6 +71,20 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
+  test "names runner starvation when queued merge-group runs outnumber running runs" do
+    now = DateTime.utc_now()
+    queued = for id <- 1..11, do: %{id: id, name: "run #{id}", state: "queued", started_at: now}
+    snapshot = %{merge_groups: queued, github_cache_ages: %{merge_group_runs: Map.new(1..11, &{&1, 0})}}
+
+    findings = Checks.all(snapshot, now)
+
+    assert [%{kind: "runner_starvation", queued_runs: 11, running_runs: 0, status_url: "https://www.githubstatus.com/#components", message: message}] =
+             Enum.filter(findings, &(&1.kind == "runner_starvation"))
+
+    assert message =~ "11 merge-group runs queued, 0 running"
+    refute Enum.any?(findings, &(&1.kind == "stale_merge_group"))
+  end
+
   test "reports red checks only from fresh live CI observations" do
     now = ~U[2026-10-15 18:20:00Z]
     old = ~U[2026-10-15 16:00:00Z]
@@ -106,7 +122,9 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
 
     findings = Checks.all(snapshot, now)
     refute Enum.any?(findings, &(&1.kind == "approved_pr_red"))
-    assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
+
+    assert [%{verification: "unverified", kind: "runner_starvation", queued_runs: 1, running_runs: 0}] =
+             Enum.filter(findings, &(&1.kind == "runner_starvation"))
   end
 
   test "a snapshot read carries body fetch ages for GitHub-derived sources" do

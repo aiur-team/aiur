@@ -28,14 +28,18 @@ defmodule Aiur.MergePolicyCLI do
   defp watch_error(_state), do: ""
 
   defp main(%{main_watch: %{enabled: true}}, state), do: " " <> main_state(state)
+
   defp main(_policy, %{watcher: watcher} = state) when watcher != :not_running, do: " " <> main_state(state)
+
   defp main(_policy, _state), do: ""
 
   @spec main_state(map(), integer()) :: String.t()
   def main_state(state, now_ms \\ System.system_time(:millisecond))
 
   def main_state(%{unavailable: true} = state, now_ms) do
-    "main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "")
+    "main=unavailable last_known=" <>
+      String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <>
+      runner_starvation(state)
   end
 
   def main_state(%{status: :red} = state, now_ms) do
@@ -50,6 +54,7 @@ defmodule Aiur.MergePolicyCLI do
   end
 
   def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)
+
   def main_state(_state, _now_ms), do: "main=unknown"
 
   defp observation(state, now_ms) do
@@ -61,6 +66,11 @@ defmodule Aiur.MergePolicyCLI do
 
     " sha=#{Map.get(state, :sha) || "unknown"} age=#{age}"
   end
+
+  defp runner_starvation(%{runner_starvation: %{queued_runs: queued, running_runs: running, status_url: url}}),
+    do: " runner_starvation=#{queued}_queued_#{running}_running status=#{url}"
+
+  defp runner_starvation(_state), do: ""
 
   defp red_time(value) when is_integer(value), do: DateTime.from_unix(value, :millisecond)
   defp red_time(_value), do: {:error, :invalid_timestamp}
