@@ -29,7 +29,15 @@ defmodule Aiur.Orchestrator.CiLifecycle.ReviewHandoff do
         state,
         issue,
         "transition_ci_review",
-        fn -> TicketTransition.write_state(to_string(issue.id || issue.identifier), @human_review_state, Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)) end,
+        fn ->
+          TicketTransition.write_state(
+            to_string(issue.id || issue.identifier),
+            @human_review_state,
+            Transition.expected_state_opts(issue)
+            |> Keyword.put(:writer, :ci_lifecycle)
+            |> Keyword.put(:reason_modifiers, [])
+          )
+        end,
         fn current, response -> apply_transition(current, response, {issue, result}) end
       )
     end

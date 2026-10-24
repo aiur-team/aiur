@@ -98,8 +98,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
-                <span :if={!present?(row.build_lane) && present?(row.tracker_state)} class="u-lane is-state">
-                  <span class="u-lane-dot" aria-hidden="true"></span>{row.tracker_state |> to_string() |> String.replace("-", " ") |> String.upcase()}
+                <span :if={state_label = UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{state_label}
+                </span>
+                <span :if={reason_label = UnitsPresentation.reason_label(row)} class="u-lane is-state" title={reason_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{reason_label}
                 </span>
               </td>
 

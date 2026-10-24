@@ -57,6 +57,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.StatesAndSlotsTest do
     test "state matching is normalized and nil-safe" do
       assert DispatchPolicy.no_agent_work_state?("Merging")
       assert DispatchPolicy.no_agent_work_state?("  CI-Wait ")
+
       refute DispatchPolicy.no_agent_work_state?("human-review")
       refute DispatchPolicy.no_agent_work_state?(nil)
       refute DispatchPolicy.no_agent_work_state?(:merging)
