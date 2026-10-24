@@ -7,7 +7,7 @@ defmodule Aiur.HandoffAbortTest do
     parent = self()
 
     runner =
-      spawn(fn ->
+      spawn_link(fn ->
         receive do
           {:handoff_abort, from, ref} ->
             send(parent, {:abort_received, self()})
