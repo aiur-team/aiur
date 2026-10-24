@@ -151,13 +151,6 @@ defmodule Aiur.Events.SubscriptionStore do
     GenServer.call(via(identifier), {:add_subscription, topic, reason})
   end
 
-  @doc false
-  @spec reconcile_and_add_subscriptions(String.t(), [{String.t(), String.t()}]) :: :ok
-  def reconcile_and_add_subscriptions(identifier, subscriptions)
-      when is_binary(identifier) and is_list(subscriptions) do
-    GenServer.call(via(identifier), {:reconcile_and_add_subscriptions, subscriptions})
-  end
-
   @spec remove_subscription(String.t(), String.t()) :: :ok
   def remove_subscription(identifier, topic)
       when is_binary(identifier) and is_binary(topic) do
@@ -312,42 +305,6 @@ defmodule Aiur.Events.SubscriptionStore do
         # subscription as collateral. The original write wins; later
         # adds are no-ops at the persistence layer.
         {:reply, :ok, state}
-    end
-  end
-
-  def handle_call({:reconcile_and_add_subscriptions, subscriptions}, _from, state) do
-    current_base_topic = "system." <> Aiur.Config.base_branch() <> ".branch.push"
-
-    retained =
-      Enum.reject(state.subscribed_to, fn entry ->
-        entry["reason"] == "base_branch:auto" and entry["topic"] != current_base_topic
-      end)
-
-    {updated, added} =
-      Enum.reduce(subscriptions, {retained, []}, fn {topic, reason}, {entries, added} ->
-        if Enum.any?(entries, &(&1["topic"] == topic)) do
-          {entries, added}
-        else
-          entry = %{
-            "topic" => topic,
-            "reason" => reason,
-            "subscription_created_at_event_id" => IdGenerator.peek()
-          }
-
-          {entries ++ [entry], [topic | added]}
-        end
-      end)
-
-    removed = Enum.map(state.subscribed_to -- retained, & &1["topic"])
-
-    if updated != state.subscribed_to do
-      new_state = %{state | subscribed_to: updated}
-      :ok = Persistence.persist(new_state)
-      Enum.each(removed, &Exchange.unsubscribe/1)
-      Enum.each(added, &Exchange.subscribe/1)
-      {:reply, :ok, new_state}
-    else
-      {:reply, :ok, state}
     end
   end
 
