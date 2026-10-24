@@ -31,6 +31,13 @@ function tickAges() {
     if (row && cue) cue.innerHTML = promo(row.cue?.promoted);
   }
 }
+export function alignActiveGlow(el) {
+  const glow = el.querySelector('.bd-glow');
+  if (!glow || !el.classList.contains('ag-active')) return;
+  for (const animation of glow.getAnimations()) {
+    if (animation.animationName === 'bdRot') animation.startTime = 0;
+  }
+}
 function epic(key) {
   if (Object.hasOwn(ctx.D.epics, key)) return ctx.D.epics[key];
   if (!warned.has(key)) { console.warn('Unknown epic:', key); warned.add(key); }
@@ -135,9 +142,10 @@ export function refreshTicket(id) {
   if (!ctx.L) return;
   for (const it of ctx.L.band.items) if (it.t.id === id && ctx.D.byId[id]) {
     it.t = ctx.D.byId[id];
-    const el = makeCard(it); el.classList.add('noanim'); place(el, it);
-    it.el?.replaceWith(el); it.el = el;
+    const el = makeCard(it);
+    el.classList.add('noanim'); place(el, it);
+    it.el?.replaceWith(el); it.el = el; alignActiveGlow(el);
   }
   fx.drawEdgesSoon(30);
 }
-Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges });
+Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges, alignActiveGlow });
