@@ -47,7 +47,7 @@ Only required checks decide a failure: a red check that nothing requires does no
 
 Canceled runs get one exact-head rerun through the recovery journal. Landing watcher requeues approved PRs for infrastructure, inherited-base, or known non-PR failures. It requeues tests linked to an open flake issue or base failure in 24h; other failures route to rework with job details. It checks attribution and cancels stale groups.
 
-Immediately before first enqueue, the watcher rechecks the approved head and requires GitHub to report it `MERGEABLE` and `CLEAN`. A conflict is handled by the existing rebase-only rework path; an unavailable or unknown verdict does not enqueue.
+Immediately before first enqueue, the watcher rechecks the approved head and requires GitHub to report `MERGEABLE` with a `CLEAN` or `UNSTABLE` merge state. A conflict is handled by the existing rebase-only rework path; an unavailable or unknown verdict holds for the next poll.
 
 GitHub's merge-group checks remain authoritative for the base and queued PRs. A later base or queue change can still make a candidate unmergeable after admission.
 

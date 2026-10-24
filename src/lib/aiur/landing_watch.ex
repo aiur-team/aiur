@@ -382,9 +382,8 @@ defmodule Aiur.LandingWatch do
     revalidate = Keyword.get(opts, :revalidate_fun, &Observer.revalidate_approved_head/3)
     attribution = Keyword.get(opts, :attribution_fun, &default_attribution(&1, opts))
 
-    with :ok <- LocalRead.run(revalidate, [observation.number, observation.head, opts], opts),
-         attribution_result <- LocalRead.run(attribution, [observation], opts) do
-      case attribution_result do
+    with :ok <- LocalRead.run(revalidate, [observation.number, observation.head, opts], opts) do
+      case LocalRead.run(attribution, [observation], opts) do
         {:ok, :clean} -> maybe_enqueue(observation, opts)
         {:ok, {:ai_attribution, detail}} -> route_rework(observation, [%{name: "AI commit attribution", excerpt: detail}], opts)
         {:error, reason} -> {:error, reason}
