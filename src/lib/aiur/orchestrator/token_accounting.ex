@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
     total_tokens: 0,
     seconds_running: 0
   }
+  @dashboard_notify_interval_ms 500
 
   @spec handle_codex_worker_update(State.t(), String.t(), map()) ::
           {:noreply, State.t()}
@@ -35,10 +36,36 @@ defmodule Aiur.Orchestrator.TokenAccounting do
           |> apply_agent_rate_limits(update)
 
         next_state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
-        StatusReport.notify_dashboard(next_state)
-        {:noreply, next_state}
+        {:noreply, schedule_dashboard_notify(next_state)}
     end
   end
+
+  defp schedule_dashboard_notify(%State{dashboard_notify_timer_ref: timer_ref} = state)
+       when is_reference(timer_ref),
+       do: state
+
+  defp schedule_dashboard_notify(state) do
+    token = make_ref()
+
+    timer_ref =
+      Process.send_after(
+        self(),
+        {:token_accounting_dashboard_notify, token},
+        @dashboard_notify_interval_ms
+      )
+
+    %{state | dashboard_notify_token: token, dashboard_notify_timer_ref: timer_ref}
+  end
+
+  @spec handle_dashboard_notify(State.t(), reference()) :: {:noreply, State.t()}
+  def handle_dashboard_notify(%State{dashboard_notify_token: token} = state, token)
+      when is_reference(token) do
+    state = %{state | dashboard_notify_token: nil, dashboard_notify_timer_ref: nil}
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
+  def handle_dashboard_notify(state, _token), do: {:noreply, state}
 
   @spec integrate_codex_update(map(), %{event: term(), timestamp: DateTime.t()}) :: {map(), map()}
   def integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do
@@ -103,7 +130,8 @@ defmodule Aiur.Orchestrator.TokenAccounting do
       else: Map.get(entry, :context_usage)
   end
 
-  defp context_usage_for_update(entry, %{event: :session_started, thread_id: id}) when is_binary(id) do
+  defp context_usage_for_update(entry, %{event: :session_started, thread_id: id})
+       when is_binary(id) do
     if id == Map.get(entry, :native_session_id), do: Map.get(entry, :context_usage), else: nil
   end
 
@@ -154,7 +182,9 @@ defmodule Aiur.Orchestrator.TokenAccounting do
     method in ["turn/started", :turn_started]
   end
 
-  defp payload_value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp payload_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
   defp payload_value(_value, _key), do: nil
 
   defp codex_app_server_pid_for_update(_existing, %{codex_app_server_pid: pid})
@@ -214,7 +244,8 @@ defmodule Aiur.Orchestrator.TokenAccounting do
   def record_session_completion_totals(state, %{completion_totals_recorded: true}), do: state
 
   def record_session_completion_totals(state, running_entry) when is_map(running_entry) do
-    runtime_seconds = State.running_seconds(Map.get(running_entry, :started_at), DateTime.utc_now())
+    runtime_seconds =
+      State.running_seconds(Map.get(running_entry, :started_at), DateTime.utc_now())
 
     agent_totals =
       apply_token_delta(

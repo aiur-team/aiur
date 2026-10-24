@@ -30,20 +30,40 @@ defmodule Aiur.Application.Children do
     interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
-    tailscale_funnel? = Keyword.get_lazy(opts, :tailscale_funnel?, &AiurConfig.server_tailscale_funnel?/0)
+
+    tailscale_funnel? =
+      Keyword.get_lazy(opts, :tailscale_funnel?, &AiurConfig.server_tailscale_funnel?/0)
+
     telemetry? = Keyword.get(opts, :telemetry?, true)
-    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
-    ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
-    build_index? = dashboard? and Keyword.get(opts, :build_index?, Application.get_env(:aiur, :build_index?, true))
-    primary_instance? = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0) == "primary"
-    github_tracker? = Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
+
+    executor_mode? =
+      Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+
+    ls_remote_ticker? =
+      Keyword.get(
+        opts,
+        :ls_remote_ticker?,
+        Application.get_env(:aiur, :ls_remote_ticker_enabled?, true)
+      )
+
+    build_index? =
+      dashboard? and
+        Keyword.get(opts, :build_index?, Application.get_env(:aiur, :build_index?, true))
+
+    primary_instance? =
+      Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0) == "primary"
+
+    github_tracker? =
+      Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
+
     main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
 
     # Always true for a real run. The unit-test singleton turns it off so the
     # shared app process does not hold a VM-wide inbox and listener that every
     # case would then contend on; cases that exercise recording supervise their
     # own pair against their own isolated state directory.
-    recording? = Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
+    recording? =
+      Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
 
     recording_children = recording_children(recording?)
 
@@ -236,7 +256,8 @@ defmodule Aiur.Application.Children do
       Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
-      Aiur.CurrentRunProjections,
+      # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.
+      {Aiur.CurrentRunProjections, idle_without_subscribers?: true},
       maybe_ls_remote_ticker(ls_remote_ticker?),
       Aiur.PRLifecycle.HealthScanner,
       Aiur.PRLifecycle.ReworkRequeue,
@@ -258,7 +279,11 @@ defmodule Aiur.Application.Children do
       executor_principal_child(recording?, executor_mode?),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
-      dashboard_children(dashboard?, Keyword.get(opts, :dashboard_pages?, true), tailscale_funnel?),
+      dashboard_children(
+        dashboard?,
+        Keyword.get(opts, :dashboard_pages?, true),
+        tailscale_funnel?
+      ),
       Aiur.Opencode.TokenRegistry,
       # Chat-pane machinery — UI-only, never read by a headless run.
       unless(headless?, do: Aiur.Opencode.PaneSupervisor),
@@ -278,7 +303,10 @@ defmodule Aiur.Application.Children do
       cli_children ++
         [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
         Aiur.Experiments.children(recording?) ++
-        Auto.child_specs(recording?: recording?, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]) ++
+        Auto.child_specs(
+          recording?: recording?,
+          feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]
+        ) ++
         BuildOrders.child_specs(:label_projection, opts) ++
         landing_watch_children(primary_instance?, github_tracker?) ++
         executor_sweep_children() ++
@@ -292,11 +320,19 @@ defmodule Aiur.Application.Children do
 
   defp dashboard_final_children(dashboard?, build_index?, opts) do
     List.wrap(if(dashboard?, do: AiurWeb.DashboardAuth.ChallengeStore)) ++
-      BuildOrders.child_specs(:estimates, opts) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
+      BuildOrders.child_specs(:estimates, opts) ++
+      List.wrap(if(build_index?, do: {AiurWeb.Build.IndexSupervisor, idle_without_subscribers?: true}))
   end
 
   defp dashboard_cache_children(dashboard?) do
-    List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}]))
+    List.wrap(
+      if(dashboard?,
+        do: [
+          Aiur.RunTelemetry.RetainedCache,
+          {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}
+        ]
+      )
+    )
   end
 
   defp coordination_children do
@@ -320,7 +356,9 @@ defmodule Aiur.Application.Children do
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
-  defp recording_children(true), do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
+  defp recording_children(true),
+    do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
+
   defp recording_children(false), do: []
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
