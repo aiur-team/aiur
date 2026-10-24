@@ -1,39 +1,24 @@
 defmodule Aiur.AgentGitHubGuard.DeadlineTest do
   use Aiur.AgentGitHubGuardCase, async: true
 
-  test "an interpreter that stalls before installing its timer is bounded by the shell watchdog", context do
-    bin = Path.join(context.workspace, "stalled-interpreter-bin")
-    python = Path.join(bin, "python3")
-    pid_file = Path.join(context.workspace, "stalled-python.pid")
-    File.mkdir_p!(bin)
-    File.write!(python, "#!/bin/sh\nprintf '%s' \"$$\" > \"$AIUR_GH_STALLED_PYTHON_PID_FILE\"\nexec sleep 10\n")
-    File.chmod!(python, 0o700)
-    started_at = System.monotonic_time(:millisecond)
-
-    assert {_output, 124} =
-             run_guard(context, ["api", "rate_limit"],
-               AIUR_GH_CALL_TIMEOUT_SECONDS: "1",
-               AIUR_GITHUB_BUDGET_ENABLED: "0",
-               AIUR_GH_STALLED_PYTHON_PID_FILE: pid_file,
-               PATH: bin <> ":" <> System.get_env("PATH", "")
-             )
-
-    assert System.monotonic_time(:millisecond) - started_at < 4_000
-    assert process_gone?(pid_file |> File.read!() |> String.to_integer())
-  end
-
   test "a broker that never answers is terminated with the governed call", context do
     broker = Path.join(context.workspace, "never-answers.py")
     pid_file = Path.join(context.workspace, "broker.pid")
+    broker_pgid_file = Path.join(context.workspace, "broker.pgid")
     child_pid_file = Path.join(context.workspace, "broker-child.pid")
+    child_pgid_file = Path.join(context.workspace, "broker-child.pgid")
 
     File.write!(broker, """
     import os, subprocess, time
     child = subprocess.Popen(["/bin/sh", "-c", "trap '' TERM; exec sleep 5"])
     with open(os.environ["AIUR_GH_NEVER_ANSWERS_CHILD_PID_FILE"], "w", encoding="utf-8") as pid_file:
         pid_file.write(str(child.pid))
+    with open(os.environ["AIUR_GH_NEVER_ANSWERS_CHILD_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
+        pgid_file.write(str(os.getpgid(child.pid)))
     with open(os.environ["AIUR_GH_NEVER_ANSWERS_PID_FILE"], "w", encoding="utf-8") as pid_file:
         pid_file.write(str(os.getpid()))
+    with open(os.environ["AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
+        pgid_file.write(str(os.getpgrp()))
     time.sleep(5)
     """)
 
@@ -48,7 +33,9 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
                AIUR_GITHUB_BUDGET_KEY: String.duplicate("a", 64),
                AIUR_GITHUB_BUDGET_BROKER: broker,
                AIUR_GH_NEVER_ANSWERS_CHILD_PID_FILE: child_pid_file,
-               AIUR_GH_NEVER_ANSWERS_PID_FILE: pid_file
+               AIUR_GH_NEVER_ANSWERS_CHILD_PGID_FILE: child_pgid_file,
+               AIUR_GH_NEVER_ANSWERS_PID_FILE: pid_file,
+               AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE: broker_pgid_file
              )
 
     assert output =~ "governed gh call exceeded 1s deadline; terminated process group"
@@ -57,6 +44,9 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     broker_pid = pid_file |> File.read!() |> String.to_integer()
     assert process_gone?(broker_pid)
     child_pid = child_pid_file |> File.read!() |> String.to_integer()
+    broker_pgid = broker_pgid_file |> File.read!() |> String.to_integer()
+    child_pgid = child_pgid_file |> File.read!() |> String.to_integer()
+    assert child_pgid == broker_pgid
     assert process_gone?(child_pid)
   end
 

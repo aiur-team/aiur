@@ -8,7 +8,7 @@ The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch 
 
 A broker admission waits up to five seconds (1.5 seconds on the Orchestrator process) for transient shared-lease saturation before returning a **local hold**: Aiur backs off, keeps the claim, and keeps attempt counters. The network request deadline starts after admission.
 
-The agent `gh` guard waits for transient broker contention up to the governed-call deadline (120 seconds by default), then reports `GitHub budget broker busy`. An active primary or secondary quota hold is refused immediately with the specific hold reason. A shell watchdog also bounds Python interpreter startup, before the in-process deadline supervisor can take over.
+Agent `gh` guards wait on broker contention up to the 120-second call deadline; timeout reports `GitHub budget broker busy`. Active quota holds return their reason immediately. Guard child processes stay in the caller's process group so caller timeouts can stop them too.
 
 Broker commands have a 1.5-second round-trip deadline; admission may wait up to 1.5 seconds in the Orchestrator and 5 seconds for other clients. These bounds keep an overloaded ledger from holding callers indefinitely; timeout handling preserves fresh cached dependency decisions.
 

@@ -2,20 +2,8 @@
 #!/bin/sh
 # Keep the complete governed call, including broker and real-gh descendants,
 # inside one process group so a deadline can terminate every child.
-if command -v python3 >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
-  # The supervisor's in-process timer cannot run until the Python interpreter
-  # has started and installed its signal handlers. Keep interpreter startup
-  # under an independent watchdog too; under severe host pressure Python startup
-  # can otherwise outlive callers' own timeout wrappers.
-  deadline_seconds=${AIUR_GH_CALL_TIMEOUT_SECONDS:-120}
-  case "$deadline_seconds" in
-    ''|*[!0-9]*) deadline_seconds=120 ;;
-  esac
-  if [ "$deadline_seconds" -gt 120 ]; then deadline_seconds=120; fi
-  # Give the Python supervisor two seconds to report and clean up at its own
-  # deadline before the outer watchdog handles interpreter-startup stalls.
-  watchdog_seconds=$((deadline_seconds + 2))
-  timeout --verbose --kill-after=1s "${watchdog_seconds}s" python3 -I -c '
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 -I -c '
 import os, signal, subprocess, sys, threading
 
 script = sys.argv[1]
@@ -56,7 +44,6 @@ child = subprocess.Popen(
     ["/bin/sh", "-c", shell_program, script, "/dev/fd/" + str(body_read), *args],
     stdin=None,
     pass_fds=(body_read,),
-    start_new_session=True,
 )
 os.close(body_read)
 writer = threading.Thread(target=lambda: write_body(body_write, body), daemon=True)
@@ -65,7 +52,7 @@ writer.start()
 def terminate_process_group():
     descendants = descendant_pids(child.pid)
     try:
-        os.killpg(child.pid, signal.SIGTERM)
+        child.send_signal(signal.SIGTERM)
     except ProcessLookupError:
         pass
     for pid in descendants:
@@ -78,7 +65,7 @@ def terminate_process_group():
     except subprocess.TimeoutExpired:
         pass
     try:
-        os.killpg(child.pid, signal.SIGKILL)
+        child.kill()
     except ProcessLookupError:
         pass
     for pid in descendants:
@@ -134,9 +121,8 @@ writer.join(timeout=0.5)
 status = child.returncode
 raise SystemExit(status if status >= 0 else 128 - status)
 ' "$0" "$@" 3</dev/null
-  exit $?
 elif [ "${1:-}" != --validate-issue-command ]; then
-  printf '%s\n' 'aiur: python3 and timeout are required to enforce the governed gh call deadline' >&2
+  printf '%s\n' 'aiur: python3 is required to enforce the governed gh call deadline' >&2
   exit 127
 fi
 # The supervised child starts here, after the launcher, so no inherited

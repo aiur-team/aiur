@@ -90,7 +90,7 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
   test "a configured budget fingerprints credentials with shasum when sha256sum is unavailable", context do
     budget_root = Path.join(context.state_path, "host-budget")
     credential = "shared-macos-credential"
-    path = isolated_command_path(context, ~w(python3 shasum timeout))
+    path = isolated_command_path(context, ~w(python3 shasum))
 
     assert {"ok\n", 0} =
              run_guard(context, ["api", "repos/owner/repo/issues/1670"],
@@ -127,7 +127,7 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
                PATH: path
              )
 
-    assert output =~ "python3 and timeout are required to enforce the governed gh call deadline"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
     assert output =~ "python3"
     refute File.exists?(context.calls)
   end
@@ -144,7 +144,7 @@ defmodule Aiur.AgentGitHubGuard.Reconciliation1Test do
                PATH: path
              )
 
-    assert output =~ "python3 and timeout are required to enforce the governed gh call deadline"
+    assert output =~ "python3 is required to enforce the governed gh call deadline"
     assert output =~ "python3"
     refute File.exists?(context.calls)
   end
