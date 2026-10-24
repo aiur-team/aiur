@@ -13,16 +13,17 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   alias Aiur.Orchestrator.ReworkGate
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
+  @head String.duplicate("a", 40)
   @shared [%{"filename" => "shared.ex"}]
   @queued %{"id" => "MQE_1"}
   @approved_queued %{
-    "headRefOid" => "tested-head",
+    "headRefOid" => @head,
     "baseRefName" => "main",
     "mergeable" => "MERGEABLE",
     "reviewDecision" => "APPROVED",
     "mergeQueueEntry" => @queued,
     "autoMergeRequest" => nil,
-    "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "tested-head"}}]}
+    "reviews" => %{"nodes" => [%{"commit" => %{"oid" => @head}}]}
   }
 
   setup do
@@ -137,7 +138,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
   test "future regression: malformed or mismatched pinned mergeability fails closed" do
     expected = %{
-      "headRefOid" => "tested-head",
+      "headRefOid" => @head,
       "baseRefName" => "main",
       "mergeable" => "MERGEABLE",
       "reviewDecision" => "REVIEW_REQUIRED",
@@ -197,7 +198,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
   test "a mergeable head with an older approval is sent back for review" do
     detail = %{
-      "headRefOid" => "tested-head",
+      "headRefOid" => @head,
       "baseRefName" => "main",
       "mergeable" => "MERGEABLE",
       "reviewDecision" => "APPROVED",
@@ -226,7 +227,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
     assert error["detail"] == %{
              "pr_number" => 77,
              "base_branch" => "main",
-             "head_sha" => "tested-head"
+             "head_sha" => @head
            }
 
     assert error["message"] =~ "conflicts with"
@@ -394,8 +395,8 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
 
     # First match wins, on the URL or the GraphQL query name.
     routes = [
-      {"/compare/main...tested-head", %{"status" => "diverged", "base_commit" => %{"sha" => "observed-base"}, "files" => @shared}},
-      {"/compare/tested-head...observed-base", %{"status" => "diverged", "files" => upstream_files}},
+      {"/compare/main...#{@head}", %{"status" => "diverged", "base_commit" => %{"sha" => "observed-base"}, "files" => @shared}},
+      {"/compare/#{@head}...observed-base", %{"status" => "diverged", "files" => upstream_files}},
       {"AiurHumanReviewMergeability", %{"data" => %{"repository" => %{"pullRequest" => detail}}}},
       {"AiurViewerLogin", %{"data" => %{"viewer" => %{"login" => "aiur-bot"}}}},
       {"AiurUnaddressedReviewThreads", %{"data" => %{"repository" => %{"pullRequest" => threads}}}},
@@ -403,9 +404,10 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
        [
          %{
            "number" => 77,
+           "body" => local_tests_body(),
            "head" => %{
              "ref" => "aiur/42",
-             "sha" => "tested-head",
+             "sha" => @head,
              "repo" => %{"full_name" => "owner/repo"}
            }
          }
@@ -424,5 +426,9 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
       {_route, response} = Enum.find(routes, fn {route, _response} -> text =~ route end)
       {:ok, %{status: 200, body: response}}
     end
+  end
+
+  defp local_tests_body do
+    "## Local tests\n\nPolicy: partial\nTested head: #{@head}\nBase: main @ #{String.duplicate("c", 40)}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
   end
 end
