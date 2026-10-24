@@ -58,6 +58,7 @@ tracker:
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
 instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
   role: primary                       # primary | secondary; one primary per repository
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix

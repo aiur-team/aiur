@@ -29,6 +29,8 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     def repo_slug, do: "other/repo"
     @impl true
     def agent_process_log_path, do: "/other/log"
+    @impl true
+    def hosted_credential_boundary, do: :daemon
   end
 
   def credentials, do: @credentials
@@ -121,6 +123,16 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     write_workflow_file!(context.workflow_file, tracker_kind: "github", tracker_repo: "owner/name")
     assert Contributor.repo_slug() == "owner/name"
     assert Contributor.agent_process_log_path() == Path.join(context.workflow_root, "repo/owner/name/github-quota/agent-processes.tsv")
+  end
+
+  test "hosted credential census treats missing declarations as unknown" do
+    Application.put_env(:aiur, :agent_environment_contributors, [UnsafeContributor, AgentEnvironmentContributor, LaterContributor])
+
+    assert Contributor.hosted_credential_boundaries() == [
+             {UnsafeContributor, :unknown},
+             {AgentEnvironmentContributor, :agent},
+             {LaterContributor, :daemon}
+           ]
   end
 
   def snapshot(module, :port, context) do

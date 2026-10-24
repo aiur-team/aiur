@@ -9,6 +9,7 @@ defmodule Aiur.Application.StartupChecks do
   alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
+  alias Aiur.Orchestrator.HostedModeCheck
 
   @doc false
   @spec maybe_validate_environment() :: :ok
@@ -29,6 +30,24 @@ defmodule Aiur.Application.StartupChecks do
     case settings do
       {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
       _ -> true
+    end
+  end
+
+  @doc "Validate hosted execution before any supervised service can dispatch an agent."
+  @spec validate_hosted_mode({:ok, Aiur.Config.Schema.t()} | {:error, term()}, keyword()) :: :ok | {:error, term()}
+  def validate_hosted_mode(settings, opts \\ [])
+
+  def validate_hosted_mode({:ok, settings}, opts),
+    do: HostedModeCheck.validate(settings, Keyword.put(opts, :booted_mode, nil))
+
+  def validate_hosted_mode({:error, reason}, _opts), do: {:error, reason}
+
+  @doc "Raise an actionable startup error when hosted execution is unsafe."
+  @spec validate_hosted_mode!({:ok, Aiur.Config.Schema.t()} | {:error, term()}) :: :ok
+  def validate_hosted_mode!(settings) do
+    case validate_hosted_mode(settings) do
+      :ok -> :ok
+      {:error, reason} -> raise ArgumentError, AiurConfig.format_config_error(reason)
     end
   end
 

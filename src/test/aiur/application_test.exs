@@ -39,6 +39,15 @@ defmodule Aiur.ApplicationTest do
     assert source =~ "Aiur.RtkStartupCheck.run()"
   end
 
+  test "hosted safety is checked before agent credential setup" do
+    source = File.read!(Path.expand("../../lib/aiur.ex", __DIR__))
+
+    assert byte_index(source, "StartupChecks.validate_hosted_mode!(settings)") <
+             byte_index(source, "AgentGitHubGuard.ensure_agent_token_file()")
+
+    assert source =~ "Application.put_env(:aiur, :booted_instance_mode, instance_mode)"
+  end
+
   test "startup Funnel health check stays quiet while the reconciler owns the route" do
     settings =
       {:ok,
@@ -115,5 +124,10 @@ defmodule Aiur.ApplicationTest do
                  routing: %{5 => "claude+remote"}
                )
     end
+  end
+
+  defp byte_index(source, pattern) do
+    {index, _length} = :binary.match(source, pattern)
+    index
   end
 end

@@ -32,6 +32,7 @@ tracker:
 # Merge policy defaults; currently validated and shown in status/capabilities.
 # For a second daemon on the same GitHub repository, set instance.role: secondary.
 instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
   role: primary                       # primary | secondary; one primary per repository
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix

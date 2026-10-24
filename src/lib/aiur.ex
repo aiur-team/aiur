@@ -36,6 +36,7 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
     settings = Aiur.Config.settings_uncached()
+    :ok = StartupChecks.validate_hosted_mode!(settings)
     telemetry? = Aiur.Config.telemetry_enabled?(settings)
     Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
@@ -75,7 +76,9 @@ defmodule Aiur.Application do
       interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
 
       instance_role = Aiur.Config.instance_role()
+      {:ok, %{instance: %{mode: instance_mode}}} = settings
       Application.put_env(:aiur, :booted_instance_role, instance_role)
+      Application.put_env(:aiur, :booted_instance_mode, instance_mode)
       Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
 
       children =
@@ -178,6 +181,9 @@ defmodule Aiur.Application do
 
   defdelegate validate_dashboard_compatibility(no_dashboard?, opts),
     to: Aiur.Application.StartupChecks
+
+  defdelegate validate_hosted_mode(settings, opts \\ []), to: Aiur.Application.StartupChecks
+  defdelegate validate_hosted_mode!(settings), to: Aiur.Application.StartupChecks
 
   defdelegate child_specs(opts), to: Aiur.Application.Children
 

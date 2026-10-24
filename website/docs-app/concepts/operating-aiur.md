@@ -11,6 +11,25 @@
 
 [Capabilities](/concepts/capabilities) describes how clients discover available instance features.
 
+## Hosted execution safety
+
+Set `instance.mode: hosted` only when every dispatchable backend has explicit,
+safe permission, network, and credential boundaries. Aiur checks the complete
+backend set and every registered agent-environment contributor before starting
+supervision and again before dispatch after a config reload. Missing or unknown
+declarations are unsafe.
+
+Hosted mode requires bounded agent permissions, network access denied by
+default, and credentials kept in trusted daemon-side components. The current
+built-in backends each expose an agent-side boundary, so Aiur refuses hosted
+startup until the relevant isolation work lands. Local mode remains the default
+and preserves existing execution behavior.
+
+The mode is immutable for a running daemon. Editing `instance.mode` on reload
+is rejected in either direction; restart Aiur to change it. A rejection lists
+the backend or environment contributor and the unsafe boundary, never a secret
+value.
+
 ## Hourly meta-check
 
 `aiur-run` arms `aiur-meta` **before dispatching** and repeats it hourly.

@@ -3,7 +3,6 @@ R-declared	Aiur.Accounts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AgentControlCLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.AgentControlCLIFreshness	#4236 stale fleet output includes pause provenance when the snapshot stopped during global pause
-R-declared	Aiur.BuildGate	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.ControlCLI.CiWait	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.ControlCLI.DispatchAccount	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.ControlCLI.Protocol	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
@@ -23,8 +22,6 @@ R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9
 R-declared	Aiur.Opencode.SlotRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-declared	Aiur.PRLifecycle.ReviewFindings	#5063 Shared body-only review blocking predicate is owned by PR lifecycle.
-R-declared	Aiur.PauseContainment	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.ProcessReaper	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ProgressRetention	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.SupervisionHealth	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.SystemCpu	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
