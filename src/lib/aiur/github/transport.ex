@@ -170,6 +170,8 @@ defmodule Aiur.GitHub.Transport do
   defp budget_request(quota, request, request_fun, deadline_ms) do
     admission_ms = min(deadline_ms, if(orchestrator_process?(), do: @orchestrator_budget_admission_timeout_ms, else: @budget_admission_timeout_ms))
 
+    # Broker commands share this admission bound; a second, shorter command cap would
+    # truncate the same SQLite contention that this window is meant to accommodate.
     case Budget.acquire(request, timeout_ms: admission_ms, lease_timeout_ms: deadline_ms) do
       {:ok, lease} ->
         deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
