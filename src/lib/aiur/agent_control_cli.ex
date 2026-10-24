@@ -1,7 +1,20 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
+  alias Aiur.Application.StartupChecks
+  alias Aiur.Orchestrator.StatusCLI
+
   defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
-  defdelegate status(opts \\ []), to: Aiur.Orchestrator.StatusCLI
+
+  @spec status(keyword()) :: :ok
+  def status(opts \\ []) do
+    case StartupChecks.validate_hosted_secrets() do
+      :ok -> :ok
+      {:error, messages} -> Enum.each(messages, &IO.puts/1)
+    end
+
+    StatusCLI.status(opts)
+  end
+
   defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
   defdelegate main_watch_inherited?(check, merge_base), to: Aiur.MainWatch, as: :inherited?
   defdelegate agents(opts \\ []), to: Aiur.Orchestrator.StatusCLI
