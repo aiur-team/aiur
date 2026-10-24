@@ -1,3 +1,4 @@
+import { activeFeature } from './features.js';
 import { rowOk } from './filters.js';
 // Port of design build.js:1152–1181, with explicit unknowns and delegated input.
 import { S, ctx, fx } from './state.js';
@@ -56,7 +57,7 @@ function agentCell(t) {
 function rowHTML(t, D, state) {
   const key = colKey(t), e = (Object.hasOwn(D.epics, key) ? D.epics[key] : D.epics.unsorted) ?? { label: 'Unsorted', unsorted: true };
   const f = Object.hasOwn(D.features, t.feature) ? D.features[t.feature] : null;
-  const dim = state.feature && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
+  const dim = activeFeature(D, state) && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
   const ups = t.deps.length, dn = (D.children[t.id] || []).length, deps = ups + ' dependencies · unblocks ' + dn;
   const cell = (cls, html, attrs = '') => '<span class="' + cls + '" role="cell"' + attrs + '>' + html + '</span>';
   return '<div class="lr ' + esc(t.sec) + (dim ? ' dim' : '') + '" role="row" tabindex="0" data-id="' + esc(t.id) + '"' + hue('--h', e.hue) +

@@ -70,5 +70,9 @@ html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollb
 .cv-cmd .st.bad { color: var(--block-ink); }
 .bd-opt > .ax-mono { width: 14px; height: 14px; border-radius: 50%; font-size: .5rem; }
 
+/* C:232 keeps inner color/border transitions under reduced motion; outer card fades stay disabled. */
+@media (prefers-reduced-motion: reduce) {
+  .bd-root.rm .bd-in { transition-duration: .14s, .14s, .14s, .14s !important; }
+}
 /* Keep C:142's phone filter scrolling above later desktop overflow overrides. */
 @container bd (max-width: 640px) { .bd-toolbar .bd-filters { overflow-x: auto !important; } }
