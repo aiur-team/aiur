@@ -34,12 +34,22 @@ defmodule Aiur.AgentSkillsTest do
   test "exposes installed skills at every registered backend path", %{workspace: ws} do
     assert :ok = AgentSkills.install(ws)
 
-    for %{path: path} <- Aiur.CodingAgent.skill_install_locations(),
+    locations = Aiur.CodingAgent.skill_install_locations()
+    assert %{path: ".agents/skills", link_to: ".claude/skills"} in locations
+    assert %{path: ".fake/skills", link_to: ".claude/skills"} in locations
+
+    for %{path: path} = location <- locations,
         skill <- AgentSkills.issue_worker_skills() do
       destination = Path.join([ws, path, skill, "SKILL.md"])
       assert File.regular?(destination), "missing #{path}/#{skill}/SKILL.md"
       canonical = Path.join([ws, ".claude/skills", skill, "SKILL.md"])
       assert File.read!(destination) == File.read!(canonical)
+
+      if link_to = Map.get(location, :link_to) do
+        link = Path.join([ws, path, skill])
+        assert {:ok, relative_target} = File.read_link(link)
+        assert Path.expand(relative_target, Path.dirname(link)) == Path.join([ws, link_to, skill])
+      end
     end
   end
 

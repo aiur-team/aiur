@@ -7,7 +7,7 @@ defmodule Aiur.CodingAgent.Providers.Fake do
       adapter: Aiur.Codex.CodingAgent,
       transcript: Aiur.Codex.Transcript,
       family: "fake",
-      skill_install: %{path: ".fake/skills"},
+      skill_install: %{path: ".fake/skills", link_to: ".claude/skills"},
       rate_limit_fallback_target: true,
       configurable: true,
       init_order: 99,

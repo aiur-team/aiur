@@ -185,7 +185,7 @@ defmodule Aiur.Core.AgentRunnerPauseTest do
       assert workspace_log =~ "Agent paused by Executor."
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -321,7 +321,7 @@ defmodule Aiur.Core.AgentRunnerPauseTest do
       assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 1
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
-      File.rm_rf(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end
   end
 
