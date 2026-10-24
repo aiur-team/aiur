@@ -54,8 +54,11 @@ export function renderStatus() {
 export function renderTools() { renderControls(); renderStatus(); }
 export function setView(view) {
   if (!VIEWS.some(([value]) => value === view) || S.view === view) return;
+  const focusedId = document.activeElement?.closest?.('[data-id]')?.dataset.id ?? null;
   S.view = view; writeURL(); renderTools();
   if (S.loading) return;
   fx.viewport(); fx.relayout(); fx.jumpNow(true);
+  const target = focusedId && [...ctx.vp.querySelectorAll('[data-id]')].find(element => element.dataset.id === focusedId);
+  (target || ctx.vp).focus({ preventScroll: true });
 }
 Object.assign(fx, { renderTools, renderStatus, setView });

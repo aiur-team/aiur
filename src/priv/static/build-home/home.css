@@ -65,6 +65,25 @@ html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollb
 .cv-in-st[hidden] { display: none; }
 .cv-send:disabled { opacity: .5; cursor: default; }
 
+/* S-12 defaults: visible keyboard focus and forced-colours fallbacks. */
+.bd-card:focus-visible { border-radius: var(--r); }
+.bd-card.dim:focus-visible, .bd-card.hdim:focus-visible { opacity: 1 !important; filter: none !important; }
+
+@media (forced-colors: active) {
+  .bd-card.dim, .bd-card.hdim { opacity: 1 !important; filter: none !important; }
+  .bd-card.dim .bd-in, .bd-card.hdim .bd-in { outline: 2px dashed GrayText; outline-offset: -4px; color: GrayText; }
+  .bd-card.ag-active .bd-in { border: 2px solid CanvasText; }
+  .bd-card.ag-stuck .bd-in { border: 3px double CanvasText; }
+  .bd-card.ag-idle .bd-in { border: 1px dotted CanvasText; }
+  .bd-card.hl .bd-in, .bd-card.sel .bd-in, .bd-card.feat-on .bd-in { border-color: Highlight; }
+  .bd-bar { forced-color-adjust: none; background: Canvas; border: 1px solid CanvasText; }
+  .bd-bar i { forced-color-adjust: none; background: CanvasText !important; }
+  .bd-e, .bd-e.ok, .bd-e.bl, .bd-e.bad { stroke: CanvasText; }
+  .bd-e.hl { stroke: Highlight; }
+  .bd-e.fade, .bd-ea.fade { opacity: .4; }
+  .bd-ea, .bd-ea.ok, .bd-ea.bl, .bd-ea.bad { fill: CanvasText; }
+}
+
 /* MP-E8-C11-T08 command card state line: not in the design, S-42 default pending the owner's sign-off */
 .cv-cmd .st { margin: .5rem 0 0; font: .72rem "JetBrains Mono", monospace; color: var(--muted); }
 .cv-cmd .st.bad { color: var(--block-ink); }
