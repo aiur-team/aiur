@@ -42,6 +42,11 @@ defmodule Aiur.AppServer.TurnLoop do
         Process.delete(:handoff_hold)
         receive_loop(session, state)
 
+      {:handoff_abort, from, ref} ->
+        Process.delete(:handoff_hold)
+        send(from, {:handoff_aborted, ref})
+        receive_loop(session, state)
+
       :handoff_hold ->
         Process.put(:handoff_hold, true)
         receive_loop(session, state)
