@@ -20,10 +20,21 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
         pid_file.write(str(os.getpid()))
     with open(os.environ["AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
         pgid_file.write(str(os.getpgrp()))
-    with open(f"/proc/{os.getppid()}/stat", encoding="ascii") as parent_stat:
-        supervisor_pid = int(parent_stat.read().rsplit(")", 1)[1].split()[1])
+    supervisor_pid = os.getppid()
+    supervisor_pgid = None
+    while supervisor_pid > 1:
+        with open(f"/proc/{supervisor_pid}/stat", encoding="ascii") as parent_stat:
+            fields = parent_stat.read().rsplit(")", 1)[1].split()
+        with open(f"/proc/{supervisor_pid}/cmdline", "rb") as parent_cmdline:
+            command_line = parent_cmdline.read()
+        if b"@aiur-deadline-body@" in command_line:
+            supervisor_pgid = int(fields[2])
+            break
+        supervisor_pid = int(fields[1])
+    if supervisor_pgid is None:
+        raise RuntimeError("deadline supervisor was not found in broker ancestors")
     with open(os.environ["AIUR_GH_NEVER_ANSWERS_SUPERVISOR_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
-        pgid_file.write(str(os.getpgid(supervisor_pid)))
+        pgid_file.write(str(supervisor_pgid))
     time.sleep(5)
     """)
 
