@@ -11,7 +11,7 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
   def classify(run, jobs, observations, opts \\ []) do
     log_fun = Keyword.get(opts, :job_log_fun, fn _job, _opts -> {:ok, ""} end)
 
-    if cancelled_group?(run, jobs) do
+    if cancelled_group?(run, jobs) and not timeout_cancelled_job?(jobs, opts) do
       {:ok, {:cancelled, nil}}
     else
       classify_with_logs(run, jobs, observations, opts, log_fun)
@@ -21,6 +21,13 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
   @doc false
   @spec cancelled_group?(map(), [map()]) :: boolean()
   def cancelled_group?(run, jobs), do: CancelledRun.cancelled?(run, jobs)
+
+  defp timeout_cancelled_job?(jobs, opts) do
+    Enum.any?(jobs, fn job ->
+      job["conclusion"] == "cancelled" and
+        infra_evidence?(%{job: job, log: ""}, opts)
+    end)
+  end
 
   defp classify_with_logs(run, jobs, observations, opts, log_fun) do
     failed_jobs =

@@ -7,7 +7,6 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   map. It makes no request and writes no state.
   """
 
-  alias Aiur.Events.GithubCIPoller.CancelledRun
   alias Aiur.Events.GithubCIPoller.RequiredVerdict
 
   @successful_conclusions ~w(success neutral skipped)
@@ -104,11 +103,12 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
       ) do
     runs = check_runs |> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()
 
-    if CancelledRun.cancelled?(%{"event" => "pull_request"}, runs) do
-      Map.merge(result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    settled = RequiredVerdict.settle(result, runs, head_sha, opts)
+
+    if settled[:pending_reason] == :ci_cancelled do
+      settled
     else
-      result
-      |> RequiredVerdict.settle(runs, head_sha, opts)
+      settled
       |> enforce_queue_state(pr)
       |> enforce_passed(runs, commit_status, pr, opts)
     end
