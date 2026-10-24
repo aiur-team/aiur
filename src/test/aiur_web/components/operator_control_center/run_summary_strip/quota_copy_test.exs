@@ -45,7 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripQuotaCopyTest do
   #
   # ElevenLabs publishes a character/credit quota plus the amount due on the
   # next invoice. The latter is owed money, never a spendable balance. Like the
-  # other meters on this strip, the credit bar fills as usage is consumed.
+  # other meters on this strip, the credit bar shows the remaining share.
   test "an unconfigured ElevenLabs account leaves no trace on the strip" do
     html = strip(elevenlabs_quota: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
 
@@ -70,7 +70,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripQuotaCopyTest do
     assert html =~ "1 API"
   end
 
-  test "a configured account renders a filling used-credit meter and invoice amount beside GitHub" do
+  test "a configured account renders a remaining-credit meter and invoice amount beside GitHub" do
     html = strip(elevenlabs_quota: elevenlabs_quota_view())
     row = elevenlabs_row(html)
 
@@ -79,8 +79,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripQuotaCopyTest do
     assert html =~ ~s(src="/elevenlabs-symbol.svg")
     assert html =~ ~s(title="Elevenlabs - for voice to text")
     assert row =~ "Credits"
-    assert row =~ "75.0K left · 25% used · resets 3d"
-    assert row =~ ~s(style="width:25.0%")
+    assert row =~ "75.0K left · 75% left · resets 3d"
+    assert row =~ ~s(style="width:75%")
     refute row =~ "Next invoice due"
     refute row =~ "$5.00"
     refute row =~ "100.0K"
@@ -101,8 +101,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripQuotaCopyTest do
   test "an absent next invoice does not hide the credit meter" do
     row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(next_invoice: nil)))
 
-    assert row =~ "75.0K left · 25% used · resets 3d"
-    assert row =~ ~s(style="width:25.0%")
+    assert row =~ "75.0K left · 75% left · resets 3d"
+    assert row =~ ~s(style="width:75%")
     refute row =~ "Next invoice due"
     refute row =~ "$"
   end
@@ -126,8 +126,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripQuotaCopyTest do
     row = elevenlabs_row(strip(elevenlabs_quota: %{state: :unknown, window: nil, failure: nil, observed_at: nil}))
 
     assert row =~ "Awaiting ElevenLabs response"
-    assert row =~ ~s(class="rs-meter")
-    assert row =~ ~s(style="width:0%")
+    assert row =~ ~s(class="rs-meter is-unknown")
   end
 
   test "a configured key whose read failed surfaces the failure without the credential" do
@@ -141,17 +140,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripQuotaCopyTest do
       row = elevenlabs_row(strip(elevenlabs_quota: %{state: :failed, window: nil, failure: failure, observed_at: nil}))
 
       assert row =~ "Unavailable · " <> sentence
-      assert row =~ ~s(class="rs-meter")
-      assert row =~ ~s(style="width:0%")
+      assert row =~ ~s(class="rs-meter is-unknown")
     end
   end
 
   test "a nearly exhausted quota warns and an exhausted one is critical" do
     warning = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 95_000)))
-    assert warning =~ ~s(class="is-warning" style="width:95.0%")
+    assert warning =~ ~s(class="is-critical" style="width:5%")
 
     critical = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 100_000)))
-    assert critical =~ ~s(class="is-critical" style="width:100.0%")
+    assert critical =~ ~s(class="is-critical" style="width:0%")
 
     healthy = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view()))
     refute healthy =~ "is-warning"
@@ -162,8 +160,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripQuotaCopyTest do
     row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(limit: 0, used: 0)))
 
     assert row =~ "0 left"
-    assert row =~ ~s(class="rs-meter")
-    assert row =~ ~s(style="width:0%")
+    assert row =~ ~s(class="rs-meter is-unknown")
     refute row =~ "% used"
   end
 end
