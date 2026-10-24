@@ -93,6 +93,13 @@ defmodule Aiur.Env.Schema do
         missing_message: fn missing ->
           "Dashboard credentials are partially configured; missing #{Enum.join(missing, ", ")}. Set both or neither."
         end
+      },
+      google: %{
+        members: ["AIUR_GOOGLE_CLIENT_ID", "AIUR_GOOGLE_CLIENT_SECRET"],
+        one_of: [],
+        missing_message: fn missing ->
+          "Google sign-in credentials are partially configured; missing #{Enum.join(missing, ", ")}. Set both or neither."
+        end
       }
     }
   end
@@ -164,6 +171,8 @@ defmodule Aiur.Env.Schema do
     # --- Dashboard ---
     {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/gui"},
     {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/gui"},
+    {"AIUR_GOOGLE_CLIENT_ID", type: :string, group: :dashboard, purpose: "Google OAuth client id for dashboard browser sign-in; pair with the client secret.", fetch: "Google Cloud -> OAuth client"},
+    {"AIUR_GOOGLE_CLIENT_SECRET", type: :secret, group: :dashboard, purpose: "Google OAuth client secret for dashboard browser sign-in.", fetch: "Google Cloud -> OAuth client"},
     {"AIUR_SECRET_KEY_BASE", type: :secret, group: :dashboard, purpose: "Optional persistent dashboard signing key; otherwise Aiur stores one per instance.", fetch: "openssl rand -base64 48"},
 
     # --- Supervisor Decision API ---
@@ -211,6 +220,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},
     {"AIUR_REAL_GIT", type: :path, validate: false, example: false, group: :runtime, purpose: "Real git binary behind the agent git shim; idle dependent restacks run it directly."},
+    {"ERL_EPMD_PORT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Erlang EPMD listener port used to verify the local distribution listener; defaults to 4369."},
 
     # --- Development and debugging ---
     {"AIUR_DEBUG", type: :boolean, group: :dev, default: false, purpose: "Enable debug logging (1 / true / yes)."},

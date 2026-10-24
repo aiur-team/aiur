@@ -1,17 +1,3 @@
-defmodule VoiceConverse.Providers.ElevenLabsAgents do
-  def descriptor do
-    %{
-      id: :elevenlabs_agents,
-      family: :hosted_agent,
-      label: "ElevenLabs Agents",
-      modes: [:voice, :text],
-      needs: [:elevenlabs],
-      privacy: %{audio_stored_by_provider: true, deletable?: true},
-      price_hint: "provider-priced"
-    }
-  end
-end
-
 defmodule VoiceConverse.Providers.OpenAILive do
   def descriptor do
     %{

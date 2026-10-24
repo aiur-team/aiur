@@ -45,6 +45,12 @@ defmodule Aiur.EnvStartupChecksTest do
     assert group_error =~ "Set both or neither"
   end
 
+  test "Google OAuth client id and secret must be configured together" do
+    assert {:error, errors} = Env.validate(%{"AIUR_GOOGLE_CLIENT_ID" => "client-id"})
+    assert Enum.any?(errors, &(&1 =~ "Google sign-in credentials are partially configured"))
+    assert Enum.any?(errors, &(&1 =~ "AIUR_GOOGLE_CLIENT_SECRET"))
+  end
+
   test "missing registry still rejects an invalid supervisor token without exposing it" do
     Application.delete_env(:aiur, :env_startup_checks)
     token = "secret-short-token"

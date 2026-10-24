@@ -7,6 +7,7 @@ defmodule AiurWeb.StreamdeckProjection.Meters do
   """
 
   alias Aiur.ModelAvailability
+  alias AiurWeb.RemainingMeter
 
   @default_usage_interval_seconds 300
   @stale_after_intervals 2
@@ -84,6 +85,7 @@ defmodule AiurWeb.StreamdeckProjection.Meters do
       %{percent: percent, observed_at: %DateTime{} = observed_at} when is_number(percent) ->
         %{
           used_percent: percent,
+          remaining_percent: RemainingMeter.percent(percent),
           observed_at: observed_at,
           age_seconds: age_seconds(observed_at, now),
           freshness: :stale
@@ -145,6 +147,7 @@ defmodule AiurWeb.StreamdeckProjection.Meters do
 
     %{
       used_percent: field(window, :used_percent),
+      remaining_percent: RemainingMeter.percent(field(window, :used_percent)),
       remaining: field(window, :remaining),
       resets_at: window |> field(:resets_at) |> datetime(),
       observed_at: observed_at,

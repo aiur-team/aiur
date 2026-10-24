@@ -15,10 +15,13 @@ defmodule Aiur.Orchestrator.MergeStateWriter do
 
     case fetch_issue_states_fun.([to_string(identifier)]) do
       {:ok, [%Issue{state: state}]} when is_binary(state) ->
+        refuse_labels = if StatePolicy.terminal_state_name?(target), do: [], else: operator_hold_labels()
+
         TicketTransition.write_state(identifier, target,
           writer: :comment_wake,
           expected_state: state,
-          refuse_labels: operator_hold_labels(),
+          refuse_labels: refuse_labels,
+          clear_terminal_state_overrides: StatePolicy.terminal_state_name?(target),
           tracker: tracker
         )
 
