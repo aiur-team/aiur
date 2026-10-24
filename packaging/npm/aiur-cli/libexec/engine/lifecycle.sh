@@ -311,12 +311,19 @@ aiur_write_restart_diagnostic() {
     printf 'reason=%s\n' "${aiur_restart_reason:-none}"
     printf 'daemon_state=%s\n' "$aiur_restart_daemon_state"
     printf 'startup_attempted=%s\n' "${aiur_restart_start_attempted:-0}"
-    local crash_marker
+    local crash_marker crash_evidence
     crash_marker="$(aiur_crash_marker_path)"
     if [ -s "$crash_marker" ]; then
       printf 'unexpected_exit_evidence_begin\n'
       sed 's/^/  /' "$crash_marker"
       printf 'unexpected_exit_evidence_end\n'
+    else
+      crash_evidence="$(aiur_restart_crash_evidence_path)"
+      if [ -s "$crash_evidence" ]; then
+        printf 'unexpected_exit_evidence_begin\n'
+        sed 's/^/  /' "$crash_evidence"
+        printf 'unexpected_exit_evidence_end\n'
+      fi
     fi
   } >"$tmp" || { rm -f "$tmp"; return 0; }
   chmod 600 "$tmp" 2>/dev/null || true
