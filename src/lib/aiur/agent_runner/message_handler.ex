@@ -17,6 +17,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.AgentRunner.LiveObserver
+  alias Aiur.AgentRunner.RepeatedCommandGuard
   alias Aiur.AgentRunner.TurnProgress
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
@@ -49,6 +50,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
+      RepeatedCommandGuard.observe_message(message)
       transcript_event = transcript_event_from(message, backend, turn_id)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message, lifecycle_opts)

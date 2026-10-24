@@ -7,8 +7,10 @@ defmodule Aiur.Config.Schema.Claude do
   embedded_schema do
     # @config-reference config-configuration-agent-04 agent.claude.command | string | `aiur-claude` | Command launching the Claude backend. |
     field(:command, :string, default: "aiur-claude")
+
     # @config-reference config-configuration-agent-04 agent.claude.model | string or nil | nil | Optional Claude model override. |
     field(:model, :string)
+
     # @config-reference config-configuration-agent-04 agent.claude.permission_mode | string | `bypassPermissions` | Claude permission mode. |
     field(:permission_mode, :string, default: "bypassPermissions")
   end
@@ -92,60 +94,32 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.max_concurrent_agents | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The adaptive envelope reduces effective concurrency below this ceiling under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
     field(:max_concurrent_agents, :integer)
-    # Per-scheduler runnable-process ceiling for the instantaneous run-queue
-    # dispatch gate. nil disables the gate (the 1-minute load gate and envelope
-    # still apply); a positive value holds new dispatch while `procs_running`
-    # strictly exceeds `run_queue_threshold * schedulers`, catching short CPU
-    # bursts the lagging load average smooths out.
+    # Per-scheduler runnable-process ceiling for the instantaneous run-queue gate.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and outside registered fleet-agent trees; holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
     field(:run_queue_threshold, :float)
-    # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
-    # 0 deliberately disables the gate for Executors who need unrestricted
-    # local verification.
+    # Fleet-wide cap for agent-launched Mix compile/test commands.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.max_concurrent_builds | integer | 4 | Caps local agent Mix verification and browser tests; 0 disables the concurrency cap. Busy or queued builds wait at the build gate without holding fleet dispatch. |
     field(:max_concurrent_builds, :integer, default: 4)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.build_nice | integer | 10 | CPU nice adjustment (0–19) applied once to admitted build commands and inherited by descendants; 0 preserves launch priority. Nested builds reuse the lease without another adjustment. Build processes under registered agent relays remain counted by soft load/run-queue admission; build capacity also counts them. |
     field(:build_nice, :integer, default: 10)
-    # Minimum spacing between local Mix compile/test starts when more than one
-    # build may run concurrently. 0 disables start pacing.
+    # Minimum spacing between local Mix compile/test starts; 0 disables pacing.
     # @config-reference config-configuration-agent-00 agent.build_start_stagger_seconds | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
     field(:build_start_stagger_seconds, :integer, default: 0)
-    # Optional Linux MemAvailable floor shared by normal dispatch and the local
-    # Mix build gate. Omitted means memory admission is disabled.
+    # Optional Linux MemAvailable floor shared by dispatch and the Mix build gate.
     # @config-reference config-configuration-agent-00 agent.min_free_memory_mb | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
     field(:min_free_memory_mb, :integer)
-    # Absolute wall-clock cap (seconds) on how long any one build-gate slot may
-    # be held (#2349). The detached lease holder releases the slot at the cap
-    # and the daemon raises a needs-attention alert naming the command. 0
-    # disables the backstop.
+    # Absolute wall-clock cap on one build-gate slot; 0 disables the backstop.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.build_gate_max_hold_seconds | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
     field(:build_gate_max_hold_seconds, :integer, default: 3_600)
-    # Maximum post-command courtesy window (seconds) the detached holder keeps
-    # a slot after the wrapped command exits, gated on a descendant still
-    # consuming CPU (#2398). The holder releases the moment the retained tree
-    # goes idle, so this is the *ceiling* for a genuinely-busy descendant, not
-    # a per-build hold. 0 disables the courtesy.
+    # Maximum post-command window retained for a CPU-busy descendant; 0 disables it.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.build_gate_retain_seconds | integer | 120 | Maximum post-command window the lease holder keeps a slot after the wrapped command exits, gated on a descendant still consuming CPU. The holder releases the moment the retained tree goes idle, so this bounds only a genuinely-busy descendant (a runaway build), not an adopted idle daemon; `0` disables the courtesy. |
     field(:build_gate_retain_seconds, :integer, default: 120)
-    # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
-    # `unlimited` (or an absent key) resolves to nil; any present number must
-    # be > 0.
-    #
-    # #2806 asked whether this should default to a finite value, and the answer
-    # is no. This cap counts *effort*, not outcome: it cannot tell eleven wasted
-    # turns from eleven turns of real work, so any default low enough to stop a
-    # spin is also low enough to cut a legitimate long run short. Reaching it
-    # does not abort the ticket — the loop hands control back and the
-    # orchestrator recycles the ticket with `prior_work: true` — but that costs
-    # a fresh provider session and the context rebuild #378 exists to avoid.
-    # `max_consecutive_noop_turns` below is the outcome-based bound instead:
-    # productive turns are unbounded, unproductive ones are not. Operators who
-    # do want an effort cap set this key, or `max_turns_by_complexity`.
+    # Nil is uncapped; a positive value limits effort. `max_consecutive_noop_turns` is the outcome-based bound.
     # @config-reference config-configuration-agent-00 agent.max_turns | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
     field(:max_turns, :integer)
     # #2806: how many CONSECUTIVE continuation turns that changed nothing
@@ -155,12 +129,15 @@ defmodule Aiur.Config.Schema.Agent do
     # this never caps a long run of real work — unlike `max_turns`, which does.
     # 0 / `nil` disables the bound.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.max_consecutive_noop_turns | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review becomes `agent:error`; otherwise the current label is kept. After the first no-op turn the worker parks and waits for a queued ticket event or operator message instead of re-prompting (a pushed rework PR is handed off right away); the count survives the wake, so the bound caps wakes that still change nothing. A productive turn resets the count; 0 disables the bound. The park lasts at most two minutes: on timeout the worker resumes with a normal turn and the surviving count still ends an idle ticket. |
+    # @config-reference config-configuration-agent-00 agent.max_consecutive_noop_turns | integer | 3 | No-op continuations before attention; open PRs hand off to CI/review. Otherwise the worker parks for at most two minutes. Productive turns reset the count; `0` disables it. |
     field(:max_consecutive_noop_turns, :integer, default: 3)
+
     # @config-reference config-configuration-agent-00 agent.max_retry_attempts | integer | 3 | Failed-turn retry count. |
     field(:max_retry_attempts, :integer, default: 3)
+
     # @config-reference config-configuration-agent-00 agent.max_retry_backoff_ms | integer | 300000 | Retry backoff ceiling in milliseconds. |
     field(:max_retry_backoff_ms, :integer, default: 300_000)
+
     # @config-reference config-configuration-agent-00 agent.max_concurrent_agents_by_state | map | `%{}` | Per-state caps overriding the global cap. These caps also constrain fixer tickets. |
     field(:max_concurrent_agents_by_state, :map, default: %{})
     # Provider settings are keyed by the backend's registry name. Built-in
@@ -219,6 +196,7 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.headroom_reading_max_age_seconds | integer | 1800 | Under `account_selection: headroom`, a usage reading older than this scores as unknown and shows its age; see [Headroom dispatch](/concepts/headroom-dispatch). |
     field(:headroom_reading_max_age_seconds, :integer, default: 1800)
+
     # @config-reference config-configuration-agent-00 agent.switch_model_on_ratelimit | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
     # Automatic reroute for an ALREADY-RUNNING agent on `rate_limit_primary`
@@ -235,14 +213,26 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.rate_limit_fallback | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
     field(:rate_limit_fallback, :string, default: @default_rate_limit_fallback)
+
     # @config-reference config-configuration-agent-00 agent.complexity_prompts | map | `%{}` | Adds prompt guidance by complexity level. |
     field(:complexity_prompts, :map, default: %{})
+
     # @config-reference config-configuration-agent-00 agent.max_turns_by_complexity | map | `%{}` | Per-complexity turn caps. |
     field(:max_turns_by_complexity, :map, default: %{})
+
+    # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Identical reads before steering; one more stops. `0` disables it. |
+    field(:max_repeated_identical_commands, :integer, default: 5)
+    # Optional per-turn ceilings; absent values leave the dimensions uncapped.
+    # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional per-turn tool-call cap; null disables it. Suggested starting value: 1,000. |
+    field(:max_commands_per_turn, :integer)
+
+    # @config-reference config-configuration-agent-00 agent.max_input_tokens_per_turn | integer or nil | nil | Optional turn input-token cap; null disables it. Suggested starting value: 20,000,000. |
+    field(:max_input_tokens_per_turn, :integer)
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
     # @config-reference config-configuration-agent-00 agent.turn_timeout_ms | integer | 3600000 | Backstop timeout for one turn. |
     field(:turn_timeout_ms, :integer, default: 3_600_000)
+
     # @config-reference config-configuration-agent-00 agent.stall_timeout_ms | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
     field(:stall_timeout_ms, :integer, default: 3_600_000)
     # Runtime cap in minutes (paused/blocked time excluded); 0 disables it.
@@ -255,12 +245,15 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.non_closing_merge_marker | string | `needs-triage` | Marker for a merged PR that references the ticket but does not close it. |
     field(:non_closing_merge_marker, :string, default: "needs-triage")
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.unreviewed_pr_age_limit_minutes | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; reminders repeat with the same interval. |
+    # @config-reference config-configuration-agent-00 agent.unreviewed_pr_age_limit_minutes | positive integer | 120 | Re-raises ready PRs with green CI and no review after this many minutes; repeats at that interval. |
     field(:unreviewed_pr_age_limit_minutes, :integer, default: 120)
+
     # @config-reference config-configuration-agent-00 agent.ci_recovery_enabled | boolean | true | Enables automatic CI recovery reruns; set `false` to disable them. |
     field(:ci_recovery_enabled, :boolean, default: true)
+
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_poll | positive integer | 5 | Maximum recovery reruns admitted by one CI poll. |
     field(:ci_recovery_max_per_poll, :integer, default: 5)
+
     # @config-reference config-configuration-agent-00 agent.ci_recovery_max_per_hour | positive integer | 20 | Maximum recovery reruns admitted in a rolling hour. |
     field(:ci_recovery_max_per_hour, :integer, default: 20)
     # Linux CPU PSI some avg60 percentages; explicit null disables each.
@@ -283,6 +276,7 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.load_ramp_step | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
     field(:load_ramp_step, :integer, default: 1)
+
     # @config-reference config-configuration-agent-00 agent.load_cooldown_seconds | integer | 60 | Minimum interval between adaptive capacity reductions. |
     field(:load_cooldown_seconds, :integer, default: 60)
     # Runtime synthetic load-generator cap; nil derives from CPUs, 0 disables.
@@ -385,6 +379,9 @@ defmodule Aiur.Config.Schema.Agent do
         :rate_limit_fallback,
         :complexity_prompts,
         :max_turns_by_complexity,
+        :max_repeated_identical_commands,
+        :max_commands_per_turn,
+        :max_input_tokens_per_turn,
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
@@ -452,10 +449,16 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> validate_number(:dispatch_hold_attention_threshold, greater_than: 0)
+    |> validate_number(:max_repeated_identical_commands, greater_than_or_equal_to: 0)
+    |> validate_number(:max_commands_per_turn, greater_than: 0)
+    |> validate_number(:max_input_tokens_per_turn, greater_than: 0)
     |> CatalogValidation.validate()
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
-    |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
+    |> update_change(
+      :max_turns_by_complexity,
+      &AgentValidation.normalize_max_turns_by_complexity/1
+    )
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
