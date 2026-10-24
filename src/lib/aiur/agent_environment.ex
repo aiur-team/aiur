@@ -4,7 +4,8 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
-  alias Aiur.AgentEnvironment.Contributor
+  alias Aiur.AgentEnvironment.{Contributor, CredentialScrub}
+  alias Aiur.AgentEnvironment.GitHubPath
   alias Aiur.Config.Paths
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -141,7 +142,7 @@ defmodule Aiur.AgentEnvironment do
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|AIUR_TOKEN_*|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
@@ -212,8 +213,7 @@ defmodule Aiur.AgentEnvironment do
   @doc false
   @spec provider_credential_env_names() :: [String.t()]
   def provider_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@provider_api_key_pattern, &1))
-    Enum.uniq(@provider_credential_env_names ++ inherited)
+    Enum.uniq(@provider_credential_env_names ++ CredentialScrub.inherited_env_names(@provider_api_key_pattern))
   end
 
   @doc """
@@ -224,8 +224,7 @@ defmodule Aiur.AgentEnvironment do
   """
   @spec app_credential_env_names() :: [String.t()]
   def app_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@app_credential_env_pattern, &1))
-    Enum.uniq(@app_credential_env_names ++ inherited)
+    Enum.uniq(@app_credential_env_names ++ CredentialScrub.inherited_env_names(@app_credential_env_pattern))
   end
 
   @doc """
@@ -259,6 +258,7 @@ defmodule Aiur.AgentEnvironment do
           @operator_only_env_names ++
           provider_credential_env_names() ++
           app_credential_env_names() ++
+          CredentialScrub.remote_instance_token_env_names() ++
           @github_credential_env_names ++
           ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
@@ -281,27 +281,21 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
-        # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
-        # a file that does not exist and left the real config untrusted (#440).
+        # `elixir/`). Mirrors `base_env/1` (#432); a sub-path assumption left the
+        # actual config untrusted (#440).
         {~c"MISE_TRUSTED_CONFIG_PATHS", String.to_charlist(workspace)},
         # The tracker integration branch is authoritative for agent-created
         # pull requests. Keep it in the actual child process environment so PR
         # creation never falls back to the repository's different default.
         {~c"AIUR_BASE_BRANCH", String.to_charlist(base_branch)},
-        # Marker so any nested invocation of `scripts/aiurdev` from inside
-        # an agent's workspace can detect it is running under an agent
-        # and refuse destructive commands (`--test`, `--test3`, `stop`).
-        # Without this, agents that try "manual CLI verification" by
-        # running `./scripts/aiurdev --test` reset the Executor’s sandbox
-        # tickets and kill the parent BEAM mid-run.
+        # Marker so nested `scripts/aiurdev` calls can refuse destructive
+        # commands (`--test`, `--test3`, `stop`) before touching the parent run.
         {~c"AIUR_AGENT_WORKSPACE", String.to_charlist(workspace)},
-        # `aiur-claude` reads provider quota from `/api/oauth/usage`, which
-        # rate-limits: asking per session and per in-turn event earns a 429, and
-        # a 429 means no reading at all. Hand it the operator's configured usage
-        # cadence so the adapter caches for exactly as long as the daemon waits
-        # between observations, instead of the two picking separate rhythms.
+        # `aiur-claude` uses provider quota from a rate-limited endpoint. Match
+        # its cache TTL to the configured polling cadence to avoid repeated 429s.
         {~c"AIUR_CLAUDE_USAGE_TTL_MS", String.to_charlist(usage_ttl_ms())}
       ] ++
+        GitHubPath.port_env(workspace) ++
         scratch_env(workspace) ++
         __MODULE__.GitIdentity.port_env(opts) ++
         Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
@@ -310,8 +304,7 @@ defmodule Aiur.AgentEnvironment do
 
     contributions = Contributor.port_env(workspace, opts)
 
-    contributed_credentials =
-      for {name, _value} <- contributions, Regex.match?(@app_credential_env_pattern, to_string(name)), do: {name, false}
+    contributed_credentials = for {name, _value} <- contributions, CredentialScrub.contributed_credential_name?(name), do: {name, false}
 
     (workspace_env ++ contributions ++ unset_inherited_env ++ contributed_credentials)
     |> Map.new()
@@ -399,6 +392,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_REAL_GIT=#{if real_git, do: Aiur.Shell.escape(real_git), else: ""}\nexport AIUR_REAL_GIT\n" <>
       Contributor.shell_exports(workspace, opts) <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
+      GitHubPath.shell_export(workspace) <>
       __MODULE__.GitIdentity.export_prefix(opts) <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
@@ -446,10 +440,10 @@ defmodule Aiur.AgentEnvironment do
 
   def base_env(_), do: []
 
-  # Mirrors `polling.usage_interval_seconds`, the same setting that paces
-  # `Aiur.ProviderMeterRefresh`. Falls back to the scheduler's own default when
-  # config is unavailable, so a mis-set config cannot make the adapter hammer
-  # the endpoint.
+  # The per-agent adapter keeps the operator's usage interval. The daemon's
+  # direct probe may use a shorter cache cadence to honor the stale-reading
+  # cutoff, but multiplying that cadence across agent processes would hammer
+  # the endpoint. Falls back to the configured default when config is absent.
   @default_usage_interval_seconds 300
 
   defp usage_ttl_ms do

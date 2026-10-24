@@ -7,6 +7,12 @@ defmodule Aiur.GitHub.IssuesTest do
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
+  test "extract_state_labels keeps runtime reasons out of the single dispatch state" do
+    labels = ["sym:ci-wait", "sym:merge-queued", "sym:ci-red", "sym:paused-usage-limit"]
+
+    assert Issues.extract_state_labels(labels, "sym") == ["ci-wait"]
+  end
+
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(@token_cache_key, :unset)

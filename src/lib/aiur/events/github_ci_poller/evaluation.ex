@@ -42,7 +42,9 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
         true -> {:pending, :ci_not_observed}
       end
 
-    evaluation(classification, failed_checks)
+    classification
+    |> evaluation(failed_checks)
+    |> Map.put(:check_runs, check_runs)
   end
 
   # A failure that started before the PR's last reopen describes a run the
@@ -355,9 +357,12 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
     output = Map.get(check, "output", %{})
 
     %{
+      id: Map.get(check, "id"),
       name: Map.get(check, "name") || Map.get(check, "context") || "unnamed check",
       kind: kind,
       result: result,
+      started_at: Map.get(check, "started_at"),
+      completed_at: Map.get(check, "completed_at"),
       url: Map.get(check, "details_url") || Map.get(check, "html_url") || Map.get(check, "target_url"),
       excerpt: Map.get(output, "summary") || Map.get(output, "text") || Map.get(check, "description")
     }

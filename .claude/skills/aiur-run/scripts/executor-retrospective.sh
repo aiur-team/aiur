@@ -726,6 +726,8 @@ EOF
 visual_check() {
   local capture_script capture_dir dashboard_base_url timestamp capture_status verdict
   local dashboard_socket dashboard_username dashboard_password discovery
+  local url_source username_source password_source socket_label
+  local url_argument=0
   local url_override="${AIUR_DASHBOARD_URL:-}"
   # "$@" still carries the subcommand word (the dispatcher never shifts), so
   # $1 is "visual-check" and an operator-supplied base URL arrives as $2.
@@ -737,7 +739,7 @@ visual_check() {
   }
   if [ "$#" -eq 2 ]; then
     case "$2" in
-      http://*|https://*) url_override="$2" ;;
+      http://*|https://*) url_override="$2"; url_argument=1 ;;
       *)
         printf 'usage: %s visual-check [dashboard-url]\n' "$0" >&2
         return 64
@@ -777,6 +779,15 @@ visual_check() {
       'could not discover the daemon dashboard URL; set AIUR_DASHBOARD_URL or run from the Aiur tmux session.' \
       "$dashboard_base_url"
   else
+    if [ "$url_argument" -eq 1 ]; then
+      url_source="command-line argument"
+    elif [ -n "$url_override" ]; then
+      url_source="caller override"
+    else
+      url_source="tmux socket"
+    fi
+    socket_label="${dashboard_socket:-ambient}"
+
     # Credentials normally live in the daemon's environment, so the wrapper may
     # not carry them even though the daemon does. Read what the operator would
     # have to extract by hand when the environment is bare — but only when the
@@ -785,11 +796,26 @@ visual_check() {
     # to, so that path requires the credentials explicitly.
     dashboard_username="${AIUR_DASHBOARD_USERNAME:-}"
     dashboard_password="${AIUR_DASHBOARD_PASSWORD:-}"
+    username_source="caller environment"
+    password_source="caller environment"
     if [ -n "$dashboard_socket" ]; then
-      [ -n "$dashboard_username" ] || dashboard_username="$(daemon_env_var AIUR_DASHBOARD_USERNAME "$dashboard_socket" || true)"
-      [ -n "$dashboard_password" ] || dashboard_password="$(daemon_env_var AIUR_DASHBOARD_PASSWORD "$dashboard_socket" || true)"
+      if [ -z "$dashboard_username" ]; then
+        dashboard_username="$(daemon_env_var AIUR_DASHBOARD_USERNAME "$dashboard_socket" || true)"
+        [ -z "$dashboard_username" ] || username_source="daemon environment"
+      fi
+      if [ -z "$dashboard_password" ]; then
+        dashboard_password="$(daemon_env_var AIUR_DASHBOARD_PASSWORD "$dashboard_socket" || true)"
+        [ -z "$dashboard_password" ] || password_source="daemon environment"
+      fi
     fi
-    dashboard_username="${dashboard_username:-aiur}"
+    if [ -z "$dashboard_username" ]; then
+      dashboard_username="aiur"
+      username_source="default"
+    fi
+    [ -n "$dashboard_password" ] || password_source="unavailable"
+
+    printf 'visual-check sources: dashboard URL=%s (%s); username=%s; password=%s\n' \
+      "$url_source" "$socket_label" "$username_source" "$password_source" >&2
 
     if [ -z "$dashboard_password" ]; then
       # Precondition: the dashboard refuses every request without a password.

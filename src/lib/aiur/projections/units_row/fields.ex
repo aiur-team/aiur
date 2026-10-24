@@ -58,6 +58,7 @@ defmodule Aiur.Projections.UnitsRow.Fields do
       waiting_reason: Value.get(status_row, :waiting_reason),
       tracker_paused?: Value.get(status_row, :tracker_paused) == true,
       runtime_seconds: Value.get(status_row, :runtime_seconds),
+      usage_limit_reset_at: Value.get(status_row, :usage_limit_reset_at),
       stale_for_seconds: Value.get(status_row, :stale_for_seconds),
       membership_lifecycle: Map.get(member, :lifecycle)
     }

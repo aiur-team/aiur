@@ -57,13 +57,11 @@ die() {
   echo "❌ $*" >&2
   exit 1
 }
-
 engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
-
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr ticket_usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr ticket ticket_usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -74,6 +72,7 @@ unset __aiur_engine_module
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
+       aiur --instance <name> <command>  run a supported control command against a named remote instance
        aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
@@ -93,6 +92,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur epic clear <ids...> [--as <who>] [--json]
        aiur epic show [<ids...>] [--json]
@@ -172,10 +172,30 @@ dispatch_run() {
   run_session "$mode" "${args[@]+"${args[@]}"}"
 }
 aiur_engine_main() {
+  # Only an explicit first-argument flag may select a remote target. Clear any
+  # inherited value before parsing so a leaked shell variable cannot redirect
+  # a direct shared-engine invocation.
+  unset AIUR_REMOTE_INSTANCE
+  case "${1:-}" in
+    --instance)
+      [ "$#" -gt 1 ] && [ -n "${2:-}" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
+      export AIUR_REMOTE_INSTANCE="$2"
+      shift 2
+      ;;
+    --instance=*)
+      export AIUR_REMOTE_INSTANCE="${1#--instance=}"
+      shift
+      ;;
+  esac
+
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
   # which command failed instead of a generic "control rpc" (#1684).
   AIUR_CONTROL_COMMAND="${cmd:-run}"
+  if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    validate_remote_instance_name || return $?
+    ensure_remote_command_allowed "$@" || return $?
+  fi
   case "$cmd" in
     __identity)
       aiur_print_identity
@@ -275,6 +295,7 @@ aiur_engine_main() {
       shift
       cmd_queue "$@"
       ;;
+    ticket) shift; cmd_ticket "$@" ;;
     epic) shift; cmd_epic "$@" ;;
     feature) shift; cmd_feature "$@" ;;
     build-orders)

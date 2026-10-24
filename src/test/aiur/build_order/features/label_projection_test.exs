@@ -197,7 +197,7 @@ defmodule Aiur.BuildOrder.Features.LabelProjectionTest do
       Aiur.LandingWatch.QuarantineLifter
     ]
 
-    tail = [Projection] ++ Enum.filter(optional_children, &(&1 in mods))
+    tail = [Projection] ++ Enum.filter(optional_children, &(&1 in mods)) ++ [Aiur.BuildOrder.Estimates]
     assert Enum.take(mods, -length(tail)) == tail
 
     Enum.each(optional_children, fn optional ->

@@ -43,6 +43,7 @@ defmodule Aiur.Config.Schema do
 
   # Embedded struct defaults must rebuild when their nested schemas change.
   require Agent
+  require Instance
   require Tracker
   require BuildQueue
   require Experiments
@@ -295,8 +296,9 @@ defmodule Aiur.Config.Schema do
     agent = %{settings.agent | codex: codex, mix_scheduler_cap: settings.agent.mix_scheduler_cap || 4}
 
     elevenlabs = resolve_elevenlabs(settings.elevenlabs)
+    instance = %{settings.instance | ignore: settings.instance.ignore || %Aiur.Config.Schema.Instance.Ignore{}}
 
-    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs}
+    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs, instance: instance}
   end
 
   defp resolve_elevenlabs(%ElevenLabs{enabled: false} = elevenlabs),
