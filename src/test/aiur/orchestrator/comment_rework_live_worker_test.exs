@@ -32,17 +32,20 @@ defmodule Aiur.Orchestrator.CommentReworkLiveWorkerTest do
   end
 
   defp review_event(issue) do
+    submitted_at = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601()
+    head_committed_at = DateTime.utc_now() |> DateTime.add(-120, :second) |> DateTime.to_iso8601()
+
     %{
       topic: "ticket.#{@issue_number}.pr.review_comment",
       author_trusted?: true,
       comment: %{
         "state" => "CHANGES_REQUESTED",
         "body" => "two blockers before this can merge",
-        "submitted_at" => "2026-09-26T04:09:44Z"
+        "submitted_at" => submitted_at
       },
       pull_request: %{
         "review_decision" => "CHANGES_REQUESTED",
-        "head_committed_at" => "2026-09-26T03:59:38Z"
+        "head_committed_at" => head_committed_at
       },
       issue_state_fetcher: fn _ids -> {:ok, [issue]} end,
       open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 337, "head" => %{"sha" => "52617e7"}}} end,
