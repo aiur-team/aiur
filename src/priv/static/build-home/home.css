@@ -49,6 +49,7 @@ span.ax-cnt:hover { color: var(--muted); background: none; }
 .bd-now-st button.queued i, .bd-now-sum .queued { background: var(--attn); }
 
 .bm-agent .ax-mono { display: inline-grid; width: 16px; height: 16px; border-radius: 50%; font-size: .6rem; }
+@media (max-width: 720px) { .bm-agent .ax-mono { display: none; } }
 .bm-tt h3:focus { outline: none; }
 
 /* H:154: preserve the design gutter when the ticket modal locks body scrolling. */
