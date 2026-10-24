@@ -413,7 +413,7 @@ These policy keys never grant transport access by themselves. The supervisor API
 
 Unset `server.host` binds `127.0.0.1` (or `AIUR_DEFAULT_DASHBOARD_HOST`); explicit config/`--host` override. `0.0.0.0` exposes LAN. Loopback permits `*.ts.net` Hosts and HTTPS origins while loopback-bound. For Tailscale, build and restart, set `server.public_url` (e.g. `https://<host>.ts.net:4001`), then restart again. `server.allowed_hosts` adds hosts.
 
-For a reverse proxy, set `server.public_url` to the external HTTPS URL and list the proxy peer CIDRs in `server.trusted_proxies`. Only those peers may change the request scheme, host, or client IP with forwarded headers. `platform` trusts private IPv4 and IPv6 proxy-network peers; use it only when the platform isolates that network from untrusted workloads. A public bind also requires `dashboard_auth.browser_basic_auth: false` and configured Google sign-in with a non-empty email allowlist or an enrolled passkey. `/auth` sign-in and passkey routes, `/healthz`, `/readyz`, and the signed GitHub webhook receiver remain unauthenticated; other paths require authentication.
+Public binds require browser Basic Auth off and Google sign-in with an email allowlist or an enrolled passkey. Configure `server.public_url` and trusted proxy CIDRs for HTTPS reverse proxies; only trusted peers may supply forwarded scheme, host, or client IP. `platform` trusts private proxy-network peers; use it only with network isolation.
 
 Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed.
 

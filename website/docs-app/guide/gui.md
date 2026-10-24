@@ -191,7 +191,7 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a dashboard bound beyond loopback without machine credentials, with browser Basic Auth disabled, and with Google sign-in configured for an email allowlist or an enrolled passkey. A loopback listener — writable or read-only — may bind without machine credentials, but its authentication plug fails closed and refuses dashboard requests until they are set.
+Public binds require machine credentials, browser Basic Auth off, and Google sign-in with an email allowlist or an enrolled passkey. Loopback may bind without machine credentials, but refuses dashboard requests until they are set.
 
 To enable Google sign-in, configure an HTTPS `server.public_url`, set the operator email allowlist, and add both OAuth client values to `~/.aiur/.env`:
 
