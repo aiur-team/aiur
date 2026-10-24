@@ -168,26 +168,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         state
 
       not OwnerlessPass.runtime_owned?(state, issue) ->
-        # With no agent to resume, a green CI result completes the agent
-        # handoff: leave the ticket in review instead of creating an orphan claim.
-        OwnerlessPass.transition_to_review(
-          state,
-          issue,
-          result,
-          &clear_ci_test_failure_retry/2,
-          &remember_ci_approved_head/3
-        )
+        OwnerlessPass.settle(state, issue, result, &clear_ci_test_failure_retry/2, &remember_ci_approved_head/3)
 
       true ->
-        Poll.run_ci_effect(
-          state,
-          issue,
-          "transition_ci_pass",
-          fn -> write_ci_pass_state({issue, result}) end,
-          fn arg1, arg2 ->
-            apply_ci_pass_transition(arg1, arg2, {issue, result})
-          end
-        )
+        Poll.run_ci_effect(state, issue, "transition_ci_pass", fn -> write_ci_pass_state({issue, result}) end, &apply_ci_pass_transition(&1, &2, {issue, result}))
     end
   end
 
@@ -450,10 +434,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         |> TerminalEvent.publish_ci_terminal_event(issue, result, :passed)
 
       {:error, reason} ->
-        Logger.warning(
-          "CI pass transition skipped: #{State.issue_context(issue)} " <>
-            "reason=#{inspect(reason)}"
-        )
+        Logger.warning("CI pass transition skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
 
         state
     end
@@ -487,10 +468,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         |> TerminalEvent.publish_ci_terminal_event(issue, result, :failed)
 
       {:error, reason} ->
-        Logger.warning(
-          "CI failure transition skipped: #{State.issue_context(issue)} " <>
-            "reason=#{inspect(reason)}"
-        )
+        Logger.warning("CI failure transition skipped: #{State.issue_context(issue)} reason=#{inspect(reason)}")
 
         state
     end
