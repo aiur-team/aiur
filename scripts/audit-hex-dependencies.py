@@ -88,12 +88,14 @@ def run(command: list[str], *, cwd: Path, allow_advisories: bool = False) -> str
     return output
 
 
-def audit_lock(lock_bytes: bytes, label: str, runner=run, mix_exs_bytes: bytes | None = None) -> set[tuple[str, str, str, str]]:
+def audit_lock(lock_bytes: bytes, label: str, runner=run, *, mix_exs_bytes: bytes | None = None) -> set[tuple[str, str, str, str]]:
     original_mix_exs = MIX_EXS.read_bytes() if mix_exs_bytes is not None else None
-    LOCK.write_bytes(lock_bytes)
+
     try:
         if mix_exs_bytes is not None:
             MIX_EXS.write_bytes(mix_exs_bytes)
+
+        LOCK.write_bytes(lock_bytes)
         runner(["mise", "exec", "--", "mix", "deps.get"], cwd=SRC)
         if LOCK.read_bytes() != lock_bytes:
             raise RuntimeError(f"{label} dependency resolution changed the lock; refusing to audit a different snapshot")
