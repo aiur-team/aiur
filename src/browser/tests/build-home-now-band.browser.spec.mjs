@@ -25,7 +25,7 @@ test('header, permanent noanim cards, minimize URL and preset toggles are wired'
   await open(page)
   await expect(page.locator('.bd-now-st')).toHaveText('3 running3 stuck2 paused')
   await expect(page.locator('#bd-now .bd-card.noanim')).toHaveCount(8)
-  await expect(page.locator('.bd-now-eta')).toHaveText('62 to go · ETA —')
+  await expect(page.locator('.bd-now-eta')).toHaveText('62 to go · ETA ≥51h')
   await page.locator('[data-min]').click()
   await expect(page).toHaveURL(/live=min/)
   await expect(page.locator('#bd-now')).toHaveClass(/min/)

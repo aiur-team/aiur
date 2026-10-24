@@ -5,8 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.BuildQueue.Hints
-  alias Aiur.{Issue, MergePolicy, SystemCpu, SystemFileDescriptors}
+  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, SystemCpu, SystemFileDescriptors, Tracker}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
@@ -370,6 +369,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defp issue_identity_decision(%Issue{} = issue) do
     cond do
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      foreign_tracker_state_label?(issue) -> {:skip, :inactive_state}
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}
@@ -378,6 +378,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       true -> :dispatch
     end
   end
+
+  defp foreign_tracker_state_label?(%Issue{labels: labels})
+       when is_list(labels) and labels != [] do
+    Config.tracker_kind() == "github" and Tracker.foreign_state_label?(labels)
+  end
+
+  defp foreign_tracker_state_label?(_issue), do: false
 
   defp issue_state_decision(%Issue{} = issue, active_states, terminal_states) do
     cond do

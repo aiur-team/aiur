@@ -353,8 +353,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
   end
 
   # The models pane shows every provider's reading as a plain percentage; the
-  # staleness qualifier was removed (operator directive), so a stale or
-  # unavailable reading renders like any other rather than carrying a label.
+  # staleness text qualifier was removed (operator directive), so a stale or
+  # unavailable reading carries no label, only the line's stale mark.
   test "the models pane renders stale and unavailable readings without labels" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
@@ -370,9 +370,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
         # DeepSeek is a real, fresh zero-consumed reading.
         assert html =~ ~s(<span class="rs-pc">0%</span>)
 
-        # Claude's window renders its percentage without a stale qualifier.
+        # Claude's window renders its percentage without a stale text label.
+        # The stale mark follows the reading's age, not this stamp (#5747).
         assert html =~ ~s(<span class="rs-pc">62%</span>)
-        refute html =~ "stale"
+        refute html =~ ~r/>[^<]*stale/i
 
         # Kimi reported nothing at all, which is neither healthy nor a zero; its
         # status label was deleted (operator directive) so the row is just the
@@ -419,7 +420,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
     end
   end
 
-  test "a stale-stamped window renders its percentage without qualifiers" do
+  test "a stale-stamped window renders its percentage without a text label but with the stale mark" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         run: %{state: :loading},
@@ -433,7 +434,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
               state: :stale,
               status_label: "Retained",
               auth_mode: %{value: :session},
-              windows: [Map.put(scoped_window("codex:primary", 40), :freshness, :stale)]
+              windows: [Map.merge(scoped_window("codex:primary", 40), %{freshness: :stale, observed_at: DateTime.add(@now, -13_000, :second)})]
             }
           ]
         },
@@ -441,6 +442,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
       })
 
     assert html =~ ~s(<span class="rs-pc">40%</span>)
-    refute html =~ "stale"
+    refute html =~ ~r/>[^<]*stale/i
+    assert html =~ ~s(class="rs-ln is-stale")
   end
 end

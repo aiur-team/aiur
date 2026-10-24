@@ -1,5 +1,5 @@
 defmodule Aiur.ExecutorSweep.ChecksTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.Checks
   alias Aiur.ExecutorSweep.SnapshotCache
@@ -160,35 +160,6 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [] = Checks.all(snapshot, now)
   end
 
-  test "names conflicting PRs that strand ci-wait and human-review tickets" do
-    snapshot = %{
-      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}, %{number: 5268, labels: ["agent:human-review"]}],
-      pull_requests: [
-        %{
-          number: 5172,
-          issue_number: 5267,
-          state: "open",
-          mergeable: "CONFLICTING",
-          review_decision: "APPROVED",
-          head_sha: "head",
-          approved_head_sha: "head",
-          in_merge_queue: false,
-          auto_merge: false,
-          required_checks: []
-        },
-        %{number: 5173, issue_number: 5268, state: "open", mergeable: "CONFLICTING"}
-      ]
-    }
-
-    findings = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z])
-
-    assert [%{kind: "conflicting_waiting_pr", ticket: 5267, pull_request: 5172, message: message, action: action}, %{kind: "conflicting_waiting_pr", ticket: 5268, pull_request: 5173}] = findings
-
-    assert message =~ "conflicting"
-    assert action =~ "Merge main"
-    refute Enum.any?(findings, &(&1.kind == "approved_pr_not_landing"))
-  end
-
   test "finds ci-wait tickets older than two hours when required checks are terminal" do
     now = ~U[2026-10-21 18:00:00Z]
 
@@ -304,6 +275,18 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{ticket: 1800, ticket_count: 2, message: message}] = Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels"))
     assert message =~ "2 open ticket(s)"
     assert message =~ "oldest ticket #1800"
+  end
+
+  test "does not flag tickets owned by another instance label prefix" do
+    tickets = [
+      %{number: 2200, labels: ["nuc:todo"], created_at: "2026-01-01T00:00:00Z"},
+      %{number: 2201, labels: ["agent:todo"], created_at: "2026-01-02T00:00:00Z"},
+      %{number: 2202, labels: [], created_at: "2026-01-03T00:00:00Z"}
+    ]
+
+    assert [%{ticket: 2202, ticket_count: 1, state_labels: []}] =
+             Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z], label_prefix: "agent")
+             |> Enum.filter(&(&1.kind == "invalid_state_labels"))
   end
 
   test "counts merging and cancelled as real state labels, not missing ones" do

@@ -10,21 +10,6 @@ defmodule AiurWeb.OperatorControlCenterComponentsFixtures do
 
   alias AiurWeb.OperatorControlCenter.{BuildOrderSelected, DecisionInbox, History}
 
-  def fleet_row(identifier, waiting_reason, attrs \\ []) do
-    Map.merge(
-      %{
-        issue_identifier: identifier,
-        title: "Ticket #{identifier}",
-        state: "in-progress",
-        work_state: :working,
-        waiting_reason: waiting_reason,
-        runtime_seconds: 60,
-        open_decision_count: 0
-      },
-      Map.new(attrs)
-    )
-  end
-
   def render_selected(model) do
     {route_state, _effects} = RouteState.new("mount-1") |> RouteState.navigate("1567")
 
