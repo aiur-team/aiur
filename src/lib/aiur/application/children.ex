@@ -285,10 +285,14 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
-        BuildOrders.child_specs(:estimates, opts) ++
-        List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor)) ++
+        dashboard_final_children(dashboard?, build_index?, opts) ++
         coordination_children()
     )
+  end
+
+  defp dashboard_final_children(dashboard?, build_index?, opts) do
+    List.wrap(if(dashboard?, do: AiurWeb.DashboardAuth.ChallengeStore)) ++
+      BuildOrders.child_specs(:estimates, opts) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
   end
 
   defp dashboard_cache_children(dashboard?) do

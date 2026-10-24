@@ -124,8 +124,17 @@ def parse_audit_output(output: str, label: str) -> set[tuple[str, str, str, str]
     return set()
 
 
-def evaluate_locks(base_lock: bytes, head_lock: bytes, allowed: dict[str, dict[str, object]], auditor=audit_lock) -> list[str]:
-    base_findings = auditor(base_lock, "base")
+def evaluate_locks(
+    base_lock: bytes,
+    head_lock: bytes,
+    allowed: dict[str, dict[str, object]],
+    auditor=audit_lock,
+    base_mix_exs: bytes | None = None,
+) -> list[str]:
+    if base_mix_exs is None:
+        base_findings = auditor(base_lock, "base")
+    else:
+        base_findings = auditor(base_lock, "base", mix_exs_bytes=base_mix_exs)
     head_findings = auditor(head_lock, "candidate")
     return evaluate(base_findings, head_findings, allowed)
 
@@ -136,6 +145,7 @@ def main() -> int:
         return 2
     base_ref = sys.argv[1]
     original_lock = LOCK.read_bytes()
+    original_mix_exs = MIX_EXS.read_bytes()
     try:
         base_lock = subprocess.run(
             ["git", "-C", str(ROOT), "show", f"{base_ref}:src/mix.lock"],
@@ -153,9 +163,7 @@ def main() -> int:
         ).stdout
         today = dt.date.fromisoformat(os.environ.get("AUDIT_TODAY", dt.date.today().isoformat()))
         allowlist = load_allowlist(ALLOWLIST, today)
-        base_findings = audit_lock(base_lock, "base", mix_exs_bytes=base_mix_exs)
-        head_findings = audit_lock(original_lock, "candidate", mix_exs_bytes=MIX_EXS.read_bytes())
-        errors = evaluate(base_findings, head_findings, allowlist)
+        errors = evaluate_locks(base_lock, original_lock, allowlist, base_mix_exs=base_mix_exs)
         if errors:
             print("Hex dependency audit failed:", file=sys.stderr)
             print("\n".join(f"- {error}" for error in errors), file=sys.stderr)
@@ -167,6 +175,7 @@ def main() -> int:
         return 1
     finally:
         LOCK.write_bytes(original_lock)
+        MIX_EXS.write_bytes(original_mix_exs)
 
 
 if __name__ == "__main__":
