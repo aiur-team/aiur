@@ -44,6 +44,11 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
     workflow = Path.join(root, "workflow.yaml")
     File.write!(workflow, String.replace(File.read!(workflow), "agent:\n", "agent:\n  max_cpu_pressure: null\n  target_cpu_pressure: null\n"))
     release = fake_release()
+    epmd = System.find_executable("epmd") || raise "epmd is required for the real restart fixture"
+    epmd_bin = Path.join(release, "erts-0/bin")
+    File.mkdir_p!(epmd_bin)
+    File.ln_s!(epmd, Path.join(epmd_bin, "epmd"))
+
     paths = Path.wildcard(Path.join([Mix.Project.build_path(), "lib", "*", "ebin"]))
     elixir = System.find_executable("elixir")
     fixture = Path.join(root, "daemon.exs")
