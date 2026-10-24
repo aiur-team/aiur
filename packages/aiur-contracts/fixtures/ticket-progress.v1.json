@@ -1,0 +1,33 @@
+{
+  "contract": "aiur.ticket_progress",
+  "contract_version": 1,
+  "events": [
+    {
+      "at": "2026-10-23T12:00:00Z",
+      "id": 11,
+      "label": "Progress check-in",
+      "summary": "60%",
+      "topic": "agent.progress.checkin",
+      "type": "checkin"
+    }
+  ],
+  "generated_at": "2026-10-23T12:00:00Z",
+  "issue_identifier": "5698",
+  "phase": {
+    "observed_at": "2026-10-23T12:00:00Z",
+    "status": "known",
+    "value": "work"
+  },
+  "progress": {
+    "freshness": "fresh",
+    "observed_at": "2026-10-23T12:00:00Z",
+    "occurred_at": "2026-10-23T12:00:00Z",
+    "percent": 60,
+    "source": "checkin",
+    "status": "known"
+  },
+  "repository": "aiur-team/aiur",
+  "sources": {
+    "activity": "available"
+  }
+}

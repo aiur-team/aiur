@@ -12,6 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // 18 functional cases: 2.4m plus six units and startup margin (2026-10-24).
+  'test:build-home-features': 160,
   // #3166 local run (2026-10-21): six control cases 36.6s; four parity cells 133.1s.
   // Include startup margin; refresh these provisional bounds from the first CI shard log.
   'test:browser-suite -- build-home-agent-control': 50,
@@ -139,4 +141,10 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-phone': 330,
   'test:browser-suite -- build-home-states': 9,
   'test:browser-suite -- build-home-states-e2e': 15,
+  // Local functional harness timing (2026-10-18): 130.4s.
+  'test:build-home-filters': 131,
+  // Seven-case local JSON report (2026-10-23, b33f2f685): 417.6s, excluding build-gate wait; round up.
+  'test:build-home-filters-parity': 418,
+  // Scoped desktop/reduced/mobile filter motion: local harness 49.3s (2026-10-18).
+  'test:build-home-filters-motion': 50,
 }

@@ -179,9 +179,16 @@ defmodule Aiur.Config do
   @spec instance_role() :: String.t()
   def instance_role, do: settings!().instance.role
 
+  @spec instance_mode() :: String.t()
+  def instance_mode, do: settings!().instance.mode
+
   # The role the repository-global services were gated on at boot; a hot reload does not re-gate them.
   @spec booted_instance_role() :: String.t()
   def booted_instance_role, do: Application.get_env(:aiur, :booted_instance_role) || instance_role()
+
+  # Hosted safety is evaluated against the mode selected at boot; reloads may not cross this boundary.
+  @spec booted_instance_mode() :: String.t()
+  def booted_instance_mode, do: Application.get_env(:aiur, :booted_instance_mode) || instance_mode()
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
@@ -387,6 +394,14 @@ defmodule Aiur.Config do
 
   @doc false
   @spec format_config_error(term()) :: String.t()
+  def format_config_error({:instance_mode_change_requires_restart, booted, configured}) do
+    "instance.mode cannot change from #{booted} to #{configured} while Aiur is running; restart the daemon"
+  end
+
+  def format_config_error({:unsafe_hosted_mode, violations}) do
+    "Hosted mode safety checks failed:\n- #{Enum.join(violations, "\n- ")}"
+  end
+
   def format_config_error(reason) do
     label = config_file_label()
 

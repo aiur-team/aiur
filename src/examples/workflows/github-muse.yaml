@@ -60,6 +60,8 @@ tracker:
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
 instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # primary | secondary; one primary per repository
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
@@ -176,6 +178,9 @@ agent:
   # backend_configs:
   #   openrouter: {model: moonshotai/kimi-k2.7-code}
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
+  # max_repeated_identical_commands: 5
+  # max_commands_per_turn: 1000
+  # max_input_tokens_per_turn: 20000000
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
   # unlabeled issues fall back to `priority`; a `model:<backend>` issue label
   # overrides both. (Muse routes use the native MSP session.)

@@ -435,3 +435,8 @@
   margin-right: .1rem;
 }
 
+
+.bd-fh-controls { justify-self: end; }
+@container bd (max-width: 640px) {
+  .bd-fh-controls { grid-column: 1 / -1; justify-self: start; }
+}

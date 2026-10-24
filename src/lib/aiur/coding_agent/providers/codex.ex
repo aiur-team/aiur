@@ -23,6 +23,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       model_catalog: &ModelCatalog.extract_codex/1,
       # app-server stdio; OperatorDelivery serializes turns; Frames exposes dynamic tools.
       delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
+      hosted_execution: %{permission_boundary: :codex_sandbox, network_boundary: :codex_sandbox, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [:notification, :tool_result],
       control_application_confirmation: :confirmed,

@@ -128,6 +128,9 @@ defmodule Aiur.Orchestrator do
   def handle_info({:tracker_task_timeout, ref}, state),
     do: {:noreply, TrackerTasks.timeout(state, ref)}
 
+  def handle_info({:handoff_expired, handoff_id, token}, state),
+    do: Aiur.Handoff.expire_prepared(state, handoff_id, token)
+
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)
       when is_binary(issue_id) and is_map(runtime_info),
       do: State.handle_worker_runtime_info(state, issue_id, runtime_info)
