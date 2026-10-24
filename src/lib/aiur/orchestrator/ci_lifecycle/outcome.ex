@@ -58,18 +58,19 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       |> clear_stale_ci_wait(issue)
       |> Reconciler.refresh_running_issue_state(Transition.effective_issue_state(issue))
     else
-      if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and ReviewHandoff.ready_unreviewed_head?(result) do
-        ReviewHandoff.transition(state, issue, result)
-      else
-        if approved_green_ci_wait_head?(issue, result) do
+      cond do
+        CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and ReviewHandoff.ready_unreviewed_head?(result) ->
+          ReviewHandoff.transition(state, issue, result)
+
+        approved_green_ci_wait_head?(issue, result) ->
           state
           |> clear_ci_test_failure_retry(issue)
           |> remember_ci_approved_head(issue, result)
           |> WaitRewake.cancel_ci_wait_rewake(issue.id)
           |> ResultProjection.stash_last_ci_result(issue, result)
-        else
+
+        true ->
           transition_ci_pass(state, issue, result)
-        end
       end
     end
   end
