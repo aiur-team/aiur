@@ -24,6 +24,7 @@ defmodule Aiur.Application do
   alias Aiur.Application.StartupChecks
   alias Aiur.GitHub.Config
   alias Aiur.Identity.Machine
+  alias Aiur.Instance
 
   @impl true
   def start(_type, _args) do
@@ -75,6 +76,7 @@ defmodule Aiur.Application do
       interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
 
       instance_role = Aiur.Config.instance_role()
+      _ = Instance.Identity.configure()
       Application.put_env(:aiur, :booted_instance_role, instance_role)
       Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
 

@@ -203,6 +203,21 @@ test("the shared engine accepts --instance before classifying the command", () =
   }
 });
 
+test("the shared engine rejects an empty --instance before transport", () => {
+  const server = startServer({ body: successBody("wrong\n__AIUR_CONTROL_EXIT__:0\n") });
+  try {
+    const setup = setupRemoteLauncher(registry(server.url));
+    rmSync(captureFile, { force: true });
+    const result = runRemoteEngine(setup, ["--instance=", "status"]);
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("--instance requires a name");
+    expect(existsSync(captureFile)).toBe(false);
+    expect(server.requests()).toHaveLength(0);
+  } finally {
+    server.stop();
+  }
+});
+
 test("the shared engine ignores an ambient remote instance without the flag", () => {
   const server = startServer({ body: successBody("wrong\n__AIUR_CONTROL_EXIT__:0\n") });
   try {
