@@ -2,7 +2,7 @@
 pageClass: cli-reference
 ---
 # CLI
-Without local config, `aiur` and `aiurdev` use `~/.aiur/config`; global launches announce config and `origin` and ensure workflow/marker and complexity labels; `aiur init` provisions `flake` for [CI failure evidence](/apis/ci-failure-evidence); local config takes precedence; `aiur` lets an **agent run Aiur on your behalf** while humans type commands or watch the TUI and dashboard.
+Local `aiur`/`aiurdev` use `~/.aiur/config`; global launches announce config and `origin` and ensure workflow/marker and complexity labels; `aiur init` provisions `flake` for [CI failure evidence](/apis/ci-failure-evidence); `aiur` lets an agent operate the run while humans type commands or watch the TUI/dashboard.
 
 | Design goal | Result |
 | --- | --- |
