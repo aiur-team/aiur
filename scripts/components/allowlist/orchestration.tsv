@@ -14,7 +14,6 @@ R-declared	Aiur.GitHub.LocalHold	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade8
 R-declared	Aiur.GitHub.Quota	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.ResourceFetch	#4496: use conditional resource reads to avoid repeated billable landing-watch CI requests
 R-declared	Aiur.GitHub.ResourceStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.GitHub.Transport	#6050 lifecycle polls completed merge-group evidence before classifying an approved queue departure
 R-declared	Aiur.Handoff.CLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.HttpServer	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Init.AgentCli	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -68,8 +67,6 @@ R-optional	Aiur.GitHub.CIPollBatch	baseline 22b2fa407c5d4218d25d63b1aa17472aeca5
 R-optional	Aiur.GitHub.CiReadiness	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Client	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Events.GithubCIPoller.CancelledRun	#6050 share cancellation semantics between poll evaluation and merge-group failure classification
-R-optional	Aiur.GitHub.CIRecovery	#6050 fetch completed merge-group jobs before the CI lifecycle failure transition
-R-optional	Aiur.GitHub.Transport	#6050 read completed merge-group evidence before the CI lifecycle failure transition
 R-optional	Aiur.GitHub.CodeOwners	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Connectivity	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
