@@ -8,8 +8,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
   alias Aiur.Orchestrator.CiLifecycle.ApprovedGreenWait
-  alias Aiur.Orchestrator.CiLifecycle.OutcomeSupport
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
+  alias Aiur.Orchestrator.CiLifecycle.OutcomeSupport
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
