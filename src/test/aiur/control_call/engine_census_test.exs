@@ -54,6 +54,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"executor reclassify", "cmd_executor_reclassify decision --expected-version 1 --rationale update", :write, []},
     {"executor moot", "cmd_executor_moot decision --expected-version 1 --reason-class obsolete", :write, []},
     {"executor wait with session env", "cmd_executor_wait --timeout 2 --as worker", :write, Aiur.TestSupport.ExecutorSessionRPCAssertions.env()},
+    {"executor wait deferred acknowledgement", "cmd_executor_wait --defer-ack --ack-through 44 --json --as worker", :write, Aiur.TestSupport.ExecutorSessionRPCAssertions.env()},
     {"executor roster", "cmd_executor_roster --json", :read, []},
     {"executor fast forward", "cmd_executor_fast_forward 44 --as worker", :write, []},
     {"executor claim", "cmd_executor_claim --as worker", :write, []},

@@ -111,6 +111,8 @@ defmodule Aiur.ControlCall.Allowlist do
      %{
        timeout_ms: :positive,
        json: :boolean,
+       defer_ack: :boolean,
+       ack_through: :non_negative,
        as: {:regex, ~r/^[A-Za-z0-9._-]+$/},
        session_id: {:regex, ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/},
        harness: {:enum, ["claude", "codex"]},

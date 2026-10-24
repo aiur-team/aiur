@@ -33,6 +33,8 @@ defmodule Aiur.ControlCall do
   def parse(expression, opts \\ [])
 
   def parse(expression, opts) when is_binary(expression) do
+    _ = Allowlist.entries()
+
     with {:ok, ast} <- parse_ast(expression),
          {:ok, segments, function, raw_args} <- call_ast(ast),
          {:ok, entry} <- allowlisted(segments, function, length(raw_args)),
