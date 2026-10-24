@@ -149,11 +149,12 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     pgid = supervisor_pgid_file |> File.read!() |> String.trim()
     assert File.read!(broker_pgid_file) == pgid
     assert File.read!(child_pgid_file) == pgid
+    child_start_time = process_start_time!(child_pid)
 
     assert {"", 0} = System.cmd("kill", ["-KILL", "-#{pgid}"])
     assert_receive {^port, {:exit_status, _status}}, 2_000
-    wait_until(fn -> process_gone?(child_pid) end)
-    assert process_gone?(child_pid)
+    wait_until(fn -> process_gone?(child_pid, child_start_time) end)
+    assert process_gone?(child_pid, child_start_time)
   end
 
   test "SIGTERM exits the supervisor and kills a TERM-ignoring broker descendant", context do
@@ -243,13 +244,14 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     pgid = supervisor_pgid_file |> File.read!() |> String.trim()
     assert File.read!(broker_pgid_file) == pgid
     assert File.read!(child_pgid_file) == pgid
+    child_start_time = process_start_time!(child_pid)
 
     assert {"", 0} = System.cmd("kill", ["-TERM", supervisor_pid])
     assert_receive {^port, {:exit_status, 143}}, 3_000
     wait_until(fn -> process_gone?(String.to_integer(supervisor_pid)) end)
     wait_until(fn -> process_gone?(broker_pid) end)
-    wait_until(fn -> process_gone?(child_pid) end)
-    assert process_gone?(child_pid)
+    wait_until(fn -> process_gone?(child_pid, child_start_time) end)
+    assert process_gone?(child_pid, child_start_time)
   end
 
   test "repeated broker wait responses fail at the admission bound before gh runs", context do
@@ -411,12 +413,45 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
   end
 
   defp process_gone?(pid) do
+    case process_identity(pid) do
+      {:ok, "Z", _start_time} -> true
+      {:ok, _state, _start_time} -> false
+      :gone -> true
+    end
+  end
+
+  defp process_gone?(pid, original_start_time) do
+    case process_identity(pid) do
+      {:ok, "Z", _start_time} -> true
+      {:ok, _state, start_time} -> start_time != original_start_time
+      :gone -> true
+    end
+  end
+
+  defp process_start_time!(pid) do
+    case process_identity(pid) do
+      {:ok, _state, start_time} -> start_time
+      :gone -> flunk("process #{pid} disappeared before its identity was recorded")
+    end
+  end
+
+  defp process_identity(pid) do
     case File.read("/proc/#{pid}/stat") do
       {:ok, stat} ->
-        stat |> String.split() |> Enum.at(2) == "Z"
+        case String.split(stat, ")", parts: 2) do
+          [_command, fields] ->
+            [state | rest] = String.split(fields)
+            {:ok, state, Enum.at(rest, 18)}
+
+          _malformed ->
+            :gone
+        end
 
       {:error, :enoent} ->
-        true
+        :gone
+
+      {:error, _reason} ->
+        :gone
     end
   end
 end
