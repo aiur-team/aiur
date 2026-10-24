@@ -8,6 +8,7 @@ defmodule AiurWeb.RouterAuthTest do
 
   @supervisor_token String.duplicate("s", 32)
   @dashboard_credentials {"operator", "secret"}
+  @session_options Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session")
 
   setup do
     FinancialDataAccess.Generation.invalidate()
@@ -290,7 +291,10 @@ defmodule AiurWeb.RouterAuthTest do
   defp dashboard_conn(method, path, credentials \\ @dashboard_credentials) do
     method
     |> conn(path)
+    |> Map.put(:secret_key_base, String.duplicate("s", 64))
     |> put_private(:aiur_dashboard_credentials, credentials)
+    |> AiurWeb.Session.call(@session_options)
+    |> fetch_session()
   end
 
   defp redirect_request(path), do: CommandsRedirectController.legacy(conn(:get, path), %{})
