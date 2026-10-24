@@ -183,7 +183,7 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 
 ## Authentication and network exposure
 
-Browser access uses HTTP Basic Authentication configured through environment variables:
+Browser access supports Google sign-in and passkeys. Basic Auth remains available for machine clients and, by default, as a browser fallback:
 
 ```bash
 export AIUR_DASHBOARD_USERNAME=example-executor
@@ -192,6 +192,27 @@ aiur
 ```
 
 Aiur refuses to start a dashboard bound beyond loopback without both credentials. A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set.
+
+To enable Google sign-in, configure an HTTPS `server.public_url`, set the operator email allowlist, and add both OAuth client values to `~/.aiur/.env`:
+
+```yaml
+server:
+  public_url: https://<host>.ts.net:4001
+dashboard_auth:
+  google:
+    allowed_emails: [operator@gmail.com]
+  passkeys: true
+  session_max_age_days: 30
+  browser_basic_auth: true
+```
+
+In Google Cloud, create an OAuth consent screen in External / Testing mode, add the operator as a test user, and request `openid email`. Create a Web application OAuth client with redirect URI `https://<host>.ts.net:4001/auth/google/callback`.
+
+Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, then restart Aiur. Sign in with the allowlisted, verified account and register a passkey while that Google sign-in is fresh; enroll each device (iCloud Keychain can sync Apple devices).
+
+Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` to be configured. Those credentials remain the authentication path for machine clients.
+
+After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. The API and Stream Deck token endpoint continue to use Basic Auth.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 

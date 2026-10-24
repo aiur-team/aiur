@@ -240,6 +240,57 @@ Because reading the build gate scans its lock files, that probe runs on a reduce
 
 This telemetry is measurement-only; it does not adapt `max_concurrent_agents` automatically.
 
+## Sizing a container
+
+On Linux cgroup v2, Aiur uses a **4 GiB peak-RSS working estimate per agent**
+for the default fleet cap. Set on 2026-10-23 as an initial memory budget, it is
+an estimate, not a measured Claude or Codex result. Workload measurements are
+pending a post-deploy run.
+
+When `agent.max_concurrent_agents` is omitted, the cap is the lower of the CPU
+rule and the memory rule:
+
+```text
+min(CPU rule, max(1, floor(memory.max / 4 GiB)))
+CPU rule = max(2, schedulers + floor(schedulers / 4))
+```
+
+For a finite cgroup CPU quota, `schedulers` is the quota rounded down, with a
+minimum of one.
+
+| Workload | CPU | Peak RSS | Measurement |
+| --- | --- | --- | --- |
+| Claude turn | Pending | Pending | Post-deploy run |
+| Codex turn | Pending | Pending | Post-deploy run |
+| Build or test step | Pending | Pending | Post-deploy run |
+
+The CPU sizing estimate permits up to 1.25 agents per scheduler (16 schedulers
+to 20 agents), based on a 2026-07-31 16-core host run that saturated near
+19–20 agents. This is not a per-turn CPU-use measurement. An explicit
+`agent.max_concurrent_agents` always wins.
+
+To measure a deployment, run representative Claude and Codex turns and a build
+or test step.
+
+Once per second, sample each agent process tree's RSS and cumulative CPU time
+across representative Claude and Codex turns and a build or test step. Record
+peak RSS and CPU, date, provider/model, workload, cgroup CPU and memory limits,
+and the sampling method in the table.
+
+These limits apply to Linux cgroup v2; cgroup v1 is unsupported. Without a
+finite cgroup limit, Aiur keeps the host behavior. The reader checks only the
+daemon's own cgroup, so limits on a parent cgroup are not discovered.
+
+If `cpu.pressure` is absent, the CPU pressure gate fails open; a CPU quota then
+contributes only to the default cap. Scheduler-based admission diagnostics use
+the host's online scheduler count. Cgroup paths are resolved for each sample
+file read rather than cached, which adds small per-tick overhead.
+
+With a readable cgroup memory limit, dispatch uses
+`memory.current - inactive_file` against `agent.cgroup_memory_threshold`.
+This container memory gate replaces `agent.min_free_memory_mb`. Without a
+usable cgroup v2 memory limit, dispatch uses the host memory floor.
+
 ### Post-deploy checks
 
 The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy check: <exact steps>` under `## Local tests`; name required operators, such as `(operator: physical Stream Deck)`. Checks stay pending until an Executor marks them done. Run them after rebuilding the runtime.

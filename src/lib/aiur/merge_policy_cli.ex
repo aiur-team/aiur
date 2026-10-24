@@ -49,7 +49,7 @@ defmodule Aiur.MergePolicyCLI do
     "main=red" <> observation(state, now_ms) <> since <> fixer
   end
 
-  def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)
+  def main_state(%{status: :green} = state, now_ms), do: "main=green" <> event_source(state) <> observation(state, now_ms)
   def main_state(_state, _now_ms), do: "main=unknown"
 
   defp observation(state, now_ms) do
@@ -61,6 +61,9 @@ defmodule Aiur.MergePolicyCLI do
 
     " sha=#{Map.get(state, :sha) || "unknown"} age=#{age}"
   end
+
+  defp event_source(%{event: event}) when is_binary(event), do: " (#{event})"
+  defp event_source(_state), do: ""
 
   defp red_time(value) when is_integer(value), do: DateTime.from_unix(value, :millisecond)
   defp red_time(_value), do: {:error, :invalid_timestamp}

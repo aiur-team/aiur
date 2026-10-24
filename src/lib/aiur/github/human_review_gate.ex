@@ -2,14 +2,13 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @moduledoc """
   Human-review readiness checks for GitHub issues.
 
-  This module blocks a transition to human review while the canonical open
-  pull request has unaddressed review-thread comments or conflicts with its
-  base. Mergeable PRs may wait through base movement; the merge queue tests
-  them against the current base. It composes pull request discovery, bot identity resolution,
-  review-thread classification and mergeability without mutating GitHub state.
+  This gate checks the canonical PR's Local tests evidence and review threads.
+  For human review, it also rejects base conflicts; mergeable PRs may wait
+  through base movement because the merge queue tests them against current base.
   """
 
   alias Aiur.Config
+  alias Aiur.GitHub.HumanReviewEvidence
 
   alias Aiur.GitHub.{
     BotIdentity,
@@ -147,7 +146,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp verify_issue_ready(context, check_base?) do
     case open_pull_request(context) do
       {:ok, %{"number" => pr_number} = pr} when is_integer(pr_number) ->
-        with {:ok, agent_login} <-
+        with :ok <- HumanReviewEvidence.verify(context, pr),
+             {:ok, agent_login} <-
                BotIdentity.bot_account(context.opts, context.request_fun, context.token),
              :ok <- verify_pr_review_threads_clear(context, pr_number, agent_login) do
           verify_base_ancestry(context, pr, check_base?)

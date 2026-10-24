@@ -19,6 +19,7 @@ test.beforeEach(async ({ page }) => {
   errors = []; page.on('pageerror', e => errors.push(e.message))
   // Mutation runs use the actual isolated-worktree source, never copied logic.
   const mutationRoot = test.info().project.metadata.filtersRoot
+  if (mutationRoot) await page.route('**/build-home/home.css', async route => route.fulfill({ contentType: 'text/css', body: await readFile(mutationRoot + '/src/priv/static/build-home/home.css', 'utf8') }))
   if (mutationRoot) await page.route('**/build-home/*.js', async route => {
     const name = new URL(route.request().url()).pathname.split('/').at(-1)
     await route.fulfill({ contentType: 'text/javascript', body: await readFile(mutationRoot + '/src/priv/static/build-home/' + name, 'utf8') })
@@ -198,4 +199,22 @@ test('Feature selection and Clear redraw direct list view without graph columns'
   await page.locator('#bd-fclr').click()
   await expect(page).not.toHaveURL(/feature/)
   await expect(page.locator('.lr.dim')).toHaveCount(0)
+})
+
+test('phone filter row scrolls internally and keeps every group reachable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await open(page, 'live')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  const filters = page.locator('#bd-filters')
+  expect(await filters.evaluate(el => ({ client: el.clientWidth, scroll: el.scrollWidth })).then(s => s.scroll > s.client)).toBe(true)
+  for (const key of ['epic', 'feature', 'model', 'tstate', 'astate']) {
+    await group(page, key).click()
+    const box = await group(page, key).boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+    await expect(page.locator('#bd-pop')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#bd-pop')).toHaveCount(0)
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })

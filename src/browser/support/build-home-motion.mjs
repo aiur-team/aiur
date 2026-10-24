@@ -6,7 +6,7 @@ import { scrollbar } from './build-home-scrollbar-motion.mjs'
 import { alignCardIconToDevicePixel, restoreCardIconAlignment } from './build-home-motion-pixel-align.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
-import { captureStable } from './design-parity.mjs'
+import { captureStaticGrain } from './build-home-grain-capture.mjs'
 export const motionPathMatches = (pattern, path) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path.replace(/^reduce\.live-toggle\.animation\.tkin(?=\.)/, 'modal.reduce.animation.tkin'))
 const geometry = /(?:scrollTop|top|left|width|height)$/
 
@@ -451,12 +451,12 @@ async function grain(page, ctx) {
     await ctx.onFrame?.(0, selector)
     // Isolate the actual pseudo-element; live contents are measured separately.
     const target = page.locator(selector).first(), opts = { animations: 'allow', style: `* { visibility: hidden !important } ${selector}::after { visibility: visible !important }` }
-    const before = await captureStable(target, opts, page)
+    const before = await captureStaticGrain(page, target, opts)
     await page.clock.runFor(512)
     await ctx.onFrame?.(.5, selector)
     await page.clock.runFor(496)
     await ctx.onFrame?.(1, selector)
-    const after = await captureStable(target, opts, page)
+    const after = await captureStaticGrain(page, target, opts)
     if (!before.equals(after)) throw new Error(`grain changes over time: ${selector}`)
   }
   return { samples, ...values }

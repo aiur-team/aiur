@@ -154,8 +154,28 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp route_blame_result(culprits, prs, observations, failure, run, opts) do
     innocent = prs -- culprits
 
-    with :ok <- MergeGroupRequeue.requeue_group_prs(innocent, observations, run, "group contained a PR-caused failure", opts),
+    with :ok <- hold_failed_heads(culprits, observations, opts),
+         :ok <- MergeGroupRequeue.requeue_group_prs(innocent, observations, run, "group contained a PR-caused failure", opts),
          do: route_failed_prs(culprits, observations, failure, run, opts)
+  end
+
+  defp hold_failed_heads(numbers, observations, opts) do
+    Enum.reduce_while(numbers, :ok, &hold_failed_head(&1, &2, observations, opts))
+  end
+
+  defp hold_failed_head(_number, {:error, _} = error, _observations, _opts), do: {:halt, error}
+
+  defp hold_failed_head(number, :ok, observations, opts) do
+    case Enum.find(observations, &(&1.number == number)) do
+      %{head: head} when is_binary(head) ->
+        case Journal.hold_merge_group_head(number, head, opts) do
+          :ok -> {:cont, :ok}
+          {:error, _} = error -> {:halt, error}
+        end
+
+      _ ->
+        {:cont, :ok}
+    end
   end
 
   defp route_unresolved(:known_non_pr, _failure, run, observations, prs, opts) do

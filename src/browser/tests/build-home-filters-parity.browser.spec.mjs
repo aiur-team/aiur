@@ -25,10 +25,14 @@ async function openFiltersPair(browser, cell, options) {
           const anchor = '    command: { label: "Awaiting command", cls: "stuck" }, paused:'
           assert.equal(reference.split(anchor).length, 2)
           const withRetry = reference.replace(anchor, '    retrying: { label: "Retrying", cls: "queued" },\n' + anchor)
-          // Main's #5856 preserves usage-limit and CI-wait causes in the shared AST.
+          // Main's #5890 and #5856 preserve runtime labels and distinct agent causes.
           const parked = 'parked: { label: "Parked", cls: "idle" },'
           assert.equal(withRetry.split(parked).length, 2)
-          const causes = ' usage_limited: { label: "Paused · usage limit", cls: "idle" }, ci_wait: { label: "Waiting for CI", cls: "idle" },'
+          const causes = ' "merge-queued": { label: "agent:merge-queued", cls: "queued" }, "ci-red": { label: "agent:ci-red", cls: "stuck" },' +
+            ' "body-fix": { label: "agent:body-fix", cls: "stuck" }, "paused-usage-limit": { label: "agent:paused-usage-limit", cls: "idle" },' +
+            ' "paused-decision": { label: "agent:paused-decision", cls: "idle" }, "paused-agent": { label: "agent:paused-agent", cls: "idle" },' +
+            ' blocked: { label: "agent:blocked", cls: "queued" }, "handed-off": { label: "agent:handed-off", cls: "idle" },' +
+            ' usage_limited: { label: "Paused · usage limit", cls: "idle" }, ci_wait: { label: "Waiting for CI", cls: "idle" },'
           await route.fulfill({ contentType: 'text/javascript', body: withRetry.replace(parked, parked + causes) })
         })
         return goto(...args)
