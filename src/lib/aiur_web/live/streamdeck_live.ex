@@ -7,14 +7,13 @@ defmodule AiurWeb.StreamdeckLive do
   the dashboard. Key presses use the existing AgentChat control facade; the
   orchestrator remains the authority for the resulting pause/resume state.
 
-  Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`
-  and projects the durable classified feed (`AgentEventFeed`) through
-  `StreamdeckLogs`. That projection is one newest-first document read at two
-  granularities: the eight keys are the event index (LIVE first, then a
-  scrolling window of event rows) and the touch strip is the transcript text at
-  the selected event's offset. Selecting a key positions the strip; scrolling
-  the strip reselects the event under the cursor. The production path reads the
-  real feed; `streamdeck_logs_fun` exists only as a test seam.
+  Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`,
+  reads its workspace transcript with `AgentLog`, and combines that with the
+  ticket event history in `StreamdeckLogs`. The eight keys show the event index
+  (LIVE first, then a scrolling window of event rows), while the touch strip
+  shows transcript text at the selected event's offset. Selecting a key
+  positions the strip; scrolling the strip reselects the event under the cursor.
+  `streamdeck_logs_fun` exists only as a test seam.
   """
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
@@ -90,7 +89,8 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:os, detect_os(user_agent(socket)))
       |> refresh_grid()
 
-    socket = assign(socket, :logs, load_logs(socket.assigns.selected_identifier))
+    identifier = socket.assigns.selected_identifier
+    socket = assign(socket, :logs, load_logs(identifier, workspace_path(socket, identifier)))
 
     socket =
       if connected?(socket) do

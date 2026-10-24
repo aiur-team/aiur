@@ -1,6 +1,28 @@
 defmodule AiurWeb.StreamdeckLiveLogsTest do
   use AiurWeb.StreamdeckLiveCase
 
+  alias Aiur.TestCleanup
+  alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.StreamdeckLive.Grid
+
+  test "loads the workspace transcript for the focused agent" do
+    workspace = Path.join(System.tmp_dir!(), "streamdeck-logs-#{System.unique_integer([:positive])}")
+    on_exit(fn -> TestCleanup.rm_rf!(workspace) end)
+    File.mkdir_p!(Path.join(workspace, "logs"))
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+    File.write!(Path.join(workspace, "logs/agent.ndjson"), Jason.encode!(%{"event" => "turn", "last_message" => "workspace transcript marker", "timestamp" => timestamp}) <> "\n")
+
+    EndpointStubs.put(streamdeck_logs_fun: nil)
+
+    try do
+      logs = Grid.load_logs("1352", workspace)
+
+      assert Enum.any?(logs.transcript, &(&1.body == "workspace transcript marker"))
+    after
+      EndpointStubs.put(streamdeck_logs_fun: &fixture_logs/1)
+    end
+  end
+
   test "initial mount creates one real PubSub transcript subscription" do
     {:ok, _view, _html} = live(build_conn(), "/streamdeck")
 

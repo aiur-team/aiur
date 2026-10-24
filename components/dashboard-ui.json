@@ -28,6 +28,7 @@
   ],
   "optional": [
     "accounting",
+    "agent-runner",
     "build-orders",
     "build-queue",
     "commands",

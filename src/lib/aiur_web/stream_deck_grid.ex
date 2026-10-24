@@ -89,6 +89,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
     %{
       identifier: Map.get(entry, :identifier),
+      workspace_path: Map.get(entry, :workspace_path),
       title: Map.get(entry, :title),
       icon: build_order_icon(entry),
       vendor: provider.name,

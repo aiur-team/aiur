@@ -210,10 +210,16 @@ defmodule AiurWeb.StreamDeckGridTest do
   end
 
   test "includes the Stream Deck agent fields" do
-    [agent] = StreamDeckGrid.project(%{running: [agent("123", backend: "claude", progress_percent: 60, priority: 1)], retrying: [], idle: []}).agents
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", backend: "claude", progress_percent: 60, priority: 1, workspace_path: "/workspace/123")],
+        retrying: [],
+        idle: []
+      }).agents
 
     assert agent == %{
              identifier: "123",
+             workspace_path: "/workspace/123",
              title: "Ticket 123",
              icon: :unassigned,
              vendor: "claude",

@@ -177,6 +177,11 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   end
 
   def run do
+    System.at_exit(fn _status ->
+      :persistent_term.get({__MODULE__, :streamdeck_workspace_paths}, [])
+      |> Enum.each(&Aiur.TestCleanup.rm_rf!/1)
+    end)
+
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
 
@@ -300,6 +305,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         # The operator flow drives one agent through cmd and logs, so the
         # running agent it controls needs a durable feed of its own.
         write_feed_if_missing("1352")
+        Enum.each(["1331", "1352"], &seed_streamdeck_workspace_log/1)
 
         %{
           running: [streamdeck_agent("1352", "Fixture running", "codex", progress_percent: 0)],
@@ -328,6 +334,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   end
 
   defp streamdeck_snapshot(identifiers) when is_list(identifiers) do
+    Enum.each(identifiers, &seed_streamdeck_workspace_log/1)
+
     agents =
       Enum.map(identifiers, fn identifier ->
         streamdeck_agent(identifier, "Unit #{identifier}", "codex")
@@ -465,8 +473,32 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       progress_percent: 50,
       priority: nil
     }
+    |> Map.put(:workspace_path, streamdeck_workspace_path(identifier))
     |> Map.merge(Map.new(attrs))
     |> apply_operator_pause(identifier)
+  end
+
+  defp streamdeck_workspace_path(identifier) when is_binary(identifier) do
+    Path.join(System.tmp_dir!(), "aiur-browser-streamdeck-#{System.pid()}-#{identifier}")
+  end
+
+  defp streamdeck_workspace_path(_identifier), do: nil
+
+  defp seed_streamdeck_workspace_log(identifier) do
+    workspace = streamdeck_workspace_path(identifier)
+    paths_key = {__MODULE__, :streamdeck_workspace_paths}
+    :persistent_term.put(paths_key, [workspace | :persistent_term.get(paths_key, [])] |> Enum.uniq())
+    path = Path.join(workspace, "logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(path))
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "event" => "turn",
+        "timestamp" => DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.to_iso8601(),
+        "last_message" => "workspace transcript for ##{identifier}"
+      }) <> "\n"
+    )
   end
 
   # An operator pause outranks the seeded work state so a key press moves the

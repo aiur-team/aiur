@@ -237,6 +237,9 @@
 
 .sd-keys {
   display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   grid-template-columns: repeat(4, 1fr);
   column-gap: 1.9rem;
   row-gap: 1rem;
@@ -361,4 +364,3 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-

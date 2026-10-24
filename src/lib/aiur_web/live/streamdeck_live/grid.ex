@@ -11,7 +11,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   import AiurWeb.StreamdeckLive.Env, only: [endpoint_config: 1, safe_call: 2]
   import AiurWeb.StreamdeckLive.Surface
 
-  alias Aiur.{Conversation.History, Orchestrator, PollCadence}
+  alias Aiur.{AgentLog, Conversation.History, Orchestrator, PollCadence}
   alias AiurWeb.{Endpoint, EndpointConfig, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias Phoenix.LiveView.Socket
 
@@ -130,33 +130,46 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     _ -> socket
   end
 
-  @spec load_logs(term()) :: map()
-  def load_logs(identifier) when is_binary(identifier) do
-    identifier |> load_log_entries() |> StreamdeckLogs.project()
+  @spec load_logs(term(), String.t() | nil) :: map()
+  def load_logs(identifier, workspace_path \\ nil)
+
+  def load_logs(identifier, workspace_path) when is_binary(identifier) do
+    identifier |> load_log_entries(workspace_path) |> StreamdeckLogs.project()
   end
 
-  def load_logs(_identifier), do: StreamdeckLogs.project([])
+  def load_logs(_identifier, _workspace_path), do: StreamdeckLogs.project([])
 
   @spec reload_logs(Socket.t(), String.t()) :: Socket.t()
   def reload_logs(socket, identifier) do
-    logs = StreamdeckLogs.refresh(socket.assigns.logs, load_log_entries(identifier))
+    logs = StreamdeckLogs.refresh(socket.assigns.logs, load_log_entries(identifier, workspace_path(socket, identifier)))
     socket |> assign(:logs, logs) |> refresh_knobs()
   end
 
-  defp load_log_entries(identifier) do
+  defp load_log_entries(identifier, workspace_path) do
     case endpoint_config(:streamdeck_logs_fun) do
       fun when is_function(fun, 1) -> safe_call(fn -> fun.(identifier) end, [])
       fun when is_function(fun, 0) -> safe_call(fun, [])
-      _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
+      _ -> safe_call(fn -> agent_event_feed(identifier, workspace_path) end, [])
     end
     |> log_entries()
   end
 
-  defp agent_event_feed(identifier) do
+  defp agent_event_feed(identifier, workspace_path) do
     transcript =
-      case History.transcript(identifier, %{"limit" => 50}) do
-        {:ok, %{events: events}} -> events
-        _ -> []
+      case workspace_path do
+        path when is_binary(path) ->
+          path
+          |> AgentLog.read_workspace()
+          |> Map.fetch!(:messages)
+          |> Enum.map(fn message ->
+            %{"role" => message.role, "body" => message.body, "timestamp" => message.timestamp}
+          end)
+
+        _ ->
+          case History.transcript(identifier, %{"limit" => 50}) do
+            {:ok, %{events: events}} -> events
+            _ -> []
+          end
       end
 
     %{events: History.bus_events(identifier), transcript: transcript}
@@ -173,6 +186,16 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   defp log_entries(%{"events" => events}) when is_list(events), do: %{events: [], transcript: events}
   defp log_entries(entries) when is_list(entries), do: %{events: [], transcript: entries}
   defp log_entries(_entries), do: %{events: [], transcript: []}
+
+  @spec workspace_path(Socket.t(), String.t() | nil) :: String.t() | nil
+  def workspace_path(socket, identifier) do
+    socket.assigns.grid.agents
+    |> Enum.find(&(to_string(&1.identifier) == identifier))
+    |> case do
+      %{workspace_path: path} -> path
+      _ -> nil
+    end
+  end
 
   defp load_grid do
     snapshot =
@@ -241,7 +264,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   @spec focus_logs(Socket.t(), String.t() | nil, String.t() | nil) :: Socket.t()
   def focus_logs(socket, previous_identifier, identifier) when previous_identifier != identifier do
     socket
-    |> assign(:logs, load_logs(identifier))
+    |> assign(:logs, load_logs(identifier, workspace_path(socket, identifier)))
     |> replace_transcript_relay(previous_identifier, identifier)
     |> refresh_knobs()
   end

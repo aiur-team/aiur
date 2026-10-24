@@ -11,6 +11,9 @@ test('clicking a logs event key positions the flattened transcript at that event
   const box = await dialD.boundingBox()
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+  const focusedIdentifier = await page.locator('#sd-logs-view').getAttribute('data-focused-identifier')
+  await expect(page.locator('#sd-screen [data-mode-view="logs-strip"]'))
+    .toContainText(`workspace transcript for #${focusedIdentifier}`)
 
   const logKeys = page.locator('#sd-log-keys')
   await expect(logKeys.locator('.sd-key')).toHaveCount(8)
@@ -94,6 +97,26 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
   await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
   await expect(logKeys.locator(`[data-log-event-index="${liveIndex}"]`)).toHaveAttribute('aria-current', 'true')
+})
+
+test('key grid keeps the same left edge in grid, logs, and Commands modes', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const grid = page.locator('#sd-keys .sd-key:not(.is-empty)').first()
+  const gridX = (await grid.boundingBox()).x
+  await grid.click()
+
+  const command = (name) => page.locator(`[data-streamdeck-command="${name}"]`)
+  const dialD = page.locator('.sd-knob').nth(3)
+  await command('logs').click()
+  const logsX = (await page.locator('#sd-log-keys .sd-key').first().boundingBox()).x
+  await expect(page.locator('[data-mode-view="logs-strip"] .sd-log-strip-entry').first()).toBeVisible()
+  await page.locator('.sd-knob').first().click()
+  await command('commands').click()
+  const commandsX = (await page.locator('#sd-command-keys .sd-key').first().boundingBox()).x
+
+  expect(logsX).toBeCloseTo(gridX, 0)
+  expect(commandsX).toBeCloseTo(gridX, 0)
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
