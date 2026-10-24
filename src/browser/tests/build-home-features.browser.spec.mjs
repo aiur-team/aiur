@@ -190,3 +190,53 @@ test('reduced motion disables the focus fade and retains design inner color timi
   expect(fade).toBeLessThanOrEqual(0.00001)
   await expect(page.locator('.bd-card .bd-in').first()).toHaveCSS('transition-duration', '0.14s, 0.14s, 0.14s, 0.14s')
 })
+
+async function tabTo(page, target) {
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab')
+    if (await target.evaluate(el => el === document.activeElement)) return
+  }
+  throw new Error('Tab did not reach ' + await target.evaluate(el => el.outerHTML))
+}
+async function expectKeyboardFocus(target) {
+  await expect(target).toBeFocused()
+  expect(await target.evaluate(el => el.matches(':focus-visible'))).toBe(true)
+}
+test('keyboard Tab and Enter or Space switch feature modes and clear with visible focus', async ({ page }) => {
+  await open(page)
+  await tabTo(page, mode(page, 'compact'))
+  await expectKeyboardFocus(mode(page, 'compact'))
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/fmode=compact/)
+  await expect(mode(page, 'compact')).toHaveClass('on')
+  await expectKeyboardFocus(mode(page, 'compact'))
+  await page.keyboard.press('Shift+Tab')
+  await expectKeyboardFocus(mode(page, 'focus'))
+  await page.keyboard.press('Space')
+  await expect(page).not.toHaveURL(/fmode=compact/)
+  await expect(mode(page, 'focus')).toHaveClass('on')
+  await expectKeyboardFocus(mode(page, 'focus'))
+  await tabTo(page, page.locator('#bd-fx'))
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#bd-fh')).toBeEmpty()
+  await expect(page).not.toHaveURL(/feature=/)
+  await expectKeyboardFocus(page.locator('[data-g="feature"]'))
+})
+// These bounds also guard the existing responsive header CSS against future regressions.
+for (const fmode of ['focus', 'compact']) test(`390px ${fmode} header has no sideways overflow and reachable controls`, async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await open(page, '?feature=pag' + (fmode === 'compact' ? '&fmode=compact' : ''))
+  await expect(mode(page, fmode)).toHaveClass('on')
+  const overflow = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth,
+    header: document.querySelector('#bd-fh').scrollWidth, headerClient: document.querySelector('#bd-fh').clientWidth }))
+  expect(overflow.document).toBeLessThanOrEqual(overflow.viewport)
+  expect(overflow.header).toBeLessThanOrEqual(overflow.headerClient)
+  for (const button of [mode(page, 'focus'), mode(page, 'compact'), page.locator('#bd-fx')]) {
+    await expect(button).toBeVisible()
+    const box = await button.boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+    expect(box.y).toBeGreaterThanOrEqual(0)
+    expect(box.y + box.height).toBeLessThanOrEqual(844)
+  }
+})

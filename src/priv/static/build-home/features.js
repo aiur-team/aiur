@@ -50,6 +50,7 @@ export function figuresHTML(s, hue) {
 export function renderFeatures() {
   const host = $('#bd-fh', ctx.root); if (!host) return;
   wireFeatures(host);
+  const focusedMode = host.contains(document.activeElement) ? document.activeElement.dataset.m : null;
   const F = activeFeature(); if (!F) { host.innerHTML = ''; return; }
   const D = ctx.D, f = D.features[F], hue = +f.hue, s = f.stats;
   host.innerHTML = '<div class="bd-fh" style="--fh:' + hue + '">' +
@@ -59,6 +60,7 @@ export function renderFeatures() {
     '</div><button class="bd-x" type="button" id="bd-fx" aria-label="Clear feature">' + I.x + '</button></div>' +
     '<div class="bd-fh-ep">' + f.epics.filter(k => Object.hasOwn(D.epics, k)).map(k => '<span class="bd-chip" style="color:oklch(.7 .13 ' + hue + ')">' + I.lock + esc(D.epics[k].label) + '</span>').join('') +
     (s?.also > 0 ? '<span class="bd-chip">+' + s.also + ' also affect</span>' : '') + '</div></div>';
+  if (focusedMode) host.querySelector('[data-m="' + focusedMode + '"]')?.focus();
 }
 let wired = new WeakSet();
 onReset(() => { wired = new WeakSet(); });
@@ -67,7 +69,7 @@ function wireFeatures(host) {
   wired.add(host);
   ctx.life.on(host, 'click', e => {
     const b = e.target.closest('[data-m], #bd-fx'); if (!b || !host.contains(b)) return;
-    if (b.id === 'bd-fx') { fx.setFeature(null); return; }
+    if (b.id === 'bd-fx') { fx.setFeature(null); $('[data-g="feature"]', ctx.root)?.focus(); return; }
     S.fmode = b.dataset.m; writeURL(); renderFeatures(); fx.relayout();
   });
 }
