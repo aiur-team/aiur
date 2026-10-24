@@ -204,6 +204,7 @@ def open_connection(connection, db):
 
 def begin_batch(conn, requests, replies, now_ms, commit_margin_ms):
     started_ns = time.monotonic_ns()
+    reported_wait_ns = 0
     while True:
         active = [(request, args) for request, args in requests if request["deadline_ms"] - commit_margin_ms > now_ms()]
         for request, _args in requests:
@@ -223,6 +224,14 @@ def begin_batch(conn, requests, replies, now_ms, commit_margin_ms):
             except sqlite3.OperationalError as error:
                 if "locked" not in str(error).lower():
                     raise
+                elapsed_ns = time.monotonic_ns() - started_ns
+                if elapsed_ns - reported_wait_ns >= 100_000_000:
+                    print(json.dumps({
+                        "event": "sqlite_lock_wait",
+                        "ids": [request["id"] for request, _args in requests],
+                        "sqlite_lock_wait_ms": elapsed_ns / 1_000_000,
+                    }), flush=True)
+                    reported_wait_ns = elapsed_ns
                 time.sleep(min(remaining, 2 + secrets.randbelow(9)) / 1000)
 
 
