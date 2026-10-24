@@ -126,6 +126,9 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-list': 26,
   'test:browser-suite -- build-home-list-parity': 57,
   'test:browser-suite -- build-home-mobile-fit': 12,
+  // MP-E8-C12-T04 local governed run (2026-10-22): 16 cases, 327s wall incl. fixture startup.
+  // Refresh from the first CI shard log.
+  'test:browser-suite -- build-home-phone': 330,
   'test:browser-suite -- build-home-states': 9,
   'test:browser-suite -- build-home-states-e2e': 15,
 }
