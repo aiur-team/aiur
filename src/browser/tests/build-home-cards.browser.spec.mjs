@@ -53,8 +53,8 @@ async function openCardParityPair(browser, cell, options) {
   }, full.sections)
   return pair
 }
-async function open(page, dataset = 'unknowns') {
-  await page.goto('/build-fixture/' + dataset)
+async function open(page, dataset = 'unknowns', query = '') {
+  await page.goto('/build-fixture/' + dataset + query)
   await expect(page.locator('#bd-content')).toHaveCount(1)
   await page.evaluate(async () => {
     window.st = await import('/build-home/state.js')
@@ -173,7 +173,7 @@ test('unknown points, estimates, queue numbers and unfiled identity stay explici
 })
 
 test('history distinguishes outcomes and guards unknown dates and state', async ({ page }) => {
-  await open(page)
+  await open(page, 'unknowns', '?tstate=not+planned')
   for (const [status, label] of [['done', 'Merged'], ['failed', 'Failed · closed'], ['not_planned', 'Not planned'], ['closed', 'Closed'], ['running', 'State unknown']]) {
     await page.evaluate(status => inject('9010', { status }), status)
     const card = await draw(page, '9010'); await expect(card.locator('.bd-status > span').first()).toHaveText(label)

@@ -116,6 +116,26 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "provider and window health states are distinct" do
+    test "known used percentages become remaining while unknown values stay absent" do
+      windows = %{
+        "empty" => %{kind: :rate_limit, name: "Empty", used_percent: 100, coverage: :supported},
+        "half" => %{kind: :rate_limit, name: "Half", used_percent: 50, coverage: :supported},
+        "full" => %{kind: :rate_limit, name: "Full", used_percent: 0, coverage: :supported},
+        "unknown" => %{kind: :rate_limit, name: "Unknown", used_percent: nil, coverage: :supported}
+      }
+
+      snapshot = %{healthy(:codex) | windows: windows}
+      codex = card(Presenter.present(authorized(), %{codex: snapshot}), :codex)
+
+      assert Enum.sort(Enum.map(codex.windows, &{&1.name, &1.meter.kind, Map.get(&1.meter, :now)})) ==
+               Enum.sort([
+                 {"Empty", :exact, 0},
+                 {"Full", :exact, 100},
+                 {"Half", :exact, 50},
+                 {"Unknown", :none, nil}
+               ])
+    end
+
     test "loading: awaiting first observation for a known generation" do
       snapshot = ProviderMeterSnapshot.empty(:codex, :app_server, "gen-codex")
       assert card(Presenter.present(authorized(), %{codex: snapshot}), :codex).state == :loading
@@ -254,7 +274,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       [meter] = codex.windows
 
       assert meter.coverage == :supported
-      assert meter.meter == %{kind: :exact, now: 40, min: 0, max: 100}
+      assert meter.meter == %{kind: :exact, now: 60, min: 0, max: 100}
       assert meter.standing_label == "Allowed"
       assert meter.resets_at == @reset
     end
@@ -262,7 +282,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     test "zero usage is an exact value distinct from unknown" do
       window = window(used_percent: 0, remaining_percent: 100, coverage: :supported)
       [meter] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"z" => window})}), :codex).windows
-      assert meter.meter == %{kind: :exact, now: 0, min: 0, max: 100}
+      assert meter.meter == %{kind: :exact, now: 100, min: 0, max: 100}
     end
 
     test "unsupported and empty-supported windows carry no meter value and stay distinct" do

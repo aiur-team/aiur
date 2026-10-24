@@ -53,7 +53,24 @@ cmd_status() {
       esac
     done
     [ "$handoff" -eq 1 ] || die "status --json requires --handoff"
-    run_control_rpc "Aiur.Handoff.CLI.report(json: $json)"
+    if [ "$json" = true ]; then
+      run_control_rpc "Aiur.Handoff.CLI.report(json: true)"
+    else
+      local rpc_status=0 diagnostic crash_evidence
+      aiur_resolve_identity
+      run_control_rpc "Aiur.Handoff.CLI.report(json: false)" || rpc_status=$?
+      diagnostic="$(aiur_restart_diagnostic_path)"
+      if [ -s "$diagnostic" ]; then
+        echo "LAST KEEP-AGENTS RESTART (durable launcher evidence):" >&2
+        sed 's/^/  /' "$diagnostic" >&2
+      fi
+      crash_evidence="$(aiur_restart_crash_evidence_path)"
+      if [ -s "$crash_evidence" ]; then
+        echo "PREVIOUS DAEMON EXIT EVIDENCE:" >&2
+        sed 's/^/  /' "$crash_evidence" >&2
+      fi
+      return "$rpc_status"
+    fi
   fi
 }
 
@@ -184,6 +201,16 @@ cmd_message() {
   local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\" or aiur message 44 --message-id ID \"ship it\")"
   local message_id="" message_id_given=0
 
+  if [ "${1:-}" = "--status" ]; then
+    shift
+    if [ "$#" -ne 1 ] || [[ ! "$1" =~ ^[1-9][0-9]*$ ]]; then
+      echo "aiur: message --status expects a positive request id" >&2
+      exit 64
+    fi
+    run_control_rpc "Aiur.AgentControlCLI.message_status($1)"
+    return
+  fi
+
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
     echo "$usage" >&2
@@ -219,6 +246,9 @@ cmd_message() {
 
   local encoded
   encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
+  # The daemon may use one 30 s queue write plus one 30 s keyed lookup to
+  # reconcile a boundary timeout. Leave headroom for the CLI's own reply.
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
   if [ -n "$message_id" ]; then
     run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"), \"$message_id\")"
   else

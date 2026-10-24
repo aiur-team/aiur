@@ -1,5 +1,7 @@
+import { activeFeature, layoutExt } from './features.js';
 import { ganttExt } from './gantt.js';
 import { cardDetail } from './cards.js';
+import { layoutKey, setLastKey } from './filters.js';
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
 import { syncStates } from './states.js';
 import { $ } from './dom.js';
@@ -68,6 +70,7 @@ function restoreFocus(id) {
 }
 function relayoutImpl({ live = false } = {}) {
   if (S.loading) return fx.renderLoading();
+  setLastKey(layoutKey(S));
   syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();
@@ -79,9 +82,9 @@ function relayoutImpl({ live = false } = {}) {
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
   const previousDetail = ctx.L?.det;
-  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H, gantt: ganttExt });
+  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt });
   // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
-  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H, gantt: ganttExt }); }
+  if (!S.flow && !activeFeature() && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt }); }
   ctx.content.classList.toggle('flow', S.flow);
   const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);

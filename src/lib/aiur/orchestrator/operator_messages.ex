@@ -7,7 +7,9 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   alias Aiur.Orchestrator.State
 
   alias Aiur.Orchestrator.OperatorMessages.{Calls, Capabilities, ControlAlerts, DeliveryPolicy, Enqueue}
-  @operator_message_call_timeout_ms 5_000
+  # Operator messages carry binding decisions, so allow a loaded daemon's
+  # serialized queue write enough time to complete before reporting unknown.
+  @operator_message_call_timeout_ms 30_000
 
   @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
