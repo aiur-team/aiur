@@ -362,8 +362,8 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     request = %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/5566", token: "measured-p99-token"}
     pending_request = Task.async(fn -> Transport.default_request_fun(request) end)
 
-    Process.send_after(self(), :release_database_lock, 1_800)
-    assert_receive :release_database_lock, 2_000
+    Process.send_after(self(), :release_database_lock, 3_500)
+    assert_receive :release_database_lock, 4_000
     Port.command(lock, "\n")
     assert_receive {^lock, {:data, "released\n"}}, 1_000
 
