@@ -23,9 +23,20 @@ defmodule Aiur.AppServer.RelayPortTest do
   end
 
   test "close acknowledges a pending frame before stopping the relay" do
-    {:ok, relay} = Adapter.start_port(File.cwd!(), "printf 'pending\\n'; sleep 30")
+    {:ok, relay} = Adapter.start_port(File.cwd!(), "read go; printf 'pending\\n'; sleep 30")
+
+    on_exit(fn ->
+      if is_pid(relay) and Process.alive?(relay) do
+        :ok = Transport.acknowledge(relay)
+        Transport.close(relay)
+      end
+    end)
+
+    assert is_pid(relay)
     :ok = Transport.manual_acknowledgements(relay)
+    assert Transport.command(relay, "go\n")
     assert_receive {^relay, {:data, {:eol, "pending"}}}, 5_000
+    assert Transport.metadata(relay).acked_offset == 0
 
     closer = Task.async(fn -> Transport.close(relay) end)
     result = Task.yield(closer, 1_000)
