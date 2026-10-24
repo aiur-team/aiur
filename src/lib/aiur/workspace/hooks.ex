@@ -118,18 +118,10 @@ defmodule Aiur.Workspace.Hooks do
         Aiur.AgentEnvironment.system_shell_startup_env()
         |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" and build_gate_env != [] end)
 
-      runner_pid = self()
+      hook_env =
+        startup_env ++ build_gate_env ++ hook_env(issue_context, runner_pid: self())
 
-      task =
-        Task.async(fn ->
-          System.cmd(shell, ["-c", scrubbed_command],
-            cd: workspace,
-            stderr_to_stdout: true,
-            env: startup_env ++ build_gate_env ++ hook_env(issue_context, runner_pid: runner_pid)
-          )
-        end)
-
-      case Task.yield(task, timeout_ms) do
+      case run_local_hook_command(shell, scrubbed_command, workspace, hook_env, timeout_ms) do
         {:ok, cmd_result} ->
           elapsed_ms = System.monotonic_time(:millisecond) - started_at
 
@@ -137,14 +129,82 @@ defmodule Aiur.Workspace.Hooks do
 
           handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
-        nil ->
-          Task.shutdown(task, :brutal_kill)
-
+        :timeout ->
           Logger.warning("Workspace hook timed out hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
 
           {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
+
+        {:error, _reason} = error ->
+          error
       end
     end
+  end
+
+  defp run_local_hook_command(shell, command, workspace, environment, timeout_ms) do
+    executable = System.find_executable(shell)
+
+    if is_nil(executable) do
+      {:error, {:workspace_hook_runner_unavailable, shell}}
+    else
+      port =
+        Port.open({:spawn_executable, String.to_charlist(executable)}, [
+          :binary,
+          :exit_status,
+          :use_stdio,
+          :stderr_to_stdout,
+          {:args, ["-c", command]},
+          {:cd, workspace},
+          {:env, Enum.map(environment, fn {name, value} -> {String.to_charlist(name), if(is_binary(value), do: String.to_charlist(value), else: false)} end)}
+        ])
+
+      deadline = System.monotonic_time(:millisecond) + timeout_ms
+      collect_hook_output(port, deadline, [])
+    end
+  end
+
+  defp collect_hook_output(port, deadline, chunks) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    if remaining == 0 do
+      terminate_hook_process_group(port)
+      :timeout
+    else
+      receive do
+        {^port, {:data, data}} ->
+          collect_hook_output(port, deadline, [data | chunks])
+
+        {^port, {:exit_status, status}} ->
+          {:ok, {chunks |> Enum.reverse() |> IO.iodata_to_binary(), status}}
+      after
+        remaining ->
+          terminate_hook_process_group(port)
+          :timeout
+      end
+    end
+  end
+
+  defp terminate_hook_process_group(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, pid} ->
+        pids = Aiur.ProcessTree.process_tree(pid)
+        # BEAM's executable port starts a new session with the port PID as
+        # its process-group leader; descendants inherit that group by default.
+        case Aiur.ProcessTree.graceful_kill_process_group(pid) do
+          {:ok, _} ->
+            Logger.warning("Terminated timed out workspace hook process group pgid=#{pid} pids=#{inspect(pids)}")
+
+          {:error, reason} ->
+            Logger.error("Could not terminate timed out workspace hook process group pgid=#{pid} pids=#{inspect(pids)} reason=#{inspect(reason)}")
+            Aiur.ProcessTree.graceful_kill_tree(pid)
+        end
+
+        Port.close(port)
+
+      nil ->
+        :ok
+    end
+  rescue
+    ArgumentError -> :ok
   end
 
   defp local_build_gate_env(build_guard_root) do

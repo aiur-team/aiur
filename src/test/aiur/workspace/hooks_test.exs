@@ -96,6 +96,25 @@ defmodule Aiur.Workspace.HooksTest do
     assert :ok = Hooks.run_after_run(workspace, issue_context, nil)
   end
 
+  test "a timed out local hook process group is gone before its retry starts", %{workspace: workspace, test_root: test_root} do
+    child_pid_file = Path.join(test_root, "hook-child.pid")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_timeout_ms: 1_000
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "timeout-test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    assert {:error, {:workspace_hook_timeout, "before_run", 1_000}} =
+             Hooks.run_hook("sleep 30 & echo $! > #{Aiur.Shell.escape(child_pid_file)}; wait", workspace, issue_context, "before_run", nil)
+
+    child_pid = File.read!(child_pid_file) |> String.trim() |> String.to_integer()
+
+    assert :ok =
+             Hooks.run_hook("! kill -0 #{child_pid}", workspace, issue_context, "before_run", nil)
+  end
+
   test "run_github_preflight/3 with preflight disabled returns :ok", %{workspace: workspace} do
     prev = Application.get_env(:aiur, :workspace_github_preflight_enabled)
     Application.put_env(:aiur, :workspace_github_preflight_enabled, false)
