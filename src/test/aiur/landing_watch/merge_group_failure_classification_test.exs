@@ -42,7 +42,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
              )
   end
 
-  test "an all-cancelled merge-group run with only a failed gate is cancelled" do
+  test "an all-cancelled merge-group run with only a failed gate is cancelled before fetching logs" do
     jobs = [
       %{"name" => "test", "conclusion" => "cancelled"},
       %{"name" => "lint", "conclusion" => "cancelled"},
@@ -54,7 +54,19 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
                group_run(6050, "failure", "pr-42-a"),
                jobs,
                [],
-               job_log_fun: fn _, _ -> {:ok, ""} end
+               job_log_fun: fn _, _ -> flunk("cancelled runs do not need job logs") end
+             )
+
+    assert MergeFailureClassifier.cancelled_group?(%{"event" => "pull_request"}, jobs)
+
+    superseded_jobs = [%{"name" => "test", "conclusion" => "cancelled"}, %{"name" => "ci gate", "conclusion" => "cancelled"}]
+
+    assert {:ok, {:cancelled, nil}} =
+             MergeFailureClassifier.classify(
+               Map.put(group_run(6052, "cancelled", "pr-42-a"), "event", "merge_group"),
+               superseded_jobs,
+               [],
+               job_log_fun: fn _, _ -> flunk("cancelled runs do not need job logs") end
              )
 
     mixed = List.replace_at(jobs, 1, %{"name" => "lint", "conclusion" => "failure"})
