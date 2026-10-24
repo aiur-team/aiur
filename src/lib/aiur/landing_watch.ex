@@ -391,6 +391,7 @@ defmodule Aiur.LandingWatch do
         _ -> {:error, :invalid_attribution_result}
       end
     else
+      {:hold, _reason} -> :ok
       {:error, :merge_conflict} -> ConflictRouting.route(observation, &route_rework/3, opts)
       {:error, reason} -> {:error, reason}
     end

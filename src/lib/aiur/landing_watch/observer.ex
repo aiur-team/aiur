@@ -52,7 +52,7 @@ defmodule Aiur.LandingWatch.Observer do
   def prs_ahead(_, _), do: {:error, :invalid_merge_queue_position}
 
   @doc false
-  @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:hold, term()} | {:error, term()}
   def revalidate_approved_head(number, expected_head, opts) when is_integer(number) and number > 0 and is_binary(expected_head) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts),
@@ -68,8 +68,9 @@ defmodule Aiur.LandingWatch.Observer do
            Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) and
              is_nil(Map.get(pr, "mergeQueueEntry")) and is_nil(Map.get(pr, "autoMergeRequest")) do
       case {Map.get(pr, "mergeable"), Map.get(pr, "mergeStateStatus")} do
-        {"MERGEABLE", "CLEAN"} -> :ok
+        {"MERGEABLE", state} when state in ["CLEAN", "UNSTABLE"] -> :ok
         {"CONFLICTING", _} -> {:error, :merge_conflict}
+        {"UNKNOWN", _} -> {:hold, :mergeability_unknown}
         _ -> {:error, :mergeability_unavailable}
       end
     else

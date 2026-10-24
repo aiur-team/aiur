@@ -97,7 +97,7 @@ defmodule Aiur.LandingWatch.ObserverTest do
   end
 
   test "queue admission distinguishes a conflict from an unavailable exact-head verdict" do
-    for mergeable <- ["UNKNOWN", nil] do
+    for mergeable <- [nil] do
       request = fn _graphql_request ->
         {:ok,
          %{
@@ -144,6 +144,59 @@ defmodule Aiur.LandingWatch.ObserverTest do
 
     assert {:error, :merge_conflict} =
              Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: conflict_request)
+  end
+
+  test "current mergeability permits CLEAN and UNSTABLE while UNKNOWN is held" do
+    for {mergeable, merge_state, expected} <- [
+          {"MERGEABLE", "CLEAN", :ok},
+          {"MERGEABLE", "UNSTABLE", :ok},
+          {"UNKNOWN", "UNKNOWN", {:hold, :mergeability_unknown}}
+        ] do
+      request = fn _graphql_request ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "pullRequest" => %{
+                   "headRefOid" => "new-head",
+                   "reviewDecision" => "APPROVED",
+                   "mergeable" => mergeable,
+                   "mergeStateStatus" => merge_state,
+                   "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "new-head"}}]}
+                 }
+               }
+             }
+           }
+         }}
+      end
+
+      assert ^expected = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: request)
+    end
+
+    required_status_pending = fn _graphql_request ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "pullRequest" => %{
+                 "headRefOid" => "new-head",
+                 "reviewDecision" => "APPROVED",
+                 "mergeable" => "MERGEABLE",
+                 "mergeStateStatus" => "BLOCKED",
+                 "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "new-head"}}]}
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:error, :mergeability_unavailable} =
+             Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: required_status_pending)
   end
 
   test "queue refresh batches only approved or already queued PRs" do
