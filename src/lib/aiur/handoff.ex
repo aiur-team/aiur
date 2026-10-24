@@ -217,23 +217,22 @@ defmodule Aiur.Handoff do
         {id, entry, result}
       end)
 
-    Enum.reduce_while(results, {:ok, []}, fn {id, entry, result}, {:ok, snapshots} ->
-      case result do
-        {:ok, agent} ->
-          {:cont, {:ok, [{id, entry, {:ok, agent}} | snapshots]}}
+    Enum.reduce_while(results, {:ok, []}, fn result, acc -> reduce_snapshot(result, acc, opts) end)
+  end
 
-        {:error, reason} ->
-          case snapshot_fallback_reason(reason) do
-            nil ->
-              {:halt, {:error, {id, reason}}}
+  defp reduce_snapshot({id, entry, {:ok, agent}}, {:ok, snapshots}, _opts),
+    do: {:cont, {:ok, [{id, entry, {:ok, agent}} | snapshots]}}
 
-            fallback ->
-              abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
-              abort.(entry.pid)
-              {:cont, {:ok, [{id, entry, {:fallback, fallback}} | snapshots]}}
-          end
-      end
-    end)
+  defp reduce_snapshot({id, entry, {:error, reason}}, {:ok, snapshots}, opts) do
+    case snapshot_fallback_reason(reason) do
+      nil ->
+        {:halt, {:error, {id, reason}}}
+
+      fallback ->
+        abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
+        abort.(entry.pid)
+        {:cont, {:ok, [{id, entry, {:fallback, fallback}} | snapshots]}}
+    end
   end
 
   defp materialize_snapshots(snapshots, state, deadline) do
@@ -279,11 +278,9 @@ defmodule Aiur.Handoff do
   end
 
   defp cancel_dispatch(server) do
-    try do
-      GenServer.call(server, :cancel_handoff, 5_000)
-    catch
-      :exit, _reason -> :ok
-    end
+    GenServer.call(server, :cancel_handoff, 5_000)
+  catch
+    :exit, _reason -> :ok
   end
 
   defp snapshot_metadata(id, entry, state) do
