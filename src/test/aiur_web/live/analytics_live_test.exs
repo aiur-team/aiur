@@ -298,19 +298,11 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
-    # Scope the missing-wait assertion to the gap row so a chart's valid 0s
-    # tick cannot satisfy or invalidate this unknown-value guard.
     {:ok, document} = Floki.parse_document(html)
-
-    [gap_row] =
-      Enum.filter(Floki.find(document, "#analytics-pressure-table tbody tr"), fn row ->
-        row |> Floki.find("td") |> Enum.at(4) |> Floki.text() == "degraded"
-      end)
-
-    gap_cells = Floki.find(gap_row, "td") |> Enum.map(&Floki.text/1)
-    assert List.last(gap_cells) == "—"
-    refute List.last(gap_cells) == "0s"
-    # The measured row still carries its exact values (not blurred by the gap).
+    [gap_row] = Enum.filter(Floki.find(document, "#analytics-pressure-table tbody tr"), &(Floki.find(&1, "td") |> Enum.at(4) |> Floki.text() == "degraded"))
+    gap_wait = gap_row |> Floki.find("td") |> List.last() |> Floki.text()
+    assert gap_wait == "—"
+    refute gap_wait == "0s"
     assert html =~ "13"
     assert html =~ "189s"
   end
