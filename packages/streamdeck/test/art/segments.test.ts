@@ -9,6 +9,7 @@ import { BACKGROUND, NOW, render, type Ink } from "./renderSegment.js";
 import {
   inkedColumns,
   litColumns,
+  pixelAt,
   drew,
   summary,
   providerRow,
@@ -91,6 +92,14 @@ describe("provider panel (two providers)", () => {
     expect(drew(ink, "Claude")).toBeDefined();
     expect(drew(ink, "Session")).toBeDefined();
     expect(drew(ink, "14% left · 22m")).toBeDefined();
+  });
+
+  it("draws an empty meter when the provider has used all of its session", () => {
+    const { ink, pixels } = render(provider(session(100)));
+    expect(drew(ink, "Session")).toBeDefined();
+    expect(drew(ink, "0% left")).toBeDefined();
+    // At y=80 the track is painted, but none of it has the blue fill colour.
+    expect(pixelAt(pixels, 200, 12, 80)).toEqual([0x2e, 0x31, 0x34]);
   });
 
   it("shows the percent alone when the window reported no reset", () => {
