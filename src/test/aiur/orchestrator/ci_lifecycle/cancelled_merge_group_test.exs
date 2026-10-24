@@ -125,6 +125,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.CancelledMergeGroupTest do
 
     refute_received {:tracker_update, ^identifier, "rework", _}
     assert_received {:cancelled_merge_group_checked, true}
+    assert get_in(next.ci_lifecycle, [:poll_cache, identifier, :decision]) == :pending
     assert next.running == %{}
   end
 
