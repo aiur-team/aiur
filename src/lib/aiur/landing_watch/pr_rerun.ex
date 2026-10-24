@@ -39,7 +39,7 @@ defmodule Aiur.LandingWatch.PrRerun do
 
       Enum.any?(failed, &PrRerunClassifier.stale_merge_ref?(&1, opts)) ->
         stale = Enum.filter(failed, &PrRerunClassifier.stale_merge_ref?(&1, opts))
-        request_remedy(observation, stale, :refresh, "merge ref predates a fix on the base branch", opts)
+        request_remedy(observation, stale, :refresh, "base input fix event red-window:#{red_since}:#{recovered_at}; merge ref predates a fix on the base branch", opts)
 
       true ->
         request_remedy(observation, failed, :rerun, "main CI recovered", opts)
@@ -72,7 +72,8 @@ defmodule Aiur.LandingWatch.PrRerun do
           remedy(observation, pending_runs, action(pending["action"]), pending["reason"], marker, pending_opts)
 
         true ->
-          classify_and_route(observation, result, runs, marker, github_opts, opts)
+          classifier_opts = Keyword.put(github_opts, :current_pr, observation.number)
+          classify_and_route(observation, result, runs, marker, classifier_opts, opts)
       end
     end
   end
@@ -259,7 +260,13 @@ defmodule Aiur.LandingWatch.PrRerun do
   end
 
   defp reserve_remedy(observation, failed, action, reason, now, opts) do
-    case Journal.reserve_automatic_rerun(observation.number, observation.head, now, opts) do
+    reservation =
+      case Regex.run(~r/base input fix event ([^; ]+)/, reason) do
+        [_, event] -> Journal.reserve_base_fix_refresh(observation.number, observation.head, now, event, opts)
+        _ -> Journal.reserve_automatic_rerun(observation.number, observation.head, now, opts)
+      end
+
+    case reservation do
       :ok ->
         with :ok <- apply_remedy(action, observation, failed, opts),
              :ok <- comment(observation, action, failed, reason, opts),
@@ -271,8 +278,28 @@ defmodule Aiur.LandingWatch.PrRerun do
       {:error, :rerun_backoff} ->
         :ok
 
+      {:error, :base_fix_refresh_already_claimed} ->
+        route_exhausted_base_fix(observation, failed, reason, opts)
+
       {:error, :rerun_limit_reached} ->
         with :ok <- Journal.clear_rerun_pending(observation.number, observation.head, opts), do: alert_limit(observation, opts)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp route_exhausted_base_fix(observation, failed, reason, opts) do
+    event = Regex.run(~r/base input fix event ([^; ]+)/, reason, capture: :all_but_first) |> List.first() || "unknown"
+    marker = "base-fix-exhausted-#{event}"
+
+    case Journal.claim_alert(observation.number, observation.head, marker, opts) do
+      {:ok, :new} ->
+        failures = Enum.map(failed, &%{name: &1["name"], excerpt: "check still fails after its base-fix refresh"})
+        LandingWatch.rework(observation, failures, Keyword.delete(opts, :hold_rework))
+
+      {:ok, :already_claimed} ->
+        :ok
 
       {:error, _} = error ->
         error
@@ -369,13 +396,13 @@ defmodule Aiur.LandingWatch.PrRerun do
     LandingWatch.emit_once(observation, "rerun-budget-exhausted", topic, message, "rerun_limit_reached", true, opts)
   end
 
-  @doc "Records a merged PR that changed `.github/` or `scripts/`, from a `pr.merged` event."
+  @doc "Records a merged PR that changed CI inputs, from a `pr.merged` event."
   @spec record_merge(map(), keyword()) :: :ok | {:error, term()}
   def record_merge(event, opts) do
     with number when is_integer(number) <- merged_number(event),
          true <- merged_into_base?(event, opts),
          {:ok, paths} when is_list(paths) <- Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2).(number, opts) do
-      case Enum.filter(paths, &(String.starts_with?(&1, ".github/") or String.starts_with?(&1, "scripts/"))) do
+      case Enum.filter(paths, &relevant_ci_input?/1) do
         [] -> :ok
         ci -> Journal.record_ci_merge(%{"pr" => number, "paths" => ci, "merged_at_ms" => merged_at_ms(event, opts)}, opts)
       end
@@ -384,6 +411,12 @@ defmodule Aiur.LandingWatch.PrRerun do
       _ -> :ok
     end
   end
+
+  defp relevant_ci_input?(path) when is_binary(path) do
+    Path.basename(path) in ["mix.lock", "mix.exs"] or String.starts_with?(path, ".github/") or String.starts_with?(path, "scripts/")
+  end
+
+  defp relevant_ci_input?(_), do: false
 
   # Firehose events carry the PR's base; a merge into a stacked branch changes no base CI.
   defp merged_into_base?(%{pr: %{"base" => %{"ref" => ref}}}, opts) when is_binary(ref), do: MergeGroupRunFetcher.base_branch(opts) == {:ok, ref}
