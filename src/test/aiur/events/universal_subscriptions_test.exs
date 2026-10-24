@@ -30,6 +30,28 @@ defmodule Aiur.Events.UniversalSubscriptionsTest do
     end
   end
 
+  test "batch reconcile prunes retired base topics and preserves an existing manual claim" do
+    identifier = "universal-batch-#{System.unique_integer([:positive])}"
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "trunk")
+      :ok = SubscriptionStore.attach(identifier)
+      :ok = SubscriptionStore.add_subscription(identifier, "system.retired.branch.push", "base_branch:auto")
+      :ok = SubscriptionStore.add_subscription(identifier, "system.trunk.branch.push", "manual:operator")
+
+      :ok = SubscriptionStore.reconcile_and_add_subscriptions(identifier, UniversalSubscriptions.topics(identifier))
+
+      subscriptions = SubscriptionStore.snapshot(identifier).subscribed_to
+      reasons = Map.new(subscriptions, &{&1["topic"], &1["reason"]})
+
+      assert reasons["system.trunk.branch.push"] == "manual:operator"
+      refute Map.has_key?(reasons, "system.retired.branch.push")
+      assert reasons["ticket.#{identifier}.operator.progress_request"] == "progress_checkin:auto"
+    after
+      :ok = SubscriptionStore.stop(identifier)
+    end
+  end
+
   test "reconcile_base_branch prunes a stale base_branch:auto topic and adds the current one" do
     identifier = "universal-reconcile-#{System.unique_integer([:positive])}"
     path = Workflow.workflow_file_path()
@@ -126,19 +148,12 @@ defmodule Aiur.Events.UniversalSubscriptionsTest do
         assert :ok = UniversalSubscriptions.attach("wake-issue", FailingSubscriptionStore)
       end)
 
-    assert log =~ "UniversalSubscriptions.add_subscription_failed"
-    assert log =~ "ticket.wake-issue.operator.progress_request"
+    assert log =~ "UniversalSubscriptions.reconcile_and_add_failed"
   end
 
   defmodule FailingSubscriptionStore do
     def attach(_identifier), do: :ok
 
-    def add_subscription(_identifier, topic, _reason) do
-      if String.ends_with?(topic, ".operator.progress_request") do
-        exit(:subscription_store_down)
-      else
-        :ok
-      end
-    end
+    def reconcile_and_add_subscriptions(_identifier, _subscriptions), do: exit(:subscription_store_down)
   end
 end

@@ -10,15 +10,7 @@ defmodule Aiur.Events.UniversalSubscriptions do
   def attach(identifier, subscription_store \\ SubscriptionStore) when is_binary(identifier) do
     safe_attach(subscription_store, identifier)
 
-    # Prune any `base_branch:auto` topic from a retired base before the
-    # attach loop (re)adds the current one, so a base-branch change that
-    # happened while this ticket was parked cannot leave it listening on the
-    # old branch's push topic. See `reconcile_base_branch/2`.
-    reconcile_base_branch(identifier, subscription_store)
-
-    Enum.each(topics(identifier), fn {topic, reason} ->
-      safe_add_subscription(subscription_store, identifier, topic, reason)
-    end)
+    safe_reconcile_and_add(subscription_store, identifier, topics(identifier))
 
     :ok
   end
@@ -123,6 +115,14 @@ defmodule Aiur.Events.UniversalSubscriptions do
   catch
     kind, reason ->
       Logger.warning("UniversalSubscriptions.attach_failed identifier=#{identifier} reason=#{inspect({kind, reason})}")
+      :ok
+  end
+
+  defp safe_reconcile_and_add(subscription_store, identifier, subscriptions) do
+    subscription_store.reconcile_and_add_subscriptions(identifier, subscriptions)
+  catch
+    kind, reason ->
+      Logger.warning("UniversalSubscriptions.reconcile_and_add_failed identifier=#{identifier} reason=#{inspect({kind, reason})}")
       :ok
   end
 
