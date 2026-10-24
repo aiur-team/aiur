@@ -200,6 +200,104 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     assert process_gone?(child_pid_file |> File.read!() |> String.to_integer())
   end
 
+  test "caller-group TERM kills an orphaned TERM-ignoring broker descendant", context do
+    broker = Path.join(context.workspace, "group-term-broker.py")
+    broker_pid_file = Path.join(context.workspace, "group-term-broker.pid")
+    child_pid_file = Path.join(context.workspace, "group-term-child.pid")
+    child_start_file = Path.join(context.workspace, "group-term-child.start")
+    supervisor_pid_file = Path.join(context.workspace, "group-term-supervisor.pid")
+    pgid_file = Path.join(context.workspace, "group-term.pgid")
+    ready_file = Path.join(context.workspace, "group-term.ready")
+
+    File.write!(broker, """
+    import os, subprocess, time
+    child = subprocess.Popen(["/bin/sh", "-c", "trap '' TERM; exec sleep 30"])
+    values = {
+        os.environ["AIUR_GH_GROUP_TERM_BROKER_PID_FILE"]: os.getpid(),
+        os.environ["AIUR_GH_GROUP_TERM_CHILD_PID_FILE"]: child.pid,
+        os.environ["AIUR_GH_GROUP_TERM_PGID_FILE"]: os.getpgrp(),
+    }
+    for path, value in values.items():
+        with open(path, "w", encoding="ascii") as output:
+            output.write(str(value))
+    with open(f"/proc/{child.pid}/stat", encoding="ascii") as stat_file:
+        child_start = stat_file.read().rsplit(")", 1)[1].split()[19]
+    with open(os.environ["AIUR_GH_GROUP_TERM_CHILD_START_FILE"], "w", encoding="ascii") as output:
+        output.write(child_start)
+    pid = os.getppid()
+    while pid > 1:
+        with open(f"/proc/{pid}/stat", encoding="ascii") as stat_file:
+            fields = stat_file.read().rsplit(")", 1)[1].split()
+        with open(f"/proc/{pid}/cmdline", "rb") as cmdline_file:
+            command_line = cmdline_file.read()
+        if b"@aiur-deadline-body@" in command_line:
+            with open(os.environ["AIUR_GH_GROUP_TERM_SUPERVISOR_PID_FILE"], "w", encoding="ascii") as output:
+                output.write(str(pid))
+            break
+        pid = int(fields[1])
+    else:
+        raise RuntimeError("deadline supervisor was not found")
+    with open(os.environ["AIUR_GH_GROUP_TERM_READY_FILE"], "w", encoding="ascii") as output:
+        output.write("ready")
+    time.sleep(30)
+    """)
+
+    File.chmod!(broker, 0o700)
+
+    env =
+      guard_env(context) ++
+        Enum.map(
+          [
+            AIUR_GITHUB_BUDGET_ENABLED: "1",
+            AIUR_GITHUB_BUDGET_ROOT: Path.join(context.state_path, "group-term-budget"),
+            AIUR_GITHUB_BUDGET_KEY: String.duplicate("g", 64),
+            AIUR_GITHUB_BUDGET_BROKER: broker,
+            AIUR_GH_GROUP_TERM_BROKER_PID_FILE: broker_pid_file,
+            AIUR_GH_GROUP_TERM_CHILD_PID_FILE: child_pid_file,
+            AIUR_GH_GROUP_TERM_CHILD_START_FILE: child_start_file,
+            AIUR_GH_GROUP_TERM_SUPERVISOR_PID_FILE: supervisor_pid_file,
+            AIUR_GH_GROUP_TERM_PGID_FILE: pgid_file,
+            AIUR_GH_GROUP_TERM_READY_FILE: ready_file,
+            AIUR_GH_CALL_TIMEOUT_SECONDS: "30"
+          ],
+          fn {name, value} -> {Atom.to_string(name), value} end
+        )
+
+    port =
+      Port.open({:spawn_executable, System.find_executable("setsid")}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: Enum.map(["--wait", context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
+        env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
+      ])
+
+    on_exit(fn ->
+      Enum.each([supervisor_pid_file, broker_pid_file, child_pid_file], fn path ->
+        if File.exists?(path) do
+          pid = path |> File.read!() |> String.to_integer()
+          _ = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+        end
+      end)
+
+      if Port.info(port), do: Port.close(port)
+    end)
+
+    wait_until(fn -> File.exists?(ready_file) end)
+    broker_pid = broker_pid_file |> File.read!() |> String.to_integer()
+    child_pid = child_pid_file |> File.read!() |> String.to_integer()
+    child_start = File.read!(child_start_file) |> String.trim()
+    supervisor_pid = supervisor_pid_file |> File.read!() |> String.trim()
+    pgid = pgid_file |> File.read!() |> String.trim()
+
+    assert {"", 0} = System.cmd("kill", ["-TERM", "-#{pgid}"])
+    assert_receive {^port, {:exit_status, 143}}, 3_000
+    wait_until(fn -> process_gone?(String.to_integer(supervisor_pid)) end)
+    wait_until(fn -> process_gone?(broker_pid) end)
+    wait_until(fn -> process_gone?(child_pid, child_start) end)
+    assert process_gone?(child_pid, child_start)
+  end
+
   test "the supervisor preserves wrapper argv0 and caller stdin", context do
     stdin_file = Path.join(context.workspace, "stdin")
     File.write!(stdin_file, "")
