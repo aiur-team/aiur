@@ -63,6 +63,17 @@ defmodule AiurWeb.PublicBindAuthTest do
       allowed_hosts: ["www.example.com"]
     )
 
+    unknown =
+      Plug.Test.conn(:get, "/__public_bind_guard_probe__")
+      |> Plug.Test.init_test_session(%{})
+      |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
+
+    assert unknown.status in [401, 302]
+
+    if unknown.status == 302 do
+      assert Plug.Conn.get_resp_header(unknown, "location") == ["/auth/login"]
+    end
+
     for route <- Phoenix.Router.routes(AiurWeb.Router) do
       path = Regex.replace(~r/[:*][^\/]+/, route.path, "fixture")
       method = "GET"
