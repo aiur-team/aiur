@@ -93,7 +93,7 @@ defmodule Aiur.GitHub.IssueStateTest do
             {:ok, %{status: 200}}
 
           :delete ->
-            {:ok, %{status: 200}}
+            {:ok, %{status: 200, body: [%{"name" => "sym:in-progress"}, %{"name" => "sym:queued"}]}}
         end
       end
 
@@ -126,7 +126,11 @@ defmodule Aiur.GitHub.IssueStateTest do
           assert request.etag == ~s("issue-etag"), "the transition's issue read must send If-None-Match"
           {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}]}}}
         else
-          {:ok, %{status: 200}}
+          if request.method == :delete do
+            {:ok, %{status: 200, body: [%{"name" => "sym:rework"}]}}
+          else
+            {:ok, %{status: 200}}
+          end
         end
       end
 
@@ -165,7 +169,7 @@ defmodule Aiur.GitHub.IssueStateTest do
 
           :delete ->
             assert req.url =~ "sym%3Atodo" or req.url =~ "sym:todo"
-            {:ok, %{status: 200}}
+            {:ok, %{status: 200, body: [%{"name" => "sym:rework"}]}}
 
           :post ->
             assert req.body == %{"labels" => ["sym:rework"]}
@@ -218,7 +222,7 @@ defmodule Aiur.GitHub.IssueStateTest do
              }}
 
           :delete ->
-            {:ok, %{status: 200}}
+            {:ok, %{status: 200, body: [%{"name" => "sym:in-progress"}]}}
 
           :post ->
             assert req.body == %{"labels" => ["sym:in-progress"]}
@@ -366,7 +370,7 @@ defmodule Aiur.GitHub.IssueStateTest do
 
           :delete ->
             :ets.insert(labels, {:value, ["sym:in-progress"]})
-            {:ok, %{status: 200, body: %{"labels" => [%{"name" => "sym:in-progress"}]}}}
+            {:ok, %{status: 200, body: [%{"name" => "sym:in-progress"}]}}
         end
       end
 
@@ -450,7 +454,7 @@ defmodule Aiur.GitHub.IssueStateTest do
           {:ok, %{status: 200}}
 
         :delete ->
-          {:ok, %{status: 200}}
+          {:ok, %{status: 200, body: [%{"name" => "sym:in-progress"}]}}
       end
     end
   end
