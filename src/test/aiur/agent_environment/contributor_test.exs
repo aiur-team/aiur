@@ -5,7 +5,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   alias Aiur.AgentEnvironment.Contributor
   alias Aiur.GitHub.{AgentEnvironmentContributor, Budget}
 
-  @credentials ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
+  @credentials ~w(AIUR_SECRET_KEY_BASE GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
                   GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH
                   GITHUB_APP_NEW_SECRET AIUR_GITHUB_BUDGET_KEY)
   @fixture Path.expand("../../fixtures/agent_environment_contributor.json", __DIR__)
@@ -126,6 +126,11 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   def snapshot(module, :port, context) do
     module.workspace_env(context.workspace, opts())
     |> Map.new(fn {name, value} -> {to_string(name), if(value == false, do: false, else: to_string(value))} end)
+    |> Map.update!("PATH", fn path ->
+      [first | _rest] = String.split(path, ":")
+      assert first == AgentGitHubGuard.bin_dir(context.workspace)
+      first <> ":<inherited>"
+    end)
     |> normalize(context)
   end
 

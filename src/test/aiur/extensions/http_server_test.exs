@@ -5,6 +5,7 @@ defmodule Aiur.Extensions.HttpServerTest do
 
   import Aiur.ExtensionsTestSupport
   alias Aiur.ExtensionsTestSupport.StaticOrchestrator
+  alias Phoenix.Socket.Transport
 
   setup do
     linear_client_module = Application.get_env(:aiur, :linear_client_module)
@@ -95,10 +96,36 @@ defmodule Aiur.Extensions.HttpServerTest do
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
 
+    foreign_host_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [{"host", "attacker.example"}])
+    assert foreign_host_response.status == 403
+
+    cross_origin_socket_conn =
+      Plug.Test.conn(:get, "/live")
+      |> then(&%{&1 | host: "127.0.0.1", port: port})
+      |> Plug.Conn.put_req_header("origin", "https://attacker.example")
+      |> Transport.check_origin(nil, AiurWeb.Endpoint, [])
+
+    assert cross_origin_socket_conn.status == 403
+
+    tailnet_socket_conn =
+      Plug.Test.conn(:get, "/live/websocket")
+      |> then(&%{&1 | host: "127.0.0.1", port: port})
+      |> Plug.Conn.put_req_header("origin", "https://orangekid.tailnet-name.ts.net:4001")
+      |> Transport.check_origin(nil, AiurWeb.Endpoint, [])
+
+    refute tailnet_socket_conn.halted
+
+    foreign_socket_response =
+      Req.get!("http://127.0.0.1:#{port}/live/websocket", headers: [{"host", "attacker.example"}])
+
+    assert foreign_socket_response.status == 403
+
     # Regression guard: router auth still returns 401 if the static directory registration is removed.
     for asset_path <- [
           "/conversation-drawer-hook.js",
           "/conversation-voice-controller.js",
+          "/voice-capture.js",
+          "/voice-transport.js",
           "/provider-assets/codex-color.svg",
           "/build-home/loader.js",
           "/build-home/logos/kimi-logo.png",

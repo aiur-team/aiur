@@ -1,18 +1,18 @@
 defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
   @moduledoc """
-  Pure presenter for the DASH-027 read-only conversation drawer.
+  Pure presenter for the DASH-027 conversation drawer.
 
   Turns one normalized DASH-026 `Aiur.LiveConversation` snapshot plus its Units
   row metadata into a render-ready view. It performs no I/O: it consumes only the
   already-sanitized public snapshot (no local paths, raw payloads, prompts,
   reasoning, credentials, or capability URLs are present in that projection) and
-  the safe row facts. The drawer is a read-only mirror; the viewer never
-  participates in the conversation.
+  the safe row facts. Sending availability is determined by the composer target
+  and dashboard write permissions.
   """
 
   alias Aiur.TrackerIdentity
 
-  @participation_notice "Read-only mirror. You are viewing this conversation and are not participating in it."
+  @participation_notice "You can read this conversation here. Sending is not available."
 
   @typedoc "Drawer lifecycle beyond the snapshot state, owned by the LiveView."
   @type lifecycle :: :active | :superseded | :out_of_scope

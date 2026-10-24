@@ -3,7 +3,7 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
   use Phoenix.Controller, formats: []
   import Plug.Conn
   plug(:fetch_query_params)
-  alias Aiur.TestSupport.BuildHome.{EarlierControl, FixtureSource, UsageFixtures}
+  alias Aiur.TestSupport.BuildHome.{ControlFixture, EarlierControl, FixtureSource, UsageFixtures}
 
   def configure(conn, %{"action" => "stream", "key" => key}) do
     conn |> put_session("build_stream", key) |> send_resp(200, "build fixture stream: #{key}")
@@ -46,6 +46,10 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
     send_resp(conn, 200, "earlier configured")
   end
 
+  def configure(conn, %{"action" => "lifecycle"} = params) do
+    ControlFixture.lifecycle(conn, Map.merge(params, conn.query_params))
+  end
+
   def configure(conn, _params), do: send_resp(conn, 404, "unknown build fixture control action")
 
   defp diff_changes(_data, %{"name" => name})
@@ -56,6 +60,10 @@ defmodule Aiur.BrowserHarness.FixtureBuildControl do
     path = Path.expand("../../fixtures/build_home/diffs/queue-unavailable.json", __DIR__)
     set = path |> File.read!() |> Jason.decode!()
     %{now: data["now"], upsert: [], remove: [], set: set, resync: false}
+  end
+
+  defp diff_changes(data, %{"name" => "capacity-eight"}) do
+    %{now: data["now"], upsert: [], remove: [], set: %{"capacity" => %{data["capacity"] | "max" => 8}}, resync: false}
   end
 
   defp diff_changes(data, %{"name" => "sources-ok"}) do

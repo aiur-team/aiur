@@ -34,6 +34,8 @@ Rework handbacks also read classified PR conversation comments once to catch tru
 
 A rerun not observed within ten minutes raises attention. Journaled attention holds avoid repeated recovery reads; normal CI polling continues. No saving is claimed.
 
+Runner-queue reporting reuses the open-PR observations already fetched by the landing watcher and adds only the queued workflow-run listing. At the current queue depth this is one Actions REST page per poll. Caller: `landing_watch_runner_queue`; Actions read required. This makes queue pressure visible; it claims no saving.
+
 A rework handback with no commit since the blocking review reads the PR body's GraphQL `lastEditedAt` once, attributed to `rework_body_edit`, so a body-only fix can pass the [rework guard](/concepts/ticket-lifecycle).
 
 The read costs one GraphQL point per handback attempt and never runs on a poll. Handbacks with a new commit skip it; a failed read counts as no edit.

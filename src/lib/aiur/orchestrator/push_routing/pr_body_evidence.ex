@@ -1,9 +1,11 @@
 defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
   @moduledoc false
 
+  require Logger
+
   alias Aiur.{AlertFeed, Alerts, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{State, TicketTransition, TrackerTasks}
 
   @doc false
   @spec check(State.t(), String.t() | integer(), map(), keyword()) :: State.t()
@@ -23,9 +25,13 @@ defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
          head_sha when is_binary(head_sha) <- nested_value(pr, :head, :sha),
          body when is_binary(body) <- value(pr, :body) do
       if tested_head_matches?(body, head_sha) do
-        resolve_stale_alert(state, identifier, opts)
+        state
+        |> resolve_stale_alert(identifier, opts)
+        |> write_body_fix_reason(identifier, :remove, opts)
       else
-        emit_stale_alert(state, identifier, pr_number, head_sha, opts)
+        state
+        |> emit_stale_alert(identifier, pr_number, head_sha, opts)
+        |> write_body_fix_reason(identifier, :add, opts)
       end
     else
       _ -> state
@@ -96,5 +102,23 @@ defmodule Aiur.Orchestrator.PushRouting.PrBodyEvidence do
     end
 
     state
+  end
+
+  defp write_body_fix_reason(state, identifier, action, opts) do
+    writer =
+      Keyword.get(opts, :reason_label_writer, fn id, action ->
+        TicketTransition.write_reason_modifier(id, action, "body-fix", writer: :pr_body_evidence)
+      end)
+
+    TrackerTasks.chain(state, {:runtime_reason_labels, identifier}, fn -> writer.(identifier, action) end, fn current, result ->
+      case result do
+        :ok ->
+          current
+
+        {:error, reason} ->
+          Logger.warning("body-fix reason label update failed: issue=#{identifier} reason=#{inspect(reason)}")
+          current
+      end
+    end)
   end
 end

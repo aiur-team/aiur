@@ -416,6 +416,9 @@ defmodule Aiur.AgentTools.Errors do
     }
   end
 
+  def payload(:status_note_cap_exceeded),
+    do: %{"error" => %{"message" => "`emit_event` over the per-turn `progress.status` cap (6 per turn). Update the note at the next checkpoint."}}
+
   def payload(:invalid_variables) do
     %{
       "error" => %{
@@ -455,7 +458,8 @@ defmodule Aiur.AgentTools.Errors do
              :no_op_rework,
              :stale_pr_body_evidence,
              :rework_findings_unaddressed,
-             :pull_request_conflicting
+             :pull_request_conflicting,
+             :status_note_invalid
            ] and is_binary(message) do
     %{"error" => %{"message" => message, "reason" => Atom.to_string(reason)}}
   end
