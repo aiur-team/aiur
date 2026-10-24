@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
   alias Aiur.Orchestrator.StartupClaimReconciler.Observation
-  alias Aiur.PRLifecycle.HeadVerdictRouter
 
   @spec run(Issue.t(), keyword()) :: {:ok, String.t()} | {:error, term()} | {:defer, term()}
   def run(issue, opts) do
@@ -173,12 +172,27 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
 
     with true <- is_binary(head),
          {:ok, reviews} <- fetch_reviews.(Map.fetch!(pr, "number")) do
-      case HeadVerdictRouter.verdict_at_head(reviews, head) do
+      case latest_head_approval(reviews, head) do
         %{"state" => "APPROVED"} = approval -> {:ok, approval}
         _ -> {:ok, nil}
       end
     else
       _ -> {:error, :approval_unavailable}
+    end
+  end
+
+  defp latest_head_approval(reviews, head) do
+    latest_by_reviewer =
+      reviews
+      |> Enum.filter(&(&1[:authoritative] == true and &1["state"] in ["APPROVED", "CHANGES_REQUESTED"]))
+      |> Enum.group_by(&get_in(&1, ["user", "login"]))
+      |> Enum.map(fn {_reviewer, submissions} -> Enum.max_by(submissions, &{&1["submitted_at"], &1["id"]}) end)
+      |> Enum.filter(&(&1["commit_id"] == head))
+
+    if Enum.any?(latest_by_reviewer, &(&1["state"] == "CHANGES_REQUESTED")) do
+      nil
+    else
+      Enum.find(latest_by_reviewer, &(&1["state"] == "APPROVED"))
     end
   end
 
