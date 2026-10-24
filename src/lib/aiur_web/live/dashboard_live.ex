@@ -206,7 +206,7 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_info(:runtime_tick, socket) do
     schedule_runtime_tick()
-    {:noreply, socket |> assign(:now, DateTime.utc_now()) |> assign(:repository_leader, Aiur.Instance.RepositoryLeader.status())}
+    {:noreply, assign(socket, :now, DateTime.utc_now())}
   end
 
   def handle_info(:github_quota_tick, socket) do
