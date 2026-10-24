@@ -1,9 +1,11 @@
+import { AST } from './now-state.js';
 import { S, FKEYS } from './state.js';
 export { colKey } from './layout.js';
 import { colKey } from './layout.js';
-const HIST_STATE = { done: 'merged', failed: 'failed', closed: 'closed', not_planned: 'not planned' };
-export const tstate = t => t.sec === 'hist' ? (Object.hasOwn(HIST_STATE, t.status) ? HIST_STATE[t.status] : 'unknown') : t.sec === 'now' ? 'in progress' : t.sec === 'plan' ? (t.cue.held ? 'held' : (t.cue.waitAny || t.cue.failed || t.cue.blockedChain) ? 'blocked' : 'queued') : 'open';
-export const astate = t => t.sec === 'now' ? t.agent?.state ?? 'none' : 'none';
+export const NP = 'not planned';
+const HIST_STATE = { done: 'merged', failed: 'failed', not_planned: NP };
+export const tstate = t => t.sec === 'hist' ? (Object.hasOwn(HIST_STATE, t.status) ? HIST_STATE[t.status] : null) : t.sec === 'now' ? 'in progress' : t.sec === 'plan' ? (!t.cue ? null : t.cue.held ? 'held' : (t.cue.waitAny || t.cue.failed || t.cue.blockedChain) ? 'blocked' : 'queued') : 'open';
+export const astate = t => t.sec === 'now' ? (Object.hasOwn(AST, t.agent?.state) ? t.agent.state : null) : 'none';
 export function match(t, state = S) {
   for (const k of FKEYS) {
     const sel = state.f[k]; if (!sel.length) continue;

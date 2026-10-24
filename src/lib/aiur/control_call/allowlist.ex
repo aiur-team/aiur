@@ -142,6 +142,7 @@ defmodule Aiur.ControlCall.Allowlist do
     {:set_max_agents, 1, :write, [:positive], %{}},
     {:message, 2, :write, [{:regex, ~r/^\d+$/}, :string], %{}},
     {:message, 3, :write, [{:regex, ~r/^\d+$/}, :string, {:regex, ~r/^[A-Za-z0-9._:-]{1,128}$/}], %{}},
+    {:message_status, 1, :read, [:positive], %{}},
     {:pause, 1, :write, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
     {:resume, 1, :write, [{:one_of, [:string_list, {:enum, [:all]}]}], %{}},
     {:park, 1, :write, [:string_list], %{}},
