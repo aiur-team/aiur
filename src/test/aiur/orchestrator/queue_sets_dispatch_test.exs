@@ -17,8 +17,6 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   end
 
   defmodule QueueBoundary do
-    alias Aiur.Issue
-    alias Aiur.Orchestrator.{BuildQueueClaimProbe, State}
     def load, do: Agent.get(__MODULE__, &{:ok, &1})
     def save(document), do: Agent.update(__MODULE__, fn _ -> document end)
     def open_issue_labels(_), do: {:ok, Map.new(1..12, &{to_string(&1), %{labels: ~w(agent:queued agent:todo)}}), System.system_time(:millisecond)}
@@ -28,8 +26,13 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
 
     def next_set do
       document = Agent.get(__MODULE__, & &1)
-      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: "todo", blocked_by: []}} end)
-      BuildQueueClaimProbe.next_set(%State{max_concurrent_agents: 6, effective_concurrent_agents: 6, last_polled_issues: issues})
+
+      # This is a controlled claim-probe boundary: use the persisted first set
+      # directly instead of consulting the process-owned global Hints snapshot.
+      case Enum.min_by(document.queues, &{&1.rank, &1.id}, fn -> nil end) do
+        nil -> {:ok, nil}
+        queue -> {:ok, queue.id}
+      end
     end
 
     def add_label(_, _), do: raise("ordering must not write GitHub labels")
