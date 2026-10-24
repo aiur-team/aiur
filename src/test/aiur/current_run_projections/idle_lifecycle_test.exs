@@ -104,6 +104,7 @@ defmodule Aiur.CurrentRunProjections.IdleLifecycleTest do
     refute :sys.get_state(owner).active?
     assert :ok = CurrentRunProjections.refresh(owner)
     assert_receive {:status_facts_read, :running}, 1_000
+    await_projection_idle(owner)
     assert [%{complexity: 5}] = Map.values(:sys.get_state(owner).weight_facts)
 
     Agent.update(source, fn state ->
