@@ -329,7 +329,15 @@ jq -e '.type == "hourly_retrospective"' "$missing_capture_out" >/dev/null || fai
 # it does on a bare CI runner.
 empty_socket_dir="$state_root/empty-sockets"
 mkdir -p "$empty_socket_dir"
+url_missing_tmux_bin="$state_root/url-missing-tmux-bin"
+mkdir -p "$url_missing_tmux_bin"
+cat > "$url_missing_tmux_bin/tmux" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+chmod +x "$url_missing_tmux_bin/tmux"
 url_missing_retro="$state_root/url-missing-retrospective.md"
+PATH="$url_missing_tmux_bin:$PATH" \
 AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=url-missing \
   AIUR_EXECUTOR_RETRO_FILE="$url_missing_retro" \
@@ -408,6 +416,7 @@ jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition |
 # redirected log is never silently empty next to a bare exit code.
 record_precondition_retro="$state_root/record-precondition-retrospective.md"
 set +e
+PATH="$url_missing_tmux_bin:$PATH" \
 AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=record-precondition \
   AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
