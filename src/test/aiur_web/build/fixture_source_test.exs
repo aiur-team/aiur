@@ -35,7 +35,7 @@ defmodule AiurWeb.Build.FixtureSourceTest do
   end
 
   test "unknown, non-dataset, missing and invalid fixtures are errors" do
-    assert FixtureSource.datasets() == ~w(live dense newrepo noqueue offline odd-edges unknowns hostile chains list-edges now0 now24 degraded unavailable hold)
+    assert FixtureSource.datasets() == ~w(live dense newrepo noqueue offline odd-edges unknowns hostile chains list-edges now0 now24 scale10k nq300 nq1000 agents20 degraded unavailable hold)
     for dataset <- ~w(nope manifest usage-sets ../live), do: assert(FixtureSource.snapshot(dataset: dataset) == {:error, :unknown_dataset})
     assert FixtureSource.snapshot(dataset: "unavailable") == {:error, :fixture_unavailable}
     dir = Aiur.TestSupport.tmp_root!("build-home-missing")
