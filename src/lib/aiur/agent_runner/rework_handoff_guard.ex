@@ -62,7 +62,10 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
          head when is_binary(head) <- ReworkGate.head_sha(pr),
          body when is_binary(body) <- pr["body"],
          {:error, reason} <- evidence_error(body, head, workspace, pr, opts) do
-      {:refused, :stale_pr_body_evidence, evidence_refusal(issue, state, pr, head, reason)}
+      case apply_staged_body(issue, workspace, pr, head, opts) do
+        :ok -> :allow
+        {:error, _fallback_reason} -> {:refused, :stale_pr_body_evidence, evidence_refusal(issue, state, pr, head, reason)}
+      end
     else
       _ -> :allow
     end
@@ -142,6 +145,35 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
       _no_template ->
         with {:ok, evidence} <- LocalTestEvidence.parse(body), do: LocalTestEvidence.validate(evidence, "none", head)
     end
+  end
+
+  defp apply_staged_body(issue, workspace, pr, head, opts) when is_binary(workspace) do
+    path = Path.join([workspace, ".aiur-runtime", "tmp", "pr.md"])
+
+    with {:ok, %{type: :regular, size: size}} when size <= 1_000_000 <- File.lstat(path),
+         {:ok, staged_body} <- File.read(path),
+         :ok <- evidence_error(staged_body, head, workspace, pr, opts),
+         number when is_integer(number) and number > 0 <- pr["number"],
+         {:ok, _updated} <- update_body(number, staged_body, opts),
+         {:ok, refreshed} <- refetch_pull_request(issue.identifier, number, opts),
+         ^staged_body <- refreshed["body"],
+         ^head <- get_in(refreshed, ["head", "sha"]) do
+      :ok
+    else
+      _ -> {:error, :staged_body_unavailable_or_unverified}
+    end
+  end
+
+  defp apply_staged_body(_issue, _workspace, _pr, _head, _opts), do: {:error, :workspace_unavailable}
+
+  defp update_body(number, body, opts) do
+    updater = Keyword.get(opts, :pull_request_body_updater, &Aiur.CodeHost.update_pull_request_body/2)
+    updater.(number, body)
+  end
+
+  defp refetch_pull_request(identifier, number, opts) do
+    fetcher = Keyword.get(opts, :pull_request_refetcher, fn _identifier -> default_pull_request(number) end)
+    fetcher.(identifier)
   end
 
   # A remote worker's checkout is not on this host, so the read fails and only the evidence is checked.

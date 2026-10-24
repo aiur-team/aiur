@@ -15,6 +15,14 @@ if marker not in assembled:
     print("aiur: governed gh guard has no deadline body", file=sys.stderr)
     raise SystemExit(127)
 body = assembled.split(marker, 1)[1]
+linux_subreaper = sys.platform.startswith("linux")
+if linux_subreaper:
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(36, 1, 0, 0, 0) != 0:
+        error = ctypes.get_errno()
+        print(f"aiur: cannot supervise broker descendants: {os.strerror(error)}", file=sys.stderr)
+        raise SystemExit(127)
 try:
     seconds = int(os.environ.get("AIUR_GH_CALL_TIMEOUT_SECONDS", "120"))
 except ValueError:
@@ -44,16 +52,24 @@ child = subprocess.Popen(
     ["/bin/sh", "-c", shell_program, script, "/dev/fd/" + str(body_read), *args],
     stdin=None,
     pass_fds=(body_read,),
-    start_new_session=True,
+    start_new_session=not linux_subreaper,
 )
 os.close(body_read)
 writer = threading.Thread(target=lambda: write_body(body_write, body), daemon=True)
 writer.start()
 
 def terminate_process_group():
-    descendants = descendant_pids(child.pid)
+    # Linux adopts orphaned broker descendants here because this supervisor is
+    # a child subreaper. Elsewhere the child has its own process group, which
+    # remains signalable after its broker exits.
+    descendants = descendant_pids(os.getpid() if linux_subreaper else child.pid)
+    if not linux_subreaper:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
     try:
-        os.killpg(child.pid, signal.SIGTERM)
+        child.send_signal(signal.SIGTERM)
     except ProcessLookupError:
         pass
     for pid in descendants:
@@ -66,15 +82,25 @@ def terminate_process_group():
     except subprocess.TimeoutExpired:
         pass
     try:
-        os.killpg(child.pid, signal.SIGKILL)
+        child.kill()
     except ProcessLookupError:
         pass
+    if not linux_subreaper:
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     for pid in descendants:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-    child.wait()
+    try:
+        child.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        # A child in uninterruptible kernel sleep can outlive SIGKILL. Do not
+        # let that make the caller cancellation handler unbounded as well.
+        print("aiur: governed gh child did not exit after SIGKILL", file=sys.stderr)
 
 def descendant_pids(root):
     parents = {}
@@ -103,16 +129,24 @@ def descendant_pids(root):
         found.update(children)
         descendants.extend(children)
 
+class CallerSignal(Exception):
+    def __init__(self, signum):
+        self.signum = signum
+
 def stop_child(signum, _frame):
-    terminate_process_group()
-    writer.join(timeout=0.5)
-    raise SystemExit(128 + signum)
+    # Do not wait inside the signal handler: it may interrupt Popen.wait while
+    # that method holds its internal waitpid lock. Cleanup runs after unwinding.
+    raise CallerSignal(signum)
 
 signal.signal(signal.SIGTERM, stop_child)
 signal.signal(signal.SIGINT, stop_child)
 signal.signal(signal.SIGHUP, stop_child)
 try:
     child.wait(timeout=seconds)
+except CallerSignal as cancelled:
+    terminate_process_group()
+    writer.join(timeout=0.5)
+    raise SystemExit(128 + cancelled.signum)
 except subprocess.TimeoutExpired:
     terminate_process_group()
     writer.join(timeout=0.5)
