@@ -266,10 +266,7 @@ defmodule Aiur.GitHub.Budget do
   def request_resource(_request), do: "core"
 
   defp do_acquire(request, key, python, opts, deadline_at) do
-    # `command_timeout_ms` bounds each broker round trip apart from the admission wait, so a slow broker still times out.
-    command_ms = Keyword.get(opts, :command_timeout_ms)
-    command_deadline_at = if command_ms, do: min(deadline_at, System.monotonic_time(:millisecond) + command_ms), else: deadline_at
-    command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, command_deadline_at)
+    command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
 
     case BrokerPort.command(acquire_args(request, opts), key, command_opts) do
       {:ok, "granted " <> id} ->
@@ -285,9 +282,9 @@ defmodule Aiur.GitHub.Budget do
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
       # Deadline expiry differs from malformed output: Python startup can race the deadline under load, so
-      # callers may retry it (#2286). `:admission_closed` marks expiry at the admission deadline, not the per-command bound.
+      # callers may retry it (#2286). `:admission_closed` marks expiry at the admission deadline.
       {:error, :github_budget_broker_timeout} ->
-        if command_deadline_at == deadline_at, do: {:error, :admission_closed}, else: {:error, :github_budget_broker_timeout}
+        {:error, :admission_closed}
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}

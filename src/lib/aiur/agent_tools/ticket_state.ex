@@ -25,11 +25,9 @@ defmodule Aiur.AgentTools.TicketState do
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
 
-  # States an agent may declare for its own ticket. `todo` is the pre-work state
-  # dispatch owns, and `merging`/`cancelled` are Executor dispositions — an agent
-  # claiming either would reverse an operator decision, so they are refused here
-  # rather than silently written.
-  @agent_settable_states ~w(in-progress ci-wait human-review rework error done)
+  # Agents may hand work to a reviewer, but only a merged PR or explicit human
+  # disposition may mark a ticket done. `todo` is also owned by dispatch.
+  @agent_settable_states ~w(in-progress ci-wait human-review rework error)
 
   @description """
   Make `agent:<state>` the ONLY `agent:*` state label on the issue you are
