@@ -40,8 +40,11 @@ defmodule Aiur.Workspace.StaleGitLock do
   end
 
   defp local_git_dirs(workspace, canonical_workspace) do
-    [".git", ".git-writable"]
-    |> Enum.map(&Path.join(workspace, &1))
+    [resolve_git_dir(Path.join(workspace, ".git")), {:ok, Path.join(workspace, ".git-writable")}]
+    |> Enum.flat_map(fn
+      {:ok, path} -> [path]
+      _ -> []
+    end)
     |> Enum.flat_map(fn path ->
       with {:ok, %File.Stat{type: :directory}} <- File.stat(path),
            {:ok, canonical_path} <- PathSafety.canonicalize(path),
@@ -51,6 +54,25 @@ defmodule Aiur.Workspace.StaleGitLock do
         _ -> []
       end
     end)
+  end
+
+  defp resolve_git_dir(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory}} ->
+        {:ok, path}
+
+      {:ok, %File.Stat{type: :regular}} ->
+        with {:ok, contents} <- File.read(path),
+             [_, git_dir] <- Regex.run(~r/^gitdir:\s*(.+)\s*$/m, contents) do
+          resolved = if Path.type(git_dir) == :absolute, do: git_dir, else: Path.expand(git_dir, Path.dirname(path))
+          {:ok, resolved}
+        else
+          _ -> :not_git
+        end
+
+      _ ->
+        :not_git
+    end
   end
 
   defp lock_paths(_workspace, git_dirs) do
@@ -141,7 +163,6 @@ defmodule Aiur.Workspace.StaleGitLock do
     case process_holds_workspace_lock(pid, path, workspace, git_dirs, proc_root) do
       {:ok, nil} -> {:cont, {:ok, holders}}
       {:ok, holder} -> {:cont, {:ok, [holder | holders]}}
-      {:error, reason} -> {:halt, {:error, {pid, reason}}}
     end
   end
 
@@ -162,11 +183,11 @@ defmodule Aiur.Workspace.StaleGitLock do
           do: {:ok, String.to_integer(pid)},
           else: {:ok, nil}
 
-      {:error, reason} when reason in [:enoent, :eacces, :eperm] ->
+      # Processes can exit between the /proc scan and fd listing. Permission
+      # denied on an unrelated descriptor table is also normal for systemd
+      # session helpers such as (sd-pam); neither can hold this lock open.
+      {:error, _reason} ->
         {:ok, nil}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

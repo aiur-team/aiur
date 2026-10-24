@@ -20,6 +20,20 @@ defmodule Aiur.Workspace.GitMetadataTest do
     refute File.exists?(lock)
   end
 
+  test "ensure_git_metadata_writable recovers locks through an in-workspace gitfile", %{tmp: tmp} do
+    repo = Path.join(tmp, "gitfile-repo")
+    git_dir = Path.join(repo, ".git-data")
+    File.mkdir_p!(repo)
+    git!(["init", "--quiet", "--separate-git-dir", git_dir, "-b", "main", repo])
+
+    lock = Path.join(git_dir, "index.lock")
+    File.write!(lock, "stale\n")
+    set_stale_mtime!(lock)
+
+    assert :ok = GitMetadata.ensure_git_metadata_writable(repo)
+    refute File.exists?(lock)
+  end
+
   test "ensure_agent_logs_excluded preserves local excludes and ignores logs idempotently", %{tmp: tmp} do
     repo = init_repo!(Path.join(tmp, "repo"))
     gitignore = Path.join(repo, ".gitignore")
