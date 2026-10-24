@@ -116,3 +116,5 @@ list the other instance's tickets under `instance.ignore`.
 `label_prefixes: [nuc]` is the durable rule; `tickets: [4121]` covers a ticket
 handed over mid-flight. Edits apply without a restart, and `aiur status` prints
 the active rules and the count of events ignored since boot.
+
+Register each daemon in `~/.aiur/remote-instances.yaml` as described under [Remote instances](/reference/cli-options#remote-instances). From the machine running the Executor, use `aiur --instance nuc status` (or another supported control command) to operate the named daemon without a second local Aiur run.

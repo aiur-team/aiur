@@ -36,6 +36,24 @@ defmodule Aiur.Orchestrator.IssueSync.ContradictoryLabelsTest do
       assert healed_state.last_polled_issues[dual.id].state == "todo"
     end
 
+    test "keeps valid reason modifiers while healing workflow states (regression guard)" do
+      dual = %{
+        issue("dual-reasons", "todo")
+        | state_labels: ["todo", "rework"],
+          labels: ["agent:ci-red", "agent:merge-queued"]
+      }
+
+      {_state, [healed]} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn _identifier, _target -> :ok end
+        )
+
+      assert healed.state_labels == ["todo"]
+      assert healed.labels == ["agent:ci-red", "agent:merge-queued"]
+    end
+
     test "keeps the resolved issue dispatchable even when the heal write fails" do
       dual = %{issue("dual", "todo") | state_labels: ["todo", "rework"]}
 
