@@ -147,6 +147,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LandingWatch.QuarantineLifter,
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    AiurWeb.DashboardAuth.ChallengeStore,
     Aiur.BuildOrder.Estimates,
     AiurWeb.Build.IndexSupervisor
   ]
@@ -177,6 +178,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
             Aiur.RunTelemetry.RetainedCache,
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
             AiurWeb.FinancialData.Supervisor,
+            AiurWeb.DashboardAuth.ChallengeStore,
             AiurWeb.Build.IndexSupervisor,
             {Aiur.HttpServer, dashboard_pages?: true}
           ])

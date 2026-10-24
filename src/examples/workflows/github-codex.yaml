@@ -139,6 +139,7 @@ server:
   # public_url: https://aiur.example.com
   # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
+# dashboard_auth: {google: {allowed_emails: [operator@example.com]}, passkeys: false, session_max_age_days: 30, browser_basic_auth: true}
 workspace:
   root: ~/code/aiur-workspaces
 hooks:
