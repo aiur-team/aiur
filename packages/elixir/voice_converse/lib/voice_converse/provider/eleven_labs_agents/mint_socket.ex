@@ -1,18 +1,34 @@
+defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket.Target do
+  @moduledoc false
+
+  # A signed URL carries an authorization capability in its query string. Keep
+  # the path for the upgrade request but omit it from process crash reports.
+  @derive {Inspect, only: [:scheme, :ws_scheme, :host, :port]}
+  defstruct [:scheme, :ws_scheme, :host, :port, :path]
+end
+
 defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
   @moduledoc false
 
   use GenServer
 
+  alias VoiceConverse.Provider.ElevenLabsAgents.MintSocket.Target
+
   @message_tag :elevenlabs_agents_transport
   @handshake_timeout_ms 5_000
   @max_pending_bytes 426_668
 
-  @spec start(pid(), String.t(), [{String.t(), String.t()}]) :: {:ok, pid()} | {:error, term()}
-  def start(session, url, headers) do
-    with {:ok, socket} <- GenServer.start(__MODULE__, session) do
-      # The one-time signed URL arrives after the process has started, so it
-      # cannot appear in an init crash report or in its long-lived state.
-      GenServer.cast(socket, {:connect, url, headers})
+  @type connect_fun :: (atom(), String.t(), non_neg_integer(), keyword() -> {:ok, term()} | {:error, term()})
+
+  @spec start(pid(), String.t(), [{String.t(), String.t()}], keyword()) :: {:ok, pid()} | {:error, term()}
+  def start(session, url, headers, opts \\ []) do
+    with {:ok, target} <- target(url),
+         {:ok, socket} <- GenServer.start(__MODULE__, session) do
+      # Parse before starting and use a redacted target struct in the cast, so
+      # neither init nor the GenServer's last message can expose the signed URL.
+      connect_fun = Keyword.get(opts, :connect_fun, &mint_connect/4)
+
+      GenServer.cast(socket, {:connect, target, headers, connect_fun})
       {:ok, socket}
     end
   end
@@ -63,9 +79,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
   end
 
   @impl true
-  def handle_cast({:connect, url, headers}, state) do
-    with {:ok, target} <- target(url),
-         {:ok, conn} <- connect(target),
+  def handle_cast({:connect, %Target{} = target, headers, connect_fun}, state) do
+    with {:ok, conn} <- connect(target, connect_fun),
          {:ok, conn, ref} <- Mint.WebSocket.upgrade(target.ws_scheme, conn, target.path, headers) do
       timer = Process.send_after(self(), :handshake_timeout, @handshake_timeout_ms)
       {:noreply, %{state | conn: conn, ref: ref, handshake_timer: timer}}
@@ -241,11 +256,13 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
     %{state | handshake_timer: nil}
   end
 
-  defp connect(%{scheme: :https, host: host, port: port}),
-    do: Mint.HTTP.connect(:https, host, port, protocols: [:http1], transport_opts: tls_options(host))
+  defp connect(%Target{scheme: :https, host: host, port: port}, connect_fun),
+    do: connect_fun.(:https, host, port, protocols: [:http1], transport_opts: tls_options(host))
 
-  defp connect(%{scheme: :http, host: host, port: port}),
-    do: Mint.HTTP.connect(:http, host, port, protocols: [:http1])
+  defp connect(%Target{scheme: :http, host: host, port: port}, connect_fun),
+    do: connect_fun.(:http, host, port, protocols: [:http1])
+
+  defp mint_connect(scheme, host, port, opts), do: Mint.HTTP.connect(scheme, host, port, opts)
 
   defp close_connection(nil), do: :ok
   defp close_connection(conn), do: Mint.HTTP.close(conn)
@@ -256,10 +273,14 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
   defp target(url) do
     case URI.parse(url) do
       %URI{scheme: scheme, host: host} = uri when scheme in ["wss", "https"] and is_binary(host) ->
-        {:ok, %{scheme: :https, ws_scheme: :wss, host: host, port: uri.port || 443, path: path(uri)}}
+        {:ok, %Target{scheme: :https, ws_scheme: :wss, host: host, port: uri.port || 443, path: path(uri)}}
 
       %URI{scheme: scheme, host: host} = uri when scheme in ["ws", "http"] and is_binary(host) ->
-        {:ok, %{scheme: :http, ws_scheme: :ws, host: host, port: uri.port || 80, path: path(uri)}}
+        if loopback_host?(host) do
+          {:ok, %Target{scheme: :http, ws_scheme: :ws, host: host, port: uri.port || 80, path: path(uri)}}
+        else
+          {:error, :unsupported_url}
+        end
 
       _unsupported ->
         {:error, :unsupported_url}
@@ -268,4 +289,6 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocket do
 
   defp path(%URI{path: path, query: nil}), do: path || "/"
   defp path(%URI{path: path, query: query}), do: (path || "/") <> "?" <> query
+
+  defp loopback_host?(host), do: host in ["127.0.0.1", "::1"]
 end

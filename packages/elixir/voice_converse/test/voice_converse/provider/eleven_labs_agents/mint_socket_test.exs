@@ -2,6 +2,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocketTest do
   use ExUnit.Case, async: false
 
   import Bitwise
+  import ExUnit.CaptureLog
   import ExUnit.Assertions, except: [assert_receive: 1]
 
   alias VoiceConverse.Provider.ElevenLabsAgents.MintSocket
@@ -167,6 +168,49 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.MintSocketTest do
     assert Keyword.fetch!(options, :cacerts) == :public_key.cacerts_get()
     assert Keyword.fetch!(options, :server_name_indication) == ~c"api.elevenlabs.io"
     assert is_function(options[:customize_hostname_check][:match_fun])
+  end
+
+  test "passes TLS transport options to the HTTPS connect call" do
+    test_pid = self()
+
+    connect_fun = fn scheme, host, port, options ->
+      send(test_pid, {:connect, scheme, host, port, options})
+      {:error, :test_connection}
+    end
+
+    {:ok, _socket} =
+      MintSocket.start(self(), "wss://api.elevenlabs.io/conversation?token=never-in-state", [],
+        connect_fun: connect_fun
+      )
+
+    assert_receive {:connect, :https, "api.elevenlabs.io", 443, options}
+    tls = Keyword.fetch!(options, :transport_opts)
+
+    assert Keyword.fetch!(options, :protocols) == [:http1]
+    assert Keyword.fetch!(tls, :verify) == :verify_peer
+    assert Keyword.fetch!(tls, :cacerts) == :public_key.cacerts_get()
+    assert Keyword.fetch!(tls, :server_name_indication) == ~c"api.elevenlabs.io"
+    assert is_function(tls[:customize_hostname_check][:match_fun])
+    assert_receive {@transport_message, :error, :transport}
+  end
+
+  test "rejects non-loopback unencrypted signed URLs" do
+    assert {:error, :unsupported_url} = MintSocket.start(self(), "ws://api.elevenlabs.io/conversation", [])
+    assert {:error, :unsupported_url} = MintSocket.start(self(), "http://api.elevenlabs.io/conversation", [])
+  end
+
+  test "redacts the signed URL when the connection worker crashes" do
+    signed_url = "wss://api.elevenlabs.io/conversation?token=never-in-crash-report"
+
+    log =
+      capture_log(fn ->
+        {:ok, socket} = MintSocket.start(self(), signed_url, [], connect_fun: fn _, _, _, _ -> raise "test crash" end)
+        monitor = Process.monitor(socket)
+        assert_receive {:DOWN, ^monitor, :process, ^socket, _reason}
+      end)
+
+    refute log =~ signed_url
+    refute log =~ "never-in-crash-report"
   end
 
   defp listen do
