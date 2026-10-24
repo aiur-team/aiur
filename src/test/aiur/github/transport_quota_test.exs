@@ -11,6 +11,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     previous_budget_dir = Application.get_env(:aiur, :github_budget_dir)
     previous_budget_settings = Application.get_env(:aiur, :github_budget_settings_override)
     previous_deadline = Application.get_env(:aiur, :github_request_deadline_ms)
+    previous_admission_timeout = Application.get_env(:aiur, :github_budget_admission_timeout_ms)
     previous_poll_owner = Application.get_env(:aiur, :github_poll_owner)
     previous_selector_options = Application.get_env(:aiur, :github_credential_selector_options)
     quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
@@ -36,6 +37,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       restore_env(:github_budget_dir, previous_budget_dir)
       restore_env(:github_budget_settings_override, previous_budget_settings)
       restore_env(:github_request_deadline_ms, previous_deadline)
+      restore_env(:github_budget_admission_timeout_ms, previous_admission_timeout)
       restore_env(:github_poll_owner, previous_poll_owner)
       restore_env(:github_credential_selector_options, previous_selector_options)
       Aiur.TestCleanup.rm_rf!(budget_dir)
@@ -329,10 +331,13 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     assert {:ok, %{status: 200}} = Task.await(pending_request, 2_000)
   end
 
-  test "non-orchestrator transport survives a broker wait at the measured high-load p99", %{budget_dir: budget_dir} do
+  test "non-orchestrator transport survives SQLite contention beyond the former command cap", %{
+    budget_dir: budget_dir
+  } do
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
-    Application.put_env(:aiur, :github_request_deadline_ms, 5_000)
+    Application.put_env(:aiur, :github_request_deadline_ms, 10_000)
+    Application.put_env(:aiur, :github_budget_admission_timeout_ms, 8_000)
 
     Application.put_env(:aiur, :github_budget_settings_override, %{
       max_inflight: 4,
@@ -355,14 +360,24 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     File.mkdir_p!(budget_dir)
     assert Budget.database_path() == db_path
     assert %{cooldown_until_ms: 0} = Budget.snapshot("measured-p99-token")
-    lock = Port.open({:spawn_executable, System.find_executable("python3")}, [:binary, :exit_status, :use_stdio, args: ["-c", lock_script, db_path]])
+    lock =
+      Port.open({:spawn_executable, System.find_executable("python3")}, [
+        :binary,
+        :exit_status,
+        :use_stdio,
+        args: ["-c", lock_script, db_path]
+      ])
     on_exit(fn -> if Port.info(lock), do: Port.close(lock) end)
 
     assert_receive {^lock, {:data, "locked\n"}}, 1_000
     refute_receive {^lock, {:data, "released\n"}}, 100
 
     Req.Test.stub(__MODULE__, fn conn -> Req.Test.json(conn, []) end)
-    request = %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/5566", token: "measured-p99-token"}
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/owner/repo/issues/5566",
+      token: "measured-p99-token"
+    }
     test_pid = self()
     telemetry_id = {__MODULE__, make_ref()}
 
@@ -401,13 +416,20 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     assert_receive :request_starting, 1_000
 
-    assert_receive {:sqlite_wait, %{sqlite_lock_wait_ms: lock_wait_ms}, %{command_type: :acquire}} when lock_wait_ms >= 1_000, 3_500
+    assert_receive {:sqlite_wait, %{sqlite_lock_wait_ms: lock_wait_ms}, %{command_type: :acquire}}
+                   when lock_wait_ms >= 3_500,
+                   7_000
     Port.command(lock, "\n")
     assert_receive {^lock, {:data, "released\n"}}, 1_000
 
     assert {:ok, %{status: 200}} = Task.await(pending_request, 2_000)
-    assert_receive {:budget_command, %{sqlite_lock_wait_ms: lock_wait_ms}, %{outcome: :completed, command_type: :acquire}}, 1_000
-    assert lock_wait_ms >= 1_000
+    assert_receive {:budget_command,
+                    %{duration_ms: duration_ms, sqlite_lock_wait_ms: lock_wait_ms},
+                    %{outcome: :completed, command_type: :acquire}},
+                   1_000
+
+    assert duration_ms >= 3_500
+    assert lock_wait_ms >= 3_500
   end
 
   test "does not hide a secondary-limit response behind a retry", %{budget_dir: budget_dir} do
