@@ -66,6 +66,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     child_pgid = child_pgid_file |> File.read!() |> String.to_integer()
     assert broker_pgid == supervisor_pgid
     assert child_pgid == broker_pgid
+    wait_until(fn -> process_gone?(child_pid) end)
     assert process_gone?(child_pid)
   end
 
