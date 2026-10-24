@@ -35,45 +35,6 @@ export function reportPending(entries) {
   }
 }
 
-const cellMatches = (entry, cell) => Object.entries(entry.cells ?? {}).every(([key, value]) => cell[key] === value)
-
-// Axe reports a CSS target rather than an element. Resolve that target in the
-// page, then compare the element to the narrowly recorded allowlist selector.
-// Keeping the rule enabled means every non-allowlisted violation still fails.
-export async function auditWithAllowlist(page, audit, entries, cell, scope, spec = basename(test.info().file)) {
-  const active = entries.filter(entry => entry.kind === 'axe' && (!entry.spec || entry.spec === spec) && cellMatches(entry, cell))
-  const candidates = []
-
-  for (const bucket of [audit.violations, audit.incomplete]) {
-    for (const result of bucket) {
-      for (const node of result.nodes) {
-        const matches = active.filter(entry => entry.rule === result.id)
-        if (matches.length) candidates.push({ bucket, result, node, matches })
-      }
-    }
-  }
-
-  const resolved = await page.evaluate(({ items, scope }) => items.map(({ target, matches }) => {
-    const scoped = matches.filter(entry => entry.selector === scope)
-    if (scoped.length) return scoped.map(entry => entry.id)
-    const node = document.querySelector(target.join(' '))
-    return node ? matches.filter(entry => node.matches(entry.selector)).map(entry => entry.id) : []
-  }), { items: candidates.map(({ node, matches }) => ({ target: node.target, matches })), scope })
-
-  const removed = new Set(resolved.flat())
-  for (const entry of active) {
-    if (!removed.has(entry.id)) throw new Error(`stale allowlist entry ${entry.id}`)
-  }
-
-  for (let index = 0; index < candidates.length; index++) {
-    if (resolved[index].length) candidates[index].result.nodes = candidates[index].result.nodes.filter(node => node !== candidates[index].node)
-  }
-  audit.violations = audit.violations.filter(result => result.nodes.length)
-  audit.incomplete = audit.incomplete.filter(result => result.nodes.length)
-
-  return audit
-}
-
 export async function applyAllowlist(pair, cell, entries) {
   entries ??= pair.allowlist ?? await loadAllowlist()
   const masks = { designMask: [], productMask: [] }

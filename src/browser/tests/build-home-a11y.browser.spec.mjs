@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
-import { auditWithAllowlist, loadAllowlist } from '../support/design-parity-allowlist.mjs'
 
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 
@@ -163,18 +162,6 @@ test('reduced motion keeps the board operable without a moving transition', asyn
   await expect(page.locator('.bd-card[tabindex="0"]')).toBeFocused()
 })
 
-test('axe allowlist removes only its recorded nodes and rejects stale entries', async ({ page }) => {
-  await open(page)
-  const audit = { violations: [{ id: 'color-contrast', nodes: [{ target: ['.bd-card'] }, { target: ['#bd-nowbtn'] }] }], incomplete: [] }
-  const entry = { id: 'recorded', kind: 'axe', selector: '#bd-vp .bd-card', rule: 'color-contrast', reason: 'test', approval: { status: 'pending-sign-off', ref: 'test' } }
-  await auditWithAllowlist(page, audit, [entry], { dataset: 'live', theme: 'dark' })
-  expect(audit.violations[0].nodes).toEqual([{ target: ['#bd-nowbtn'] }])
-  await expect(auditWithAllowlist(page, { violations: [{ id: 'color-contrast', nodes: [{ target: ['#bd-nowbtn'] }] }], incomplete: [] }, [entry], { dataset: 'live', theme: 'dark' }))
-    .rejects.toThrow('stale allowlist entry recorded')
-})
-
-let axeAllowlist
-
 for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknowns']) {
   for (const view of ['graph', 'gantt', 'list']) {
     for (const theme of ['dark', 'light']) {
@@ -183,9 +170,8 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         await open(page, dataset, view, mode)
         await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)
         await settleAnimations(page, '#build-root')
-        axeAllowlist ??= await loadAllowlist()
         const audit = await new AxeBuilder({ page }).include('#bd-vp').analyze()
-        expectAuditClean(await auditWithAllowlist(page, audit, axeAllowlist, { dataset, theme }, '#bd-vp'))
+        expectAuditClean(audit)
       })
     }
   }

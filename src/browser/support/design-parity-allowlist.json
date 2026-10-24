@@ -1,20 +1,5 @@
 [
   {
-    "id": "build-home-axe-design-contrast",
-    "kind": "axe",
-    "selector": "#bd-vp",
-    "rule": "color-contrast",
-    "spec": "build-home-a11y.browser.spec.mjs",
-    "cells": {},
-    "reason": "DESIGN-E8 keeps compact labels, canvas overlays and their design-owned contrast values pending C12-T08 sign-off.",
-    "approval": {
-      "status": "pending-sign-off",
-      "by": null,
-      "date": null,
-      "ref": "docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C12-T05.md#46-contrast"
-    }
-  },
-  {
     "id": "demo-data-select",
     "kind": "design-removal",
     "selector": ".bd-exl",
