@@ -370,13 +370,30 @@ defmodule Aiur.LandingWatch do
   # A ticket back in rework or with a running agent owns its PR; an Executor dequeue must stick (#4772).
   defp land_unless_ticket_active(observation, opts) do
     case TicketLookup.fetch(observation, opts) do
-      {:ok, issue, _state, _paused?, true} -> HeldApproval.attention(observation, issue, opts)
-      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "in-progress", "todo", "foreign"] -> :ok
-      {:ok, _issue, _state, _paused?, _held?} -> revalidate_attribution_and_enqueue(observation, opts)
-      {:error, :pull_request_not_linked_to_ticket_branch} -> revalidate_attribution_and_enqueue(observation, opts)
-      {:error, _} = error -> error
+      {:ok, issue, _state, _paused?, true} ->
+        HeldApproval.attention(observation, issue, opts)
+
+      {:ok, _issue, state, _paused?, _held?} when state in ["rework", "todo", "foreign"] ->
+        :ok
+
+      {:ok, _issue, "in-progress", _paused?, _held?} ->
+        if clean_green_approved_head?(observation), do: revalidate_attribution_and_enqueue(observation, opts), else: :ok
+
+      {:ok, _issue, _state, _paused?, _held?} ->
+        revalidate_attribution_and_enqueue(observation, opts)
+
+      {:error, :pull_request_not_linked_to_ticket_branch} ->
+        revalidate_attribution_and_enqueue(observation, opts)
+
+      {:error, _} = error ->
+        error
     end
   end
+
+  defp clean_green_approved_head?(%{mergeable: "MERGEABLE", merge_state_status: "CLEAN", review_decision: "APPROVED", draft?: false} = observation),
+    do: Classifier.approved_at_head?(observation.raw)
+
+  defp clean_green_approved_head?(_observation), do: false
 
   defp revalidate_attribution_and_enqueue(observation, opts),
     do: QueueAdmission.run(observation, opts, &maybe_enqueue/2, &route_rework/3)

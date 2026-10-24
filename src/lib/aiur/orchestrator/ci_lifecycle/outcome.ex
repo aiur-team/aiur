@@ -61,7 +61,14 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       if CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and ReviewHandoff.ready_unreviewed_head?(result) do
         ReviewHandoff.transition(state, issue, result)
       else
-        transition_ci_pass(state, issue, result)
+        if approved_green_ci_wait_head?(issue, result) do
+          state
+          |> clear_ci_test_failure_retry(issue)
+          |> remember_ci_approved_head(issue, result)
+          |> ResultProjection.stash_last_ci_result(issue, result)
+        else
+          transition_ci_pass(state, issue, result)
+        end
       end
     end
   end
@@ -93,6 +100,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
+
+  defp approved_green_ci_wait_head?(issue, result) do
+    CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and
+      result[:review_decision] == "APPROVED" and result[:reviewed_head?] == true and
+      result[:draft?] == false and is_binary(result[:head_sha])
+  end
 
   @doc false
   @spec route_conflicting_pr(State.t(), Issue.t(), map(), keyword()) :: State.t()

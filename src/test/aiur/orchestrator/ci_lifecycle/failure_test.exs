@@ -166,6 +166,29 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       assert event.failure_excerpt == "lint failed after handoff"
     end
 
+    test "approved reviewed green head stays in ci-wait for landing watcher" do
+      identifier = unique_identifier("ci-approved-green-wait")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: "approved-head",
+          pr_number: 100,
+          review_decision: "APPROVED",
+          reviewed_head?: true,
+          draft?: false
+        })
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _, {:tracker_update, ^identifier, "in-progress", _}}
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.running[identifier].paused_reason == :ci_wait
+    end
+
     test "red CI on a draft in ci-wait without a worker leaves exactly rework" do
       identifier = to_string(System.unique_integer([:positive]))
       issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}

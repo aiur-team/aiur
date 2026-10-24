@@ -34,6 +34,15 @@ defmodule Aiur.LandingWatch.ReworkEnqueueGateTest do
     assert_received {:enqueued, "new-head"}
   end
 
+  test "approved CLEAN green PR is enqueued while CI handoff briefly labels ticket in-progress" do
+    parent = self()
+    observation = approved_observation("clean-green-head") |> Map.merge(%{mergeable: "MERGEABLE", merge_state_status: "CLEAN"})
+
+    assert :ok = LandingWatch.process(observation, landing_opts(parent, "in-progress", journal_path()))
+
+    assert_received {:enqueued, "clean-green-head"}
+  end
+
   test "landing watcher skips a held head and enqueues the same PR after its head changes" do
     parent = self()
     path = journal_path()

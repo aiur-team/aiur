@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.StartupClaimReconciler do
   @moduledoc """
-  Releases orphaned tracker claims after a grace period on every candidate poll.
+  Releases orphaned tracker claims once during daemon startup.
 
   Live registry entries, workspace leases, scheduled retries and operator holds
   protect a claim. Failed writes retain the existing bounded retry policy.
@@ -25,9 +25,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   @spec reconcile(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
   def reconcile(state, issues, opts \\ [])
 
-  def reconcile(%State{startup_claim_reconciliation_complete?: true} = state, issues, opts)
+  def reconcile(%State{startup_claim_reconciliation_complete?: true} = state, issues, _opts)
       when is_list(issues) do
-    do_run_pass(state, issues, opts)
+    {state, reject_pending_releases(state, issues)}
   end
 
   def reconcile(%State{} = state, issues, opts) when is_list(issues) and is_list(opts) do

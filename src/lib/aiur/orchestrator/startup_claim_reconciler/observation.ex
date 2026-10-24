@@ -51,20 +51,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   defp orphan?(state, issue, opts) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and is_binary(issue.identifier) and
       not Issue.paused?(issue) and not Issue.held?(issue) and
-      not ci_wait_owner?(state, issue) and
       not rework_waiting_for_capacity?(state, issue) and
       not tracked?(state, issue) and
       lease_free?(issue, opts)
-  end
-
-  # A passing CI poll can transiently write in-progress for an already parked
-  # ticket while its CI lifecycle is still active. That paused owner is not an
-  # orphaned worker claim.
-  defp ci_wait_owner?(state, issue) do
-    case Map.get(state.running, issue.id) do
-      %{paused_reason: :ci_wait} -> true
-      _ -> false
-    end
   end
 
   defp rework_waiting_for_capacity?(state, issue) do
