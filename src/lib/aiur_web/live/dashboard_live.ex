@@ -200,7 +200,6 @@ defmodule AiurWeb.DashboardLive do
   defp conversation_route_row?(%{identity: %TrackerIdentity{} = identity}, owner, repository, identifier) do
     identity.owner == owner and identity.repository == repository and identity.identifier == identifier
   end
-
   defp conversation_route_row?(_row, _owner, _repository, _identifier), do: false
 
   @impl true
