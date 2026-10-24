@@ -45,15 +45,16 @@ defmodule Aiur.LandingWatch.PrRerunBaseGreenTest do
       known_failure_patterns: [],
       job_log_fun: fn _, _ -> {:ok, "unrecognized test failure"} end,
       main_history_fun: fn -> history end,
-      ci_merges_fun: fn _ -> {:ok, [%{"pr" => 5913, "merged_at_ms" => @started_ms + 30_000, "paths" => ["mix.lock"]}]} end,
+      ci_merges_fun: fn _ -> {:ok, [%{"pr" => 5913, "merged_at_ms" => @started_ms + 30_000, "paths" => ["src/mix.lock"]}]} end,
       changed_paths_fun: fn _, _ -> {:ok, ["src/lib/aiur/feature.ex"]} end,
       base_branch: "main",
       rerun_fun: fn _, _ -> send(parent, :rerun) && {:ok, %{}} end,
-      base_changes_fun: fn "head-sha", "main", _ -> {:ok, ["README.md"]} end,
+      base_changes_fun: fn _head, "main", _ -> {:ok, ["README.md"]} end,
       update_branch_fun: fn 17, "head-sha", _ -> send(parent, :updated) && {:ok, %{}} end,
       observe_refresh_fun: fn _, _ -> {:ok, %{"headRefOid" => "refreshed-head"}} end,
       approval_carry_classifier: fn _, _, _, _ -> :identical end,
       comment_fun: fn _, _, _ -> {:ok, %{}} end,
+      rework_fun: fn _, failures, _ -> send(parent, {:rework, failures}) && :ok end,
       job_log_fun: fn _, _ -> {:ok, "unrecognized test failure"} end,
       journal_path: path,
       now_ms: @started_ms + 3_600_000
@@ -65,9 +66,18 @@ defmodule Aiur.LandingWatch.PrRerunBaseGreenTest do
     refute_received :rerun
 
     later_opts = Keyword.put(opts, :now_ms, @started_ms + 4_000_000)
-    assert :ok = PrRerun.handle_failure(observation, %{failures: [%{name: "audit"}]}, [run], later_opts)
+
+    refreshed_observation = %{
+      observation
+      | head: "refreshed-head",
+        raw: %{"reviewDecision" => "APPROVED", "headRefOid" => "refreshed-head", "isDraft" => false},
+        reviews: [%{"commit" => %{"oid" => "refreshed-head"}}]
+    }
+
+    assert :ok = PrRerun.handle_failure(refreshed_observation, %{failures: [%{name: "audit"}]}, [run], later_opts)
     refute_received :updated
     refute_received :rerun
+    assert_received {:rework, [%{name: "audit"}]}
   end
 
   test "a green main check without a changed check input does not refresh a PR-caused test failure" do
@@ -117,6 +127,58 @@ defmodule Aiur.LandingWatch.PrRerunBaseGreenTest do
     assert reason =~ "base input fix event"
   end
 
+  test "disjoint PR failures need a later passing main check" do
+    observations = [
+      %{number: 18, head: "head-18", raw: %{"reviewDecision" => "APPROVED", "headRefOid" => "head-18", "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "head-18"}}]}}},
+      %{number: 19, head: "head-19", raw: %{"reviewDecision" => "APPROVED", "headRefOid" => "head-19", "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "head-19"}}]}}}
+    ]
+
+    run = %{"run_id" => nil, "name" => "test", "status" => "completed", "conclusion" => "failure", "started_at" => @started}
+
+    opts = [
+      current_pr: 18,
+      all_observations: observations,
+      main_history_fun: fn -> [%{completed_at: @started_ms + 60_000, checks: [%{name: "test", conclusion: "failure"}]}] end,
+      failed_checks_fun: fn _observation, _opts -> {:ok, ["test"]} end,
+      changed_paths_fun: fn
+        18, _ -> {:ok, ["src/one.ex"]}
+        19, _ -> {:ok, ["src/two.ex"]}
+      end
+    ]
+
+    assert {:ok, :rework} = PrRerunClassifier.classify(%{number: 18}, %{failures: [%{name: "test"}]}, [run], opts)
+  end
+
+  test "the main-red-window rule still requires every failed PR check to be red on main" do
+    run = %{
+      "name" => "gate",
+      "conclusion" => "failure",
+      "started_at" => @started,
+      "workflow_jobs" => [
+        %{"name" => "audit", "conclusion" => "failure"},
+        %{"name" => "test", "conclusion" => "failure"}
+      ]
+    }
+
+    history = [
+      %{completed_at: @started_ms - 60_000, checks: [%{name: "audit", conclusion: "failure"}, %{name: "test", conclusion: "success"}]},
+      %{completed_at: @started_ms + 60_000, checks: [%{name: "audit", conclusion: "success"}, %{name: "test", conclusion: "success"}]}
+    ]
+
+    refute PrRerunClassifier.stale_merge_ref?(run, main_history_fun: fn -> history end)
+  end
+
+  test "a scripts merge does not excuse a PR-caused test failure" do
+    history = [%{completed_at: @started_ms + 60_000, checks: [%{name: "test", conclusion: "success"}]}]
+    run = %{"run_id" => nil, "name" => "test", "status" => "completed", "conclusion" => "failure", "started_at" => @started, "workflow_jobs" => [%{"name" => "test", "conclusion" => "failure"}]}
+
+    assert {:ok, :rework} =
+             PrRerunClassifier.classify(%{number: 18}, %{failures: [%{name: "test"}]}, [run],
+               main_history_fun: fn -> history end,
+               ci_merges_fun: fn _ -> {:ok, [%{"pr" => 5913, "merged_at_ms" => @started_ms + 30_000, "paths" => ["scripts/audit-hex-dependencies.py"]}]} end
+             )
+  end
+
   test "a merged dependency input is recorded for green-main base-fix detection" do
     path = Path.join(System.tmp_dir!(), "landing-ci-input-#{System.unique_integer([:positive])}.json")
     ExUnit.Callbacks.on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
@@ -126,11 +188,11 @@ defmodule Aiur.LandingWatch.PrRerunBaseGreenTest do
              PrRerun.record_merge(event,
                journal_path: path,
                base_branch: "main",
-               changed_paths_fun: fn _, _ -> {:ok, ["mix.lock", "README.md"]} end
+               changed_paths_fun: fn _, _ -> {:ok, ["src/mix.lock", "README.md"]} end
              )
 
     merged_at = @started_ms + 3_600_000
-    assert {:ok, [%{"pr" => 5921, "paths" => ["mix.lock"], "merged_at_ms" => ^merged_at}]} = Journal.ci_merges(journal_path: path)
+    assert {:ok, [%{"pr" => 5921, "paths" => ["src/mix.lock"], "merged_at_ms" => ^merged_at}]} = Journal.ci_merges(journal_path: path)
   end
 
   test "a main check that finished before the input fix does not make the PR ref stale" do

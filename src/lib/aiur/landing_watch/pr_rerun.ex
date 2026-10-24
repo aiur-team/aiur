@@ -279,10 +279,27 @@ defmodule Aiur.LandingWatch.PrRerun do
         :ok
 
       {:error, :base_fix_refresh_already_claimed} ->
-        :ok
+        route_exhausted_base_fix(observation, failed, reason, opts)
 
       {:error, :rerun_limit_reached} ->
         with :ok <- Journal.clear_rerun_pending(observation.number, observation.head, opts), do: alert_limit(observation, opts)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp route_exhausted_base_fix(observation, failed, reason, opts) do
+    event = Regex.run(~r/base input fix event ([^; ]+)/, reason, capture: :all_but_first) |> List.first() || "unknown"
+    marker = "base-fix-exhausted-#{event}"
+
+    case Journal.claim_alert(observation.number, observation.head, marker, opts) do
+      {:ok, :new} ->
+        failures = Enum.map(failed, &%{name: &1["name"], excerpt: "check still fails after its base-fix refresh"})
+        LandingWatch.rework(observation, failures, Keyword.delete(opts, :hold_rework))
+
+      {:ok, :already_claimed} ->
+        :ok
 
       {:error, _} = error ->
         error
@@ -395,8 +412,10 @@ defmodule Aiur.LandingWatch.PrRerun do
     end
   end
 
-  defp relevant_ci_input?(path) when path in ["mix.lock", "mix.exs"], do: true
-  defp relevant_ci_input?(path) when is_binary(path), do: String.starts_with?(path, ".github/") or String.starts_with?(path, "scripts/")
+  defp relevant_ci_input?(path) when is_binary(path) do
+    Path.basename(path) in ["mix.lock", "mix.exs"] or String.starts_with?(path, ".github/") or String.starts_with?(path, "scripts/")
+  end
+
   defp relevant_ci_input?(_), do: false
 
   # Firehose events carry the PR's base; a merge into a stacked branch changes no base CI.
