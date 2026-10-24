@@ -67,7 +67,7 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 
 ### Shared GitHub quota
 
-GitHub-backed runs meter the shared agent credential's core and GraphQL budgets in the dashboard, including remaining units, reset times, rolling read/write attribution, and the top ticket consumer. Aiur raises an Executor alert at 10% remaining and pauses new dispatch until the affected window resets.
+GitHub-backed runs meter the shared credential's core and GraphQL budgets, with reset times, read/write attribution, and top ticket consumer. API and model bars show the share remaining: full is 100% left, empty is unusable until reset. Labels match the bar and warning colours appear near empty. Aiur alerts at 10% remaining and pauses dispatch until reset.
 
 `aiur alerts` reports aged open attentions in `archived_count` instead of listing them. When that count is non-zero, use `aiur alerts --needs-attention --all` to include archived items in the output.
 
