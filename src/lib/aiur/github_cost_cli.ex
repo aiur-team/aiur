@@ -29,8 +29,8 @@ defmodule Aiur.GitHubCostCLI do
   alias Aiur.GitHub.CredentialUsage
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.ReadCache
-  alias Aiur.JSONSafe
   alias Aiur.GitHubCostCLI.Fleet
+  alias Aiur.JSONSafe
 
   @table_min_width 96
   @headers ["CALLER", "BUDGET", "POINTS", "POINTS/HR", "CALLS", "SHARE", "SOURCE"]

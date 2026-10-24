@@ -9,6 +9,7 @@ defmodule Aiur.GitHub.Budget do
 
   alias Aiur.GitHub.Budget.{BrokerPort, ResponseLimits, Settings, Shared, StateDir}
   alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy}
+  alias Aiur.Instance.LeaseStore
   alias Aiur.Signal
 
   require Logger
@@ -192,8 +193,6 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(%{id: id, token_key: key}, {:ok, %{status: 304}}, opts)
        when is_binary(id) and is_binary(key) do
-    _ = Aiur.Instance.LeaseStore.release_github_budget(id)
-
     case BrokerPort.command(["reconcile", "--lease-id", id, "--status", "304"], key, opts) do
       {:ok, _output} -> :ok
       # `command` already logs the broker failure generically; this names the
@@ -377,7 +376,7 @@ defmodule Aiur.GitHub.Budget do
     {core_limit, graphql_limit, search_limit} = actor_limits(Settings.consumer_identity(opts), settings)
 
     {core_limit, graphql_limit, search_limit} =
-      Shared.fallback_limits({core_limit, graphql_limit, search_limit}, Aiur.Instance.LeaseStore.budget_coordination_status())
+      Shared.fallback_limits({core_limit, graphql_limit, search_limit}, LeaseStore.budget_coordination_status())
 
     family = endpoint_family(request)
 

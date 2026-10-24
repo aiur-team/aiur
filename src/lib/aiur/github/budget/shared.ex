@@ -1,9 +1,12 @@
 defmodule Aiur.GitHub.Budget.Shared do
   @moduledoc false
 
-  alias Aiur.GitHub.Budget.{Settings, BrokerPort}
+  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Budget.{BrokerPort, Settings}
+  alias Aiur.Instance.LeaseStore
   @retry_floor_ms 5
 
+  @spec shared_hold(integer(), String.t(), (map() -> term())) :: term()
   def shared_hold(deadline_at, metadata, retry_fun) do
     with [resource, reset_at_ms] <- String.split(String.trim(metadata), " ", parts: 2),
          true <- resource in ["core", "graphql", "search"],
@@ -23,13 +26,14 @@ defmodule Aiur.GitHub.Budget.Shared do
     end
   end
 
+  @spec hold_status(map(), String.t()) :: term()
   def hold_status(request, token_key) do
-    status = Aiur.Instance.LeaseStore.budget_coordination_status()
+    status = LeaseStore.budget_coordination_status()
 
     if status.available? do
       credential_key = Map.get(request, :credential_key) || token_key
 
-      case Aiur.Instance.LeaseStore.github_budget_hold(credential_key, Aiur.GitHub.Budget.request_resource(request)) do
+      case LeaseStore.github_budget_hold(credential_key, Budget.request_resource(request)) do
         {:ok, nil} -> :clear
         {:ok, until_at} when is_struct(until_at, DateTime) -> {:held, until_at}
         {:error, reason} -> {:error, reason}
@@ -40,6 +44,7 @@ defmodule Aiur.GitHub.Budget.Shared do
     end
   end
 
+  @spec grant_or_hold(String.t(), map(), String.t()) :: term()
   def grant_or_hold(id, request, token_key) do
     if String.match?(id, ~r/\A[a-f0-9]{32}\z/) do
       case admit(id, request, token_key) do
@@ -51,7 +56,7 @@ defmodule Aiur.GitHub.Budget.Shared do
 
         {:held, reset_at} ->
           _ = BrokerPort.command(["release", "--lease-id", id], token_key, [])
-          {:hold, %{reason: :shared_budget, resource: Aiur.GitHub.Budget.request_resource(request), reset_at: reset_at}}
+          {:hold, %{reason: :shared_budget, resource: Budget.request_resource(request), reset_at: reset_at}}
 
         {:error, _reason} ->
           _ = BrokerPort.command(["release", "--lease-id", id], token_key, [])
@@ -62,6 +67,7 @@ defmodule Aiur.GitHub.Budget.Shared do
     end
   end
 
+  @spec fallback_limits(tuple(), map()) :: tuple()
   def fallback_limits({core, graphql, search}, coordination) do
     if coordination.available? do
       {core, graphql, search}
@@ -71,39 +77,44 @@ defmodule Aiur.GitHub.Budget.Shared do
     end
   end
 
+  @spec publish_hold(map(), String.t(), String.t(), non_neg_integer()) :: :ok
   def publish_hold(request, token_key, resource, delay_ms) do
     credential_key = Map.get(request, :credential_key) || token_key
     until_at = DateTime.add(DateTime.utc_now(), max(ceil(delay_ms / 1_000), 1), :second)
-    _ = Aiur.Instance.LeaseStore.publish_github_budget_hold(credential_key, resource, until_at)
+    _ = LeaseStore.publish_github_budget_hold(credential_key, resource, until_at)
     :ok
   end
 
   defp admit(lease_id, request, token_key) do
-    if Aiur.Instance.LeaseStore.budget_coordination_status().available? do
-      resource = Aiur.GitHub.Budget.request_resource(request)
-      limits = Settings.settings([])
-
-      limit =
-        case resource do
-          "graphql" -> limits.daemon_graphql_limit_per_hour
-          "search" -> limits.daemon_search_limit_per_hour
-          "core" -> limits.daemon_core_limit_per_hour
-          _ -> 0
-        end
-
-      credential_key = Map.get(request, :credential_key) || token_key
-      consumer_key = Settings.consumer_key([])
-
-      points = request_points(request, resource)
-
-      case Aiur.Instance.LeaseStore.admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points) do
-        {:ok, :admitted} -> :admitted
-        {:ok, {:held, reset_at}} -> {:held, reset_at}
-        :disabled -> :disabled
-        {:error, _reason} = error -> error
-      end
+    if LeaseStore.budget_coordination_status().available? do
+      admit_shared(lease_id, request, token_key)
     else
       :disabled
+    end
+  end
+
+  defp admit_shared(lease_id, request, token_key) do
+    resource = Budget.request_resource(request)
+    limits = Settings.settings([])
+    limit = resource_limit(resource, limits)
+    credential_key = Map.get(request, :credential_key) || token_key
+    consumer_key = Settings.consumer_key([])
+    points = request_points(request, resource)
+
+    case LeaseStore.admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points) do
+      {:ok, :admitted} -> :admitted
+      {:ok, {:held, reset_at}} -> {:held, reset_at}
+      :disabled -> :disabled
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp resource_limit(resource, limits) do
+    case resource do
+      "graphql" -> limits.daemon_graphql_limit_per_hour
+      "search" -> limits.daemon_search_limit_per_hour
+      "core" -> limits.daemon_core_limit_per_hour
+      _other -> 0
     end
   end
 

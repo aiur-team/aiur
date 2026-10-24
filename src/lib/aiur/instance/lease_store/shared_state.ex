@@ -3,24 +3,33 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
 
   @name Aiur.Instance.LeaseStore
 
+  @spec admit_github_budget(String.t(), String.t(), String.t(), String.t(), non_neg_integer(), pos_integer(), keyword()) :: term()
   def admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points \\ 1, opts \\ []) do
     call({:admit_github_budget, lease_id, credential_key, resource, consumer_key, limit, points}, opts, :disabled)
   end
 
+  @spec release_github_budget(String.t(), keyword()) :: term()
   def release_github_budget(lease_id, opts \\ []), do: call({:release_github_budget, lease_id}, opts, :disabled)
 
+  @spec publish_github_budget_hold(String.t(), String.t(), DateTime.t(), keyword()) :: term()
   def publish_github_budget_hold(credential_key, resource, until_at, opts \\ []) do
     call({:publish_github_budget_hold, credential_key, resource, until_at}, opts, :disabled)
   end
 
+  @spec github_budget_hold(String.t(), String.t(), keyword()) :: term()
   def github_budget_hold(credential_key, resource, opts \\ []),
     do: call({:github_budget_hold, credential_key, resource}, opts, :disabled)
 
+  @spec publish_provider_meter(Aiur.ProviderMeterSnapshot.t(), keyword()) :: term()
   def publish_provider_meter(snapshot, opts \\ []), do: call({:publish_provider_meter, snapshot}, opts, :disabled)
+  @spec shared_provider_meter(atom(), keyword()) :: term()
   def shared_provider_meter(provider, opts \\ []), do: call({:shared_provider_meter, provider}, opts, :disabled)
+  @spec publish_github_quota_snapshot(map(), keyword()) :: term()
   def publish_github_quota_snapshot(snapshot, opts \\ []), do: call({:publish_github_quota_snapshot, snapshot}, opts, :disabled)
+  @spec github_quota_snapshots(keyword()) :: term()
   def github_quota_snapshots(opts \\ []), do: call(:github_quota_snapshots, opts, :disabled)
 
+  @spec budget_coordination_status(keyword()) :: %{available?: boolean(), live_count: pos_integer()}
   def budget_coordination_status(opts \\ []) do
     if configured?() do
       GenServer.call(Keyword.get(opts, :server, @name), {:shared_state, :budget_coordination_status})
@@ -31,6 +40,7 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
     :exit, _reason -> %{available?: false, live_count: 1}
   end
 
+  @spec handle_call(term(), map()) :: {:reply, term(), map()}
   def handle_call(:last_live_count, state), do: {:reply, state.known_instance_count, state}
 
   def handle_call(:budget_coordination_status, state),
@@ -137,6 +147,13 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
   defp admit(conn, lease_id, credential_key, resource, consumer_key, instance_id, limit, points) do
     Postgrex.transaction(conn, fn transaction_conn ->
       _ = Postgrex.query!(transaction_conn, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [credential_key <> ":" <> resource])
+
+      _ =
+        Postgrex.query!(
+          transaction_conn,
+          "DELETE FROM aiur_github_budget_admissions WHERE credential_key = $1 AND resource = $2 AND admitted_at <= clock_timestamp() - interval '1 hour'",
+          [credential_key, resource]
+        )
 
       %{rows: [[used, oldest]]} =
         Postgrex.query!(

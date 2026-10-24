@@ -23,6 +23,7 @@ defmodule Aiur.ProviderMeterProjection do
 
   use GenServer
 
+  alias Aiur.Instance.LeaseStore
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeters.HostObservations
   alias Aiur.ProviderMeterSnapshot
@@ -208,7 +209,7 @@ defmodule Aiur.ProviderMeterProjection do
   @impl true
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{provider: provider} = snapshot}, state)
       when provider in @providers do
-    if snapshot.identity_scope == :account, do: Aiur.Instance.LeaseStore.publish_provider_meter(snapshot)
+    if snapshot.identity_scope == :account, do: LeaseStore.publish_provider_meter(snapshot)
 
     {:noreply,
      %{
@@ -222,7 +223,7 @@ defmodule Aiur.ProviderMeterProjection do
 
   defp merge_shared_observations(state) do
     Enum.reduce(@providers, state, fn provider, acc ->
-      case Aiur.Instance.LeaseStore.shared_provider_meter(provider) do
+      case LeaseStore.shared_provider_meter(provider) do
         {:ok, %ProviderMeterSnapshot{} = shared} ->
           observations = retain(acc.observations, provider, shared)
           %{acc | observations: observations}

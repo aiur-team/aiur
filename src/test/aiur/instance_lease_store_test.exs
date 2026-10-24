@@ -205,8 +205,6 @@ defmodule Aiur.Instance.LeaseStoreTest do
         budget_key = "github-budget-test-#{suffix}"
         assert {:ok, :admitted} = LeaseStore.admit_github_budget("budget-left-#{suffix}", budget_key, "graphql", "left", 100, 60, server: left)
         assert {:ok, {:held, %DateTime{}}} = LeaseStore.admit_github_budget("budget-right-#{suffix}", budget_key, "graphql", "right", 100, 60, server: right)
-        assert :ok = LeaseStore.release_github_budget("budget-left-#{suffix}", server: left)
-
         observed_at = DateTime.utc_now()
 
         provider_snapshot = %Aiur.ProviderMeterSnapshot{

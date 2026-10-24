@@ -3,6 +3,7 @@ defmodule Aiur.GitHubCostCLI.Fleet do
 
   alias Aiur.Instance.LeaseStore
 
+  @spec attribution(map(), String.t(), keyword()) :: map()
   def attribution(_local_snapshot, budget, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     snapshots_fun = Keyword.get(opts, :fleet_snapshots_fun, &LeaseStore.github_quota_snapshots/0)
@@ -25,6 +26,7 @@ defmodule Aiur.GitHubCostCLI.Fleet do
     _error -> unavailable()
   end
 
+  @spec print(map()) :: :ok
   def print(%{"available?" => true, "instances" => instances} = fleet) do
     IO.puts("")
     IO.puts("fleet attributed spend: #{fleet["total_attributed_points"]} points across #{fleet["observed_instances"]} observed instances")

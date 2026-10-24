@@ -5,7 +5,7 @@ defmodule Aiur.Instance.LeaseStore do
   require Logger
 
   alias Aiur.Instance.Identity
-  alias Aiur.Instance.LeaseStore.{Postgres, Renewal, TicketKey}
+  alias Aiur.Instance.LeaseStore.{Postgres, Renewal, SharedState, TicketKey}
 
   @name __MODULE__
   @default_ttl_ms 30_000
@@ -327,7 +327,7 @@ defmodule Aiur.Instance.LeaseStore do
   end
 
   def handle_call({:shared_state, message}, _from, state) do
-    case Aiur.Instance.LeaseStore.SharedState.handle_call(message, state) do
+    case SharedState.handle_call(message, state) do
       {:reply, {:error, {:store_unavailable, reason}} = reply, next_state} when is_pid(next_state.conn) ->
         next_state = report_unavailable(%{next_state | conn: nil}, reason) |> schedule_reconnect()
         {:reply, reply, next_state}
