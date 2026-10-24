@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.FeatureDefaults do
   @moduledoc false
 
   @defaults %{
-    "queue" => {"queue-list", "Keep the agent pool supplied with unblocked work.", 0},
+    "build-queue" => {"queue-list", "Keep the agent pool supplied with unblocked work.", 0},
     "home" => {"home", "Show the platform program and its Build Order work clearly.", 0},
     "refactor-units" => {"wrench-screwdriver", "Refactor units U0–U7 and U9 into reusable components.", 1},
     "size-reduction" => {"scissors", "Reduce module size while preserving the component boundaries.", 1},
