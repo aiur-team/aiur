@@ -246,7 +246,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
        ) do
     report_session_execution(codex_update_recipient, issue, session)
     DispatchSelectionEvent.write(workspace, worker_host, issue)
-    SessionResume.persist_session_handle(session, issue.identifier, worker_host)
+    handle_opts = Keyword.get(opts, :session_handle_opts, [])
+    SessionResume.persist_session_handle(session, issue.identifier, worker_host, handle_opts)
     SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
     report_repl_session(codex_update_recipient, issue, session)
     report_pause_containment(codex_update_recipient, issue, session)
@@ -266,7 +267,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # A resumed thread already carries the original task + full prior turn
     # history, so its first turn must continue rather than replay the
     # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
-    opts = SessionResume.put_first_turn_opts(opts, session, issue.identifier)
+    opts = SessionResume.put_first_turn_opts(opts, session, issue.identifier, handle_opts)
 
     try do
       result =

@@ -189,6 +189,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     case result do
       {:ok, turn_session} ->
+        SessionResume.fresh_turn_completed(app_session, issue.identifier)
         :ok = WipPreservation.mark_delivered(wip_notices)
 
         SessionResume.maybe_persist_turn_handle(
