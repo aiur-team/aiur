@@ -276,7 +276,7 @@ defmodule Aiur.Orchestrator.CiRecoveryTest do
     assert :ok = CiRecovery.record_failure(ctx.issue, ctx.result, ctx.opts)
     state = poll.(state, %{ctx.result | decision: :passed, failures: []})
     assert state |> StatusReport.snapshot_input() |> SnapshotPayload.snapshot_payload() |> Map.get(:ci_wait) == []
-    assert_received {:ci_watcher_update, "3864", "in-progress"}
+    assert_received {:ci_watcher_update_opts, "3864", "human-review", [expected_state: "ci-wait"]}
     assert {:ok, %{"cycles" => 0, "attentions" => []}} = CiRecoveryStore.read("3864", 42, ctx.opts)
     assert length(writes(ctx)) == 1
   end
