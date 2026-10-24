@@ -31,6 +31,12 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
 
     state = %State{}
     event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
+
+    reason_label_writer = fn id, action ->
+      send(self(), {:body_fix_label, id, action})
+      :ok
+    end
+
     condition = :atomics.new(1, [])
     condition_state = fn _ -> if :atomics.get(condition, 1) == 1, do: :firing, else: :unknown end
 
@@ -43,19 +49,23 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     EventTopics.route(state, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: reason_label_writer
     )
 
     assert :atomics.get(emitted, 1) == 1
+    assert_received {:body_fix_label, ^identifier, :add}
     :atomics.put(condition, 1, 1)
 
     EventTopics.route(state, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: reason_label_writer
     )
 
     assert :atomics.get(emitted, 1) == 1
+    assert_received {:body_fix_label, ^identifier, :add}
   end
 
   test "retry progress resolves an outstanding stalled alert once" do
@@ -166,15 +176,26 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     state = %State{}
     event = %{topic: "ticket.#{identifier}.branch.push", sha: pushed_sha}
 
-    PushRouting.check_pr_body_head(state, identifier, event,
-      pull_request_fetcher: pr_fetch,
-      alert_emitter: emitter
-    )
+    reason_label_writer = fn id, action ->
+      send(self(), {:reason_label, id, action})
+      :ok
+    end
 
     PushRouting.check_pr_body_head(state, identifier, event,
       pull_request_fetcher: pr_fetch,
-      alert_emitter: emitter
+      alert_emitter: emitter,
+      reason_label_writer: reason_label_writer
     )
+
+    assert_received {:reason_label, ^identifier, :remove}
+
+    PushRouting.check_pr_body_head(state, identifier, event,
+      pull_request_fetcher: pr_fetch,
+      alert_emitter: emitter,
+      reason_label_writer: reason_label_writer
+    )
+
+    assert_received {:reason_label, ^identifier, :remove}
   end
 
   test "an older queued branch push still alerts when the live PR body is stale" do
@@ -206,7 +227,8 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     EventTopics.route(%State{}, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: fn _id, _action -> :ok end
     )
 
     assert :atomics.get(emitted, 1) == 1
@@ -215,7 +237,8 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
     EventTopics.route(%State{}, event,
       pull_request_fetcher: pr_fetch,
       alert_emitter: emitter,
-      condition_state: condition_state
+      condition_state: condition_state,
+      reason_label_writer: fn _id, _action -> :ok end
     )
 
     assert :atomics.get(emitted, 1) == 1
