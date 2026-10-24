@@ -67,12 +67,7 @@ defmodule Aiur.LandingWatch.Observer do
          true <-
            Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) and
              is_nil(Map.get(pr, "mergeQueueEntry")) and is_nil(Map.get(pr, "autoMergeRequest")) do
-      case {Map.get(pr, "mergeable"), Map.get(pr, "mergeStateStatus")} do
-        {"MERGEABLE", state} when state in ["CLEAN", "UNSTABLE"] -> :ok
-        {"CONFLICTING", _} -> {:error, :merge_conflict}
-        {"UNKNOWN", _} -> {:hold, :mergeability_unknown}
-        _ -> {:error, :mergeability_unavailable}
-      end
+      mergeability_verdict(pr)
     else
       {:error, _} = error -> error
       false -> {:error, :approval_or_head_changed}
@@ -81,6 +76,11 @@ defmodule Aiur.LandingWatch.Observer do
   end
 
   def revalidate_approved_head(_, _, _), do: {:error, :invalid_approval_revalidation}
+
+  defp mergeability_verdict(%{"mergeable" => "MERGEABLE", "mergeStateStatus" => state}) when state in ["CLEAN", "UNSTABLE"], do: :ok
+  defp mergeability_verdict(%{"mergeable" => "CONFLICTING"}), do: {:error, :merge_conflict}
+  defp mergeability_verdict(%{"mergeable" => "UNKNOWN"}), do: {:hold, :mergeability_unknown}
+  defp mergeability_verdict(_), do: {:error, :mergeability_unavailable}
 
   defp observe_chunks(prs, owner, repo, token, request_fun) do
     prs
