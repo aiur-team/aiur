@@ -67,7 +67,7 @@
     "test:tokens": "node scripts/run-browser-tests.mjs tests/build-home-tokens.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:shell-chrome": "node scripts/run-browser-tests.mjs tests/shell-chrome.browser.spec.mjs",
     "test:shell-parity": "node scripts/run-browser-tests.mjs tests/shell-design-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
-    "test:build-home-motion": "node --test scripts/build-home-motion-selection.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs --config playwright.build-home-motion.config.mjs",
+    "test:build-home-motion": "node --test scripts/build-home-motion-selection.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs tests/build-home-live-shimmer-motion.browser.spec.mjs --config playwright.build-home-motion.config.mjs",
     "test:build-home-motion:full": "AIUR_PARITY_FULL=1 npm run test:build-home-motion",
     "test:home-css": "AIUR_BROWSER_KEEP_ARTIFACTS=1 node scripts/run-browser-tests.mjs tests/home-css-census.browser.spec.mjs tests/home-css-parity.browser.spec.mjs --config playwright.design-parity.config.mjs --fully-parallel --workers=4 --global-timeout 900000",
     "test:build-home-estimate": "node --test tests/build-home-estimate.test.mjs",
