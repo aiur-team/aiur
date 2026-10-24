@@ -1,8 +1,7 @@
 # GitHub API budgets
-
 ## API budgets
 
-Daemons sharing a GitHub credential pool use the same `AIUR_LEASE_DATABASE_URL` to share admissions, active holds and quota snapshots; account-scoped provider readings are shared there too. If the store is unavailable, daemon hourly ceilings divide by the last observed instance count. Agent `gh` calls keep their host-local ledger, and agents never receive the database URL.
+Daemons sharing a GitHub credential pool use `AIUR_LEASE_DATABASE_URL` for shared admissions, holds, quota snapshots and account-scoped provider readings. If unavailable, each daemon divides hourly ceilings by the last observed instance count. Agent `gh` calls keep host-local ledgers; agents never receive the URL.
 
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
