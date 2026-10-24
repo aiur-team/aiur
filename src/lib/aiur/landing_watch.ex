@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, QueueAdmission, RunnerQueue}
+  alias Aiur.LandingWatch.{Classifier, ConflictRouting, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, QueueAdmission, RunnerQueue}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -162,10 +162,7 @@ defmodule Aiur.LandingWatch do
   end
 
   defp process_all(observations, opts) do
-    Enum.reduce(observations, :ok, fn observation, first_error ->
-      result = process_observation(observation, opts)
-      if first_error == :ok, do: result, else: first_error
-    end)
+    DisjointFailureCache.run(observations, opts, &process_observation/2)
   end
 
   defp process_observation(observation, opts) do

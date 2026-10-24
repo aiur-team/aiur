@@ -186,17 +186,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert measured.fleet_capacity_observed_at_ms == @t0 + 19_998
     assert measured.build_gate_observed_at_ms == @t0 + 19_999
     assert Enum.any?(model.series, &(&1.pressure_state == :stale_fleet))
-    # The first sample is "current" despite an unavailable process table, so
-    # its binding signal and host load are part of the exact pressure evidence.
-    assert model.pressure.latest_admission_signal == "build"
+    # A newer stale or degraded fleet status clears the latest current-sample
+    # values, so the first sample's binding signal is no longer reported.
+    assert model.pressure.latest_admission_signal == nil
     assert model.pressure.latest_load == 3.77
     assert model.pressure.latest_load_threshold == 24
     assert model.pressure.latest_schedulers == 16
     assert model.pressure.peak_occupied == 5
-    assert model.pressure.latest_effective_capacity == 4
-    assert model.pressure.latest_build_capacity == 2
-    assert model.pressure.latest_fleet_observed_at_ms == @t0 + 19_998
-    assert model.pressure.latest_build_observed_at_ms == @t0 + 19_999
+    assert model.pressure.latest_effective_capacity == nil
+    assert model.pressure.latest_build_capacity == nil
+    assert model.pressure.latest_fleet_observed_at_ms == nil
+    assert model.pressure.latest_build_observed_at_ms == nil
     assert model.pressure.longest_wait_seconds == 18
     # A non-"current" fleet sample must never populate the pressure metrics:
     # the third sample is stale, so its 99s must not surface anywhere.
