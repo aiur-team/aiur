@@ -39,7 +39,7 @@ defmodule Aiur.Config.Schema.Instance do
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-00 instance.id
-    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. |
+    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
     field(:id, :string)
 
     # @config-reference config-configuration-00 instance.role
