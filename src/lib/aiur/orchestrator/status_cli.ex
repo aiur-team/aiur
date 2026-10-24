@@ -102,7 +102,8 @@ defmodule Aiur.Orchestrator.StatusCLI do
     bound_ms = control_query_timeout(opts, :section_timeout_ms, @section_timeout_ms)
     deadline_ms = System.monotonic_time(:millisecond) + bound_ms
     # Start every daemon read now so they overlap the table rendering (#5817).
-    header = Sections.start(header_sections())
+    build_status_fun = Keyword.get(opts, :build_status_fun, fn -> Aiur.BuildStatus.current() |> Aiur.BuildStatus.render() end)
+    header = Sections.start(header_sections(build_status_fun))
     footer = Sections.start(footer_sections(opts))
     header_outcomes = Sections.await(header, deadline_ms, bound_ms)
     IO.puts(Aiur.Instance.status_line())
@@ -130,8 +131,9 @@ defmodule Aiur.Orchestrator.StatusCLI do
     exit_marker(status_exit_code(header_outcomes ++ footer_outcomes))
   end
 
-  defp header_sections do
+  defp header_sections(build_status_fun) do
     [
+      build: fn -> Diagnostics.print_build_status(build_status_fun) end,
       listener: &Diagnostics.print_executor_listener_status/0,
       wakes: &ExecutorAttention.CLI.print_wake_status/0,
       commands: &Commands.print_projection_status/0,

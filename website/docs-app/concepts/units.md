@@ -19,6 +19,8 @@ The Units page is the hidden dashboard rollback route `/units`, retained for one
 
 The page re-reads the fleet on every daemon change and at least every 15 seconds. A source that answers too late shows as unavailable on its own surface; the list still loads. When the whole read fails, the page keeps the last list, shows a **Stale list** banner with its age, and replaces each elapsed time with `Stale`.
 
+The Units header and `aiur status` also show the running release's stamped commit and build age. The behind count uses the daemon's cached recent merge history and names its newest merged PR; when that history cannot locate the stamped commit, the count reads `unknown` rather than `0`.
+
 The Summary progress bar uses the daemon's weighted current-run aggregate across Units with current inputs. When that aggregate cannot be computed, the bar keeps its shape but renders as flat grey rather than as zero or a hatched track.
 
 ## Turns, context, and token usage
