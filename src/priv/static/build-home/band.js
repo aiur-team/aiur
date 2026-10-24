@@ -90,7 +90,7 @@ export function renderBand() {
   bl.innerHTML = empty ? '<div class="bd-now-empty">' + esc(empty) + '</div>' : '';
   ctx.bandEl.classList.toggle('min', S.liveMin);
   (available ? ctx.L.band.items : []).forEach(it => {
-    const el = fx.makeCard(it); el.classList.add('noanim'); bl.appendChild(el); it.el = el;
+    const el = fx.makeCard(it); el.classList.add('noanim'); bl.appendChild(el); fx.alignActiveGlow(el); it.el = el;
   });
 }
 export function onBandClick(e) {

@@ -216,7 +216,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
     :sys.replace_state(orchestrator_pid, fn _state -> %{next | snapshot_generation: generation} end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
-             "#{active_issue.identifier} starting #{active_issue.title}"
+             "#{active_issue.identifier} agent:in-progress #{active_issue.title}"
   end
 
   test "Executor messages rearm multiple completed runners without returned workers holding slots" do
