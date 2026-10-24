@@ -169,8 +169,18 @@ defmodule Aiur.LandingWatch.PrRerunBaseGreenTest do
   end
 
   test "a scripts merge does not excuse a PR-caused test failure" do
-    history = [%{completed_at: @started_ms + 60_000, checks: [%{name: "test", conclusion: "success"}]}]
-    run = %{"run_id" => nil, "name" => "test", "status" => "completed", "conclusion" => "failure", "started_at" => @started, "workflow_jobs" => [%{"name" => "test", "conclusion" => "failure"}]}
+    history = [
+      %{completed_at: @started_ms + 60_000, checks: [%{name: "test", conclusion: "success"}, %{name: "workflow security", conclusion: "success"}]}
+    ]
+
+    run = %{
+      "run_id" => nil,
+      "name" => "test",
+      "status" => "completed",
+      "conclusion" => "failure",
+      "started_at" => @started,
+      "workflow_jobs" => [%{"name" => "test", "conclusion" => "failure"}, %{"name" => "workflow security", "conclusion" => "failure"}]
+    }
 
     assert {:ok, :rework} =
              PrRerunClassifier.classify(%{number: 18}, %{failures: [%{name: "test"}]}, [run],
