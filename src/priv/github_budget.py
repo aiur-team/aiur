@@ -1019,18 +1019,13 @@ def run_transaction(db, requests):
         for request, _args in requests:
             request["_sqlite_command_ms"] = transaction_ms - commit_ms
             request["_sqlite_commit_ms"] = commit_ms
-        checkpoint = dict(checkpoint or {})
-        checkpoint.update(broker_metrics.recover_checkpoint_if_needed(db, conn.conn))
-        broker_metrics.schedule_checkpoint(db)
-        for request, _args in requests:
-            request["_db_path"] = db
         return broker_metrics.successful_replies(
             replies,
             {request["id"]: request for request, _args in requests},
             sqlite_open_ms,
             lock_wait_ms,
             transaction_ms,
-            checkpoint,
+            broker_metrics.complete_batch(db, conn.conn, checkpoint, requests),
         )
     except Exception as error:
         if conn is not None and conn.in_transaction:

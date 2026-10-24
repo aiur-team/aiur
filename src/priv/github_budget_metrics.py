@@ -92,6 +92,15 @@ def stale_checkpoint(status):
     return age is not None and age > 600_000
 
 
+def complete_batch(db, conn, checkpoint, requests):
+    checkpoint = dict(checkpoint or {})
+    checkpoint.update(recover_checkpoint_if_needed(db, conn))
+    schedule_checkpoint(db)
+    for request, _args in requests:
+        request["_db_path"] = db
+    return checkpoint
+
+
 def recover_checkpoint_if_needed(db, conn):
     global FALLBACK_LOGGED, LAST_FALLBACK_ATTEMPT_NS, LAST_OBSERVED_WAL_FRAMES, LAST_SUCCESSFUL_CHECKPOINT_NS
     if CHECKPOINT_REQUESTS is None:
