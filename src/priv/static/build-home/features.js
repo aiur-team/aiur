@@ -55,7 +55,7 @@ export function renderFeatures() {
   const D = ctx.D, f = D.features[F], hue = +f.hue, s = f.stats;
   host.innerHTML = '<div class="bd-fh" style="--fh:' + hue + '">' +
     '<div class="bd-fh-name"><i></i>' + esc(f.label) + '</div>' + figuresHTML(s, hue) +
-    '<div style="display:flex;align-items:center;gap:.5rem;justify-self:end"><div class="bd-seg">' +
+    '<div class="bd-fh-controls" style="display:flex;align-items:center;gap:.5rem"><div class="bd-seg">' +
     ['focus', 'compact'].map(m => '<button type="button" data-m="' + m + '" class="' + (S.fmode === m ? 'on' : '') + '">' + I[m] + (m === 'focus' ? 'Focus' : 'Compact') + '</button>').join('') +
     '</div><button class="bd-x" type="button" id="bd-fx" aria-label="Clear feature">' + I.x + '</button></div>' +
     '<div class="bd-fh-ep">' + f.epics.filter(k => Object.hasOwn(D.epics, k)).map(k => '<span class="bd-chip" style="color:oklch(.7 .13 ' + hue + ')">' + I.lock + esc(D.epics[k].label) + '</span>').join('') +

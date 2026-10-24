@@ -6,6 +6,7 @@ test.beforeEach(async ({ page }) => {
   page.featureErrors = []; page.on('pageerror', error => page.featureErrors.push(error.message))
   const root = test.info().project.metadata.featuresRoot
   if (root) await page.route('**/build-home/home.css*', async route => route.fulfill({ contentType: 'text/css', body: await readFile(root + '/src/priv/static/build-home/home.css', 'utf8') }))
+  if (root) await page.route('**/build-home/home/*.css*', async route => route.fulfill({ contentType: 'text/css', body: await readFile(root + '/src/priv/static' + new URL(route.request().url()).pathname, 'utf8') }))
   if (root) await page.route('**/build-home/*.js', async route => route.fulfill({ contentType: 'text/javascript', body: await readFile(root + '/src/priv/static/build-home/' + new URL(route.request().url()).pathname.split('/').at(-1), 'utf8') }))
 })
 test.afterEach(async ({ page }) => { await page.request.get('/build-control/earlier'); expect(page.featureErrors).toEqual([]) })
@@ -222,7 +223,6 @@ test('keyboard Tab and Enter or Space switch feature modes and clear with visibl
   await expect(page).not.toHaveURL(/feature=/)
   await expectKeyboardFocus(page.locator('[data-g="feature"]'))
 })
-// These bounds also guard the existing responsive header CSS against future regressions.
 for (const fmode of ['focus', 'compact']) test(`390px ${fmode} header has no sideways overflow and reachable controls`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await open(page, '?feature=pag' + (fmode === 'compact' ? '&fmode=compact' : ''))
