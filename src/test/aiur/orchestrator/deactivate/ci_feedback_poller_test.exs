@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFeedbackPollerTest do
   alias Aiur.CIApprovalStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.StartupClaimReconciler
   alias Aiur.OrchestratorDeactivateSupport.CIWatcherGitHubClient
 
   import Aiur.OrchestratorDeactivateSupport
@@ -178,8 +179,33 @@ defmodule Aiur.Orchestrator.Deactivate.CiFeedbackPollerTest do
           end
         )
 
-      receive_barrier({:ci_watcher_update, "822", "in-progress"})
+      receive_barrier({:ci_watcher_update, "822", "human-review"})
       assert state.ci_lifecycle.approved_heads == %{"822" => "new-head"}
+    end
+
+    test "passing CI moves an ownerless ticket to human review without flapping" do
+      identifier = "ci-ownerless-pass"
+      issue = %Issue{id: identifier, identifier: identifier, state: "ci-wait", title: "Ownerless CI gate"}
+
+      state =
+        CiLifecycle.poll_github_ci(empty_orchestrator_state(),
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok, %{results: [%{target: identifier, decision: :passed, head_sha: "passed-head", pr_number: 5902}], errors: []}}
+          end
+        )
+
+      receive_barrier({:ci_watcher_update_opts, ^identifier, "human-review", [expected_state: "ci-wait"]})
+      assert state.running == %{}
+      assert state.ci_lifecycle.approved_heads == %{identifier => "passed-head"}
+
+      assert %{decision: :passed, head_sha: "passed-head", tracker_state: "human-review"} =
+               get_in(state.ci_lifecycle, [:poll_cache, identifier])
+
+      review_issue = %Issue{issue | state: "human-review"}
+      {next_state, [^review_issue]} = StartupClaimReconciler.reconcile(state, [review_issue])
+      assert next_state.orphaned_claim_since == %{}
+      refute_received {:ci_watcher_update, ^identifier, "ci-wait"}
     end
 
     test "CI result cannot overwrite a newer rework state" do
@@ -211,7 +237,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFeedbackPollerTest do
           end
         )
 
-      receive_barrier({:ci_watcher_update_opts, ^identifier, "in-progress", [expected_state: "ci-wait"]})
+      receive_barrier({:ci_watcher_update_opts, ^identifier, "human-review", [expected_state: "ci-wait"]})
 
       assert state.ci_lifecycle.approved_heads == %{}
       assert state.running == %{}
@@ -229,7 +255,7 @@ defmodule Aiur.Orchestrator.Deactivate.CiFeedbackPollerTest do
           end
         )
 
-      receive_barrier({:ci_watcher_update, ^identifier, "in-progress"})
+      receive_barrier({:ci_watcher_update, ^identifier, "human-review"})
       assert state.ci_lifecycle.approved_heads == %{"ci-restart" => "approved-head"}
 
       persisted = CIApprovalStore.load()

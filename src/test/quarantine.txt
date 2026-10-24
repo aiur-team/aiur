@@ -8,5 +8,6 @@ Aiur.OpenAICompat.CommandRunnerBudgetTest	a direct system gh API path is interce
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
 Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#5519	2026-12-31
+Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
 AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31
