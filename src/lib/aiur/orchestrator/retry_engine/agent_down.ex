@@ -152,6 +152,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
       prior_work: prior_work_for_retry?(running_entry),
       worker_host: Map.get(running_entry, :worker_host),
       workspace_path: Map.get(running_entry, :workspace_path),
+      stalled_alert_outstanding: Map.get(running_entry, :stalled_alert_outstanding, false),
       rework_head_sha: Map.get(running_entry, :rework_head_sha)
     }
   end
@@ -172,6 +173,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
       prior_work: prior_work_for_retry?(running_entry),
       worker_host: Map.get(running_entry, :worker_host),
       workspace_path: Map.get(running_entry, :workspace_path),
+      stalled_alert_outstanding: Map.get(running_entry, :stalled_alert_outstanding, false),
       rework_head_sha: Map.get(running_entry, :rework_head_sha)
     }
   end
