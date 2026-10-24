@@ -114,7 +114,36 @@ defmodule Aiur.HttpServer do
     if address_in_use?(reason), do: port_conflict(opts, host, ip, port), else: error
   end
 
+  defp handle_endpoint_start({:ok, _pid} = result, opts, _host, _ip, _port) do
+    publish_control_url(opts)
+    result
+  end
+
   defp handle_endpoint_start(other, _opts, _host, _ip, _port), do: other
+
+  defp publish_control_url(opts) do
+    with socket when is_binary(socket) and socket != "" <- System.get_env("AIUR_TMUX_SOCKET"),
+         url when is_binary(url) and url != "" <- base_url() do
+      command_fun = Keyword.get(opts, :tmux_command_fun, fn command, args -> System.cmd(command, args, stderr_to_stdout: true) end)
+
+      case command_fun.("tmux", ["-L", socket, "set-option", "-g", "@aiur_control_url", url]) do
+        {_output, 0} ->
+          :ok
+
+        {output, status} ->
+          Logger.warning("Aiur could not publish dashboard URL to tmux (exit #{status}): #{String.trim(output)}")
+
+        other ->
+          Logger.warning("Aiur could not publish dashboard URL to tmux: #{inspect(other)}")
+      end
+    else
+      _ -> :ok
+    end
+  rescue
+    error ->
+      Logger.warning("Aiur could not publish dashboard URL to tmux: #{inspect(error)}")
+      :ok
+  end
 
   # An `aiurdev --test` run shares the host with the live daemon, so it takes a
   # free port rather than running without a dashboard (#5121).

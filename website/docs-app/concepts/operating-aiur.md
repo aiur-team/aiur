@@ -19,7 +19,7 @@ The timer keeps the audit from being lost during a busy merge queue.
 
 | Check | What it catches |
 | --- | --- |
-| Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
+| Build home, Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
 | Interactive CLI timing | Empty or timed-out responses hidden by static status. |
 | Host pressure | CPU PSI and free memory against configured admission thresholds; load is the PSI-unavailable fallback. |
 | PR backlog | Review, conflict, and merge-queue snags. |
