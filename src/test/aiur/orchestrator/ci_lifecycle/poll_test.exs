@@ -207,7 +207,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
       assert ExecutorWakeInbox.wait(50) == :timeout
     end
 
-    test "draft fast gate never promotes ci-wait; ready full checks do" do
+    test "draft fast gate never promotes ci-wait; ready full checks hand off ownerless tickets" do
       identifier = unique_identifier("draft-fast-gate")
       RecordingGitHubClient.record_to(self())
       ticket = issue(identifier, "ci-wait")
@@ -234,7 +234,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PollTest do
 
       batch = put_in(batch, [identifier, :check_runs], [check, %{check | "name" => "test"}])
       next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
-      assert_received {:tracker_update, ^identifier, "in-progress", _}
+      assert_received {:tracker_update, ^identifier, "human-review", [expected_state: "ci-wait"]}
       assert next.ci_lifecycle.approved_heads[identifier] == "head-71"
     end
 
