@@ -59,9 +59,7 @@ writer = threading.Thread(target=lambda: write_body(body_write, body), daemon=Tr
 writer.start()
 
 def terminate_process_group():
-    # Linux adopts orphaned broker descendants here because this supervisor is
-    # a child subreaper. Elsewhere the child has its own process group, which
-    # remains signalable after its broker exits.
+    # Linux reparents orphaned broker descendants to this subreaper.
     descendants = descendant_pids(os.getpid() if linux_subreaper else child.pid)
     if not linux_subreaper:
         try:
@@ -98,8 +96,7 @@ def terminate_process_group():
     try:
         child.wait(timeout=1)
     except subprocess.TimeoutExpired:
-        # A child in uninterruptible kernel sleep can outlive SIGKILL. Do not
-        # let that make the caller cancellation handler unbounded as well.
+        # Uninterruptible sleep can outlive SIGKILL; keep cleanup bounded.
         print("aiur: governed gh child did not exit after SIGKILL", file=sys.stderr)
 
 def descendant_pids(root):
@@ -134,8 +131,7 @@ class CallerSignal(Exception):
         self.signum = signum
 
 def stop_child(signum, _frame):
-    # Do not wait inside the signal handler: it may interrupt Popen.wait while
-    # that method holds its internal waitpid lock. Cleanup runs after unwinding.
+    # Defer cleanup to avoid re-entering the Popen.wait waitpid lock.
     raise CallerSignal(signum)
 
 signal.signal(signal.SIGTERM, stop_child)
