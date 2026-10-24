@@ -266,21 +266,10 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
         {:stale_tracker_state, {:tracker_state_not_resumable, "merging"}, %{cached_state: "todo", tracker_state: "merging", changed_fields: [:state]}}
 
       full = {:max_concurrent_agents_reached, %{used: 3, active: 2, paused_holds: 1, limit: 3, max: 3}}
-
-      orchestrator =
-        start_control_orchestrator(
-          resume_agent: fn
-            "MT-STALE" -> {:error, stale}
-            "MT-FULL" -> {:error, full}
-          end
-        )
-
+      orchestrator = start_control_orchestrator(resume_agent: fn id -> {:error, if(id == "MT-STALE", do: stale, else: full)} end)
       configure_endpoint(orchestrator)
 
-      for {agent_id, expected} <- [
-            {"MT-STALE", ["stale_tracker_state", "merging"]},
-            {"MT-FULL", ["max_concurrent_agents_reached", "paused_holds"]}
-          ] do
+      for {agent_id, expected} <- [{"MT-STALE", ~w(stale_tracker_state merging)}, {"MT-FULL", ~w(max_concurrent_agents_reached paused_holds)}] do
         assert %{"error" => %{"code" => "control_conflict", "message" => message}} =
                  json_response(call(control_conn(agent_id, "resume")), 409)
 
