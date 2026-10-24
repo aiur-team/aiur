@@ -16,7 +16,8 @@
     "SD-403"
    ],
    "fan_out": 8,
-   "phase": 1
+   "phase": 1,
+   "issue": 6025
   },
   {
    "id": "SD-102",
@@ -30,7 +31,8 @@
    "suggested_after": [],
    "serializes_with": [],
    "fan_out": 11,
-   "phase": 2
+   "phase": 2,
+   "issue": 6026
   },
   {
    "id": "SD-103",
@@ -49,7 +51,8 @@
     "SD-408"
    ],
    "fan_out": 3,
-   "phase": 3
+   "phase": 3,
+   "issue": 6027
   },
   {
    "id": "SD-104",
@@ -66,7 +69,8 @@
     "SD-201"
    ],
    "fan_out": 2,
-   "phase": 3
+   "phase": 3,
+   "issue": 6028
   },
   {
    "id": "SD-105",
@@ -91,7 +95,8 @@
     "SD-403"
    ],
    "fan_out": 1,
-   "phase": 5
+   "phase": 5,
+   "issue": 6029
   },
   {
    "id": "SD-201",
@@ -109,7 +114,8 @@
     "SD-104"
    ],
    "fan_out": 11,
-   "phase": 2
+   "phase": 2,
+   "issue": 6030
   },
   {
    "id": "SD-202",
@@ -130,7 +136,8 @@
     "SD-205"
    ],
    "fan_out": 5,
-   "phase": 3
+   "phase": 3,
+   "issue": 6031
   },
   {
    "id": "SD-203",
@@ -152,7 +159,8 @@
     "SD-205"
    ],
    "fan_out": 1,
-   "phase": 4
+   "phase": 4,
+   "issue": 6032
   },
   {
    "id": "SD-204",
@@ -174,7 +182,8 @@
     "SD-205"
    ],
    "fan_out": 1,
-   "phase": 4
+   "phase": 4,
+   "issue": 6033
   },
   {
    "id": "SD-205",
@@ -196,7 +205,8 @@
     "SD-405"
    ],
    "fan_out": 2,
-   "phase": 4
+   "phase": 4,
+   "issue": 6034
   },
   {
    "id": "SD-206",
@@ -216,7 +226,8 @@
     "SD-404"
    ],
    "fan_out": 2,
-   "phase": 3
+   "phase": 3,
+   "issue": 6035
   },
   {
    "id": "SD-207",
@@ -235,7 +246,8 @@
     "SD-406"
    ],
    "fan_out": 2,
-   "phase": 2
+   "phase": 2,
+   "issue": 6036
   },
   {
    "id": "SD-301",
@@ -254,7 +266,8 @@
     "SD-304"
    ],
    "fan_out": 3,
-   "phase": 2
+   "phase": 2,
+   "issue": 6037
   },
   {
    "id": "SD-302",
@@ -274,7 +287,8 @@
     "SD-304"
    ],
    "fan_out": 1,
-   "phase": 4
+   "phase": 4,
+   "issue": 6038
   },
   {
    "id": "SD-303",
@@ -297,7 +311,8 @@
     "SD-304"
    ],
    "fan_out": 3,
-   "phase": 3
+   "phase": 3,
+   "issue": 6039
   },
   {
    "id": "SD-304",
@@ -315,7 +330,8 @@
     "SD-303"
    ],
    "fan_out": 2,
-   "phase": 4
+   "phase": 4,
+   "issue": 6040
   },
   {
    "id": "SD-401",
@@ -333,7 +349,8 @@
     "SD-403"
    ],
    "fan_out": 4,
-   "phase": 1
+   "phase": 1,
+   "issue": 6041
   },
   {
    "id": "SD-402",
@@ -351,7 +368,8 @@
     "SD-403"
    ],
    "fan_out": 2,
-   "phase": 3
+   "phase": 3,
+   "issue": 6042
   },
   {
    "id": "SD-403",
@@ -373,7 +391,8 @@
     "SD-405"
    ],
    "fan_out": 4,
-   "phase": 1
+   "phase": 1,
+   "issue": 6043
   },
   {
    "id": "SD-404",
@@ -393,7 +412,8 @@
     "SD-405"
    ],
    "fan_out": 1,
-   "phase": 3
+   "phase": 3,
+   "issue": 6044
   },
   {
    "id": "SD-405",
@@ -413,7 +433,8 @@
     "SD-404"
    ],
    "fan_out": 1,
-   "phase": 5
+   "phase": 5,
+   "issue": 6045
   },
   {
    "id": "SD-406",
@@ -434,7 +455,8 @@
     "SD-407"
    ],
    "fan_out": 2,
-   "phase": 4
+   "phase": 4,
+   "issue": 6046
   },
   {
    "id": "SD-407",
@@ -456,7 +478,8 @@
     "SD-408"
    ],
    "fan_out": 2,
-   "phase": 5
+   "phase": 5,
+   "issue": 6047
   },
   {
    "id": "SD-408",
@@ -473,7 +496,8 @@
     "SD-407"
    ],
    "fan_out": 1,
-   "phase": 6
+   "phase": 6,
+   "issue": 6048
   },
   {
    "id": "SD-901",
@@ -510,7 +534,8 @@
    "suggested_after": [],
    "serializes_with": [],
    "fan_out": 0,
-   "phase": 7
+   "phase": 7,
+   "issue": 6049
   }
  ],
  "waves": {
@@ -596,5 +621,8 @@
    "SD-901"
   ]
  },
- "phase_rule": "phase = longest-path wave, except SD-401/SD-403 pulled into phase 1 (defect fixes) and SD-207 into phase 2 (external blocker only)"
+ "phase_rule": "phase = longest-path wave, except SD-401/SD-403 pulled into phase 1 (defect fixes) and SD-207 into phase 2 (external blocker only)",
+ "epic_issue": 6024,
+ "parent_epic_issue": 5840,
+ "plan_pr": 6023
 }

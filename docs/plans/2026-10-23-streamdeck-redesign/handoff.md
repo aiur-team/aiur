@@ -21,3 +21,39 @@
 
 | ID | Issue |
 |----|-------|
+| SD-101 | #6025 |
+| SD-102 | #6026 |
+| SD-103 | #6027 |
+| SD-104 | #6028 |
+| SD-105 | #6029 |
+| SD-201 | #6030 |
+| SD-202 | #6031 |
+| SD-203 | #6032 |
+| SD-204 | #6033 |
+| SD-205 | #6034 |
+| SD-206 | #6035 |
+| SD-207 | #6036 |
+| SD-301 | #6037 |
+| SD-302 | #6038 |
+| SD-303 | #6039 |
+| SD-304 | #6040 |
+| SD-401 | #6041 |
+| SD-402 | #6042 |
+| SD-403 | #6043 |
+| SD-404 | #6044 |
+| SD-405 | #6045 |
+| SD-406 | #6046 |
+| SD-407 | #6047 |
+| SD-408 | #6048 |
+| SD-901 | #6049 |
+
+Epic: #6024 (sub-issue of #5840). Plan PR: #6023. Filed 2026-10-23 with `agent:parked`,
+`needs-triage`, `priority:3`, `feature:streamdeck-redesign`, `area:*`, `complexity:N` and
+`phase:N`. `needs-triage` is there because the repository's issue-disposition guard (#1793)
+accepts only `agent:todo`, `agent:queued`, `human:todo`, `needs-triage`, `build-order` or
+`epic` as a disposition, so `agent:parked` alone is refused. Remove `needs-triage` at promotion.
+
+Native edges written: 82 `blocked_by` (in-set edges from `graph.json` plus #5589, #5945,
+#5998, #5999, #4142, #4145, #5729). All 25 members are sub-issues of #6024.
+
+From here on, edits go to the issues, not to this pack.
