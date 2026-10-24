@@ -54,7 +54,6 @@ defmodule Aiur.AgentEnvironment do
   # `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` returns nothing even when the
   # daemon's own environment carries it.
   @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN)
-  @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -467,7 +466,7 @@ defmodule Aiur.AgentEnvironment do
 
     [
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
-      {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
+      {"ELIXIR_ERL_OPTIONS", Aiur.AgentEnvironment.SchedulerOptions.build(cap)}
     ]
   end
 
@@ -516,13 +515,5 @@ defmodule Aiur.AgentEnvironment do
       url when is_binary(url) and url != "" -> url
       _ -> neutral_repo_url()
     end
-  end
-
-  defp scheduler_options(cap) do
-    System.get_env("ELIXIR_ERL_OPTIONS", "")
-    |> then(&Regex.replace(@scheduler_option, &1, ""))
-    |> String.split()
-    |> Kernel.++(["+S", "#{cap}:#{cap}"])
-    |> Enum.join(" ")
   end
 end
