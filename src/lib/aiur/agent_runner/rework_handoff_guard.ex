@@ -71,7 +71,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   def evidence_blockers(_issue, _state, _workspace, _opts), do: :allow
 
   defp evidence_refusal(issue, state, pr, head, {:stale_tested_head, tested_head}) do
-    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body Tested head #{tested_head} does not match PR head #{head}. Rerun the touched tests at the PR head, then update the Tested head and Base evidence before handing off."
+    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body Tested head #{tested_head} does not match PR head #{head}. " <>
+      "Rerun the touched tests at the PR head, then update the body to include this exact line: `Tested head: #{head}`. Refresh Base evidence too before handing off."
   end
 
   defp evidence_refusal(issue, state, pr, head, reason) do

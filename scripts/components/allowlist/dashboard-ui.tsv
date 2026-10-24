@@ -3,8 +3,6 @@ R-declared	Aiur.AgentContextPresentation	#4818 Units context cell shares the TUI
 R-declared	Aiur.CodingAgent	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.CodingAgent.HeadroomDispatch	#5106 Units Codex meter shows the dispatch headroom reading that `aiur agents` prints
 R-declared	Aiur.CodingAgent.Models	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Config	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Config.Paths	#4462 post-deploy checklist persists under the configured decision state directory
 R-declared	Aiur.ExecutorEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.LiveConversation.Source	#3165 build composer computes the projection id of a sent operator message (opaque_id of "operator:<request_id>") so the transcript echo replaces the local row
