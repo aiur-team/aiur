@@ -214,6 +214,35 @@ defmodule Aiur.Extensions.HttpServerTest do
     assert is_integer(wait_for_bound_port())
   end
 
+  test "headless dashboard startup publishes its bound URL to the configured tmux socket" do
+    owner = self()
+    previous_socket = System.get_env("AIUR_TMUX_SOCKET")
+    System.put_env("AIUR_TMUX_SOCKET", "aiur-headless-test")
+
+    on_exit(fn -> restore_env("AIUR_TMUX_SOCKET", previous_socket) end)
+
+    orchestrator_name = Module.concat(__MODULE__, :HeadlessUrlOrchestrator)
+    start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: static_snapshot(), refresh: %{}})
+
+    start_supervised!(
+      {HttpServer,
+       host: "127.0.0.1",
+       port: 0,
+       orchestrator: orchestrator_name,
+       dashboard_writable: false,
+       tmux_command_fun: fn executable, args ->
+         send(owner, {:tmux_url_publish, executable, args})
+         {"", 0}
+       end}
+    )
+
+    port = wait_for_bound_port()
+    url = HttpServer.base_url()
+
+    assert_received {:tmux_url_publish, "tmux", ["-L", "aiur-headless-test", "set-option", "-g", "@aiur_control_url", ^url]}
+    assert url == "http://127.0.0.1:#{port}"
+  end
+
   defp restore_endpoint_config(nil), do: Application.delete_env(:aiur, AiurWeb.Endpoint)
   defp restore_endpoint_config(config), do: Application.put_env(:aiur, AiurWeb.Endpoint, config)
 
