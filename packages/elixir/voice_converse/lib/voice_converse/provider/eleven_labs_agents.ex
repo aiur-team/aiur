@@ -15,6 +15,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
 
   @signed_url_endpoint "https://api.elevenlabs.io/v1/convai/conversation/get-signed-url"
   @max_backlog_bytes 426_668
+  @metadata_timeout_ms 5_000
   @transport_message :elevenlabs_agents_transport
 
   @spec descriptor() :: VoiceConverse.Provider.descriptor()
@@ -44,7 +45,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
       when is_pid(owner) and is_atom(credentials) and is_atom(provider_id) do
     case credential_present?(credentials, provider_id) do
       :present -> GenServer.start(__MODULE__, spec)
-      :missing -> {:error, Events.Error.new(:provider_auth, "ElevenLabs is not configured.")}
+      :missing -> {:error, Events.Error.new(:unconfigured, "ElevenLabs is not configured.")}
     end
   end
 
@@ -81,7 +82,9 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
        conn: nil,
        ready?: false,
        backlog: [],
-       backlog_bytes: 0
+       backlog_bytes: 0,
+       metadata_timer: nil,
+       metadata_timeout: Map.get(spec, :metadata_timeout, @metadata_timeout_ms)
      }, {:continue, :connect}}
   end
 
@@ -134,6 +137,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
 
   def handle_info({@transport_message, :closed}, state), do: close_from_provider(state)
 
+  def handle_info({@transport_message, :closed, close_code}, state), do: close_from_provider(state, close_code)
+
   def handle_info({@transport_message, :error, _opaque}, state),
     do: fail(state, :provider_unavailable, "ElevenLabs connection is unavailable.")
 
@@ -142,10 +147,16 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     {:stop, :normal, state}
   end
 
+  def handle_info(:metadata_timeout, %{ready?: false} = state),
+    do: fail(state, :provider_unavailable, "ElevenLabs did not initialize the conversation.")
+
+  def handle_info(:metadata_timeout, state), do: {:noreply, state}
+
   def handle_info(_message, state), do: {:noreply, state}
 
   defp handle_frame(%{"type" => "conversation_initiation_metadata"} = frame, state) do
     metadata = Map.get(frame, "conversation_initiation_metadata_event", frame)
+    state = cancel_metadata_timeout(state)
 
     if is_binary(metadata["conversation_id"]),
       do: emit(state, %Events.ProviderConversationId{id: metadata["conversation_id"]})
@@ -204,8 +215,8 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
     end
   end
 
-  defp close_from_provider(state) do
-    reason = if(state.ready?, do: :normal, else: :provider_error)
+  defp close_from_provider(state, close_code \\ nil) do
+    reason = close_reason(state.ready?, close_code)
     emit(state, %Events.Closed{reason: reason})
     {:stop, :normal, state}
   end
@@ -216,7 +227,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
         state = %{state | conn: conn}
 
         case send_json(state, initiation_frame(state)) do
-          {:ok, state} -> {:noreply, state}
+          {:ok, state} -> {:noreply, start_metadata_timeout(state)}
           {:error, _opaque} -> fail(state, :provider_unavailable, "ElevenLabs connection is unavailable.")
         end
 
@@ -226,6 +237,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   end
 
   defp fail(state, code, message) do
+    state = cancel_metadata_timeout(state)
     emit(state, Events.Error.new(code, message))
     close_transport(state)
     emit(state, %Events.Closed{reason: code})
@@ -339,6 +351,21 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents do
   defp error_message(:provider_quota), do: "ElevenLabs quota is unavailable."
   defp error_message(:provider_error), do: "ElevenLabs returned an invalid response."
   defp error_message(:provider_unavailable), do: "ElevenLabs connection is unavailable."
+
+  defp start_metadata_timeout(state) do
+    %{state | metadata_timer: Process.send_after(self(), :metadata_timeout, state.metadata_timeout)}
+  end
+
+  defp cancel_metadata_timeout(%{metadata_timer: nil} = state), do: state
+
+  defp cancel_metadata_timeout(state) do
+    Process.cancel_timer(state.metadata_timer)
+    %{state | metadata_timer: nil}
+  end
+
+  defp close_reason(false, _close_code), do: :provider_error
+  defp close_reason(true, nil), do: :normal
+  defp close_reason(true, close_code), do: {:provider_closed, close_code}
 
   defp emit(state, event), do: send(state.owner, {:voice_conversation, self(), event})
 

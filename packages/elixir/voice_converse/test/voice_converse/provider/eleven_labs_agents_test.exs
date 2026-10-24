@@ -2,12 +2,20 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  import ExUnit.Assertions, except: [assert_receive: 1]
 
   alias VoiceConverse.Events
   alias VoiceConverse.Provider.ElevenLabsAgents
+  alias VoiceConverse.Provider.ElevenLabsAgents.HTTP
   alias VoiceConverse.Testing.StaticCredentials
 
   @signed_url "wss://signed.example/conversation?token=never-log-this"
+
+  defmacro assert_receive(pattern) do
+    quote do
+      assert_receive(unquote(pattern), 1_000)
+    end
+  end
 
   defmodule Transport do
     @key {__MODULE__, :observer}
@@ -57,14 +65,18 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
   end
 
   test "the signed URL and key are never retained or emitted" do
-    assert capture_log(fn ->
-             {:ok, provider} = ElevenLabsAgents.open(spec())
-             assert_receive {:http, _url, _headers}
-             assert_receive {:transport, :connect, @signed_url, []}
-             assert_initiation_frame()
-             refute inspect(:sys.get_state(provider)) =~ @signed_url
-             refute inspect(:sys.get_state(provider)) =~ "xi-test-secret"
-           end) =~ ""
+    log =
+      capture_log(fn ->
+        {:ok, provider} = ElevenLabsAgents.open(spec())
+        assert_receive {:http, _url, _headers}
+        assert_receive {:transport, :connect, @signed_url, []}
+        assert_initiation_frame()
+        refute inspect(:sys.get_state(provider)) =~ @signed_url
+        refute inspect(:sys.get_state(provider)) =~ "xi-test-secret"
+      end)
+
+    refute log =~ @signed_url
+    refute log =~ "xi-test-secret"
   end
 
   test "a connection failure never returns the signed URL in its error" do
@@ -132,8 +144,13 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
     assert Jason.decode!(pong) == %{"event_id" => 7, "type" => "pong"}
   end
 
-  test "401, 429, and unknown signed URL responses use distinct provider codes" do
-    for {status, code} <- [{401, :provider_auth}, {429, :provider_quota}, {418, :provider_error}] do
+  test "HTTP status failures map to cause-neutral provider codes" do
+    for {status, code} <- [
+          {401, :provider_auth},
+          {429, :provider_quota},
+          {500, :provider_unavailable},
+          {418, :provider_error}
+        ] do
       {:ok, provider} = ElevenLabsAgents.open(spec(http: http_response(status, "{}")))
 
       assert_receive {:voice_conversation, ^provider, %Events.Error{code: ^code}}
@@ -142,10 +159,20 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
     end
   end
 
+  test "HTTP failures and invalid signed URL JSON fail without opening a socket" do
+    for http <- [fn _url, _opts -> {:error, :timeout} end, http_response(200, "not json")] do
+      {:ok, provider} = ElevenLabsAgents.open(spec(http: http))
+
+      assert_receive {:voice_conversation, ^provider, %Events.Error{code: code}}
+      assert code in [:provider_unavailable, :provider_error]
+      refute_receive {:transport, :connect, _url, _headers}
+    end
+  end
+
   test "a missing key does not make an HTTP request" do
     StaticCredentials.put(%{})
 
-    assert {:error, %Events.Error{code: :provider_auth}} = ElevenLabsAgents.open(spec())
+    assert {:error, %Events.Error{code: :unconfigured}} = ElevenLabsAgents.open(spec())
     refute_receive {:http, _url, _headers}
     refute_receive {:transport, :connect, _url, _headers}
   end
@@ -159,6 +186,69 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
 
     assert_receive {:voice_conversation, ^provider,
                     %Events.Error{code: :provider_error, message: "Voice assistant audio format mismatch."}}
+  end
+
+  test "metadata emits the provider conversation id" do
+    {:ok, provider} = ElevenLabsAgents.open(spec())
+    assert_receive {:transport, :connect, @signed_url, []}
+    assert_initiation_frame()
+
+    metadata(provider)
+
+    assert_receive {:voice_conversation, ^provider, %Events.ProviderConversationId{id: "conversation-1"}}
+  end
+
+  test "a close before metadata identifies a provider failure" do
+    {:ok, provider} = ElevenLabsAgents.open(spec())
+    assert_receive {:transport, :connect, @signed_url, []}
+    assert_initiation_frame()
+
+    send(provider, {:elevenlabs_agents_transport, :closed, 1001})
+
+    assert_receive {:voice_conversation, ^provider, %Events.Closed{reason: :provider_error}}
+  end
+
+  test "an established close carries the websocket close code" do
+    {:ok, provider} = ElevenLabsAgents.open(spec())
+    assert_receive {:transport, :connect, @signed_url, []}
+    assert_initiation_frame()
+    metadata(provider)
+    assert_receive {:voice_conversation, ^provider, %Events.ProviderConversationId{}}
+
+    send(provider, {:elevenlabs_agents_transport, :closed, 1001})
+
+    assert_receive {:voice_conversation, ^provider, %Events.Closed{reason: {:provider_closed, 1001}}}
+  end
+
+  test "a transport error emits a normalized unavailable error" do
+    {:ok, provider} = ElevenLabsAgents.open(spec())
+    assert_receive {:transport, :connect, @signed_url, []}
+    assert_initiation_frame()
+
+    send(provider, {:elevenlabs_agents_transport, :error, :transport})
+
+    assert_receive {:voice_conversation, ^provider, %Events.Error{code: :provider_unavailable}}
+    assert_receive {:voice_conversation, ^provider, %Events.Closed{reason: :provider_unavailable}}
+  end
+
+  test "the metadata timeout fails an uninitialized connection" do
+    {:ok, provider} = ElevenLabsAgents.open(spec(metadata_timeout: 1))
+    assert_receive {:transport, :connect, @signed_url, []}
+    assert_initiation_frame()
+
+    assert_receive {:voice_conversation, ^provider, %Events.Error{code: :provider_unavailable}}
+  end
+
+  test "the audio backlog cap fails before accepting another chunk" do
+    {:ok, provider} = ElevenLabsAgents.open(spec())
+    assert_receive {:transport, :connect, @signed_url, []}
+    assert_initiation_frame()
+
+    :ok = ElevenLabsAgents.push_audio(provider, :binary.copy("a", 426_668))
+    :ok = ElevenLabsAgents.push_audio(provider, "overflow")
+
+    assert_receive {:voice_conversation, ^provider, %Events.Error{code: :provider_unavailable}}
+    assert_receive {:transport, :close, :fake_socket}
   end
 
   test "context and user text use their documented frame names" do
@@ -204,6 +294,16 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsTest do
     Process.exit(owner, :kill)
 
     assert_receive {:transport, :close, :fake_socket}
+  end
+
+  test "the HTTP client disables redirects and verifies TLS peers" do
+    options = HTTP.request_options(123)
+    ssl = Keyword.fetch!(options, :ssl)
+
+    assert Keyword.fetch!(options, :autoredirect) == false
+    assert Keyword.fetch!(ssl, :verify) == :verify_peer
+    assert Keyword.fetch!(ssl, :cacerts) == :public_key.cacerts_get()
+    assert is_function(ssl[:customize_hostname_check][:match_fun])
   end
 
   defp spec(overrides \\ []) do
