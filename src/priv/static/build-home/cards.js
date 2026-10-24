@@ -8,7 +8,7 @@ import { progress } from './now-state.js';
 import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
-import { estOf } from './gantt.js';
+import { estHours, estLabel } from './estimate.js';
 
 const CX = ['❶', '❷', '❸', '❹', '❺'], CXH = [145, 110, 80, 50, 25];
 export const finite = (x, lo = 0, hi = Number.MAX_SAFE_INTEGER) => Number.isFinite(x) && x >= lo && x <= hi ? x : null;
@@ -64,10 +64,10 @@ function planContent(t, points) {
   const body = c.failed ? '<div class="bd-alert">' + I.warn + '<span>Prereq #' + number(c.failed.by, 'failed.by', 'Prerequisite unknown') + ' failed' +
     (blocks.length ? ' · blocks ' + blocks.map(n => '#' + number(n, 'failed.blocks', 'Blocked ticket unknown')).join(' ') : '') + '</span></div>' :
     cues.length ? '<div class="bd-cues">' + cues.join('') + '</div>' : '';
-  const est = finite(t.override?.hours) ?? finite(t.est);
+
   const label = t.id.startsWith('pack:') && t.num === null ? 'Planned · not filed' : 'Q' + number(t.qpos, 'qpos', 'Queue position unknown') +
     (c.held ? ' · held' : c.failed ? ' · prereq failed' : c.wait ? ' · waiting' : ' · queued');
-  return { body, status: '<div class="bd-status"><span>' + label + '</span><span>≈' + (est === null ? unk('est', 'Estimate unknown') : est + 'h') + ' · ' + points + ' pts</span></div>' };
+  return { body, status: '<div class="bd-status"><span>' + label + '</span><span>' + (estHours(t) === null ? unk('est', 'Estimate unknown') : estLabel(t)) + ' · ' + points + ' pts</span></div>' };
 }
 function historyContent(t, points) {
   const labels = { done: 'Merged', failed: 'Failed · closed', not_planned: 'Not planned', closed: 'Closed' };
@@ -90,7 +90,7 @@ export function makeCard(it) {
   const pg = t.sec === 'now' ? progress(finite(t.pct, 0, 100)) : null;
   const el = document.createElement('div');
   const startUnknown = it.startUnknown || (S.view === 'gantt' && t.sec === 'hist' && t.start == null);
-  const estUnknown = it.estUnknown || (S.view === 'gantt' && t.sec === 'now' && estOf(t) === null);
+  const estUnknown = it.estUnknown || (S.view === 'gantt' && t.sec === 'now' && estHours(t) === null);
   el._it = it; el.dataset.id = t.id; el.tabIndex = -1;
   el.className = 'bd-card ' + det + ' ' + t.sec + (t.status === 'failed' ? ' failed' : '') + (cls.ag ? ' ' + cls.ag : '') +
     (startUnknown ? ' start-unknown' : '') + (estUnknown ? ' est-unknown' : '') + (it.ghost ? ' ghost' : '') + (e.unsorted ? ' unsorted' : '') + (it.gantt ? ' gplan' : '') +

@@ -38,12 +38,13 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
     pr: t.agent && t.start && (t.sec === 'hist' || Math.max(.12, t.pct / 100) >= .55)
       ? { num: 200 + t.num % 300, state: t.sec === 'hist' ? (t.status === 'failed' ? 'closed' : 'merged') : 'open' } : null });
   return { v: 1, kind: 'snapshot', epoch: 'fixture', generation: 0, now: meta.now, writable: true,
+    capacity: { max: 4, observed_at: meta.now, stale: false },
     repo: { url: 'https://github.com/example/aiur-fixture/' }, epics: data.epics,
     features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null, stats: stats(featureStats[k]) }])),
     order: data.order, counts: Object.fromEntries(data.order.map(k => [k, data.counts[k] ?? 0])),
     sections: Object.fromEntries(sections.map(sec => [sec, data[sec].map(row)])),
     history: { from: null, more: false, total: data.hist.length, undated: 0, tz: meta.tz },
-    sources: Object.fromEntries(['history', 'features', 'queue', 'agents', 'index', 'open_tickets'].map(k => [k, { state: 'ok', observed_at: meta.now, reason: null, ...(k === 'open_tickets' ? { truncated: false } : {}) }])),
+    sources: Object.fromEntries(['history', 'features', 'queue', 'agents', 'index', 'open_tickets', 'estimates'].map(k => [k, { state: 'ok', observed_at: meta.now, reason: null, ...(k === 'open_tickets' ? { truncated: false } : {}) }])),
     usage: { state: 'authorized', observed_at: meta.now,
       apis: [provider({ name: 'GitHub', icon: 'github', lines: usage.apis.filter(a => ['core', 'gql'].includes(a.tag))
         .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) }),

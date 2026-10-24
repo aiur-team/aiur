@@ -7,6 +7,7 @@ import { freezeGanttComposition, scrollGanttComposition, attachGanttRasterDiagno
 import { runOn, compareRecords } from '../support/build-home-motion.mjs'
 import { primeBoardPaint } from '../support/build-home-band-canvas.mjs'
 import { loadGanttRegionHistory, markGanttRegion, markFixedGanttRegion } from '../support/build-home-gantt-regions.mjs'
+import { estimatePatch } from '../scripts/build-home-now-patch.mjs'
 
 const root = new URL('../../test/fixtures/build_home/', import.meta.url)
 const design = await readFile(new URL('design-source/assets/build.js', root), 'utf8')
@@ -116,7 +117,7 @@ test('U9 unknown planned estimates are marked and propagate a lower bound; overr
   })).toEqual({ items: [[32.5, true, true], [108, false, true]], unknown: true, label: '≈ ≥+6h' })
 })
 test('U10 band height honors overrides and unknown estimate uses the floor', async ({ page }) => {
-  expect(await page.evaluate(() => [g.bandGanttHeight({ est: 2, override: { hours: 8 } }, context()), g.bandGanttHeight({ est: null }, context()), g.estOf({ est: null, cx: 5 }), g.estOf({ est: 2, override: { hours: 8 } })])).toEqual([144, 32.5, null, 8])
+  expect(await page.evaluate(async () => { const estimate = await import('/build-home/estimate.js'); return [g.bandGanttHeight({ est: 2, override: { hours: 8 } }, context()), g.bandGanttHeight({ est: null }, context()), estimate.estHours({ est: null, cx: 5 }), estimate.estHours({ est: 2, override: { hours: 8 } })] })).toEqual([144, 32.5, null, 8])
   expect(await page.evaluate(() => {
     initCards()
     const t = row('band-unknown', null, null, { sec: 'now' })
@@ -328,7 +329,7 @@ test('B5 live now-to-history diff lays out the actual completed interval', async
   })).toBe(2)
 })
 
-const parityProbe = design.replace(anchor, `window.__ganttScroll = offset => {
+const parityProbe = estimatePatch(design).replace(anchor, `window.__ganttScroll = offset => {
 S.ready = false; snapping = true; vp.scrollTop = secs.hist.el.offsetTop + offset; update();
 };\n${anchor}`)
 for (const dataset of ['live', 'dense']) for (const width of [1440, 390]) for (const theme of ['dark', 'light']) test(`${dataset === 'live' ? 'B2/B6 Gantt history breaks and complete edges' : 'B2 Gantt full acceptance dense history breaks'}: ${width} ${theme}`, async ({ browser }) => {

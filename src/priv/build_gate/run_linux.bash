@@ -35,9 +35,10 @@ aiur_build_gate_run_linux() (
   local command_pid_file="" command_ready_file="" command_status_file="" command_status_ack_file=""
   local holder_ready_file="" holder_started_file=""
   local command_pgid command_pid_namespace holder_pid parent_pid python_binary retained status
-  # The handshake spans several python3 launches; 2s failed builds on loaded hosts (#5743).
-  local deadline handshake_deadline holder_handshake_seconds=10 holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
+  # A per-stage ceiling remains configurable for stuck peers; readiness files do the syncing.
+  local deadline holder_handshake_seconds=${AIUR_BUILD_GATE_HANDSHAKE_SECONDS:-10} holder_ack_seconds=5 slot slot_lock slot_owner slot_fd lock_result owner_pid owner_pgid token result pacing_result
   local available_memory_mb memory_deferred=0 memory_unavailable_logged=0 command_summary
+  [[ $holder_handshake_seconds =~ ^[1-9][0-9]*$ ]] || holder_handshake_seconds=10
 
   # Keep descriptor allocation local to this subshell and independent of an
   # invoking agent shell's shopt state. The opened slot descriptor is handed
@@ -284,8 +285,6 @@ aiur_build_gate_run_linux() (
         fi
 
         parent_pid=${BASHPID:-$$}
-        handshake_deadline=$((SECONDS + holder_handshake_seconds))
-
         aiur_build_gate_hold_linux_lease \
           "$python_binary" "$holder_ready_file" "$holder_started_file" \
           "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \
@@ -295,7 +294,7 @@ aiur_build_gate_run_linux() (
         holder_pid=$!
 
         if ! aiur_build_gate_wait_for_holder_value \
-          "$holder_started_file" "$holder_pid" '^started$' "$handshake_deadline"; then
+          "$holder_started_file" "$holder_pid" '^started$' "$holder_handshake_seconds"; then
           aiur_build_gate_stop_holder "$holder_pid"
           rm -f "$command_pid_file" "$command_ready_file" "$command_status_file" "$command_status_ack_file" \
             "$holder_ready_file" "$holder_started_file" 2>/dev/null || true
@@ -328,7 +327,7 @@ aiur_build_gate_run_linux() (
         fi
 
         if ! aiur_build_gate_wait_for_holder_value \
-          "$command_pid_file" "$holder_pid" '^[1-9][0-9]*$' "$handshake_deadline" ||
+          "$command_pid_file" "$holder_pid" '^[1-9][0-9]*$' "$holder_handshake_seconds" ||
           ! command_pgid=$(aiur_build_gate_read_regular "$command_pid_file" 2>/dev/null) ||
           [[ ! $command_pgid =~ ^[1-9][0-9]*$ ]]; then
           aiur_build_gate_stop_holder "$holder_pid"

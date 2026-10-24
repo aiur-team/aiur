@@ -104,7 +104,8 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
   # (a token, an account uuid) must fail this test, not ship silently.
   test "rows and identities carry exactly the allowlisted fields" do
     UsageReadings.record("claude", "default", {:ok, %{windows: [%{window: "seven_day", used_percent: 10}]}}, DateTime.utc_now())
-    metered = ~w(name harness email org seat_tier identity weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms)
+    # Claude rows also say why the probe last failed (#5747); `nil` when it has not.
+    metered = ~w(name harness email org seat_tier identity weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms last_error)
 
     claude = account(get_json(@path <> "?harness=claude"), "claude", "default")
     assert Enum.sort(Map.keys(claude)) == Enum.sort(metered)

@@ -126,6 +126,11 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   def snapshot(module, :port, context) do
     module.workspace_env(context.workspace, opts())
     |> Map.new(fn {name, value} -> {to_string(name), if(value == false, do: false, else: to_string(value))} end)
+    |> Map.update!("PATH", fn path ->
+      [first | _rest] = String.split(path, ":")
+      assert first == AgentGitHubGuard.bin_dir(context.workspace)
+      first <> ":<inherited>"
+    end)
     |> normalize(context)
   end
 

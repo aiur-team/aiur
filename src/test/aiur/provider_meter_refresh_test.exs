@@ -1,6 +1,7 @@
 defmodule Aiur.ProviderMeterRefreshTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Config.UsageCadence
   alias Aiur.ProviderMeterRefresh
 
   defp collector do
@@ -174,8 +175,8 @@ defmodule Aiur.ProviderMeterRefreshTest do
   describe "watch gating" do
     # Polling exists to keep a surface current. With nobody looking, it is pure
     # cost against a rate-limited endpoint.
-    test "no refresh happens when nobody is watching" do
-      start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20)
+    test "no refresh happens when nobody is watching an idle fleet" do
+      start_refresh(agents_running?: false, baseline_delay_ms: :never, interval_ms: 20)
 
       refute_receive {:observed, _target}, 300
     end
@@ -191,7 +192,7 @@ defmodule Aiur.ProviderMeterRefreshTest do
     end
 
     test "polling continues through the grace period, then stops" do
-      pid = start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 300)
+      pid = start_refresh(agents_running?: false, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 300)
 
       ProviderMeterRefresh.watching_started(pid)
       assert_receive {:observed, :all}, 500
@@ -210,7 +211,7 @@ defmodule Aiur.ProviderMeterRefreshTest do
     # A closed tab never sends a tidy goodbye, so the watcher must withdraw
     # itself when its process dies.
     test "a watcher that dies stops counting as watching" do
-      pid = start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 0)
+      pid = start_refresh(agents_running?: false, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 0)
       test_pid = self()
 
       watcher =
@@ -231,7 +232,7 @@ defmodule Aiur.ProviderMeterRefreshTest do
     end
 
     test "several watchers hold polling open until the last one leaves" do
-      pid = start_refresh(agents_running?: true, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 0)
+      pid = start_refresh(agents_running?: false, baseline_delay_ms: :never, interval_ms: 20, grace_ms: 0)
       test_pid = self()
 
       other =
@@ -275,6 +276,40 @@ defmodule Aiur.ProviderMeterRefreshTest do
 
       assert_receive {:observed, :claude}, 1_000
       refute_received {:observed, :all}
+    end
+  end
+
+  describe "busy account with nobody watching (#5747)" do
+    # Agents consume the Claude allowance whether or not a dashboard tab is in
+    # focus, and no agent event carries a consumed fraction, so the usage
+    # endpoint is the only thing that moves the reading. Under `priority` or
+    # `balance` selection nothing else asks for it: gating the poll on a
+    # watcher let the reading age for hours while twelve agents ran.
+    test "a running fleet keeps Claude current under any selection mode" do
+      start_refresh(agents_running?: true, headroom?: false, baseline_delay_ms: :never, interval_ms: 20)
+
+      assert_receive {:observed, :claude}, 1_000
+      assert_receive {:observed, :claude}, 1_000
+    end
+
+    # Codex's sessions already write its usage ledger while they run, and a
+    # Codex probe opens an app-server session, so an unwatched fleet pays only
+    # for the Claude read.
+    test "an unwatched running fleet does not open Codex probe sessions" do
+      start_refresh(agents_running?: true, headroom?: false, baseline_delay_ms: :never, interval_ms: 20)
+
+      assert_receive {:observed, :claude}, 1_000
+      refute_received {:observed, :all}
+    end
+
+    test "the configured cadence honors the reading max age without exceeding the provider limit" do
+      settings = fn usage_interval, max_age ->
+        {:ok, %{polling: %{usage_interval_seconds: usage_interval}, agent: %{headroom_reading_max_age_seconds: max_age}}}
+      end
+
+      assert UsageCadence.poll_interval_ms(settings.(300, 1_800)) == 300_000
+      assert UsageCadence.poll_interval_ms(settings.(3_600, 1_800)) == 1_800_000
+      assert UsageCadence.poll_interval_ms(settings.(300, 60)) == 120_000
     end
   end
 

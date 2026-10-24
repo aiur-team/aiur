@@ -2,6 +2,7 @@ const f = Object.freeze;
 export const AST = f({
   active: f({ label: "Running", cls: "active" }), error: f({ label: "Error", cls: "stuck" }), retries: f({ label: "Retries exhausted", cls: "stuck" }),
   retrying: f({ label: "Retrying", cls: "queued" }), command: f({ label: "Awaiting command", cls: "stuck" }), paused: f({ label: "Paused", cls: "idle" }), parked: f({ label: "Parked", cls: "idle" }),
+  usage_limited: f({ label: "Paused · usage limit", cls: "idle" }), ci_wait: f({ label: "Waiting for CI", cls: "idle" }),
 });
 export const UNKNOWN_STATE = f({ label: "State unknown", cls: null });
 export const agentState = s => typeof s === "string" && Object.hasOwn(AST, s) ? AST[s] : UNKNOWN_STATE;

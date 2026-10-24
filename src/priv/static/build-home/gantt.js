@@ -1,4 +1,5 @@
 // Vertical time geometry ported from the signed-off build design.
+import { estHours } from './estimate.js';
 import { SEC } from './state.js';
 import { fmtD, fmtWD, fmtT, fmtRange, dayKey } from './util.js';
 const H = 3600000;
@@ -74,10 +75,8 @@ export function assignLanes(items) {
     fin();
   });
 }
-// Interim estimate accessor; C7-T03 replaces this with the shared estHours.
-export const estOf = t => Number.isFinite(t.override?.hours) ? t.override.hours : Number.isFinite(t.est) ? t.est : null;
 export function bandGanttHeight(t, { pph, CH }) {
-  const est = estOf(t);
+  const est = estHours(t);
   return est === null ? CH.line : Math.max(Math.min(14 * pph, est * pph), CH.line + Math.min(48, est * 3.2));
 }
 export function planGantt(ents, ctx) {
@@ -94,7 +93,7 @@ export function planGantt(ents, ctx) {
         if ((cur[kk] != null ? cur[kk] : start) < (cur[k] != null ? cur[k] : start)) k = kk;
       }
     } else k = colKey(e.t);
-    const yy = cur[k] != null ? cur[k] : start, hrs = estOf(e.t);
+    const yy = cur[k] != null ? cur[k] : start, hrs = estHours(e.t);
     const h = Math.max((hrs ?? 0) * pph, span > 2 ? 4 : det === "mini" ? CH.mini : CH.line);
     items.push({ t: e.t, ghost: e.ghost, key: k, y: yy, h, sec: "plan", gantt: true,
       ...(hrs === null ? { estUnknown: true } : {}) });
