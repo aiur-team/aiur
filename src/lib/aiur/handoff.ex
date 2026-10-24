@@ -136,21 +136,60 @@ defmodule Aiur.Handoff do
 
   defp snapshots(entries, server, opts) do
     snapshot = Keyword.get(opts, :snapshot, &RunnerHandoff.snapshot/1)
+    timeout = Keyword.get(opts, :snapshot_timeout_ms, 65_000)
+    deadline = System.monotonic_time(:millisecond) + timeout
 
-    Enum.reduce_while(entries, {:ok, []}, fn {id, entry}, {:ok, agents} ->
-      case snapshot_agent(entry, snapshot) do
+    pending =
+      entries
+      |> Enum.map(fn {id, entry} ->
+        parent = self()
+        ref = make_ref()
+
+        {pid, monitor} =
+          spawn_monitor(fn ->
+            result = snapshot_agent(entry, snapshot)
+            send(parent, {ref, result})
+          end)
+
+        {id, entry, ref, pid, monitor}
+      end)
+
+    results =
+      Enum.map(pending, fn {id, entry, ref, pid, monitor} ->
+        remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+        result =
+          receive do
+            {^ref, value} ->
+              Process.demonitor(monitor, [:flush])
+              value
+
+            {:DOWN, ^monitor, :process, ^pid, reason} ->
+              {:error, {:runner_gone, reason}}
+          after
+            remaining ->
+              Process.exit(pid, :kill)
+              Process.demonitor(monitor, [:flush])
+              {:error, :snapshot_timeout}
+          end
+
+        {id, entry, result}
+      end)
+
+    Enum.reduce_while(results, {:ok, []}, fn {id, entry, result}, {:ok, agents} ->
+      case result do
         {:ok, agent} ->
-          state = GenServer.call(server, :prepare_handoff_snapshot, 65_000)
+          state = GenServer.call(server, :prepare_handoff_snapshot, max(deadline - System.monotonic_time(:millisecond), 1))
           entry = Map.get(state.running, id, entry)
           {:cont, {:ok, [Map.merge(snapshot_metadata(id, entry, state), agent) | agents]}}
 
         {:error, reason} ->
-          snapshot_failure(id, entry, reason, agents, server, opts)
+          snapshot_failure(id, entry, reason, agents, server, opts, deadline)
       end
     end)
   end
 
-  defp snapshot_failure(id, entry, reason, agents, server, opts) do
+  defp snapshot_failure(id, entry, reason, agents, server, opts, deadline) do
     case snapshot_fallback_reason(reason) do
       nil ->
         {:halt, {:error, {id, reason}}}
@@ -158,7 +197,7 @@ defmodule Aiur.Handoff do
       fallback_reason ->
         abort = Keyword.get(opts, :abort, &RunnerHandoff.abort/1)
         abort.(entry.pid)
-        state = GenServer.call(server, :prepare_handoff_snapshot, 65_000)
+        state = GenServer.call(server, :prepare_handoff_snapshot, max(deadline - System.monotonic_time(:millisecond), 1))
         entry = Map.get(state.running, id, entry)
 
         fallback =
