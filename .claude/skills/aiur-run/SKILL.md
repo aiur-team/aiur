@@ -733,6 +733,14 @@ check must never exit 0 or read as a healthy capture. `record` forwards that
 precondition line to its own stderr, so a log that redirects stdout+stderr
 still shows why the check did not run.
 
+When run outside the daemon's tmux session, the helper searches the live
+`aiur-*` tmux sockets for the dashboard URL Aiur published. A socket matching
+`AIUR_EXECUTOR_RUN_ID` wins; otherwise discovery proceeds only when the live
+dashboard URL is unambiguous. If dashboard credentials are absent from the
+caller environment, it reads them from that daemon's process environment. The
+check prints the URL and credential source labels to stderr without printing
+credential values.
+
 Take the recorded assessment's count language from the atomic
 `summary.count_sentence` that `record` embeds (or the one `summarize` prints in
 the same call), not from an earlier separate poll. `summarize` and `record` each

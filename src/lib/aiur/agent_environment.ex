@@ -4,7 +4,7 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
-  alias Aiur.AgentEnvironment.Contributor
+  alias Aiur.AgentEnvironment.{Contributor, CredentialScrub}
   alias Aiur.AgentEnvironment.GitHubPath
   alias Aiur.Config.Paths
 
@@ -142,7 +142,7 @@ defmodule Aiur.AgentEnvironment do
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|AIUR_TOKEN_*|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
@@ -213,8 +213,7 @@ defmodule Aiur.AgentEnvironment do
   @doc false
   @spec provider_credential_env_names() :: [String.t()]
   def provider_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@provider_api_key_pattern, &1))
-    Enum.uniq(@provider_credential_env_names ++ inherited)
+    Enum.uniq(@provider_credential_env_names ++ CredentialScrub.inherited_env_names(@provider_api_key_pattern))
   end
 
   @doc """
@@ -225,8 +224,7 @@ defmodule Aiur.AgentEnvironment do
   """
   @spec app_credential_env_names() :: [String.t()]
   def app_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@app_credential_env_pattern, &1))
-    Enum.uniq(@app_credential_env_names ++ inherited)
+    Enum.uniq(@app_credential_env_names ++ CredentialScrub.inherited_env_names(@app_credential_env_pattern))
   end
 
   @doc """
@@ -260,6 +258,7 @@ defmodule Aiur.AgentEnvironment do
           @operator_only_env_names ++
           provider_credential_env_names() ++
           app_credential_env_names() ++
+          CredentialScrub.remote_instance_token_env_names() ++
           @github_credential_env_names ++
           ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
@@ -305,8 +304,7 @@ defmodule Aiur.AgentEnvironment do
 
     contributions = Contributor.port_env(workspace, opts)
 
-    contributed_credentials =
-      for {name, _value} <- contributions, Regex.match?(@app_credential_env_pattern, to_string(name)), do: {name, false}
+    contributed_credentials = for {name, _value} <- contributions, CredentialScrub.contributed_credential_name?(name), do: {name, false}
 
     (workspace_env ++ contributions ++ unset_inherited_env ++ contributed_credentials)
     |> Map.new()

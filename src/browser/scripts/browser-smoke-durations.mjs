@@ -38,6 +38,10 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
+  // Local estimate (loaded host ran 234s; CI hosts run the home suites about 2x faster); replace from its first shard log.
+  'test:browser-suite -- build-home-performance': 150,
+  // Local governed run: 11 cases in 139s including fixture startup; rounded up.
+  'test:build-home-performance': 150,
   // CI run 39590874795 (2026-10-21), full suite wall times including fixture startup:
   // shards 5/8/7 measured modal 30.9s, parity 122.8s, motion 25.6s; round each up.
   'test:build-modal': 31,
@@ -119,6 +123,8 @@ export const recordedSeconds = {
   'test:build-home-cards:4': 298,
   'test:build-home-states-parity': 200,
   'test:build-home-list-unit': 1,
+  // Local browser-suite run on f1631fd43 took 6.3s; rounded up conservatively.
+  'test:browser-suite -- build-home-grain-animation-capture': 7,
   // Usage: CI job 117605146944 reported 268.0s; round up conservatively.
   'test:build-home-usage': 269,
   // Run 39091360816, job 117578322274: agents took 21.8s (rounded up).

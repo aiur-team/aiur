@@ -123,6 +123,7 @@ defmodule AiurWeb.Build.IndexReader do
 
     %{
       identity: identity,
+      labels: Map.get(summary, :labels, []),
       runtime: %{
         bucket: bucket,
         work_state: Map.get(summary, :work_state, :working),
