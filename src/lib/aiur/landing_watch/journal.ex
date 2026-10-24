@@ -305,33 +305,35 @@ defmodule Aiur.LandingWatch.Journal do
     if Enum.all?(keys, &is_binary/1) do
       retained = MapSet.new(keys)
 
-      update(opts, fn state ->
-        holds = Map.get(state, "merge_group_head_holds", %{})
-
-        state =
-          Map.filter(state, fn {entry_key, _} ->
-            entry_key in [
-              "flakes",
-              "flake_tickets",
-              "failure_observations",
-              "quarantine_retries",
-              "merge_group_runs",
-              "merge_group_run_failures",
-              "quarantine_merge_group_runs",
-              "merge_group_requeues",
-              "ci_merges"
-            ] or
-              MapSet.member?(retained, entry_key)
-          end)
-
-        {:ok, retain_head_holds(state, holds, retained)}
-      end)
+      update(opts, &retain_current_head_entries(&1, retained))
     else
       :ok
     end
   end
 
   def retain_current_heads(_, _), do: {:error, :invalid_landing_watch_observations}
+
+  defp retain_current_head_entries(state, retained) do
+    holds = Map.get(state, "merge_group_head_holds", %{})
+
+    state =
+      Map.filter(state, fn {entry_key, _} ->
+        entry_key in [
+          "flakes",
+          "flake_tickets",
+          "failure_observations",
+          "quarantine_retries",
+          "merge_group_runs",
+          "merge_group_run_failures",
+          "quarantine_merge_group_runs",
+          "merge_group_requeues",
+          "ci_merges"
+        ] or
+          MapSet.member?(retained, entry_key)
+      end)
+
+    {:ok, retain_head_holds(state, holds, retained)}
+  end
 
   defp retain_head_holds(state, holds, retained) do
     holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)
