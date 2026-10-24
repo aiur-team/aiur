@@ -30,3 +30,14 @@
 /* Keep the design's stretched button when the accessible reason wraps it. */
 .bm-qadd { display: flex; }
 .bm-qadd .btn { width: 100%; }
+.bd-list-label { color: var(--muted); font: 600 .68rem "JetBrains Mono", monospace; white-space: nowrap; }
+.bd-list-shows button span { display: inline; }
+.bd-list-placeholder { padding: 2rem; color: var(--muted); text-align: center; font: .8rem "JetBrains Mono", monospace; }
+@media (max-width: 480px) {
+  .bd-toolbar:has(.bd-list-shows) { flex-wrap: wrap; }
+  .bd-toolbar:has(.bd-list-shows) .bd-bar-l { flex-wrap: wrap; }
+  .bd-list-label { flex-basis: 100%; }
+  .bd-seg.bd-list-shows button { padding: 0 .5rem; }
+  .bd-seg.bd-list-shows button span { display: none; }
+  .bd-seg.bd-list-shows button svg { width: 15px; height: 15px; }
+}
