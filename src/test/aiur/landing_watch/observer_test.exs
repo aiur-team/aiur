@@ -17,6 +17,8 @@ defmodule Aiur.LandingWatch.ObserverTest do
         is_map(request[:body]) and is_binary(request[:body]["query"]) ->
           query = request[:body]["query"]
           assert query =~ "AiurLandingWatch"
+          # The daemon's update-branch budget is one call per base SHA (#6088).
+          assert query =~ "baseRefOid"
 
           {:ok,
            %{
@@ -29,6 +31,7 @@ defmodule Aiur.LandingWatch.ObserverTest do
                      "state" => "OPEN",
                      "headRefOid" => "head-17",
                      "baseRefName" => "main",
+                     "baseRefOid" => "main-17",
                      "isDraft" => false,
                      "reviewDecision" => "APPROVED",
                      "mergeable" => "MERGEABLE",
@@ -56,6 +59,7 @@ defmodule Aiur.LandingWatch.ObserverTest do
     assert pr.number == 17
     assert pr.head == "head-17"
     assert pr.head_committed_at == "2026-10-14T00:00:00Z"
+    assert pr.base_oid == "main-17"
     assert pr.merge_queue_entry == %{"id" => "entry-17"}
   end
 
