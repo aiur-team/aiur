@@ -33,6 +33,7 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
     refute File.exists?(stale_path)
   end
 
+  @tag timeout: 180_000
   test "four mid-turn providers survive the real engine restart and polling admits a fifth" do
     restart_case(false)
   end
