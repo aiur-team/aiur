@@ -22,6 +22,23 @@ defmodule Aiur.LandingWatch.ConflictRoutingTest do
     refute_received {:enqueued, _}
   end
 
+  test "a conflict found by the final pre-enqueue read routes immediately to rebase-only rework" do
+    parent = self()
+    observation = %{conflicting(nil) | mergeable: "MERGEABLE", merge_state_status: "CLEAN"}
+
+    opts =
+      cycle_opts(parent, observation, "human-review")
+      |> Keyword.put(:revalidate_fun, fn 17, "head-sha", _ -> {:error, :merge_conflict} end)
+
+    assert :ok = LandingWatch.poll(opts)
+
+    refute_received {:enqueued, _}
+    assert_received {:transition, "17", "rework", _}
+    assert_received {:comment, "17", body}
+    assert body =~ "Rebase only"
+    assert body =~ "conflicts with `main`"
+  end
+
   test "a conflicting merge queue entry is dequeued before its ticket is routed the same way" do
     parent = self()
 

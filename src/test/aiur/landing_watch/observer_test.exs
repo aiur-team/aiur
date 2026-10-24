@@ -64,11 +64,24 @@ defmodule Aiur.LandingWatch.ObserverTest do
       query = graphql_request[:body]["query"]
       assert query =~ "headRefOid"
       assert query =~ "mergeQueueEntry"
+      assert query =~ "mergeable mergeStateStatus"
 
       {:ok,
        %{
          status: 200,
-         body: %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => "new-head", "reviewDecision" => "APPROVED", "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "new-head"}}]}}}}}
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "pullRequest" => %{
+                 "headRefOid" => "new-head",
+                 "reviewDecision" => "APPROVED",
+                 "mergeable" => "MERGEABLE",
+                 "mergeStateStatus" => "CLEAN",
+                 "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "new-head"}}]}
+               }
+             }
+           }
+         }
        }}
     end
 
@@ -81,6 +94,56 @@ defmodule Aiur.LandingWatch.ObserverTest do
     end
 
     assert {:error, :approval_or_head_changed} = Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: queued_request)
+  end
+
+  test "queue admission distinguishes a conflict from an unavailable exact-head verdict" do
+    for mergeable <- ["UNKNOWN", nil] do
+      request = fn _graphql_request ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "pullRequest" => %{
+                   "headRefOid" => "new-head",
+                   "reviewDecision" => "APPROVED",
+                   "mergeable" => mergeable,
+                   "mergeStateStatus" => "CLEAN",
+                   "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "new-head"}}]}
+                 }
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:error, :mergeability_unavailable} =
+               Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: request)
+    end
+
+    conflict_request = fn _graphql_request ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "pullRequest" => %{
+                 "headRefOid" => "new-head",
+                 "reviewDecision" => "APPROVED",
+                 "mergeable" => "CONFLICTING",
+                 "mergeStateStatus" => "BEHIND",
+                 "reviews" => %{"nodes" => [%{"commit" => %{"oid" => "new-head"}}]}
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:error, :merge_conflict} =
+             Observer.revalidate_approved_head(17, "new-head", token: "test-gh-token", request_fun: conflict_request)
   end
 
   test "queue refresh batches only approved or already queued PRs" do
