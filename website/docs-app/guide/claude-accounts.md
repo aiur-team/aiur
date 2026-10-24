@@ -127,12 +127,14 @@ session.
 If no other configured account has room, Aiur keeps the existing
 wait-for-reset behavior.
 
-The dashboard shows a named weekly usage bar for each Claude account, with
-freshness and observation age. Missing readings remain unknown.
+The dashboard shows a named weekly remaining bar for each Claude account, with
+freshness and observation age. A full bar is 100% left; an empty bar is
+unusable until reset. Missing readings remain unknown.
 
 The CLI and Stream Deck summary selects the highest weekly utilization, falling
-back to the highest reported window when weekly usage is absent. It names the
-selected account and labels complete readings “worst of N accounts”.
+back to the highest reported window when weekly usage is absent. The displayed
+bars and percentages show the remaining share, so the summary names the least
+remaining account when all weekly readings are available.
 
 If an account could not be read, the summary names the selected account and the
 observed account count instead.

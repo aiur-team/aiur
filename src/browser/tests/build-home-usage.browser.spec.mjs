@@ -31,7 +31,7 @@ test('duration formatting and mean preserve design labels and unknowns', async (
     .toEqual(['1h 27m','4h 10m','6d 23h','1d 2h','3h 02m','3d 4h','58m','5d 1h','2h 41m','4d 9h','2h 15m','2d 6h','37m','20m','22d'])
   expect(await page.evaluate(() => [[null,40],[null],[0]].map(usage.avgKnown))).toEqual([40,null,0])
 })
-test('unknown, partial, zero and thresholds render distinct values and segments', async ({ page }) => {
+test('unknown and partial model readings stay distinct with remaining percentages', async ({ page }) => {
   await paint(page, fixture('unknown'))
   const model = page.locator('.mdl .ax-r2')
   await expect(model.locator('.ax-pc')).toHaveText('')
@@ -39,16 +39,43 @@ test('unknown, partial, zero and thresholds render distinct values and segments'
   await expect(model.locator('i')).toHaveCount(0)
   await expect(model.locator('.ax-ln')).toHaveAttribute('data-tip', /not observed/)
   await paint(page, fixture('partial'))
-  await expect(model.locator('.ax-pc')).toHaveText('40%')
+  await expect(model.locator('.ax-pc')).toHaveText('40% left')
   await expect(model.locator('.ax-x')).toHaveText('×2')
   await expect(model.locator('.ax-seg.none i')).toHaveCount(0)
   await expect(model.locator('.ax-seg i')).toHaveAttribute('style','width:40%')
-  for (const [n, cls] of [[0,'z'],[79,''],[80,' hi'],[95,' max']]) {
+  for (const [n, cls] of [[0,'z max'],[10,' max'],[20,' hi'],[50,''],[100,'']]) {
     const u = fixture('unknown'); u.providers[0].session.acc = [n]; await paint(page,u)
-    await expect(model.locator('.ax-pc')).toHaveText(`${n}%`)
+    await expect(model.locator('.ax-pc')).toHaveText(`${n}% left`)
     await expect(model.locator('.ax-seg i')).toHaveAttribute('class',cls)
-    await expect(model.locator('.ax-pc')).toHaveAttribute('class','ax-pc'+(n >= 95 ? ' max' : n >= 80 ? ' hi' : ''))
+    await expect(model.locator('.ax-seg i')).toHaveAttribute('style', `width:${n}%`)
+    await expect(model.locator('.ax-pc')).toHaveAttribute('class','ax-pc'+(n <= 10 ? ' max' : n <= 20 ? ' hi' : ''))
   }
+})
+test('API meters show remaining labels and widths while unknown stays unfilled', async ({ page }) => {
+  const u = fixture('n2')
+  const github = u.apis[0]
+  github.lines = [
+    { tag: 'core', acc: [100], reset_at: NOW + 60_000, win: '1h', tip: [['Requests left', '5,000 of 5,000 left · 100% left']] },
+    { tag: 'gql', acc: [50], reset_at: NOW + 60_000, win: '1h', tip: [['Points left', '2,500 of 5,000 left · 50% left']] },
+    { tag: 'rest', acc: [0], reset_at: NOW + 60_000, win: '1h', tip: [['Requests left', '0 of 5,000 left · 0% left']] },
+    { tag: 'critical', acc: [10], reset_at: NOW + 60_000, win: '1h', tip: [['Requests left', '10% left']] },
+    { tag: 'warning', acc: [20], reset_at: NOW + 60_000, win: '1h', tip: [['Requests left', '20% left']] },
+    { tag: 'unknown', acc: [null], reset_at: null, win: null, tip: [['Budget', 'not observed']] },
+  ]
+  u.apis = [github]
+  await paint(page, u)
+  const api = page.locator('.api')
+  await expect(api.locator('.ax-ln')).toHaveCount(6)
+  const meters = api.locator('.ax-ln')
+  for (const [index, width, label] of [[0, '100%', '100% left'], [1, '50%', '50% left'], [2, '0%', '0% left']]) {
+    await expect(meters.nth(index).locator('.ax-pc')).toHaveText(label)
+    await expect(meters.nth(index).locator('.ax-seg i')).toHaveAttribute('style', `width:${width}`)
+  }
+  await expect(meters.nth(3).locator('.ax-seg i')).toHaveAttribute('class', /max/)
+  await expect(meters.nth(4).locator('.ax-seg i')).toHaveAttribute('class', /hi/)
+  await expect(meters.nth(5).locator('.ax-pc')).toHaveText('')
+  await expect(meters.nth(5).locator('.ax-seg i')).toHaveCount(0)
+  await expect(meters.nth(1)).toHaveAttribute('data-tip', /2,500 of 5,000 left.*50% left/)
 })
 test('unknown and ended resets, stale ages, holds and notes are truthful', async ({ page }) => {
   await paint(page, fixture('unknown'))
@@ -114,7 +141,7 @@ test('popover mouse and keyboard, offsets, hide delay, scroll and live diff repl
   await page.mouse.move(0,0); await page.clock.runFor(50); await expect(pop).toHaveClass('ax-pop show')
   await page.clock.runFor(20); await expect(pop).toHaveClass('ax-pop')
   await line.focus(); await expect(pop).toHaveClass('ax-pop show')
-  await expect(line).toHaveAttribute('aria-label', /Claude.*Max · work 1%/)
+  await expect(line).toHaveAttribute('aria-label', /Claude.*Max · work 99% left/)
   await page.evaluate(() => window.dispatchEvent(new Event('scroll'))); await expect(pop).toHaveClass('ax-pop')
   await line.hover()
   await page.clock.resume()

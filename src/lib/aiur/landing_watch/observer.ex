@@ -52,7 +52,7 @@ defmodule Aiur.LandingWatch.Observer do
   def prs_ahead(_, _), do: {:error, :invalid_merge_queue_position}
 
   @doc false
-  @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
+  @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:hold, term()} | {:error, term()}
   def revalidate_approved_head(number, expected_head, opts) when is_integer(number) and number > 0 and is_binary(expected_head) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts),
@@ -60,14 +60,14 @@ defmodule Aiur.LandingWatch.Observer do
            Transport.github_graphql(
              Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
              token,
-             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision mergeable mergeStateStatus autoMergeRequest{enabledAt} mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
              %{owner: owner, repo: repo, number: number},
              caller: "landing_watch_revalidate"
            ),
          true <-
            Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) and
              is_nil(Map.get(pr, "mergeQueueEntry")) and is_nil(Map.get(pr, "autoMergeRequest")) do
-      :ok
+      mergeability_verdict(pr)
     else
       {:error, _} = error -> error
       false -> {:error, :approval_or_head_changed}
@@ -76,6 +76,11 @@ defmodule Aiur.LandingWatch.Observer do
   end
 
   def revalidate_approved_head(_, _, _), do: {:error, :invalid_approval_revalidation}
+
+  defp mergeability_verdict(%{"mergeable" => "MERGEABLE", "mergeStateStatus" => state}) when state in ["CLEAN", "UNSTABLE"], do: :ok
+  defp mergeability_verdict(%{"mergeable" => "CONFLICTING"}), do: {:error, :merge_conflict}
+  defp mergeability_verdict(%{"mergeable" => "UNKNOWN"}), do: {:hold, :mergeability_unknown}
+  defp mergeability_verdict(_), do: {:error, :mergeability_unavailable}
 
   defp observe_chunks(prs, owner, repo, token, request_fun) do
     prs
