@@ -43,6 +43,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
+    # Resolve every row from one batch; per-row reads multiply status RPC work by ticket count.
     decision_counts = status_decision_counts(state)
 
     statuses =

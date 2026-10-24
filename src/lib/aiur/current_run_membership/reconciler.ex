@@ -103,6 +103,7 @@ defmodule Aiur.CurrentRunMembership.Reconciler do
 
   def handle_info(:reconcile_tick, state) do
     state = %{state | reconcile_timer_ref: nil}
+    # The periodic full snapshot repairs lifecycle rows missed by event deltas.
     {:noreply, schedule_reconciliation(state, :full)}
   end
 

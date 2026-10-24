@@ -255,6 +255,7 @@ defmodule Aiur.Application.Children do
       Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
+      # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.
       {Aiur.CurrentRunProjections, idle_without_subscribers?: true},
       maybe_ls_remote_ticker(ls_remote_ticker?),
       Aiur.PRLifecycle.HealthScanner,

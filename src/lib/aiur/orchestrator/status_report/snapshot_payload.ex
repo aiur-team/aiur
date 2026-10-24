@@ -31,6 +31,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
     activity_by_identity = activity_by_identity()
+    # Resolve every row from one batch; per-row reads multiply snapshot RPC work by ticket count.
     decision_counts = snapshot_decision_counts(state)
 
     running =
