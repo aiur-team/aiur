@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.QueueAdmission do
   @moduledoc false
 
-  alias Aiur.LandingWatch.{ConflictRouting, LocalRead, Observer}
+  alias Aiur.LandingWatch.{Attribution, ConflictRouting, LocalRead, Observer}
 
   @spec run(map(), keyword(), function(), function()) :: term()
   def run(observation, opts, enqueue, route_rework) do
@@ -28,5 +28,5 @@ defmodule Aiur.LandingWatch.QueueAdmission do
     end
   end
 
-  defp default_attribution(observation, opts), do: Aiur.LandingWatch.Attribution.pull_request_clean?(observation.number, opts)
+  defp default_attribution(observation, opts), do: Attribution.pull_request_clean?(observation.number, opts)
 end
