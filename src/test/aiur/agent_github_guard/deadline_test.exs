@@ -5,6 +5,7 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     broker = Path.join(context.workspace, "never-answers.py")
     pid_file = Path.join(context.workspace, "broker.pid")
     broker_pgid_file = Path.join(context.workspace, "broker.pgid")
+    supervisor_pgid_file = Path.join(context.workspace, "supervisor.pgid")
     child_pid_file = Path.join(context.workspace, "broker-child.pid")
     child_pgid_file = Path.join(context.workspace, "broker-child.pgid")
 
@@ -19,6 +20,10 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
         pid_file.write(str(os.getpid()))
     with open(os.environ["AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
         pgid_file.write(str(os.getpgrp()))
+    with open(f"/proc/{os.getppid()}/stat", encoding="ascii") as parent_stat:
+        supervisor_pid = int(parent_stat.read().rsplit(")", 1)[1].split()[1])
+    with open(os.environ["AIUR_GH_NEVER_ANSWERS_SUPERVISOR_PGID_FILE"], "w", encoding="utf-8") as pgid_file:
+        pgid_file.write(str(os.getpgid(supervisor_pid)))
     time.sleep(5)
     """)
 
@@ -35,7 +40,8 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
                AIUR_GH_NEVER_ANSWERS_CHILD_PID_FILE: child_pid_file,
                AIUR_GH_NEVER_ANSWERS_CHILD_PGID_FILE: child_pgid_file,
                AIUR_GH_NEVER_ANSWERS_PID_FILE: pid_file,
-               AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE: broker_pgid_file
+               AIUR_GH_NEVER_ANSWERS_BROKER_PGID_FILE: broker_pgid_file,
+               AIUR_GH_NEVER_ANSWERS_SUPERVISOR_PGID_FILE: supervisor_pgid_file
              )
 
     assert output =~ "governed gh call exceeded 1s deadline; terminated process group"
@@ -45,7 +51,9 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     assert process_gone?(broker_pid)
     child_pid = child_pid_file |> File.read!() |> String.to_integer()
     broker_pgid = broker_pgid_file |> File.read!() |> String.to_integer()
+    supervisor_pgid = supervisor_pgid_file |> File.read!() |> String.to_integer()
     child_pgid = child_pgid_file |> File.read!() |> String.to_integer()
+    assert broker_pgid == supervisor_pgid
     assert child_pgid == broker_pgid
     assert process_gone?(child_pid)
   end
