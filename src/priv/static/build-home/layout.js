@@ -1,3 +1,4 @@
+import { rowOk } from './filters.js';
 import { bandLayout } from './band-layout.js';
 import { sectionState, emptyMark } from './states.js';
 import { nowMs } from './clock.js';
@@ -22,7 +23,7 @@ export function measureFlow(D, dims) {
 }
 // The design's 62 px lane minimum, measured on the lane applyCols draws (16 px gaps between lanes).
 export const crowded = (dims, n) => (dims.vpW - dims.gut - 14 - 16 * (n - 1)) / n < 62;
-export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => !S.f.epic.length || S.f.epic.includes(colKey(t))).map(colKey));
+export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => rowOk(S, t)).map(colKey));
 // Most columns visibleCols can draw at any scroll position of an unflowed layout: the lanes of
 // every history day a viewport of height `span` touches, plus the forward set past history (#4769).
 export function laneMax(L, fwd, span) {
@@ -46,7 +47,7 @@ export function laneMax(L, fwd, span) {
 }
 export function computeLayout(D, S, dims, sources, ext = {}) {
   if (S.view === "gantt" && !ext.gantt) throw new Error("gantt layout not installed");
-  const epicOk = t => !S.f.epic.length || S.f.epic.includes(colKey(t));
+  const epicOk = t => rowOk(S, t);
   const NOWL = D.now.filter(epicOk), PLANL = D.plan.filter(epicOk), NQL = D.nq.filter(epicOk);
   const span = S.span || 1, fs = 13, flow = S.flow, K = S.K, vh = Math.max(300, (dims.vpH == null ? 700 : dims.vpH) - LH - 40);
   let gap = 14;
