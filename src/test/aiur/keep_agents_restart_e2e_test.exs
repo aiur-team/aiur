@@ -9,7 +9,7 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
   @tag timeout: 180_000
   setup_all do
     # An interrupted prior run may leave test-owned tmux servers behind.
-    # Sweep only the exact namespace this module creates.
+    # Sweep only stale entries in the exact namespace this module creates.
     sweep_stale_tmux_sockets("keep-agents-test-")
 
     :ok
@@ -20,7 +20,7 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
     live_socket = prefix <> "-live"
     stale_socket = prefix <> "-stale"
     stale_path = Path.join(tmux_socket_dir(), stale_socket)
-    File.mkdir_p!(Path.dirname(stale_path))
+    ensure_tmux_socket_dir!()
     File.write!(stale_path, "stale socket path fixture")
 
     on_exit(fn -> cleanup_tmux_sockets(prefix) end)
@@ -31,6 +31,18 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
 
     assert {_, 0} = System.cmd("tmux", ["-L", live_socket, "has-session"])
     refute File.exists?(stale_path)
+  end
+
+  test "startup sweep preserves a live server from another run" do
+    foreign_socket = "keep-agents-test-other-#{Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)}"
+
+    on_exit(fn -> cleanup_tmux_sockets(foreign_socket) end)
+
+    assert {_, 0} = System.cmd("tmux", ["-L", foreign_socket, "new-session", "-d", "-s", "keep-agents-foreign", "sleep 120"])
+
+    sweep_stale_tmux_sockets("keep-agents-test-")
+
+    assert {_, 0} = System.cmd("tmux", ["-L", foreign_socket, "has-session"])
   end
 
   @tag timeout: 180_000
@@ -47,6 +59,7 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
     nonce = Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
     root = Aiur.TestSupport.tmp_root!("keep-agents-engine-#{nonce}")
     File.mkdir_p!(Path.join(root, "run"))
+    # Keep the Unix socket path below the platform's 108-byte limit.
     endpoint = Path.join("/tmp", "k4-#{nonce}")
     {:ok, socket} = :gen_udp.open(0, [:binary, {:ifaddr, {:local, endpoint}}, {:active, true}])
     File.write!(Path.join(root, "endpoint"), endpoint)
@@ -120,7 +133,7 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
     ]
 
     stale_socket = Path.join(tmux_socket_dir(), "keep-agents-test-#{nonce}-stale")
-    File.mkdir_p!(Path.dirname(stale_socket))
+    ensure_tmux_socket_dir!()
     File.write!(stale_socket, "stale socket path fixture")
 
     on_exit(fn ->
@@ -202,7 +215,15 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
 
   defp tmux_socket_dir do
     {uid, 0} = System.cmd("id", ["-u"])
-    Path.join(System.tmp_dir!(), "tmux-#{String.trim(uid)}")
+    tmux_tmpdir = System.get_env("TMUX_TMPDIR") || "/tmp"
+    Path.join(tmux_tmpdir, "tmux-#{String.trim(uid)}")
+  end
+
+  defp ensure_tmux_socket_dir! do
+    socket_dir = tmux_socket_dir()
+    File.mkdir_p!(socket_dir)
+    File.chmod!(socket_dir, 0o700)
+    socket_dir
   end
 
   defp cleanup_tmux_sockets(prefix) do
@@ -231,7 +252,7 @@ defmodule Aiur.KeepAgentsRestartE2ETest do
   end
 
   defp remove_if_stale_tmux_socket(socket_dir, socket) do
-    {_, status} = System.cmd("tmux", ["-L", socket, "has-session"], stderr_to_stdout: true)
+    {_, status} = System.cmd("tmux", ["-L", socket, "list-sessions"], stderr_to_stdout: true)
     if status != 0, do: remove_tmux_socket!(Path.join(socket_dir, socket))
   end
 
