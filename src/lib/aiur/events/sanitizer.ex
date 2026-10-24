@@ -1,5 +1,6 @@
 defmodule Aiur.Events.Sanitizer do
   alias Aiur.GitHub.AgentMarker
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.SecretRedactor
 
   @moduledoc """
@@ -190,21 +191,24 @@ defmodule Aiur.Events.Sanitizer do
   @spec stamp_author_trust(map(), keyword()) :: map()
   def stamp_author_trust(payload, opts \\ []) when is_map(payload) do
     author = Map.get(payload, :author) || Keyword.get(opts, :actor)
-    trusted? = author_trusted?(author)
+    trusted? = author_trusted?(author, opts)
     Map.put(payload, :author_trusted?, trusted?)
   end
 
-  defp author_trusted?(nil), do: false
+  defp author_trusted?(nil, _opts), do: false
 
-  defp author_trusted?(author) when is_binary(author) do
-    classifier().trusted?(author)
+  defp author_trusted?(author, opts) when is_binary(author) do
+    case Keyword.fetch(opts, :trust_server) do
+      {:ok, server} -> CodeOwners.allowed?(author, server)
+      :error -> classifier().trusted?(author)
+    end
   rescue
     _ -> false
   catch
     :exit, _ -> false
   end
 
-  defp author_trusted?(_), do: false
+  defp author_trusted?(_, _opts), do: false
 
   defp classifier, do: Application.get_env(:aiur, Aiur.Events.TrustClassifier)
 
