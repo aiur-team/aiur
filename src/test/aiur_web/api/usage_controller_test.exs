@@ -32,6 +32,8 @@ defmodule AiurWeb.Api.UsageControllerTest do
     assert response.status == 200
     assert get_resp_header(response, "cache-control") == ["no-store"]
     body = Jason.decode!(response.resp_body)
+    assert body["contract"] == "aiur.ticket_usage"
+    assert body["contract_version"] == 1
     assert body["schema_version"] == 1
     assert body["ticket"]["identifier"] == "5692"
     assert body["totals"]["tokens"] == %{"input" => 100}
