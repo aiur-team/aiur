@@ -15,7 +15,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
       do: {:reply, :ok, state}
   end
 
-  test "counts identical command output consecutively and formats steering after the threshold" do
+  test "future regression: pure streak counting and steering wording" do
     command = "tail -40 gate-9.log"
     output = "make: *** Error 2"
 
@@ -29,7 +29,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
              "The output of `\"tail -40 gate-9.log\"` has not changed for 3 consecutive calls; act on it or stop and hand off."
   end
 
-  test "a changed command or output starts a new streak" do
+  test "future regression: a changed command or output starts a new streak" do
     {first, :varied} = RepeatedCommandGuard.observe(nil, "cat a", "same")
     {changed_command, :varied} = RepeatedCommandGuard.observe(first, "cat b", "same")
     {changed_output, :varied} = RepeatedCommandGuard.observe(changed_command, "cat b", "new")
@@ -109,7 +109,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
              {:repeated_identical_command, "tail -40 build.log", 6}
   end
 
-  test "varied output and compound shell commands reset the read streak" do
+  test "future regression: varied output and compound shell commands reset the read streak" do
     RepeatedCommandGuard.start_turn(repeat_threshold: 2)
     handler = MessageHandler.build(nil, %Issue{}, nil, nil, "codex")
 
