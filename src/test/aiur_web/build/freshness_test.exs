@@ -2,9 +2,17 @@ defmodule AiurWeb.Build.FreshnessTest do
   use ExUnit.Case, async: false
   alias Aiur.BuildOrder.ProviderHealth
   alias Aiur.Orchestrator.{SnapshotCache, SnapshotStore}
+  alias Aiur.PollCadence
   alias AiurWeb.Build.Freshness
   @now 1_791_408_000_000
   @time ~U[2026-10-07 21:20:00Z]
+
+  test "snapshot tolerance follows the effective dispatch cadence" do
+    on_exit(&PollCadence.forget_effective_interval_ms/0)
+    :ok = PollCadence.publish_effective_interval_ms(120_000)
+
+    assert Freshness.snapshot_tolerance_ms() == 240_000
+  end
 
   test "daemon preserves state, heartbeat, read time and privacy" do
     for {result, state, heartbeat} <- [

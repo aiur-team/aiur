@@ -37,8 +37,13 @@ defmodule AiurWeb.Build.Freshness do
   @spec read_daemon(keyword()) :: map()
   def read_daemon(opts \\ []) do
     orchestrator = Keyword.get_lazy(opts, :orchestrator, fn -> EndpointConfig.get(:orchestrator) || Orchestrator end)
-    timeout = Keyword.get_lazy(opts, :timeout, fn -> PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000, class: :dispatch) end)
+    timeout = Keyword.get_lazy(opts, :timeout, &snapshot_tolerance_ms/0)
     daemon(Orchestrator.dashboard_snapshot(orchestrator, timeout), System.os_time(:millisecond))
+  end
+
+  @spec snapshot_tolerance_ms() :: non_neg_integer()
+  def snapshot_tolerance_ms do
+    PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000, class: :dispatch)
   end
 
   @doc "Reads the current fleet rows through the nonblocking orchestrator read model."
