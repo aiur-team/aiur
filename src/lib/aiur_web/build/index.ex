@@ -3,10 +3,10 @@ defmodule AiurWeb.Build.Index do
   use GenServer
   alias Aiur.BuildOrder.Index, as: Core
   alias AiurWeb.Build.{Freshness, HistoryCarry, IndexReader}
+  alias AiurWeb.Build.Index.RefreshState
   require Logger
   @window 250
   @max_backoff 60_000
-  @settings_startup_timeout_ms 600_000
   @signals %{
     build_order_history_changed: ~w(history health catch_up planned not_queued)a,
     build_order_features_changed: [:features],
@@ -207,7 +207,7 @@ defmodule AiurWeb.Build.Index do
     Process.demonitor(ref, [:flush])
     Process.cancel_timer(state.task.deadline)
     dirty = dirty_set(state.task.dirty)
-    parts = clear_read_staleness(parts, dirty)
+    parts = RefreshState.clear_read_staleness(parts, dirty)
 
     settings_loading? =
       match?({:error, :settings_loading}, Core.assemble(parts, now: clock(state)))
@@ -235,10 +235,12 @@ defmodule AiurWeb.Build.Index do
       "build_index read_task_failed=#{inspect(reason, limit: 20, printable_limit: 200)} failure=#{failure} parts=#{part || :unknown} part=#{part || :unknown} retry=#{Enum.join(MapSet.to_list(retry), ",")}"
     )
 
-    parts = record_read_staleness(state.parts, dirty, cause)
+    parts = RefreshState.record_read_staleness(state.parts, dirty, cause)
 
     parts =
-      parts |> mark_failed_part(part, failure) |> retain_failed_agents(state.parts, part, failure)
+      parts
+      |> RefreshState.mark_failed_part(part, failure)
+      |> RefreshState.retain_failed_agents(state.parts, part, failure)
 
     dirty = MapSet.union(state.dirty, retry)
 
@@ -443,15 +445,18 @@ defmodule AiurWeb.Build.Index do
       HistoryCarry.carry(state.parts, parts, keys, state.history_at, clock(state))
 
     next = Core.assemble(parts, now: clock(state))
-    {parts, next, settings_loading_since_ms} = expire_settings_loading(state, parts, next)
-    changes = changes(state.index, next)
+
+    {parts, next, settings_loading_since_ms} =
+      RefreshState.expire_settings_loading(state, parts, next, clock(state))
+
+    changes = RefreshState.changes(state.index, next)
     generation = if changes, do: state.generation + 1, else: state.generation
 
     if changes,
       do: broadcast(state, Map.merge(changes, %{index_generation: generation, now: clock(state)}))
 
     now_failed? = match?({:error, _}, parts[:now])
-    {failures, retry_dirty} = retry_after_finish(state, next, now_failed?, parts)
+    {failures, retry_dirty} = RefreshState.retry_after_finish(state, next, now_failed?, parts)
 
     state = %{
       state
@@ -477,54 +482,6 @@ defmodule AiurWeb.Build.Index do
     end
   end
 
-  defp retry_after_finish(state, next, now_failed?, parts) do
-    settings_loading? = match?({:error, :settings_loading}, next)
-    failures = if now_failed? or settings_loading?, do: state.failures + 1, else: state.failures
-    retry_dirty = if now_failed?, do: MapSet.put(state.dirty, :now), else: state.dirty
-    retry_dirty = if settings_loading?, do: MapSet.put(retry_dirty, :settings), else: retry_dirty
-
-    retry_dirty =
-      if match?({:error, :settings_startup_timeout}, parts[:settings]),
-        do: MapSet.delete(retry_dirty, :settings),
-        else: retry_dirty
-
-    {failures, retry_dirty}
-  end
-
-  defp expire_settings_loading(state, parts, {:error, :settings_loading} = next) do
-    now = clock(state)
-    started_at = state.settings_loading_since_ms || now
-    timeout = Keyword.get(state.opts, :settings_startup_timeout_ms, @settings_startup_timeout_ms)
-
-    if now - started_at >= timeout do
-      parts = Map.put(parts, :settings, {:error, :settings_startup_timeout})
-      {parts, Core.assemble(parts, now: now), nil}
-    else
-      {parts, next, started_at}
-    end
-  end
-
-  defp expire_settings_loading(_state, parts, next), do: {parts, next, nil}
-
-  defp changes({:ok, old}, {:ok, new}) do
-    # An empty unavailable/backfilling window has no cutoff: pull a bounded day window on recovery.
-    if old.hist == [] and new.hist != [] and
-         old.sources.history.state in ["unavailable", "incomplete"] do
-      %{resync: true}
-    else
-      ordinary_changes(old, new)
-    end
-  end
-
-  defp changes(_, _), do: %{resync: true}
-
-  defp ordinary_changes(old, new) do
-    case Core.diff(old, new) do
-      %{upsert: [], remove: [], set: set} when map_size(set) == 0 -> nil
-      diff -> Map.put(diff, :resync, false)
-    end
-  end
-
   defp broadcast(state, changes),
     do: Keyword.get(state.opts, :broadcast, &Core.broadcast/1).(changes)
 
@@ -536,77 +493,6 @@ defmodule AiurWeb.Build.Index do
 
   defp read_part_from_dictionary(_info), do: :unknown
 
-  defp mark_open_degraded(parts, failure) do
-    case parts[:not_queued] do
-      %{state: _state, reasons: _reasons} = not_queued ->
-        Map.put(parts, :not_queued, %{
-          not_queued
-          | state: :unavailable,
-            reasons: [
-              if(failure == :timeout, do: :open_tickets_timeout, else: :open_tickets_read_failed)
-            ]
-        })
-
-      _other ->
-        Map.put(parts, :not_queued, %{
-          state: :unavailable,
-          reasons: [
-            if(failure == :timeout, do: :open_tickets_timeout, else: :open_tickets_read_failed)
-          ],
-          observed_at: nil,
-          truncated?: false,
-          skipped: 0,
-          rows: []
-        })
-    end
-  end
-
   defp dirty_set(:all), do: MapSet.new(@read_parts)
   defp dirty_set(%MapSet{} = dirty), do: dirty
-
-  defp record_read_staleness(parts, dirty, reason) do
-    stale = Map.get(parts, :read_stale, %{})
-    stale = Enum.reduce(dirty, stale, &Map.put(&2, &1, reason))
-    Map.put(parts, :read_stale, stale)
-  end
-
-  defp clear_read_staleness(parts, dirty) do
-    stale = Map.get(parts, :read_stale, %{}) |> Map.drop(MapSet.to_list(dirty))
-    Map.put(parts, :read_stale, stale)
-  end
-
-  defp mark_history_failed(parts, reason) do
-    parts |> Map.put(:history, {:error, reason}) |> Map.put(:health, {:error, reason})
-  end
-
-  defp mark_failed_part(parts, :history, reason), do: mark_history_failed(parts, reason)
-  defp mark_failed_part(parts, :health, reason), do: Map.put(parts, :health, {:error, reason})
-  defp mark_failed_part(parts, :features, reason), do: Map.put(parts, :features, {:error, reason})
-  defp mark_failed_part(parts, :now, reason), do: Map.put(parts, :now, {:error, reason})
-  defp mark_failed_part(parts, :queue, reason), do: Map.put(parts, :planned, {:error, reason})
-  defp mark_failed_part(parts, :planned, reason), do: Map.put(parts, :planned, {:error, reason})
-
-  defp mark_failed_part(parts, :open, reason),
-    do: parts |> Map.put(:open, {:error, reason}) |> mark_open_degraded(reason)
-
-  defp mark_failed_part(parts, :not_queued, reason),
-    do: Map.put(parts, :not_queued, {:error, reason})
-
-  defp mark_failed_part(parts, _part, _reason), do: parts
-
-  defp retain_failed_agents(parts, previous, part, failure) when part in [:now, nil, :unknown] do
-    case previous[:now] do
-      %{rows: rows, source: %{state: state} = source}
-      when is_map(rows) and state in ["ok", "stale"] ->
-        Map.put(parts, :now, %{
-          rows: rows,
-          source: %{source | state: "stale", reason: Atom.to_string(failure)}
-        })
-
-      _ ->
-        parts
-    end
-  end
-
-  defp retain_failed_agents(parts, _previous, _part, _failure), do: parts
 end
