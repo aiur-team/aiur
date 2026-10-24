@@ -261,7 +261,11 @@ defmodule Aiur.GitHub.IssueState do
         context.prefix,
         exclude: [new_label],
         clear_terminal_state_overrides: Keyword.get(context.opts, :clear_terminal_state_overrides, false),
-        on_labels: &StateWriteCoordinator.verify_state_labels(context, new_label, &1)
+        on_labels: fn labels ->
+          StateWriteCoordinator.verify_state_labels(context, new_label, labels, fn label ->
+            add_label(context.issue_number, label, request_fun: context.request_fun)
+          end)
+        end
       )
     end
   end

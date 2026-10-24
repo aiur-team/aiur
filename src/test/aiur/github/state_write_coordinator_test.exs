@@ -63,14 +63,18 @@ defmodule Aiur.GitHub.StateWriteCoordinatorTest do
     }
 
     assert {:error, {:state_label_replaced_after_swap, "SYM:REWORK"}} =
-             StateWriteCoordinator.verify_state_labels(context, "sym:in-progress", ["SYM:REWORK"])
+             StateWriteCoordinator.verify_state_labels(context, "sym:in-progress", ["SYM:REWORK"], fn _ ->
+               flunk("unexpected state-label restore")
+             end)
 
     assert_received {:replacement_alert, "ticket.6110.state_label_replaced_after_swap", metadata}
     assert metadata[:severity] == "critical"
     assert metadata[:message] =~ "instead of sym:in-progress"
 
     assert :ok =
-             StateWriteCoordinator.verify_state_labels(context, "SYM:IN-PROGRESS", ["sym:in-progress"])
+             StateWriteCoordinator.verify_state_labels(context, "SYM:IN-PROGRESS", ["sym:in-progress"], fn _ ->
+               flunk("unexpected state-label restore")
+             end)
 
     refute_received {:replacement_alert, _, _}
   end

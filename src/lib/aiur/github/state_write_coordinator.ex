@@ -2,15 +2,17 @@ defmodule Aiur.GitHub.StateWriteCoordinator do
   @moduledoc false
 
   alias Aiur.Alerts
-  alias Aiur.GitHub.{IssueState, Labels}
+  alias Aiur.GitHub.Labels
 
   @spec with_lock(String.t(), function()) :: term()
   def with_lock(issue_number, fun) when is_binary(issue_number) and is_function(fun, 0) do
     :global.trans({{__MODULE__, issue_number}, self()}, fun)
   end
 
-  @spec verify_state_labels(map(), String.t(), [String.t()]) :: :ok | {:error, term()}
-  def verify_state_labels(context, intended_label, labels) when is_list(labels) do
+  @spec verify_state_labels(map(), String.t(), [String.t()], (String.t() -> term())) ::
+          :ok | {:error, term()}
+  def verify_state_labels(context, intended_label, labels, restore_label)
+      when is_list(labels) and is_function(restore_label, 1) do
     states = Enum.filter(labels, &(String.downcase(&1) in state_labels(context.prefix)))
 
     case states do
@@ -34,7 +36,7 @@ defmodule Aiur.GitHub.StateWriteCoordinator do
           "State-label removal left issue #{context.issue_number} without a workflow state; restoring #{intended_label}."
         )
 
-        case IssueState.add_label(context.issue_number, intended_label, request_fun: context.request_fun) do
+        case restore_label.(intended_label) do
           :ok -> :ok
           {:error, reason} -> {:error, {:state_label_restore_failed, intended_label, reason}}
         end
