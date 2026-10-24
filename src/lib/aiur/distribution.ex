@@ -320,8 +320,6 @@ defmodule Aiur.Distribution do
   defp unsafe_reason(:baked_cookie),
     do: "running cookie matches releases/COOKIE; set a unique RELEASE_COOKIE"
 
-  defp unsafe_reason(reason), do: "distribution check failed: #{inspect(reason)}"
-
   defp do_monitor_hidden_nodes(monitor_fn) do
     monitor_fn.(true, node_type: :hidden)
     :ok
