@@ -208,34 +208,6 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       assert out =~ "returned no exit marker"
     end
 
-    @tag timeout: 180_000
-    test "Logger output from the real RPC fixture does not contaminate marker stdout" do
-      rel = fake_release()
-      state = tmp_state()
-
-      install_real_rpc_fixture(rel)
-
-      on_exit(fn ->
-        Aiur.TestCleanup.rm_rf!(rel)
-        Aiur.TestCleanup.rm_rf!(state)
-      end)
-
-      {out, 0} =
-        run_control_rpc_captured(
-          ~s|require Logger; Logger.warning("fixture logger output must not use protocol stdout"); Aiur.ControlCLI.Protocol.exit_marker(1)|,
-          [
-            {"AIUR_RELEASE_DIR", rel},
-            {"AIUR_BG_STATE_DIR", state}
-          ]
-        )
-
-      assert out =~ "CODE=1", out
-      assert out =~ "STDOUT_BYTES=0", out
-      assert out =~ ~r/STDERR_LINES=[1-9]/, out
-      refute out =~ "fixture logger output must not use protocol stdout", out
-      refute out =~ "returned no exit marker", out
-    end
-
     test "a hung rpc is killed and surfaces exit 124" do
       rel = fake_release()
       state = tmp_state()
@@ -435,7 +407,8 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       end)
 
       commands = [
-        {"set max-agents", "Aiur.AgentControlCLI.set_max_agents(2)", "failed to set max-agents (orchestrator unavailable)"},
+        {"set max-agents", ~s|require Logger; Logger.warning("fixture logger output must not use protocol stdout"); Aiur.AgentControlCLI.set_max_agents(2)|,
+         "failed to set max-agents (orchestrator unavailable)"},
         {"pause", ~s|Aiur.AgentControlCLI.pause(["44"])|, "orchestrator is not running"},
         {"resume", ~s|Aiur.AgentControlCLI.resume(["44"])|, "orchestrator is not running"},
         {"reset-budget", ~s|Aiur.AgentControlCLI.reset_budget(["44"])|, "failed to reset lifetime dispatch budget for #44 (orchestrator unavailable)"},
@@ -460,6 +433,7 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
         assert out =~ "STDOUT_BYTES=0", context
         assert out =~ "STDERR_LINES=1", context
         assert out =~ "aiur: #{diagnostic}", context
+        refute out =~ "fixture logger output must not use protocol stdout", context
         refute out =~ "timed out", context
         refute out =~ "__AIUR_CONTROL_", context
       end
