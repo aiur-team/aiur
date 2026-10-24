@@ -3,6 +3,8 @@ import { esc } from './dom.js';
 import { dayKey } from './util.js';
 import { I } from './icons.js';
 import { place } from './render.js';
+import { timed } from './perf.js';
+export const applyCols = timed('applyCols', applyColsImpl);
 
 let leaveSeq = 0;
 
@@ -34,7 +36,7 @@ function belongsToFeature(t, feature) {
     const dep = ctx.D.byId[id]; return dep && (dep.feature === feature || dep.also.includes(feature));
   });
 }
-export function applyCols(next, immediate) {
+function applyColsImpl(next, immediate) {
   ctx.cols = next;
   const w = ctx.vp.clientWidth, g = gutW();
   const maxW = 520, gap = S.flow ? 10 : 16;

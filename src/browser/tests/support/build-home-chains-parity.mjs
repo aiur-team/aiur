@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import { alignBoard, alignEtaMask, primeBoardPaint } from '../../support/build-home-band-canvas.mjs'
+import { alignBoard, primeBoardPaint } from '../../support/build-home-band-canvas.mjs'
 
 export async function largestRoot(page, dataset, section) {
   const snapshot = JSON.parse(await readFile(new URL('../../../test/fixtures/build_home/' + dataset + '.json', import.meta.url), 'utf8'))
@@ -122,7 +122,7 @@ export const treeRecord = page => page.locator('#bd-tree').evaluate(host => ({
     pos: ['left', 'top', 'width', 'height'].map(k => el.style[k]) })).sort((a,b) => a.ref.localeCompare(b.ref))
 }))
 
-// Reuse C9-T08's existing C7-T03 ETA-copy exception; chain/tab/tree pixels stay visible.
+// Compare the live band and chain/tab/tree pixels without ETA masks.
 export async function prepareChainParity(pair) {
   // Capture both scrollbars after their activity interval, not on either side of its expiry.
   for (const page of [pair.design, pair.product]) await expect(page.locator('#bd-sb')).not.toHaveClass(/\bact\b/)
@@ -132,9 +132,6 @@ export async function prepareChainParity(pair) {
     const { fx } = await import('/build-home/state.js')
     setNow(now); fx.refreshBandClock()
   }, await pair.design.evaluate(() => Date.now()))
-  pair.allowlist = pair.allowlist.map(entry => entry.id === 'now-band-eta-pending'
-    ? { ...entry, kind: 'pixel-mask', selector: '.bd-now-eta' } : entry)
-  await alignEtaMask(pair)
   await primeBoardPaint(pair, '#bd-lanes')
 }
 

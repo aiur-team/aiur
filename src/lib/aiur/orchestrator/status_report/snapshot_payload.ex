@@ -170,6 +170,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       context_usage: Map.get(metadata, :context_usage),
       telemetry_attempt_id: Map.get(metadata, :telemetry_attempt_id),
+      usage_limit_reset_at: Map.get(metadata, :usage_limit_reset_at),
       turn_count: Map.get(metadata, :turn_count, 0),
       turn_count_observed?: Map.has_key?(metadata, :turn_count),
       started_at: started_at,

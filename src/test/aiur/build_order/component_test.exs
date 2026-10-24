@@ -147,6 +147,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LandingWatch.QuarantineLifter,
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    Aiur.BuildOrder.Estimates,
     AiurWeb.Build.IndexSupervisor
   ]
 

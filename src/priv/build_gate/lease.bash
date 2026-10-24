@@ -284,7 +284,9 @@ aiur_build_gate_hold_linux_lease() {
 }
 
 aiur_build_gate_wait_for_holder_value() {
-  local path=$1 holder_pid=$2 expected_pattern=$3 deadline=$4 value result
+  local path=$1 holder_pid=$2 expected_pattern=$3 value result
+  # Readiness files do the syncing; the ceiling only fails a live but stuck holder.
+  local deadline=$((SECONDS + $4))
 
   while ((SECONDS <= deadline)); do
     if value=$(aiur_build_gate_read_regular "$path" 2>/dev/null); then

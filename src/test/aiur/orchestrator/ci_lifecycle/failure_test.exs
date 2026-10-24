@@ -373,6 +373,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
                  review_decision: nil,
                  recovery: nil,
                  failures: [],
+                 check_runs: [],
                  tracker_state: "ci-wait"
                }
              }
