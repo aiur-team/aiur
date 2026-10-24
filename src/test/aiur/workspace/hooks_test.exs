@@ -109,6 +109,14 @@ defmodule Aiur.Workspace.HooksTest do
     assert {:error, {:workspace_hook_timeout, "before_run", 1_000}} =
              Hooks.run_hook("sleep 30 & echo $! > #{Aiur.Shell.escape(child_pid_file)}; wait", workspace, issue_context, "before_run", nil)
 
+    assert {:messages, messages} = Process.info(self(), :messages)
+
+    refute Enum.any?(messages, fn
+             {port, {:data, _data}} when is_port(port) -> true
+             {port, {:exit_status, _status}} when is_port(port) -> true
+             _message -> false
+           end)
+
     child_pid = File.read!(child_pid_file) |> String.trim() |> String.to_integer()
 
     assert :ok =

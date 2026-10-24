@@ -141,6 +141,11 @@ defmodule Aiur.Workspace.Hooks do
   end
 
   defp run_local_hook_command(shell, command, workspace, environment, timeout_ms) do
+    task = Task.async(fn -> run_local_hook_port(shell, command, workspace, environment, timeout_ms) end)
+    Task.await(task, :infinity)
+  end
+
+  defp run_local_hook_port(shell, command, workspace, environment, timeout_ms) do
     executable = System.find_executable(shell)
 
     if is_nil(executable) do
@@ -167,6 +172,7 @@ defmodule Aiur.Workspace.Hooks do
 
     if remaining == 0 do
       terminate_hook_process_group(port)
+      flush_hook_port_messages(port)
       :timeout
     else
       receive do
@@ -178,8 +184,18 @@ defmodule Aiur.Workspace.Hooks do
       after
         remaining ->
           terminate_hook_process_group(port)
+          flush_hook_port_messages(port)
           :timeout
       end
+    end
+  end
+
+  defp flush_hook_port_messages(port) do
+    receive do
+      {^port, {:data, _data}} -> flush_hook_port_messages(port)
+      {^port, {:exit_status, _status}} -> flush_hook_port_messages(port)
+    after
+      0 -> :ok
     end
   end
 
