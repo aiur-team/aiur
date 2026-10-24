@@ -115,14 +115,24 @@ The state tool reports the applied `state` and the
 `result.reason: "approval_carries_to_pr_head"`; it does not mean CI is pending
 or that the worker must update its branch.
 
-A rework handback to `ci-wait` or `human-review` must answer the latest
-blocking review. Its numbered `file:line` items form the rework prompt's
-checklist. The agent passes one `review_findings` answer per item: `fixed`
-with a commit, or `disputed` with evidence.
+A handback to `ci-wait` or `human-review` must answer the latest blocking
+review. This applies while that review has numbered items, even if the worker
+moved the ticket to `in-progress` first. Every numbered item in the review becomes an
+entry in the rework prompt's checklist, whether or not it names a `file:line`.
 
-The write is refused if an item has no answer. It is refused if a `fixed`
-commit is not a branch commit since the review, or if no such commit changed
-the item's file. Merge commits do not count.
+The agent passes one `review_findings` answer per item: `fixed` with a commit,
+or `disputed` with evidence. An item that names no file may instead be `fixed`
+by a PR body edit made after the review.
+
+The write is refused if an item has no answer, and the refusal names each
+unanswered item. It is refused if a `fixed` commit is not a branch commit since
+the review, or if no such commit changed the item's file. Merge commits do not
+count.
+
+A run that stops at `agent.max_turns` or the no-op bound is not handed back
+automatically while the review still has findings. The ticket stays in
+`rework`. A `ticket.<id>.agent.rework_findings_open` alert lists the items that
+remain.
 
 The write is also refused with no commit since the review, unless every item
 is disputed or the PR body was edited after the review. A body edit covers a

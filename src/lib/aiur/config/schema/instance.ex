@@ -38,6 +38,10 @@ defmodule Aiur.Config.Schema.Instance do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-configuration-00 instance.mode
+    # @config-detail instance.mode | string | `local` | `hosted` enables fail-closed startup, reload, and dispatch checks for permission, network, credential, Remote Control, local-pane, and REPL isolation. Current production backends remain ineligible until #5701. Read once at daemon start; change it with a restart. |
+    field(:mode, :string, default: "local")
+
     # @config-reference config-configuration-00 instance.id
     # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
     field(:id, :string)
@@ -55,7 +59,8 @@ defmodule Aiur.Config.Schema.Instance do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:role, :id], empty_values: [])
+    |> cast(attrs, [:mode, :role, :id], empty_values: [])
+    |> validate_inclusion(:mode, ["local", "hosted"])
     |> validate_inclusion(:role, ["primary", "secondary"])
     |> validate_length(:id, min: 1, max: 200)
     |> cast_embed(:ignore, with: &Ignore.changeset/2)
