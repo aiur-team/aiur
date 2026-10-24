@@ -40,3 +40,35 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --urgency LEVEL` | Sets urgency for a supported command. | `aiur --urgency high` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
+
+## Remote instances
+
+`--instance <name>` selects a daemon from `~/.aiur/remote-instances.yaml` and must be the first argument. Commands without it keep using the local daemon. Each registry entry has a URL and exactly one token reference:
+
+```yaml
+version: 1
+instances:
+  nuc:
+    url: https://nuc.example.ts.net
+    token_env: AIUR_TOKEN_NUC
+```
+
+Use an `AIUR_TOKEN_*` environment variable for write tokens. A `token_file` is intended for read tokens, must be absolute or start with `~/`, and must have mode `0600`. Remote URLs require HTTPS; plain HTTP is accepted only for `127.0.0.0/8`, `::1`, and `localhost`.
+
+The client refuses commands that need local files, processes, or terminal streaming before it makes an HTTP request:
+
+- Local lifecycle and maintenance: bare `aiur`, `run`, `--bg`, `stop`, `restart`, `aiurdev build`, `cleanup-stale`, `doctor`, `upgrade`, and `pre-pr`.
+- Streaming, setup, and client-only commands: `listen`, `executor-listen`, `init`, `login`, `logout`, `pr`, `findings`, `ask`, `asks`, `answer`, help, and `--version`.
+
+Remote `executor-wait`, `executor-claim`, `executor-release`, and `executor-fast-forward` require `--as <id>`.
+
+### Remote environment
+
+| Environment variable | Behavior |
+| --- | --- |
+| `AIUR_REMOTE_MAX_SCOPE` | Sets the `max_scope` sent with a remote control request. Defaults to `write`. |
+| `AIUR_JS_RUNTIME` | Selects the JavaScript runtime used to encode requests and decode responses. The npm launcher sets it to its current runtime; `aiurdev` defaults to `node` from `PATH`. |
+
+Remote `status` skips the local mise-doctor check. Tables use the daemon's default width because the remote capture has no terminal.
+
+A remote timeout is never retried. For writes, `outcome unknown on <name>` means inspect state before acting again.
