@@ -20,7 +20,7 @@ defmodule Aiur.Workspace.GitMetadataTest do
     refute File.exists?(lock)
   end
 
-  test "ensure_git_metadata_writable recovers locks through an in-workspace gitfile", %{tmp: tmp} do
+  test "future regression guard: ensure_git_metadata_writable recovers gitfile locks", %{tmp: tmp} do
     repo = Path.join(tmp, "gitfile-repo")
     git_dir = Path.join(repo, ".git-data")
     File.mkdir_p!(repo)

@@ -90,7 +90,7 @@ defmodule Aiur.Workspace.StaleGitLockTest do
       Port.open({:spawn_executable, shell}, [
         :binary,
         :exit_status,
-        args: ["-c", "cd #{shell_quote(workspace)} && exec sleep 5"]
+        args: ["-c", "cd #{shell_quote(workspace)} && exec sleep 600"]
       ])
 
     try do

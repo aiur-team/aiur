@@ -41,7 +41,9 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
       test_root = test_root("stale-index-lock")
 
       try do
-        {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "REG-LOCK-1")
+        {workspace, trace_file} =
+          bootstrap_dirty_refresh_workspace!(test_root, "REG-LOCK-1", expect_index_lock_absent: true)
+
         File.write!(Path.join(workspace, "README.md"), "initial\n")
         lock = Path.join([workspace, ".git", "index.lock"])
         File.write!(lock, "")
@@ -387,6 +389,13 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
     trace_file = Path.join(test_root, "before-run.trace")
     refusal_output = Keyword.get(opts, :refusal_output)
 
+    lock_assertion =
+      if Keyword.get(opts, :expect_index_lock_absent) do
+        "if [ -e .git/index.lock ]; then echo 'Stale index lock reached before_run hook.' >&2; exit 66; fi"
+      else
+        ""
+      end
+
     File.mkdir_p!(source_repo)
     File.write!(Path.join(source_repo, "README.md"), "initial\n")
     git!(["-C", source_repo, "init", "-b", "main"])
@@ -408,6 +417,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleRefreshTest do
       hook_before_run: """
       PATH="/usr/bin:/bin:$PATH"
       basename "$PWD" >> #{shell_quote(trace_file)}
+      #{lock_assertion}
       if [ ! -d .git ] || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
         git clone #{shell_quote(remote_repo)} .

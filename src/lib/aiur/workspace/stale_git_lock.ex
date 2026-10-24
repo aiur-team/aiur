@@ -25,8 +25,9 @@ defmodule Aiur.Workspace.StaleGitLock do
   @spec recover_paths([Path.t()], keyword()) :: :ok | {:error, term()}
   def recover_paths(paths, opts \\ []) when is_list(paths) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    workspace = Keyword.get(opts, :workspace)
-    git_dirs = Keyword.get(opts, :git_dirs, Enum.map(paths, &git_dir_for_lock/1))
+    workspace = canonical_root(Keyword.get(opts, :workspace))
+    git_dirs = Keyword.get(opts, :git_dirs, Enum.map(paths, &git_dir_for_lock/1)) |> Enum.map(&canonical_root/1)
+    paths = Enum.map(paths, &Path.expand/1)
     proc_root = Keyword.get(opts, :proc_root, "/proc")
     holder_probe = Keyword.get(opts, :holder_probe, &open_workspace_holders(&1, workspace, git_dirs, proc_root))
     sleeper = Keyword.get(opts, :sleep, &Process.sleep/1)
@@ -62,16 +63,20 @@ defmodule Aiur.Workspace.StaleGitLock do
         {:ok, path}
 
       {:ok, %File.Stat{type: :regular}} ->
-        with {:ok, contents} <- File.read(path),
-             [_, git_dir] <- Regex.run(~r/^gitdir:\s*(.+)\s*$/m, contents) do
-          resolved = if Path.type(git_dir) == :absolute, do: git_dir, else: Path.expand(git_dir, Path.dirname(path))
-          {:ok, resolved}
-        else
-          _ -> :not_git
-        end
+        read_gitfile(path)
 
       _ ->
         :not_git
+    end
+  end
+
+  defp read_gitfile(path) do
+    with {:ok, contents} <- File.read(path),
+         [_, git_dir] <- Regex.run(~r/^gitdir:\s*(.+)\s*$/m, contents) do
+      resolved = if Path.type(git_dir) == :absolute, do: git_dir, else: Path.expand(git_dir, Path.dirname(path))
+      {:ok, resolved}
+    else
+      _ -> :not_git
     end
   end
 
@@ -195,7 +200,7 @@ defmodule Aiur.Workspace.StaleGitLock do
     case File.read_link(link) do
       {:ok, target} ->
         target = strip_deleted_suffix(target)
-        same_path?(target, path) or path_in_roots?(target, [workspace | git_dirs])
+        target == path or path_in_roots?(target, [workspace | git_dirs])
 
       _ ->
         false
@@ -210,30 +215,20 @@ defmodule Aiur.Workspace.StaleGitLock do
   end
 
   defp path_in_roots?(path, roots) do
-    Enum.any?(roots, &same_or_child_path?(path, &1))
-  end
-
-  defp same_or_child_path?(path, root) do
-    case PathSafety.canonicalize(path) do
-      {:ok, canonical_path} ->
-        case PathSafety.canonicalize(root) do
-          {:ok, canonical_root} -> contained_path?(canonical_root, canonical_path)
-          _ -> false
-        end
-
-      _ ->
-        false
-    end
-  end
-
-  defp same_path?(left, right) do
-    with {:ok, canonical_left} <- PathSafety.canonicalize(left),
-         {:ok, canonical_right} <- PathSafety.canonicalize(right) do
-      canonical_left == canonical_right
-    else
+    Enum.any?(roots, fn
+      root when is_binary(root) -> contained_path?(root, path)
       _ -> false
+    end)
+  end
+
+  defp canonical_root(path) when is_binary(path) do
+    case PathSafety.canonicalize(path) do
+      {:ok, canonical_path} -> canonical_path
+      _ -> Path.expand(path)
     end
   end
+
+  defp canonical_root(_path), do: nil
 
   defp contained_path?(root, path), do: path == root or String.starts_with?(path, root <> "/")
 
