@@ -56,6 +56,8 @@ defmodule AiurWeb.PublicBindAuthTest do
   end
 
   test "router routes return unauthenticated 2xx only for the explicit public path set" do
+    Aiur.TestSupport.start_owned_endpoint!()
+
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
@@ -114,6 +116,8 @@ defmodule AiurWeb.PublicBindAuthTest do
   end
 
   test "public-bind guard leaves Decision API authentication to SupervisorAuth" do
+    Aiur.TestSupport.start_owned_endpoint!()
+
     previous_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
     token = String.duplicate("s", 32)
     System.put_env("AIUR_SUPERVISOR_TOKEN", token)
