@@ -43,7 +43,13 @@ defmodule Aiur.DecisionAnswer do
     :content_hash
   ]
   defstruct @enforce_keys ++
-              [selected_option_id: nil, custom_response: nil, rationale: nil, supervisor_basis: nil, ticket_comment_pending?: false]
+              [
+                selected_option_id: nil,
+                custom_response: nil,
+                rationale: nil,
+                supervisor_basis: nil,
+                ticket_comment_pending?: false
+              ]
 
   @doc "Normalize an untrusted answer payload using trusted Decision and actor context."
   @spec normalize(map(), keyword()) :: {:ok, t()} | {:error, {:answer_invalid, term()}}
@@ -136,6 +142,10 @@ defmodule Aiur.DecisionAnswer do
     answer_json_safe(answer)
     |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
   end
+
+  @doc "Answers with delivery metadata removed, for immutable answer comparisons."
+  @spec content(t()) :: t()
+  def content(%__MODULE__{} = answer), do: %{answer | ticket_comment_pending?: false}
 
   @doc false
   @spec to_event_json_safe(t()) :: map()
