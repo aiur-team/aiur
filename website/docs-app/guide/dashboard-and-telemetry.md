@@ -53,6 +53,10 @@ On the build timeline, Day, Week and Month set the visible range; − and + step
 through 1–30 days. The span is kept in the link. Range controls are hidden in
 List view and return when you switch to Timeline or Gantt.
 
+In List view, **List shows** switches between Tickets, Features and Epics. The
+selection is kept in the `list` link parameter; `tickets` is the default and
+omitted.
+
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
 button to open the Dependency tree overlay.
