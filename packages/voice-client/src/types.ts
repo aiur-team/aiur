@@ -1,8 +1,11 @@
 export type VoiceConnectionState = "connecting" | "open" | "closing" | "failed" | "closed";
 
 export type VoiceClientErrorCode =
+  | "audio_unavailable"
+  | "capture_failed"
   | "connection_failed"
   | "connection_not_open"
+  | "playback_failed"
   | "protocol_error"
   | "transport_error"
   | "websocket_unavailable";
@@ -70,5 +73,5 @@ export interface PlaybackStop {
 export interface AudioPlaybackAdapter<AudioChunk> {
   enqueue(chunk: AudioChunk): void;
   interrupt(): PlaybackStop;
-  close(): void;
+  close(): Promise<void>;
 }

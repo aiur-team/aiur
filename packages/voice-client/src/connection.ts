@@ -47,7 +47,7 @@ class ConnectionRuntime<OutboundFrame, InboundFrame> implements VoiceWireConnect
     socket.onopen = () => this.open();
     socket.onmessage = ({ data }) => this.receive(data);
     socket.onerror = () => this.fail("transport_error", TRANSPORT_CLOSE);
-    socket.onclose = () => this.setState("closed");
+    socket.onclose = () => this.closed();
     events.stateChanged?.("connecting");
   }
 
@@ -69,7 +69,7 @@ class ConnectionRuntime<OutboundFrame, InboundFrame> implements VoiceWireConnect
     if (this.#state === "closing" || this.#state === "closed" || this.#state === "failed") return;
     this.#queued = [];
     this.setState("closing");
-    this.socket.close(CLIENT_CLOSE.code, CLIENT_CLOSE.reason);
+    this.closeSocket(CLIENT_CLOSE);
   }
 
   private open(): void {
@@ -121,12 +121,28 @@ class ConnectionRuntime<OutboundFrame, InboundFrame> implements VoiceWireConnect
     code: "protocol_error" | "transport_error",
     close: { readonly code: number; readonly reason: string },
   ): void {
-    if (this.#state === "failed" || this.#state === "closed") return;
+    if (this.#state === "closing" || this.#state === "failed" || this.#state === "closed") return;
     this.#queued = [];
     this.setState("failed");
-    this.socket.close(close.code, close.reason);
+    this.closeSocket(close);
     const message = code === "protocol_error" ? "Voice wire protocol validation failed" : "Voice transport failed";
     this.events.error?.(new VoiceClientError(code, message));
+  }
+
+  private closed(): void {
+    if (this.#state === "closing" || this.#state === "failed") {
+      this.setState("closed");
+      return;
+    }
+    this.fail("transport_error", TRANSPORT_CLOSE);
+  }
+
+  private closeSocket(close: { readonly code: number; readonly reason: string }): void {
+    try {
+      this.socket.close(close.code, close.reason);
+    } catch {
+      // State and callbacks remain deterministic even if a transport is already gone.
+    }
   }
 
   private setState(next: VoiceConnectionState): void {
