@@ -28,6 +28,12 @@ defmodule Aiur.Instance.RepositoryLeader do
     _ -> %{leader: "unknown", lease_age: "unknown"}
   end
 
+  @spec status_text() :: String.t()
+  def status_text do
+    %{leader: leader, lease_age: age} = status()
+    "Repository leader: #{leader} · lease age #{age}"
+  end
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 

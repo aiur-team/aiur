@@ -200,6 +200,7 @@ defmodule AiurWeb.DashboardLive do
   defp conversation_route_row?(%{identity: %TrackerIdentity{} = identity}, owner, repository, identifier) do
     identity.owner == owner and identity.repository == repository and identity.identifier == identifier
   end
+
   defp conversation_route_row?(_row, _owner, _repository, _identifier), do: false
 
   @impl true
@@ -323,10 +324,9 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, Controls.apply_control_lifecycle(socket, payload)}
   end
 
-  # A unit's agent topic also carries transcript, alert, turn, and aiur-turn
-  # traffic that this view subscribes for the control lifecycle but does not
-  # otherwise consume. Ignore that noise — and any future message added to a
-  # topic this view does not own — rather than crashing every open dashboard.
+  # A unit's agent topic carries transcript, alert, turn, and aiur-turn traffic
+  # this view subscribes to but does not consume. Ignore it rather than crashing
+  # on any message this view does not own.
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
@@ -704,7 +704,7 @@ defmodule AiurWeb.DashboardLive do
   def render(assigns) do
     assigns =
       assigns
-      |> Map.merge(%{selected_decision_health: nil, repository_leader: Aiur.Instance.RepositoryLeader.status()})
+      |> Map.put_new(:selected_decision_health, nil)
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
@@ -769,7 +769,7 @@ defmodule AiurWeb.DashboardLive do
       writable={@writable}
     >
       <:banner>
-        <div class="readonly-banner" role="status" aria-live="polite"><span>Repository leader: <b>{@repository_leader.leader}</b> · lease age {@repository_leader.lease_age}</span></div>
+        <div class="readonly-banner" role="status" aria-live="polite"><span>{Aiur.Instance.RepositoryLeader.status_text()}</span></div>
         <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
