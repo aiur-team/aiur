@@ -233,15 +233,36 @@ defmodule Aiur.GitHub.StateWriteCoordinatorTest do
   end
 
   defp await_pair(agent, key) do
-    deadline = System.monotonic_time(:millisecond) + 200
-    await_pair(agent, key, deadline)
-  end
+    arrival =
+      Agent.get_and_update(agent, fn state ->
+        waiters = Map.get(state, :pair_waiters, %{})
 
-  defp await_pair(agent, key, deadline) do
-    if Agent.get(agent, &Map.fetch!(&1, key)) < 2 and
-         System.monotonic_time(:millisecond) < deadline do
-      Process.sleep(2)
-      await_pair(agent, key, deadline)
+        case Map.fetch(waiters, key) do
+          :error ->
+            {:wait, Map.put(state, :pair_waiters, Map.put(waiters, key, self()))}
+
+          {:ok, first_pid} when is_pid(first_pid) ->
+            {{:release, first_pid}, Map.put(state, :pair_waiters, Map.put(waiters, key, :released))}
+
+          {:ok, :released} ->
+            {:released, state}
+        end
+      end)
+
+    case arrival do
+      :wait ->
+        receive do
+          :pair_ready -> :ok
+        after
+          200 -> :ok
+        end
+
+      {:release, first_pid} ->
+        send(first_pid, :pair_ready)
+        :ok
+
+      :released ->
+        :ok
     end
   end
 
