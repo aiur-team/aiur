@@ -13,7 +13,6 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     ToolEvents
   }
 
-  alias Aiur.AgentRunner.RepeatedCommandGuard
   alias Aiur.AgentRunner.ToolExecutor.TicketStateSetter
 
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
@@ -33,10 +32,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     Process.put(@invocation_key, invocation_id)
 
     try do
-      :ok = RepeatedCommandGuard.before_tool()
-
       executor.(tool, arguments)
-      |> then(&RepeatedCommandGuard.observe_tool(tool, arguments, &1))
     after
       restore_invocation(previous)
     end

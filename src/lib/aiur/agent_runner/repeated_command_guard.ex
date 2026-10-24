@@ -21,7 +21,8 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
       input_token_cap: Keyword.get(opts, :input_token_cap),
       input_tokens: 0,
       usage_epoch: nil,
-      usage_baseline: nil
+      usage_baseline: nil,
+      pending_commands: %{}
     })
   end
 
@@ -30,27 +31,9 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   def finish_turn, do: Process.delete(@key)
 
   @doc false
-  @spec observe_tool(term(), term(), term()) :: term()
-  def observe_tool(tool, arguments, result) do
-    case Process.get(@key) do
-      nil ->
-        result
-
-      context ->
-        commands = context.commands + 1
-        next = %{context | commands: commands}
-        result = observe_active_tool(next, tool, arguments, result)
-        enforce_command_cap(next, result)
-    end
-  end
-
-  @doc false
-  @spec before_tool() :: :ok
-  def before_tool, do: :ok
-
-  @doc false
-  @spec observe_message(map()) :: :ok
+  @spec observe_message(map()) :: :ok | {:steer, String.t()}
   def observe_message(message) when is_map(message) do
+    steering = observe_command_event(message)
     usage = Map.get(message, :accounting_usage) || Map.get(message, :usage) || Map.get(message, "usage")
     cumulative? = Map.get(message, :usage_source) == :cumulative_only or not is_nil(Map.get(message, :usage_epoch))
     epoch = Map.get(message, :usage_epoch)
@@ -67,10 +50,116 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
         :ok
     end
 
-    :ok
+    steering
   end
 
   def observe_message(_message), do: :ok
+
+  defp observe_command_event(message) do
+    case {Process.get(@key), command_event(message)} do
+      {%{} = context, {:started, id, command}} when is_binary(id) and is_binary(command) ->
+        Process.put(@key, put_in(context, [:pending_commands, id], command))
+
+      {%{} = context, {:completed, id, output}} when is_binary(id) and is_binary(output) ->
+        case Map.pop(context.pending_commands, id) do
+          {command, pending} when is_binary(command) ->
+            observe_shell_command(%{context | pending_commands: pending}, command, output)
+
+          _ ->
+            :ok
+        end
+
+      {%{} = context, {:complete, command, output}}
+      when is_binary(command) and is_binary(output) ->
+        observe_shell_command(context, command, output)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp observe_shell_command(context, command, output) do
+    commands = context.commands + 1
+    next = %{context | commands: commands}
+
+    {next, signal} =
+      if read_only_command?(command) do
+        observe_read_result(next, command, output)
+      else
+        {%{next | state: nil, steered?: false}, :ok}
+      end
+
+    Process.put(@key, next)
+
+    if is_integer(context.command_cap) and context.command_cap > 0 and commands >= context.command_cap do
+      throw({:turn_cap, :commands, commands})
+    end
+
+    signal
+  end
+
+  defp observe_read_result(context, command, output) do
+    {state, kind} = observe(context.state, command, output)
+    next = %{context | state: state, steered?: context.steered? and kind == :repeat}
+
+    cond do
+      kind == :repeat and state.count >= context.threshold and context.steered? ->
+        throw({:repeated_identical_command, command, state.count})
+
+      kind == :repeat and state.count == context.threshold ->
+        {%{next | steered?: true}, {:steer, steering_message(command, state.count)}}
+
+      true ->
+        {next, :ok}
+    end
+  end
+
+  # The provider event path cannot rewrite an already-reported tool result.
+  # The caller queues this text as an Executor message for delivery at a safe
+  # checkpoint.
+  defp command_event(%{event: :notification, payload: payload}) when is_map(payload) do
+    method = get(payload, :method)
+    params = get(payload, :params) || %{}
+    item = get(params, :item) || %{}
+
+    cond do
+      method == "item/completed" and get(item, :type) == "commandExecution" ->
+        {:complete, get(item, :command), get(item, :aggregatedOutput) || ""}
+
+      method == "item/created" and get(item, :type) == "tool_call" and get(item, :name) == "Bash" ->
+        {:started, get(item, :id), get(get(item, :input) || %{}, :command)}
+
+      method == "item/created" and get(item, :type) == "tool_result" ->
+        {:completed, get(item, :tool_use_id) || get(item, :id), normalize_output(get(item, :content))}
+
+      true ->
+        :none
+    end
+  end
+
+  defp command_event(%{event: :tool_call, payload: %{name: "exec_command", arguments: arguments} = payload}) do
+    {:started, payload[:id], arguments["command"] || arguments[:command]}
+  end
+
+  defp command_event(%{event: :tool_result, payload: %{name: "exec_command", output: output} = payload}) do
+    {:completed, payload[:id], output}
+  end
+
+  defp command_event(_message), do: :none
+
+  defp normalize_output(output) when is_binary(output), do: output
+
+  defp normalize_output(blocks) when is_list(blocks) do
+    Enum.map_join(blocks, "\n", fn
+      block when is_map(block) -> get(block, :text) || ""
+      _other -> ""
+    end)
+  end
+
+  defp normalize_output(_output), do: ""
+
+  defp get(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp get(_map, _key), do: nil
 
   defp usage_for_turn(context, amount, epoch, true) do
     baseline = if context.usage_epoch == epoch, do: context.usage_baseline, else: amount
@@ -115,63 +204,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   def steering_message(command, count),
     do: "The output of `#{inspect(command)}` has not changed for #{count} consecutive calls; act on it or stop and hand off."
 
-  defp observe_active_tool(context, tool, arguments, result) do
-    command = read_command(tool, arguments)
-    output = result_output(result)
-
-    case {command, output} do
-      {command, output} when is_binary(command) and is_binary(output) ->
-        apply_observation(context, command, output, result)
-
-      _ ->
-        Process.put(@key, %{context | state: nil, steered?: false})
-
-        result
-    end
-  end
-
-  defp apply_observation(context, command, output, result) do
-    {state, kind} = observe(context.state, command, output)
-    next = %{context | state: state, steered?: context.steered? and kind == :repeat}
-
-    handle_observation(context, next, command, state, kind, result)
-  end
-
-  defp handle_observation(context, _next, command, state, :repeat, _result)
-       when state.count >= context.threshold and context.steered? do
-    throw({:repeated_identical_command, command, state.count})
-  end
-
-  defp handle_observation(context, next, command, state, :repeat, result)
-       when state.count == context.threshold do
-    Process.put(@key, %{next | steered?: true})
-    append_guidance(result, steering_message(command, state.count))
-  end
-
-  defp handle_observation(_context, next, _command, _state, _kind, result) do
-    Process.put(@key, next)
-    result
-  end
-
-  defp enforce_command_cap(context, result) do
-    if is_integer(context.command_cap) and context.command_cap > 0 and
-         context.commands >= context.command_cap do
-      throw({:turn_cap, :commands, context.commands})
-    end
-
-    result
-  end
-
   @read_commands ~w(cat cut file grep head ls pwd stat tail wc)
-
-  defp read_command(tool, arguments)
-       when tool in ["exec_command", "Bash", "bash"] and is_map(arguments) do
-    command = Map.get(arguments, "command") || Map.get(arguments, :command)
-
-    if read_only_command?(command), do: command
-  end
-
-  defp read_command(_tool, _arguments), do: nil
 
   defp read_only_command?(command) when is_binary(command) do
     trimmed = String.trim_leading(command)
@@ -180,16 +213,4 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   end
 
   defp read_only_command?(_command), do: false
-
-  defp result_output(%{"output" => output}) when is_binary(output), do: output
-  defp result_output(%{output: output}) when is_binary(output), do: output
-  defp result_output(_result), do: nil
-
-  defp append_guidance(%{"output" => output} = result, guidance),
-    do: Map.put(result, "output", output <> "\n\n" <> guidance)
-
-  defp append_guidance(%{output: output} = result, guidance),
-    do: Map.put(result, :output, output <> "\n\n" <> guidance)
-
-  defp append_guidance(result, _guidance), do: result
 end

@@ -50,7 +50,18 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
     fn message ->
       message = CodingAgent.normalize_event(message, backend)
-      RepeatedCommandGuard.observe_message(message)
+
+      case RepeatedCommandGuard.observe_message(message) do
+        {:steer, body} ->
+          case Keyword.get(lifecycle_opts, :repeated_command_steerer) do
+            sender when is_function(sender, 1) -> sender.(body)
+            _ -> :ok
+          end
+
+        _ ->
+          :ok
+      end
+
       transcript_event = transcript_event_from(message, backend, turn_id)
       observe_lifecycle(issue, backend, message, lifecycle_opts)
       observe_rate_limits(backend, message, lifecycle_opts)

@@ -4,6 +4,8 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 
 ## agent
 
+The repeated-command guard observes completed shell commands from Codex, Claude, and OpenAI-compatible workers. With the default threshold of `5`, five consecutive read-only commands with identical command text and output enqueue one steering message for delivery at the next safe checkpoint; if the same result repeats again, the turn stops. A new read result, a different command, a non-read command such as `sleep`, or a compound shell command resets the streak. For example, repeatedly tailing a build log while that build is still running resets the streak whenever the output changes; five identical snapshots trigger steering, and a sixth identical snapshot stops the turn.
+
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-00 -->
 | --- | --- | --- | --- |
 | `agent.account_selection` | string | `balance` | Selects an enabled account by lowest weekly utilization (`balance`) or first configured name (`priority`). `headroom` scores every allowed backend **and** account at dispatch and picks the one with the most remaining usage; see [Headroom dispatch](/concepts/headroom-dispatch). Usage-based selection applies to Claude and Codex; API-key account usage is unavailable. |
@@ -31,7 +33,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.load_ramp_step` | integer | 1 | Capacity increase below 80% of the PSI target (at or below the load target in fallback). Saved safe levels allow doubling, at most +3, toward that level; above it, fast probing requires below half target before a sustained decrease. |
 | `agent.load_resume_max_age_seconds` | integer | 21600 | Safe occupancy record lifetime; 0 disables resume. Five fresh samples demonstrate a level; sustained reductions lower it. Same scheduler count required. Adoption restores the greater of occupancy and the valid record (record bounded by the static cap); new admission still respects the cap. Empty fleets start at one, holding the first fresh sample. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime cap; the parked worker is released to rework or human-review. 0 disables it. |
-| `agent.max_commands_per_turn` | integer or nil | nil | Optional per-turn tool-call cap; null disables it. Suggested starting value: 1,000. |
+| `agent.max_commands_per_turn` | integer or nil | nil | Optional per-turn shell-command cap across Codex, Claude, and OpenAI-compatible backends; null disables it. Suggested starting value: 1,000. |
 | `agent.max_concurrent_agents` | integer or nil | derived from available capacity | Global simultaneous-agent cap. When omitted under cgroup v2, it is the minimum of `max(2, schedulers + floor(schedulers / 4))` and `max(1, floor(memory.max / 4 GiB))`; finite CPU quota supplies floored schedulers. Explicit config wins. The adaptive envelope reduces effective concurrency under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. These caps also constrain fixer tickets. |
 | `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification and browser tests; 0 disables the concurrency cap. Busy or queued builds wait at the build gate without holding fleet dispatch. |
@@ -40,7 +42,7 @@ Sections of the [configuration reference](/reference/configuration) covering `ag
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_input_tokens_per_turn` | integer or nil | nil | Optional turn input-token cap; null disables it. Suggested starting value: 20,000,000. |
 | `agent.max_load_average` | float or nil | 1.5 | Per-scheduler load ceiling used only when CPU PSI is unavailable. Uses CPU corroboration when available, otherwise raw load; null disables it. |
-| `agent.max_repeated_identical_commands` | integer | 5 | Identical reads before steering; one more stops. `0` disables it. |
+| `agent.max_repeated_identical_commands` | integer | 5 | Consecutive identical read-only shell command results before one steering message; the next repeat stops the turn. `0` disables it. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |

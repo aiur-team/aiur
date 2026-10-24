@@ -228,10 +228,10 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.max_turns_by_complexity | map | `%{}` | Per-complexity turn caps. |
     field(:max_turns_by_complexity, :map, default: %{})
 
-    # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Identical reads before steering; one more stops. `0` disables it. |
+    # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Consecutive identical read-only shell command results before one steering message; the next repeat stops the turn. `0` disables it. |
     field(:max_repeated_identical_commands, :integer, default: 5)
     # Optional per-turn ceilings; absent values leave the dimensions uncapped.
-    # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional per-turn tool-call cap; null disables it. Suggested starting value: 1,000. |
+    # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional per-turn shell-command cap across Codex, Claude, and OpenAI-compatible backends; null disables it. Suggested starting value: 1,000. |
     field(:max_commands_per_turn, :integer)
 
     # @config-reference config-configuration-agent-00 agent.max_input_tokens_per_turn | integer or nil | nil | Optional turn input-token cap; null disables it. Suggested starting value: 20,000,000. |
