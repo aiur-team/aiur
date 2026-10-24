@@ -10,6 +10,8 @@ import { agentState, progress, modelLabel } from './now-state.js';
 import { colKey, match } from './match.js';
 import { H, loadEarlier } from './history.js';
 import { sectionState, headNote, reasonText, ageText } from './states.js';
+import { timed } from './perf.js';
+export const renderList = timed('renderList', renderListImpl);
 
 const HIST = { failed: ['failed', 'Failed'], done: ['merged', 'Merged'], not_planned: ['np', 'Not planned'], closed: ['closed', 'Closed'] };
 export function stClass(t) {
@@ -97,7 +99,7 @@ export function listHTML(D, state, history, P, now) {
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
     ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
 }
-export function renderList() {
+function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
   const focused = document.activeElement?.closest?.('.lr[data-id]'), index = previous.indexOf(focused);
   const moreFocused = document.activeElement?.id === 'lr-more' && vp.contains(document.activeElement);
