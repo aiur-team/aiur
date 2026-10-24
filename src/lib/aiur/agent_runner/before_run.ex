@@ -38,18 +38,22 @@ defmodule Aiur.AgentRunner.BeforeRun do
   def pause_for_failure(workspace, issue, codex_update_recipient, worker_host, status, output, reason) do
     Logger.warning("Pausing agent for #{Aiur.AgentRunner.issue_context(issue)} after before_run hook failed status=#{inspect(status)} output=#{inspect(trim_hook_output(output))}")
 
-    Aiur.AgentRunner.write_pause_log(workspace, worker_host, before_run_pause_message(status))
+    Aiur.AgentRunner.write_pause_log(workspace, worker_host, before_run_pause_message(status, output))
     MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{kind: :before_run_failure})
     wait_for_before_run_resume(issue, codex_update_recipient, reason)
   end
 
-  defp before_run_pause_message(:wip_preservation_failed),
+  defp before_run_pause_message(:wip_preservation_failed, _output),
     do: "wip_preservation_failed: uncommitted work could not be saved, so the dirty workspace was kept; agent held pending Executor resume."
 
-  defp before_run_pause_message(:timeout),
+  defp before_run_pause_message(:timeout, _output),
     do: "before_run hook timed out; agent paused pending Executor resume."
 
-  defp before_run_pause_message(_status), do: "before_run hook failed; agent paused pending Executor resume."
+  defp before_run_pause_message(_status, output) do
+    tail = output |> to_string() |> String.trim() |> String.slice(-500, 500)
+    suffix = if tail == "", do: "", else: " Hook output tail: #{tail}"
+    "before_run hook failed; agent paused pending Executor resume.#{suffix}"
+  end
 
   defp wait_for_before_run_resume(issue, codex_update_recipient, reason) do
     receive do
@@ -86,6 +90,6 @@ defmodule Aiur.AgentRunner.BeforeRun do
     end
   end
 
-  defp trim_hook_output(output) when is_binary(output), do: output |> String.trim() |> String.slice(0, 500)
+  defp trim_hook_output(output) when is_binary(output), do: output |> String.trim() |> String.slice(-500, 500)
   defp trim_hook_output(output), do: output
 end
