@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.MergeFailureClassifier do
   @moduledoc "Classifies failed merge-group runs from recorded Actions job logs."
 
-  alias Aiur.CI.CancelledRun
+  alias Aiur.Events.GithubCIPoller.CancelledRun
   alias Aiur.LandingWatch.MergeGroupFailureEvidence
 
   @type classification :: :cancelled | :infra | :known_non_pr | :inherited | :pr_caused

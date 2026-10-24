@@ -1,4 +1,4 @@
-defmodule Aiur.CI.CancelledRun do
+defmodule Aiur.Events.GithubCIPoller.CancelledRun do
   @moduledoc "Shared recognition for workflow runs cancelled without a real upstream failure."
 
   @spec cancelled?(map(), [map()]) :: boolean()

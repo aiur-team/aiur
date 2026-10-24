@@ -1,7 +1,7 @@
-defmodule Aiur.CI.CancelledRunTest do
+defmodule Aiur.Events.GithubCIPoller.CancelledRunTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.CI.CancelledRun
+  alias Aiur.Events.GithubCIPoller.CancelledRun
 
   test "recognizes gate-only failures and superseded runs, but preserves real upstream failures" do
     gate_failure = [

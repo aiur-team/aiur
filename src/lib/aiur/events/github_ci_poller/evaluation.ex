@@ -7,7 +7,7 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   map. It makes no request and writes no state.
   """
 
-  alias Aiur.CI.CancelledRun
+  alias Aiur.Events.GithubCIPoller.CancelledRun
   alias Aiur.Events.GithubCIPoller.RequiredVerdict
 
   @successful_conclusions ~w(success neutral skipped)
