@@ -59,7 +59,12 @@
     "config": [
       "agent"
     ],
-    "env": [],
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CODEX_HOME",
+      "OPENAI_API_KEY"
+    ],
     "state": [],
     "capabilities": [
       "remote_control"
@@ -86,7 +91,12 @@
   "config": [
     "agent"
   ],
-  "env": [],
+  "env": [
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CODEX_HOME",
+    "OPENAI_API_KEY"
+  ],
   "capabilities": [
     "remote_control"
   ],
