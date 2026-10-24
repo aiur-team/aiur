@@ -120,11 +120,15 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   defp complete_noop_bound_without_handoff(turn_context, issue, progress, witness, cap) do
     %{workspace: workspace, worker_host: worker_host, turn_number: turn_number} = turn_context
 
-    case noop_failure_state(issue, turn_context.opts) do
-      nil ->
+    case noop_bound_disposition(issue, turn_context.opts) do
+      :handoff ->
         handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number)
 
-      state_name ->
+      :keep_rework ->
+        emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)
+        TurnLoop.return_completed(turn_context, issue)
+
+      {:fail, state_name} ->
         case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
           :ok ->
             failed_issue = %{issue | state: state_name}
@@ -234,9 +238,16 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   @doc false
   @spec noop_failure_state(Issue.t(), keyword()) :: String.t() | nil
   def noop_failure_state(issue, opts) do
+    case noop_bound_disposition(issue, opts) do
+      {:fail, state_name} -> state_name
+      _other -> nil
+    end
+  end
+
+  defp noop_bound_disposition(issue, opts) do
     case DispatchPolicy.normalize_issue_state(issue.state) do
-      "rework" -> if open_review_findings(issue, opts) == [], do: "error", else: nil
-      _ -> nil
+      "rework" -> if open_review_findings(issue, opts) == [], do: {:fail, "error"}, else: :keep_rework
+      _ -> :handoff
     end
   end
 
