@@ -42,6 +42,7 @@ defmodule Aiur.AgentRunner.StoppedReworkHandoffEvidenceTest do
 
     assert {:error, {:rework_handoff_evidence_refused, :stale_pr_body_evidence, message}} = result
     assert message =~ "Tested head #{tested_head} does not match PR head #{head}"
+    assert message =~ "`Tested head: #{head}`"
     refute_received {:memory_tracker_state_update, ^identifier, "human-review"}
   end
 end
