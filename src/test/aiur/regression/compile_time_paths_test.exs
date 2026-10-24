@@ -99,6 +99,11 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
       "@external_resource path"
     ],
+    # Heroicon SVG bodies are embedded during compilation; runtime rendering
+    # reads the compiled map and never dereferences these source paths.
+    "aiur/heroicons.ex" => [
+      "@external_resource path"
+    ],
     # The Stream Deck key-face contract is authored once in daemon priv and
     # mirrored by the sidecar, and embedded into the web emulator at
     # compile time via File.read!/1. Nothing reads @contract_path at runtime.

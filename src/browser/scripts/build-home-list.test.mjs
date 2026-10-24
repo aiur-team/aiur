@@ -109,3 +109,9 @@ test('loading history button stays disabled across list renders', () => {
   assert.match(html({}, P.sources, { more: true, state: 'loading' }), /id="lr-more" disabled aria-busy="true"/);
   assert.ok(!html({}, P.sources, { more: true, state: 'idle' }).includes('aria-busy'));
 });
+test('feature icon SVG from the shared resolver is rendered directly', () => {
+  const features = { ...P.features, pag: { ...P.features.pag, svg: '<svg class="heroicon-outline"></svg>' } };
+  const payload = { ...data({ hist: [row('hist', { feature: 'pag' })] }), features };
+  const rendered = listHTML(payload, state, { more: false }, { sources: P.sources }, P.now);
+  assert.match(rendered, /<svg class="heroicon-outline"><\/svg>/);
+});

@@ -43,9 +43,9 @@ defmodule AiurWeb.Build.Payload do
   | cue.failed | nil or positive integer by and positive integer blocks list |
   | pr | nil or positive integer num and open/merged/closed state |
 
-  Epics require key/label strings, numeric hue and icon from
-  bug/pen/server/docs/layers/unsorted; optional general/temp/unsorted are booleans,
-  optional feature is a string. Features require key/label, numeric hue, epic keys
+  Epics require key/label strings, numeric hue and an icon name; optional svg,
+  general/temp/unsorted are booleans, optional feature is a string. Features require key/label,
+  numeric hue, icon, nullable summary/wave, epic keys
   and nullable from/to milliseconds. Required stats is an object or nil when unavailable.
   Stats carries total/done/done_min, pct/pct_min, orig/added, baseline, spark, also
   and reasons (complexity/no_weight/progress/status). Unknown done and percentages

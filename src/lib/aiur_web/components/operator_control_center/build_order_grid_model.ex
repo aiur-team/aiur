@@ -59,7 +59,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   Builds the grid projection. `model` is a `BuildOrderViewModel` (or nil);
   `adhoc` is the Ad Hoc overlay projection map (`%{rows: [...]}`) or nil.
   """
-  @spec build(term(), term()) :: %{
+  @spec build(term(), term(), map()) :: %{
           columns: [column()],
           waves: [map()],
           cards: [card()],
@@ -67,7 +67,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           overall_completion: completion(),
           planning?: boolean()
         }
-  def build(model, adhoc) do
+  def build(model, adhoc, pack_metadata \\ %{}) do
     planning? = planning?(model)
     core_cards = core_cards(model, planning?)
     adhoc_cards = adhoc_cards(adhoc)
@@ -75,7 +75,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     cards = annotate_blocks(core_cards ++ adhoc_cards, edges)
 
     %{
-      columns: columns(cards, core_cards),
+      columns: columns(cards, core_cards, pack_metadata),
       waves: waves(core_cards, cards),
       cards: cards,
       edges: edges,
@@ -204,7 +204,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # --- columns (epics) --------------------------------------------------------
 
-  defp columns(cards, core_cards) do
+  defp columns(cards, core_cards, pack_metadata) do
     counts = Enum.frequencies_by(cards, & &1.lane)
     completion = aggregate_by(core_cards, :lane)
     order = cards |> Enum.map(& &1.lane) |> Enum.uniq()
@@ -213,9 +213,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     order
     |> Enum.sort_by(&lane_order(&1, appearance))
     |> Enum.map(fn lane ->
+      metadata = pack_metadata |> Map.get("workstreams", []) |> List.wrap() |> Enum.find(&(is_map(&1) and &1["id"] == lane))
+
       %{
         lane: lane,
-        label: BuildOrderEpicIcon.label(lane),
+        label: if(is_map(metadata), do: metadata["title"], else: BuildOrderEpicIcon.label(lane)),
+        icon: if(is_map(metadata), do: metadata["icon"]),
+        summary: if(is_map(metadata), do: metadata["summary"]),
+        wave: if(is_map(metadata), do: metadata["wave"]),
         count: Map.get(counts, lane, 0),
         completion: Map.get(completion, lane, completion(nil, :unknown, nil, nil)),
         core?: lane != @adhoc_lane

@@ -59,18 +59,25 @@ defmodule AiurWeb.Build.PayloadSchema do
       "capacity" => object(%{"max" => nullable(:positive), "observed_at" => nullable(:integer), "stale" => nullable(:boolean)}),
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
-      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted))},
+      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted svg summary wave))},
       "features" =>
         {:dictionary,
-         object(%{
-           "key" => :string,
-           "label" => :string,
-           "hue" => :number,
-           "epics" => list(:string),
-           "from" => nullable(:integer),
-           "to" => nullable(:integer),
-           "stats" => nullable(object(feature_stats()))
-         })},
+         object(
+           %{
+             "key" => :string,
+             "label" => :string,
+             "hue" => :number,
+             "icon" => :string,
+             "svg" => nullable(:string),
+             "summary" => nullable(:string),
+             "wave" => nullable(:string),
+             "epics" => list(:string),
+             "from" => nullable(:integer),
+             "to" => nullable(:integer),
+             "stats" => nullable(object(feature_stats()))
+           },
+           ["svg"]
+         )},
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
       "history" => object(history()),
@@ -173,7 +180,10 @@ defmodule AiurWeb.Build.PayloadSchema do
       "key" => :string,
       "label" => :string,
       "hue" => :number,
-      "icon" => enum(~w(bug pen server docs layers unsorted)),
+      "icon" => :string,
+      "svg" => nullable(:string),
+      "summary" => nullable(:string),
+      "wave" => nullable(:string),
       "general" => :boolean,
       "feature" => :string,
       "temp" => :boolean,

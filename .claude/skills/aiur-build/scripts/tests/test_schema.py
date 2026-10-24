@@ -12,6 +12,39 @@ from validation_documents import validate_document
 
 
 class SchemaTests(ValidatorCase):
+
+    def test_workstreams_accept_valid_icon_summary_and_wave_metadata(self) -> None:
+        data = example()
+        data["workstreams"][0].update(icon="queue-list", summary="Queue planning work", wave="0b")
+        self.assert_clean(data)
+
+    def test_workstream_icon_must_exist_be_unique_and_summary_bounded(self) -> None:
+        data = example()
+        data["workstreams"][0]["icon"] = "made-up-icon"
+        self.assert_error(data, "workstreams[0].icon must name")
+        data = example()
+        data["workstreams"][1]["icon"] = data["workstreams"][0]["icon"] = "queue-list"
+        self.assert_error(data, "workstream icons must be unique")
+        data = example()
+        data["workstreams"][0]["summary"] = "x" * 101
+        self.assert_error(data, "summary must be at most 100")
+
+    def test_matching_epic_icon_collision_names_ticket_feature_and_epic(self) -> None:
+        data = example()
+        data["workstreams"][0]["icon"] = "bug-ant"
+        report = report_for(data, general_epics=[
+            {"key": "bugs", "labels": [data["label_projection"]["workstreams"]["platform"]], "icon": "bug"}
+        ])
+        self.assertTrue(any("BO-001: feature platform icon collides with matching epic bugs" in error for error in report.errors))
+
+    def test_nonmatching_epic_icon_does_not_collide(self) -> None:
+        data = example()
+        data["workstreams"][0]["icon"] = "bug-ant"
+        report = report_for(data, general_epics=[
+            {"key": "bugs", "labels": ["unrelated"], "icon": "bug"}
+        ])
+        self.assertFalse(any("icon collides" in error for error in report.errors))
+
     def test_canonical_example_is_clean(self) -> None:
         self.assert_clean(example())
 

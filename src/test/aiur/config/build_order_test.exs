@@ -224,18 +224,17 @@ defmodule Aiur.Config.BuildOrderTest do
     end
   end
 
-  test "icon must be a design general-epic icon" do
-    assert Schema.GeneralEpic.icons() == ~w(bug pen server docs)
+  test "general epic icons accept Heroicons names and preserve legacy aliases" do
+    assert "book-open" in Schema.GeneralEpic.icons()
+    assert "bug" in Schema.GeneralEpic.icons()
 
-    for icon <- ~w(layers unsorted rocket) do
-      assert {:error, {:invalid_workflow_config, message}} = parse_general_epics([epic(%{"icon" => icon})])
-      assert message == "build_order.general_epics.0.icon is invalid"
-    end
-
-    for icon <- Schema.GeneralEpic.icons() do
+    for icon <- ["book-open", "bug", "pen", "server", "docs"] do
       assert {:ok, settings} = parse_general_epics([epic(%{"icon" => icon})])
       assert hd(settings.build_order.general_epics).icon == icon
     end
+
+    assert {:error, {:invalid_workflow_config, "build_order.general_epics.0.icon is invalid"}} =
+             parse_general_epics([epic(%{"icon" => "not-a-heroicon"})])
   end
 
   test "required fields" do

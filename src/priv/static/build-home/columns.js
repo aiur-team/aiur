@@ -52,7 +52,7 @@ export function applyCols(next, immediate) {
     el.className = "bd-lane" + (e.temp ? " temp" : "") + (e.unsorted ? " unsorted" : "") + (locked ? " lock" : "");
     el.style.setProperty("--h", e.hue);
     el.title = e.temp ? e.label + " — short-lived feature epic" : e.label;
-    el.innerHTML = I[e.icon] + "<span>" + esc(e.label) + "</span><em>" + (locked ? I.lock : (Number.isInteger(ctx.D.counts?.[k]) ? ctx.D.counts[k] : "—")) + "</em>";
+    el.innerHTML = (e.svg || I[e.icon] || "") + "<span>" + esc(e.label) + "</span><em>" + (locked ? I.lock : (Number.isInteger(ctx.D.counts?.[k]) ? ctx.D.counts[k] : "—")) + "</em>";
     if (!locked && !Number.isInteger(ctx.D.counts?.[k])) el.querySelector("em").title = "Ticket count unavailable";
   }, (el, k) => { const c = ctx.colMap[k]; el.style.left = c.x + "px"; el.style.width = c.w + "px"; el.classList.toggle("first", ctx.cols[0] === k); });
   syncKeyed(ctx.guideEls, ctx.guidesEl, "bd-guide", () => {}, (el, k) => { const c = ctx.colMap[k]; el.style.left = (c.x - gap / 2) + "px"; el.style.width = (c.w + gap) + "px"; });
