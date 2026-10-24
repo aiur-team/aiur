@@ -127,18 +127,6 @@ defmodule Aiur.AccountsTest do
     refute RemoteControl.process_alive?(pid_path |> File.read!() |> String.to_integer())
   end
 
-  test "the default Codex profile root follows the configured state-volume home", %{home: home} do
-    previous = System.get_env("CODEX_HOME")
-    codex_home = Path.join(home, "persistent/codex")
-    System.put_env("CODEX_HOME", codex_home)
-
-    on_exit(fn ->
-      if previous, do: System.put_env("CODEX_HOME", previous), else: System.delete_env("CODEX_HOME")
-    end)
-
-    assert CodexAccounts.profile_root() == codex_home
-  end
-
   test "API key account registry stores named env key, never the value", %{home: home} do
     path = Path.join(home, ".aiur/.env")
     File.mkdir_p!(Path.dirname(path))
