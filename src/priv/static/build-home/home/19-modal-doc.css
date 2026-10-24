@@ -36,7 +36,6 @@
 @media (max-width: 480px) {
   .bd-toolbar:has(.bd-list-shows) { flex-wrap: wrap; }
   .bd-toolbar:has(.bd-list-shows) .bd-bar-l { flex-wrap: wrap; }
-  .bd-list-label { flex-basis: 100%; }
   .bd-seg.bd-list-shows button { padding: 0 .5rem; }
   .bd-seg.bd-list-shows button span { display: none; }
   .bd-seg.bd-list-shows button svg { width: 15px; height: 15px; }
