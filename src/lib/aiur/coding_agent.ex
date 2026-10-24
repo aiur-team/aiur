@@ -13,6 +13,7 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.CodingAgent.Backend
   alias Aiur.CodingAgent.ModelGrammar
   alias Aiur.CodingAgent.ProvidersView
@@ -59,6 +60,7 @@ defmodule Aiur.CodingAgent do
   defdelegate provider_account_generation(provider), to: ProvidersView
   defdelegate provider_meter_backend(provider), to: ProvidersView
   defdelegate provider_meter_probe(provider), to: ProvidersView
+  defdelegate stream_diagnostics(port), to: StreamDiagnostics, as: :recent_text
 
   # Model and label grammar.
   defdelegate efforts(backend), to: ModelGrammar

@@ -2,8 +2,28 @@ defmodule Aiur.AgentRunner.TurnLoop do
   @moduledoc false
 
   require Logger
-  alias Aiur.AgentRunner.{Handoff, MessageHandler, NoopWait, QueueDrain, SessionLifecycle, TurnCallbacks, TurnCompletion}
-  alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
+
+  alias Aiur.AgentRunner.{
+    Handoff,
+    MessageHandler,
+    NoopWait,
+    QueueDrain,
+    SessionLifecycle,
+    TurnCallbacks,
+    TurnCompletion,
+    TurnSupport
+  }
+
+  alias Aiur.AgentRunner.{
+    RepeatedCommandGuard,
+    RepeatedCommandStop,
+    SessionResume,
+    ToolExecutor,
+    TurnAlerts,
+    TurnPrompt,
+    TurnStreams
+  }
+
   alias Aiur.AgentTools.Dispatch
   alias Aiur.CodingAgent
   alias Aiur.Config
@@ -20,8 +40,6 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # restore that gates a clean replacement exit, retry that transient result a
   # bounded number of times before giving up, so a genuinely dead orchestrator
   # cannot spin the runner Task forever.
-  @restore_confirm_attempts 5
-  @restore_confirm_backoff_ms 250
 
   @doc false
   @spec run_turns(
@@ -73,7 +91,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # Handoff.adopt/4 stops the adopted session in its after block; restore the
   # delivered item so a replacement can retry after workspace support is fixed.
   defp refuse_unsupported_turn(%{orchestrator: orchestrator, issue: issue, opts: opts}, error) do
-    confirm_restore_for_replacement(orchestrator, issue, opts, error)
+    TurnSupport.confirm_restore_for_replacement(orchestrator, issue, opts, error)
   end
 
   defp run_supported_turn(turn_context, app_session) do
@@ -126,27 +144,52 @@ defmodule Aiur.AgentRunner.TurnLoop do
       backend: SessionLifecycle.session_backend_label(app_session)
     })
 
+    agent_settings = Config.settings!().agent
+
+    RepeatedCommandGuard.start_turn(
+      repeat_threshold: agent_settings.max_repeated_identical_commands,
+      command_cap: agent_settings.max_commands_per_turn,
+      input_token_cap: agent_settings.max_input_tokens_per_turn
+    )
+
     result =
-      coding_agent_run_turn(opts).(
-        app_session,
-        prompt,
-        issue,
-        handoff_orchestrator: orchestrator,
-        on_message: message_handler,
-        on_safe_checkpoint: callbacks.on_safe_checkpoint,
-        on_operator_message: callbacks.on_operator_message,
-        on_operator_response: callbacks.on_operator_response,
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id, rework_head_sha: Keyword.get(opts, :rework_head_sha))
-      )
+      try do
+        coding_agent_run_turn(opts).(
+          app_session,
+          prompt,
+          issue,
+          handoff_orchestrator: orchestrator,
+          on_message: message_handler,
+          on_safe_checkpoint: callbacks.on_safe_checkpoint,
+          on_operator_message: callbacks.on_operator_message,
+          on_operator_response: callbacks.on_operator_response,
+          tool_executor:
+            ToolExecutor.build(issue, workspace, worker_host, app_session,
+              attempt_id: lifecycle_attempt_id,
+              rework_head_sha: Keyword.get(opts, :rework_head_sha)
+            )
+        )
+      catch
+        :throw, {:repeated_identical_command, command, count} ->
+          {:error, {:repeated_identical_command, command, count}}
 
-    record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
-    if turn_number == 1, do: SessionResume.track_resume_turn_start(app_session, issue.identifier, result)
+        :throw, {:turn_cap, cap, count} ->
+          {:error, {:turn_cap, cap, count}}
+      after
+        RepeatedCommandGuard.finish_turn()
+      end
 
-    TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
+    TurnSupport.record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
+
+    if turn_number == 1,
+      do: SessionResume.track_resume_turn_start(app_session, issue.identifier, result)
+
+    TurnStreams.close(issue, aiur_turn_id, TurnSupport.turn_done_reason(result))
     backend = SessionLifecycle.session_backend!(app_session)
 
     case result do
       {:ok, turn_session} ->
+        SessionResume.fresh_turn_completed(app_session, issue.identifier)
         :ok = WipPreservation.mark_delivered(wip_notices)
 
         SessionResume.maybe_persist_turn_handle(
@@ -156,7 +199,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
           worker_host
         )
 
-        best_effort_queue_bookkeeping(
+        TurnSupport.best_effort_queue_bookkeeping(
           Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
           :consume,
           issue
@@ -171,29 +214,45 @@ defmodule Aiur.AgentRunner.TurnLoop do
                  codex_update_recipient,
                  opts
                ) do
-          TurnCompletion.finalize_turn_completion(turn_context, app_session, turn_session, message_handler)
+          TurnCompletion.finalize_turn_completion(
+            turn_context,
+            app_session,
+            turn_session,
+            message_handler
+          )
         end
 
       {:paused, pause_payload} ->
         Logger.info("Paused agent run for #{Aiur.AgentRunner.issue_context(issue)} session_id=#{pause_payload[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns_display(max_turns)}")
 
-        with :ok <- settle_paused_turn(turn_context, app_session, pause_payload, message_handler) do
+        with :ok <- TurnSupport.settle_paused_turn(turn_context, app_session, pause_payload, message_handler) do
           continue_after_resume(turn_context, app_session)
         end
 
       {:error, reason} = error ->
-        settle_turn_error(turn_context, backend, reason, error)
+        case reason do
+          {:repeated_identical_command, command, count} ->
+            RepeatedCommandStop.stop_on_repeated_command(turn_context, command, count)
+
+          {:turn_cap, cap, count} ->
+            RepeatedCommandStop.stop_on_turn_cap(turn_context, cap, count)
+
+          _ ->
+            settle_turn_error(turn_context, backend, reason, error)
+        end
     end
   end
 
-  defp handoff_pause_payload(session, cwd, payload) do
-    Map.merge(payload, %{session_id: Map.get(session, :thread_id), account_name: Map.get(session, :account_name), cwd: cwd})
-  end
-
   @doc false
-  @spec build_turn_prompt(Issue.t(), Path.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
+  @spec build_turn_prompt(Issue.t(), Path.t(), keyword(), pos_integer(), pos_integer() | nil) ::
+          String.t()
   def build_turn_prompt(issue, workspace, opts, turn_number, max_turns) do
-    TurnPrompt.build_turn_prompt(issue, Keyword.put(opts, :workspace, workspace), turn_number, max_turns)
+    TurnPrompt.build_turn_prompt(
+      issue,
+      Keyword.put(opts, :workspace, workspace),
+      turn_number,
+      max_turns
+    )
   end
 
   # Provider-classified recoverable session failures must not fail the durable queue item: restore it and
@@ -205,16 +264,22 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # recovery; non-recoverable provider failures keep the best-effort fail
   # settlement and its retry-exhaustion path.
   defp settle_turn_error(turn_context, backend, reason, error) do
-    %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, opts: opts} =
+    %{
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      orchestrator: orchestrator,
+      opts: opts
+    } =
       turn_context
 
     if CodingAgent.recoverable_session_error?(backend, reason) do
-      confirm_restore_for_replacement(orchestrator, issue, opts, error)
+      TurnSupport.confirm_restore_for_replacement(orchestrator, issue, opts, error)
     else
       TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
       TurnAlerts.maybe_emit_route_failure_alert(issue, workspace, worker_host, reason)
 
-      best_effort_queue_bookkeeping(
+      TurnSupport.best_effort_queue_bookkeeping(
         Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
         :fail,
         issue
@@ -225,94 +290,24 @@ defmodule Aiur.AgentRunner.TurnLoop do
   end
 
   @doc false
-  @spec turn_done_reason(term()) :: :done | :paused | :input_required | {:failed, term()}
-  def turn_done_reason({:ok, _session}), do: :done
-
-  def turn_done_reason({:paused, %{control: %{request_id: id, generation: generation}}})
-      when is_integer(id) and is_integer(generation), do: :paused
-
-  def turn_done_reason({:paused, _payload}), do: :input_required
-  def turn_done_reason({:error, reason}), do: {:failed, reason}
-  def turn_done_reason(_), do: :done
-
-  defp record_implementation_end(issue, attempt_id, operation_id, turn_number, result) do
-    {outcome, reason_class} =
-      case result do
-        {:ok, _session} -> {:success, nil}
-        {:paused, _payload} -> {:paused, nil}
-        {:error, reason} -> {:failed, Signal.reason_class(reason)}
-      end
-
-    Signal.lifecycle(issue.identifier, attempt_id, :implement, :end, %{
-      operation_id: operation_id,
-      turn_number: turn_number,
-      outcome: outcome,
-      reason_class: reason_class
-    })
-  end
+  defdelegate turn_done_reason(result), to: TurnSupport
 
   @doc false
-  @spec best_effort_queue_bookkeeping(:ok | {:error, term()}, atom(), Issue.t()) :: :ok
-  def best_effort_queue_bookkeeping(:ok, _op, _issue), do: :ok
+  defdelegate best_effort_queue_bookkeeping(result, op, issue), to: TurnSupport
 
   @doc false
-  def best_effort_queue_bookkeeping({:error, reason}, op, issue) do
-    Logger.warning("Orchestrator #{op}_delivered_queue_items unavailable for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; continuing without crashing the agent")
-
-    :ok
-  end
-
-  # The one confirmed restore-and-replace boundary shared by the primary-turn
-  # (`run_turns`) and queue-drain (`run_recorded_queue_item_turn`) seams. It
-  # returns the original recoverable error — the clean-replacement-exit signal —
-  # ONLY after the delivered queue item is durably restored to pending. If the
-  # orchestrator restore RPC never confirms, it surfaces a non-recoverable
-  # `:queue_restore_unconfirmed` error instead of faking clean recovery, so the
-  # claimed item is never silently stranded `:delivered`.
-  @doc false
-  @spec confirm_restore_for_replacement(GenServer.server(), Issue.t(), keyword(), {:error, term()}) ::
-          {:error, term()}
-  def confirm_restore_for_replacement(orchestrator, issue, opts, recoverable_error) do
-    case confirm_restore_delivered(orchestrator, issue, opts) do
-      :ok -> recoverable_error
-      {:error, _reason} = restore_error -> restore_error
-    end
-  end
+  defdelegate confirm_restore_for_replacement(orchestrator, issue, opts, error), to: TurnSupport
 
   @doc false
-  @spec confirm_restore_delivered(GenServer.server(), Issue.t(), keyword()) :: :ok | {:error, term()}
-  def confirm_restore_delivered(orchestrator, issue, opts \\ []) do
-    attempts = Keyword.get(opts, :restore_confirm_attempts, @restore_confirm_attempts)
-    backoff_ms = Keyword.get(opts, :restore_confirm_backoff_ms, @restore_confirm_backoff_ms)
-    confirm_restore_delivered(orchestrator, issue, attempts, backoff_ms)
-  end
-
-  defp confirm_restore_delivered(orchestrator, issue, attempts, backoff_ms) do
-    case Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier) do
-      :ok ->
-        :ok
-
-      {:error, reason} when attempts > 1 ->
-        Logger.warning("Codex recovery restore unavailable for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; retrying before replacement (#{attempts - 1} attempt(s) left)")
-
-        if backoff_ms > 0, do: Process.sleep(backoff_ms)
-        confirm_restore_delivered(orchestrator, issue, attempts - 1, backoff_ms)
-
-      {:error, reason} ->
-        Logger.error(
-          "Codex recovery restore could not be confirmed for #{Aiur.AgentRunner.issue_context(issue)}: #{inspect(reason)}; refusing to report clean recovery so the queue item is not stranded delivered"
-        )
-
-        {:error, {:queue_restore_unconfirmed, reason}}
-    end
-  end
+  defdelegate confirm_restore_delivered(orchestrator, issue, opts \\ []), to: TurnSupport
 
   @doc false
   @spec noop_handoff(map(), Issue.t()) :: {:handoff, term()} | :none | {:error, term()}
   defdelegate noop_handoff(turn_context, issue), to: TurnCompletion
 
   @doc false
-  @spec transition_agent_handoff(map(), Issue.t()) :: {:handoff, term()} | :none | {:error, term()}
+  @spec transition_agent_handoff(map(), Issue.t()) ::
+          {:handoff, term()} | :none | {:error, term()}
   defdelegate transition_agent_handoff(turn_context, issue), to: TurnCompletion
 
   @doc false
@@ -325,27 +320,11 @@ defmodule Aiur.AgentRunner.TurnLoop do
     do: {:completed, issue}
 
   @doc false
-  @spec confirm_pause_containment(map()) :: :ok
-  def confirm_pause_containment(app_session), do: Aiur.PauseContainment.confirm(Map.get(app_session, :containment))
+  defdelegate confirm_pause_containment(app_session), to: TurnSupport
 
   @doc false
-  @spec settle_paused_turn(map(), map(), map(), fun()) :: :ok | {:error, term()}
-  @spec settle_paused_turn(map(), map(), map(), fun(), (-> term()) | nil) :: :ok | {:error, term()}
-  def settle_paused_turn(context, app_session, pause_payload, message_handler, completed \\ nil) do
-    %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, codex_update_recipient: recipient, opts: opts} = context
-    confirm_pause_containment(app_session)
-    TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, worker_host, Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session)))
-
-    if pause_payload[:native_terminal] == :completed do
-      if completed, do: completed.(), else: best_effort_queue_bookkeeping(Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier), :consume, issue)
-    else
-      best_effort_queue_bookkeeping(Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier), :restore, issue)
-    end
-
-    Aiur.AgentRunner.write_pause_log(workspace, worker_host)
-    MessageHandler.send_control_state(recipient, issue, :paused, handoff_pause_payload(app_session, workspace, pause_payload))
-    QueueDrain.wait_for_operator_message(app_session, issue, message_handler, orchestrator, recipient, opts)
-  end
+  defdelegate settle_paused_turn(context, app_session, payload, message_handler, completed \\ nil),
+    to: TurnSupport
 
   @doc false
   @spec continue_after_resume(map(), map()) :: :ok | {:completed, Issue.t()} | {:error, term()}
@@ -367,7 +346,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
             turn_context
             | issue: refreshed_issue,
               turn_number: turn_context.turn_number + 1,
-              opts: Keyword.put(turn_context.opts, :turn_progress, NoopWait.progress_after_resume(turn_context))
+              opts:
+                Keyword.put(
+                  turn_context.opts,
+                  :turn_progress,
+                  NoopWait.progress_after_resume(turn_context)
+                )
           },
           app_session
         )
@@ -440,7 +424,10 @@ defmodule Aiur.AgentRunner.TurnLoop do
     normalized_state = normalize_issue_state(state_name)
 
     not DispatchPolicy.no_agent_work_state?(normalized_state) and
-      Enum.any?(Config.settings!().tracker.active_states, &(normalize_issue_state(&1) == normalized_state))
+      Enum.any?(
+        Config.settings!().tracker.active_states,
+        &(normalize_issue_state(&1) == normalized_state)
+      )
   end
 
   defp active_issue_state?(_state_name), do: false

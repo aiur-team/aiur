@@ -7,7 +7,8 @@
     "src/lib/aiur_web/capability_error.ex",
     "src/lib/aiur_web/kit.ex",
     "src/lib/aiur_web/provider_meter_windows.ex",
-    "src/lib/aiur_web/refresh_relay.ex"
+    "src/lib/aiur_web/refresh_relay.ex",
+    "src/lib/aiur_web/remaining_meter.ex"
   ],
   "facades": [
     "*"
