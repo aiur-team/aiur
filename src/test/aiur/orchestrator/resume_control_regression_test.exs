@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
 
   alias Aiur.{AgentControlCLI, DispatchBudgetStore, Issue}
   alias Aiur.Events.Exchange
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, PauseResume}
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, PauseResume, StatusReport.RunningSummaries}
   alias Aiur.TrackerIdentity
 
   import Aiur.SnapshotFenceSupport, only: [fence_snapshot_read_model: 0]
@@ -379,14 +379,13 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   describe "a crash inside a control call" do
     test "replies with an error and keeps the orchestrator and its registry", %{orchestrator: pid} do
       bystander = spawn_link(fn -> Process.sleep(:infinity) end)
-
-      # A running entry whose control field is not a map makes the resume path
-      # raise inside the Orchestrator process.
       corrupt = "44" |> working_entry("44", self()) |> Map.put(:control, "corrupt")
+      healthy = working_entry("53", "53", bystander)
+      :sys.replace_state(pid, &Map.put(&1, :running, %{"44" => corrupt, "53" => healthy}))
 
-      :sys.replace_state(pid, fn state ->
-        %{state | running: %{"44" => corrupt, "53" => working_entry("53", "53", bystander)}}
-      end)
+      assert %{"44" => :unknown, "53" => :working} =
+               RunningSummaries.running_summaries(:sys.get_state(pid))
+               |> Map.new(&{&1.identifier, &1.work_state})
 
       :ok = Exchange.subscribe("ticket.44.agent.attention.control-call-crashed")
 

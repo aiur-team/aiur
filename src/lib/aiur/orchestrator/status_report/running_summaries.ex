@@ -72,6 +72,8 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
   end
 
   defp running_summary(identifier, entry, tag, title, now) do
+    control = Map.get(entry, :control)
+
     AgentEvents.agent_summary(identifier, :running, 0, %{
       tag: tag,
       title: title,
@@ -80,7 +82,7 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
       turn_count: Map.get(entry, :turn_count, 0),
       context_usage: Map.get(entry, :context_usage),
       telemetry_attempt_id: Map.get(entry, :telemetry_attempt_id),
-      work_state: get_in(entry, [:control, :status]) || :working,
+      work_state: if(is_map(control), do: Map.get(control, :status) || :working, else: :unknown),
       pause_reason: Map.get(entry, :paused_reason),
       backend: entry_backend(entry),
       model: entry_model(entry),
