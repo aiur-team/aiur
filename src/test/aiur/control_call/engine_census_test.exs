@@ -79,6 +79,11 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"clear", "clear --remove-markers --yes"},
     {"order with target", "order team --to 0"}
   ]
+  @guarded_wrappers %{
+    "cmd_queue" => ~s|Aiur.AgentControlCLI.queue(verb: :add, caller_agent_workspace: "")|,
+    "cmd_operator_answer" => ~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|,
+    "cmd_alerts" => ~s|Aiur.AgentControlCLI.alerts(argv: ["ack", "ticket.1.agent.attention.test", "--executor-id", "operator"])|
+  }
 
   test "every public AgentControlCLI function has an explicit classification" do
     entries = Allowlist.entries()
@@ -105,6 +110,20 @@ defmodule Aiur.ControlCall.EngineCensusTest do
       expression = capture_rpc("cmd_queue #{arguments}")
       result = ControlCall.parse(expression)
       assert result == {:error, :denied_remote}, "queue #{verb}: #{expression} parsed as #{inspect(result)}"
+    end
+  end
+
+  test "every wrapper with an operator, TTY or agent-session guard is local-only" do
+    scripts = Path.wildcard(Path.expand("../../../../packaging/npm/aiur-cli/libexec/**/*.sh", __DIR__))
+    guarded = Enum.flat_map(scripts, &guarded_wrapper_names/1) |> Enum.uniq() |> Enum.sort()
+    expected = Map.keys(@guarded_wrappers) |> Enum.sort()
+
+    assert guarded == expected,
+           "guarded engine wrappers changed: expected #{inspect(expected)}, found #{inspect(guarded)}"
+
+    for {wrapper, expression} <- @guarded_wrappers do
+      assert {:error, :denied_remote} = ControlCall.parse(expression),
+             "#{wrapper} has a local-only guard but its RPC is not denied"
     end
   end
 
@@ -177,5 +196,45 @@ defmodule Aiur.ControlCall.EngineCensusTest do
       ])
 
     output |> String.split("\n", trim: true) |> Enum.find(&String.starts_with?(&1, "Aiur."))
+  end
+
+  defp guarded_wrapper_names(path) do
+    source = File.read!(path)
+    functions = shell_functions(source)
+
+    direct =
+      functions
+      |> Enum.filter(fn {_name, body} ->
+        body =~ ~r/\[\s*!\s*-t\s+[01]\s*\]/ or
+          body =~ ~r/env\s*\|\s*grep\s+-E\s+'\^\(AIUR_AGENT_/ or
+          (body =~ "AIUR_AGENT_WORKSPACE" and body =~ "blocked inside agent workspaces" and body =~ "exit 64") or
+          body =~ "alerts ack is operator-only"
+      end)
+      |> Enum.map(&elem(&1, 0))
+
+    direct
+    |> Enum.map(fn
+      "queue_workspace_guard" -> "cmd_queue"
+      "cmd_alerts" -> "cmd_alerts"
+      "cmd_operator_answer" -> "cmd_operator_answer"
+      name -> name
+    end)
+  end
+
+  defp shell_functions(source) do
+    declarations = Regex.scan(~r/(?m)^([A-Za-z_][A-Za-z0-9_]*)\(\)\s*\{/, source, return: :index)
+    offsets = Enum.map(declarations, fn [{start, _}, {name_start, name_len}] -> {start, binary_part(source, name_start, name_len)} end)
+
+    offsets
+    |> Enum.with_index()
+    |> Enum.map(fn {{start, name}, index} ->
+      finish =
+        case Enum.at(offsets, index + 1) do
+          {next, _} -> next
+          nil -> byte_size(source)
+        end
+
+      {name, binary_part(source, start, finish - start)}
+    end)
   end
 end

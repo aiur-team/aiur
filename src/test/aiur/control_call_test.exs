@@ -100,7 +100,9 @@ defmodule Aiur.ControlCallTest do
   end
 
   test "remote calls cannot provide identity overrides or executor session env" do
-    assert {:error, :option_not_allowed} = ControlCall.parse(~s|Aiur.AgentControlCLI.feature(argv: ["create"], who: "operator")|, remote: true)
+    expression = ~s|Aiur.AgentControlCLI.feature(op: :create, slug: "demo", who: "operator")|
+    assert {:ok, %{scope: :write}} = ControlCall.parse(expression)
+    assert {:error, :option_not_allowed} = ControlCall.parse(expression, remote: true)
     assert {:error, :option_not_allowed} = ControlCall.parse(~s|Aiur.AgentControlCLI.executor_wait(env: [{"CLAUDE_PID", "12"}])|, remote: true)
   end
 
