@@ -57,9 +57,9 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
                AIUR_GH_CALL_TIMEOUT_SECONDS: "3"
              )
 
-    assert output =~ "GitHub quota hold (#{hold_name}) active"
     refute File.exists?(context.calls)
     refute File.exists?(sleep_calls)
+    assert output =~ "GitHub quota hold (#{hold_name}) active"
   end
 
   test "a core hold does not block an explicitly GraphQL command", context do
