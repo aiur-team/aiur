@@ -15,6 +15,10 @@ defmodule Aiur.AgentRunner.BeforeRun do
         WorkspaceGuard.record_setup_end(issue, opts, :failed, status)
         {:before_run_failed, status, output, reason}
 
+      {:error, {:workspace_hook_timeout, "before_run", timeout_ms} = reason} ->
+        WorkspaceGuard.record_setup_end(issue, opts, :failed, reason)
+        {:before_run_retry, reason, timeout_ms}
+
       # The dirty workspace could not be saved, so it was not recreated (#2743).
       # Hold the ticket on the existing before_run pause instead of letting a
       # retry chain run; the workspace keeps the agent's work. That pause has
@@ -41,6 +45,9 @@ defmodule Aiur.AgentRunner.BeforeRun do
 
   defp before_run_pause_message(:wip_preservation_failed, _output),
     do: "wip_preservation_failed: uncommitted work could not be saved, so the dirty workspace was kept; agent held pending Executor resume."
+
+  defp before_run_pause_message(:timeout, _output),
+    do: "before_run hook timed out; agent paused pending Executor resume."
 
   defp before_run_pause_message(_status, output) do
     tail = output |> to_string() |> String.trim() |> String.slice(-500, 500)
