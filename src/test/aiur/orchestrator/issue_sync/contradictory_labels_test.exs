@@ -36,6 +36,35 @@ defmodule Aiur.Orchestrator.IssueSync.ContradictoryLabelsTest do
       assert healed_state.last_polled_issues[dual.id].state == "todo"
     end
 
+    test "reconciles ci-wait+rework to rework and allows the next dispatch" do
+      dual = %{issue("ci-rework", nil) | state_labels: ["ci-wait", "rework"]}
+
+      {_state, [healed]} =
+        IssueSync.reconcile_contradictory_state_labels(%State{}, [dual], fn _identifier, target ->
+          assert target == "rework"
+          :ok
+        end)
+
+      assert healed.state_labels == ["rework"]
+      assert healed.state == "rework"
+      assert healed.dispatch_authorization == :authorized
+    end
+
+    test "reconciles queued+in-progress to in-progress" do
+      dual = %{issue("queued-progress", nil) | state_labels: ["queued", "in-progress"]}
+
+      {_state, [healed]} =
+        IssueSync.reconcile_contradictory_state_labels(%State{}, [dual], fn _identifier, target ->
+          assert target == "in-progress"
+          :ok
+        end)
+
+      assert healed.state_labels == ["in-progress"]
+      assert healed.state == "in-progress"
+      assert DispatchPolicy.resolve_state_labels(dual.state_labels) == "in-progress"
+      assert DispatchPolicy.active_issue_state?("in progress", DispatchPolicy.active_state_set())
+    end
+
     test "keeps valid reason modifiers while healing workflow states (regression guard)" do
       dual = %{
         issue("dual-reasons", "todo")
@@ -54,7 +83,20 @@ defmodule Aiur.Orchestrator.IssueSync.ContradictoryLabelsTest do
       assert healed.labels == ["agent:ci-red", "agent:merge-queued"]
     end
 
-    test "keeps the resolved issue dispatchable even when the heal write fails" do
+    test "heals contradictory labels through the production tracker writer" do
+      dual = %{issue("production-heal", nil) | state_labels: ["ci-wait", "rework"]}
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+      Application.put_env(:aiur, :memory_tracker_issues, [dual])
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+      {_state, [healed]} = IssueSync.reconcile_contradictory_state_labels(%State{}, [dual])
+
+      assert_receive {:memory_tracker_state_update, "its-everdred/aiur#production-heal", "rework"}, 1_000
+      assert healed.state_labels == ["rework"]
+      assert healed.state == "rework"
+    end
+
+    test "keeps the resolved issue dispatchable when the heal write fails" do
       dual = %{issue("dual", "todo") | state_labels: ["todo", "rework"]}
 
       {healed_state, healed_issues} =
@@ -67,9 +109,9 @@ defmodule Aiur.Orchestrator.IssueSync.ContradictoryLabelsTest do
       assert [healed] = healed_issues
       assert healed.state == "todo"
       assert healed.state_labels == ["todo"]
+      assert DispatchPolicy.dispatch_candidate?(healed, %State{})
 
-      # A failed heal write must not strand the ticket this cycle: it stays
-      # dispatchable on the resolved state and the next poll retries the heal.
+      # A failed heal must not strand the ticket this cycle; next poll retries.
       assert healed_state.last_polled_issues == %{}
     end
 

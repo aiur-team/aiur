@@ -25,7 +25,9 @@ defmodule Aiur.Orchestrator.IssueSync.LabelWrites do
   def guarded_update_fun(issues) do
     fn identifier, target ->
       issue = Enum.find(issues, &(&1.identifier == identifier))
-      TicketTransition.write_state(identifier, target, writer: :issue_sync, expected_state: issue.state)
+      opts = [writer: :issue_sync]
+      opts = if is_binary(issue.state), do: Keyword.put(opts, :expected_state, issue.state), else: opts
+      TicketTransition.write_state(identifier, target, opts)
     end
   end
 
