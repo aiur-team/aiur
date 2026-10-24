@@ -127,8 +127,6 @@ defmodule Aiur.AgentRunner.Handoff do
   end
 
   defp park(record, original_session) do
-    port = original_session[:port]
-
     receive do
       :handoff_abort ->
         resumed =
@@ -153,12 +151,6 @@ defmodule Aiur.AgentRunner.Handoff do
         Process.put(:handoff_detached, false)
         Process.delete(:handoff_hold)
         resumed
-
-      {^port, {:data, _frame}} ->
-        park(record, original_session)
-
-      {^port, {:exit_status, _status}} ->
-        park(record, original_session)
 
       {:handoff_snapshot, from, ref} ->
         send(from, {ref, {:ok, record}})

@@ -52,6 +52,8 @@ class Relay:
         writer.close()
         if self.controller is not None and self.controller[0] is writer:
             self.controller[2].set()
+            self.controller[3].set()
+            self.controller[4].set()
             self.controller = None
             self.disconnected_at = time.monotonic()
 
@@ -94,7 +96,7 @@ class Relay:
             if self.controller:
                 self.disconnect(self.controller[0])
             self.generation = generation
-            self.controller = [writer, offset, asyncio.Event()]
+            self.controller = [writer, offset, asyncio.Event(), asyncio.Event(), asyncio.Event()]
             self.persist()
             self.message(writer, 'attached', generation=generation)
             asyncio.create_task(self.forward(self.controller))
@@ -118,6 +120,7 @@ class Relay:
             if self.acked - self.retained_base >= min(1024 * 1024, self.cap):
                 self.rotate()
             self.persist()
+            self.controller[3].set()
         elif op == 'detach':
             self.disconnect(writer)
         elif op == 'signal':
@@ -209,7 +212,7 @@ class Relay:
         self.persist()
 
     async def forward(self, controller):
-        writer, _, ready = controller
+        writer, _, ready, acknowledged, drained = controller
         delivered_exit = False
         try:
             while self.controller is controller:
@@ -217,6 +220,8 @@ class Relay:
                 for end, raw in list(self.frames):
                     if self.controller is not controller:
                         return
+                    if self.stopping:
+                        break
                     if end > controller[1]:
                         payload = raw.removesuffix(b'\n')
                         try:
@@ -226,11 +231,14 @@ class Relay:
                                       'line_base64': base64.b64encode(payload).decode('ascii')}
                         self.message(writer, 'frame', offset=end, **values)
                         controller[1] = end
+                        acknowledged.clear()
                         await asyncio.wait_for(writer.drain(), timeout=1)
-                if self.exit_status is not None and not delivered_exit:
+                        await acknowledged.wait()
+                if self.exit_status is not None and not delivered_exit and (self.stopping or controller[1] >= self.end):
                     self.message(writer, 'exit', status=self.exit_status)
                     await writer.drain()
                     delivered_exit = True
+                    drained.set()
                 await ready.wait()
         except (ConnectionError, asyncio.TimeoutError):
             self.disconnect(writer)
@@ -287,6 +295,9 @@ class Relay:
         if self.stopping:
             return
         self.stopping = True
+        if self.controller:
+            self.controller[2].set()
+            self.controller[3].set()
         self.signal_group(signal.SIGTERM)
         try:
             await asyncio.wait_for(asyncio.shield(self.provider.wait()), timeout=grace)
@@ -364,6 +375,9 @@ class Relay:
         tasks = [asyncio.create_task(self.watch()), asyncio.create_task(self.orphan())]
         try:
             await self.finished.wait()
+            # Provider exit is not complete until the active controller drains its frames.
+            if self.controller:
+                await self.controller[4].wait()
         finally:
             server.close()
             clients = list(self.clients)

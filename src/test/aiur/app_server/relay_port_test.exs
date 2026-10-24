@@ -12,8 +12,10 @@ defmodule Aiur.AppServer.RelayPortTest do
     assert metadata.relay_pid != metadata.provider_pid
     assert File.exists?(Path.join(metadata.directory, "relay.json"))
     assert_receive {^relay, {:data, {:eol, "ready"}}}, 5_000
+    :ok = Transport.acknowledge(relay)
     assert Transport.command(relay, "hello\n")
     assert_receive {^relay, {:data, {:eol, "hello"}}}, 5_000
+    :ok = Transport.acknowledge(relay)
     assert_receive {^relay, {:exit_status, 7}}, 5_000
     assert Transport.close(relay)
     assert_stopped(metadata.relay_pid)
@@ -57,7 +59,9 @@ defmodule Aiur.AppServer.RelayPortTest do
     assert_receive {^relay, {:data, {:noeol, chunk}}}, 5_000
     assert chunk == String.duplicate("x", 1_048_576)
     assert_receive {^relay, {:data, {:eol, "xxxxxxx"}}}, 5_000
+    :ok = Transport.acknowledge(relay)
     assert_receive {^relay, {:data, {:eol, <<255>>}}}, 5_000
+    :ok = Transport.acknowledge(relay)
     Transport.close(relay)
   end
 
@@ -66,6 +70,7 @@ defmodule Aiur.AppServer.RelayPortTest do
     assert is_pid(relay)
     assert Transport.command(relay, "first\n")
     assert_receive {^relay, {:data, {:eol, "first"}}}, 5_000
+    :ok = Transport.acknowledge(relay)
     metadata = RelayPort.call(relay, :detach)
     assert metadata.acked_offset == 6
     assert Aiur.ProcessTree.process_alive?(metadata.provider_pid)
@@ -73,6 +78,7 @@ defmodule Aiur.AppServer.RelayPortTest do
     assert {:ok, next} = RelayPort.attach(metadata.directory, metadata.generation + 1, metadata.acked_offset)
     assert Transport.command(next, "second\n")
     assert_receive {^next, {:data, {:eol, "second"}}}, 5_000
+    :ok = Transport.acknowledge(next)
     refute_receive {^next, {:data, {:eol, "first"}}}, 100
     Transport.close(next)
   end
