@@ -37,26 +37,43 @@ defmodule AiurWeb.Build.IndexReader do
 
   defp read_now(repo, opts) do
     units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
-    units_now = NowRows.build(units_fun.(), repository: repo)
+    catalog = units_fun.()
+    units_now = NowRows.build(catalog, repository: repo) |> Map.put(:unit_rows, unit_rows(catalog, repo))
 
-    if map_size(units_now.rows) > 0 do
-      units_now
-    else
-      snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
+    result =
+      if map_size(units_now.rows) > 0 do
+        units_now
+      else
+        snapshot_fun = Keyword.get(opts, :running_rows_fun, &Freshness.read_running_rows/1)
 
-      case snapshot_fun.(opts) do
-        {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
-          rows = fleet_rows(statuses, running)
-          NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
+        case snapshot_fun.(opts) do
+          {:ok, %{statuses: statuses, running: running}} when is_list(statuses) and is_list(running) ->
+            rows = fleet_rows(statuses, running)
+            NowRows.build(%{status: :ready, snapshot: %{rows: rows}}, repository: repo)
 
-        {:error, :timeout} ->
-          {:error, :running_snapshot_timeout}
+          {:error, :timeout} ->
+            {:error, :running_snapshot_timeout}
 
-        {:error, _unavailable} ->
-          {:error, :running_snapshot_unavailable}
+          {:error, _unavailable} ->
+            {:error, :running_snapshot_unavailable}
+        end
       end
-    end
+
+    if is_map(result), do: Map.put(result, :unit_rows, units_now.unit_rows), else: result
   end
+
+  defp unit_rows(%{status: status, snapshot: %{rows: rows}}, {owner, repo}) when status in [:ready, :empty] do
+    rows
+    |> Enum.filter(fn row ->
+      case row[:identity] do
+        %{owner: ^owner, repository: ^repo} -> true
+        _ -> false
+      end
+    end)
+    |> Map.new(&{&1.identity.identifier, &1})
+  end
+
+  defp unit_rows(_catalog, _repo), do: %{}
 
   defp fleet_rows(statuses, running) do
     running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
@@ -81,11 +98,15 @@ defmodule AiurWeb.Build.IndexReader do
   defp now_row(summary, running, bucket) do
     identity = Map.get(summary, :tracker_identity)
     waiting = Map.get(summary, :waiting_reason)
-    summary = Map.merge(summary, Map.take(running, [:started_at, :agent_family, :backend, :resolved_model, :effort, :progress_percent, :progress_freshness]))
+    summary = Map.merge(summary, Map.take(running, [:started_at, :agent_family, :backend, :resolved_model, :effort, :progress_percent, :progress_freshness, :usage_limit_reset_at]))
 
     %{
       identity: identity,
-      runtime: %{bucket: bucket, work_state: Map.get(summary, :work_state, :working)},
+      runtime: %{
+        bucket: bucket,
+        work_state: Map.get(summary, :work_state, :working),
+        usage_limit_reset_at: Map.get(summary, :usage_limit_reset_at) || get_in(summary, [:runtime, :usage_limit_reset_at])
+      },
       reasons: %{waiting: waiting, pause: Map.get(summary, :pause_reason)},
       timestamps: %{started_at: Map.get(summary, :started_at)},
       effort: Map.get(summary, :effort),

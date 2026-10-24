@@ -8,12 +8,7 @@ defmodule Aiur.ExecutorSweep.CiObservation do
         pr
 
       ci ->
-        failures = value(ci, :failures, [])
-
-        required =
-          Enum.map(failures, fn failure ->
-            %{name: value(failure, :name, "required check"), conclusion: value(failure, :result, value(failure, :conclusion, nil)), excerpt: value(failure, :excerpt, nil)}
-          end)
+        required = ci |> observed_checks() |> Enum.map(&required_check/1)
 
         Map.merge(pr, %{
           ci_head_sha: value(ci, :head_sha, nil),
@@ -23,6 +18,28 @@ defmodule Aiur.ExecutorSweep.CiObservation do
           failure_class: to_string(value(ci, :failure_class, "unknown"))
         })
     end
+  end
+
+  defp observed_checks(ci) do
+    failures = value(ci, :failures, [])
+
+    case value(ci, :check_runs, nil) do
+      runs when is_list(runs) -> runs ++ Enum.reject(failures, &(value(&1, :kind, nil) == "check_run"))
+      _ -> failures
+    end
+  end
+
+  defp required_check(check) do
+    %{
+      id: value(check, :id, value(check, :run_id, nil)),
+      name: value(check, :name, value(check, :context, "required check")),
+      conclusion: value(check, :result, value(check, :conclusion, nil)),
+      excerpt: value(check, :excerpt, nil),
+      started_at: value(check, :started_at, nil),
+      completed_at: value(check, :completed_at, nil)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp same_head?(ci, pr) do

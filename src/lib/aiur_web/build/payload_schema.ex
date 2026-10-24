@@ -24,12 +24,17 @@ defmodule AiurWeb.Build.PayloadSchema do
       "pct" => nullable({:range, 0, 100}),
       "agent" =>
         nullable(
-          object(%{
-            "model" => nullable(:model),
-            "name" => nullable({:short_string, 64}),
-            "state" => nullable(enum(~w(active error retrying retries command paused parked))),
-            "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
-          })
+          object(
+            %{
+              "model" => nullable(:model),
+              "name" => nullable({:short_string, 64}),
+              "state" => nullable(enum(~w(active error retrying retries command paused parked usage_limited ci_wait))),
+              "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
+              "resume_at" => nullable(:integer),
+              "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
+            },
+            ~w(pause resume_at)
+          )
         ),
       "est" => nullable(:number),
       "override" => nullable(object(%{"hours" => :number, "reason" => :string, "by" => nullable(:string), "at" => nullable(:integer)})),
@@ -51,6 +56,7 @@ defmodule AiurWeb.Build.PayloadSchema do
   @spec blocks() :: map()
   def blocks do
     %{
+      "capacity" => object(%{"max" => nullable(:positive), "observed_at" => nullable(:integer), "stale" => nullable(:boolean)}),
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
       "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted))},
@@ -79,7 +85,8 @@ defmodule AiurWeb.Build.PayloadSchema do
   def message("diff"), do: Map.merge(envelope(), %{"upsert" => list(:row), "remove" => list(:id), "set" => object(blocks(), Map.keys(blocks()))})
   def message("earlier"), do: Map.merge(Map.delete(envelope(), "now"), %{"rows" => list(:row), "history" => object(history())})
 
-  def message("ticket"), do: Map.put(Map.delete(envelope(), "now"), "row", :row)
+  def message("ticket"), do: Map.merge(Map.put(Map.delete(envelope(), "now"), "row", :row), control_fields())
+  def message("control"), do: Map.merge(%{"v" => {:literal, 1}, "kind" => {:literal, "control"}, "id" => :id}, control_fields())
 
   def message("error"),
     do: %{
@@ -103,6 +110,22 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   def usage(_state), do: nil
+
+  defp control_fields do
+    %{
+      "control" =>
+        nullable(
+          object(%{
+            "action" => nullable(enum(~w(pause resume))),
+            "state" => enum(~w(enabled pending disabled)),
+            "title" => :string,
+            "status" => nullable(object(%{"label" => :string, "tone" => enum(~w(pending applied warning error)), "retry" => :boolean}))
+          })
+        ),
+      "chat" => nullable(:string),
+      "by_you_at" => nullable(:integer)
+    }
+  end
 
   defp feature_stats do
     %{
@@ -158,7 +181,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index), &{&1, object(source())})
+    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source())})
     Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean)))
   end
 

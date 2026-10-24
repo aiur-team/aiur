@@ -8,5 +8,10 @@
     "spec": "tests/build-home-conversation-events-parity.browser.spec.mjs",
     "reason": "Manual home parity sign-off only (per-kind event row cells, about 10 minutes serial); the ticket conversation .cv-main parity in test:build-home-conversation gates merges.",
     "ticket": 3163
+  },
+  {
+    "spec": "tests/build-home-phone-webkit.browser.spec.mjs",
+    "reason": "Hand-run WebKit pass (npm run test:home-phone:webkit); CI installs only Chromium and Linux WebKit is not iOS WKWebView (MP-E8-C12-T04 Decision 3).",
+    "ticket": 3174
   }
 ]

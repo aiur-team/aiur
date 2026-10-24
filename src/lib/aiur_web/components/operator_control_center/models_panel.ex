@@ -13,6 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
 
   use Phoenix.Component
 
+  alias Aiur.Accounts.UsageReadings
+
   import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 3]
 
   @seconds_per_day 86_400
@@ -137,9 +139,9 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       reset: reset,
       window: reset && "7d",
       note: if(is_nil(percent), do: "unknown"),
-      stale?: account.freshness not in [:fresh, "fresh"],
+      stale?: account.freshness in [:stale, "stale"],
       aria_label: "#{account.name} weekly usage",
-      title: "#{account.name} · weekly #{title_percent(percent)} · #{account.freshness}, #{age}#{title_reset(reset)}"
+      title: "#{account.name} · weekly #{title_percent(percent)} · #{account.freshness}, #{age}#{title_error(Map.get(account, :last_error))}#{title_reset(reset)}"
     })
   end
 
@@ -198,6 +200,9 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       reset: reset,
       window: reset && window_span(window),
       note: if(is_nil(percent), do: "unknown"),
+      # Same cutoff as the account lines and `aiur accounts`: an unmarked old
+      # number reads as current (#5747).
+      stale?: UsageReadings.stale?(Map.get(window, :observed_at), now),
       aria_label: "#{name} usage",
       title: "#{name} · #{title_percent(percent)}#{title_reset(reset)}"
     })
@@ -262,6 +267,9 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
   defp percent_text(percent) when percent > 99, do: "99%"
   defp percent_text(percent) when percent > 0 and percent < 1, do: "<1%"
   defp percent_text(percent), do: "#{round(percent)}%"
+
+  defp title_error(nil), do: ""
+  defp title_error(reason), do: " · last error #{reason}"
 
   defp title_percent(nil), do: "usage unknown"
   defp title_percent(percent), do: "#{format_percent(percent)}% used"

@@ -20,6 +20,8 @@
     "Aiur.BuildOrder.Catalog",
     "Aiur.BuildOrder.Component",
     "Aiur.BuildOrder.DependencyChain",
+    "Aiur.BuildOrder.EstimateCLI",
+    "Aiur.BuildOrder.Estimates",
     "Aiur.BuildOrder.Features",
     "Aiur.BuildOrder.Features.LabelProjection",
     "Aiur.BuildOrder.GitHubGraph",
@@ -74,6 +76,7 @@
     ],
     "env": [],
     "state": [
+      "build_estimates_state_dir",
       "build_features_state_dir",
       "build_history_state_dir",
       "epic_overrides_state_dir"

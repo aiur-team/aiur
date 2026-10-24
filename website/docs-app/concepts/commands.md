@@ -87,7 +87,8 @@ resolves the alert and stops the ladder.
 
 The ladder is computed from the
 Command's age, so a restart continues it. `aiur status` prints
-`DECISIONS open N (E expired) oldest <age> (#ticket, gates M)`.
+`DECISIONS open N (E expired) ids=[…] oldest <age> (#ticket, gates M)`;
+the sorted IDs identify the exact Commands included in the count.
 
 That line counts the same Commands as `aiur commands --filter open`, including
 unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
