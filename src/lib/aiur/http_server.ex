@@ -60,6 +60,7 @@ defmodule Aiur.HttpServer do
 
   defp configure_endpoint(opts, host, ip, port, dashboard_writable) do
     settings = Config.settings!().server
+    session_max_age_days = Config.settings!().dashboard_auth.session_max_age_days
     public_url = settings.public_url
     endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
@@ -78,6 +79,7 @@ defmodule Aiur.HttpServer do
       orchestrator: Keyword.get(opts, :orchestrator, Orchestrator),
       snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
       dashboard_writable: dashboard_writable,
+      browser_basic_auth: Config.settings!().dashboard_auth.browser_basic_auth,
       dashboard_auth_required: dashboard_writable or not loopback?(ip),
       dashboard_pages: Keyword.get(opts, :dashboard_pages?, true),
       decision_api: Keyword.get(opts, :decision_api, Commands.default_api()),
@@ -90,7 +92,7 @@ defmodule Aiur.HttpServer do
       session_options: [
         secure: public_url_https?(public_url),
         same_site: "Lax",
-        max_age: 31_536_000,
+        max_age: session_max_age_days * 86_400,
         encryption_salt: "aiur-session-encryption"
       ]
     ]
