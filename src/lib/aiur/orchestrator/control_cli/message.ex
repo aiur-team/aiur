@@ -31,6 +31,35 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
     end)
   end
 
+  @doc "Show the current queue state for one message request id."
+  @spec status(pos_integer()) :: :ok
+  def status(request_id) when is_integer(request_id) and request_id > 0 do
+    guarded("message status", fn ->
+      case message_delivery_status(request_id, 5_000) do
+        {:ok, status} ->
+          IO.puts("aiur: message request #{request_id} is #{status}")
+          exit_marker(0)
+
+        {:error, :unknown_message} ->
+          control_error("aiur: no message request #{request_id}")
+          exit_marker(1)
+
+        {:error, :timeout} ->
+          control_error("aiur: timed out reading message request #{request_id}")
+          exit_marker(124)
+
+        {:error, _reason} ->
+          control_error("aiur: message request status is unavailable")
+          exit_marker(1)
+      end
+    end)
+  end
+
+  def status(_request_id) do
+    control_error("aiur: message request id must be a positive integer")
+    exit_marker(64)
+  end
+
   defp new_message_id, do: "cli-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
   defp message_status(issue, text, message_id, statuses) when is_list(statuses) do
@@ -93,7 +122,7 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
   defp await_message_delivery(_request_id), do: :unobserved
 
   defp poll_message_delivery(request_id, deadline) do
-    case message_delivery_status(request_id, max(remaining_ms(deadline), @message_confirm_poll_ms)) do
+    case message_delivery_status(request_id, @message_confirm_poll_ms) do
       # The agent has the message: claimed (`:delivered`) or already acted on
       # it (`:consumed`). This is the only outcome that may claim delivery.
       {:ok, status} when status in [:delivered, :consumed] ->
@@ -142,8 +171,8 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
     end
   end
 
-  # The read never outlives the confirmation budget, so `message` cannot walk
-  # past the launcher's control-RPC timeout waiting for an answer.
+  # Confirmation reads are short because they run repeatedly after enqueue.
+  # Explicit status reads use the caller's full timeout instead.
   defp message_delivery_status(request_id, timeout_ms) do
     Application.get_env(:aiur, :agent_control_cli_message_status_fun, &AgentChat.delivery_status/2).(
       request_id,

@@ -40,7 +40,9 @@ defmodule AiurEngineOneshotTest do
     assert out == "unset|unset"
   end
 
-  test "status sends hosted preflight names through caller-visible RPC output" do
+  # Launcher-contract guard (passes on main): the hosted preflight runs inside
+  # AgentControlCLI.status/0, so the engine expression must stay unchanged.
+  test "status still calls AgentControlCLI.status() over RPC" do
     {out, 0} =
       run_sourced_engine(
         ~s|run_control_rpc() { printf 'RPC:%s\\n' "$1"; }; cmd_status|,
