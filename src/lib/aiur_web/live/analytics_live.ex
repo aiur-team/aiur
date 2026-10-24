@@ -474,11 +474,6 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp assign_time_domain(socket, _domain), do: socket
 
-  # The KPI strip speaks in the present tense only about a live boot. When the
-  # page is showing a retained prior run (the restart fallback) or merged
-  # cross-boot history, `conc_now` is the tail of a run that already ended and
-  # the merged count is history, so the subtitles say "at run end" / "that run"
-  # instead of claiming the fleet is acting right now.
   defp kpi_items(model, provider_spend, source_kind, scope) do
     k = model.kpis
     present? = source_kind == :live
@@ -486,7 +481,7 @@ defmodule AiurWeb.AnalyticsLive do
     [
       Map.merge(
         %{label: "Peak concurrency", tone: nil},
-        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)}")
+        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)}#{over_cap(model, present?)} / #{Presenter.cap_label(model)}")
       ),
       Map.merge(%{label: "Mean utilization", tone: nil}, ConcurrencyCoverage.utilization(model, scope, "of #{model.cores} cores")),
       %{
@@ -511,6 +506,11 @@ defmodule AiurWeb.AnalyticsLive do
       }
     ]
   end
+
+  defp over_cap(%{live_occupied: n, cap: cap, cap_available?: true}, true) when is_integer(n) and is_integer(cap) and n > cap,
+    do: ", #{n - cap} over cap"
+
+  defp over_cap(_model, _present?), do: ""
 
   defp provider_spend_item(%{state: :available, amount: amount, source: source}),
     do: %{label: "Provider spend", val: amount, sub: source, tone: nil}

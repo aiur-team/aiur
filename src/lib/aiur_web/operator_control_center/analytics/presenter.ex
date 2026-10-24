@@ -455,6 +455,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         acc
         |> put_max(:fleet_agents_occupied, field(sample, :fleet_agents_occupied))
         |> put_latest_metrics(ts,
+          fleet_agents_latest_occupied: field(sample, :fleet_agents_occupied),
           fleet_agents_configured: field(sample, :fleet_agents_configured),
           fleet_agents_max: field(sample, :fleet_agents_max),
           fleet_agents_effective: field(sample, :fleet_agents_effective),
@@ -561,6 +562,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         :fleet_agents_configured,
         :fleet_agents_max,
         :fleet_agents_effective,
+        :fleet_agents_latest_occupied,
         :fleet_load,
         :fleet_load_threshold,
         :fleet_schedulers,
@@ -580,9 +582,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       peak_active_builds: max_value(series, :build_gate_active),
       peak_queued_builds: max_value(series, :build_gate_queued),
       longest_wait_seconds: max_value(series, :build_queue_oldest_wait_seconds),
-      latest_configured_capacity: latest_value(series, :fleet_agents_configured),
-      latest_max_capacity: latest_value(series, :fleet_agents_max),
-      latest_effective_capacity: latest_value(series, :fleet_agents_effective),
+      latest_configured_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_configured),
+      latest_max_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_max),
+      latest_effective_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_effective),
+      latest_occupied: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_latest_occupied),
       latest_admission_signal: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_admission_signal),
       latest_load: latest_value(series, :fleet_load),
       latest_load_threshold: latest_value(series, :fleet_load_threshold),
@@ -602,15 +605,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp latest_source_value(series, status_key, valid_statuses, value_key) do
-    case Enum.find(Enum.reverse(series), &(Map.get(&1, status_key) in valid_statuses)) do
-      nil -> nil
-      sample -> Map.get(sample, value_key)
-    end
+    sample = Enum.find(Enum.reverse(series), &(Map.get(&1, status_key) != nil))
+    if sample && Map.get(sample, status_key) in valid_statuses, do: Map.get(sample, value_key)
   end
 
-  defp latest_value(series, key) do
-    series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1) |> List.last()
-  end
+  defp latest_value(series, key), do: series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1) |> List.last()
 
   defp max_value(series, key) do
     values = series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1)
