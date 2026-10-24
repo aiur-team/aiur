@@ -61,7 +61,7 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
          journal_path: journal_path}
       )
 
-    assert_receive :landing_watch_observed
+    assert_receive :landing_watch_observed, 100
     assert %{watcher: :running} = Aiur.LandingWatch.state(watcher)
 
     output = capture_io(fn -> Aiur.MergePolicyCLI.print(watcher) end)
