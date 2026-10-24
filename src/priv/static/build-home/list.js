@@ -1,3 +1,4 @@
+import { rowOk } from './filters.js';
 // Port of design build.js:1152–1181, with explicit unknowns and delegated input.
 import { S, ctx, fx } from './state.js';
 import { esc } from './dom.js';
@@ -80,7 +81,7 @@ function secHead(sec, label, sub, rows, extra, D, state, history, P, now) {
     '><b role="cell">' + label + '</b><em role="cell">' + esc(sub) + '</em></div>' + rows.map(t => rowHTML(t, D, state)).join('') + extra;
 }
 export function listHTML(D, state, history, P, now) {
-  const keep = t => match(t, state), rows = Object.fromEntries(['now', 'plan', 'nq'].map(sec => [sec, D[sec].filter(keep)]));
+  const keep = t => rowOk(state, t) && match(t, state), rows = Object.fromEntries(['now', 'plan', 'nq'].map(sec => [sec, D[sec].filter(keep)]));
   rows.hist = D.hist.filter(t => t.end >= (state.histFrom || 0) && keep(t)).sort((a, b) => b.end - a.end);
   const labels = { now: '<i class="lh-live" aria-hidden="true"></i>Live', plan: 'Planned', nq: 'Not queued', hist: 'History' };
   const nowCounts = { running: 0, retrying: 0, stuck: 0, paused: 0, unknown: 0 };

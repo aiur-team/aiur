@@ -53,6 +53,7 @@ export const fx = {
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
   drawEdgesSoon() {}, tickCardAges() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
   makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; el._it = it; return el; },
+  activeFeature: () => S.feature && ctx.D && Object.hasOwn(ctx.D.features, S.feature) ? ctx.D.features[S.feature] : null,
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
   initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},

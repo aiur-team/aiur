@@ -42,8 +42,13 @@ defmodule Aiur.Orchestrator.TicketTransition do
     true = is_atom(writer) and not is_nil(writer)
     tracker = Keyword.get(opts, :tracker, Tracker)
 
-    adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker, :reason_modifiers, :label_prefix, :current_labels])
-    result = with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end)
+    result =
+      if to_state == "done" and writer in [:agent_tool, :turn_loop] do
+        {:error, :worker_cannot_mark_ticket_done}
+      else
+        adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker, :reason_modifiers, :label_prefix, :current_labels])
+        with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end)
+      end
 
     record(issue_id, :state, to_state, writer, opts, result)
 
