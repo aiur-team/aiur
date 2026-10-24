@@ -11,7 +11,7 @@ export const shards = {
   1: ["test:build-home-filters-parity","test:cutover-nav-parity", "test:provider-meters","test:quota-panel","test:palette","test:build-home-chains","test:build-home-chains-unit","test:build-home-modal-doc"],
   2: ["test:build-home-band-parity","test:build-home-usage","test:build-home","test:build-home-span","test:build-home-offline","test:home-css-ci","test:build-home-edges-unit","test:command-history","test:build-home-layout","test:time-brush"],
   3: ["test:build-home-estimate","test:build-home-estimate-browser","test:build-home-tools","test:build-home-render","test:shell-parity","test:build-order","test:build-queue","check:build-home-fixtures","test:ticket-context","test:command-answer"],
-  4: ["test:build-home-motion","test:shell","test:smoke","test:meter-row","test:models-panel","test:build-modal-motion"],
+  4: ["test:build-home-features","test:build-home-motion","test:shell","test:smoke","test:meter-row","test:models-panel","test:build-modal-motion"],
   5: ["test:build-home-conversation-events-unit","test:build-home-band-motion","test:build-home-states-parity","test:build-home-edges-parity","test:streamdeck","test:interaction","test:performance","test:build-home-assets","test:harness","test:build-modal","test:shell-width"],
   6: ["test:build-home-cards:4","test:build-home-cards:3","test:build-home-cards:1","test:units","test:layout","test:responsive","test:streamdeck-flow","test:admission","check:elk","test:build-home-protocol","test:build-home-now-state","test:build-home-list-unit","test:build-home-now-band","test:tokens"],
   7: ["test:build-home-cards:2","test:build-home-span-parity","test:parity","test:experiments","test:build-home-conversation","test:build-home-chains-parity"],
