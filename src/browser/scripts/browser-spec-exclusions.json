@@ -10,6 +10,11 @@
     "ticket": 3163
   },
   {
+    "spec": "tests/build-home-perf-matrix.browser.spec.mjs",
+    "reason": "Report-mode timing matrix (npm run perf:build-home); host-dependent timings never gate merges. The enforced guards are build-home-performance.",
+    "ticket": 3176
+  },
+  {
     "spec": "tests/build-home-phone-webkit.browser.spec.mjs",
     "reason": "Hand-run WebKit pass (npm run test:home-phone:webkit); CI installs only Chromium and Linux WebKit is not iOS WKWebView (MP-E8-C12-T04 Decision 3).",
     "ticket": 3174
