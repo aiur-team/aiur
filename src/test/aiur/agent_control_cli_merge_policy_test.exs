@@ -3,16 +3,6 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
   import ExUnit.CaptureIO
   alias Aiur.MainWatch.Persistence
 
-  setup do
-    original = :sys.get_state(Aiur.LandingWatch) |> Map.take([:watcher, :last_poll_at_ms, :last_error])
-
-    on_exit(fn ->
-      :sys.replace_state(Aiur.LandingWatch, &Map.merge(&1, original))
-    end)
-
-    :ok
-  end
-
   test "status renders the default merge policy" do
     assert status_output() =~ "MERGE POLICY ci=wait local_tests=partial role=primary repo_global_off=none main_watch=off watcher=not_running landing_watcher=unavailable\n"
   end
@@ -52,8 +42,30 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
   end
 
   test "status reports the landing watcher as running" do
-    :sys.replace_state(Aiur.LandingWatch, &Map.put(&1, :watcher, :running))
-    assert status_output() =~ "landing_watcher=running"
+    parent = self()
+    journal_path = Path.join(Aiur.TestSupport.tmp_root!("landing-watch-cli"), "journal.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(journal_path)) end)
+
+    watcher =
+      start_supervised!(
+        {Aiur.LandingWatch,
+         name: nil,
+         interval_ms: 60_000,
+         subscribe: false,
+         send_after_fun: fn _pid, _message, _delay -> :ok end,
+         observe_fun: fn _opts ->
+           send(parent, :landing_watch_observed)
+           {:ok, []}
+         end,
+         runner_queue_fun: fn _observations, _opts -> :ok end,
+         journal_path: journal_path}
+      )
+
+    assert_receive :landing_watch_observed, 100
+    assert %{watcher: :running} = Aiur.LandingWatch.state(watcher)
+
+    output = capture_io(fn -> Aiur.MergePolicyCLI.print(watcher) end)
+    assert output =~ "landing_watcher=running"
   end
 
   test "status shows the watcher's unavailable observation" do
