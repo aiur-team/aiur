@@ -43,6 +43,8 @@ The home page has no pixel comparison with the design reference. The operator
 removed those tests ([#6061](https://github.com/aiur-team/aiur/issues/6061)).
 Its browser specs test behaviour, including motion invariants under reduced motion.
 
+PR browser smoke stays at **nine shards**, including PRs selecting full CI.
+
 Browser smoke runs on **nine shards**. Shard balancing uses the recorded CI
 timings in `src/browser/scripts/browser-smoke-durations.mjs`, and
 `scripts/check-browser-smoke-shards.mjs` keeps each shard under 75% of its budget.

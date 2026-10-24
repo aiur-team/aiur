@@ -43,6 +43,8 @@ export const recordedSeconds = {
   'test:build-modal-motion': 26,
   // Same run, shard 7/job 119192841077: all 14 conversation cases passed; 163.6s wall time.
   'test:build-home-conversation': 165,
+  // Local complete run for the new Fit endpoint check took 17s; reserve 25s for fixture variance.
+  'test:browser-suite -- build-home-chains-fit-endpoints': 25,
   // node --test, 7 cases in 0.4s locally (#3163); rounded up.
   'test:build-home-conversation-events-unit': 1,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
