@@ -84,6 +84,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       state: if(work_state == :paused, do: :paused, else: :running),
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
+      labels: Map.get(issue, :labels, []),
       tracker_paused: Issue.paused?(issue),
       executor_owner: Issue.executor_owner(issue),
       tag: State.issue_tag(issue),
@@ -127,6 +128,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         state: :paused,
         work_state: :retrying,
         tracker_state: Map.get(issue || %{}, :state),
+        labels: issue_labels(issue),
         tracker_paused: tracker_paused,
         executor_owner: status_executor_owner(issue),
         tag: State.issue_tag(issue),
@@ -166,6 +168,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
 
   defp status_executor_owner(%Issue{} = issue), do: Issue.executor_owner(issue)
   defp status_executor_owner(_issue), do: nil
+
+  defp issue_labels(issue), do: Map.get(issue || %{}, :labels, [])
 
   defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
   defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
@@ -222,6 +226,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       state: if(work_state == :paused, do: :paused, else: :idle),
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
+      labels: Map.get(issue, :labels, []),
       tracker_paused: Issue.paused?(issue),
       executor_owner: Issue.executor_owner(issue),
       tag: State.issue_tag(issue),

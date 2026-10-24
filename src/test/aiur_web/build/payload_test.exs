@@ -20,6 +20,15 @@ defmodule AiurWeb.Build.PayloadTest do
     end
   end
 
+  test "runtime reason states remain valid in the Now wire payload" do
+    data = fixture()
+    row = get_in(data, ["sections", "now", Access.at(0)])
+    data = put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "paused-usage-limit")
+
+    assert is_map(row)
+    assert Payload.validate(Payload.snapshot(data, "epoch", 1)) == :ok
+  end
+
   for {name, path, value, expected} <- [
         {"pct is numeric", ["sections", "now", 0, "pct"], "50", "sections.now.0.pct"},
         {"effort is an enum", ["sections", "now", 0, "agent", "effort"], "<b>", "sections.now.0.agent.effort"},

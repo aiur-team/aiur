@@ -2,7 +2,9 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   @moduledoc false
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.ControlCLI.DispatchAccount
+  alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusObservation
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.WaitingReason
   import Aiur.Orchestrator.ControlCLI.Output, only: [display_identifier: 1]
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
@@ -57,13 +59,40 @@ defmodule Aiur.Orchestrator.StatusCLI.AgentsTable do
   # `waiting=waiting_for_human` — never from the raw work state alone. A live
   # agent blocked on an open decision used to read `working` here while
   # `status` read `waiting_for_human` for the same ticket (#2698).
-  defp agents_state_label(%{work_state: state}) when state in [:paused, "paused", :deactivated, "deactivated"],
-    do: to_string(state)
+  defp agents_state_label(%{work_state: state} = agent) when state in [:paused, "paused"],
+    do: reason_label(agent) || to_string(state)
+
+  defp agents_state_label(%{work_state: state} = agent) when state in [:deactivated, "deactivated"],
+    do: persisted_state_label(agent) || to_string(state)
+
+  defp agents_state_label(%{work_state: :starting}), do: "#{Config.label_prefix()}:in-progress"
+
+  defp agents_state_label(%{work_state: :retrying} = agent),
+    do: reason_label(agent) || "#{Config.label_prefix()}:retrying"
 
   defp agents_state_label(agent) do
-    if WaitingReason.waiting_for_human?(agent),
-      do: "waiting",
-      else: to_string(Map.get(agent, :work_state, :working))
+    case reason_label(agent) do
+      nil ->
+        if WaitingReason.waiting_for_human?(agent),
+          do: "waiting",
+          else: to_string(Map.get(agent, :work_state, :working))
+
+      label ->
+        label
+    end
+  end
+
+  defp persisted_state_label(agent) do
+    prefix = Config.label_prefix()
+    labels = TicketTransition.present_runtime_labels(List.wrap(Map.get(agent, :labels)), prefix)
+    Enum.find(labels, &String.starts_with?(&1, prefix <> ":"))
+  end
+
+  defp reason_label(agent) do
+    case TicketTransition.runtime_labels(Map.get(agent, :labels), [Map.get(agent, :pause_reason), Map.get(agent, :waiting_reason)], Config.label_prefix()) do
+      [] -> nil
+      labels -> Enum.join(labels, ",")
+    end
   end
 
   defp agents_activity(agent) do

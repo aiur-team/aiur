@@ -169,14 +169,9 @@ subscriptions — this page adds only what that page lacks:
 
 ## Step 4 — Blocked: request a Command and pause
 
-When the agent hits a decision it cannot make, it emits `decision.requested`,
-which becomes a durable **Command**. See [Commands](/concepts/commands) and
-the [CLI](/reference/cli) reference (the full flag reference for
-`aiur commands` / `executor-answer` / `executor-escalate` lives at
-`reference/cli.md:133,167-183` — this page links, not duplicates).
+When the agent hits a decision it cannot make, it emits `decision.requested`, which becomes a durable **Command**. See [Commands](/concepts/commands) and the [CLI](/reference/cli) reference (the full flag reference for `aiur commands` / `executor-answer` / `executor-escalate` lives at `reference/cli.md:133,167-183` — this page links, not duplicates).
 
-The three policy fields the agent declares are the whole basis of who may
-answer (`src/lib/aiur/decision.ex:52-54`):
+The three policy fields the agent declares are the whole basis of who may answer (`src/lib/aiur/decision.ex:52-54`):
 
 | Field | Closed vocabulary |
 | --- | --- |
@@ -184,15 +179,11 @@ answer (`src/lib/aiur/decision.ex:52-54`):
 | `urgency` | `low`, `normal`, `high`, `critical` |
 | `reversibility` | `reversible`, `irreversible`, `partially_reversible` |
 
-Plus `blocking`, `question`, `options` (2–5 bounded alternatives,
-`decision.ex:56-63`), `recommendation`, and `consequence_of_delay`.
+Plus `blocking`, `question`, `options` (2–5 bounded alternatives, `decision.ex:56-63`), `recommendation`, and `consequence_of_delay`.
 
 ### The authority floor
 
-The Executor may answer a Command directly, but only within a floor the code
-enforces rather than one the Executor's prompt is trusted to observe
-(`decision_store/answers.ex`). A non-operator answer is accepted
-**only if both** hold:
+The Executor may answer a Command directly, but only within a floor the code enforces rather than one the Executor's prompt is trusted to observe (`decision_store/answers.ex`). A non-operator answer is accepted **only if both** hold:
 
 - `authority` is `supervisor_allowed` or `supervisor_preferred` —
   `@delegable_authorities` at `src/lib/aiur/decision_authority.ex:11`, checked
@@ -203,38 +194,17 @@ enforces rather than one the Executor's prompt is trusted to observe
   (`decision_authority.ex:88-90`). Rejected as
   `{:answer_invalid, {:executor_scope, {:reversibility, ...}}}`.
 
-Everything else — `human_required`, `irreversible`, `partially_reversible`, and
-any unrecognized value — is refused, so the Executor must escalate. The policy
-is fail-closed by construction: `normalize_policy/1` defaults to
-`%{allowed_kinds: [], allow_non_reversible: false}` on malformed input
-(`decision_authority.ex:110`).
+Everything else — `human_required`, `irreversible`, `partially_reversible`, and any unrecognized value — is refused, so the Executor must escalate. The policy is fail-closed by construction: `normalize_policy/1` defaults to `%{allowed_kinds: [], allow_non_reversible: false}` on malformed input (`decision_authority.ex:110`).
 
-Classification is consequence-based and defaults delegable: a request that
-omits `authority`/`reversibility` becomes `supervisor_allowed` + `reversible`
-(`src/lib/aiur/decision_validation.ex`), so reversible engineering calls stay
-inside the Executor floor.
+Classification is consequence-based and defaults delegable: a request that omits `authority`/`reversibility` becomes `supervisor_allowed` + `reversible` (`src/lib/aiur/decision_validation.ex`), so reversible engineering calls stay inside the Executor floor.
 
-Known Command types carry an explicit policy in
-`src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` →
-`supervisor_preferred`; sequencing `kind: "sequencing"` →
-`supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
+Known Command types carry an explicit policy in `src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` → `supervisor_preferred`; sequencing `kind: "sequencing"` → `supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
 
-An irreversible, spend, publication, product, or security Command must declare
-`authority: human_required` and a `context.authority_basis` of `product`,
-`spend`, `external_publication`, or `security`; a missing or unknown basis is
-rejected. An Executor may reclassify an open decision without that basis or
-legacy attention, recording a reason.
+An irreversible, spend, publication, product, or security Command must declare `authority: human_required` and a `context.authority_basis` of `product`, `spend`, `external_publication`, or `security`; a missing or unknown basis is rejected. An Executor may reclassify an open decision without that basis or legacy attention, recording a reason.
 
-The parallel `supervisor` path additionally requires the answer's declared
-`policy_basis` to match the Decision's own authority/kind/reversibility, or it
-fails `{:supervisor_basis, :decision_mismatch}`
-(`decision_store/answers.ex`).
+The parallel `supervisor` path additionally requires the answer's declared `policy_basis` to match the Decision's own authority/kind/reversibility, or it fails `{:supervisor_basis, :decision_mismatch}` (`decision_store/answers.ex`).
 
-**Operator-facing consequence:** if a Command is irreversible or marked
-`human_required`, your Executor cannot answer it — it will escalate, and the
-ticket stays paused until you answer. The CLI even tells you so: on
-`{:executor_scope, ...}` it prints a remedy pointing at
-`aiur executor-escalate` (`src/lib/aiur/executor_command_cli.ex:254-258`).
+**Operator-facing consequence:** if a Command is irreversible or marked `human_required`, your Executor cannot answer it — it will escalate, and the ticket stays paused until you answer. The CLI even tells you so: on `{:executor_scope, ...}` it prints a remedy pointing at `aiur executor-escalate` (`src/lib/aiur/executor_command_cli.ex:254-258`).
 
 ### Three facts about the pause
 
@@ -262,75 +232,44 @@ ticket stays paused until you answer. The CLI even tells you so: on
   then; the ticket's next worker receives the answer (see
   [Delivery rule for a decided answer](#delivery-rule-for-a-decided-answer)).
 
-If the existing worker has requested its own pause for input, answering resumes
-that worker with the answer as its next input, including while pause confirmation
-is pending. Once work starts, the self-pause reason and its waiting attention
-clear.
+If the existing worker has requested its own pause for input, answering resumes that worker with the answer as its next input, including while pause confirmation is pending. Once work starts, the self-pause reason and its waiting attention clear.
 
-The pause request must still be pending. If it expired or was rejected, the
-worker is still working, and it receives the answer as a normal message.
+The pause request must still be pending. If it expired or was rejected, the worker is still working, and it receives the answer as a normal message.
 
-An answer resumes only a pause that waits for input (a self-pause, a
-worker-reported `input_required` pause, or a legacy pause with no recorded
-reason).
+An answer resumes only a pause that waits for input (a self-pause, a worker-reported `input_required` pause, or a legacy pause with no recorded reason).
 
-It does not lift an operator, label, or global pause, or an automatic hold such
-as `ci_wait`, `blocker_dependency`, `github_budget_hold`, or
-`before_run_failure`. Those holds resume when their condition clears, or when
-you resume them explicitly.
+It does not lift an operator, label, or global pause, or an automatic hold such as `ci_wait`, `blocker_dependency`, `github_budget_hold`, or `before_run_failure`. Those holds resume when their condition clears, or when you resume them explicitly.
 
 ### Operator workflow
 
 ```text
-aiur commands --filter blocking       # tickets whose dispatch is held
-aiur commands <decision-id>           # one Command, its options and lifecycle
-aiur executor-answer <decision-id> --expected-version 1 --option <id> --rationale "..." --idempotency-key <key>
-aiur executor-escalate <decision-id> --expected-version 1 --reason "Needs the release owner"
-aiur executor-answer <decision-id> --expected-version 1 --custom-response "..." --rationale "..." --idempotency-key <key> --supersede
-aiur executor-moot <decision-id> --expected-version 1 --reason-class operator_changed_direction
+aiur commands --filter blocking       # tickets whose dispatch is held aiur commands <decision-id>           # one Command, its options and lifecycle aiur executor-answer <decision-id> --expected-version 1 --option <id> --rationale "..." --idempotency-key <key> aiur executor-escalate <decision-id> --expected-version 1 --reason "Needs the release owner" aiur executor-answer <decision-id> --expected-version 1 --custom-response "..." --rationale "..." --idempotency-key <key> --supersede aiur executor-moot <decision-id> --expected-version 1 --reason-class operator_changed_direction
 ```
 
-`executor-answer` requires `--expected-version`, `--rationale`,
-`--idempotency-key`, and exactly one of `--option` / `--custom-response`; a
-stale `--expected-version` is rejected as a conflict rather than overwriting a
-newer answer. See [CLI](/reference/cli) for the full flags.
+`executor-answer` requires `--expected-version`, `--rationale`, `--idempotency-key`, and exactly one of `--option` / `--custom-response`; a stale `--expected-version` is rejected as a conflict rather than overwriting a newer answer. See [CLI](/reference/cli) for the full flags.
 
 ### Delivery rule for a decided answer
 
-An answer is addressed to the ticket, not to the worker session that asked.
-Aiur delivers the newest answer of a `:decided` Command to whichever worker runs
-the ticket.
+An answer is addressed to the ticket, not to the worker session that asked. Aiur delivers the newest answer of a `:decided` Command to whichever worker runs the ticket.
 
-If no worker runs it, delivery fails with `target_agent_unavailable`. The
-answer stays durable. When the ticket's next worker starts, for example after
-the next poll or a requeue, Aiur sends it each undelivered answer again, in the
-order the Commands were decided. That worker receives each answer once.
+If no worker runs it, delivery fails with `target_agent_unavailable`. The answer stays durable. When the ticket's next worker starts, for example after the next poll or a requeue, Aiur sends it each undelivered answer again, in the order the Commands were decided. That worker receives each answer once.
 
-While no worker has picked up the answer for sending, the Executor can change
-it:
+While no worker has picked up the answer for sending, the Executor can change it:
 
 - `executor-moot` withdraws it. The Command becomes `:moot`, the answer stays
   in the audit history, and Aiur never delivers it.
 - `executor-answer --supersede` replaces it. The new answer is recorded as a
   revision, and only the newest answer is delivered.
 
-The delivery gate checks each queued answer again just before the worker sends
-it. It refuses a queued copy of a mooted or replaced answer.
+The delivery gate checks each queued answer again just before the worker sends it. It refuses a queued copy of a mooted or replaced answer.
 
-When the gate accepts an answer, it durably marks it as handed off. Until the provider confirms or
-rejects the send, the answer is in flight, and both commands are refused with
-"answer in flight". After a rejected send, the answer can be withdrawn again,
-or sent again by a retry or by a new worker.
+When the gate accepts an answer, it durably marks it as handed off. Until the provider confirms or rejects the send, the answer is in flight, and both commands are refused with "answer in flight". After a rejected send, the answer can be withdrawn again, or sent again by a retry or by a new worker.
 
-If a send stays in flight with no outcome for more than a minute, a refused
-withdrawal raises a needs-attention alert, because the outcome is unknown.
+If a send stays in flight with no outcome for more than a minute, a refused withdrawal raises a needs-attention alert, because the outcome is unknown.
 
-If a provider still confirms a withdrawn answer, Aiur raises a needs-attention
-alert, and the Command stays `:moot`.
+If a provider still confirms a withdrawn answer, Aiur raises a needs-attention alert, and the Command stays `:moot`.
 
-For a decided Command, the Executor may moot only an answer that an Executor
-recorded, or one that it could have recorded itself. Otherwise it must run
-`executor-escalate`.
+For a decided Command, the Executor may moot only an answer that an Executor recorded, or one that it could have recorded itself. Otherwise it must run `executor-escalate`.
 
 ## Step 5 — PR opened, agent pauses
 
@@ -498,3 +437,37 @@ The agent never self-merges.
   `ticket.<id>.agent.attention.budget-hold-persistent` naming the hold reason
   and `reset_at`. The next committed dispatch, a retry for any other reason, or
   a released claim resolves it.
+
+## Runtime reason labels
+
+One workflow state label accompanies runtime reason labels, which writers clear
+when their condition clears, teardown runs (except `blocked`), or CI transitions.
+
+| Label | Meaning | Transition that sets it |
+| --- | --- | --- |
+| `agent:todo` | Queued and eligible for dispatch | Operator or workflow queues a ticket |
+| `agent:in-progress` | Agent owns an active turn | Orchestrator claims and starts the ticket |
+| `agent:ci-wait` | Work is complete and CI is pending | Agent hands off a ready PR or CI is pending |
+| `agent:human-review` | Ready for human review | Required checks pass or CI lifecycle hands off a completed PR |
+| `agent:rework` | Agent should revise the work | Review requests changes, CI fails, or a PR conflict needs repair |
+| `agent:merging` | Approved work is being merged | Merge lifecycle starts |
+| `agent:done` | Ticket work is complete | Merge lifecycle completes |
+| `agent:error` | Automated work stopped after an unrecoverable failure | Retry exhaustion or terminal dispatch failure |
+| `agent:cancelled` / `agent:canceled` | Ticket was explicitly cancelled | Tracker records cancellation |
+| `agent:paused` | Existing workflow state is suppressed from dispatch | Operator adds or removes the pause override |
+| `agent:parked` | Ticket is deliberately held outside normal dispatch | Operator parks the ticket |
+| `agent:queued` | Ticket is waiting in an explicit build queue | Build queue adds or removes the queue marker |
+| `agent:rate-limit-fallback` | A provider fallback was selected for the ticket | Rate-limit fallback routing selects another provider |
+| `agent:merge-queued` | Approved PR is waiting in the merge queue | CI poll observes a merge queue entry; cleared on the next CI transition, including a pass |
+| `agent:ci-red` | Required checks failed or the PR conflicts | CI outcome is failing or conflicting |
+| `agent:body-fix` | PR body evidence needs correction | PR body validation finds stale evidence |
+| `agent:paused-usage-limit` | Paused by provider usage limits | Worker pause reason is provider limited |
+| `agent:paused-decision` | Waiting for an operator decision | Worker waits for human input |
+| `agent:paused-agent` | Agent requested a cooperative pause | Worker pause reason is agent pause request |
+| `agent:retrying` | Waiting out a failure back-off | Retry engine schedules a retry after a failure; cleared when the retry fires (continuation retries are not labelled) |
+| `agent:blocked` | Waiting on a dependency | Issue sync observes an open `blocked_by` dependency; removed when the dependency clears |
+| `agent:handed-off` | Another owner holds the workspace (another Aiur instance, or a runner still exiting) | Dispatch waits on another owner's workspace lease; cleared when the lease is released |
+
+There is exactly one workflow state label per ticket. Reason labels are
+orthogonal modifiers, so do not include them in workflow `active_states`
+lists.
