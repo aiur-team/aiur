@@ -360,7 +360,16 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     Req.Test.stub(__MODULE__, fn conn -> Req.Test.json(conn, []) end)
     request = %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/5566", token: "measured-p99-token"}
-    pending_request = Task.async(fn -> Transport.default_request_fun(request) end)
+    test_pid = self()
+
+    pending_request =
+      Task.async(fn ->
+        send(test_pid, :request_starting)
+        Transport.default_request_fun(request)
+      end)
+
+    assert_receive :request_starting, 1_000
+    assert wait_for_pending_acquire(100)
 
     Process.send_after(self(), :release_database_lock, 3_500)
     assert_receive :release_database_lock, 4_000
@@ -368,6 +377,29 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     assert_receive {^lock, {:data, "released\n"}}, 1_000
 
     assert {:ok, %{status: 200}} = Task.await(pending_request, 2_000)
+  end
+
+  defp wait_for_pending_acquire(0), do: false
+
+  defp wait_for_pending_acquire(attempts) do
+    pending? =
+      case :sys.get_state(Aiur.GitHub.BudgetBroker) do
+        %{pending: pending} ->
+          Enum.any?(pending, fn
+            {_id, {_from, _timer, _submitted, _mailbox, :acquire}} -> true
+            _other -> false
+          end)
+
+        _other ->
+          false
+      end
+
+    if pending? do
+      true
+    else
+      Process.sleep(10)
+      wait_for_pending_acquire(attempts - 1)
+    end
   end
 
   test "does not hide a secondary-limit response behind a retry", %{budget_dir: budget_dir} do
