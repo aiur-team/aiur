@@ -168,6 +168,27 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert index.epics["f-bo-3042-home"].icon == "home"
   end
 
+  test "platform program build-queue lane receives its default icon" do
+    feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-build-queue", label: "Platform program · Build queue"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    parts =
+      parts([row(3043)])
+      |> put_in([:features], {:ok, %{features: %{"bo-3042" => feature}, owners: %{}, also: %{}, health: health()}})
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "build-queue", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(parts)
+    assert index.features["bo-3042"].icon == "queue-list"
+    assert index.epics["f-bo-3042-build-queue"].icon == "queue-list"
+  end
+
   test "producer fields win over older history fields" do
     p = parts([row(4, %{labels: ["complexity:2"], lifecycle: %Lifecycle{state: :open}})])
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, title: "Fresher", created: 123, cx: 3, pts: 3}])
