@@ -96,13 +96,13 @@ const drawSummary = (context: SKRSContext2D, width: number, model: SegmentConten
  * two-provider fleet and a five-provider fleet never disagree about what
  * "Awaiting data" means.
  */
-const sessionReading = (row: ProviderPanelRow, now: number): { readonly text: string; readonly fraction: number | null } => {
+export const providerSessionReading = (row: ProviderPanelRow, now: number): { readonly text: string; readonly fraction: number | null } => {
   if (!row.model.hasData) return { text: "Awaiting data", fraction: null };
   const window = row.model.session;
   if (window === null) return { text: "No session window", fraction: null };
-  const percent = Math.round(window.usedPercent);
+  const percent = Math.round(100 - window.usedPercent);
   const reset = resetLabel(window.resetsAt, now);
-  return { text: reset === null ? `Session ${percent}%` : `Session ${percent}% · ${reset}`, fraction: percent / 100 };
+  return { text: reset === null ? `Session ${percent}% left` : `Session ${percent}% left · ${reset}`, fraction: percent / 100 };
 };
 
 /**
@@ -122,7 +122,7 @@ const drawProvider = (context: SKRSContext2D, width: number, row: ProviderPanelR
   context.fillText(providerTitle(row.label), PAD + mark + 8, TITLE_BASELINE);
   drawAccountSummary(context, row.summaryLabel, PAD, TITLE_BASELINE + 17, width - PAD * 2);
 
-  const reading = sessionReading(row, now);
+  const reading = providerSessionReading(row, now);
   context.font = "700 13px sans-serif";
   if (reading.fraction === null) {
     context.fillStyle = LABEL;
@@ -234,7 +234,7 @@ const drawProviders = (context: SKRSContext2D, width: number, content: SegmentCo
     const baseline = rowTop + PROVIDER_ROW_FONT + 1;
     drawVendorMark(context, row.label, PAD, rowTop + (PROVIDER_ROW_HEIGHT - PROVIDER_ROW_BAR - PROVIDER_ROW_MARK) / 2, PROVIDER_ROW_MARK);
 
-    const reading = sessionReading(row, now);
+    const reading = providerSessionReading(row, now);
     context.font = `700 ${PROVIDER_ROW_FONT}px sans-serif`;
     const readingWidth = rightText(context, accountReadingText(reading.text, row.summaryLabel), right, baseline, reading.fraction === null ? LABEL : MUTED);
     context.fillStyle = TEXT;

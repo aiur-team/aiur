@@ -24,6 +24,7 @@ defmodule Aiur.Application do
   alias Aiur.Application.StartupChecks
   alias Aiur.GitHub.Config
   alias Aiur.Identity.Machine
+  alias Aiur.Instance
 
   @impl true
   def start(_type, _args) do
@@ -77,6 +78,7 @@ defmodule Aiur.Application do
 
       instance_role = Aiur.Config.instance_role()
       {:ok, %{instance: %{mode: instance_mode}}} = settings
+      _ = Instance.Identity.configure()
       Application.put_env(:aiur, :booted_instance_role, instance_role)
       Application.put_env(:aiur, :booted_instance_mode, instance_mode)
       Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
@@ -243,7 +245,7 @@ defmodule Aiur.Application do
         Logger.info("Distribution active as #{inspect(distribution_module.node_name())}")
 
       {:error, reason} ->
-        Logger.debug("Distribution not active: #{inspect(reason)}; pane subcommand will not connect")
+        raise "unsafe distributed daemon startup: #{inspect(reason)}"
     end
 
     :ok

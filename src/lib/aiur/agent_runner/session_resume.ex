@@ -73,12 +73,17 @@ defmodule Aiur.AgentRunner.SessionResume do
       result
   end
 
-  defp note_resume_turn_start(%{resumed: true, thread_id: thread_id}, identifier, {:error, {:turn_start_failed, :port_closed}}, opts)
+  defp note_resume_turn_start(%{resumed: true, thread_id: thread_id} = session, identifier, {:error, {:turn_start_failed, :port_closed}}, opts)
        when is_binary(thread_id) do
     count = SessionHandle.record_resume_failure(identifier, thread_id, opts)
 
     if count >= @resume_port_closed_limit do
-      Logger.warning("Resumed thread lost its transport at turn start #{count} times for #{identifier} thread_id=#{thread_id}; next attempt starts a fresh session")
+      diagnostics = CodingAgent.stream_diagnostics(Map.get(session, :port))
+
+      Logger.warning(
+        "Resumed thread lost its transport at turn start #{count} times for #{identifier} thread_id=#{thread_id}; next attempt starts a fresh session stream_diagnostics=#{inspect(diagnostics)}"
+      )
+
       SessionHandle.drop_thread(identifier, opts)
     end
   end
@@ -103,6 +108,12 @@ defmodule Aiur.AgentRunner.SessionResume do
       do: Keyword.merge(opts, prior_work: true, abandoned_thread: true),
       else: opts
   end
+
+  @doc false
+  @spec fresh_turn_completed(map(), String.t(), keyword()) :: :ok
+  def fresh_turn_completed(session, identifier, opts \\ [])
+  def fresh_turn_completed(%{resumed: false}, identifier, opts), do: SessionHandle.clear_abandoned_thread(identifier, opts)
+  def fresh_turn_completed(_session, _identifier, _opts), do: :ok
 
   # Session-lifecycle log carrying full issue context (per docs/logging.md,
   # which scopes issue-context start/completion logging to AgentRunner). Only
@@ -163,10 +174,10 @@ defmodule Aiur.AgentRunner.SessionResume do
   # thread. Skips anything that can't be resumed later (non-resumable backend,
   # remote worker, no thread id) so we never leave a misleading handle.
   @doc false
-  @spec persist_session_handle(map(), String.t(), worker_host()) :: :ok
-  def persist_session_handle(session, identifier, worker_host) do
+  @spec persist_session_handle(map(), String.t(), worker_host(), keyword()) :: :ok
+  def persist_session_handle(session, identifier, worker_host, handle_opts \\ []) do
     case session_handle_to_save(session, worker_host) do
-      {:ok, attrs} -> persist_handle_best_effort(identifier, attrs)
+      {:ok, attrs} -> persist_handle_best_effort(identifier, attrs, handle_opts)
       :skip -> :ok
     end
   end

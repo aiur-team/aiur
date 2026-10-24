@@ -17,4 +17,11 @@ defmodule Aiur.AgentEnvironmentSecretTest do
 
     assert {~c"AIUR_SECRET_KEY_BASE", false} = List.keyfind(env, ~c"AIUR_SECRET_KEY_BASE", 0)
   end
+
+  test "workspace environment unsets the shared coordination database credential" do
+    env = AgentEnvironment.workspace_env("/work/aiur/5947")
+
+    assert {~c"AIUR_LEASE_DATABASE_URL", false} =
+             List.keyfind(env, ~c"AIUR_LEASE_DATABASE_URL", 0)
+  end
 end

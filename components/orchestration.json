@@ -62,7 +62,9 @@
       "pr_watch",
       "worker"
     ],
-    "env": [],
+    "env": [
+      "AIUR_LEASE_DATABASE_URL"
+    ],
     "state": [
       "current_run_membership_state_dir"
     ],
@@ -93,7 +95,9 @@
     "pr_watch",
     "worker"
   ],
-  "env": [],
+  "env": [
+    "AIUR_LEASE_DATABASE_URL"
+  ],
   "capabilities": [],
   "forbid": [
     "Aiur.GitHub.Listeners.*"

@@ -1,5 +1,6 @@
 import { ganttExt } from './gantt.js';
 import { cardDetail } from './cards.js';
+import { layoutKey, setLastKey } from './filters.js';
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
 import { syncStates } from './states.js';
 import { $ } from './dom.js';
@@ -68,6 +69,7 @@ function restoreFocus(id) {
 }
 function relayoutImpl({ live = false } = {}) {
   if (S.loading) return fx.renderLoading();
+  setLastKey(layoutKey(S));
   syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();

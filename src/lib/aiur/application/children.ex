@@ -7,6 +7,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{BlockerProgress, Config}
+  alias Aiur.Instance.{Heartbeat, LeaseStore}
 
   @doc """
   Build the supervision children for the given run shape.
@@ -284,12 +285,24 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
-        BuildOrders.child_specs(:estimates, opts) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
+        dashboard_final_children(dashboard?, build_index?, opts) ++
+        coordination_children()
     )
+  end
+
+  defp dashboard_final_children(dashboard?, build_index?, opts) do
+    List.wrap(if(dashboard?, do: AiurWeb.DashboardAuth.ChallengeStore)) ++
+      BuildOrders.child_specs(:estimates, opts) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
   end
 
   defp dashboard_cache_children(dashboard?) do
     List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}]))
+  end
+
+  defp coordination_children do
+    if LeaseStore.configured?(),
+      do: [LeaseStore, Heartbeat],
+      else: []
   end
 
   defp landing_watch_children(true, true), do: [Aiur.LandingWatch]

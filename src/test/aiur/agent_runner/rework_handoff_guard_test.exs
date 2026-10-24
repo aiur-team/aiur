@@ -142,6 +142,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
       assert error["message"] =~ "Tested head #{String.duplicate("a", 40)}"
       assert error["message"] =~ "PR head #{head}"
       assert error["message"] =~ "Rerun the touched tests"
+      assert error["message"] =~ "`Tested head: #{head}`"
       refute error["message"] =~ "aiur pre-pr"
       refute_received {:state_write, _, _}
     end
