@@ -3,16 +3,6 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
   import ExUnit.CaptureIO
   alias Aiur.MainWatch.Persistence
 
-  setup do
-    original = landing_watch_snapshot()
-
-    on_exit(fn ->
-      restore_landing_watch_snapshot(original)
-    end)
-
-    :ok
-  end
-
   test "status renders the default merge policy" do
     assert status_output() =~ "MERGE POLICY ci=wait local_tests=partial role=primary repo_global_off=none main_watch=off watcher=not_running landing_watcher=unavailable\n"
   end
@@ -52,13 +42,30 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
   end
 
   test "status reports the landing watcher as running" do
-    case set_landing_watch_running() do
-      :running ->
-        assert status_output() =~ "landing_watcher=running"
+    parent = self()
+    journal_path = Path.join(Aiur.TestSupport.tmp_root!("landing-watch-cli"), "journal.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(journal_path)) end)
 
-      :unavailable ->
-        assert status_output() =~ "landing_watcher=unavailable"
-    end
+    watcher =
+      start_supervised!(
+        {Aiur.LandingWatch,
+         name: nil,
+         interval_ms: 60_000,
+         subscribe: false,
+         send_after_fun: fn _pid, _message, _delay -> :ok end,
+         observe_fun: fn _opts ->
+           send(parent, :landing_watch_observed)
+           {:ok, []}
+         end,
+         runner_queue_fun: fn _observations, _opts -> :ok end,
+         journal_path: journal_path}
+      )
+
+    assert_receive :landing_watch_observed
+    assert %{watcher: :running} = Aiur.LandingWatch.state(watcher)
+
+    output = capture_io(fn -> Aiur.MergePolicyCLI.print(watcher) end)
+    assert output =~ "landing_watcher=running"
   end
 
   test "status shows the watcher's unavailable observation" do
@@ -111,45 +118,4 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
     snapshot = %{statuses: [], global_pause: %{globally_paused: false, paused_at: nil, source: nil}}
     capture_io(fn -> Aiur.AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}}) end)
   end
-
-  defp set_landing_watch_running do
-    case Process.whereis(Aiur.LandingWatch) do
-      pid when is_pid(pid) ->
-        try do
-          :sys.replace_state(pid, &Map.put(&1, :watcher, :running))
-          :running
-        catch
-          :exit, _reason -> :unavailable
-        end
-
-      nil ->
-        :unavailable
-    end
-  end
-
-  defp landing_watch_snapshot do
-    case Process.whereis(Aiur.LandingWatch) do
-      pid when is_pid(pid) ->
-        try do
-          {:ok, pid, :sys.get_state(pid) |> Map.take([:watcher, :last_poll_at_ms, :last_error])}
-        catch
-          :exit, _reason -> nil
-        end
-
-      nil ->
-        nil
-    end
-  end
-
-  defp restore_landing_watch_snapshot({:ok, pid, original}) do
-    if Process.whereis(Aiur.LandingWatch) == pid do
-      try do
-        :sys.replace_state(pid, &Map.merge(&1, original))
-      catch
-        :exit, _reason -> :ok
-      end
-    end
-  end
-
-  defp restore_landing_watch_snapshot(_snapshot), do: :ok
 end

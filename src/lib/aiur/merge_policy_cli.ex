@@ -2,11 +2,15 @@ defmodule Aiur.MergePolicyCLI do
   @moduledoc "Merge policy visibility for the local control CLI."
 
   @spec print() :: :ok
-  def print do
+  def print, do: print(Aiur.LandingWatch)
+
+  @doc false
+  @spec print(GenServer.server()) :: :ok
+  def print(landing_watch_server) do
     policy = Aiur.MergePolicy.current()
     role = Aiur.Config.booted_instance_role()
     state = if role == "primary", do: Aiur.MainWatch.state(), else: %{watcher: :not_running}
-    landing = if role == "primary", do: Aiur.LandingWatch.state(), else: %{watcher: :not_running}
+    landing = if role == "primary", do: Aiur.LandingWatch.state(landing_watch_server), else: %{watcher: :not_running}
     IO.puts(status_line(policy, role, state, landing))
   end
 
