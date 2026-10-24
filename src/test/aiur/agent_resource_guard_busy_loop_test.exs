@@ -157,6 +157,7 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
     opts = [
       cap: 1,
       kill_detected: false,
+      attention_reconcile_every_ticks: 1,
       entries_fun: fn -> [] end,
       orphans_fun: fn -> [] end,
       process_info_fun: fn _pid -> nil end,
@@ -178,6 +179,7 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
     opts = [
       cap: 1,
       kill_detected: false,
+      attention_reconcile_every_ticks: 1,
       entries_fun: fn -> [] end,
       orphans_fun: fn -> [] end,
       process_info_fun: fn
@@ -195,6 +197,47 @@ defmodule Aiur.AgentResourceGuardBusyLoopTest do
     assert alert_opts[:message] =~ "302"
     refute alert_opts[:reason] =~ "301"
     refute alert_opts[:reason] =~ "400"
+  end
+
+  test "synthetic-load attentions reconcile once every thirty guard ticks" do
+    test_pid = self()
+
+    opts = [
+      cap: 1,
+      kill_detected: false,
+      entries_fun: fn -> [] end,
+      orphans_fun: fn -> [] end,
+      process_info_fun: fn _pid -> nil end,
+      active_attentions_fun: fn ->
+        send(test_pid, :attentions_read)
+        []
+      end,
+      alert_fun: fn _topic, _alert -> :ok end
+    ]
+
+    tracked =
+      Enum.reduce(1..29, %{}, fn tick, tracked ->
+        assert {[], tracked} = AgentResourceGuard.enforce([now_ms: tick * 1_000] ++ opts, tracked)
+        refute_received :attentions_read
+        tracked
+      end)
+
+    assert tracked[:attention_reconcile_ticks] == 29
+    assert {[], tracked} = AgentResourceGuard.enforce([now_ms: 30_000] ++ opts, tracked)
+    assert_received :attentions_read
+
+    assert {[], tracked} = AgentResourceGuard.enforce([now_ms: 31_000] ++ opts, tracked)
+    refute_received :attentions_read
+
+    tracked =
+      Enum.reduce(32..59, tracked, fn tick, tracked ->
+        assert {[], tracked} = AgentResourceGuard.enforce([now_ms: tick * 1_000] ++ opts, tracked)
+        refute_received :attentions_read
+        tracked
+      end)
+
+    assert {[], _tracked} = AgentResourceGuard.enforce([now_ms: 60_000] ++ opts, tracked)
+    assert_received :attentions_read
   end
 
   test "killing detected load is opt-in by config" do

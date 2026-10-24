@@ -31,13 +31,19 @@ defmodule Aiur.AgentResourceGuard do
   @default_interval_ms 1_000
   @busy_window_ms 10_000
   @orphan_scan_every_ticks 10
+  # AlertFeed projects the whole ledger, so attention reconciliation runs less often than enforcement.
+  @attention_reconcile_every_ticks 30
   @alert_topic "system.agent.synthetic_load_cap"
   @load_generator_comms ~w(yes stress stress-ng)
 
   @type proc_info :: %{pid: pos_integer(), comm: String.t(), cmdline: String.t()}
   @type trim_result :: %{root_pid: pos_integer() | nil, cap: non_neg_integer(), killed: [pos_integer()], reported: [pos_integer()], workspace: Path.t() | nil}
   # Busy-loop sample history, plus the pids already reported without a kill.
-  @type tracked :: %{optional(:reported) => MapSet.t(pos_integer()), optional(BusyLoop.key()) => map()}
+  @type tracked :: %{
+          optional(:reported) => MapSet.t(pos_integer()),
+          optional(:attention_reconcile_ticks) => non_neg_integer(),
+          optional(BusyLoop.key()) => map()
+        }
   @type orphan :: %{pid: pos_integer(), cwd: Path.t()}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -83,6 +89,7 @@ defmodule Aiur.AgentResourceGuard do
 
       now_ms = Keyword.get_lazy(opts, :now_ms, fn -> System.monotonic_time(:millisecond) end)
       {already_reported, tracked} = Map.pop(tracked, :reported, MapSet.new())
+      {attention_reconcile_ticks, tracked} = Map.pop(tracked, :attention_reconcile_ticks, 0)
       {busy, tracked} = BusyLoop.advance(tracked, samples, now_ms, Keyword.get(opts, :busy_window_ms, @busy_window_ms))
       busy = MapSet.union(busy, all_core_spinners(trees, tracked, Keyword.get_lazy(opts, :cores, &System.schedulers_online/0)))
       opts = opts |> Keyword.put(:busy_pids, busy) |> Keyword.put(:root_tickets, root_tickets(entries)) |> Keyword.put_new_lazy(:kill_detected, &configured_kill_detected/0)
@@ -97,8 +104,21 @@ defmodule Aiur.AgentResourceGuard do
         |> Enum.reject(&(&1.killed == [] and &1.reported == []))
 
       Enum.each(results, &report(&1, opts))
-      Attention.reconcile(Keyword.put_new(opts, :process_info_fun, &proc_info/1))
+      tracked = Map.put(tracked, :attention_reconcile_ticks, attention_reconcile_ticks)
+      tracked = reconcile_attention(opts, tracked)
       {results, Map.put(tracked, :reported, found |> Enum.flat_map(& &1.reported) |> MapSet.new())}
+    end
+  end
+
+  defp reconcile_attention(opts, tracked) do
+    ticks = Map.get(tracked, :attention_reconcile_ticks, 0) + 1
+    interval = Keyword.get(opts, :attention_reconcile_every_ticks, @attention_reconcile_every_ticks)
+
+    if ticks >= interval do
+      Attention.reconcile(Keyword.put_new(opts, :process_info_fun, &proc_info/1))
+      Map.put(tracked, :attention_reconcile_ticks, 0)
+    else
+      Map.put(tracked, :attention_reconcile_ticks, ticks)
     end
   end
 
