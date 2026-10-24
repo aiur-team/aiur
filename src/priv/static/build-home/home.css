@@ -17,6 +17,7 @@
 @import url("home/16-list-models.css");
 @import url("home/17-responsive-light.css");
 @import url("home/18-palette-fixes.css");
+@import url("home/19-modal-doc.css");
 
 /* MP-E8-C10-T04: states the design lacks */
 .ax-seg.none { background: none; border: 1px dashed var(--line-strong); box-sizing: border-box; }
@@ -48,4 +49,22 @@ span.ax-cnt:hover { color: var(--muted); background: none; }
 .bd-now-st button.queued i, .bd-now-sum .queued { background: var(--attn); }
 
 .bm-agent .ax-mono { display: inline-grid; width: 16px; height: 16px; border-radius: 50%; font-size: .6rem; }
+@media (max-width: 720px) { .bm-agent .ax-mono { display: none; } }
 .bm-tt h3:focus { outline: none; }
+
+/* H:154: preserve the design gutter when the ticket modal locks body scrolling. */
+html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollbar-width: auto; }
+
+/* MP-E8-C11-T07: button states the design does not draw (C:153 disabled look). */
+.bm-ib[aria-disabled="true"] { opacity: .4; cursor: default; }
+.bm-ib[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.bm-ib.bad { color: var(--block-ink); } .bm-ib.warn { color: var(--attn-ink); }
+/* MP-E8-C11-T06: composer send states the design lacks (S-7 default, pending sign-off) */
+.cv-in-st { margin: -.6rem 1rem .8rem 1.85rem; font: .68rem "JetBrains Mono", monospace; color: var(--muted); }
+.cv-in-st.bad { color: var(--block-ink); }
+.cv-in-st[hidden] { display: none; }
+.cv-send:disabled { opacity: .5; cursor: default; }
+
+/* MP-E8-C11-T08 command card state line: not in the design, S-42 default pending the owner's sign-off */
+.cv-cmd .st { margin: .5rem 0 0; font: .72rem "JetBrains Mono", monospace; color: var(--muted); }
+.cv-cmd .st.bad { color: var(--block-ink); }

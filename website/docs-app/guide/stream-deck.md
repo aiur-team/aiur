@@ -196,7 +196,7 @@ Prefer the environment reference over a literal key. See [Configuration](/refere
 | Transcript returned | Text stays in memory until sent or discarded; nothing writes it to disk. |
 | Coding agent launched | `ELEVENLABS_API_KEY` is removed from its environment and never logged. |
 
-When voice input is enabled, the Units meter reads the ElevenLabs credit quota as percentage used and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures). Declining voice input disables this provider meter.
+When voice input is enabled, the dashboard usage meter shows the ElevenLabs credit quota as percentage used, not the next-invoice amount or speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-usage-meter-measures). Declining voice input disables this provider meter.
 
 ### Without a key
 

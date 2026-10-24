@@ -25,7 +25,8 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # CLI and the dashboard queue copy map a queue's progress into the contract
   # shape and then render it through ProgressRenderer. The Build Now-band rows
   # do the same with a Units row's progress reading, and feature statistics
-  # with each running member's reading.
+  # with each running member's reading. The ticket progress API does the same
+  # with a ticket's TicketActivity or retained reading.
   @contract_boundary_files [
     "aiur/build_queue_cli.ex",
     "aiur/build_queue/read_model.ex",
@@ -36,6 +37,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_order/progress_observer.ex",
     "aiur/build_order/progress_renderer.ex",
     "aiur/build_order/root_summary.ex",
+    "aiur_web/api/usage_progress.ex",
     "aiur_web/build_order/planning_source.ex",
     "aiur_web/build/now_rows.ex",
     "aiur_web/build_queue/copy.ex",
@@ -46,6 +48,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_queue_cli.ex" => ["ProgressRenderer.terminal("],
     "aiur/build_queue/sources/build_order.ex" => ["ProgressRenderer.json("],
     "aiur/build_order/feature_stats.ex" => ["ProgressRenderer.json("],
+    "aiur_web/api/usage_progress.ex" => ["ProgressRenderer.json("],
     "aiur_web/build/now_rows.ex" => ["ProgressRenderer.json("],
     "aiur_web/build_queue/copy.ex" => ["ProgressRenderer.html("],
     "aiur/build_orders_cli.ex" => [

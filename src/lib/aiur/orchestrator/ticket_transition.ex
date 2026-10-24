@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.TicketTransition do
   """
 
   require Logger
+  alias Aiur.GitHub.{Config, Labels}
   alias Aiur.LandingWatch.Journal
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, Effect, HumanReview, PauseResume, RetryEngine, State}
   alias Aiur.Tracker
@@ -45,12 +46,91 @@ defmodule Aiur.Orchestrator.TicketTransition do
       if to_state == "done" and writer in [:agent_tool, :turn_loop] do
         {:error, :worker_cannot_mark_ticket_done}
       else
-        adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker])
+        adapter_opts = Keyword.drop(opts, [:writer, :identifier, :tracker, :reason_modifiers, :label_prefix, :current_labels])
         with_writer(writer, fn -> tracker.update_issue_state(issue_id, to_state, adapter_opts) end)
       end
 
     record(issue_id, :state, to_state, writer, opts, result)
+
+    if result == :ok and Keyword.has_key?(opts, :reason_modifiers) do
+      case write_reason_modifiers(issue_id, opts[:reason_modifiers], opts) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("ticket reason label update failed: issue_id=#{issue_id} reason=#{inspect(reason)}")
+      end
+    end
+
     result
+  end
+
+  @ci_reason_modifiers ~w(merge-queued ci-red)
+
+  @doc "Replaces the CI-owned reason labels (merge-queued, ci-red) alongside the workflow state."
+  @spec write_reason_modifiers(String.t(), [String.t()], keyword()) :: :ok | {:error, term()}
+  def write_reason_modifiers(issue_id, suffixes, opts) when is_binary(issue_id) and is_list(suffixes) do
+    writer = Keyword.fetch!(opts, :writer)
+    true = is_atom(writer) and not is_nil(writer)
+    tracker = Keyword.get(opts, :tracker, Tracker)
+    prefix = Keyword.get(opts, :label_prefix, Config.label_prefix())
+
+    desired = Enum.uniq(suffixes)
+
+    if Enum.any?(desired, &(&1 not in @ci_reason_modifiers)) do
+      {:error, {:invalid_reason_modifiers, desired}}
+    else
+      # Only the CI-owned reasons are swapped; blocked/paused/retrying belong to other writers.
+      owned = Enum.map(@ci_reason_modifiers, &"#{prefix}:#{&1}")
+      desired_labels = Enum.map(desired, &"#{prefix}:#{&1}")
+      {additions, removals} = reason_label_changes(desired_labels, owned -- desired_labels, Keyword.get(opts, :current_labels))
+
+      write_reason_modifier_labels(issue_id, additions, removals, tracker, writer, opts)
+    end
+  end
+
+  @doc "Adds or removes one known runtime reason label without changing the workflow state."
+  @spec write_reason_modifier(String.t(), :add | :remove, String.t(), keyword()) :: :ok | {:error, term()}
+  def write_reason_modifier(issue_id, action, suffix, opts) when action in [:add, :remove] do
+    if Labels.reason_modifier_suffix?(suffix) do
+      prefix = Keyword.get(opts, :label_prefix, Config.label_prefix())
+      write_marker(issue_id, action, "#{prefix}:#{suffix}", opts)
+    else
+      {:error, {:invalid_reason_modifier, suffix}}
+    end
+  end
+
+  @doc "Returns a canonical prefixed label for a known reason suffix."
+  @spec reason_modifier_label(String.t()) :: String.t() | nil
+  def reason_modifier_label(suffix) do
+    if Labels.reason_modifier_suffix?(suffix), do: "#{Config.label_prefix()}:#{suffix}"
+  end
+
+  @doc "Maps a runtime cause to its canonical reason suffix."
+  @spec runtime_reason_modifier(term()) :: String.t() | nil
+  def runtime_reason_modifier(reason), do: Labels.runtime_reason_modifier(reason)
+
+  @doc "Returns present runtime labels in the canonical vocabulary order."
+  @spec present_runtime_labels(term(), String.t()) :: [String.t()]
+  def present_runtime_labels(labels, prefix), do: Labels.present_runtime_labels(labels, prefix)
+
+  @doc "Returns tracker labels plus labels inferred from live runtime causes."
+  @spec runtime_labels(term(), [term()], String.t()) :: [String.t()]
+  def runtime_labels(labels, causes, prefix), do: Labels.runtime_labels(labels, causes, prefix)
+
+  @doc "Removes transient runtime reasons, preserving the dependency blocker marker."
+  @spec clear_transient_reason_modifiers(String.t(), keyword()) :: :ok | {:error, term()}
+  def clear_transient_reason_modifiers(issue_id, opts) do
+    retained = ["blocked", "body-fix"]
+    removals = Labels.reason_modifier_suffixes() -- retained
+    prefix = Keyword.get(opts, :label_prefix, Config.label_prefix())
+    labels = Enum.map(removals, &"#{prefix}:#{&1}")
+    present = Keyword.get(opts, :current_labels)
+    labels = if is_list(present), do: Enum.filter(labels, &(&1 in present)), else: labels
+    if labels == [], do: :ok, else: clear_transient_labels(issue_id, labels, opts)
+  end
+
+  defp clear_transient_labels(issue_id, labels, opts) do
+    writer = Keyword.fetch!(opts, :writer)
+    tracker = Keyword.get(opts, :tracker, Tracker)
+    write_markers(issue_id, :remove, labels, Keyword.put(opts, :writer, writer) |> Keyword.put(:tracker, tracker))
   end
 
   @spec write_marker(String.t(), :add | :remove, String.t(), keyword()) :: :ok | {:error, term()}
@@ -77,6 +157,32 @@ defmodule Aiur.Orchestrator.TicketTransition do
   end
 
   defp maybe_record_pause_writer(_issue_id, _action, _label, _writer, _result, _opts), do: :ok
+
+  # With the tracker's current labels known, write only the difference; otherwise write all.
+  defp reason_label_changes(additions, removals, current) when is_list(current) do
+    present = MapSet.new(current, &String.downcase/1)
+    {Enum.reject(additions, &MapSet.member?(present, &1)), Enum.filter(removals, &MapSet.member?(present, &1))}
+  end
+
+  defp reason_label_changes(additions, removals, _current), do: {additions, removals}
+
+  defp write_reason_modifier_labels(issue_id, additions, removals, tracker, writer, opts) do
+    marker_opts = Keyword.put(opts, :writer, writer) |> Keyword.put(:tracker, tracker)
+
+    case write_markers(issue_id, :add, additions, marker_opts) do
+      :ok -> write_markers(issue_id, :remove, removals, marker_opts)
+      error -> error
+    end
+  end
+
+  defp write_markers(issue_id, action, labels, opts) do
+    Enum.reduce_while(labels, :ok, fn label, :ok ->
+      case write_marker(issue_id, action, label, opts) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
 
   @spec write_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def write_comment(issue_id, body, opts) do

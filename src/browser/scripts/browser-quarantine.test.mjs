@@ -38,6 +38,7 @@ test('a list entry uses the identity the failure annotation reports', () => {
   const [line] = failedSpecAnnotationLines([{ file: path.join(browserRoot, 'tests/build-home-list.browser.spec.mjs'), status: 'failed' }])
   const [, module, spec] = line.match(/::(new-failure :: .*)$/)[1].split(' :: ')
   assert.deepEqual(parseQuarantine(`${module}\t${spec}\t#5118`), [{ spec: 'src/browser/tests/build-home-list.browser.spec.mjs', ticket: '#5118' }])
+  assert.deepEqual(parseQuarantine(`${module}\t${spec}\t#5118\t2026-12-31`), [{ spec: 'src/browser/tests/build-home-list.browser.spec.mjs', ticket: '#5118' }])
   assert.equal(runnableSpec({ spec }), 'tests/build-home-list.browser.spec.mjs')
 })
 

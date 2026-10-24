@@ -41,6 +41,30 @@ release_stamp="$release_dir/AIUR_BUILD_STAMP"
 build_lock_dir="$elixir_dir/_build/.aiurdev-build.lock"
 engine="$repo_root/packaging/npm/aiur-cli/libexec/aiur-engine.sh"
 mise_bin="${AIUR_MISE_BIN:-$(command -v mise 2>/dev/null || true)}"
+
+# The global remote target must be removed before this shim classifies the
+# remaining command. Remote controls need neither a local release nor a rebuild.
+unset AIUR_REMOTE_INSTANCE
+case "${1:-}" in
+  --instance)
+    [ "$#" -gt 1 ] && [ -n "${2:-}" ] || { echo "aiur: --instance requires a name" >&2; exit 64; }
+    export AIUR_REMOTE_INSTANCE="$2"
+    shift 2
+    ;;
+  --instance=*)
+    export AIUR_REMOTE_INSTANCE="${1#--instance=}"
+    [ -n "$AIUR_REMOTE_INSTANCE" ] || { echo "aiur: --instance requires a name" >&2; exit 64; }
+    shift
+    ;;
+esac
+AIUR_JS_RUNTIME="${AIUR_JS_RUNTIME:-$(command -v node 2>/dev/null || true)}"
+export AIUR_JS_RUNTIME
+if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+  remote_instance="$AIUR_REMOTE_INSTANCE"
+  unset AIUR_REMOTE_INSTANCE
+  export AIUR_RELEASE_DIR="$release_dir"
+  exec "$engine" --instance "$remote_instance" "$@"
+fi
 [ ! -f "$repo_root/packaging/npm/aiur-cli/libexec/aiur-mise-doctor" ] || bash "$repo_root/packaging/npm/aiur-cli/libexec/aiur-mise-doctor" --check || true
 # --- checkout targeting -------------------------------------------------------
 # repo_root is derived from this script's path, which is deliberate: a globally
@@ -113,7 +137,7 @@ targets_release_deliberately() {
     doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | pre-pr) return 1 ;;
     watch | init | findings | __identity) return 1 ;;
     help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
-    ask | asks | usage | commands | units | build-orders | epic | feature | queue | analytics | github-cost | github-usage | experiments | capabilities) return 1 ;;
+    ask | asks | usage | commands | units | build-orders | epic | feature | ticket | queue | analytics | github-cost | github-usage | experiments | capabilities) return 1 ;;
     executor-*) return 1 ;;
     *) return 0 ;;
   esac
@@ -377,7 +401,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage | experiments | capabilities | epic | feature | pre-pr) return 0 ;;
+    doctor | agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage | experiments | capabilities | epic | feature | ticket | pre-pr) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -1,6 +1,5 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
-
   defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
   defdelegate status(opts \\ []), to: Aiur.Orchestrator.StatusCLI
   defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
@@ -20,6 +19,7 @@ defmodule Aiur.AgentControlCLI do
   defdelegate feature(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate epic(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate build_orders(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate queue(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate analytics(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate github_cost(opts \\ []), to: Aiur.ControlCLI.EntryPoints

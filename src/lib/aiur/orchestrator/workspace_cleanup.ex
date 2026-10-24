@@ -29,6 +29,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   require Logger
 
+  alias Aiur.Alerts.ClosedTicket
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
   alias Aiur.Orchestrator.{DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
@@ -67,7 +68,11 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
     # lease can still be reaping; any other lease found before the delete
     # belongs to a new run.
     cleanups = Enum.map(cleanups, fn {ticket, _workspace_identifier, _worker_host} = entry -> {entry, lease_generation(ticket)} end)
-    run = fn -> Enum.each(cleanups, &run_terminal_workspace_cleanup_entry(&1, notify)) end
+
+    run = fn ->
+      resolve_closed_ticket_attentions(cleanups)
+      Enum.each(cleanups, &run_terminal_workspace_cleanup_entry(&1, notify))
+    end
 
     case Process.whereis(Aiur.TaskSupervisor) && Task.Supervisor.start_child(Aiur.TaskSupervisor, run) do
       {:ok, _pid} ->
@@ -77,6 +82,13 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
         Logger.warning("Running terminal workspace cleanup inline; task supervisor unavailable: #{inspect(other)}")
         run.()
     end
+  end
+
+  # A failure here must not stop the workspace save and delete.
+  defp resolve_closed_ticket_attentions(cleanups) do
+    cleanups |> Enum.map(fn {{ticket, _, _}, _} -> ticket end) |> ClosedTicket.resolve()
+  rescue
+    error -> Logger.warning("Closed-ticket attention resolution failed: #{Exception.message(error)}")
   end
 
   defp run_terminal_workspace_cleanup_entry({{ticket, workspace_identifier, _worker_host}, _known_generation} = entry, notify) do
