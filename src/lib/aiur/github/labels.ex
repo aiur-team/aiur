@@ -24,6 +24,23 @@ defmodule Aiur.GitHub.Labels do
   # Agent lifecycle state suffixes the orchestrator manages. Test-reset cleanup
   # consumes `state_labels/1` directly so this remains the single source.
   @state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
+  @reason_modifier_suffixes ~w(merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent retrying blocked handed-off)
+  @runtime_reason_modifiers %{
+    usage_limit_exhausted: "paused-usage-limit",
+    provider_limited: "paused-usage-limit",
+    input_required: "paused-decision",
+    waiting_for_human: "paused-decision",
+    agent_pause_request: "paused-agent",
+    blocker_dependency: "blocked",
+    waiting_for_dependency: "blocked",
+    backing_off: "retrying",
+    merge_queue: "merge-queued",
+    ci_red: "ci-red",
+    body_fix: "body-fix",
+    handed_off: "handed-off",
+    workspace_ownership_waiting: "handed-off",
+    workspace_retained: "handed-off"
+  }
 
   # Static marker labels. NOT lifecycle states — the orchestrator never treats
   # these as dispatch states. Owner-valued Executor labels are dynamic and are
@@ -56,6 +73,7 @@ defmodule Aiur.GitHub.Labels do
   def label_set(prefix, backends) do
     ["flake"] ++
       state_labels(prefix) ++
+      reason_modifier_labels(prefix) ++
       required_rate_limit_fallback_labels(prefix) ++
       (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
       model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
@@ -63,6 +81,53 @@ defmodule Aiur.GitHub.Labels do
 
   @spec state_labels(String.t()) :: [String.t()]
   def state_labels(prefix), do: Enum.map(@state_suffixes, &"#{prefix}:#{&1}")
+
+  @doc "The complete set of workflow state suffixes accepted by the GitHub tracker."
+  @spec state_suffixes() :: [String.t()]
+  def state_suffixes, do: @state_suffixes
+
+  @doc "Reason labels that may accompany one workflow state label."
+  @spec reason_modifier_suffixes() :: [String.t()]
+  def reason_modifier_suffixes, do: @reason_modifier_suffixes
+
+  @spec reason_modifier_labels(String.t()) :: [String.t()]
+  def reason_modifier_labels(prefix), do: Enum.map(@reason_modifier_suffixes, &"#{prefix}:#{&1}")
+
+  @doc "Returns present state and reason labels in the canonical vocabulary order."
+  @spec present_runtime_labels(term(), String.t()) :: [String.t()]
+  def present_runtime_labels(labels, prefix) when is_list(labels) do
+    present = MapSet.new(Enum.map(labels, &(String.downcase(to_string(&1)) |> String.trim())))
+
+    (state_labels(prefix) ++ reason_modifier_labels(prefix) ++ Enum.map(~w(paused parked queued rate-limit-fallback), &"#{prefix}:#{&1}"))
+    |> Enum.filter(&MapSet.member?(present, String.downcase(&1)))
+  end
+
+  def present_runtime_labels(_labels, _prefix), do: []
+
+  @doc """
+  The tracker's runtime labels plus the reason label for each live runtime
+  cause (pause or waiting reason), in vocabulary order. Every surface renders
+  this list verbatim, so a cause the tracker has not caught up with yet still
+  shows its own label rather than a local word.
+  """
+  @spec runtime_labels(term(), [term()], String.t()) :: [String.t()]
+  def runtime_labels(labels, causes, prefix) do
+    inferred = causes |> Enum.map(&runtime_reason_modifier/1) |> Enum.reject(&is_nil/1) |> Enum.map(&"#{prefix}:#{&1}")
+    present_runtime_labels(List.wrap(labels) ++ inferred, prefix)
+  end
+
+  @doc "`runtime_labels/3` without the workflow state label."
+  @spec runtime_reason_labels(term(), [term()], String.t()) :: [String.t()]
+  def runtime_reason_labels(labels, causes, prefix), do: runtime_labels(labels, causes, prefix) -- state_labels(prefix)
+
+  @doc "Whether a bare suffix names a known orthogonal runtime reason."
+  @spec reason_modifier_suffix?(term()) :: boolean()
+  def reason_modifier_suffix?(suffix) when is_binary(suffix), do: String.downcase(String.trim(suffix)) in @reason_modifier_suffixes
+  def reason_modifier_suffix?(_suffix), do: false
+
+  @doc "Maps a runtime cause to its canonical reason-label suffix."
+  @spec runtime_reason_modifier(term()) :: String.t() | nil
+  def runtime_reason_modifier(reason), do: Map.get(@runtime_reason_modifiers, reason)
 
   @doc "The opt-in PR-watch marker label, given the prefix (e.g. `agent:watch`)."
   @spec watch_labels(String.t()) :: [String.t()]
@@ -115,7 +180,7 @@ defmodule Aiur.GitHub.Labels do
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()
   def marker_suffix?(suffix) when is_binary(suffix),
-    do: marker_name?(String.downcase(String.trim(suffix)))
+    do: marker_name?(String.downcase(String.trim(suffix))) or reason_modifier_suffix?(suffix)
 
   def marker_suffix?(_suffix), do: false
 
@@ -180,6 +245,15 @@ defmodule Aiur.GitHub.Labels do
   defp state_description("parked"), do: "operator-held: no dispatch, no comment-driven rework"
   defp state_description("queued"), do: "in the build queue; not yet ready"
   defp state_description("rate-limit-fallback"), do: "tracks automatic usage-limit fallback"
+  defp state_description("merge-queued"), do: "approved pull request is waiting in the merge queue"
+  defp state_description("ci-red"), do: "required CI checks failed"
+  defp state_description("body-fix"), do: "pull request body needs a documentation or evidence fix"
+  defp state_description("paused-usage-limit"), do: "paused because the provider usage limit is exhausted"
+  defp state_description("paused-decision"), do: "paused while waiting for an operator decision"
+  defp state_description("paused-agent"), do: "paused at the agent's request"
+  defp state_description("retrying"), do: "waiting for the retry back-off"
+  defp state_description("blocked"), do: "blocked by an open dependency"
+  defp state_description("handed-off"), do: "work handed to another Aiur instance"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
   defp state_description("ci-wait"), do: "awaiting CI before human review"

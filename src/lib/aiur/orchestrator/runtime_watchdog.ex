@@ -355,6 +355,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
         tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
         issue_state: Map.get(Map.get(running_entry, :issue) || %{}, :state),
         error: "stalled for #{elapsed_ms}ms without #{backend} activity",
+        stalled_alert_outstanding: true,
         prior_work: RetryEngine.prior_work_for_retry?(running_entry),
         worker_host: Map.get(running_entry, :worker_host),
         workspace_path: Map.get(running_entry, :workspace_path)
