@@ -77,6 +77,20 @@ defmodule Aiur.ModelAvailabilityTest do
     assert ModelAvailability.first_available(["claude", "codex", "claude-repl"], path: path) == "codex"
   end
 
+  test "provider auth rejection holds a backend until its credential changes", %{path: path} do
+    assert {:ok, :first} = ModelAvailability.mark_auth_rejected("claude", "old-fingerprint", path: path)
+    assert {:ok, :already_held} = ModelAvailability.mark_auth_rejected("claude-repl", "new-fingerprint", path: path)
+    refute ModelAvailability.available?("claude", state: %{"backends" => %{"claude" => %{"auth_rejected" => true}}})
+    assert ModelAvailability.first_available(["claude", "codex"], path: path) == "codex"
+
+    assert :ok = ModelAvailability.clear_changed_auth_hold("claude", "old-fingerprint", path: path)
+    assert {:ok, :first} = ModelAvailability.mark_auth_rejected("claude", "rotated-fingerprint", path: path)
+    refute ModelAvailability.available?("claude", state: %{"backends" => %{"claude" => %{"auth_rejected" => true}}})
+
+    assert :ok = ModelAvailability.clear_changed_auth_hold("claude", "rotated-fingerprint", path: path)
+    assert ModelAvailability.available?("claude", state: %{"backends" => %{"claude" => %{}}})
+  end
+
   test "normalizes the claude remote-control transport backend", %{path: path} do
     assert ModelAvailability.backend_key("claude-repl") == "claude"
     assert ModelAvailability.backend_key("claude") == "claude"

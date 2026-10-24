@@ -19,9 +19,11 @@ defmodule Aiur.Application.StartupChecks do
       :ok
     else
       settings = Aiur.Config.settings_uncached()
-      env = System.get_env()
+      env = configure_codex_home(settings, System.get_env())
 
+      validate_deployment_credentials!(settings, env)
       validate_auth_before_secrets!(settings, env)
+      clear_rotated_provider_auth_holds(settings, env)
 
       Aiur.Env.validate_startup!(env, require_github_credential: github_tracker?(settings))
       Aiur.Env.warn_disabled_integrations()
@@ -64,6 +66,7 @@ defmodule Aiur.Application.StartupChecks do
         |> maybe_missing(webhooks_enabled?(settings), ["AIUR_GITHUB_WEBHOOK_SECRET"], env)
         |> maybe_missing(non_persistent_state?(env), ["AIUR_SECRET_KEY_BASE"], env)
         |> maybe_missing(true, configured_route_secrets(settings, env), env)
+        |> Kernel.++(missing_deployment_secrets(settings, env))
         |> Kernel.++(missing_host_allowlist(settings))
         |> Enum.uniq()
 
@@ -74,6 +77,182 @@ defmodule Aiur.Application.StartupChecks do
   end
 
   def validate_secrets(_settings, _env), do: :ok
+
+  @doc "Validates subscription credentials against the configured deployment kind."
+  @spec validate_deployment_credentials(term(), map()) :: :ok | {:error, [String.t()]}
+  def validate_deployment_credentials({:ok, settings}, env), do: validate_deployment_credentials(settings, env)
+
+  def validate_deployment_credentials(%{instance: %{mode: "hosted", deployment_kind: kind}, agent: _agent} = settings, env)
+      when kind in ["operator", "consumer"] and is_map(env) do
+    subscription_errors =
+      []
+      |> then_if(
+        kind == "consumer" and present_env?("CLAUDE_CODE_OAUTH_TOKEN", env),
+        "CLAUDE_CODE_OAUTH_TOKEN is set for instance.deployment_kind consumer; consumer deployments may use API-key credentials only"
+      )
+      |> then_if(
+        kind == "consumer" and codex_subscription_file?(env),
+        "CODEX_HOME/auth.json contains subscription credentials for instance.deployment_kind consumer; use OPENAI_API_KEY instead"
+      )
+
+    errors = subscription_errors ++ missing_hosted_route_credentials(settings, env, kind)
+    if errors == [], do: :ok, else: {:error, errors}
+  end
+
+  def validate_deployment_credentials(_settings, _env), do: :ok
+
+  @doc "Raises an actionable error when deployment credentials violate the configured kind."
+  @spec validate_deployment_credentials!(term(), map()) :: :ok
+  def validate_deployment_credentials!(settings, env) do
+    case validate_deployment_credentials(settings, env) do
+      :ok -> :ok
+      {:error, messages} -> raise ArgumentError, Enum.join(messages, "; ")
+    end
+  end
+
+  defp missing_hosted_route_credentials(%{instance: %{mode: "hosted"}, agent: agent} = settings, env, kind) do
+    routes = configured_routes(agent)
+
+    Enum.flat_map(routes, fn route ->
+      backend = RoutingValue.routing_backend(route)
+      if hosted_route_credential?(backend, settings, env, kind), do: [], else: ["missing usable credential for #{route}: #{credential_variable(backend, settings)}"]
+    end)
+  end
+
+  defp missing_hosted_route_credentials(_settings, _env, _kind), do: []
+
+  defp configure_codex_home(%{instance: %{mode: "hosted"}}, env) do
+    state_dir = env["AIUR_BG_STATE_DIR"] || Path.expand("~/.config/aiur")
+    codex_home = Path.join(state_dir, "codex")
+
+    case File.mkdir_p(codex_home) do
+      :ok ->
+        :ok = File.chmod(codex_home, 0o700)
+        System.put_env("CODEX_HOME", codex_home)
+        Map.put(env, "CODEX_HOME", codex_home)
+
+      {:error, reason} ->
+        raise ArgumentError, "could not prepare persistent Codex state at #{codex_home}: #{inspect(reason)}"
+    end
+  end
+
+  defp configure_codex_home(_settings, env), do: env
+
+  defp configured_routes(%{priority: [_ | _] = routes}), do: routes
+  defp configured_routes(%{kind: kind}) when is_binary(kind), do: [kind]
+  defp configured_routes(_), do: []
+
+  defp clear_rotated_provider_auth_holds(%{instance: %{mode: "hosted"}, agent: agent} = settings, env) do
+    agent
+    |> configured_routes()
+    |> Enum.map(&RoutingValue.routing_backend/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.each(&reconcile_provider_auth_hold(&1, settings, env))
+  end
+
+  defp clear_rotated_provider_auth_holds(_settings, _env), do: :ok
+
+  defp reconcile_provider_auth_hold(backend, settings, env) do
+    fingerprint = credential_fingerprint(backend, settings, env)
+    ledger_path = auth_ledger_path(settings, env)
+    held? = Aiur.ModelAvailability.auth_rejected?(backend, path: ledger_path)
+
+    case Aiur.ModelAvailability.clear_changed_auth_hold(backend, fingerprint, path: ledger_path) do
+      :ok ->
+        if held? and not Aiur.ModelAvailability.auth_rejected?(backend, path: ledger_path) do
+          Aiur.Signal.alert("system.provider.auth_rejected.#{backend}.resolved",
+            reason: "The #{backend} credential changed; dispatch is available again.",
+            needs_attention: false
+          )
+        end
+
+        :ok
+
+      {:error, reason} ->
+        raise ArgumentError, "could not reconcile provider credential hold for #{backend}: #{inspect(reason)}"
+    end
+  end
+
+  defp hosted_state_path(env), do: env["AIUR_BG_STATE_DIR"] || Path.expand("~/.config/aiur")
+
+  defp auth_ledger_path(%{instance: %{mode: "hosted"}}, env), do: Path.join(hosted_state_path(env), "model-usage.json")
+  defp auth_ledger_path(_settings, _env), do: Aiur.ModelAvailability.path()
+
+  @doc false
+  @spec credential_fingerprint(String.t(), map(), map()) :: String.t() | nil
+  def credential_fingerprint("claude", _settings, env) do
+    fingerprint(env["CLAUDE_CODE_OAUTH_TOKEN"] || env["ANTHROPIC_API_KEY"])
+  end
+
+  def credential_fingerprint("codex", _settings, env) do
+    case env["CODEX_HOME"] do
+      home when is_binary(home) ->
+        case File.read(Path.join(home, "auth.json")) do
+          {:ok, content} -> fingerprint(content)
+          _ -> fingerprint(env["OPENAI_API_KEY"])
+        end
+
+      _ ->
+        fingerprint(env["OPENAI_API_KEY"])
+    end
+  end
+
+  def credential_fingerprint(backend, settings, env) do
+    name =
+      get_in(settings, [:agent, :backend_configs, backend, "api_key_env"]) ||
+        RouteCredentials.missing_key_env(backend, api_key_fetcher: fn key -> env[key] end)
+
+    fingerprint(if(is_binary(name), do: env[name], else: nil))
+  end
+
+  defp fingerprint(value) when is_binary(value) and value != "" do
+    :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+  end
+
+  defp fingerprint(_value), do: nil
+
+  defp hosted_route_credential?("claude", _settings, env, "operator") do
+    present_env?("CLAUDE_CODE_OAUTH_TOKEN", env) or present_env?("ANTHROPIC_API_KEY", env)
+  end
+
+  defp hosted_route_credential?("claude", _settings, env, "consumer"), do: present_env?("ANTHROPIC_API_KEY", env)
+
+  defp hosted_route_credential?("codex", _settings, env, kind) do
+    api_key? = present_env?("OPENAI_API_KEY", env) or codex_api_key_file?(env)
+    subscription? = codex_subscription_file?(env)
+    api_key? or (kind == "operator" and subscription?)
+  end
+
+  defp hosted_route_credential?(backend, settings, env, _kind) do
+    missing_route_key(backend, Map.get(settings.agent, :backend_configs, %{}) || %{}, env) == nil
+  end
+
+  defp codex_api_key_file?(env), do: codex_auth_mode(env) == "apikey"
+  defp codex_subscription_file?(env), do: codex_auth_mode(env) in ["chatgpt", "chatgptAuthTokens", "personalAccessToken"]
+
+  defp codex_auth_mode(env) do
+    case env["CODEX_HOME"] do
+      home when is_binary(home) and home != "" ->
+        with {:ok, content} <- File.read(Path.join(home, "auth.json")),
+             {:ok, %{} = auth} <- Jason.decode(content) do
+          auth["auth_mode"]
+        else
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp credential_variable("claude", _settings), do: "CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY"
+  defp credential_variable("codex", _settings), do: "CODEX_HOME/auth.json (persistent under AIUR_BG_STATE_DIR) or OPENAI_API_KEY"
+
+  defp credential_variable(backend, settings) do
+    custom = get_in(settings, [:agent, :backend_configs, backend, "api_key_env"])
+    custom || RouteCredentials.missing_key_env(backend) || "configured API-key credential"
+  end
 
   @doc "Raises one safe error listing every missing hosted secret."
   @spec validate_secrets!(term(), map()) :: :ok
@@ -118,6 +297,9 @@ defmodule Aiur.Application.StartupChecks do
   defp then_if_missing(names, _name, true), do: names
   defp then_if_missing(names, name, false), do: names ++ [name]
 
+  defp then_if(errors, true, message), do: errors ++ [message]
+  defp then_if(errors, false, _message), do: errors
+
   defp linear_tracker?(%{tracker: %{kind: "linear"}}), do: true
   defp linear_tracker?(_), do: false
 
@@ -151,6 +333,15 @@ defmodule Aiur.Application.StartupChecks do
   end
 
   defp configured_route_secrets(_, _env), do: []
+
+  defp missing_deployment_secrets(%{instance: %{mode: "hosted"}, agent: _agent} = settings, env) do
+    case validate_deployment_credentials(settings, env) do
+      :ok -> []
+      {:error, errors} -> errors
+    end
+  end
+
+  defp missing_deployment_secrets(_settings, _env), do: []
 
   defp missing_route_key(route, backend_configs, env) do
     backend = RoutingValue.routing_backend(route)
