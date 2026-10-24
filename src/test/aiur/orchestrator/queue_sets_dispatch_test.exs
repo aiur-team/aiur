@@ -26,9 +26,13 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     def ticket_pull_request(_), do: {:ok, nil}
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
 
-    def next_set do
+    def next_set, do: next_set_with_issue_state("todo")
+
+    def no_candidate_next_set, do: next_set_with_issue_state("done")
+
+    defp next_set_with_issue_state(issue_state) do
       document = Agent.get(__MODULE__, & &1)
-      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: "todo", blocked_by: []}} end)
+      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: issue_state, blocked_by: []}} end)
 
       state = %State{
         max_concurrent_agents: 6,
@@ -40,14 +44,24 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
         last_polled_issues: issues
       }
 
-      if Enum.any?(Map.values(issues), &DispatchPolicy.should_dispatch_issue?(&1, state)),
-        do: BuildQueueClaimProbe.next_set(state),
-        else: raise("the controlled claim-probe fixture must contain dispatchable issues")
+      dispatchable? = Enum.any?(Map.values(issues), &DispatchPolicy.should_dispatch_issue?(&1, state))
+
+      if issue_state == "todo" and not dispatchable?,
+        do: raise("the controlled claim-probe fixture must contain dispatchable issues")
+
+      if issue_state == "done" and dispatchable?,
+        do: raise("the terminal-state reproduction must decline every issue")
+
+      BuildQueueClaimProbe.next_set(state)
     end
 
     def add_label(_, _), do: raise("ordering must not write GitHub labels")
     def remove_label(_, _), do: raise("ordering must not write GitHub labels")
     def notify_demand(_), do: :ok
+  end
+
+  defmodule NoCandidateQueueBoundary do
+    def next_set, do: QueueBoundary.no_candidate_next_set()
   end
 
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
@@ -87,6 +101,18 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     snapshot = Hints.sets()
     assert snapshot.members["8"].set_id == "q-0002"
     assert Enum.find(snapshot.sets, &(&1.id == "q-0002")).rank == 0
+    assert QueueBoundary.no_candidate_next_set() == {:ok, nil}
+
+    declined_json =
+      capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true, claim_probe: NoCandidateQueueBoundary) end)
+      |> Jason.decode!()
+
+    assert Enum.map(declined_json["queues"], &{&1["set_rank"], &1["state"]}) == [
+             {0, "waiting"},
+             {1, "waiting"},
+             {2, "waiting"}
+           ]
+
     assert QueueBoundary.next_set() == {:ok, "q-0002"}
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
     assert output =~ "queue order  actual set 2 > set 1 > set 0  declared unavailable"
