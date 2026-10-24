@@ -243,6 +243,14 @@ defmodule Aiur.Config.Schema.Agent do
     field(:complexity_prompts, :map, default: %{})
     # @config-reference config-configuration-agent-00 agent.max_turns_by_complexity | map | `%{}` | Per-complexity turn caps. |
     field(:max_turns_by_complexity, :map, default: %{})
+
+    # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Five tolerates brief polling; steer at 5 identical results and stop at 6. `0` disables it. |
+    field(:max_repeated_identical_commands, :integer, default: 5)
+    # Optional command/input ceilings are disabled when absent.
+    # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional shell-command cap per turn; null disables. Suggested value: 1,000. |
+    field(:max_commands_per_turn, :integer)
+    # @config-reference config-configuration-agent-00 agent.max_input_tokens_per_turn | integer or nil | nil | Optional turn input-token cap; null disables it. Suggested starting value: 20,000,000. |
+    field(:max_input_tokens_per_turn, :integer)
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
     # @config-reference config-configuration-agent-00 agent.turn_timeout_ms | integer | 3600000 | Backstop timeout for one turn. |
@@ -390,6 +398,9 @@ defmodule Aiur.Config.Schema.Agent do
         :rate_limit_fallback,
         :complexity_prompts,
         :max_turns_by_complexity,
+        :max_repeated_identical_commands,
+        :max_commands_per_turn,
+        :max_input_tokens_per_turn,
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
@@ -458,6 +469,9 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> validate_number(:dispatch_hold_attention_threshold, greater_than: 0)
+    |> validate_number(:max_repeated_identical_commands, greater_than_or_equal_to: 0)
+    |> validate_number(:max_commands_per_turn, greater_than: 0)
+    |> validate_number(:max_input_tokens_per_turn, greater_than: 0)
     |> CatalogValidation.validate()
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)

@@ -26,7 +26,12 @@ reply delivery.
 The resident broker disables WAL auto-checkpointing on request connections. A
 background thread runs passive checkpoints outside the serialized request loop.
 One-minute measurements report latency by command type, Python queue wait,
-SQLite lock wait, execution, commit, and latest checkpoint duration and frames.
+SQLite lock wait, execution, commit, latest checkpoint duration and frames,
+WAL size and age of the last successful checkpoint.
+
+If the checkpoint worker dies or the WAL grows beyond 10,000 frames while the
+checkpoint queue is idle, the request path falls back to a `RESTART` checkpoint.
+A checkpoint age over ten minutes feeds the existing broker-degraded alert.
 
 Sustained timeouts raise one `system.github.budget_broker_degraded` attention with duration; its `.resolved` clears it on recovery.
 
