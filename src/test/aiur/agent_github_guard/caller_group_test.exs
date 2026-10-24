@@ -1,5 +1,6 @@
 defmodule Aiur.AgentGitHubGuard.CallerGroupTest do
   use Aiur.AgentGitHubGuardCase, async: true
+  require Logger
 
   test "a caller group kill does not leave a broker descendant running", context do
     broker = Path.join(context.workspace, "caller-kill-broker.py")
@@ -76,7 +77,7 @@ defmodule Aiur.AgentGitHubGuard.CallerGroupTest do
     assert File.read!(child_pgid_file) == pgid
     child_start_time = process_start_time!(child_pid)
 
-    assert {"", 0} = System.cmd("kill", ["-KILL", "-#{pgid}"])
+    assert {"", 0} = signal_process_group("KILL", pgid)
     assert_receive_port_exit(port, pgid, 2_000)
     wait_until(fn -> process_gone?(child_pid, child_start_time) end)
     assert process_gone?(child_pid, child_start_time)
@@ -165,7 +166,7 @@ defmodule Aiur.AgentGitHubGuard.CallerGroupTest do
     supervisor_pid = supervisor_pid_file |> File.read!() |> String.trim()
     pgid = pgid_file |> File.read!() |> String.trim()
 
-    assert {"", 0} = System.cmd("kill", ["-TERM", "-#{pgid}"])
+    assert {"", 0} = signal_process_group("TERM", pgid)
     assert_receive_port_exit(port, pgid, 3_000)
     wait_until(fn -> process_gone?(String.to_integer(supervisor_pid)) end)
     wait_until(fn -> process_gone?(broker_pid) end)
@@ -190,28 +191,22 @@ defmodule Aiur.AgentGitHubGuard.CallerGroupTest do
   end
 
   defp open_caller_group_port(context, env) do
-    launcher = Path.join(context.workspace, "caller-group-launcher.py")
-    python = System.find_executable("python3") || flunk("python3 is required")
+    setsid = System.find_executable("setsid") || flunk("setsid is required")
+    wrapper = context.wrapper
 
-    # A setsid --wait wrapper may fork when the spawned port is a group leader,
-    # leaving its waiter outside the group that the test signals.
-    File.write!(launcher, """
-    import os, sys
-    parent = os.getppid()
-    if os.getsid(0) == os.getsid(parent):
-        if os.getpgrp() == os.getpid():
-            os.setpgid(0, os.getpgid(parent))
-        os.setsid()
-    os.execv(sys.argv[1], sys.argv[1:])
-    """)
-
-    Port.open({:spawn_executable, python}, [
+    Port.open({:spawn_executable, setsid}, [
       :binary,
       :exit_status,
       :stderr_to_stdout,
-      args: Enum.map([launcher, context.wrapper, "api", "rate_limit"], &String.to_charlist/1),
+      args: Enum.map(["--wait", wrapper, "api", "rate_limit"], &String.to_charlist/1),
       env: Enum.map(env, fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end)
     ])
+  end
+
+  defp signal_process_group(signal, pgid) do
+    {version, _status} = System.cmd("kill", ["--version"], stderr_to_stdout: true)
+    Logger.warning("kill --version: #{String.trim(version)}")
+    System.cmd("kill", ["-s", signal, "--", "-#{pgid}"], stderr_to_stdout: true)
   end
 
   defp assert_receive_port_exit(port, pgid, timeout) do
