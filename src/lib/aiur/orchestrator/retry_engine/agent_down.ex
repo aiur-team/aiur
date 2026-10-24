@@ -243,6 +243,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
         claimed: MapSet.put(state.claimed, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+    |> AgentTeardown.clear_transient_reason_labels(issue_id)
   end
 
   # Fallback startup can fail after its Task is admitted (for example, a

@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   defp apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
     cond do
       CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
-        state
+        reconcile_ci_wait_reason(state, issue, result)
 
       HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
@@ -47,7 +47,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
       true ->
-        Transition.transition_ci_ticket(state, issue, @ci_wait_state)
+        Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result))
     end
   end
 
@@ -111,23 +111,29 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp transition_conflicting_pr(state, issue, result, opts, issue_key, base_branch) do
-    Transition.transition_ci_ticket(state, issue, "rework", fn transitioned ->
-      create = Keyword.get(opts, :ci_failure_commenter, &Aiur.Tracker.create_comment/2)
-      target = to_string(issue.identifier || issue.id)
+    Transition.transition_ci_ticket(
+      state,
+      issue,
+      "rework",
+      fn transitioned ->
+        create = Keyword.get(opts, :ci_failure_commenter, &Aiur.Tracker.create_comment/2)
+        target = to_string(issue.identifier || issue.id)
 
-      body =
-        "GitHub reports PR ##{result[:pr_number]} head `#{result[:head_sha]}` as `mergeable: CONFLICTING` with #{base_branch}. " <>
-          "This ticket moved to rework; merge #{base_branch} into the PR branch, resolve the conflicts, and push the result."
+        body =
+          "GitHub reports PR ##{result[:pr_number]} head `#{result[:head_sha]}` as `mergeable: CONFLICTING` with #{base_branch}. " <>
+            "This ticket moved to rework; merge #{base_branch} into the PR branch, resolve the conflicts, and push the result."
 
-      case create.(target, body) do
-        :ok -> :ok
-        other -> Logger.warning("Conflict rework comment not posted: issue=#{target} reason=#{inspect(other)}")
-      end
+        case create.(target, body) do
+          :ok -> :ok
+          other -> Logger.warning("Conflict rework comment not posted: issue=#{target} reason=#{inspect(other)}")
+        end
 
-      transitioned
-      |> State.bump_rework_attempt(issue_key, result[:head_sha])
-      |> Reconciler.refresh_running_issue_state(%{issue | state: "rework"})
-    end)
+        transitioned
+        |> State.bump_rework_attempt(issue_key, result[:head_sha])
+        |> Reconciler.refresh_running_issue_state(%{issue | state: "rework"})
+      end,
+      ["ci-red"]
+    )
   end
 
   # The CI batch carries these exact-head fields already. Reuse them here so a
@@ -297,6 +303,22 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
+  defp ci_wait_reason_modifiers(result) do
+    if is_map(result[:merge_queue_entry]), do: ["merge-queued"], else: []
+  end
+
+  defp reconcile_ci_wait_reason(state, issue, result) do
+    merge_queued_label = "#{Aiur.GitHub.Config.label_prefix()}:merge-queued"
+    desired? = is_map(result[:merge_queue_entry])
+    current? = merge_queued_label in List.wrap(issue.labels)
+
+    if desired? == current? do
+      state
+    else
+      Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result))
+    end
+  end
+
   # Legacy anchors also include operator-dismissed failures. Only a recorded CI
   # pass proves that a same-head failure in human-review is new repair work.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
@@ -400,7 +422,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       TicketTransition.write_state(
         to_string(issue.id || issue.identifier),
         @active_handoff_state,
-        Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)
+        Transition.expected_state_opts(issue)
+        |> Keyword.put(:writer, :ci_lifecycle)
+        |> Keyword.put(:reason_modifiers, [])
       )
 
     if response == :ok, do: GithubCIPoller.record_pass(issue, result, result[:ci_recovery_opts] || [])
@@ -440,7 +464,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       TicketTransition.write_state(
         to_string(issue.id || issue.identifier),
         "rework",
-        Keyword.put(Transition.expected_state_opts(issue), :writer, :ci_lifecycle)
+        Keyword.merge(Transition.expected_state_opts(issue), writer: :ci_lifecycle, reason_modifiers: ["ci-red"], current_labels: List.wrap(issue.labels))
       )
 
     if response == :ok and result[:ci_recovery_checked], do: GithubCIPoller.record_failure(issue, result, result[:ci_recovery_opts])
