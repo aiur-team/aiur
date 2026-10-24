@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
   alias Aiur.Orchestrator.ControlLifecycleStore
   alias Aiur.Orchestrator.LifecycleFenceExpiry
   alias Aiur.Orchestrator.RetryEngine
+  alias Aiur.Orchestrator.RetryEngine.Exhaustion
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.RetryEngine.Scheduling
   alias Aiur.Orchestrator.State
@@ -38,6 +39,37 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
         StatusReport.notify_dashboard(state)
         {:noreply, state}
     end
+  end
+
+  defp handle_running_agent_down(
+         state,
+         issue_id,
+         running_entry,
+         {:terminal_policy_failure, {:unsafe_hosted_authentication, provider, auth_class} = failure},
+         session_id
+       ) do
+    identifier = Map.get(running_entry, :identifier, issue_id)
+
+    Logger.warning(
+      "Agent stopped on terminal hosted authentication policy for issue_id=#{issue_id} session_id=#{session_id} " <>
+        "reason=#{inspect(failure)}; refusing automatic retry"
+    )
+
+    {_entry, state} = State.pop_running_entry(state, issue_id)
+
+    state =
+      state
+      |> RetryEngine.release_issue_claim(issue_id)
+      |> put_terminal_policy_release(issue_id, provider, auth_class)
+      |> then(fn next -> %{next | retry_attempts: Map.delete(next.retry_attempts, issue_id)} end)
+
+    opts =
+      case Map.get(running_entry, :terminal_policy_state_writer) do
+        writer when is_function(writer, 3) -> [state_writer: writer]
+        _other -> []
+      end
+
+    Exhaustion.start_terminal_policy_state_write(state, issue_id, identifier, failure, opts)
   end
 
   defp handle_running_agent_down(
@@ -183,6 +215,16 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
     |> failure_retry_metadata({:startup_failed, reason})
     |> Map.put(:error, "startup failed: #{inspect(reason)}")
     |> Map.put(:last_failure_at, get_in(running_entry, [:runtime_terminal_failure, :observed_at]))
+  end
+
+  defp put_terminal_policy_release(state, issue_id, provider, auth_class) do
+    release = %{
+      cause: :terminal_policy_failure,
+      details: %{provider: provider, auth_class: auth_class},
+      released_at_ms: System.monotonic_time(:millisecond)
+    }
+
+    %{state | released_claims: Map.put(state.released_claims || %{}, issue_id, release)}
   end
 
   defp maybe_reap_orphaned_agent_shell(state, running_entry) do

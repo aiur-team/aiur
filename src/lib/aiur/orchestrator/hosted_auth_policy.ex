@@ -15,6 +15,15 @@ defmodule Aiur.Orchestrator.HostedAuthPolicy do
 
   def authorize(_mode, _provider, _auth_class), do: :ok
 
+  @doc "Extract the safe hosted-auth refusal from a startup or turn error."
+  @spec refusal(term()) :: {:ok, refusal()} | :error
+  def refusal({:unsafe_hosted_authentication, provider, auth_class} = refusal)
+      when is_binary(provider) and auth_class in [:api_key, :subscription, :oauth, :personal_token, :headers, :agent_identity, :bedrock, :unknown],
+      do: {:ok, refusal}
+
+  def refusal({:turn_unretryable, reason}), do: refusal(reason)
+  def refusal(_reason), do: :error
+
   @doc "Whether a registry entry proves every supported account mode is API-key based."
   @spec api_key_only_fallback?(map()) :: boolean()
   def api_key_only_fallback?(entry) when is_map(entry) do
