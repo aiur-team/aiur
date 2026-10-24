@@ -329,35 +329,44 @@ run_control_rpc() {
 
 run_control_rpc_dispatch() {
   local expression="$1"
-  resolve_release || return $?
-  prepare_distribution || die "distribution setup failed; cannot contact aiur"
-  resolve_control_identity_from_records
-  if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
-    prepare_distribution || die "distribution setup failed; cannot contact aiur"
-  fi
-
   local marker="__AIUR_CONTROL_EXIT__:" error_marker="__AIUR_CONTROL_ERROR__:"
   local output status exit_code=0 saw_marker=0 saw_error=0 saw_output=0 line partial_suffix=""
 
-  set +e
-  run_release_rpc_with_timeout "$expression"
-  status=$?
-  output="$AIUR_CONTROL_RPC_OUTPUT"
-  set -e
+  if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    AIUR_CONTROL_RPC_OUTPUT=""
+    set +e
+    run_remote_rpc_with_timeout "$expression"
+    status=$?
+    output="${AIUR_CONTROL_RPC_OUTPUT:-}"
+    set -e
+    [ "$status" -eq 0 ] || return "$status"
+  else
+    resolve_release || return $?
+    prepare_distribution || die "distribution setup failed; cannot contact aiur"
+    resolve_control_identity_from_records
+    if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
+      prepare_distribution || die "distribution setup failed; cannot contact aiur"
+    fi
 
-  if [ "$status" -ne 0 ] && [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ] && \
-    { [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ] || [ ! -r "$release_dir/releases/start_erl.data" ]; }; then
-    control_release_retry
-    return $?
-  fi
+    set +e
+    run_release_rpc_with_timeout "$expression"
+    status=$?
+    output="$AIUR_CONTROL_RPC_OUTPUT"
+    set -e
 
-  if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
-    [ -n "$output" ] && partial_suffix="; partial output was discarded"
-    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown${partial_suffix}.$(control_attempt_sentence) Commonly one blocked process inside the daemon, not host load."
-    return 124
-  fi
+    if [ "$status" -ne 0 ] && [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ] && \
+      { [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ] || [ ! -r "$release_dir/releases/start_erl.data" ]; }; then
+      control_release_retry
+      return $?
+    fi
 
-  if [ "$status" -ne 0 ]; then
+    if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
+      [ -n "$output" ] && partial_suffix="; partial output was discarded"
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown${partial_suffix}.$(control_attempt_sentence) Commonly one blocked process inside the daemon, not host load."
+      return 124
+    fi
+
+    if [ "$status" -ne 0 ]; then
     # A non-zero exit here is the rpc transport failing — application-level
     # outcomes ride the marker path below. `bin/aiur rpc` (Elixir --rpc-eval)
     # reports a genuinely-down node and a live-but-unreachable one identically
@@ -397,7 +406,8 @@ run_control_rpc_dispatch() {
         fi
         ;;
     esac
-    return 1
+      return 1
+    fi
   fi
 
   while IFS= read -r line; do

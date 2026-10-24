@@ -67,12 +67,32 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert output =~ "#44    paused"
+    assert output =~ "#44    agent:paused-agent"
     assert output =~ "waiting=paused"
     assert output =~ "pause_reason=agent_pause_request"
-    assert output =~ "#99    idle"
+    assert output =~ "#99    agent:blocked"
     assert output =~ "waiting=waiting_for_dependency"
     assert output =~ "blocked_by=repo#12"
+  end
+
+  test "status prints a persisted CI reason label exactly", %{orchestrator: pid} do
+    issue = %Issue{
+      id: "issue-ci",
+      identifier: "repo#ci",
+      state: "ci-wait",
+      labels: ["agent:ci-wait", "agent:ci-red"]
+    }
+
+    paused =
+      running_entry("issue-ci", "repo#ci", :paused)
+      |> Map.put(:issue, issue)
+
+    :sys.replace_state(pid, fn state -> %{state | running: %{"issue-ci" => paused}} end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "repo#ci"
+    assert output =~ "agent:ci-wait,agent:ci-red"
   end
 
   test "status names a blocking Command dispatch decline", %{orchestrator: pid} do
@@ -164,7 +184,7 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "#17    idle    Awaiting dispatch (awaiting-dispatch)"
-    assert output =~ "#18    retrying Retrying (operator; transient: tracker 403, retry ~4m)"
+    assert output =~ "#18    agent:todo,agent:retrying,agent:paused Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
   test "status names an in-progress claim with no live agent as orphaned", %{orchestrator: pid} do
@@ -291,7 +311,7 @@ defmodule Aiur.OrchestratorStatusCliReasonsTest do
     end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
-             "#19    paused  Operator pause (operator)"
+             "#19    agent:todo,agent:paused Operator pause (operator)"
   end
 
   test "status includes the repository readiness line" do

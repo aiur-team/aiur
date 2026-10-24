@@ -120,6 +120,7 @@ defmodule AiurWeb.Build.NowRows do
     waiting = get_in(row, [:reasons, :waiting])
 
     cond do
+      is_binary(runtime_reason_state(row)) -> runtime_reason_state(row)
       error?(row) -> if(retrying?(row), do: "retrying", else: "error")
       command?(row[:open_command_count], waiting) -> "command"
       true -> nil
@@ -132,6 +133,7 @@ defmodule AiurWeb.Build.NowRows do
     work_state = get_in(row, [:runtime, :work_state])
 
     cond do
+      is_binary(runtime_reason_state(row)) -> runtime_reason_state(row)
       pause_state(paused?, pause) -> pause_state(paused?, pause)
       UnitsPolicy.in_scope?(row, :live) and work_state in [:starting, :allocated, :working] -> "active"
       true -> nil
@@ -163,11 +165,22 @@ defmodule AiurWeb.Build.NowRows do
   defp retrying?(row), do: get_in(row, [:runtime, :bucket]) == :retrying
   defp error?(row), do: retrying?(row) or get_in(row, [:runtime, :work_state]) == :error or UnitsPolicy.condition?(:stuck, row)
 
+  defp runtime_reason_state(row) do
+    # The first reason label's suffix, whatever the configured prefix.
+    with label when is_binary(label) <- UnitsPresentation.reason_label(row),
+         [first | _] <- String.split(label, ","),
+         [_prefix, suffix] <- String.split(first, ":", parts: 2),
+         do: suffix,
+         else: (_ -> nil)
+  end
+
   defp status(row) do
-    case agent_state(row) do
-      "error" -> "failed"
-      "retrying" -> "queued"
-      _state -> "running"
+    state_labels = agent_state(row) |> to_string() |> String.split(",")
+
+    cond do
+      retrying?(row) or "agent:retrying" in state_labels -> "queued"
+      error?(row) or "agent:error" in state_labels -> "failed"
+      true -> "running"
     end
   end
 
