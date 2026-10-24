@@ -34,6 +34,7 @@ tracker:
 # Merge policy defaults; currently validated and shown in status/capabilities.
 # Set the same AIUR_LEASE_DATABASE_URL on every daemon for shared tickets and leader failover.
 instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
   # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # primary may lead; secondary never claims the repository lease
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
