@@ -170,14 +170,30 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @spec findings_blockers(Issue.t(), String.t(), Path.t() | nil, keyword()) :: {:allow, [ReworkFindings.finding()]} | {:refused, atom(), String.t()}
   def findings_blockers(%Issue{state: rework} = issue, state, workspace, opts)
       when state in ["ci-wait", "human-review"] and rework in ["rework", "agent:rework"] do
+    review_blockers(ReworkFindings.fetch(issue.identifier, opts), issue, state, workspace, opts)
+  end
+
+  # #5746: workers move a rework ticket to `in-progress` before handing back, so an open review with findings
+  # is checked in any state. Outside rework an unreadable review, or one with no numbered findings, fails open.
+  def findings_blockers(%Issue{} = issue, state, workspace, opts) when state in ["ci-wait", "human-review"] do
     case ReworkFindings.fetch(issue.identifier, opts) do
+      {:ok, %{review_head: review_head, findings: [_ | _]}} = fetched when is_binary(review_head) -> review_blockers(fetched, issue, state, workspace, opts)
+      _no_open_review -> {:allow, []}
+    end
+  end
+
+  def findings_blockers(_issue, _state, _workspace, _opts), do: {:allow, []}
+
+  defp review_blockers(fetched, issue, state, workspace, opts) do
+    case fetched do
       {:ok, %{number: number, head: head, review_head: nil}} ->
         no_review_comment_blocker(issue, state, workspace, head, number, opts)
 
       {:ok, %{review_head: review_head, head: head, findings: findings} = review} when is_binary(review_head) ->
         {commits, files} = ReworkFindings.branch_changes(workspace, review_head, head)
-        # evidence_blockers already held the body to the current head, so an edit after the review is a body fix (#4944).
-        body_edited? = commits == [] and ReworkFindings.body_edited_since?(review.number, review.review_at, opts)
+        # evidence_blockers already held the body to the current head, so an edit after the review is a body fix (#4944);
+        # a finding with no file may be a body ask, so it is checked even alongside commits (#5746).
+        body_edited? = (commits == [] or Enum.any?(findings, &is_nil(&1.file))) and ReworkFindings.body_edited_since?(review.number, review.review_at, opts)
 
         review_comment_blocker(%{
           issue: issue,
@@ -196,8 +212,6 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         {:refused, :rework_findings_unaddressed, "Cannot hand ticket #{issue.identifier} back to #{state}: the latest review's findings could not be read (#{inspect(reason)}). Retry the handoff."}
     end
   end
-
-  def findings_blockers(_issue, _state, _workspace, _opts), do: {:allow, []}
 
   defp no_review_comment_blocker(issue, state, workspace, head, number, opts) do
     case ReworkFindings.latest_feedback_comment(number, nil, opts) do

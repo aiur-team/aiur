@@ -55,8 +55,9 @@ defmodule Aiur.AgentTools.TicketState do
       "review_findings" => %{
         "type" => "array",
         "description" =>
-          "Rework handback only: one answer per finding in the rework prompt's review findings checklist. " <>
-            "`fixed` names the commit that changes the finding's file; `disputed` gives concrete evidence.",
+          "Required on any `ci-wait`/`human-review` handoff while a request-changes review is open: one answer per numbered finding in that review " <>
+            "(the rework prompt's checklist), even if you moved the ticket to `in-progress`. `fixed` names the commit that changes the finding's file " <>
+            "(a finding with no file may instead be fixed by a PR body edit after the review); `disputed` gives concrete evidence.",
         "items" => %{
           "type" => "object",
           "required" => ["id", "status"],
