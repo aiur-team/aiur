@@ -208,6 +208,34 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
       assert out =~ "returned no exit marker"
     end
 
+    @tag timeout: 180_000
+    test "Logger output from the real RPC fixture does not contaminate marker stdout" do
+      rel = fake_release()
+      state = tmp_state()
+
+      install_real_rpc_fixture(rel)
+
+      on_exit(fn ->
+        Aiur.TestCleanup.rm_rf!(rel)
+        Aiur.TestCleanup.rm_rf!(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured(
+          ~s|require Logger; Logger.warning("fixture logger output must not use protocol stdout"); Aiur.ControlCLI.Protocol.exit_marker(1)|,
+          [
+            {"AIUR_RELEASE_DIR", rel},
+            {"AIUR_BG_STATE_DIR", state}
+          ]
+        )
+
+      assert out =~ "CODE=1", out
+      assert out =~ "STDOUT_BYTES=0", out
+      assert out =~ ~r/STDERR_LINES=[1-9]/, out
+      refute out =~ "fixture logger output must not use protocol stdout", out
+      refute out =~ "returned no exit marker", out
+    end
+
     test "a hung rpc is killed and surfaces exit 124" do
       rel = fake_release()
       state = tmp_state()
@@ -456,12 +484,17 @@ defmodule Aiur.Regression.EngineControlRpcMarkerTest do
     bin = Path.join([rel, "bin", "aiur"])
 
     # Remote stderr belongs to the daemon; only stdout markers travel over RPC.
-    # Capture evaluated stderr, while leaving runtime startup failures visible.
+    # The default Logger handler writes to standard_io, so replace it with a
+    # standard_error handler before evaluating commands. Otherwise incidental
+    # Logger output contaminates the marker stream and can obscure a missing
+    # marker's source as ordinary RPC stdout.
     File.write!(bin, """
     #!/usr/bin/env bash
     set -euo pipefail
     exec #{shell_quote(elixir)} #{paths} -e '
       {:ok, _} = Application.ensure_all_started(:ex_unit)
+      :ok = :logger.remove_handler(:default)
+      :ok = :logger.add_handler(:default, :logger_std_h, %{config: %{type: :standard_error}})
       ExUnit.CaptureIO.capture_io(:stderr, fn -> Code.eval_string(hd(System.argv())) end)
     ' -- "${@: -1}"
     """)
