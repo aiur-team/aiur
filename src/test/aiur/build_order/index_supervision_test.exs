@@ -121,9 +121,7 @@ defmodule Aiur.BuildOrder.IndexSupervisionTest do
   end
 
   defp modules(opts) do
-    Aiur.Application.child_specs(
-      [interactive_cli?: true, headless?: false, dashboard?: true] ++ opts
-    )
+    Aiur.Application.child_specs([interactive_cli?: true, headless?: false, dashboard?: true] ++ opts)
     |> Enum.map(fn
       {module, _} -> module
       module -> module
