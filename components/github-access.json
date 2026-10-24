@@ -74,6 +74,7 @@
     "Aiur.GitHub.Transport"
   ],
   "requires": [
+    "config",
     "kernel",
     "signal"
   ],

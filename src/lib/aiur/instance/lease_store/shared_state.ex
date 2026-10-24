@@ -20,7 +20,7 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
   def github_budget_hold(credential_key, resource, opts \\ []),
     do: call({:github_budget_hold, credential_key, resource}, opts, :disabled)
 
-  @spec publish_provider_meter(Aiur.ProviderMeterSnapshot.t(), keyword()) :: term()
+  @spec publish_provider_meter(map(), keyword()) :: term()
   def publish_provider_meter(snapshot, opts \\ []), do: call({:publish_provider_meter, snapshot}, opts, :disabled)
   @spec shared_provider_meter(atom(), keyword()) :: term()
   def shared_provider_meter(provider, opts \\ []), do: call({:shared_provider_meter, provider}, opts, :disabled)
@@ -195,9 +195,9 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
     error -> {:reply, {:error, {:store_unavailable, error}}, state}
   end
 
-  defp decode_provider_meter(payload, provider) do
+  defp decode_provider_meter(payload, _provider) do
     case :erlang.binary_to_term(payload, [:safe]) do
-      %Aiur.ProviderMeterSnapshot{provider: ^provider} = snapshot -> {:ok, snapshot}
+      snapshot when is_map(snapshot) -> {:ok, snapshot}
       _invalid -> {:error, {:store_unavailable, :invalid_provider_snapshot}}
     end
   rescue
