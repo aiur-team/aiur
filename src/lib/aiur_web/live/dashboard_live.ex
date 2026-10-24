@@ -11,6 +11,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.Conversation.History, as: ConversationHistory
+  alias Aiur.Instance.RepositoryLeader
   alias Aiur.ProviderMeterRefresh
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
@@ -58,6 +59,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
+  @leader_status_tick_ms 10_000
   # Also the payload refresh interval: reloads are otherwise event-driven only (#3937).
   @github_quota_tick_ms 15_000
   # Voice credit is a whole-account figure that moves far more slowly than a
@@ -90,6 +92,7 @@ defmodule AiurWeb.DashboardLive do
       socket
       |> assign(:payload, payload)
       |> assign(:now, DateTime.utc_now())
+      |> assign(:repository_leader, RepositoryLeader.status())
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
       |> Voice.assign_voice()
@@ -149,6 +152,7 @@ defmodule AiurWeb.DashboardLive do
 
     if connected do
       schedule_runtime_tick()
+      schedule_leader_status_tick()
       schedule_github_quota_tick()
       schedule_elevenlabs_quota_tick()
     end
@@ -207,6 +211,11 @@ defmodule AiurWeb.DashboardLive do
   def handle_info(:runtime_tick, socket) do
     schedule_runtime_tick()
     {:noreply, assign(socket, :now, DateTime.utc_now())}
+  end
+
+  def handle_info(:leader_status_tick, socket) do
+    schedule_leader_status_tick()
+    {:noreply, assign(socket, :repository_leader, RepositoryLeader.status())}
   end
 
   def handle_info(:github_quota_tick, socket) do
@@ -706,6 +715,7 @@ defmodule AiurWeb.DashboardLive do
     assigns =
       assigns
       |> Map.put_new(:selected_decision_health, nil)
+      |> Map.put_new(:repository_leader, RepositoryLeader.status())
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
@@ -770,6 +780,9 @@ defmodule AiurWeb.DashboardLive do
       writable={@writable}
     >
       <:banner>
+        <div class="readonly-banner" role="status" aria-live="polite">
+          <span>Repository leader: <b>{@repository_leader.leader}</b> · lease age {@repository_leader.lease_age}</span>
+        </div>
         <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
@@ -2182,6 +2195,7 @@ defmodule AiurWeb.DashboardLive do
   defp agent_kind, do: to_string(Aiur.Config.agent_kind())
 
   defp schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
+  defp schedule_leader_status_tick, do: Process.send_after(self(), :leader_status_tick, @leader_status_tick_ms)
   defp schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)
   defp schedule_elevenlabs_quota_tick, do: Process.send_after(self(), :elevenlabs_quota_tick, @elevenlabs_quota_tick_ms)
 

@@ -34,4 +34,9 @@ defmodule Aiur.MergePolicyCLIMainWatchTest do
       assert topic in Aiur.ExecutorBindings.patterns()
     end
   end
+
+  test "status names the current repository leader and lease age" do
+    assert Aiur.MergePolicyCLI.leader_status_line(%{leader: "node-a", lease_age: "21s"}) ==
+             "REPOSITORY LEADER holder=node-a lease_age=21s"
+  end
 end

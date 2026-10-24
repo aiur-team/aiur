@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.IssueSync.LabelWrites do
   Schedules guarded state-label writes and applies current reconciliation results.
   """
 
+  alias Aiur.Instance.LeaderFence
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.TicketTransition
@@ -30,7 +31,11 @@ defmodule Aiur.Orchestrator.IssueSync.LabelWrites do
   end
 
   defp write_label_heal({issue, target, update_state_fun}) do
-    update_state_fun.(issue.identifier, target)
+    if LeaderFence.allowed?() do
+      update_state_fun.(issue.identifier, target)
+    else
+      LeaderFence.error()
+    end
   end
 
   defp apply_label_heal(current, result, {apply_heal, input, issue}) do

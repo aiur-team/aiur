@@ -35,6 +35,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.{Quota, Transport.TestScope}
   alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.Transport.{GraphQL, OffProcess}
+  alias Aiur.Instance.LeaderFence
 
   require Logger
 
@@ -107,7 +108,11 @@ defmodule Aiur.GitHub.Transport do
   members had different visibility would need the credential in the cache key.
   """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(req), do: Settings.with_request(fn -> TestScope.run(req, &do_request/1) end)
+  def default_request_fun(req) do
+    LeaderFence.run(req, &LeaderFence.allowed?/0, fn ->
+      Settings.with_request(fn -> TestScope.run(req, &do_request/1) end)
+    end)
+  end
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =

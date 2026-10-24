@@ -43,7 +43,7 @@ defmodule Aiur.Config.Schema.Instance do
     field(:id, :string)
 
     # @config-reference config-configuration-00 instance.role
-    # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
+    # @config-detail instance.role | string | `primary` | `secondary` never claims the repository leader lease; `primary` participates in shared leader election when `AIUR_LEASE_DATABASE_URL` is configured. Only the lease holder runs repository-wide landing, quarantine, merge-queue, main-branch and label-heal work. Without a shared store, primary retains single-instance behavior. Read once at daemon start; change it with a restart. |
     field(:role, :string, default: "primary")
 
     embeds_one(:ignore, Aiur.Config.Schema.Instance.Ignore,

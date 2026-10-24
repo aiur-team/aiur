@@ -6,6 +6,9 @@ defmodule Aiur.Instance.LeaseStoreTest do
   alias Aiur.TrackerIdentity
 
   test "ticket keys normalize issue and provider shapes to one repository-qualified key" do
+    assert {:ok, "acme/widgets"} = LeaseStore.repository_key("Acme/Widgets")
+    assert {:error, :invalid_repository} = LeaseStore.repository_key("not-a-repo")
+
     identity = %TrackerIdentity{
       status: :joinable,
       kind: :github,
@@ -228,6 +231,24 @@ defmodule Aiur.Instance.LeaseStoreTest do
         assert LeaseStore.renew(expiry_key, server: left, ttl_ms: 100) == {:error, :lease_lost}
         assert :ok = LeaseStore.release(expiry_key, server: left)
         assert LeaseStore.holder(expiry_key, server: right) == {:held, right_id}
+
+        repository = "lease-test/leader-#{suffix}"
+        assert LeaseStore.claim_leader(repository, server: left, ttl_ms: 5_000) == :acquired
+        assert LeaseStore.claim_leader(repository, server: right, ttl_ms: 5_000) == :held
+        assert %{instance_id: ^left_id, heartbeat_at: %DateTime{}, expires_at: %DateTime{}} = LeaseStore.leader(repository, server: right)
+        assert LeaseStore.leader_owned?(repository, server: left, instance_id: left_id)
+        refute LeaseStore.leader_owned?(repository, server: right, instance_id: right_id)
+
+        assert {:ok, %{num_rows: 1}} =
+                 Postgrex.query(
+                   connection,
+                   "UPDATE aiur_repository_leases SET expires_at = clock_timestamp() - interval '1 second' WHERE repository = $1",
+                   [repository]
+                 )
+
+        assert LeaseStore.claim_leader(repository, server: right, ttl_ms: 5_000) == :acquired
+        assert LeaseStore.renew_leader(repository, server: left, ttl_ms: 5_000) == {:error, :lease_lost}
+        assert %{instance_id: ^right_id} = LeaseStore.leader(repository, server: left)
     end
   end
 
