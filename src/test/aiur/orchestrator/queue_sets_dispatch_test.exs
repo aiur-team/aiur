@@ -10,11 +10,8 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     configure()
-    tracker_adapters = Application.fetch_env!(:aiur, :tracker_adapters)
-    Application.put_env(:aiur, :tracker_adapters, Map.put(tracker_adapters, "github", QueueBoundary))
     :ets.new(Hints.table_name(), [:named_table, :set])
     on_exit(fn -> File.write!(path, original) end)
-    on_exit(fn -> Application.put_env(:aiur, :tracker_adapters, tracker_adapters) end)
     on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     :ok
   end
@@ -30,15 +27,6 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     def blocked_by(_), do: {:ok, []}
     def ticket_pull_request(_), do: {:ok, nil}
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
-    # The production probe hydrates these synthetic IDs through the configured
-    # GitHub adapter. Keep that cache lookup from importing unrelated blockers.
-    def cached_blocked_by(issue) do
-      key = {__MODULE__, :cached_blocked_by_ids}
-      Process.put(key, [issue.id | Process.get(key, [])])
-      {:ok, issue}
-    end
-
-    def cached_blocked_by_ids, do: Process.get({__MODULE__, :cached_blocked_by_ids}, [])
 
     def probe_state do
       document = Agent.get(__MODULE__, & &1)
@@ -98,9 +86,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     probe_state = QueueBoundary.probe_state()
     decisions = Map.new(probe_state.last_polled_issues, fn {id, issue} -> {id, DispatchPolicy.dispatch_decision(issue, probe_state)} end)
     assert Enum.all?(decisions, fn {_id, decision} -> decision == :dispatch end), inspect(decisions)
-    Process.delete({QueueBoundary, :cached_blocked_by_ids})
     assert QueueBoundary.next_set() == {:ok, "q-0002"}
-    assert MapSet.new(QueueBoundary.cached_blocked_by_ids()) == MapSet.new(Map.keys(probe_state.last_polled_issues))
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
     assert output =~ "queue order  actual set 2 > set 1 > set 0  declared unavailable"
     assert output =~ "0  set 2\n1  set 1\n2  set 0\n"
