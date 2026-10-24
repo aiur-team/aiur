@@ -122,7 +122,10 @@ test('a feature page error stops loading and preserves server figures', async ({
   })
   await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'error')
   await expect(page.locator('.bd-kv b').nth(0)).toHaveText(`${values.done}/${values.total}`)
-  expect(await page.evaluate(() => ({ calls: errorCalls, retry: hist.H.retryArmed }))).toEqual({ calls: 1, retry: false })
+  // Away from the top, viewport updates may re-arm an explicit retry. The failed
+  // feature span must still stop instead of automatically requesting another day.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  expect(await page.evaluate(() => ({ calls: errorCalls, state: hist.H.state }))).toEqual({ calls: 1, state: 'error' })
 })
 test('late feature activation and live dependencies rebuild compact ghosts', async ({ page }) => {
   await open(page, '?feature=late&fmode=compact')
@@ -136,11 +139,11 @@ test('late feature activation and live dependencies rebuild compact ghosts', asy
     return { member: member.id, ghost: external.id, epic: external.epic }
   })
   await expect(page.locator('.bd-fh-name')).toHaveText('Late feature')
-  const result = await page.evaluate(ids => {
+  // The header updates synchronously, while a snapping viewport defers layout.
+  await expect.poll(() => page.evaluate(ids => {
     const { ctx } = m, ghost = ctx.L.secs.nq.items.find(it => it.t.id === ids.ghost)
-    return { ghost: ghost?.ghost, cols: ctx.cols, others: ctx.L.secs.plan.items.filter(it => it.t.id !== ids.member && !it.ghost).length }
-  }, ids)
-  expect(result.ghost).toBe(true); expect(result.cols).toContain(ids.epic); expect(result.others).toBe(0)
+    return { ghost: ghost?.ghost, lane: ctx.cols.includes(ids.epic), others: ctx.L.secs.plan.items.filter(it => it.t.id !== ids.member && !it.ghost).length }
+  }, ids)).toEqual({ ghost: true, lane: true, others: 0 })
   await page.evaluate(ids => { const { ctx, fx } = m; ctx.vp.scrollTop = ctx.secs.nq.el.offsetTop; fx.update() }, ids)
   await expect(page.locator(`.bd-card[data-id="${ids.ghost}"]`)).toHaveClass(/ghost/)
 })
