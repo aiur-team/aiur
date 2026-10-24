@@ -5,6 +5,7 @@ defmodule Aiur.ApplicationTest do
 
   alias Aiur.Application, as: AiurApp
   alias Aiur.Application.StartupChecks
+  alias Aiur.Config.Schema
   alias Aiur.Identity.Machine
 
   defmodule SuccessStubDistribution do
@@ -37,6 +38,24 @@ defmodule Aiur.ApplicationTest do
     source = File.read!(Path.expand("../../lib/aiur.ex", __DIR__))
 
     assert source =~ "Aiur.RtkStartupCheck.run()"
+  end
+
+  test "application startup checks refuse an unsafe hosted configuration" do
+    assert {:ok, settings} = Schema.parse(%{"instance" => %{"mode" => "hosted"}})
+
+    assert_raise ArgumentError, ~r/Hosted mode safety checks failed:/, fn ->
+      AiurApp.validate_hosted_mode!({:ok, settings}, booted_mode: nil)
+    end
+  end
+
+  test "startup checks compare the configured mode with the mode stored at boot" do
+    previous = Application.get_env(:aiur, :booted_instance_mode)
+    on_exit(fn -> restore_env(:booted_instance_mode, previous) end)
+    Application.put_env(:aiur, :booted_instance_mode, "local")
+    assert {:ok, settings} = Schema.parse(%{"instance" => %{"mode" => "hosted"}})
+
+    assert StartupChecks.validate_hosted_mode({:ok, settings}) ==
+             {:error, {:instance_mode_change_requires_restart, "local", "hosted"}}
   end
 
   test "startup Funnel health check stays quiet while the reconciler owns the route" do
@@ -118,4 +137,7 @@ defmodule Aiur.ApplicationTest do
                )
     end
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
 end

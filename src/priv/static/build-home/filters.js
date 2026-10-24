@@ -1,3 +1,4 @@
+import { loadFeatureSpan } from './features.js';
 // Port of design build.js:1091–1127; real-data differences follow C10-T02.
 import { S, ctx, fx, onReset, FKEYS } from './state.js';
 import { $, $$, esc } from './dom.js';
@@ -90,7 +91,8 @@ export function setFeature(k) {
   writeURL(); fx.renderFeatures(); renderFilters();
   if (S.loading || !ctx.D) return;
   const changed = changedLayout();
-  if (S.view === 'list') { fx.renderList(); return; }
-  if (changed || wasCompact || (k && S.fmode === 'compact')) fx.relayout(); else { fx.decorateAll(); fx.applyCols(fx.visibleCols()); }
+  if (S.view === 'list') fx.renderList();
+  else if (changed || wasCompact || (k && S.fmode === 'compact')) fx.relayout(); else { fx.decorateAll(); fx.applyCols(fx.visibleCols()); }
+  if (k) loadFeatureSpan(k);
 }
 Object.assign(fx, { renderFilters, filtersChanged, syncAst, setFeature });

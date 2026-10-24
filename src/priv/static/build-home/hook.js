@@ -1,3 +1,4 @@
+import { activeFeature, loadFeatureSpan } from './features.js';
 import { S, ctx, fx, resetState, renderChrome } from './state.js';
 import { createLife } from './life.js';
 import { shell } from './shell.js';
@@ -43,8 +44,9 @@ function firstPaint() {
   ctx.inited = true; S.loading = false;
   renderChrome(); fx.viewport(); fx.relayout(); markFirstBoard(); fx.jumpNow(true); S.ready = true;
   ctx.life.frame('ticket', () => fx.openFromURL());
+  if (activeFeature()) loadFeatureSpan(S.feature);
 }
-function repaint() { renderChrome(); fx.relayout(); fx.update(); }
+function repaint() { renderChrome(); fx.relayout(); fx.update(); if (activeFeature()) loadFeatureSpan(S.feature); }
 function reloadOnce() {
   try {
     if (!sessionStorage.getItem('aiur-build-reloaded')) {
@@ -71,7 +73,7 @@ export function receive(msg) {
         if (first) firstPaint();
         else { repaint(); fx.modalSync({ upsert: ctx.D.all }); }
       }
-      else { fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); }
+      else { fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); if (msg.set?.features && activeFeature()) loadFeatureSpan(S.feature); }
       writeOwnData();
       break;
     }
@@ -88,13 +90,14 @@ export function resync() {
   }, () => { if (current()) ctx.proto.inFlight = false; });
 }
 function onServerURL({ state }) {
-  const view = S.view, span = S.span, ticket = S.ticket;
+  const view = S.view, span = S.span, ticket = S.ticket, feature = S.feature;
   fromServer(state);
   if (ticket !== S.ticket) fx.syncTicket(S.ticket);
   renderChrome();
   if (view !== S.view && !S.loading) fx.viewport();
   fx.relayout(); fx.update();
   if (span !== S.span || view !== S.view) fx.jumpNow(true);
+  if (feature !== S.feature) loadFeatureSpan(S.feature);
 }
 export function createBuildHomeHook() {
   return {

@@ -14,6 +14,7 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
     :family,
     :can_interrupt,
     :safe_checkpoints,
+    :hosted_execution,
     :remote_control,
     :resumable,
     :models,
