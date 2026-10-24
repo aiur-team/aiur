@@ -32,8 +32,8 @@ function collect(config, selectedSpec = spec) {
 test('motion suite contains product behavior and helper checks only', () => {
   const routine = collect('playwright.build-home-motion.config.mjs')
   assert.equal(routine.titles.filter(title => title.startsWith('clock probe:')).length, 0)
-  assert.ok(routine.titles.includes('product reduced-motion preference disables animated effects'))
-  assert.ok(routine.titles.every(title => /^(clock probe:|harness self-check:|product )/.test(title)))
+  assert.ok(routine.titles.includes('reduced-motion preference disables a running card glow animation'))
+  assert.ok(routine.titles.every(title => /^(clock probe:|harness self-check:|product |reduced-motion preference )/.test(title)))
   assert.ok(!routine.titles.some(title => /design determinism|parity|sign-off/i.test(title)))
   assert.equal(routine.config.workers, 2)
   assert.equal(routine.config.fullyParallel, true)

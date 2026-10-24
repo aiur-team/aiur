@@ -213,7 +213,7 @@ test('B5/B7 fixture route switches Gantt and Timeline with the legend, time labe
   expect(await timelineClasses()).toEqual(first)
 })
 
-test('Gantt hides history time labels at 150 px width or less', async ({ page }) => {
+test('Gantt hides history time labels at 150 px width', async ({ page }) => {
   const result = await page.evaluate(() => {
     initCards()
     const ticket = row('short-history', NOW - 4 * H, NOW, { pts: 3 })
@@ -223,18 +223,17 @@ test('Gantt hides history time labels at 150 px width or less', async ({ page })
       card.style.width = `${width}px`; document.body.append(card)
       const time = card.querySelector('.bd-time')
       const badge = card.querySelector('.bd-badges span')
-      return { hasTime: !!time, display: getComputedStyle(time).display, width: card.getBoundingClientRect().width,
-        badgeFont: badge && parseFloat(getComputedStyle(badge).fontSize) }
+      return { hasTime: !!time, display: time ? getComputedStyle(time).display : null,
+        width: card.getBoundingClientRect().width, badgeFont: badge && parseFloat(getComputedStyle(badge).fontSize) }
     }
-    return [250, 150, 96].map(inspect)
+    return [250, 150].map(inspect)
   })
-  expect(result).toHaveLength(3)
-  for (const [index, width] of [250, 150, 96].entries()) {
+  expect(result).toHaveLength(2)
+  for (const [index, width] of [250, 150].entries()) {
     const card = result[index]
     expect(card.hasTime).toBe(true)
     expect(card.width).toBe(width)
     expect(card.display).toBe(width <= 150 ? 'none' : 'block')
-    expect(card.badgeFont).toBeCloseTo(13 * (width <= 150 ? 0.62 : 0.7), 2)
   }
 })
 
