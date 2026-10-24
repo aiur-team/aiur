@@ -189,8 +189,8 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   # failure is not a failure of the head — the current run is the verdict — so
   # the gate considers only the latest run per (workflow, name) (#2337 cause 4).
   #
-  # Workflow identity comes from GitHub's workflow id when present. Check suites
-  # are per run, so re-runs can have different suite ids. Keying on name alone would collapse a
+  # Workflow identity comes from GitHub's workflow id when present; check suite
+  # identity is the fallback for non-Actions runs. Keying on name alone would collapse a
   # same-named job across workflows — ci.yml's `build` and
   # streamdeck-package.yml's `build` land on one head sha, and a failing
   # required `build` could be dropped by a later-starting green one from the
@@ -232,7 +232,7 @@ defmodule Aiur.Events.GithubCIPoller.Evaluation do
   # check-runs read. Absent either, the run's own id scopes it so same-named
   # suite-less runs are never collapsed together.
   defp check_run_workflow(check_run) do
-    case Map.get(check_run, "workflow_id") || get_in(check_run, ["check_suite", "workflow_id"]) do
+    case Map.get(check_run, "workflow_id") do
       id when not is_nil(id) ->
         {:workflow, id}
 
