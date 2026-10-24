@@ -11,6 +11,8 @@ defmodule Aiur.LandingWatch.MergeFailureClassifier do
   def classify(run, jobs, observations, opts \\ []) do
     log_fun = Keyword.get(opts, :job_log_fun, fn _job, _opts -> {:ok, ""} end)
 
+    # A cancelled run can still contain a job that exhausted its configured
+    # timeout; preserve that infrastructure evidence for the normal classifier.
     if cancelled_group?(run, jobs) and not timeout_cancelled_job?(jobs, opts) do
       {:ok, {:cancelled, nil}}
     else
