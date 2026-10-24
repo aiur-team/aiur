@@ -10,6 +10,7 @@ defmodule Aiur.Application.StartupChecks do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
   alias Aiur.GitHub.AuthPolicy
+  alias Aiur.CodingAgent.ProviderCredential
   alias Aiur.Orchestrator.HostedModeCheck
 
   @doc false
@@ -154,7 +155,7 @@ defmodule Aiur.Application.StartupChecks do
   defp clear_rotated_provider_auth_holds(_settings, _env), do: :ok
 
   defp reconcile_provider_auth_hold(backend, settings, env) do
-    fingerprint = credential_fingerprint(backend, settings, env)
+    fingerprint = ProviderCredential.fingerprint(backend, settings, env)
     ledger_path = auth_ledger_path(settings, env)
     held? = Aiur.ModelAvailability.auth_rejected?(backend, path: ledger_path)
 
@@ -178,39 +179,6 @@ defmodule Aiur.Application.StartupChecks do
 
   defp auth_ledger_path(%{instance: %{mode: "hosted"}}, env), do: Path.join(hosted_state_path(env), "model-usage.json")
   defp auth_ledger_path(_settings, _env), do: Aiur.ModelAvailability.path()
-
-  @doc false
-  @spec credential_fingerprint(String.t(), map(), map()) :: String.t() | nil
-  def credential_fingerprint("claude", _settings, env) do
-    fingerprint(env["CLAUDE_CODE_OAUTH_TOKEN"] || env["ANTHROPIC_API_KEY"])
-  end
-
-  def credential_fingerprint("codex", _settings, env) do
-    case env["CODEX_HOME"] do
-      home when is_binary(home) ->
-        case File.read(Path.join(home, "auth.json")) do
-          {:ok, content} -> fingerprint(content)
-          _ -> fingerprint(env["OPENAI_API_KEY"])
-        end
-
-      _ ->
-        fingerprint(env["OPENAI_API_KEY"])
-    end
-  end
-
-  def credential_fingerprint(backend, settings, env) do
-    name =
-      get_in(settings, [:agent, :backend_configs, backend, "api_key_env"]) ||
-        RouteCredentials.missing_key_env(backend, api_key_fetcher: fn key -> env[key] end)
-
-    fingerprint(if(is_binary(name), do: env[name], else: nil))
-  end
-
-  defp fingerprint(value) when is_binary(value) and value != "" do
-    :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
-  end
-
-  defp fingerprint(_value), do: nil
 
   defp hosted_route_credential?("claude", _settings, env, "operator") do
     present_env?("CLAUDE_CODE_OAUTH_TOKEN", env) or present_env?("ANTHROPIC_API_KEY", env)
