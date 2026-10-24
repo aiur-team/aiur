@@ -18,6 +18,7 @@ defmodule AiurWeb.DashboardAuth.ChallengeStore do
     {:ok,
      %{
        entries: %{},
+       now_fun: Keyword.get(opts, :now_fun, fn -> System.monotonic_time(:millisecond) end),
        ttl_ms: Keyword.get(opts, :ttl_ms, @ttl_ms),
        max_entries: Keyword.get(opts, :max_entries, @max_entries),
        max_entries_per_owner: Keyword.get(opts, :max_entries_per_owner, @max_entries_per_owner)
@@ -26,20 +27,20 @@ defmodule AiurWeb.DashboardAuth.ChallengeStore do
 
   @impl GenServer
   def handle_call({:put, %Wax.Challenge{} = challenge, owner}, _from, state) do
-    entries = purge_expired(state.entries)
+    entries = purge_expired(state.entries, state.now_fun)
     owner_entries = Enum.count(entries, fn {_id, {_expires_at, _challenge, entry_owner}} -> entry_owner == owner end)
 
     if map_size(entries) >= state.max_entries or owner_entries >= state.max_entries_per_owner do
       {:reply, {:error, :capacity_exceeded}, %{state | entries: entries}}
     else
       id = Base.url_encode64(:crypto.strong_rand_bytes(24), padding: false)
-      expires_at = System.monotonic_time(:millisecond) + state.ttl_ms
+      expires_at = state.now_fun.() + state.ttl_ms
       {:reply, {:ok, id}, %{state | entries: Map.put(entries, id, {expires_at, challenge, owner})}}
     end
   end
 
   def handle_call({:take, id}, _from, state) do
-    entries = purge_expired(state.entries)
+    entries = purge_expired(state.entries, state.now_fun)
 
     case Map.pop(entries, id) do
       {{_expires_at, challenge, _owner}, rest} -> {:reply, {:ok, challenge}, %{state | entries: rest}}
@@ -47,8 +48,8 @@ defmodule AiurWeb.DashboardAuth.ChallengeStore do
     end
   end
 
-  defp purge_expired(state) do
-    now = System.monotonic_time(:millisecond)
-    Map.reject(state, fn {_id, {expires_at, _challenge, _owner}} -> expires_at <= now end)
+  defp purge_expired(entries, now_fun) do
+    now = now_fun.()
+    Map.reject(entries, fn {_id, {expires_at, _challenge, _owner}} -> expires_at <= now end)
   end
 end

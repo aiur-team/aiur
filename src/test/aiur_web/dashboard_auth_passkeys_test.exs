@@ -21,13 +21,15 @@ defmodule AiurWeb.DashboardAuthPasskeysTest do
 
   test "passkey challenge storage is bounded and releases expired slots" do
     name = Module.concat(__MODULE__, BoundedChallengeStore)
-    store = start_supervised!({ChallengeStore, name: name, max_entries: 1, ttl_ms: 250})
+    clock = start_supervised!({Agent, fn -> 0 end})
+    now_fun = fn -> Agent.get(clock, & &1) end
+    store = start_supervised!({ChallengeStore, name: name, max_entries: 1, ttl_ms: 250, now_fun: now_fun})
     challenge = Wax.new_registration_challenge(origin: "https://aiur.example.test", rp_id: "aiur.example.test", user_verification: "required")
 
     assert {:ok, _challenge_id} = ChallengeStore.put(challenge, store)
     assert {:error, :capacity_exceeded} = ChallengeStore.put(challenge, store)
 
-    Process.sleep(260)
+    Agent.update(clock, &(&1 + 250))
 
     assert {:ok, _replacement_id} = ChallengeStore.put(challenge, store)
   end
