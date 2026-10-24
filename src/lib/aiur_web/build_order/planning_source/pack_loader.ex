@@ -4,8 +4,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
 
   alias Aiur.BuildOrder.PackPaths
   alias Aiur.GitHub.Config
-  alias AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard
 
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
