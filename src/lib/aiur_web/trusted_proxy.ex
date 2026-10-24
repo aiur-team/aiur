@@ -30,26 +30,7 @@ defmodule AiurWeb.TrustedProxy do
 
   @doc false
   @spec valid_entry?(String.t()) :: boolean()
-  def valid_entry?("platform"), do: true
-
-  def valid_entry?(value) when is_binary(value) do
-    case String.split(value, "/", parts: 2) do
-      [address] ->
-        match?({:ok, _}, parse_ip(address))
-
-      [address, bits] ->
-        with {:ok, ip} <- parse_ip(address),
-             {width, _} <- address_width(ip),
-             {prefix, ""} <- Integer.parse(bits),
-             true <- prefix >= 0 and prefix <= width do
-          true
-        else
-          _ -> false
-        end
-    end
-  end
-
-  def valid_entry?(_), do: false
+  def valid_entry?(entry), do: Aiur.Config.TrustedProxyEntry.valid?(entry)
 
   @doc false
   @spec trusted?(:inet.ip_address(), [String.t()]) :: boolean()
