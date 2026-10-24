@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.LabelsTest do
   use ExUnit.Case, async: true
 
   alias Aiur.GitHub.Labels
+  alias Aiur.Orchestrator.ControlLifecycle.Restore
 
   describe "label_set/2" do
     test "claude+codex covers state, both model families, and complexity" do
@@ -33,6 +34,63 @@ defmodule Aiur.GitHub.LabelsTest do
       refute "agent:parked" in Labels.state_labels("agent")
       refute "agent:rate-limit-fallback" in Labels.state_labels("agent")
       assert Labels.marker_suffix?("rate-limit-fallback")
+    end
+
+    test "seeds the complete runtime states and keeps modifiers orthogonal" do
+      expected_modifiers = ~w(merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent retrying blocked handed-off)
+      labels = Labels.label_set("agent", ["codex"])
+
+      assert Labels.state_suffixes() ==
+               ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
+
+      assert Enum.all?(expected_modifiers, &(("agent:" <> &1) in Labels.reason_modifier_labels("agent")))
+      assert Enum.all?(expected_modifiers, &(("agent:" <> &1) in labels))
+      assert Enum.all?(expected_modifiers, &Labels.reason_modifier_suffix?/1)
+      assert Enum.all?(expected_modifiers, &Labels.marker_suffix?/1)
+      assert Enum.all?(expected_modifiers, &(("agent:" <> &1) not in Labels.state_labels("agent")))
+      assert Enum.all?(expected_modifiers, fn suffix -> Labels.describe("agent:" <> suffix) != suffix end)
+      assert Labels.present_runtime_labels(["AGENT:CI-WAIT", "Agent:ci-red", "agent:watch"], "agent") == ["agent:ci-wait", "agent:ci-red"]
+      assert Enum.all?(Labels.marker_labels("agent"), &(&1 in labels))
+      assert Labels.runtime_reason_modifier(:usage_limit_exhausted) == "paused-usage-limit"
+      assert Labels.runtime_reason_modifier(:waiting_for_human) == "paused-decision"
+      assert Labels.runtime_reason_modifier(:agent_pause_request) == "paused-agent"
+      assert Labels.runtime_reason_modifier(:backing_off) == "retrying"
+      assert Labels.runtime_reason_modifier(:waiting_for_dependency) == "blocked"
+      assert Labels.runtime_reason_modifier(:merge_queue) == "merge-queued"
+      assert Labels.runtime_reason_modifier(:ci_red) == "ci-red"
+      assert Labels.runtime_reason_modifier(:body_fix) == "body-fix"
+      assert Labels.runtime_reason_modifier(:handed_off) == "handed-off"
+      assert Labels.runtime_reason_modifier(:workspace_ownership_waiting) == "handed-off"
+    end
+
+    test "runtime_labels/3 merges tracker labels with live causes in vocabulary order" do
+      assert Labels.runtime_labels(["aiur:blocked", "aiur:ci-wait", "flake"], [:usage_limit_exhausted, nil, :operator_pause], "aiur") ==
+               ["aiur:ci-wait", "aiur:paused-usage-limit", "aiur:blocked"]
+
+      assert Labels.runtime_reason_labels(["aiur:ci-wait"], [:waiting_for_human], "aiur") == ["aiur:paused-decision"]
+      assert Labels.runtime_labels(nil, [], "aiur") == []
+    end
+
+    # Fails when a new persisted pause reason appears without a label to show it.
+    test "every persisted pause reason has a label" do
+      shown_by_existing_label = %{
+        operator_pause: "paused",
+        label_override: "paused",
+        ci_wait: "ci-wait",
+        max_agent_duration: "rework or human-review (worker released)",
+        rate_limit_fallback_recovery: "rate-limit-fallback",
+        # Run-wide, not per ticket: `aiur status` reports the run as paused.
+        global_pause: :run_wide,
+        # No live writer; accepted only when restoring an old snapshot.
+        before_run_failure: :legacy_restore_only
+      }
+
+      unlabelled =
+        Enum.reject(Restore.pause_reasons(), fn reason ->
+          Labels.runtime_reason_modifier(reason) != nil or Map.has_key?(shown_by_existing_label, reason)
+        end)
+
+      assert unlabelled == []
     end
 
     test "label_set/2 seeds the queued marker" do

@@ -81,6 +81,19 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert :ok = ack_as_owner(records, __MODULE__)
   end
 
+  test "a deferred wait supersedes the previous wait for the same consumer", %{opts: opts} do
+    start_supervised!({ExecutorWakeInbox, opts})
+    first = Task.async(fn -> ExecutorWakeInbox.wait(5_000, "remote", true, __MODULE__) end)
+    assert eventually(fn -> map_size(:sys.get_state(__MODULE__).waiters) == 1 end)
+
+    second = Task.async(fn -> ExecutorWakeInbox.wait(5_000, "remote", true, __MODULE__) end)
+    assert :superseded = Task.await(first)
+    assert eventually(fn -> map_size(:sys.get_state(__MODULE__).waiters) == 1 end)
+
+    :ok = ExecutorWakeInbox.enqueue(record(1, "42"), __MODULE__)
+    assert {:ok, [%{"ticket" => "42"}]} = Task.await(second)
+  end
+
   test "a wake stream faster than the debounce still reaches a blocked waiter (#2600)", %{opts: opts} do
     opts = Keyword.put(opts, :debounce_ms, 200)
     start_supervised!({ExecutorWakeInbox, opts})
@@ -221,7 +234,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert {:ok, %{from: 2, through: 2, acknowledged_count: 0, pending_count: 1}} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
 
-    assert {:error, {:beyond_latest_wake, 3}} =
+    assert {:error, :journal_reset} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 4, __MODULE__)
 
     assert ExecutorWakeInbox.cursor(__MODULE__) == 2
@@ -305,15 +318,17 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert ExecutorWakeInbox.cursor(__MODULE__) == 0
   end
 
-  test "refuses an absent wake id below the cursor", %{opts: opts} do
+  test "acknowledging an absent wake id below the cursor is a no-op", %{opts: opts} do
     :ok = Aiur.Journal.prepare(Path.dirname(opts[:path]), opts[:path])
     :ok = Aiur.Journal.append(opts[:path], Map.put(record(3, "3"), "wake_id", 3))
     :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 3})
     start_supervised!({ExecutorWakeInbox, opts})
     assert {:ok, _claim} = Claims.claim("covered-window")
 
-    assert {:error, {:wake_not_found, 2}} =
+    assert {:ok, %{from: 3, through: 3, acknowledged_count: 0}} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 3
   end
 
   test "normal shutdown flushes a debounce window for restart", %{opts: opts} do

@@ -218,6 +218,15 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
     ExecutorSessionRPCAssertions.assert_rpc(wait, ~s|timeout_ms: 2000, json: false, as: "agent-b"|)
 
+    {deferred, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }
+cmd_executor_wait --defer-ack --ack-through 44 --json --as agent-b|,
+        []
+      )
+
+    assert deferred =~ ~s|executor_wait(timeout_ms: 300000, json: true, defer_ack: true, ack_through: 44, as: "agent-b", env:|
+
     {claim, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_claim --as agent-a|, [])
     assert claim =~ ~s|executor_claim([as: "agent-a"])|
 

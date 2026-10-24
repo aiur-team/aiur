@@ -204,7 +204,7 @@ defmodule Aiur.TestReset.LabelsTest do
       # Every label the orchestrator can transition an issue into must
       # be cleared so reset always lands on a clean agent:todo.
       for required <-
-            ~w(agent:todo agent:in-progress agent:ci-wait agent:human-review agent:rework agent:merging agent:done agent:error agent:cancelled agent:canceled agent:paused agent:rate-limit-fallback model:claude) do
+            ~w(agent:todo agent:in-progress agent:ci-wait agent:human-review agent:rework agent:merging agent:done agent:error agent:cancelled agent:canceled agent:merge-queued agent:ci-red agent:body-fix agent:paused-usage-limit agent:paused-decision agent:paused-agent agent:retrying agent:blocked agent:handed-off agent:paused agent:rate-limit-fallback model:claude) do
         assert required in labels, "remove set missing #{required}"
       end
     end

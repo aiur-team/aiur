@@ -3,8 +3,12 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
   alias Aiur.BuildOrder.{EpicOverrides, Features, History, Index, Lifecycle}
   alias Aiur.TestSupport.BuildHome.{FixtureSource, IndexParts}
 
-  def start(dataset, dir) do
+  def start(dataset, dir) when is_binary(dataset) do
     {:ok, data} = FixtureSource.full(dataset: dataset)
+    start(data, dir)
+  end
+
+  def start(data, dir) when is_map(data) do
     settings = %{build_order: %{general_epics: IndexParts.general()}, tracker: %{github: %{label_prefix: "agent"}}}
     {:ok, history} = History.start_link(name: nil, repository: "example/aiur-fixture", state_dir: Path.join(dir, "history"), flush_ms: 60_000)
 
@@ -25,8 +29,8 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
     :ok = History.mark_complete(server: history)
     seed_features(features, data, rows)
 
-    for {epic, members} <- Enum.group_by(Enum.filter(rows, &is_nil(&1["feature"])), & &1["epic"]), epic != "unsorted" do
-      {:ok, _} = EpicOverrides.set(epic, Enum.map(members, & &1["num"]), %{actor: "cli:fixture", source: "cli:fixture"}, server: override_name)
+    for {epic, members} <- Enum.group_by(Enum.filter(rows, &is_nil(&1["feature"])), & &1["epic"]), epic not in [nil, "unsorted"], chunk <- Enum.chunk_every(members, 200) do
+      {:ok, _} = EpicOverrides.set(epic, Enum.map(chunk, & &1["num"]), %{actor: "cli:fixture", source: "cli:fixture"}, server: override_name)
     end
 
     opts = [
@@ -64,18 +68,21 @@ defmodule Aiur.TestSupport.BuildHome.IndexSeed do
       {:ok, _} = Features.create(slug, %{label: f["label"], hue: f["hue"], epics: epics, from: dt(f["from"]), to: if(f["to"], do: dt(f["to"]), else: :none)}, meta)
       members = Enum.filter(rows, &(&1["feature"] == slug))
       {added, original} = Enum.split_with(members, & &1["added"])
-      for row <- original, do: add_feature(slug, row, meta, epics)
+      add_feature(slug, original, meta, epics)
       if get_in(f, ["stats", "baseline"]), do: Features.set_baseline(slug, meta)
-      for row <- added, do: add_feature(slug, row, meta, epics)
+      add_feature(slug, added, meta, epics)
     end
 
-    for row <- rows, slug <- row["also"], do: {:ok, _} = Features.also(slug, [row["num"]], meta)
+    for {slug, members} <- rows |> Enum.flat_map(fn row -> Enum.map(row["also"], &{&1, row["num"]}) end) |> Enum.group_by(&elem(&1, 0), &elem(&1, 1)),
+        chunk <- Enum.chunk_every(members, 1_000),
+        do: {:ok, _} = Features.also(slug, chunk, meta)
   end
 
-  defp add_feature(slug, row, meta, epics) do
+  # One call per epic keeps 10,000-row seeds (MP-E8-C12-T06) within a test timeout.
+  defp add_feature(slug, rows, meta, epics) do
     # 24 frozen demo rows name a general epic for a feature owner; real stores require a feature epic.
-    epic = if Enum.any?(epics, &(&1.key == row["epic"])), do: row["epic"], else: hd(epics).key
-    {:ok, _} = Features.add(slug, [row["num"]], Keyword.put(meta, :epic, epic))
+    by_epic = Enum.group_by(rows, fn row -> if Enum.any?(epics, &(&1.key == row["epic"])), do: row["epic"], else: hd(epics).key end, & &1["num"])
+    for {epic, nums} <- by_epic, chunk <- Enum.chunk_every(nums, 1_000), do: {:ok, _} = Features.add(slug, chunk, Keyword.put(meta, :epic, epic))
   end
 
   defp event(row, now) do
