@@ -1,5 +1,6 @@
 # Module, full ExUnit test name (describe prefix included, as failures print it), owner fix ticket, and YYYY-MM-DD expiry. Tabs delimit four fields.
 Aiur.AgentControlCLIMergePolicyTest	*	#6020	2026-12-31
+Aiur.Core.AgentRunnerPauseTest	agent runner interrupts an active turn and waits for the next operator message before resuming	#6070	2026-12-31
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#5511	2026-12-31
 Aiur.Core.AgentRunnerCheckpointQueueTest	*	#5516	2026-12-31
 Aiur.ExecutorWakeInboxTest	a wake stream faster than the debounce still reaches a blocked waiter (#2600)	#6006	2026-12-31
