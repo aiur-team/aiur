@@ -41,6 +41,7 @@ defmodule VoiceConverse.Config do
             glossary: [],
             limits: @default_limits,
             turn: @default_turn,
+            providers: VoiceConverse.ProviderConfig.default(),
             privacy: %{}
 
   @type t :: %__MODULE__{}
@@ -48,6 +49,10 @@ defmodule VoiceConverse.Config do
   @doc "Default `limits`, for hosts that map their own settings onto them."
   @spec default_limits() :: map()
   def default_limits, do: @default_limits
+
+  @doc "Default provider order when a host has not saved a preference."
+  @spec default_provider_preference() :: [atom()]
+  def default_provider_preference, do: VoiceConverse.ProviderConfig.default_preference()
 
   @doc "Builds and validates a config from a keyword list or map."
   @spec new(keyword() | map() | t()) :: {:ok, t()} | {:error, %{field: atom(), reason: atom()}}
@@ -57,12 +62,13 @@ defmodule VoiceConverse.Config do
     opts = Map.new(opts)
 
     with {:ok, opts} <- check_known(opts) do
-      base = struct(__MODULE__, Map.drop(opts, [:limits, :turn]))
+      base = struct(__MODULE__, Map.drop(opts, [:limits, :turn, :providers]))
 
       validate(%{
         base
         | limits: Map.merge(@default_limits, Map.new(opts[:limits] || %{})),
-          turn: Map.merge(@default_turn, Map.new(opts[:turn] || %{}))
+          turn: Map.merge(@default_turn, Map.new(opts[:turn] || %{})),
+          providers: VoiceConverse.ProviderConfig.merge(opts[:providers])
       })
     end
   end
@@ -74,6 +80,7 @@ defmodule VoiceConverse.Config do
          :ok <- check_transcript_root(config),
          :ok <- check_session_settings(config),
          :ok <- check_limits(config),
+         :ok <- VoiceConverse.ProviderConfig.validate(config.providers),
          :ok <- VoiceConverse.ProviderPolicy.validate(config.privacy) do
       {:ok, config}
     end

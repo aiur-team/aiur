@@ -3,18 +3,12 @@ R-declared	Aiur.Accounts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AgentControlCLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.AgentControlCLIFreshness	#4236 stale fleet output includes pause provenance when the snapshot stopped during global pause
-R-declared	Aiur.AlertFeed	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.BuildGate	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.ControlCLI.CiWait	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.ControlCLI.DispatchAccount	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.ControlCLI.Protocol	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-declared	Aiur.ControlCLI.Reasons	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-declared	Aiur.EventHumanizerHelpers	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
-R-declared	Aiur.Executor.StatePaths	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.ExecutorAttention.CLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
-R-declared	Aiur.ExecutorBindings	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
-R-declared	Aiur.ExecutorListener	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.GitHub.Connectivity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Errors	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.LocalHold	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -27,7 +21,6 @@ R-declared	Aiur.Init.AgentCli	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.MergePolicyCLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.Opencode.ActiveTurns	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Opencode.SlotRegistry	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.OperatorWaitLog	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-declared	Aiur.PRLifecycle.ReviewFindings	#5063 Shared body-only review blocking predicate is owned by PR lifecycle.
 R-declared	Aiur.PauseContainment	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -62,6 +55,7 @@ R-optional	Aiur.Accounts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Accounts.UsageReadings	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Alerts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Alerts.ClosedTicket	#5867 Resolve ordinary closed-ticket attentions from workspace cleanup while retaining actionable failed state-write alerts.
 R-optional	Aiur.CIApprovalStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.EventHumanizerHelpers	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-optional	Aiur.Events.BranchRefStore	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
