@@ -129,8 +129,10 @@ defmodule Aiur.LandingWatch.Observer do
       raw: pr,
       head: Map.get(pr, "headRefOid"),
       head_committed_at: get_in(pr, ["commits", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["commit", "committedDate"])),
+      head_parents: get_in(pr, ["commits", "nodes"]) |> List.wrap() |> List.last() |> then(&(get_in(&1 || %{}, ["commit", "parents", "nodes"]) || [])) |> Enum.map(& &1["oid"]),
       state: Map.get(pr, "state"),
       base: Map.get(pr, "baseRefName"),
+      base_oid: Map.get(pr, "baseRefOid"),
       draft?: Map.get(pr, "isDraft"),
       review_decision: Map.get(pr, "reviewDecision"),
       reviews: get_in(pr, ["reviews", "nodes"]),
@@ -149,9 +151,9 @@ defmodule Aiur.LandingWatch.Observer do
   defp queue_candidate?(_), do: false
 
   defp fields do
-    "number id state headRefOid baseRefName isDraft reviewDecision mergeable " <>
+    "number id state headRefOid baseRefName baseRefOid isDraft reviewDecision mergeable " <>
       "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id state position headCommit { oid committedDate } pullRequest { id number headRefOid } } " <>
       "reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } " <>
-      "commits(last: 1) { nodes { commit { committedDate } } }"
+      "commits(last: 1) { nodes { commit { committedDate parents(first: 2) { nodes { oid } } } } }"
   end
 end

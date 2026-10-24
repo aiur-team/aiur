@@ -53,7 +53,24 @@ cmd_status() {
       esac
     done
     [ "$handoff" -eq 1 ] || die "status --json requires --handoff"
-    run_control_rpc "Aiur.Handoff.CLI.report(json: $json)"
+    if [ "$json" = true ]; then
+      run_control_rpc "Aiur.Handoff.CLI.report(json: true)"
+    else
+      local rpc_status=0 diagnostic crash_evidence
+      aiur_resolve_identity
+      run_control_rpc "Aiur.Handoff.CLI.report(json: false)" || rpc_status=$?
+      diagnostic="$(aiur_restart_diagnostic_path)"
+      if [ -s "$diagnostic" ]; then
+        echo "LAST KEEP-AGENTS RESTART (durable launcher evidence):" >&2
+        sed 's/^/  /' "$diagnostic" >&2
+      fi
+      crash_evidence="$(aiur_restart_crash_evidence_path)"
+      if [ -s "$crash_evidence" ]; then
+        echo "PREVIOUS DAEMON EXIT EVIDENCE:" >&2
+        sed 's/^/  /' "$crash_evidence" >&2
+      fi
+      return "$rpc_status"
+    fi
   fi
 }
 
