@@ -47,7 +47,9 @@ test('feature span starts a page for an active feature and skips inactive featur
   fx.renderHeads = () => {};
   ctx.D.features.null = { oldest: 1 }; S.feature = null;
   await loadFeatureSpan(null); assert.equal(calls, 0);
-  S.feature = 'f';
+  S.feature = 'f'; ctx.D.features.f.oldest = null;
+  await loadFeatureSpan('f'); assert.equal(calls, 0);
+  ctx.D.features.f.oldest = 1;
   await loadFeatureSpan('f'); assert.equal(calls, 1);
   assert.equal(H.state, 'error'); assert.equal(S.feature, 'f');
   S.feature = null; await loadFeatureSpan('f'); assert.equal(calls, 1);

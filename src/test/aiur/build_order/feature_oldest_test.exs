@@ -7,7 +7,7 @@ defmodule Aiur.BuildOrder.FeatureOldestTest do
   test "oldest includes also-affects closures across the whole index, never feature start" do
     earlier = DateTime.from_unix!(now() - 172_800_000, :millisecond)
     p = parts([row(1), row(2, %{end: earlier}), row(3, %{end: :unknown}), row(4, %{end: DateTime.from_unix!(now() - 86_400_000, :millisecond)})])
-    f = %{slug: "focus", label: "Focus", hue: 42, epics: [], from: earlier, to: :none, baseline: :none}
+    f = %{slug: "focus", label: "Focus", hue: 42, epics: [], from: DateTime.from_unix!(now() - 604_800_000, :millisecond), to: :none, baseline: :none}
 
     registry = %{
       features: %{"focus" => f, "empty" => %{f | slug: "empty"}},
@@ -19,6 +19,7 @@ defmodule Aiur.BuildOrder.FeatureOldestTest do
     assert {:ok, index} = assemble(Map.put(p, :features, {:ok, registry}))
     assert index.features["focus"].oldest == now() - 172_800_000
     assert index.features["empty"].oldest == nil
+    refute index.features["focus"].oldest == index.features["focus"].from
     page = index |> Index.base() |> Index.window("Etc/UTC", now())
     assert page.features["focus"].oldest == now() - 172_800_000
     assert Enum.all?(page.sections.hist, &(&1.num != 2))
@@ -29,5 +30,6 @@ defmodule Aiur.BuildOrder.FeatureOldestTest do
     assert :ok = Payload.validate(payload)
     assert :ok = Payload.validate(put_in(payload, ["features", "khala", "oldest"], nil))
     assert {:error, _reason} = Payload.validate(put_in(payload, ["features", "khala", "oldest"], "yesterday"))
+    assert {:error, _reason} = Payload.validate(put_in(payload, ["features", "khala", "oldest"], 1.5))
   end
 end
