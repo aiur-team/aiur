@@ -58,7 +58,8 @@ defmodule Aiur.Orchestrator.RetryEngine.WorkspaceWait do
       retry_attempt: Map.get(running || %{}, :retry_attempt) || Map.get(retry, :attempt),
       prior_work: value_from(running, retry, :prior_work) == true,
       workspace_path: value_from(running, retry, :workspace_path),
-      tracker_identity: value_from(running, retry, :tracker_identity)
+      tracker_identity: value_from(running, retry, :tracker_identity),
+      stalled_alert_outstanding: Map.get(running || %{}, :stalled_alert_outstanding, Map.get(retry, :stalled_alert_outstanding, false))
     }
   end
 
