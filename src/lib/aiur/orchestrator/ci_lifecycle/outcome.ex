@@ -7,6 +7,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
+  alias Aiur.Orchestrator.CiLifecycle.ApprovedGreenWait
+  alias Aiur.Orchestrator.CiLifecycle.OutcomeSupport
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.CiLifecycle.PrLessReview
@@ -38,7 +40,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
       HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
-      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
+      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and OutcomeSupport.ci_head_approved?(state, issue, result) ->
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
       # No open PR means no CI run could ever resolve ci-wait (#5816).
@@ -46,32 +48,31 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
         Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
       true ->
-        Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result))
+        Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, OutcomeSupport.ci_wait_reason_modifiers(result))
     end
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
-    if HumanReview.human_review_state?(Transition.effective_ci_state(issue)) do
-      state
-      |> clear_ci_test_failure_retry(issue)
-      |> remember_ci_approved_head(issue, result)
-      |> clear_stale_ci_wait(issue)
-      |> Reconciler.refresh_running_issue_state(Transition.effective_issue_state(issue))
-    else
-      cond do
-        CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and ReviewHandoff.ready_unreviewed_head?(result) ->
-          ReviewHandoff.transition(state, issue, result)
+    cond do
+      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) ->
+        state
+        |> clear_ci_test_failure_retry(issue)
+        |> remember_ci_approved_head(issue, result)
+        |> clear_stale_ci_wait(issue)
+        |> Reconciler.refresh_running_issue_state(Transition.effective_issue_state(issue))
 
-        approved_green_ci_wait_head?(issue, result) ->
-          state
-          |> clear_ci_test_failure_retry(issue)
-          |> remember_ci_approved_head(issue, result)
-          |> WaitRewake.cancel_ci_wait_rewake(issue.id)
-          |> ResultProjection.stash_last_ci_result(issue, result)
+      CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and ReviewHandoff.ready_unreviewed_head?(result) ->
+        ReviewHandoff.transition(state, issue, result)
 
-        true ->
-          transition_ci_pass(state, issue, result)
-      end
+      ApprovedGreenWait.eligible?(issue, result) ->
+        state
+        |> clear_ci_test_failure_retry(issue)
+        |> remember_ci_approved_head(issue, result)
+        |> WaitRewake.cancel_ci_wait_rewake(issue.id)
+        |> ResultProjection.stash_last_ci_result(issue, result)
+
+      true ->
+        transition_ci_pass(state, issue, result)
     end
   end
 
@@ -102,12 +103,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
   end
 
   defp apply_ci_poll_result(state, _issue, _result), do: state
-
-  defp approved_green_ci_wait_head?(issue, result) do
-    CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) and
-      result[:review_decision] == "APPROVED" and result[:reviewed_head?] == true and
-      result[:draft?] == false and is_binary(result[:head_sha])
-  end
 
   @doc false
   @spec route_conflicting_pr(State.t(), Issue.t(), map(), keyword()) :: State.t()
@@ -295,19 +290,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     end
   end
 
-  # Retain the approved SHA across transient reruns; new heads re-enter CI.
-  defp ci_head_approved?(%State{} = state, %Issue{} = issue, result) do
-    case {Map.get(state.ci_lifecycle.approved_heads, CiLifecycle.ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
-      {approved_head, observed_head} when is_binary(approved_head) and approved_head == observed_head -> true
-      {approved_head, nil} when is_binary(approved_head) -> true
-      _ -> false
-    end
-  end
-
-  defp ci_wait_reason_modifiers(result) do
-    if is_map(result[:merge_queue_entry]), do: ["merge-queued"], else: []
-  end
-
   defp reconcile_ci_wait_reason(state, issue, result) do
     merge_queued_label = "#{Aiur.GitHub.Config.label_prefix()}:merge-queued"
     desired? = is_map(result[:merge_queue_entry])
@@ -316,7 +298,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     if desired? == current? do
       state
     else
-      Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, ci_wait_reason_modifiers(result))
+      Transition.transition_ci_ticket(state, issue, @ci_wait_state, & &1, OutcomeSupport.ci_wait_reason_modifiers(result))
     end
   end
 
@@ -334,11 +316,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
 
       HumanReview.human_review_state?(Transition.effective_ci_state(issue)) ->
         is_nil(approved_head) or
-          (ci_head_approved?(state, issue, result) and
+          (OutcomeSupport.ci_head_approved?(state, issue, result) and
              (is_nil(passed_head) or passed_head != observed_head))
 
       true ->
-        ci_head_approved?(state, issue, result)
+        OutcomeSupport.ci_head_approved?(state, issue, result)
     end
   end
 
