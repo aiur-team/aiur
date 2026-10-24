@@ -93,6 +93,13 @@ defmodule Aiur.Env.Schema do
         missing_message: fn missing ->
           "Dashboard credentials are partially configured; missing #{Enum.join(missing, ", ")}. Set both or neither."
         end
+      },
+      google: %{
+        members: ["AIUR_GOOGLE_CLIENT_ID", "AIUR_GOOGLE_CLIENT_SECRET"],
+        one_of: [],
+        missing_message: fn missing ->
+          "Google sign-in credentials are partially configured; missing #{Enum.join(missing, ", ")}. Set both or neither."
+        end
       }
     }
   end
@@ -164,6 +171,8 @@ defmodule Aiur.Env.Schema do
     # --- Dashboard ---
     {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/gui"},
     {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/gui"},
+    {"AIUR_GOOGLE_CLIENT_ID", type: :string, group: :dashboard, purpose: "Google OAuth client id for dashboard browser sign-in; pair with the client secret.", fetch: "Google Cloud -> OAuth client"},
+    {"AIUR_GOOGLE_CLIENT_SECRET", type: :secret, group: :dashboard, purpose: "Google OAuth client secret for dashboard browser sign-in.", fetch: "Google Cloud -> OAuth client"},
     {"AIUR_SECRET_KEY_BASE", type: :secret, group: :dashboard, purpose: "Optional persistent dashboard signing key; otherwise Aiur stores one per instance.", fetch: "openssl rand -base64 48"},
 
     # --- Supervisor Decision API ---
