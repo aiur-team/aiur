@@ -136,10 +136,10 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   end
 
   defp route_classification(:infra, _failure, run, observations, prs, _blame_opts, opts),
-    do: requeue_and_count(prs, observations, run, "infrastructure failure", ["infrastructure failure"], opts)
+    do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "infrastructure failure", opts)
 
   defp route_classification(:inherited, _failure, run, observations, prs, _blame_opts, opts),
-    do: requeue_and_count(prs, observations, run, "inherited merge-group failure", ["inherited merge-group failure"], opts)
+    do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "inherited merge-group failure", opts)
 
   defp route_classification(classification, failure, run, observations, prs, blame_opts, opts)
        when classification in [:known_non_pr, :pr_caused] do
@@ -159,8 +159,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp route_attributed_failure(culprits, innocent, observations, failure, run, identities, opts) do
     {repeats, first} = split_repeated_failures(culprits, observations, identities, opts)
 
-    with :ok <- hold_failed_heads(first, observations, opts),
-         :ok <- route_repeated_failures(repeats, observations, failure, run, opts),
+    with :ok <- route_repeated_failures(repeats, observations, failure, run, opts),
          :ok <- requeue_and_count(innocent, observations, run, "group contained a PR-caused failure", identities, opts),
          :ok <- route_failed_prs(first, observations, failure, run, opts),
          do: record_counted_failures(first, observations, identities, opts)
@@ -261,7 +260,10 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     prs
     |> Enum.map(&Enum.find(observations, fn observation -> observation.number == &1 end))
     |> Enum.reject(&is_nil/1)
-    |> Enum.reduce(:ok, &rework_if_ok(&1, &2, failures, run_link, opts))
+    |> Enum.reduce(:ok, fn
+      _pr, {:error, _} = error -> error
+      pr, :ok -> LandingWatch.rework(pr, failures, Keyword.put(opts, :run_url, run_link))
+    end)
   end
 
   defp blamed_pr(%{log: log, blame_complete: true}, prs, opts) when is_binary(log) do
@@ -408,7 +410,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
 
     Enum.each(prs, fn number ->
-      message = "PR ##{number} was removed after the same head failed an innocent merge-group requeue twice."
+      message = "PR ##{number} was removed after the same head failed a merge-group run twice."
       emitter.("system.pr.landing.merge_group_repeat_failure", central: true, durable: true, needs_attention: true, message: message, reason: "same_head_failed_twice")
     end)
 
@@ -418,10 +420,8 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp route_repeated_failures([], _observations, _failure, _run, _opts), do: :ok
 
   defp route_repeated_failures(prs, observations, failure, run, opts) do
-    with :ok <- hold_failed_heads(prs, observations, opts) do
-      _ = record_blame(run, prs, failure, :repeat_ejected, opts)
-      rework_repeat_prs(prs, observations, failure, run, opts)
-    end
+    _ = record_blame(run, prs, failure, :repeat_ejected, opts)
+    rework_repeat_prs(prs, observations, failure, run, opts)
   end
 
   defp record_blame(run, prs, failure, decision, opts) do
@@ -450,13 +450,6 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
       {:ok, {owner, repo}} -> "https://github.com/#{owner}/#{repo}/actions/runs/#{run_id}"
       _ -> "https://github.com/actions/runs/#{run_id}"
     end
-  end
-
-  defp rework_if_ok(_pr, {:error, _} = error, _failures, _run_link, _opts), do: error
-
-  defp rework_if_ok(pr, :ok, failures, run_link, opts) do
-    result = LandingWatch.rework(pr, failures, Keyword.put(opts, :run_url, run_link))
-    if result == :ok, do: :ok, else: result
   end
 
   defp run_prs(run, base) do

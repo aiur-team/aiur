@@ -275,7 +275,7 @@ defmodule Aiur.LandingWatch.Journal do
     end
   end
 
-  @doc "Counts innocent merge-group failures for all requeued PRs in one journal update."
+  @doc "Counts merge-group failures for PR heads in one journal update."
   @spec record_merge_group_failure_attempts([{pos_integer(), String.t(), [String.t()]}], keyword()) ::
           {:ok, %{String.t() => pos_integer()}} | {:error, term()}
   def record_merge_group_failure_attempts(pr_head_failures, opts \\ [])
@@ -294,7 +294,7 @@ defmodule Aiur.LandingWatch.Journal do
           {Map.put(updated, identity, count), Map.put(counts, identity, count)}
         end)
 
-      bounded = updated |> Enum.sort_by(&elem(&1, 1), :desc) |> Enum.take(@merge_group_failure_attempt_limit) |> Map.new()
+      bounded = updated |> Enum.take(@merge_group_failure_attempt_limit) |> Map.new()
       {:ok, Map.put(state, "merge_group_failure_attempts", bounded), counts}
     end)
   end
@@ -387,7 +387,22 @@ defmodule Aiur.LandingWatch.Journal do
           MapSet.member?(retained, entry_key)
       end)
 
+    state = retain_failure_attempts(state, retained)
     {:ok, retain_head_holds(state, holds, retained)}
+  end
+
+  defp retain_failure_attempts(state, retained) do
+    attempts = Map.get(state, "merge_group_failure_attempts", %{})
+
+    attempts =
+      Map.filter(attempts, fn {failure_key, _count} ->
+        case String.split(failure_key, ":", parts: 3) do
+          [pr, head, _failure] -> MapSet.member?(retained, "#{pr}:#{head}")
+          _ -> false
+        end
+      end)
+
+    Map.put(state, "merge_group_failure_attempts", attempts)
   end
 
   defp retain_head_holds(state, holds, retained) do

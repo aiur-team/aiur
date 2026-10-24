@@ -1,5 +1,6 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
 
   alias Aiur.LandingWatch.{Journal, MergeGroupFailureProcessor}
 
@@ -124,14 +125,75 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     Aiur.TestCleanup.rm_rf!(path)
   end
 
-  # Existing-behavior regression guard; it is not counted as new repeat-routing coverage.
-  test "a quarantined first failure re-enqueues once and records its identity" do
+  test "a repeated known non-PR failure with unknown blame routes to rework" do
+    parent = self()
+    path = journal_path()
+    tests = [{"reports parity", "test/aiur/parity_test.exs"}]
+
+    extra_opts = [
+      jobs_fun: fn run_id, _ ->
+        {:ok,
+         [
+           %{"id" => run_id + 1, "name" => "parity", "conclusion" => "failure"},
+           %{"id" => run_id + 2, "name" => "runner diagnostics", "conclusion" => "failure"}
+         ]}
+      end,
+      job_log_fun: fn
+        %{"name" => "parity"}, _ -> {:ok, failure_log(tests)}
+        %{"name" => "runner diagnostics"}, _ -> {:ok, "test failed before a test case was reported"}
+      end
+    ]
+
+    log = capture_log(fn -> assert :ok = process_failure(401, tests, path, parent, extra_opts) end)
+    assert log =~ "merge-group blame evidence incomplete; using legacy routing"
+    assert_received {:enqueue, 17}
+    refute_received {:rework, 17}
+
+    assert :ok = process_failure(402, tests, path, parent, extra_opts)
+    assert_received {:rework, 17}
+    refute_received {:enqueue, 17}
+    Aiur.TestCleanup.rm_rf!(path)
+  end
+
+  test "a first unresolved PR-caused failure holds the head while routing to rework" do
+    parent = self()
+    path = journal_path()
+
+    assert :ok =
+             process_failure(281, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent, recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end)
+
+    assert_received {:rework, 17}
+    refute_received {:enqueue, 17}
+    assert {:ok, true} = Journal.merge_group_head_held?(17, "head-17", journal_path: path)
+    Aiur.TestCleanup.rm_rf!(path)
+  end
+
+  test "infrastructure and inherited failures requeue without consuming repeat attempts" do
+    parent = self()
+    path = journal_path()
+    tests = [{"reports parity", "test/aiur/parity_test.exs"}]
+
+    for {run_id, log, identity} <- [
+          {601, "runner lost before job setup", "infrastructure failure"},
+          {602, "failure in an earlier merge group", "inherited merge-group failure"}
+        ] do
+      assert :ok =
+               process_failure(run_id, tests, path, parent, job_log_fun: fn _, _ -> {:ok, log} end)
+
+      assert_received {:enqueue, 17}
+      assert {:ok, 0} = Journal.merge_group_failure_attempts(17, "head-17", identity, journal_path: path)
+    end
+
+    Aiur.TestCleanup.rm_rf!(path)
+  end
+
+  test "a first quarantined failure re-enqueues and a repeated one routes to rework" do
     parent = self()
     path = journal_path()
 
     assert :ok =
              process_failure(301, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent,
-               quarantined_run_ids: [301],
+               quarantined_run_ids: [301, 302],
                recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end
              )
 
@@ -146,6 +208,16 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
                journal_path: path
              )
 
+    assert :ok =
+             process_failure(302, [{"reports parity", "test/aiur/parity_test.exs"}], path, parent,
+               quarantined_run_ids: [301, 302],
+               recent_main_failure_paths_fun: fn _, _ -> {:ok, []} end
+             )
+
+    assert_received {:rework, 17}
+    refute_received {:enqueue, 17}
+    assert {:ok, true} = Journal.merge_group_head_held?(17, "head-17", journal_path: path)
+
     Aiur.TestCleanup.rm_rf!(path)
   end
 
@@ -159,22 +231,27 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "per-spec repeat counters survive pruning other PR heads" do
+  test "per-spec repeat counters are pruned to each PR's current head" do
     path = journal_path()
     opts = [journal_path: path]
     identity = "test reports parity (Aiur.ParityTest) :: src/test/aiur/parity_test.exs"
-
     other_identity = "test reports other (Aiur.OtherTest) :: src/test/aiur/other_test.exs"
+    old_identity = "test reports previous parity (Aiur.ParityTest) :: src/test/aiur/previous_parity_test.exs"
 
     assert {:ok, _} =
              Journal.record_merge_group_failure_attempts(
-               [{17, "head-17", [identity]}, {18, "head-18", [other_identity]}],
+               [
+                 {17, "head-17", [identity]},
+                 {17, "old-head-17", [old_identity]},
+                 {18, "head-18", [other_identity]}
+               ],
                opts
              )
 
     assert :ok = Journal.retain_current_heads([%{number: 17, head: "head-17"}], opts)
     assert {:ok, 1} = Journal.merge_group_failure_attempts(17, "head-17", identity, opts)
-    assert {:ok, 1} = Journal.merge_group_failure_attempts(18, "head-18", other_identity, opts)
+    assert {:ok, 0} = Journal.merge_group_failure_attempts(17, "old-head-17", old_identity, opts)
+    assert {:ok, 0} = Journal.merge_group_failure_attempts(18, "head-18", other_identity, opts)
     Aiur.TestCleanup.rm_rf!(path)
   end
 
