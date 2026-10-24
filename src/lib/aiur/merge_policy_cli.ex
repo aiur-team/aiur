@@ -42,7 +42,7 @@ defmodule Aiur.MergePolicyCLI do
   def main_state(%{unavailable: true} = state, now_ms) do
     "main=unavailable last_known=" <>
       String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <>
-      runner_starvation(state, now_ms)
+      runner_starvation(state)
   end
 
   def main_state(%{status: :red} = state, now_ms) do
@@ -71,27 +71,10 @@ defmodule Aiur.MergePolicyCLI do
     " sha=#{Map.get(state, :sha) || "unknown"} age=#{age}"
   end
 
-  defp runner_starvation(%{merge_groups: groups}, now_ms) when is_list(groups) do
-    now = DateTime.from_unix!(now_ms, :millisecond)
+  defp runner_starvation(%{runner_starvation: %{queued_runs: queued, running_runs: running, status_url: url}}),
+    do: " runner_starvation=#{queued}_queued_#{running}_running status=#{url}"
 
-    case Aiur.ExecutorSweep.CacheFreshness.stale_merge_groups(
-           %{merge_groups: groups},
-           now,
-           15,
-           300_000
-         ) do
-      [
-        %{kind: "runner_starvation", queued_runs: queued, running_runs: running, status_url: url}
-        | _
-      ] ->
-        " runner_starvation=#{queued}_queued_#{running}_running status=#{url}"
-
-      _ ->
-        ""
-    end
-  end
-
-  defp runner_starvation(_state, _now_ms), do: ""
+  defp runner_starvation(_state), do: ""
 
   defp red_time(value) when is_integer(value), do: DateTime.from_unix(value, :millisecond)
   defp red_time(_value), do: {:error, :invalid_timestamp}

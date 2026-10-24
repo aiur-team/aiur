@@ -39,7 +39,16 @@ defmodule Aiur.MergePolicyCLIMainWatchTest do
   test "unavailable main-watch health names runner starvation from its last known queue snapshot" do
     now = DateTime.utc_now()
     queued = for id <- 1..11, do: %{id: id, name: "run #{id}", status: "queued", started_at: now}
-    state = %{status: :unknown, unavailable: true, merge_groups: queued}
+
+    state = %{
+      status: :unknown,
+      unavailable: true,
+      runner_starvation: %{
+        queued_runs: length(queued),
+        running_runs: 0,
+        status_url: "https://www.githubstatus.com/#components"
+      }
+    }
 
     assert Aiur.MergePolicyCLI.main_state(state, DateTime.to_unix(now, :millisecond)) =~
              "main=unavailable last_known=unknown runner_starvation=11_queued_0_running status=https://www.githubstatus.com/#components"

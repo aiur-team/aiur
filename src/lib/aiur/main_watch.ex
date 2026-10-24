@@ -10,6 +10,9 @@ defmodule Aiur.MainWatch do
   alias Aiur.MergePolicy
 
   @request_limit 64
+  @runner_queue_bound 10
+  @runner_starvation_age_ms 15 * 60_000
+  @actions_status_url "https://www.githubstatus.com/#components"
 
   @spec enabled?() :: boolean()
   def enabled?, do: MergePolicy.current().main_watch.enabled
@@ -62,6 +65,7 @@ defmodule Aiur.MainWatch do
       |> Map.put(:watcher, watcher)
       |> Map.put(:last_error, Map.get(server.data, :last_error))
       |> Map.put(:merge_groups, Map.get(server.data, :merge_groups, []))
+      |> Map.put(:runner_starvation, runner_starvation(server.data.merge_groups, now_ms(server)))
 
     {:reply, state, server}
   end
@@ -70,6 +74,45 @@ defmodule Aiur.MainWatch do
     now = Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
     state = State.record_history(server.data.state, %{checks: [], completed_at: nil}, now)
     {:reply, State.inherited?(state, check, base, server.data.commits), server}
+  end
+
+  defp runner_starvation(groups, now_ms) when is_list(groups) do
+    queued = Enum.filter(groups, &(run_state(&1) == "queued"))
+    running = Enum.count(groups, &(run_state(&1) == "in_progress"))
+
+    oldest_age =
+      queued
+      |> Enum.map(&run_age_ms(&1, now_ms))
+      |> Enum.max(fn -> 0 end)
+
+    queue_pressure? = running == 0 or length(queued) > running * 2
+    queue_evidence? = length(queued) > @runner_queue_bound or oldest_age >= @runner_starvation_age_ms
+
+    if queued != [] and queue_pressure? and queue_evidence? do
+      %{queued_runs: length(queued), running_runs: running, status_url: @actions_status_url}
+    end
+  end
+
+  defp runner_starvation(_groups, _now_ms), do: nil
+
+  defp now_ms(server), do: Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
+
+  defp run_state(group), do: Map.get(group, :status, Map.get(group, "status", Map.get(group, :state, Map.get(group, "state", ""))))
+
+  defp run_age_ms(group, now_ms) do
+    case Map.get(group, :started_at, Map.get(group, "started_at")) do
+      %DateTime{} = started_at -> max(now_ms - DateTime.to_unix(started_at, :millisecond), 0)
+      timestamp when is_integer(timestamp) -> max(now_ms - timestamp, 0)
+      timestamp when is_binary(timestamp) -> parse_run_time(timestamp, now_ms)
+      _ -> 0
+    end
+  end
+
+  defp parse_run_time(timestamp, now_ms) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, started_at, _offset} -> max(now_ms - DateTime.to_unix(started_at, :millisecond), 0)
+      _ -> 0
+    end
   end
 
   @impl true
