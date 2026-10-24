@@ -316,7 +316,7 @@ test("set runtime settings safely forwards values, list modes, and unset", () =>
   const env = {
     AIUR_FAKE_RPC_MODE: "ok",
     AIUR_FAKE_EPMD_REGISTERED: "1",
-    AIUR_AGENT_WORKSPACE: "",
+    AIUR_AGENT_WORKSPACE: "/custom-agent-root/repo/5969",
   };
 
   expect(
@@ -338,12 +338,13 @@ test("set runtime settings safely forwards values, list modes, and unset", () =>
 
   const capture = readFileSync(captureFile, "utf8");
   expect(capture).toContain(
-    'Aiur.AgentControlCLI.set_setting(Base.decode64!("YWdlbnQucm91dGluZw=="), Base.decode64!("eyIzIjoib3BlbnJvdXRlcjptb2RlbCB3aXRoIHNwYWNlcyJ9"), caller_agent_workspace: Base.decode64!(""))',
+    'Aiur.AgentControlCLI.set_setting(Base.decode64!("YWdlbnQucm91dGluZw=="), Base.decode64!("eyIzIjoib3BlbnJvdXRlcjptb2RlbCB3aXRoIHNwYWNlcyJ9"), caller_cwd: Base.decode64!("',
   );
+  expect(capture).toContain('caller_agent_workspace_env: Base.decode64!("L2N1c3RvbS1hZ2VudC1yb290L3JlcG8vNTk2OQ=="))');
   expect(capture).toContain("Aiur.AgentControlCLI.list_settings()");
   expect(capture).toContain("Aiur.AgentControlCLI.list_settings(json: true)");
   expect(capture).toContain(
-    'Aiur.AgentControlCLI.unset_setting(Base.decode64!("YWdlbnQubWF4X2NvbmN1cnJlbnRfYnVpbGRz"), caller_agent_workspace: Base.decode64!(""))',
+    'Aiur.AgentControlCLI.unset_setting(Base.decode64!("YWdlbnQubWF4X2NvbmN1cnJlbnRfYnVpbGRz"), caller_cwd: Base.decode64!("',
   );
 });
 
