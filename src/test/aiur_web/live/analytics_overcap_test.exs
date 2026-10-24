@@ -60,7 +60,8 @@ defmodule AiurWeb.AnalyticsOvercapTest do
   end
 
   test "renders exact source-gated values and retained-run wording in the pressure table" do
-    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id(), {15, 20, 16}))
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id(), {15, 20, 16}, now))
     {:ok, view, _html} = live(build_conn(), "/analytics")
     html = LiveViewAsync.render_when_complete(view)
 
@@ -70,11 +71,12 @@ defmodule AiurWeb.AnalyticsOvercapTest do
     refute html =~ "(fleet)"
     assert html =~ "16 / 20 / 16"
     assert html =~ ">2<" and html =~ "2 / 8" and html =~ "189s"
-    assert html =~ "2026-07-11T00:00:40.000Z" and html =~ "2026-07-11T00:00:55.000Z"
+    assert html =~ timestamp_ms_label(DateTime.add(now, -21, :second))
+    assert html =~ timestamp_ms_label(DateTime.add(now, -6, :second))
     assert html =~ ">current<" and html =~ ">measured<"
 
     # A retained prior run's current fleet sample is history, never "now".
-    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!("boot-before-restart", {15, 20, 16}))
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!("boot-before-restart", {15, 20, 16}, now))
     {:ok, retained_view, _html} = live(build_conn(), "/analytics")
     retained = LiveViewAsync.render_when_complete(retained_view)
     assert retained =~ ~s(data-source-kind="retained") and retained =~ ~r/an-kpi-sub">\d+ at run end \/ 16 cap/
@@ -83,31 +85,40 @@ defmodule AiurWeb.AnalyticsOvercapTest do
 
   test "renders unavailable pressure evidence as em-dash, never a confident zero" do
     boot_id = RunTelemetry.boot_id()
-    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture_with_gap!(boot_id))
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture_with_gap!(boot_id, now))
     {:ok, view, _html} = live(build_conn(), "/analytics")
     html = LiveViewAsync.render_when_complete(view)
 
     # The gap row's degraded build must render its missing wait as "—", and a
     # missing fleet figure must never be coerced into a confident "0".
-    assert html =~ "—"
+    assert html =~ ~s(<table id="analytics-pressure-table">)
+    assert html =~ "16 / 16 / 12"
+    assert html =~ ">2<" and html =~ "2 / 8"
+    assert html =~ timestamp_ms_label(DateTime.add(now, -111, :second))
+    assert html =~ timestamp_ms_label(DateTime.add(now, -96, :second))
+    assert html =~ ">current<" and html =~ ">measured<"
     assert [subtitle | _] = kpi_subtitles(html)
     assert subtitle =~ "15 running now"
-    assert html =~ ">degraded<"
-    refute html =~ ">0s<"
+    {:ok, document} = Floki.parse_document(html)
+    [gap_row] = Enum.filter(Floki.find(document, "#analytics-pressure-table tbody tr"), &(Floki.find(&1, "td") |> Enum.at(4) |> Floki.text() == "degraded"))
+    gap_wait = gap_row |> Floki.find("td") |> List.last() |> Floki.text()
+    assert gap_wait == "—"
+    refute gap_wait == "0s"
     # The measured row still carries its exact values (not blurred by the gap).
     assert html =~ "13" and not (html =~ "13 now /")
     assert html =~ "189s"
   end
 
-  defp pressure_fixture_with_gap!(boot_id) do
+  defp pressure_fixture_with_gap!(boot_id, now) do
     root = Path.join(System.tmp_dir!(), "aiur-analytics-pressure-gap-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
-    timestamp = ~U[2026-07-11 00:01:01Z]
-    gap_timestamp = ~U[2026-07-11 00:11:01Z]
+    timestamp = DateTime.add(now, -90, :second)
+    gap_timestamp = DateTime.add(now, -30, :second)
 
     records = [
-      record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], %{"event" => "restart", "boundary" => "point", "event_key" => "route-1"}),
+      record(boot_id, 1, "restart", DateTime.add(timestamp, -1, :second), %{"event" => "restart", "boundary" => "point", "event_key" => "route-1"}),
       agent_resource_records(boot_id, 20, 13, timestamp),
       %{
         schema_version: 2,
@@ -126,10 +137,10 @@ defmodule AiurWeb.AnalyticsOvercapTest do
           "fleet_agents_configured" => 16,
           "fleet_agents_max" => 16,
           "fleet_agents_effective" => 12,
-          "fleet_capacity_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:40Z], :millisecond),
+          "fleet_capacity_observed_at_ms" => DateTime.to_unix(DateTime.add(timestamp, -21, :second), :millisecond),
           "build_gate_status" => "measured",
           "build_gate_capacity" => 2,
-          "build_gate_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:55Z], :millisecond),
+          "build_gate_observed_at_ms" => DateTime.to_unix(DateTime.add(timestamp, -6, :second), :millisecond),
           "build_gate_active" => 2,
           "build_gate_queued" => 8,
           "build_queue_oldest_wait_seconds" => 189
@@ -159,7 +170,7 @@ defmodule AiurWeb.AnalyticsOvercapTest do
           "build_queue_oldest_wait_seconds" => nil
         }
       },
-      record(boot_id, 4, "lifecycle", ~U[2026-07-11 00:01:02Z], %{"event" => "dispatch", "boundary" => "point", "event_key" => "route-4", "ticket" => "941"})
+      record(boot_id, 4, "lifecycle", DateTime.add(timestamp, 1, :second), %{"event" => "dispatch", "boundary" => "point", "event_key" => "route-4", "ticket" => "941"})
     ]
 
     File.write!(path, Enum.map_join(List.flatten(records), "\n", &Jason.encode!/1) <> "\n")
@@ -167,14 +178,13 @@ defmodule AiurWeb.AnalyticsOvercapTest do
     path
   end
 
-  defp pressure_fixture!(boot_id, capacity) do
+  defp pressure_fixture!(boot_id, capacity, timestamp) do
     root = Path.join(System.tmp_dir!(), "aiur-analytics-pressure-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
-    timestamp = ~U[2026-07-11 00:01:01Z]
 
     records = [
-      record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], %{"event" => "restart", "boundary" => "point", "event_key" => "route-1"}),
+      record(boot_id, 1, "restart", DateTime.add(timestamp, -1, :second), %{"event" => "restart", "boundary" => "point", "event_key" => "route-1"}),
       agent_resource_records(boot_id, 20, elem(capacity, 0), timestamp),
       %{
         schema_version: 2,
@@ -193,16 +203,16 @@ defmodule AiurWeb.AnalyticsOvercapTest do
           "fleet_agents_configured" => 16,
           "fleet_agents_max" => elem(capacity, 1),
           "fleet_agents_effective" => elem(capacity, 2),
-          "fleet_capacity_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:40Z], :millisecond),
+          "fleet_capacity_observed_at_ms" => DateTime.to_unix(DateTime.add(timestamp, -21, :second), :millisecond),
           "build_gate_status" => "measured",
           "build_gate_capacity" => 2,
-          "build_gate_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:55Z], :millisecond),
+          "build_gate_observed_at_ms" => DateTime.to_unix(DateTime.add(timestamp, -6, :second), :millisecond),
           "build_gate_active" => 2,
           "build_gate_queued" => 8,
           "build_queue_oldest_wait_seconds" => 189
         }
       },
-      record(boot_id, 3, "lifecycle", ~U[2026-07-11 00:01:02Z], %{"event" => "dispatch", "boundary" => "point", "event_key" => "route-3", "ticket" => "941"})
+      record(boot_id, 3, "lifecycle", DateTime.add(timestamp, 1, :second), %{"event" => "dispatch", "boundary" => "point", "event_key" => "route-3", "ticket" => "941"})
     ]
 
     File.write!(path, Enum.map_join(List.flatten(records), "\n", &Jason.encode!/1) <> "\n")
@@ -214,6 +224,8 @@ defmodule AiurWeb.AnalyticsOvercapTest do
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
 
+    timestamp = DateTime.utc_now() |> DateTime.truncate(:second)
+
     sample = %{
       "actor" => "_daemon",
       "actor_type" => "daemon",
@@ -223,14 +235,14 @@ defmodule AiurWeb.AnalyticsOvercapTest do
       "fleet_agents_configured" => 16,
       "fleet_agents_max" => 20,
       "fleet_agents_effective" => 20,
-      "fleet_capacity_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:40Z], :millisecond)
+      "fleet_capacity_observed_at_ms" => DateTime.to_unix(DateTime.add(timestamp, -21, :second), :millisecond)
     }
 
     records = [
-      record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], %{"event" => "restart", "boundary" => "point", "event_key" => "route-1"}),
-      record(boot_id, 2, "resource", ~U[2026-07-11 00:01:01Z], sample),
-      agent_resource_records(boot_id, 4, 15, ~U[2026-07-11 00:01:01Z]),
-      record(boot_id, 3, "lifecycle", ~U[2026-07-11 00:01:02Z], %{"event" => "dispatch", "boundary" => "point", "event_key" => "route-3", "ticket" => "941"})
+      record(boot_id, 1, "restart", DateTime.add(timestamp, -1, :second), %{"event" => "restart", "boundary" => "point", "event_key" => "route-1"}),
+      record(boot_id, 2, "resource", timestamp, sample),
+      agent_resource_records(boot_id, 4, 15, timestamp),
+      record(boot_id, 3, "lifecycle", DateTime.add(timestamp, 1, :second), %{"event" => "dispatch", "boundary" => "point", "event_key" => "route-3", "ticket" => "941"})
     ]
 
     File.write!(path, Enum.map_join(List.flatten(records), "\n", &Jason.encode!/1) <> "\n")
@@ -242,6 +254,12 @@ defmodule AiurWeb.AnalyticsOvercapTest do
     |> Floki.parse_fragment!()
     |> Floki.find(".an-kpi-sub")
     |> Enum.map(&Floki.text/1)
+  end
+
+  defp timestamp_ms_label(timestamp) do
+    timestamp
+    |> DateTime.to_iso8601()
+    |> String.replace_suffix("Z", ".000Z")
   end
 
   defp agent_resource_records(boot_id, first_sequence, count, timestamp) do

@@ -275,38 +275,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ "No run telemetry to analyze yet"
   end
 
-  test "renders exact source-gated values in the keyboard-reachable pressure table" do
-    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id()))
-
-    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
-
-    assert html =~ ~s(<table id="analytics-pressure-table">)
-    assert html =~ "13"
-    assert html =~ "16 / 16 / 12"
-    assert html =~ ">2<"
-    assert html =~ "2 / 8"
-    assert html =~ "189s"
-    assert html =~ "2026-07-11T00:00:40.000Z"
-    assert html =~ "2026-07-11T00:00:55.000Z"
-    assert html =~ ">current<"
-    assert html =~ ">measured<"
-  end
-
-  test "renders unavailable pressure evidence as em-dash, never a confident zero" do
-    boot_id = RunTelemetry.boot_id()
-    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture_with_gap!(boot_id))
-
-    {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
-
-    {:ok, document} = Floki.parse_document(html)
-    [gap_row] = Enum.filter(Floki.find(document, "#analytics-pressure-table tbody tr"), &(Floki.find(&1, "td") |> Enum.at(4) |> Floki.text() == "degraded"))
-    gap_wait = gap_row |> Floki.find("td") |> List.last() |> Floki.text()
-    assert gap_wait == "—"
-    refute gap_wait == "0s"
-    assert html =~ "13"
-    assert html =~ "189s"
-  end
-
   @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 3, available: 0, active: 3, reserved_paused: 0, queued_demand?: true}
   test "renders the runtime cap with every other ceiling the daemon reports" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
