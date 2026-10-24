@@ -117,6 +117,14 @@ defmodule Aiur.Application.ChildrenTest do
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
     end
 
+    test "headless dashboard run starts the HTTP server without terminal pane services" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
+
+      assert Aiur.HttpServer in mods
+      refute Aiur.PaneManager in mods
+      refute Aiur.AgentList.App in mods
+    end
+
     test "headless boots measurably fewer children than interactive" do
       interactive = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true)
       headless = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)

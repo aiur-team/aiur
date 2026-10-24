@@ -29,44 +29,54 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
     refute_received {:quarantine_pr, _, _}
   end
 
-  test "only a passing rerun of the failing commit makes a main failure a flake", %{journal: journal} do
+  test "one untouched base failure quarantines immediately without a passing rerun", %{journal: journal} do
     opts = journal |> opts(self()) |> Keyword.put(:main_history_fun, fn -> [red_entry(15)] end)
 
     assert :ok = MergeGroupQuarantine.process_completed([], [], "main", opts)
-    refute_received {:quarantine_pr, _, _}
-
-    # A later run whose annotations could not be read proves no pass.
-    unknown = %{sha: "unknown7", completed_at: minutes_ago_ms(7), run_urls: [], digest: %FailureDigest{checks: [%{id: nil, name: "coverage (2/4)", url: @main_run, tests: :unknown}], tests: :unknown}}
-    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", Keyword.put(opts, :main_history_fun, fn -> [red_entry(15), unknown] end))
-    refute_received {:quarantine_pr, _, _}
-
-    # A later green commit may be the fix of a regression: not evidence.
-    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", Keyword.put(opts, :main_history_fun, fn -> [red_entry(15), green_entry(5)] end))
-    refute_received {:quarantine_pr, _, _}
-
-    # The rerun of the failing commit passes the test: now it is a flake.
-    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", Keyword.put(opts, :main_history_fun, fn -> [rerun_green(15), green_entry(5)] end))
+    assert_received {:flake_ticket, @reaper, _}
     assert_received {:quarantine_pr, 5200, %{identity: @reaper}}
+
+    # A later clean run does not file another ticket for the already quarantined identity.
+    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", Keyword.put(opts, :main_history_fun, fn -> [green_entry(5)] end))
+    refute_received {:flake_ticket, _, _}
+    refute_received {:quarantine_pr, _, _}
   end
 
   test "two unrelated merge-group failures are not quarantined while the newest main run fails the test", %{journal: journal} do
-    opts = journal |> opts(self()) |> Keyword.put(:main_history_fun, fn -> [green_entry(60), red_entry(1)] end)
+    opts =
+      journal
+      |> opts(self())
+      |> Keyword.merge(
+        main_history_fun: fn -> [green_entry(60), red_entry(1)] end,
+        commit_paths_fun: fn _sha, _ -> {:ok, [@reaper_path]} end
+      )
+
     runs = [group_run(39_136_853_814, "pr-4995-aaa", 30), group_run(39_139_000_001, "pr-5108-bbb", 10)]
 
     assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", opts)
     refute_received {:quarantine_pr, _, _}
   end
 
-  test "a regression red on consecutive main commits and then fixed is not quarantined", %{journal: journal} do
+  test "a continued red on main does not file a second fix ticket", %{journal: journal} do
     opts = journal |> opts(self()) |> Keyword.put(:main_history_fun, fn -> [red_entry(20), red_entry(15)] end)
     assert :ok = MergeGroupQuarantine.process_completed([], [], "main", opts)
+    assert_received {:flake_ticket, @reaper, _}
+    assert_received {:quarantine_pr, 5200, %{identity: @reaper}}
 
     assert :ok = MergeGroupQuarantine.process_completed([], [], "main", Keyword.put(opts, :main_history_fun, fn -> [red_entry(20), red_entry(15), green_entry(5)] end))
+    refute_received {:flake_ticket, _, _}
     refute_received {:quarantine_pr, _, _}
   end
 
   test "merge-group failures recorded while main was red do not count once the fix lands", %{journal: journal} do
-    opts = journal |> opts(self()) |> Keyword.put(:main_history_fun, fn -> [red_entry(40), red_entry(20)] end)
+    opts =
+      journal
+      |> opts(self())
+      |> Keyword.merge(
+        main_history_fun: fn -> [red_entry(40), red_entry(20)] end,
+        commit_paths_fun: fn _sha, _ -> {:ok, [@reaper_path]} end
+      )
+
     runs = [group_run(39_136_853_814, "pr-4995-aaa", 30), group_run(39_139_000_001, "pr-5108-bbb", 10)]
     assert :ok = MergeGroupQuarantine.process_completed(runs, [], "main", opts)
     refute_received {:quarantine_pr, _, _}
@@ -103,7 +113,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
     refute_received {:quarantine_pr, _, _}
   end
 
-  test "a multi-module failure absent on main with one changed lib area routes only that PR", %{journal: journal} do
+  test "a multi-module failure routes only the changed PR when innocent ticket lookup succeeds", %{journal: journal} do
     parent = self()
     blame_test = "src/test/aiur/landing_watch/merge_group_blame_test.exs"
     journal_test = "src/test/aiur/landing_watch/merge_group_journal_test.exs"
@@ -167,6 +177,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
       approved_fun: fn _, _ -> {:ok, true} end,
       revalidate_fun: fn _, _, _ -> :ok end,
       attribution_fun: fn _ -> {:ok, :clean} end,
+      ticket_state_fun: fn _issue, _ -> {:ok, %{state: "ci-wait", paused?: false, held?: false}} end,
       comment_fun: fn _, _, _ -> :ok end,
       enqueue_fun: fn node, _, _ ->
         send(parent, {:enqueue, node})
@@ -308,6 +319,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantineEvidenceTest do
       |> opts(parent)
       |> Keyword.merge(
         approved_fun: fn _, _ -> {:ok, true} end,
+        ticket_state_fun: fn "4995", _ -> {:ok, "ci-wait"} end,
         revalidate_fun: fn _, _, _ -> :ok end,
         attribution_fun: fn _ -> {:ok, :clean} end,
         comment_fun: fn _, _, _ -> :ok end,

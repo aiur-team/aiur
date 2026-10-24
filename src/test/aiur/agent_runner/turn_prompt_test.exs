@@ -275,7 +275,7 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
 
       assert prompt =~ "Review findings checklist"
       assert prompt =~ "- 1. `lib/a.ex:44` — lib/a.ex:44 drop the nil key"
-      refute prompt =~ "- 2."
+      assert prompt =~ "- 2. No location here."
     end
 
     test "turn one resumed rework still uses restart continuation guidance" do

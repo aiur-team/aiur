@@ -9,7 +9,7 @@ export const onReset = fn => resets.push(fn);
 export function resetState(urlState = {}) {
   for (const key of Object.keys(S)) delete S[key];
   Object.assign(S, {
-    view: 'graph', span: 1, feature: null, fmode: 'focus',
+    view: 'graph', list: 'tickets', span: 1, feature: null, fmode: 'focus',
     f: { type: [], model: [], feature: [], epic: [], tstate: [], astate: [] },
     pop: null, loading: true, ready: false, flow: false, K: 2,
     density: 'card', trees: false, liveMin: false, ticket: null,
@@ -53,9 +53,11 @@ export const fx = {
   renderLoading() {}, renderUnavailable: defaultUnavailable, dataChanged: defaultDataChanged,
   drawEdgesSoon() {}, tickCardAges() {}, openFromURL() {}, flushLive() {}, renderHeads() {},
   makeCard: it => { const el = document.createElement('div'); el.className = 'bd-card'; el.dataset.id = it.t.id; el.tabIndex = -1; el._it = it; return el; },
+  activeFeature: () => S.feature && ctx.D && Object.hasOwn(ctx.D.features, S.feature) ? ctx.D.features[S.feature] : null,
   visibleCols: () => [], applyCols() {}, scheduleCols() {},
   initModal() {}, closeModal() {}, syncTicket() {}, modalSync() {}, renderDocBody() {}, renderConversation() {},
   drawEdges() {}, renderBand() {}, renderList() {}, openModal() {}, onHover() {}, setHover() {},
   lockTree() {}, fitTree() {}, openTree() {},
   appendEntries() {}, appendItem() {}, claimLocalOp: () => null, renderComposer() {}, composerState() {}, sendStatus() {}, scheduleMap() {}, wireLive() {}, onConversation() {}, reconnectConversation() {},
+  renderCommand() {}, placeCommand() {},
 };

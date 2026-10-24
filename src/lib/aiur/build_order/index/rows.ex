@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.Index.Rows do
   @moduledoc false
   alias Aiur.BuildOrder.{Epic, FeatureStats, Metadata, ProviderHealth, SourceFreshness}
   alias Aiur.BuildOrder.History.{Edges, Row, Timing}
-  alias Aiur.BuildOrder.Index.Catalogue
+  alias Aiur.BuildOrder.Index.{Catalogue, Estimates}
 
   @spec build(map(), list()) :: {map(), non_neg_integer()}
   def build(parts, general) do
@@ -117,7 +117,13 @@ defmodule Aiur.BuildOrder.Index.Rows do
       pr: pr(row)
     }
 
-    base |> Map.merge(timing) |> Map.merge(Edges.to_payload(edges, producer.num)) |> Map.merge(producer) |> Map.update!(:created, &SourceFreshness.ms/1) |> align_dependencies()
+    base
+    |> Map.merge(timing)
+    |> Map.merge(Edges.to_payload(edges, producer.num))
+    |> Map.merge(producer)
+    |> Map.update!(:created, &SourceFreshness.ms/1)
+    |> align_dependencies()
+    |> Estimates.row(parts[:estimates])
   end
 
   defp align_dependencies(row) do

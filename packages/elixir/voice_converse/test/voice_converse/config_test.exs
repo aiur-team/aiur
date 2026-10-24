@@ -70,4 +70,25 @@ defmodule VoiceConverse.ConfigTest do
                Config.new(@base ++ [limits: %{daily_minutes_cap: -1}])
     end
   end
+
+  describe "provider preferences" do
+    test "rejects a cascade llm without a provider prefix" do
+      assert {:error, %{field: :providers, reason: :invalid, key: :llm}} =
+               Config.new(@base ++ [providers: %{cascade: %{llm: "claude"}}])
+    end
+
+    test "rejects speech parts assigned to the wrong direction" do
+      assert {:error, %{field: :providers, reason: :invalid, key: :stt}} =
+               Config.new(@base ++ [providers: %{cascade: %{stt: [:openai_tts]}}])
+
+      assert {:error, %{field: :providers, reason: :invalid, key: :tts}} =
+               Config.new(@base ++ [providers: %{cascade: %{tts: [:openai_stt]}}])
+    end
+
+    test "returns a validation error for a partial providers map in a Config struct" do
+      config = struct(Config, Keyword.merge(@base, providers: %{}))
+
+      assert {:error, %{field: :providers, reason: :invalid, key: :preference}} = Config.new(config)
+    end
+  end
 end

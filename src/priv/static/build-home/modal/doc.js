@@ -1,3 +1,4 @@
+import { estLabel } from '../estimate.js';
 import { ctx, fx, onReset } from '../state.js';
 import { $, esc } from '../dom.js';
 import { I } from '../icons.js';
@@ -81,7 +82,7 @@ export function renderDoc(body, t, D, doc, opts = {}) {
   const fact = (name, value) => '<div><small>' + name + '</small><b>' + esc(value) + '</b></div>';
   body.innerHTML = '<div class="bm-doc"><article class="bm-art"><div class="bm-src">' + source + '</div><div class="bm-body">' + bodyHTML(doc) + '</div></article><aside class="bm-side"><div class="bm-facts">' +
     fact('Queue', t.sec === 'plan' && t.qpos != null ? 'Q' + t.qpos : '—') + (t.sec === 'plan' ? fact('Wave', t.wave == null ? '—' : 'W' + t.wave) : '') +
-    fact('Estimate', '—') + fact('Complexity', t.cx == null ? '—' : t.cx + '/5') + '</div>' +
+    fact('Estimate', estLabel(t)) + fact('Complexity', t.cx == null ? '—' : t.cx + '/5') + '</div>' +
     ((t.deps || []).length ? '<div class="bm-dg"><small>Depends on</small>' + dependencies(t.deps, D) + '</div>' : '') +
     ((D.children?.[t.id] || []).length ? '<div class="bm-dg"><small>Unblocks</small>' + dependencies(D.children[t.id], D) + '</div>' : '') + addHTML(t, D) + '</aside></div>';
   if (opts.note) {

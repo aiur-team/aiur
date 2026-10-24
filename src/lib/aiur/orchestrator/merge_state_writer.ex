@@ -1,25 +1,36 @@
 defmodule Aiur.Orchestrator.MergeStateWriter do
   @moduledoc false
 
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{Config, StatePolicy}
   alias Aiur.Issue
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Tracker
 
-  @spec write_if_current(String.t(), String.t()) :: :ok | {:error, term()}
-  @spec write_if_current(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  @spec write_if_current(String.t(), String.t()) :: :ok | :skipped | {:error, term()}
+  @spec write_if_current(String.t(), String.t(), keyword()) :: :ok | :skipped | {:error, term()}
   def write_if_current(identifier, target, opts \\ []) do
     fetch_issue_states_fun = Keyword.get(opts, :fetch_issue_states_fun, &Tracker.fetch_issue_states_by_ids/1)
+    foreign_state_label_fun = Keyword.get(opts, :foreign_state_label_fun, &Tracker.foreign_state_label?/1)
     tracker = Keyword.get(opts, :tracker, Tracker)
 
     case fetch_issue_states_fun.([to_string(identifier)]) do
       {:ok, [%Issue{state: state}]} when is_binary(state) ->
+        refuse_labels = if StatePolicy.terminal_state_name?(target), do: [], else: operator_hold_labels()
+
         TicketTransition.write_state(identifier, target,
           writer: :comment_wake,
           expected_state: state,
-          refuse_labels: operator_hold_labels(),
+          refuse_labels: refuse_labels,
+          clear_terminal_state_overrides: StatePolicy.terminal_state_name?(target),
           tracker: tracker
         )
+
+      {:ok, [%Issue{labels: labels}]} ->
+        if StatePolicy.terminal_state_name?(target) and foreign_state_label_fun.(labels) do
+          :skipped
+        else
+          {:error, :merge_issue_state_unavailable}
+        end
 
       {:ok, _} ->
         {:error, :merge_issue_state_unavailable}
