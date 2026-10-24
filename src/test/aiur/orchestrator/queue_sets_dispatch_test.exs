@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
 
   defmodule QueueBoundary do
     alias Aiur.Issue
-    alias Aiur.Orchestrator.{BuildQueueClaimProbe, State}
+    alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchPolicy, State}
     def load, do: Agent.get(__MODULE__, &{:ok, &1})
     def save(document), do: Agent.update(__MODULE__, fn _ -> document end)
     def open_issue_labels(_), do: {:ok, Map.new(1..12, &{to_string(&1), %{labels: ~w(agent:queued agent:todo)}}), System.system_time(:millisecond)}
@@ -26,15 +26,42 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     def ticket_pull_request(_), do: {:ok, nil}
     def status(ids), do: Map.new(ids, &{&1, :unclaimed})
 
-    def next_set do
+    def next_set, do: next_set_with_issue_state("todo")
+
+    def no_candidate_next_set, do: next_set_with_issue_state("done")
+
+    defp next_set_with_issue_state(issue_state) do
       document = Agent.get(__MODULE__, & &1)
-      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: "todo", blocked_by: []}} end)
-      BuildQueueClaimProbe.next_set(%State{max_concurrent_agents: 6, effective_concurrent_agents: 6, last_polled_issues: issues})
+      issues = Map.new(document.items, fn item -> {item.issue_id, %Issue{id: item.issue_id, identifier: "repo##{item.issue_id}", title: "ticket", state: issue_state, blocked_by: []}} end)
+
+      state = %State{
+        max_concurrent_agents: 6,
+        effective_concurrent_agents: 6,
+        running: %{},
+        claimed: MapSet.new(),
+        auto_resume: %{},
+        blocked_ticket_ids: MapSet.new(),
+        last_polled_issues: issues
+      }
+
+      dispatchable? = Enum.any?(Map.values(issues), &DispatchPolicy.should_dispatch_issue?(&1, state))
+
+      if issue_state == "todo" and not dispatchable?,
+        do: raise("the controlled claim-probe fixture must contain dispatchable issues")
+
+      if issue_state == "done" and dispatchable?,
+        do: raise("the terminal-state reproduction must decline every issue")
+
+      BuildQueueClaimProbe.next_set(state)
     end
 
     def add_label(_, _), do: raise("ordering must not write GitHub labels")
     def remove_label(_, _), do: raise("ordering must not write GitHub labels")
     def notify_demand(_), do: :ok
+  end
+
+  defmodule NoCandidateQueueBoundary do
+    def next_set, do: QueueBoundary.no_candidate_next_set()
   end
 
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
@@ -61,6 +88,8 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert_received {^pid, {:reconcile, token}}
     send(pid, {:reconcile, token})
     assert GenServer.call(pid, :status) == :running
+    assert :ets.info(Hints.table_name(), :owner) == pid
+    assert :ets.info(:aiur_build_queue_sets, :owner) == pid
     assert Enum.all?(Aiur.BuildQueue.show(pid).queues, &(&1.counts.ready > 0))
 
     for {name, rank} <- [{"set 2", 0}, {"set 0", 2}, {"set 1", 1}] do
@@ -69,6 +98,22 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
 
     assert Enum.map(Agent.get(QueueBoundary, & &1.queues), &{&1.name, &1.rank}) == [{"set 2", 0}, {"set 1", 1}, {"set 0", 2}]
     assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(10 11 12 3 8 9)
+    snapshot = Hints.sets()
+    assert snapshot.members["8"].set_id == "q-0002"
+    assert Enum.find(snapshot.sets, &(&1.id == "q-0002")).rank == 0
+    assert QueueBoundary.no_candidate_next_set() == {:ok, nil}
+
+    declined_json =
+      capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true, claim_probe: NoCandidateQueueBoundary) end)
+      |> Jason.decode!()
+
+    assert Enum.map(declined_json["queues"], &{&1["set_rank"], &1["state"]}) == [
+             {0, "waiting"},
+             {1, "waiting"},
+             {2, "waiting"}
+           ]
+
+    assert QueueBoundary.next_set() == {:ok, "q-0002"}
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
     assert output =~ "queue order  actual set 2 > set 1 > set 0  declared unavailable"
     assert output =~ "0  set 2\n1  set 1\n2  set 0\n"
