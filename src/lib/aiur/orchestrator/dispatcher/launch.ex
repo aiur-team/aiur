@@ -24,6 +24,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TelemetryCohort
+  alias Aiur.Orchestrator.TodoDispatchClaim
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.Signal
   alias Aiur.Tracker
@@ -33,9 +35,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   def recover_orphaned_claim(state, issue, active_states, terminal_states) do
     case DispatchPolicy.dispatch_decision(issue, state, active_states, terminal_states) do
       {:skip, :claimed_without_runtime} ->
-        Logger.warning("Releasing orphaned dispatch claim: #{State.issue_context(issue)}")
-        recovered = %{state | claimed: MapSet.delete(state.claimed, issue.id)}
-        {recovered, DispatchPolicy.dispatch_decision(issue, recovered, active_states, terminal_states)}
+        if TrackerTasks.running?(state, {:rework_claim, issue.id}) do
+          {state, {:skip, :claimed_without_runtime}}
+        else
+          Logger.warning("Releasing orphaned dispatch claim: #{State.issue_context(issue)}")
+          recovered = %{state | claimed: MapSet.delete(state.claimed, issue.id)}
+          {recovered, DispatchPolicy.dispatch_decision(issue, recovered, active_states, terminal_states)}
+        end
 
       decision ->
         {state, decision}
@@ -206,6 +212,13 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         state
 
       worker_host ->
+        claim_ticket_for_worker(state, issue, attempt, recipient, worker_host, opts)
+    end
+  end
+
+  defp claim_ticket_for_worker(state, issue, attempt, recipient, worker_host, opts) do
+    case DispatchPolicy.normalize_issue_state(issue.state) do
+      "rework" ->
         ReworkDispatchClaim.dispatch(
           state,
           issue,
@@ -214,6 +227,12 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
           &Candidates.emit_dispatch_attempt_decline(&1, issue, &2, true),
           &dispatch_input/2
         )
+
+      "todo" ->
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
+
+      _ ->
+        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
     end
   end
 
@@ -261,8 +280,11 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
       rework_head_sha: rework_head_sha
     }
 
-    case start_runner_task(issue, runner, recipient, runner_context, opts) do
+    start_runner_task_fun = Keyword.get(opts, :start_runner_task_fun, &start_runner_task/5)
+
+    case start_runner_task_fun.(issue, runner, recipient, runner_context, opts) do
       {:ok, pid} ->
+        state = claim_todo_ticket(state, issue, opts)
         History.note_start(issue.identifier, :dispatch, DateTime.utc_now())
         ref = Process.monitor(pid)
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
@@ -329,6 +351,18 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
           prior_work: Keyword.get(opts, :prior_work, false),
           worker_host: worker_host
         })
+    end
+  end
+
+  defp claim_todo_ticket(state, %Issue{} = issue, opts) do
+    if DispatchPolicy.normalize_issue_state(issue.state) == "todo" do
+      TodoDispatchClaim.start(
+        state,
+        issue,
+        Keyword.get(opts, :todo_dispatch_tracker, Aiur.Tracker)
+      )
+    else
+      state
     end
   end
 

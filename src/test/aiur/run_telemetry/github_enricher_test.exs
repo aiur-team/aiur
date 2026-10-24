@@ -1,14 +1,23 @@
 defmodule Aiur.RunTelemetry.GitHubEnricherTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.CodeOwners
+  setup do
+    code_owners = Process.whereis(Aiur.GitHub.CodeOwners)
+    on_exit(fn -> assert Process.whereis(Aiur.GitHub.CodeOwners) == code_owners end)
+    :ok
+  end
+
   alias Aiur.RunTelemetry.GitHubEnricher
 
   test "fallback trusts both split Aiur identities without trusting outsiders" do
     write_split_identity_config!()
-    unregister_code_owners!()
 
-    result = GitHubEnricher.enrich("owner/repo", ["930"], token: "token", request_fun: &identity_request/1)
+    result =
+      GitHubEnricher.enrich("owner/repo", ["930"],
+        token: "token",
+        request_fun: &identity_request/1,
+        trust_server: nil
+      )
 
     assert Enum.map(result.events, & &1.author) == ["aiur-daemon[bot]", "its-applekid"]
     assert Enum.all?(result.events, & &1.author_trusted?)
@@ -17,7 +26,6 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
 
   test "absent trust server uses configured repository owner, never the requested repository owner" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "configured-owner/repo", tracker_trusted_accounts: ["configured"])
-    unregister_code_owners!()
 
     request = fn %{url: url} ->
       body =
@@ -28,7 +36,13 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
       {:ok, %{status: 200, body: body, headers: %{}}}
     end
 
-    result = GitHubEnricher.enrich("outsider/repo", ["930"], token: "token", request_fun: request)
+    result =
+      GitHubEnricher.enrich("outsider/repo", ["930"],
+        token: "token",
+        request_fun: request,
+        trust_server: nil
+      )
+
     assert Enum.map(result.events, & &1.author) == ["configured-owner", "configured"]
     assert Enum.all?(result.events, & &1.author_trusted?)
   end
@@ -40,9 +54,12 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
       tracker_bot_account: "aiur-bot"
     )
 
-    unregister_code_owners!()
-
-    result = GitHubEnricher.enrich("owner/repo", ["930"], token: "token", request_fun: &single_identity_request/1)
+    result =
+      GitHubEnricher.enrich("owner/repo", ["930"],
+        token: "token",
+        request_fun: &single_identity_request/1,
+        trust_server: nil
+      )
 
     assert [%{author: "aiur-bot", author_trusted?: true}] = result.events
     refute Enum.any?(result.events, &(&1.author == "outsider"))
@@ -112,8 +129,8 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
     assert Enum.all?(comments, &(&1.author_trusted? == true))
     assert Enum.all?(comments, &(not Map.has_key?(&1.comment, "body")))
     assert Enum.find(comments, &(&1.comment["id"] == 104)).comment["updated_at"] == "2026-07-11T13:30:00Z"
-    refute inspect(result) =~ "please revise"
-    refute inspect(result) =~ "review passed"
+    Aiur.TestSupport.refute_leak(result, "please revise")
+    Aiur.TestSupport.refute_leak(result, "review passed")
   end
 
   test "invalid repositories and request failures become sanitized warnings" do
@@ -128,7 +145,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
 
     assert result.events == []
     assert [%{type: :github_enrichment_failed, endpoint: :pull_requests, reason: "transport_failed"}] = result.warnings
-    refute inspect(result) =~ "secret-token"
+    Aiur.TestSupport.refute_leak(result, "secret-token")
   end
 
   test "pagination and malformed response failures remain sanitized" do
@@ -202,25 +219,6 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
       tracker_bot_account: "its-applekid",
       tracker_github_app_account: "aiur-daemon[bot]"
     )
-  end
-
-  defp unregister_code_owners! do
-    case Process.whereis(CodeOwners) do
-      nil ->
-        :ok
-
-      pid ->
-        Process.unregister(CodeOwners)
-        restore_code_owners_on_exit(pid)
-    end
-
-    assert Process.whereis(CodeOwners) == nil
-  end
-
-  defp restore_code_owners_on_exit(pid) do
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.register(pid, CodeOwners)
-    end)
   end
 
   defp identity_request(%{url: url}) do

@@ -57,13 +57,11 @@ die() {
   echo "❌ $*" >&2
   exit 1
 }
-
 engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
-
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr ticket ticket_usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -74,6 +72,7 @@ unset __aiur_engine_module
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
+       aiur --instance <name> <command>  run a supported control command against a named remote instance
        aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
@@ -86,12 +85,14 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur agents [--json]   show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
+       aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-reclassify <decision-id> --expected-version <n> --rationale <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur queue show [--queue NAME] [--json]  read queue; add/remove/reorder/order/hold/release/recover/clear steer it
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur ticket estimate <id> [<hours> | --clear] [--reason <text>] [--by <who>] [--json]
        aiur epic set <epic> <ids...> [--as <who>] [--source cli|backfill-agent] [--json]
        aiur epic clear <ids...> [--as <who>] [--json]
        aiur epic show [<ids...>] [--json]
@@ -106,12 +107,14 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
+       aiur experiments abandon <id> --reason <text> --confirm [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
        aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
        aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
-       aiur alerts [--needs-attention] [--limit <n> | --all]  show structured alert feed
+       aiur ticket-usage <ticket> [--json]  one ticket's model usage per session, model and provider
+       aiur alerts [--needs-attention] [--limit <n> | --all] | ack ticket.<id>.agent.attention.duplicate-dispatch --executor-id <id>  show or acknowledge duplicate-dispatch alerts
        aiur executor-sweep [--json] [--apply]  inspect local Executor findings
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur listen [--topic <pattern> | --ticket <id>]  stream events as JSON lines
@@ -169,10 +172,30 @@ dispatch_run() {
   run_session "$mode" "${args[@]+"${args[@]}"}"
 }
 aiur_engine_main() {
+  # Only an explicit first-argument flag may select a remote target. Clear any
+  # inherited value before parsing so a leaked shell variable cannot redirect
+  # a direct shared-engine invocation.
+  unset AIUR_REMOTE_INSTANCE
+  case "${1:-}" in
+    --instance)
+      [ "$#" -gt 1 ] && [ -n "${2:-}" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
+      export AIUR_REMOTE_INSTANCE="$2"
+      shift 2
+      ;;
+    --instance=*)
+      export AIUR_REMOTE_INSTANCE="${1#--instance=}"
+      shift
+      ;;
+  esac
+
   local cmd="${1:-}"
   # Names the running subcommand in control-RPC diagnostics so a failure says
   # which command failed instead of a generic "control rpc" (#1684).
   AIUR_CONTROL_COMMAND="${cmd:-run}"
+  if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    validate_remote_instance_name || return $?
+    ensure_remote_command_allowed "$@" || return $?
+  fi
   case "$cmd" in
     __identity)
       aiur_print_identity
@@ -248,6 +271,10 @@ aiur_engine_main() {
       shift
       cmd_executor_answer "$@"
       ;;
+    answer)
+      shift
+      cmd_operator_answer "$@"
+      ;;
     executor-escalate)
       shift
       cmd_executor_escalate "$@"
@@ -268,6 +295,7 @@ aiur_engine_main() {
       shift
       cmd_queue "$@"
       ;;
+    ticket) shift; cmd_ticket "$@" ;;
     epic) shift; cmd_epic "$@" ;;
     feature) shift; cmd_feature "$@" ;;
     build-orders)
@@ -279,6 +307,7 @@ aiur_engine_main() {
     experiments) shift; cmd_experiments "$@" ;;
     capabilities)
       shift; cmd_capabilities "$@" ;;
+    ticket-usage) shift; cmd_ticket_usage "$@" ;;
     github-usage)
       shift
       cmd_github_usage "$@"

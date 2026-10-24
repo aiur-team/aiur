@@ -21,6 +21,7 @@
     "src/lib/aiur/landing_watch/**",
     "src/lib/aiur/orchestrator.ex",
     "src/lib/aiur/orchestrator/**",
+    "src/lib/aiur/orchestrator/comment_polling_state.ex",
     "src/lib/aiur/pr_ready_ledger_store.ex",
     "src/lib/aiur/recent_merge.ex",
     "src/lib/aiur/recent_merge/**",
@@ -38,6 +39,7 @@
     "commands",
     "config",
     "event-bus",
+    "github",
     "harness-adapters",
     "identity",
     "kernel",
@@ -48,6 +50,8 @@
   ],
   "optional": [
     "build-queue",
+    "executor-attention",
+    "github",
     "github-listeners"
   ],
   "owns": {

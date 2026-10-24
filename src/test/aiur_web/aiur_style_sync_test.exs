@@ -8,8 +8,36 @@ defmodule AiurWeb.AiurStyleSyncTest do
   @copy Path.expand("../../priv/static/aiur-style", __DIR__)
   @dist Path.expand("../../../packages/aiur-style/dist", __DIR__)
 
-  files = fn root -> root |> Path.join("**/*") |> Path.wildcard() |> Enum.filter(&File.regular?/1) |> Enum.map(&Path.relative_to(&1, root)) end
-  @copied files.(@copy)
+  defmodule Drift do
+    @moduledoc false
+
+    # What scripts/sync-aiur-style copies out of dist (sync.mjs --only): these
+    # top-level directories, plus top-level files whose names start with one of them.
+    @subtrees ~w(css js init fonts assets tokens)
+
+    def files(root) do
+      root |> Path.join("**/*") |> Path.wildcard() |> Enum.filter(&File.regular?/1) |> Enum.map(&Path.relative_to(&1, root))
+    end
+
+    # Every way the copy differs from the synced part of dist, in both directions.
+    def problems(copy, dist) do
+      copied = files(copy)
+      synced = dist |> files() |> Enum.filter(&synced?/1)
+
+      Enum.map(synced -- copied, &"#{&1} is missing from the copy") ++
+        Enum.map(copied -- synced, &"#{&1} is not in dist") ++
+        for file <- copied, file in synced, File.read!(Path.join(copy, file)) != File.read!(Path.join(dist, file)), do: "#{file} differs from dist"
+    end
+
+    defp synced?(file) do
+      case Path.split(file) do
+        [name] -> String.starts_with?(name, @subtrees)
+        [dir | _] -> dir in @subtrees
+      end
+    end
+  end
+
+  @copied Drift.files(@copy)
 
   defp get_authed(path) do
     authorization = "Basic " <> Base.encode64("operator:test-dashboard-secret")
@@ -24,11 +52,33 @@ defmodule AiurWeb.AiurStyleSyncTest do
   test "the committed copy is byte-equal to packages/aiur-style/dist" do
     copied = @copied
     assert "tokens.css" in copied and "fonts.css" in copied and "init/theme-init.js" in copied
+    problems = Drift.problems(@copy, @dist)
+    assert problems == [], Enum.join(problems, "\n") <> "\nrun scripts/sync-aiur-style"
+  end
 
-    for file <- copied do
-      assert File.read!(Path.join(@copy, file)) == File.read!(Path.join(@dist, file)),
-             "#{file} differs from dist; run scripts/sync-aiur-style"
+  @tag :tmp_dir
+  test "the sync check fails on files missing from either side or changed", %{tmp_dir: tmp_dir} do
+    [copy, dist] = Enum.map(["copy", "dist"], &Path.join(tmp_dir, &1))
+
+    for root <- [copy, dist], file <- ["tokens.css", "js/brand-reveal.js"] do
+      File.mkdir_p!(Path.join(root, "js"))
+      File.write!(Path.join(root, file), file)
     end
+
+    File.write!(Path.join(dist, "aiur-style.css"), "not synced")
+    assert Drift.problems(copy, dist) == []
+
+    File.rm!(Path.join(copy, "js/brand-reveal.js"))
+    assert Drift.problems(copy, dist) == ["js/brand-reveal.js is missing from the copy"]
+
+    File.write!(Path.join(copy, "stale.css"), "")
+    File.write!(Path.join(copy, "tokens.css"), "edited")
+
+    assert Drift.problems(copy, dist) == [
+             "js/brand-reveal.js is missing from the copy",
+             "stale.css is not in dist",
+             "tokens.css differs from dist"
+           ]
   end
 
   test "the layout loads tokens before dashboard.css, which carries the fonts, and replaces the inline theme script" do

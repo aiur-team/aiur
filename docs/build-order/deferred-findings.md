@@ -155,3 +155,16 @@ critical-path capacity, or prevent completion.
 - Future disposition: DASH-015 fixes the dark-theme contrast token and the
   `time` locator, then wires `test:provider-meters` into the aggregate
   `npm test` chain so the proof is enforced.
+
+## DF-014 — Stream Deck key-grid alignment between modes
+
+- Severity: P3 cosmetic layout finding.
+- Evidence: the Executor's MP-R6 live run on 2026-10-18 observed the Logs and
+  Commands key blocks about 40 px right of grid mode. The observation and
+  capture paths are recorded in [#5181](https://github.com/aiur-team/aiur/issues/5181).
+- Affected component: dashboard `/streamdeck` mode layout.
+- Why deferred: this cosmetic observation does not invalidate the automated
+  anchor or visual-contract checks. The single-event Logs gap in #5181 is
+  separately still open and does not become deferred through this entry.
+- Future disposition: compare mode positions using #5181's captures and add
+  the requested browser layout assertion when correcting the alignment.

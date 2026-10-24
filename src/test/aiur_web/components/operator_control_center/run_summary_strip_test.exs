@@ -95,6 +95,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "Attributed"
   end
 
+  test "renders the primary GitHub windows and omits separately keyed credentials" do
+    github_quota = %{
+      state: :observed,
+      windows: %{"core" => %{resource: "core", remaining: 4159, limit: 5000, used_percent: 16.8, reset_at: DateTime.add(@now, 30, :minute)}},
+      credential_windows: %{"operator-fingerprint" => %{"core" => %{resource: "core", remaining: 4900, limit: 5000, used_percent: 2.0, reset_at: DateTime.add(@now, 30, :minute)}}},
+      backoffs: []
+    }
+
+    html = render_component(&RunSummaryStrip.run_summary_strip/1, %{run: run_view(), usage: usage_view(), meters: meters_view(), github_quota: github_quota, now: @now})
+
+    assert html =~ "4159/5000 left"
+    refute html =~ "4900/5000 left"
+  end
+
   # The attribution/coverage context is removed: no ticket identity or
   # attributed-spend lines leak through the card, regardless of window data.
   test "omits attribution and coverage context when only a GraphQL window is observed" do

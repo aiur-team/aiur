@@ -15,20 +15,24 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
     failed = group_run(406, "failure", "pr-17-a")
     main = %{"id" => 405, "event" => "push", "status" => "completed", "conclusion" => "failure"}
 
-    request = fn %{method: :get, url: url} ->
-      runs =
-        cond do
-          String.contains?(url, "branch=main") ->
-            [main]
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/gh-readonly-queue/main/pr-17-a"}]}}
 
-          String.contains?(url, "event=merge_group") and String.contains?(url, "status=completed") ->
-            [failed]
+      %{method: :get, url: url} ->
+        runs =
+          cond do
+            String.contains?(url, "branch=main") ->
+              [main]
 
-          true ->
-            []
-        end
+            String.contains?(url, "event=merge_group") and String.contains?(url, "status=completed") ->
+              [failed]
 
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+            true ->
+              []
+          end
+
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     pr = %{
@@ -54,7 +58,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
         {:ok, [%{"id" => id, "name" => "test", "conclusion" => "failure"}]}
       end,
       job_log_fun: fn _, _ ->
-        {:ok, "mix test src/test/aiur/example_test.exs:12 test base failure"}
+        {:ok, "  1) test base failure (Aiur.ExampleTest)\n     test/aiur/example_test.exs:12"}
       end,
       changed_paths_fun: fn _, _ -> {:ok, ["src/lib/changed.ex"]} end,
       known_failure_patterns: [],
@@ -84,9 +88,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
 
     run = group_run(305, "failure", "pr-17-a")
 
-    request = fn %{method: :get, url: url} ->
-      runs = if String.contains?(url, "status=completed"), do: [run], else: []
-      {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: [%{"ref" => "refs/heads/gh-readonly-queue/main/pr-17-a"}]}}
+
+      %{method: :get, url: url} ->
+        runs = if String.contains?(url, "status=completed"), do: [run], else: []
+        {:ok, %{status: 200, body: %{"workflow_runs" => runs}}}
     end
 
     pr = %{
@@ -107,7 +115,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
       request_fun: request,
       journal_path: journal,
       live_observations_fun: fn _, _ -> {:ok, [pr]} end,
-      job_log_fun: fn _, _ -> {:ok, "mix test src/test/aiur/changed_test.exs:12 failed"} end,
+      job_log_fun: fn _, _ -> {:ok, "  1) test failed (Aiur.ChangedTest)\n     test/aiur/changed_test.exs:12"} end,
       jobs_fun: fn _, _ ->
         {:ok, [%{"id" => 901, "name" => "test", "conclusion" => "failure"}]}
       end,

@@ -132,7 +132,7 @@ defmodule Aiur.GitHub.IssueState do
       # free `304` when nothing changed.
       case Issues.fetch_issue_raw_conditional(
              context.issue_number,
-             issue_read_opts(context) |> Keyword.put(:revalidate, true)
+             guarded_issue_read_opts(context) |> Keyword.put(:revalidate, true)
            ) do
         {:ok, current_issue_body, _outcome} ->
           validate_revalidated_state(context, current_issue_body)
@@ -153,6 +153,23 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   defp validate_expected_state(%{opts: opts, prefix: prefix}, issue_body) do
+    case reject_held_labels(opts, issue_body) do
+      :ok -> validate_state_precondition(opts, issue_body, prefix)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp reject_held_labels(opts, issue_body) do
+    held = Keyword.get(opts, :refuse_labels, []) |> Enum.map(&normalize_label_name/1)
+    labels = issue_body |> Map.get("labels", []) |> Enum.map(&normalize_label_name(Map.get(&1, "name", "")))
+
+    case Enum.find(held, &(&1 in labels)) do
+      nil -> :ok
+      label -> {:error, {:operator_hold, label}}
+    end
+  end
+
+  defp validate_state_precondition(opts, issue_body, prefix) do
     case Keyword.fetch(opts, :expected_state) do
       :error ->
         :ok
@@ -299,6 +316,10 @@ defmodule Aiur.GitHub.IssueState do
 
   defp issue_read_opts(%{request_fun: request_fun, token: token}),
     do: [token: token, request_fun: request_fun]
+
+  # Expected-state guards need an authoritative body: an ETag can validate a
+  # stale stored snapshot when equal updated_at values allowed a racing deposit.
+  defp guarded_issue_read_opts(context), do: Keyword.put(issue_read_opts(context), :unconditional, true)
 
   defp retry_local_holds(request_fun, opts) do
     fn request ->

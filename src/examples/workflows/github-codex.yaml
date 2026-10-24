@@ -4,6 +4,8 @@ tracker:
   # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
   # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
   active_states:
+    # Runtime reason labels (agent:ci-red, agent:retrying, etc.) are modifiers,
+    # not workflow states; keep them out of active_states.
     - todo
     - in-progress
     - human-review
@@ -57,6 +59,12 @@ tracker:
     agent_core_limit_per_hour: 250
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
+instance:
+  role: primary                       # primary | secondary; one primary per repository
+  # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
+  #   label_prefixes: [nuc]           # its tracker.github.label_prefix
+  #   tickets: []                     # ids handed over mid-flight
+
 # Merge policy defaults; currently validated and shown in status/capabilities.
 # Merge enforcement, worker instructions and main watching ship separately.
 # merge_policy:
@@ -128,6 +136,8 @@ executor_takeover_continuous_alert_hours: 1
 server:
   host: 127.0.0.1
   port: 4000
+  # public_url: https://aiur.example.com
+  # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
 workspace:
   root: ~/code/aiur-workspaces
@@ -143,6 +153,7 @@ agent:
   # ci_recovery_enabled: true             # false disables automatic CI reruns
   # ci_recovery_max_per_poll: 5
   # ci_recovery_max_per_hour: 20
+  # non_closing_merge_marker: needs-triage # label applied to an own-PR reference without closing keywords
   # relay: true                         # detached transport for local Codex / headless Claude
   # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority

@@ -112,7 +112,9 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
 
   def emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
 
-  defp publish_human_review_handoff(%Issue{} = issue) do
+  @doc false
+  @spec publish_human_review_handoff(Issue.t(), keyword()) :: term()
+  def publish_human_review_handoff(%Issue{} = issue, opts \\ []) do
     {repo, pull_request} = human_review_pull_request(issue)
     {pr_number, head_sha} = human_review_pr_identity(pull_request)
     review = repo && pr_number && GithubKeys.last_review(repo, pr_number, get_in(pull_request, ["user", "login"]))
@@ -120,12 +122,16 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     approved_at_head? = is_binary(head_sha) and review["state"] == "APPROVED" and last_review_sha == head_sha
 
     # The tracker refresh and the CI poll both observe the same flip; one wake per (PR, head).
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.handoff.human_review",
+    emit_system = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+
+    emit_system.("ticket.#{issue.identifier}.agent.handoff.human_review",
       issue: issue,
       reason: "Agent handed the ticket to human review",
       needs_attention: not approved_at_head?,
       severity: if(approved_at_head?, do: "info", else: "warning"),
       dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "handoff_human_review", head_sha),
+      # A label-only handoff is often observed after the worker exits, when the ticket is no longer tracked (#5167).
+      bypass_contamination: true,
       exchange_payload: %{
         "action" => "human_review",
         "pr_number" => pr_number,

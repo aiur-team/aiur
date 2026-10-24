@@ -6,7 +6,8 @@ defmodule Aiur.OrchestratorFirehoseTest do
   alias Aiur.GitHub.Listeners
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentPolling, FirehosePolling, TrackerHealth}
+  alias Aiur.Orchestrator.CommentPollingState, as: CommentPolling
+  alias Aiur.Orchestrator.{FirehosePolling, TrackerHealth}
   alias Aiur.Workflow
 
   setup do
@@ -104,12 +105,14 @@ defmodule Aiur.OrchestratorFirehoseTest do
       }
     }
 
-    next =
-      CommentPolling.poll_github_comments(state,
-        repo: "owner/repo",
-        request_fun: request_fun,
-        review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end
-      )
+    CommentPolling.start_async(state,
+      repo: "owner/repo",
+      request_fun: request_fun,
+      review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:ok, []} end
+    )
+
+    receive_barrier({:github_listener_outcome, :comments, outcome})
+    next = CommentPolling.apply_outcome(state, outcome)
 
     assert {:rate_limited, 1} = next.github_connectivity[:comments]
     assert TrackerHealth.github_next_poll_delay_ms(next) == 9_000

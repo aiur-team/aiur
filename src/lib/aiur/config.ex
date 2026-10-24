@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{Schema, SemanticChecks}
+  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -13,7 +13,7 @@ defmodule Aiur.Config do
   # `System.tmp_dir!/0`, which reads TMPDIR/TEMP/TMP before its non-environment
   # fallbacks. Anything added to those paths must be added here, or the settings
   # memo will not expire when the variable changes.
-  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE ELEVENLABS_API_KEY AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE ELEVENLABS_API_KEY AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEV_TEST_TICKET_IDS TMPDIR TEMP TMP)
 
   @type codex_runtime_settings :: %{
           approval_policy: String.t(),
@@ -62,7 +62,7 @@ defmodule Aiur.Config do
   # reused, without copying the full config term on this hot path. See
   # `env_epoch/2` for why that is not the whole environment.
   defp cached_settings(workflow, cache_identity) do
-    key = {cache_identity, env_epoch(workflow, cache_identity)}
+    key = {cache_identity, {env_epoch(workflow, cache_identity), BackendCatalog.impl()}}
 
     case WorkflowStoreCache.fetch_settings(key) do
       {:ok, settings} ->
@@ -151,7 +151,11 @@ defmodule Aiur.Config do
 
   @doc false
   @spec settings_from({:ok, map()} | {:error, term()}) :: {:ok, Schema.t()} | {:error, term()}
-  def settings_from({:ok, %{config: config}}) when is_map(config), do: config |> prepare_config() |> Schema.parse()
+  def settings_from({:ok, %{config: config}}) when is_map(config) do
+    with {:ok, _catalog} <- BackendCatalog.impl(),
+         do: config |> prepare_config() |> Schema.parse() |> TestRunOverrides.apply()
+  end
+
   def settings_from({:error, reason}), do: {:error, reason}
 
   @spec settings!() :: Schema.t()
@@ -165,7 +169,19 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "The `voice.conversation` settings, with a relative `roles_dir` resolved against the config file."
+  @spec voice_conversation() :: Schema.VoiceConversation.t()
+  def voice_conversation do
+    Schema.VoiceConversation.resolve_roles_dir(settings!().voice.conversation, Workflow.workflow_file_path())
+  end
+
   defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
+  @spec instance_role() :: String.t()
+  def instance_role, do: settings!().instance.role
+
+  # The role the repository-global services were gated on at boot; a hot reload does not re-gate them.
+  @spec booted_instance_role() :: String.t()
+  def booted_instance_role, do: Application.get_env(:aiur, :booted_instance_role) || instance_role()
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
@@ -252,6 +268,7 @@ defmodule Aiur.Config do
   defdelegate prewarm_poll_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate synthetic_load_process_cap(), to: Aiur.Config.CapacitySettings
   defdelegate default_synthetic_load_process_cap(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate test_run?(), to: Aiur.TestRunState, as: :active?
   defdelegate max_cpu_pressure(), to: Aiur.Config.CapacitySettings
   defdelegate target_cpu_pressure(), to: Aiur.Config.CapacitySettings
   defdelegate max_load_average(), to: Aiur.Config.CapacitySettings
@@ -333,15 +350,15 @@ defmodule Aiur.Config do
   defp inferred_agent_kind(config) do
     agent = map_section(config, "agent")
 
-    Enum.find(Aiur.CodingAgent.configurable_backends(), fn backend ->
+    Enum.find(BackendCatalog.configurable_backends(), fn backend ->
       has_section?(config, backend) or Map.has_key?(backend_config_sections(config, agent), backend)
-    end) || Aiur.CodingAgent.default_config_backend()
+    end) || BackendCatalog.default_config_backend()
   end
 
   defp backend_config_sections(config, agent) do
     explicit = map_section(agent, "backend_configs")
 
-    Aiur.CodingAgent.known_backends()
+    BackendCatalog.known_backends()
     |> Enum.reduce(explicit, fn backend, sections ->
       section =
         config

@@ -20,6 +20,19 @@ test('U2 unknown state does not become Running', () => {
     const t = row('now', { agent }); assert.equal(stClass(t), 'unknown'); assert.equal(stText(t), 'State unknown');
   }
 });
+test('usage limits and CI wait keep their causes; unknown states never become Parked', () => {
+  const usage = row('now', { agent: { state: 'usage_limited', pause: 'usage_limit_exhausted', resume_at: 1791408000000 } });
+  assert.equal(stText(usage), 'Paused · usage limit (resumes at 21:20 UTC)');
+  assert.notEqual(stText(usage), 'Parked');
+  assert.equal(stText(row('now', { agent: { state: 'usage_limited', pause: 'usage_limit_exhausted', resume_at: null } })), 'Paused · usage limit');
+  assert.equal(stText(row('now', { agent: { state: 'ci_wait' } })), 'Waiting for CI');
+  assert.equal(stText(row('now', { agent: { state: null } })), 'State unknown');
+});
+test('labelled usage-limit state keeps its resume time and paused count', () => {
+  const usage = row('now', { agent: { state: 'paused-usage-limit', pause: 'usage_limit_exhausted', resume_at: 1791408000000 } });
+  assert.equal(stText(usage), 'agent:paused-usage-limit (resumes at 21:20 UTC)');
+  assert.match(html({ now: [usage] }), /1 paused/);
+});
 test('U3 closures preserve their reason', () => {
   for (const [status, cls, label] of [['not_planned', 'np', 'Not planned'], ['closed', 'closed', 'Closed'], ['running', 'unknown', 'State unknown']]) {
     const t = row('hist', { status }); assert.equal(stClass(t), cls); assert.equal(stText(t), label);
@@ -61,7 +74,22 @@ test('U10 section heads expose unavailable causes and read ages', () => {
   assert.match(html({ plan: [row('plan')] }, { ...P.sources, queue: source }), /1 in build-queue order · unavailable, showing the read 6 min ago/);
   assert.match(html({}, { ...P.sources, queue: { ...source, state: 'disabled', reason: 'configured off' } }), /disabled · configured off/);
   assert.match(html({}, { ...P.sources, open_tickets: { ...source, state: 'incomplete', reason: 'incomplete' } }), /incomplete · the read was partial · read 6 min ago/);
+  assert.match(html({}, { ...P.sources, open_tickets: { state: 'unavailable', reason: 'open_tickets_loading', observed_at: null } }), /the open-ticket listing is in progress/);
   assert.match(html({ hist: [row('hist')] }, { ...P.sources, history: { state: 'stale', observed_at: null } }), /stale, no successful read recorded/);
+});
+test('retrying agents are counted separately from running and timeout cause is readable', () => {
+  const retrying = row('now', { status: 'queued', agent: { state: 'retrying', model: null, name: null } });
+  const out = html({ now: [row('now'), retrying] }, { ...P.sources, open_tickets: { state: 'unavailable', reason: 'open_tickets_timeout', observed_at: null } });
+  assert.match(out, /1 running · 1 retrying/);
+  assert.match(out, /the open-ticket listing timed out/);
+});
+test('live list header accounts for every row state', () => {
+  const rows = [
+    row('now', { agent: { state: 'active' } }), row('now', { id: 'retry', agent: { state: 'retrying' } }),
+    row('now', { id: 'error', agent: { state: 'error' } }), row('now', { id: 'command', agent: { state: 'command' } }),
+    row('now', { id: 'paused', agent: { state: 'paused' } }), row('now', { id: 'unknown', agent: { state: null } })
+  ];
+  assert.match(html({ now: rows }), /1 running · 1 retrying · 2 stuck · 1 paused · 1 state unknown/);
 });
 test('U11 long sections render every row and healthy empty sections stay hidden', () => {
   const out = html({ nq: Array.from({ length: 600 }, (_, i) => row('nq', { id: String(i) })) });

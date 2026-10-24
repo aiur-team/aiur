@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake, DispatchCycleLiveness, TicketTransition}
+  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPollingState, CommentWake, DispatchCycleLiveness, StaleApprovedHead, TicketTransition}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
@@ -50,12 +50,19 @@ defmodule Aiur.Orchestrator do
   def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
 
   def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
-    do: {:noreply, CommentPolling.request_reconcile(state, hint)}
+    do: {:noreply, CommentPollingState.request_reconcile(state, hint)}
+
+  def handle_info({:github_pr_synchronize, ticket, pr_number}, %State{} = state)
+      when is_binary(ticket) and is_integer(pr_number) do
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> StaleApprovedHead.reconcile(ticket, pr_number) end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> StaleApprovedHead.task_start_failed(ticket, pr_number, reason)
+    end
+
+    {:noreply, state}
+  end
 
   def handle_info({:github_pr_ready_transition, t, n, sha}, state), do: {:noreply, ReadyForReviewTransitions.observe_webhook_transition(state, t, n, sha)}
-
-  def handle_info({:run_github_comment_reconcile, token}, %State{} = state),
-    do: {:noreply, CommentPolling.run_scheduled_reconcile(state, token)}
 
   def handle_info({:ci_readiness_result, token, result}, state) when is_reference(token) do
     state = Dispatcher.handle_ci_readiness_result(state, token, result)
@@ -200,16 +207,8 @@ defmodule Aiur.Orchestrator do
     {:noreply, EventTopics.route(state, event)}
   end
 
-  def handle_info({:github_comments_polled, ref, payload}, state) when is_reference(ref),
-    do: {:noreply, CommentPolling.apply_async(state, ref, payload)}
-
-  def handle_info({:github_comment_poll_started, ref, owner, pid}, state)
-      when is_reference(ref) and is_pid(owner) and is_pid(pid),
-      do: {:noreply, CommentPolling.apply_async_started(state, ref, owner, pid)}
-
-  def handle_info({:github_comment_poll_guarding, ref, owner, pid}, state)
-      when is_reference(ref) and is_pid(owner) and is_pid(pid),
-      do: {:noreply, CommentPolling.apply_async_guarding(state, ref, owner, pid)}
+  def handle_info({:github_listener_outcome, :comments, outcome}, state),
+    do: {:noreply, CommentPollingState.apply_outcome(state, outcome)}
 
   # Quota observations arrive outside the tracker poll. A recovered window must
   # invalidate the persisted admission verdict immediately; otherwise `status`
@@ -249,10 +248,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp handle_other_down(state, ref, reason) do
-    case CommentPolling.apply_async_down(state, ref) do
-      {:handled, next_state} -> {:noreply, next_state}
-      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
-    end
+    RetryEngine.handle_agent_down(state, ref, reason)
   end
 
   @doc false

@@ -14,12 +14,15 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   alias Aiur.Orchestrator.RetryEngine.Scheduling
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Tracker
 
   @spec handle_retry_issue(State.t(), String.t(), integer(), map(), keyword()) :: {:noreply, State.t()}
   def handle_retry_issue(%State{} = state, issue_id, attempt, metadata, opts \\ []) do
+    state = if metadata[:retry_label?], do: sync_retrying_modifier(state, metadata, issue_id, :remove), else: state
+
     if retry_capacity_available?(state, metadata) and not state.globally_paused do
       start_retry_poll(state, issue_id, attempt, metadata, opts)
     else
@@ -87,6 +90,26 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   defp apply_retry_poll_result(current, issue_id, attempt, metadata, _opts, {:error, reason}) do
     Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{PollFailure.format_retry_preflight_error(reason)}")
     PollFailure.handle_retry_poll_failure(current, issue_id, attempt, metadata, reason)
+  end
+
+  defp sync_retrying_modifier(state, metadata, issue_id, action) do
+    identifier = metadata[:identifier] || issue_id
+
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, identifier},
+      fn -> TicketTransition.write_reason_modifier(identifier, action, "retrying", writer: :retry_engine) end,
+      fn current, result ->
+        case result do
+          :ok ->
+            current
+
+          {:error, reason} ->
+            Logger.warning("retrying reason label update failed: issue=#{identifier} reason=#{inspect(reason)}")
+            current
+        end
+      end
+    )
   end
 
   defp retry_capacity_available?(%State{} = state, metadata) when is_map(metadata) do

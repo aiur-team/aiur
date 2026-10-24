@@ -39,7 +39,7 @@ assert_absent() {
 
 for output in "$tmp/clean.log" "$tmp/non-pr.log"; do
   assert_contains "$output" 'run-pre-handoff-code-checks: no changed files' 'worker handoff runner omitted selected tests and Dialyzer gate'
-  for guard in check-on-exit-rm-rf.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py run-quarantined-tests.py; do
+  for guard in check-agent-scratch.py check-on-exit-rm-rf.py check-bare-assert-receive.py check-browser-smoke-shards.mjs check-hot-list-format.py check-file-size.py run-quarantined-tests.py; do
     assert_contains "$output" "scripts/$guard" "shared guard list entry missing"
   done
 done

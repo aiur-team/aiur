@@ -20,9 +20,7 @@ export async function columnSequence(page, ctx, { click, cssMotion, state, scrol
     .sort((a, b) => a.title.localeCompare(b.title)).forEach(el => host.appendChild(el)))
   // Both shells poll scroll position every 250 ms. Align their phase after async mounts;
   // otherwise that fallback poll can restart the 220 ms debounce at different times.
-  await page.evaluate(() => window.columnPolls?.slice().forEach(poll => {
-    clearInterval(poll.id); poll.id = setInterval(poll.fn, 250, ...poll.args)
-  }))
+  await alignColumnPolls(page)
   const samples = [], initial = await page.locator('.bd-lane:not(.leave)').evaluateAll(nodes => nodes.map(el => el.title))
   await scrollTo(page, 270)
   let applyAt = null, removeAt = null, leaving = false, animation = {}
@@ -48,4 +46,10 @@ export async function normalizeColumnCapture(page) {
     const box = el.getBoundingClientRect()
     Object.assign(el.style, { position: 'fixed', left: Math.round(box.x) + 'px', top: '100px', width: Math.floor(box.width) + 'px', background: 'var(--bg)', zIndex: '9999', transform: 'translateZ(0)' })
   })
+}
+
+export async function alignColumnPolls(page) {
+  await page.evaluate(() => window.columnPolls?.slice().forEach(poll => {
+    clearInterval(poll.id); poll.id = setInterval(poll.fn, 250, ...poll.args)
+  }))
 }

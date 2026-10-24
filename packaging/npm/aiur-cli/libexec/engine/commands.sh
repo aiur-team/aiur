@@ -38,7 +38,9 @@ parse_issue_targets() {
   [ "${#parsed_targets[@]}" -gt 0 ]
 }
 cmd_status() {
-  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
+  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
+  fi
   if [ "$#" -eq 0 ]; then
     run_control_rpc "Aiur.AgentControlCLI.status()"
   else
@@ -82,22 +84,26 @@ cmd_accounts() {
     esac
   done
 
-  resolve_release || return $?
-  prepare_distribution || die "distribution setup failed; cannot contact aiur"
-  resolve_control_identity_from_records
-  if [ "$(probe_node_liveness)" = "down" ]; then
+  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    resolve_release || return $?
+    prepare_distribution || die "distribution setup failed; cannot contact aiur"
+    resolve_control_identity_from_records
+  fi
+
+  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$(probe_node_liveness)" = "down" ]; then
     # The local one-shot CLI renders the identity and marks usage unavailable.
     # It never makes a provider request.
     run_local_cli accounts "$@"
-  else
-    if [ -n "$harness" ]; then
-      encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
-      expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
-    else
-      expression="Aiur.AgentControlCLI.accounts($json_arg)"
-    fi
-    run_control_rpc "$expression"
+    return
   fi
+
+  if [ -n "$harness" ]; then
+    encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
+    expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
+  else
+    expression="Aiur.AgentControlCLI.accounts($json_arg)"
+  fi
+  run_control_rpc "$expression"
 }
 
 cmd_pause_resume() {
@@ -225,8 +231,10 @@ cmd_message() {
 cmd_agents() {
   if [ "$#" -eq 1 ] && [ "$1" = --json ]; then
     run_control_rpc "Aiur.Handoff.CLI.agents()"
+  elif [ "$#" -eq 1 ] && [ "$1" = --all ]; then
+    run_control_rpc "Aiur.AgentControlCLI.agents(all: true)"
   else
-    [ "$#" -eq 0 ] || die "agents accepts only --json"
+    [ "$#" -eq 0 ] || die "agents accepts only --all or --json"
     run_control_rpc "Aiur.AgentControlCLI.agents()"
   fi
 }

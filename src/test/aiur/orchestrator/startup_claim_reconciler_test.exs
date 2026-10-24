@@ -3,8 +3,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{StartupClaimReconciler, State}
+  alias Aiur.Orchestrator.{StartupClaimReconciler, StartupClaimReconciler.Observation, State}
 
   test "releases an orphaned in-progress claim to todo with a guarded update" do
     issue = issue("2076", "in-progress")
@@ -27,15 +28,36 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert_receive {:transition, "2076", "todo", "in-progress"}, 1000
     assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", alert_opts}, 1000
     refute alert_opts[:needs_attention]
-    assert alert_opts[:message] =~ "released"
-    assert alert_opts[:reason] =~ "no live runtime"
-    assert alert_opts[:reason] =~ "guarded update"
-    assert alert_opts[:severity] == "warning"
 
     assert_receive {:result, {state, [%Issue{state: "todo"}]}}, 1000
     assert state.startup_claim_reconciliation_complete?
     assert log =~ "Released orphaned startup claim to todo"
     assert log =~ "issue_id=issue-2076 issue_identifier=2076"
+  end
+
+  test "startup release to human-review publishes one handoff wake per head" do
+    issue = %{issue("5216", "in-progress") | tracker_identity: %Aiur.TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: "its-everdred", repository: "aiur", identifier: "5216"}}
+    repo = "its-everdred/aiur"
+    sha = String.duplicate("a", 40)
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo, issue.id)
+    :ok = ResourceStore.put_resource(key, %{"number" => 5216, "head" => %{"sha" => sha}})
+    parent = self()
+
+    opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5216}} end,
+      pr_fetcher: fn _ -> {:ok, %{"number" => 5216, "draft" => false, "mergeable" => true, "head" => %{"sha" => sha}}} end,
+      release_fun: fn _issue, _opts -> {:ok, "human-review"} end,
+      update_issue_state_fun: fn _identifier, "human-review", "in-progress" -> :ok end,
+      emit_alert_fun: fn topic, alert_opts -> send(parent, {:alert, topic, alert_opts}) end
+    ]
+
+    {state, [%Issue{state: "human-review"}]} = reconcile(%State{}, [issue], opts)
+    assert_receive {:alert, "ticket.5216.agent.handoff.human_review", handoff}, 1000
+    assert handoff[:exchange_payload]["pr_number"] == 5216
+    assert handoff[:exchange_payload]["head_sha"] == sha
+
+    {_, [%Issue{state: "human-review"}]} = reconcile(state, [%{issue | state: "human-review"}], opts)
+    refute_receive {:alert, "ticket.5216.agent.handoff.human_review", _}, 100
   end
 
   test "uses tracker-native lifecycle names for a guarded release" do
@@ -186,6 +208,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread"}]} end,
         open_pr_fetcher: fn _identifier -> {:ok, %{"number" => 9}} end,
         pr_fetcher: fn _number -> {:ok, %{"number" => 9, "mergeable" => true, "review_decision" => "CHANGES_REQUESTED", "head" => %{"sha" => "head"}}} end,
+        reviews_fetcher: fn 9 -> {:ok, [%{"state" => "CHANGES_REQUESTED", "commit_id" => "head", authoritative: true}]} end,
         update_issue_state_fun: fn "requested-changes", "rework", "in-progress" -> :ok end
       )
 

@@ -7,7 +7,8 @@ defmodule Aiur.PrReadyLedgerStore do
 
     * `:draft` — a poll saw the PR as a draft; the next ready observation
       publishes `ready_for_review`.
-    * `{:announced, head_sha}` — `ready_for_review` was published for the PR.
+    * `{:announced, head_sha, ready_at_ms, retry_at_ms}` — ready was published,
+      with the ready timestamp and next stale-review attention time.
     * `:never_draft` — the PR was opened ready; GitHub's webhook does not send
       `ready_for_review` for that, so neither does the poll.
     * `{:history_failed, retry_at_ms}` — reading the PR's history failed; the
@@ -29,7 +30,7 @@ defmodule Aiur.PrReadyLedgerStore do
   alias Aiur.JsonStore
 
   @type key :: {String.t(), pos_integer()}
-  @type entry :: :draft | :never_draft | {:announced, String.t()} | {:history_failed, integer()}
+  @type entry :: :draft | :never_draft | {:announced, String.t()} | {:announced, String.t(), integer(), integer() | nil} | {:history_failed, integer()}
   @type ledger :: %{optional(key()) => entry()}
 
   @file_name "pr-ready-ledger.json"
@@ -89,6 +90,9 @@ defmodule Aiur.PrReadyLedgerStore do
   defp encode_entry(:never_draft), do: %{"state" => "never_draft"}
   defp encode_entry({:announced, head_sha}), do: %{"state" => "announced", "head" => head_sha}
 
+  defp encode_entry({:announced, head_sha, ready_at_ms, retry_at_ms}),
+    do: %{"state" => "announced", "head" => head_sha, "ready_at_ms" => ready_at_ms, "retry_at_ms" => retry_at_ms}
+
   defp encode_entry({:history_failed, retry_at_ms}),
     do: %{"state" => "history_failed", "retry_at_ms" => retry_at_ms}
 
@@ -106,13 +110,28 @@ defmodule Aiur.PrReadyLedgerStore do
   defp decode_entry(%{"ticket" => ticket, "pr" => pr_number} = persisted)
        when is_binary(ticket) and ticket != "" and is_integer(pr_number) and pr_number > 0 do
     case persisted do
-      %{"state" => "draft"} -> {{ticket, pr_number}, :draft}
-      %{"state" => "never_draft"} -> {{ticket, pr_number}, :never_draft}
-      %{"state" => "announced", "head" => head} when is_binary(head) -> {{ticket, pr_number}, {:announced, head}}
-      %{"state" => "history_failed", "retry_at_ms" => at} when is_integer(at) -> {{ticket, pr_number}, {:history_failed, at}}
-      _other -> nil
+      %{"state" => "draft"} ->
+        {{ticket, pr_number}, :draft}
+
+      %{"state" => "never_draft"} ->
+        {{ticket, pr_number}, :never_draft}
+
+      %{"state" => "announced", "head" => head} = announced when is_binary(head) ->
+        decode_announced(ticket, pr_number, announced)
+
+      %{"state" => "history_failed", "retry_at_ms" => at} when is_integer(at) ->
+        {{ticket, pr_number}, {:history_failed, at}}
+
+      _other ->
+        nil
     end
   end
 
   defp decode_entry(_persisted), do: nil
+
+  defp decode_announced(ticket, pr_number, %{"ready_at_ms" => ready_at_ms, "retry_at_ms" => retry_at_ms, "head" => head})
+       when is_integer(ready_at_ms) and (is_integer(retry_at_ms) or is_nil(retry_at_ms)),
+       do: {{ticket, pr_number}, {:announced, head, ready_at_ms, retry_at_ms}}
+
+  defp decode_announced(ticket, pr_number, %{"head" => head}), do: {{ticket, pr_number}, {:announced, head}}
 end

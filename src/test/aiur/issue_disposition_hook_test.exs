@@ -10,9 +10,16 @@ defmodule Aiur.IssueDispositionHookTest do
 
     assert [entry] = settings["hooks"]["PreToolUse"]
     assert entry["matcher"] == "Bash"
-    assert [%{"type" => "command", "command" => command}, %{"type" => "command", "command" => toolchain}] = entry["hooks"]
+
+    assert [
+             %{"type" => "command", "command" => command},
+             %{"type" => "command", "command" => toolchain},
+             %{"type" => "command", "command" => tmp_cleanup}
+           ] = entry["hooks"]
+
     assert command =~ "${CLAUDE_PROJECT_DIR}/.claude/hooks/issue-disposition.py"
     assert toolchain =~ "${CLAUDE_PROJECT_DIR}/.claude/hooks/toolchain-guard.py"
+    assert tmp_cleanup =~ "${CLAUDE_PROJECT_DIR}/.claude/hooks/tmp-cleanup-guard.py"
   end
 
   test "an Executor issue create without a disposition is blocked before Bash runs" do

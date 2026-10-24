@@ -42,9 +42,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-      assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
-      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
+      assert_received {:recorded, _position, {:tracker_comment, ^identifier, comment}}
+      assert comment =~ "PR #942 head `failed-head`"
+      assert comment =~ "- lint\n- coverage"
+      assert_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      assert_received {:recorded, _position, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, _position, {:resume_agent, _request_id, 101}}
 
       assert next.running[identifier].issue.state == "rework"
       assert next.running[identifier].control.status == :paused
@@ -169,13 +172,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       start_recorder()
       ResourceStore.reset()
       on_exit(&ResourceStore.reset/0)
-      previous_token = :persistent_term.get({Aiur.GitHub.Config, :resolved_token}, :unset)
-      :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, "test-token")
+      previous_token = :persistent_term.get({Aiur.GitHub.Access.Token, :resolved_token}, :unset)
+      :persistent_term.put({Aiur.GitHub.Access.Token, :resolved_token}, "test-token")
 
       on_exit(fn ->
         if previous_token == :unset,
-          do: :persistent_term.erase({Aiur.GitHub.Config, :resolved_token}),
-          else: :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, previous_token)
+          do: :persistent_term.erase({Aiur.GitHub.Access.Token, :resolved_token}),
+          else: :persistent_term.put({Aiur.GitHub.Access.Token, :resolved_token}, previous_token)
       end)
 
       labels = :ets.new(:ci_labels, [:set, :private])
@@ -201,7 +204,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       assert state.running == %{}
       next = poll_ci(state, issue, %{decision: :failed, draft?: true, head_sha: "reviewed-head", pr_number: 3095, failures: [%{name: "lint", result: "failure"}]})
 
-      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework"]}]
+      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework", "agent:ci-red"]}]
       assert next.ci_lifecycle.approved_heads == %{}
     end
 
@@ -370,12 +373,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
                  review_decision: nil,
                  recovery: nil,
                  failures: [],
+                 check_runs: [],
                  tracker_state: "ci-wait"
                }
              }
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
-               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
     end
 
     test "a pre-existing operator pause does not arm the CI fallback" do

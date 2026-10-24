@@ -53,9 +53,9 @@ export function shell() {
     fx.unlock();
   });
   life.on(document, 'keydown', e => {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('#tk-backdrop.show')) return;
     if (!$('#bd-tree', root).hidden) fx.closeTree(); else if (ctx.lockId) fx.unlock();
-  });
+  }, { capture: true });
   life.on(vp, 'scroll', () => {
     fx.liveGuard(); fx.markScrolling(); life.frame('scroll-update', () => fx.update());
   }, { passive: true });

@@ -72,6 +72,12 @@ test('mutation: catches changed API count text', async ({ browser }) => {
   await pair.product.getByText('2 APIs', { exact: true }).evaluate(e => { e.textContent = '3 APIs' })
   await pixelFailure(pair, { name: 'api-count' })
 })
+test('mutation: parity screenshot style preserves overflowing layout differences', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.design.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; }' })
+  await pair.product.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; } #build-root { width: calc(100% + 1px) !important; }' })
+  await pixelFailure(pair, { name: 'overflow-layout', fullPage: false })
+})
 test('mutation: palette swap fails', async ({ browser }) => {
   const other = { ...cell, palette: 'aiur' }
   const pair = { design: await pageFor(browser), product: await pageFor(browser, other), cell, allowlist: [] }
@@ -185,12 +191,33 @@ test('stable capture recovers from a transient capture failure', async () => {
   const expected = Buffer.from('stable')
   let calls = 0
   const target = { screenshot: async options => {
-    expect(options).toBe(opts)
+    expect(options).toMatchObject(opts)
+    expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
     if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
     return Buffer.from('stable')
   } }
   expect((await captureStable(target, opts)).equals(expected)).toBe(true)
   expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
+})
+test('stable clipped capture includes thumb-hiding style without mutating caller options', async () => {
+  const opts = { scale: 'device' }
+  const expected = Buffer.from('stable')
+  let calls = 0
+  const target = { boundingBox: async () => ({ x: 10, y: 20, width: 30, height: 40 }) }
+  const page = {
+    evaluate: async () => ({ x: 2, y: 3 }),
+    screenshot: async options => {
+      expect(options).toMatchObject(opts)
+      expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
+      expect(options).toMatchObject({ fullPage: true, clip: { x: 12, y: 23, width: 30, height: 40 } })
+      if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+      return Buffer.from('stable')
+    }
+  }
+  expect((await captureStable(target, opts, page)).equals(expected)).toBe(true)
+  expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
 })
 for (const [name, message, attempts] of [
   ['persistent capture failure', 'page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot', 2],
@@ -221,6 +248,8 @@ const defects = {
   'unexpected css': e => { e.css = 'html {color:red}' },
   'wrong status spelling': e => { e.approval.status = 'pending-signoff' },
   'missing property': e => { e.kind = 'property' },
+  'empty spec': e => { e.spec = '' },
+  'wildcard spec': e => { e.spec = '*.browser.spec.mjs' },
   'missing rule': e => { e.kind = 'axe' },
   'missing path': e => { e.kind = 'motion' },
   'approved false': e => { e.approved = false }
@@ -234,6 +263,18 @@ for (const [name, mutate] of Object.entries(defects)) {
 test('stale allowlist entry', async ({ browser }) => {
   const pair = await designPair(browser)
   await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }])).rejects.toThrow('stale allowlist entry demo')
+})
+test('allowlist scopes capabilities and specs without hiding stale targets', async ({ browser }) => {
+  const pair = await designPair(browser)
+  const conditional = { ...entry, selector: '.missing', productWhen: '.missing' }
+  await expect(applyAllowlist(pair, cell, [conditional])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...conditional, productWhen: 'html' }])).rejects.toThrow('stale allowlist entry demo')
+  const scoped = { ...entry, selector: '.missing', spec: 'build-home-chains-parity.browser.spec.mjs' }
+  await expect(applyAllowlist(pair, cell, [scoped])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...scoped, spec: 'design-parity-harness.browser.spec.mjs' }]))
+    .rejects.toThrow('stale allowlist entry demo')
+  await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }]))
+    .rejects.toThrow('stale allowlist entry demo')
 })
 test('allowlist removal applies', async ({ browser }) => {
   const pair = await designPair(browser)
@@ -330,4 +371,12 @@ test('visual route seeds the optional palette', async ({ page }) => {
   const { openVisualRoute } = await import('../support/visual.mjs')
   await openVisualRoute(page, { theme: 'dark', palette: 'aiur', route: '/build-orders' })
   expect(await page.evaluate(() => localStorage.getItem('aiur-palette'))).toBe('aiur')
+})
+
+// Explicit viewport captures must not scroll an offscreen region into view.
+test('viewport clipping preserves scroll without animation preservation', async ({ browser }) => {
+  const pair = { design: await pageFor(browser), product: await pageFor(browser), cell, allowlist: [] }
+  for (const page of [pair.design, pair.product]) await page.setContent('<style>body{margin:0;height:3000px}#region{position:absolute;top:2000px;left:50px;width:80px;height:80px;background:red}</style><div id="region"></div>')
+  await compareParityPixels(pair, { name: 'viewport-clip-scroll', region: '#region', viewportClip: true })
+  for (const page of [pair.design, pair.product]) expect(await page.evaluate(() => scrollY)).toBe(0)
 })

@@ -12,7 +12,6 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.AgentRunner.SessionStartup
   alias Aiur.AgentRunner.TurnBudget
   alias Aiur.AgentRunner.TurnLoop
-  alias Aiur.Claude.DisplayTailer
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Signal
@@ -32,7 +31,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     ]
 
   import SessionDisplay,
-    only: [put_live_conversation_session_id: 2, maybe_put_display_authority: 2, current_display_source_opts: 2, maybe_put_display_source_resolver: 2, maybe_start_display_tailer: 4]
+    only: [put_live_conversation_session_id: 2, maybe_put_display_authority: 2, current_display_source_opts: 3, maybe_put_display_source_resolver: 3, maybe_start_display_tailer: 4]
 
   import SessionStartup, only: [start_with_telemetry: 7, record_session_start_failure: 3]
   @type worker_host :: String.t() | nil
@@ -262,7 +261,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     display_tailer = maybe_start_display_tailer(session, issue, session_context.rc?, opts)
     Process.put(:handoff_display_tailer, display_tailer)
-    opts = maybe_put_display_source_resolver(opts, display_tailer)
+    opts = maybe_put_display_source_resolver(opts, display_tailer, session_backend!(session))
 
     # A resumed thread already carries the original task + full prior turn
     # history, so its first turn must continue rather than replay the
@@ -291,7 +290,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         issue,
         session_backend_label(session),
         result,
-        current_display_source_opts(opts, display_tailer)
+        current_display_source_opts(opts, display_tailer, session_backend!(session))
       )
 
       result
@@ -300,7 +299,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         MessageHandler.mark_live_conversation_degraded(
           issue,
           session_backend_label(session),
-          current_display_source_opts(opts, display_tailer)
+          current_display_source_opts(opts, display_tailer, session_backend!(session))
         )
 
         :erlang.raise(kind, reason, __STACKTRACE__)
@@ -338,7 +337,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defdelegate display_tailer_handler(issue, backend, opts), to: SessionDisplay
 
   @spec display_tailer_source_handler(Issue.t(), String.t(), keyword()) ::
-          (DisplayTailer.source_event() -> :ok | {:error, term()})
+          (CodingAgent.display_source_event() -> :ok | {:error, term()})
   defdelegate display_tailer_source_handler(issue, backend, opts), to: SessionDisplay
   @spec should_display_tail?(String.t() | nil, boolean(), String.t() | nil) :: boolean()
   defdelegate should_display_tail?(backend, rc?, identifier), to: SessionDisplay

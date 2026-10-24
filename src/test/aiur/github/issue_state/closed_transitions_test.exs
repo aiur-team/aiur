@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
   alias Aiur.GitHub.IssueState
   alias Aiur.GitHub.ResourceStore
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")

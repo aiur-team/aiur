@@ -67,6 +67,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ci_readiness_unavailable_alerted: :dispatch,
     ci_readiness_check_pid: :dispatch,
     ci_readiness_check_token: :dispatch,
+    ci_readiness_check_provider: :dispatch,
     ci_readiness_retry_at_ms: :dispatch,
     ci_readiness_scope: :dispatch,
     ci_readiness_result: :dispatch,
@@ -114,16 +115,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     agent_totals: :accounting,
     agent_rate_limits: :accounting,
     codex_totals: :accounting,
-    codex_rate_limits: :accounting,
-    github_comments_since: :github_listeners,
-    github_comment_etags: :github_listeners,
-    github_comment_issue_updated_at: :github_listeners,
-    github_comment_issue_list_cache: :github_listeners,
-    github_comment_poll: :github_listeners,
-    github_comment_reconcile_targets: :github_listeners,
-    github_comment_reconcile_timer: :github_listeners,
-    last_comment_poll_started_at_ms: :github_listeners,
-    github_command_scan_since: :github_listeners
+    codex_rate_limits: :accounting
   }
 
   @members %{
@@ -139,6 +131,7 @@ defmodule Aiur.Orchestrator.State.Owners do
     ],
     dispatch: [
       Aiur.Orchestrator.AdoptedBoot,
+      Aiur.Orchestrator.CiReadinessGate,
       Aiur.Orchestrator.Dispatcher,
       Aiur.Orchestrator.DispatchOutcome,
       Aiur.Orchestrator.DispatchPolicy,
@@ -179,7 +172,12 @@ defmodule Aiur.Orchestrator.State.Owners do
     messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
     accounting: [Aiur.Orchestrator.TokenAccounting],
     # Listener names are data; this table neither loads nor calls the optional component.
-    github_listeners: [Aiur.Orchestrator.CommentPolling, Aiur.Orchestrator.CommandScan, :"Elixir.Aiur.Events.GithubFirehose", :"Elixir.Aiur.Events.GithubCommentsPoller"]
+    github_listeners: [
+      Aiur.Orchestrator.CommentPollingState,
+      Aiur.Orchestrator.CommandPolling,
+      :"Elixir.Aiur.Events.GithubFirehose",
+      :"Elixir.Aiur.Events.GithubCommentsPoller"
+    ]
   }
 
   @spec owner(atom()) :: atom() | nil

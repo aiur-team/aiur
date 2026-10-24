@@ -12,7 +12,9 @@ Stacked-base checks use held dependency edges without the dispatch-age cutoff an
 
 Queue progress retains existing CI and merge facts; boot CI heads bind to local PR identity. Watched approval blockers use conditional review reads once per half observation age. Closure uses delivered PR evidence, leaving poll-only mode pending. Missing identity waits for held PR evidence. No new CI polling or saving is claimed.
 
-Build queue closure uses `build_queue_observe`. Optimistic blockers use `optimistic_guard_read` after the observation age, grace expiry or a PR event; parked dependent labels are confirmed before release. Parking uses `optimistic_guard_draft` and `optimistic_guard_comment`. Failed writes retry from the journal. No saving is claimed.
+Build queue closure uses `build_queue_observe`. Optimistic blockers use `optimistic_guard_read` after the observation age, grace expiry or a PR event. `optimistic_guard_approval` checks approval on the current head and mergeability; parked dependent labels are confirmed before release.
+
+Parking uses `optimistic_guard_draft` and `optimistic_guard_comment`. Failed writes retry from the journal. No saving is claimed.
 
 Build queue writes use `build_queue_label_post` / `build_queue_label_delete`; guard GETs use `build_queue_write_observe`. Writes are paced by `build_queue.max_writes_per_minute` (default 20). Retries schedule reconciliation without blocking the queue.
 
@@ -28,7 +30,15 @@ Attempts are journaled before writes; queued PRs are left alone. Recovery does n
 
 Three failed CI/rework handoffs per PR raise one attention naming tests and hold further rework/fallback wakes. The Executor fixes or reruns the current head until all required checks pass, releasing the hold and resetting the cycle count. Acknowledging the alert alone does not release it.
 
+Rework handbacks also read classified PR conversation comments once to catch trusted change requests newer than the last formal review. Automatic end-of-turn handbacks use the same current-head evidence and feedback checks as tool-requested handbacks.
+
 A rerun not observed within ten minutes raises attention. Journaled attention holds avoid repeated recovery reads; normal CI polling continues. No saving is claimed.
+
+Runner-queue reporting reuses the open-PR observations already fetched by the landing watcher and adds only the queued workflow-run listing. At the current queue depth this is one Actions REST page per poll. Caller: `landing_watch_runner_queue`; Actions read required. This makes queue pressure visible; it claims no saving.
+
+A rework handback with no commit since the blocking review reads the PR body's GraphQL `lastEditedAt` once, attributed to `rework_body_edit`, so a body-only fix can pass the [rework guard](/concepts/ticket-lifecycle).
+
+The read costs one GraphQL point per handback attempt and never runs on a poll. Handbacks with a new commit skip it; a failed read counts as no edit.
 
 Orphan-claim recovery reads mergeability/reviews before guarded add-before-remove state writes. It posts a reason comment and wakes the Executor ([Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Successful writes retain GitHub's returned state.
 
@@ -56,6 +66,8 @@ Main watch debounces base Actions deliveries for two seconds. At the default 120
 Main-watch matches push or merge_group runs to the landed SHA and queue base. Cold 20-SHA census: 43 reads; one changed SHA: five; startup: one permission probe (test counts, not live measurements). Reconciliation caps transport calls at 64; incomplete reads retain known state and mark it unavailable.
 
 Failure events carry tests, flake classifications and suspects. Evidence uses existing CI callers; associations use `main_watch_suspects`, permissions `main_watch_permissions`, and reruns `main_watch_canary`. Actions write is cached until daemon restart; permission changes require a restart.
+
+Main-watch reruns failed jobs once per commit when one test fails and its path was untouched. Digest evidence and Actions write permission are required; incomplete or changed paths skip it. Callers: `main_watch_commit_files` and `main_watch_single_test_rerun`. A pass feeds same-commit recovery; a failed rerun stays red for the fixer. No saving is claimed.
 
 An idle completed head or any active watched run suppresses canaries; an eligible cancellation without write permission raises one persisted attention. Status distinguishes a running, unavailable or absent watcher and shows retained SHA and completed-run age after errors or poll crashes.
 

@@ -2,13 +2,22 @@ defmodule Aiur.TestCleanupTest do
   # Mutates global :aiur application env, so it cannot run async.
   use ExUnit.Case, async: false
 
+  alias Aiur.{Config.Paths, RepoBase.StateTree}
   alias Aiur.TestCleanup
 
   setup do
     root = Aiur.TestSupport.tmp_root!("aiur-test-cleanup")
     File.mkdir_p!(Path.join(root, "state"))
+    previous_repo_root = Application.get_env(:aiur, :repo_base_root)
     # on-exit-rm-rf: allow the helper under test must not clean up after itself
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn ->
+      if previous_repo_root,
+        do: Application.put_env(:aiur, :repo_base_root, previous_repo_root),
+        else: Application.delete_env(:aiur, :repo_base_root)
+
+      TestCleanup.rm_rf!(root)
+    end)
+
     %{root: root}
   end
 
@@ -74,6 +83,66 @@ defmodule Aiur.TestCleanupTest do
 
     assert error.message =~ "it reappeared after removal after 40 attempts"
     assert error.message =~ "or they cannot be deleted): [#{inspect(file)}]"
+  end
+
+  # Regression guard for the reappearance retry already in `TestCleanup`, driven
+  # by a real `StateTree` writer. The #5104 fix itself (stopping leaked runner
+  # tasks) is covered by `Aiur.TestSupport.RunnerTasksTest`.
+  test "existing reappearance retry outlasts a live repo state tree writer", %{root: root} do
+    Application.put_env(:aiur, :repo_base_root, root)
+    parent = self()
+    node = Paths.repo_state_path("test-org/test-repo")
+
+    writer =
+      spawn(fn ->
+        send(parent, :writer_started)
+        writer_loop(parent, node)
+      end)
+
+    assert_receive :writer_started, 1000
+    on_exit(fn -> if Process.alive?(writer), do: Process.exit(writer, :kill) end)
+    removals = :counters.new(1, [])
+
+    assert :ok =
+             TestCleanup.rm_rf!(root,
+               unset: [:repo_base_root],
+               rm: fn path ->
+                 result = File.rm_rf(path)
+                 :counters.add(removals, 1, 1)
+
+                 if Process.alive?(writer) do
+                   send(writer, {:write, self()})
+                   receive do: ({:write_finished, ^writer} -> :ok)
+
+                   if :counters.get(removals, 1) == 3 do
+                     send(writer, {:stop_after, 3, self()})
+                     receive do: ({:writer_stopped, ^writer} -> :ok)
+                   end
+                 end
+
+                 result
+               end
+             )
+
+    refute Process.alive?(writer)
+    refute File.exists?(root)
+    assert :counters.get(removals, 1) == 4
+  end
+
+  defp writer_loop(parent, node, writes \\ 0) do
+    receive do
+      {:write, caller} ->
+        :ok = StateTree.ensure_state_tree_at(node)
+        send(caller, {:write_finished, self()})
+        writer_loop(parent, node, writes + 1)
+
+      {:stop_after, count, caller} when writes >= count ->
+        send(caller, {:writer_stopped, self()})
+        :ok
+
+      :stop ->
+        :ok
+    end
   end
 
   test "unset deletes the named env keys before the guard", %{root: root} do

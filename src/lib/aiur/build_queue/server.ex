@@ -13,6 +13,7 @@ defmodule Aiur.BuildQueue.Server do
     Clear,
     Events,
     Hints,
+    LastRead,
     ListCommands,
     Measurement,
     Progress,
@@ -28,7 +29,7 @@ defmodule Aiur.BuildQueue.Server do
   }
 
   alias Aiur.BuildQueue.Sources.BuildOrder, as: BuildOrderSource
-  alias Aiur.Events.Exchange
+  alias Aiur.Events, as: EventBus
 
   @patterns ["ticket.*.pr.merged", "ticket.*.issue.label.added.agent.*", "ticket.*.agent.attention.#", "ticket.*.dependency.merged_blocker_reconciled"]
   @debounce_ms 2_000
@@ -51,7 +52,7 @@ defmodule Aiur.BuildQueue.Server do
       claim_probe: Keyword.get(opts, :claim_probe, ClaimProbe),
       clock: Keyword.get(opts, :clock, fn -> System.system_time(:millisecond) end),
       schedule: Keyword.get(opts, :schedule, &Process.send_after/3),
-      exchange: Keyword.get(opts, :exchange, Exchange),
+      exchange: Keyword.get(opts, :exchange, EventBus.exchange_server()),
       open_issues_topic: Keyword.get(opts, :open_issues_topic, "tracker:open_issues"),
       exchange_pid: nil,
       pending: nil,
@@ -86,11 +87,16 @@ defmodule Aiur.BuildQueue.Server do
   end
 
   @impl true
-  def handle_call(:read_model, _from, state), do: {:reply, ReadModel.build(state), state}
+  def handle_call(:read_model, _from, state) do
+    model = ReadModel.build(state)
+    LastRead.put(model)
+    {:reply, model, state}
+  end
+
   def handle_call(:status, _from, state), do: {:reply, state.status, state}
 
   def handle_call({:optimistic_attention, action, id, payload}, _from, state) when action in [:open, :resolve] do
-    cause = if payload[:action] == :none, do: {:optimistic_blocker_failed, if(payload[:cause] == :churn, do: :churn, else: :trouble)}, else: :optimistic_blocker_failed
+    cause = if payload[:action] == :none, do: {:optimistic_blocker_failed, if(payload[:cause] in [:churn, :merged], do: payload[:cause], else: :trouble)}, else: :optimistic_blocker_failed
 
     result =
       case action do
@@ -228,7 +234,7 @@ defmodule Aiur.BuildQueue.Server do
   def handle_call({:release, _target}, _from, state), do: {:reply, {:error, state.status}, state}
 
   defp resolve_optimistic_attention(id, store) do
-    Enum.reduce_while([:optimistic_blocker_failed, {:optimistic_blocker_failed, :trouble}, {:optimistic_blocker_failed, :churn}], :ok, fn key, _ ->
+    Enum.reduce_while([:optimistic_blocker_failed, {:optimistic_blocker_failed, :trouble}, {:optimistic_blocker_failed, :churn}, {:optimistic_blocker_failed, :merged}], :ok, fn key, _ ->
       case Attention.resolve(key, id, store) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}

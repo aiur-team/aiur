@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   alias Aiur.Config
   alias Aiur.Issue
+  alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.RetryEngine.AgentDown
@@ -67,6 +68,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       | completed: MapSet.put(state.completed, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+    |> AgentTeardown.clear_transient_reason_labels(issue_id)
   end
 
   @spec release_issue_claim(State.t(), String.t()) :: State.t()

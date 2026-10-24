@@ -6,14 +6,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
   """
 
   alias Aiur.{AgentPubSub, CIApprovalStore, Config, Events, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
-  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.Listeners
   alias Aiur.Handoff.Adopter
   alias Aiur.Handoff.Protection
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
-    CommentPolling,
     CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -130,7 +128,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # `--max-agents N` at launch: seed the session override (highest
       # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
       # holds without editing `.aiur/config`.
-      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override(),
+      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override() || control_lifecycle.max_agents,
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: global_pause.globally_paused,
@@ -146,6 +144,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       ci_lifecycle:
         CIApprovalStore.load()
         |> Map.put(:poll_cache, %{})
+        |> Map.put(:ci_observed_at_ms, %{})
         |> Map.put(:rewakes, %{})
         # `nil` (not an empty set) marks the parked-ready ledger as unseeded, so
         # the first CI poll after boot reloads still-active alerts from the
@@ -212,11 +211,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec terminate(term(), State.t() | term()) :: :ok
   def terminate(_reason, %State{running: running} = state) when is_map(running) do
     _ = TrackerTasks.stop(state)
-    # The comment poll owns linked target tasks whose guarded request workers
-    # may still hold GitHub sockets. Reap that tree before this owner exits so
-    # an orderly stop never overlaps it with a successor's first poll.
-    _ = CommentPolling.terminate_poll(state.github_comment_poll)
-
     # Comment-rework retries reschedule themselves for up to a minute with
     # escalating delays. Cancel them here so a stopping orchestrator never leaves
     # a timer firing — and logging — into whatever runs after it (#1747).
@@ -409,7 +403,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   defp install_event_tracked_fn(tracked_issue?) do
-    if Process.whereis(Publisher) do
+    if Events.publisher_available?() do
       Events.set_tracked_fn(tracked_issue?)
     end
 
@@ -420,7 +414,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # must be installed after startup cleanup and tracked-set initialization but
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics(opts) do
-    if Process.whereis(Exchange) do
+    if Process.whereis(Events.exchange_server()) do
       Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Events.subscribe/1)
     end
 

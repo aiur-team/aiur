@@ -3,7 +3,6 @@ defmodule Aiur.AgentRunner.SessionDisplay do
   require Logger
   alias Aiur.AgentPubSub
   alias Aiur.AgentRunner.MessageHandler
-  alias Aiur.Claude.DisplayTailer
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.LiveConversation.Source
@@ -27,11 +26,11 @@ defmodule Aiur.AgentRunner.SessionDisplay do
   def maybe_put_display_authority(opts, false), do: opts
 
   @doc false
-  @spec current_display_source_opts(term(), term()) :: term()
-  def current_display_source_opts(opts, nil), do: opts
+  @spec current_display_source_opts(term(), term(), String.t()) :: term()
+  def current_display_source_opts(opts, nil, _backend), do: opts
 
-  def current_display_source_opts(opts, display_tailer) do
-    case DisplayTailer.current_session(display_tailer) do
+  def current_display_source_opts(opts, display_tailer, backend) do
+    case CodingAgent.display_tailer(backend).current_session(display_tailer) do
       session_id when is_binary(session_id) and session_id != "" ->
         Keyword.put(opts, :session_id, session_id)
 
@@ -43,16 +42,16 @@ defmodule Aiur.AgentRunner.SessionDisplay do
   end
 
   @doc false
-  @spec maybe_put_display_source_resolver(term(), term()) :: term()
-  def maybe_put_display_source_resolver(opts, nil), do: opts
+  @spec maybe_put_display_source_resolver(term(), term(), String.t()) :: term()
+  def maybe_put_display_source_resolver(opts, nil, _backend), do: opts
 
-  def maybe_put_display_source_resolver(opts, display_tailer) do
+  def maybe_put_display_source_resolver(opts, display_tailer, backend) do
     opts
     |> Keyword.put(:live_conversation_source_resolver, fn ->
-      DisplayTailer.current_session(display_tailer)
+      CodingAgent.display_tailer(backend).current_session(display_tailer)
     end)
     |> Keyword.put(:live_conversation_operator_buffer, fn item, occurred_at ->
-      DisplayTailer.buffer_operator_delivery(display_tailer, item, occurred_at)
+      CodingAgent.display_tailer(backend).buffer_operator_delivery(display_tailer, item, occurred_at)
     end)
   end
 
@@ -76,7 +75,7 @@ defmodule Aiur.AgentRunner.SessionDisplay do
       # suppressed by `:live_conversation_authority` and cannot clear this.
       _ = MessageHandler.mark_live_conversation_degraded(issue, backend, opts)
 
-      case DisplayTailer.start(
+      case CodingAgent.display_tailer(backend).start(
              identifier: issue.identifier,
              on_message: on_message,
              on_source: on_source,
@@ -133,7 +132,7 @@ defmodule Aiur.AgentRunner.SessionDisplay do
 
   @doc false
   @spec display_tailer_source_handler(Issue.t(), String.t(), keyword()) ::
-          (DisplayTailer.source_event() -> :ok | {:error, term()})
+          (CodingAgent.display_source_event() -> :ok | {:error, term()})
   def display_tailer_source_handler(%Issue{} = issue, backend, opts)
       when is_binary(backend) and is_list(opts) do
     fn
@@ -214,9 +213,14 @@ defmodule Aiur.AgentRunner.SessionDisplay do
     rc? = Map.get(session, :remote_control, false)
     opts = opts |> put_live_conversation_session_id(session) |> maybe_put_display_authority(should_display_tail?(session_backend!(session), rc?, issue.identifier))
     tailer = maybe_start_display_tailer(session, issue, rc?, opts)
-    if tailer, do: DisplayTailer.restore_handoff(tailer, Keyword.get(opts, :handoff_display_state))
+
+    if tailer do
+      module = CodingAgent.display_tailer(session_backend!(session))
+      module.restore_handoff(tailer, Keyword.get(opts, :handoff_display_state))
+    end
+
     Process.put(:handoff_display_tailer, tailer)
-    {tailer, maybe_put_display_source_resolver(opts, tailer)}
+    {tailer, maybe_put_display_source_resolver(opts, tailer, session_backend!(session))}
   end
 
   @doc false

@@ -50,6 +50,30 @@ failing_tests="$(
   ' "$log_file" | sort -u
 )"
 
+# OrchestratorGuard fails the suite after the last test: "plain ExUnit tests broke
+# Aiur.Orchestrator: <Module>: test <name> (down)". It names the last test that finished,
+# which is timing, not proof of cause (#5114), so the named test is never classified or
+# quarantined. A separate aiur-guard-failure annotation carries the evidence for one
+# orchestrator-guard fix ticket.
+guard_names="$(
+  python3 -I - "$log_file" <<'PY'
+import pathlib, re, sys
+entry = re.compile(r'(Aiur[\w.]*: test .+? \((?:down|held by a stand-in [^)]*)\))(?=, Aiur|, unknown|\s*$)')
+found = set()
+for line in pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines():
+    _, sep, leaks = line.partition('plain ExUnit tests broke Aiur.Orchestrator: ')
+    if sep:
+        found.update(entry.findall(leaks.strip()))
+print('\n'.join(sorted(found)))
+PY
+)"
+while IFS= read -r named; do
+  [[ -z "$named" ]] && continue
+  named="${named//'%'/'%25'}"
+  printf '::error title=aiur-guard-failure::orchestrator-guard :: %s\n' "$named"
+  echo "OrchestratorGuard fired; last finished test (not proof of cause): $named" >> "$summary_file"
+done <<< "$guard_names"
+
 {
   echo ""
   echo "## Test failure classification"

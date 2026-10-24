@@ -72,6 +72,69 @@ defmodule Aiur.MainWatch.GitHub do
 
   def rerun(_, _), do: {:error, :invalid_actions_run_id}
 
+  @spec rerun_failed_jobs(pos_integer(), keyword()) :: :ok | {:error, term()}
+  def rerun_failed_jobs(id, opts \\ [])
+
+  def rerun_failed_jobs(id, opts) when is_integer(id) and id > 0 do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request = %{method: :post, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{id}/rerun-failed-jobs", token: token, body: %{}, caller: "main_watch_single_test_rerun"}
+
+      case request_fun(opts).(request) do
+        {:ok, %{status: status}} when status in [201, 202] -> :ok
+        {:ok, response} -> {:error, Errors.github_status_error(response)}
+        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  def rerun_failed_jobs(_, _), do: {:error, :invalid_actions_run_id}
+
+  @spec changed_paths(String.t(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
+  def changed_paths(sha, opts) when is_binary(sha) and sha != "" do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
+
+      case request_fun(opts).(github_request(token, "main_watch_commit_files", opts) |> Map.put(:url, url)) do
+        {:ok, %{status: 200, body: %{"files" => files}} = response} when is_list(files) ->
+          commit_paths(files, response)
+
+        {:ok, response} ->
+          {:error, request_error(response, "main_watch_commit_files", opts)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  def changed_paths(_, _), do: {:error, :invalid_main_commit_sha}
+
+  defp commit_paths(files, response) do
+    if Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+      {:error, :main_commit_files_incomplete}
+    else
+      collect_commit_paths(files)
+    end
+  end
+
+  defp collect_commit_paths(files) do
+    Enum.reduce_while(files, {:ok, []}, fn
+      %{} = file, {:ok, paths} ->
+        file_paths = [Map.get(file, "filename"), Map.get(file, "previous_filename")] |> Enum.reject(&is_nil/1)
+
+        if file_paths != [] and Enum.all?(file_paths, &(is_binary(&1) and &1 != "")) do
+          {:cont, {:ok, paths ++ file_paths}}
+        else
+          {:halt, {:error, :invalid_main_commit_files}}
+        end
+
+      _, _ ->
+        {:halt, {:error, :invalid_main_commit_files}}
+    end)
+  end
+
   defp commits(owner, repo, branch, token, opts) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits?" <> URI.encode_query(%{sha: branch, per_page: 20})
 
@@ -134,11 +197,12 @@ defmodule Aiur.MainWatch.GitHub do
 
     with {:ok, push_runs} <- runs_page(url, token, dates, opts),
          {:ok, queue_runs} <- runs_page(queue_url, token, dates, opts) do
-      # Merge-group checks remain attached to landed SHAs but are not main health evidence.
-      runs = Enum.filter(push_runs, &(&1["event"] == "push" and &1["head_branch"] == branch and (workflows == [] or &1["name"] in workflows)))
+      # A queue success ran the full matrix on the exact SHA that landed, so it stands in for a superseded push run (#5758).
+      # Queue failures stay out: a failed group's SHA can still land through a later passing group (#4663).
+      landed = Enum.filter(queue_runs, &(queue_run?(&1, branch, workflows) and &1["head_sha"] in commits and &1["status"] == "completed" and &1["conclusion"] == "success"))
       # Active queue runs are reported for the sweep only; they never count as main coverage.
-      merge_groups = Enum.filter(queue_runs, &(&1["event"] == "merge_group" and queue_run?(&1, branch, workflows) and &1["status"] in @active_statuses))
-      {:ok, {runs |> Enum.filter(&watched?(&1, commits, branch, workflows)) |> sort_normalized(), sort_normalized(merge_groups)}}
+      merge_groups = Enum.filter(queue_runs, &(queue_run?(&1, branch, workflows) and &1["status"] in @active_statuses))
+      {:ok, {sort_normalized(Enum.filter(push_runs, &watched?(&1, commits, branch, workflows)) ++ landed), sort_normalized(merge_groups)}}
     end
   end
 
@@ -216,7 +280,7 @@ defmodule Aiur.MainWatch.GitHub do
 
   defp newest_completed_workflow_runs(runs, sha, workflows) do
     runs
-    |> Enum.filter(&(&1.sha == sha and &1.event == "push" and &1.status == "completed" and &1.conclusion not in [nil, "cancelled"] and (workflows == [] or &1.name in workflows)))
+    |> Enum.filter(&(&1.sha == sha and &1.status == "completed" and &1.conclusion not in [nil, "cancelled"] and (workflows == [] or &1.name in workflows)))
     |> Enum.sort_by(&{&1.completed_at || 0, &1.id}, :desc)
     |> Enum.uniq_by(& &1.name)
   end

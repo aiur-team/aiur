@@ -182,3 +182,18 @@ for (const theme of ['light', 'dark']) {
     expect((await new AxeBuilder({ page }).include('#exp-charts').analyze()).violations).toEqual([])
   })
 }
+
+test('phone analyst report keeps wide tables inside a scrollable wrapper', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openExperiments(page)
+  await indexLinks(page).first().click()
+  const report = page.locator('#exp-report')
+  await expect(report).toContainText('Latency experiment')
+  await expect(report).toContainText('Results changed after this report was written')
+  const wrapper = report.locator('.md-table-wrap').filter({ hasText: 'p (adj.)' }).first()
+  await expect(wrapper).toBeVisible()
+  expect(await wrapper.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  await wrapper.evaluate(element => { element.scrollLeft = element.scrollWidth })
+  expect(await wrapper.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+  await assertNoDocumentOverflow(page)
+})
