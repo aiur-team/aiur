@@ -11,6 +11,9 @@ import { takeAnchor, restoreAnchor } from './render-anchor.js';
 import { renderHeads } from './render-heads.js';
 export { takeAnchor, restoreAnchor } from './render-anchor.js';
 export { headHTML } from './render-heads.js';
+import { timed } from './perf.js';
+export const relayout = timed('relayout', relayoutImpl);
+export const update = timed('update', updateImpl);
 
 let pendingLive;
 onReset(() => { pendingLive = { changed: new Set(), removed: new Set(), dirty: false }; });
@@ -63,7 +66,7 @@ function restoreFocus(id) {
   const card = [...ctx.R.values()].find(el => el.dataset.id === id) || ctx.L?.band.items.find(it => it.t.id === id)?.el;
   (card || ctx.vp).focus({ preventScroll: true });
 }
-export function relayout({ live = false } = {}) {
+function relayoutImpl({ live = false } = {}) {
   if (S.loading) return fx.renderLoading();
   syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
@@ -154,7 +157,7 @@ function renderSection(s, keep, keepL, focused) {
   });
   return created;
 }
-export function update(force) {
+function updateImpl(force) {
   if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
   fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
