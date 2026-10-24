@@ -15,6 +15,10 @@ defmodule Aiur.ModelAvailability do
   cannot make the fallback resume, fail and resume again every tick (#2737).
   A later reset from the provider still wins.
 
+  An authentication rejection is a separate durable hold. It remains until
+  startup observes a changed credential fingerprint, so repeated agent claims
+  cannot retry the same rejected provider or raise duplicate attention.
+
   A repeat means a refusal that *disproves* the last printed reset, so it has to
   arrive at or after it. Refusals that arrive before it are the same limit seen
   by other agents, and they never extend the hold. That is what keeps one
@@ -37,7 +41,15 @@ defmodule Aiur.ModelAvailability do
   @retry_delay_seconds 120
 
   @spec path() :: Path.t()
-  def path, do: Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
+  def path do
+    state_dir = System.get_env("AIUR_BG_STATE_DIR")
+
+    if is_binary(state_dir) and state_dir != "" do
+      Path.join(state_dir, "model-usage.json")
+    else
+      Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
+    end
+  end
 
   @spec load(Path.t()) :: map()
   def load(path \\ path()) do
@@ -77,6 +89,66 @@ defmodule Aiur.ModelAvailability do
     observe(backend, %{"limited" => true, "reset_at" => reset_at}, opts)
   end
 
+  @doc "Persists a credential rejection and reports whether this is the first alert for the backend."
+  @spec mark_auth_rejected(String.t(), String.t(), keyword()) :: {:ok, :first | :already_held} | {:error, term()}
+  def mark_auth_rejected(backend, fingerprint, opts \\ []) when is_binary(backend) and is_binary(fingerprint) do
+    backend = backend_key(backend)
+    path = Keyword.get(opts, :path, path())
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    :global.trans({__MODULE__, path}, fn ->
+      state = load(path)
+      backends = Map.get(state, "backends", %{})
+      entry = Map.get(backends, backend, %{})
+      first? = Map.get(entry, "auth_rejected") != true
+
+      updated =
+        entry
+        |> Map.put("auth_rejected", true)
+        |> Map.put("auth_fingerprint", fingerprint)
+        |> Map.put("auth_rejected_at", DateTime.to_iso8601(now))
+
+      case write(path, Map.put(state, "backends", Map.put(backends, backend, updated))) do
+        :ok -> {:ok, if(first?, do: :first, else: :already_held)}
+        error -> error
+      end
+    end)
+  end
+
+  @doc "Clears a credential hold only after startup observes a different credential fingerprint."
+  @spec clear_changed_auth_hold(String.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
+  def clear_changed_auth_hold(backend, fingerprint, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
+    path = Keyword.get(opts, :path, path())
+
+    :global.trans({__MODULE__, path}, fn ->
+      state = load(path)
+      backends = Map.get(state, "backends", %{})
+      entry = Map.get(backends, backend, %{})
+
+      if entry["auth_rejected"] == true and is_binary(fingerprint) and fingerprint != entry["auth_fingerprint"] do
+        updated = Map.drop(entry, ["auth_rejected", "auth_fingerprint", "auth_rejected_at"])
+        write(path, Map.put(state, "backends", Map.put(backends, backend, updated)))
+      else
+        :ok
+      end
+    end)
+  end
+
+  @doc "A provider whose credential was rejected is unavailable until that credential changes."
+  @spec auth_rejected?(String.t(), keyword()) :: boolean()
+  def auth_rejected?(backend, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
+    state = Keyword.get_lazy(opts, :state, fn -> load(Keyword.get_lazy(opts, :path, &path/0)) end)
+    get_in(state, ["backends", backend, "auth_rejected"]) == true
+  end
+
+  @doc "Returns the credential fingerprint hold state and records it atomically for one alert per backend."
+  @spec auth_rejected_alert_once(String.t(), String.t(), keyword()) :: {:ok, :first | :already_held} | {:error, term()}
+  def auth_rejected_alert_once(backend, fingerprint, opts \\ []) do
+    mark_auth_rejected(backend, fingerprint, opts)
+  end
+
   @doc """
   The ledger key for a backend **or a full route**. A route is reduced to its
   backend first, because a usage limit is an account-level fact: every
@@ -103,9 +175,10 @@ defmodule Aiur.ModelAvailability do
   def available?(backend, opts \\ []) when is_binary(backend) do
     backend = backend_key(backend)
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    entry = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path()))) |> get_in(["backends", backend]) || %{}
+    state = Keyword.get_lazy(opts, :state, fn -> load(Keyword.get_lazy(opts, :path, &path/0)) end)
+    entry = get_in(state, ["backends", backend]) || %{}
 
-    not limited?(entry, now)
+    not auth_rejected?(backend, state: state) and not limited?(entry, now)
   end
 
   @doc "Whether availability is backed by a positive observation or a real elapsed reset."

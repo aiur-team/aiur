@@ -72,6 +72,44 @@ defmodule Aiur.EnvStartupChecksTest do
     refute message =~ String.duplicate("x", 64)
   end
 
+  test "consumer deployment rejects the subscription token while operator deployment accepts it" do
+    env = %{"CLAUDE_CODE_OAUTH_TOKEN" => "subscription-token"}
+
+    agent = %{kind: "claude", priority: [], backend_configs: %{}}
+    consumer = %{instance: %{mode: "hosted", deployment_kind: "consumer"}, agent: agent}
+    operator = %{instance: %{mode: "hosted", deployment_kind: "operator"}, agent: agent}
+
+    assert {:error, messages} = StartupChecks.validate_deployment_credentials(consumer, env)
+    message = Enum.join(messages, " ")
+    assert message =~ "CLAUDE_CODE_OAUTH_TOKEN"
+    refute message =~ "subscription-token"
+
+    assert :ok = StartupChecks.validate_deployment_credentials(operator, env)
+
+    assert_raise ArgumentError, ~r/CLAUDE_CODE_OAUTH_TOKEN/, fn ->
+      StartupChecks.validate_deployment_credentials!(consumer, env)
+    end
+  end
+
+  test "hosted Codex credentials use the configured persistent CODEX_HOME auth file" do
+    root = Aiur.TestSupport.tmp_root!("hosted-codex-auth")
+    home = Path.join(root, "codex")
+    File.mkdir_p!(home)
+    auth_path = Path.join(home, "auth.json")
+    File.write!(auth_path, Jason.encode!(%{"auth_mode" => "chatgptAuthTokens"}))
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+    settings = %{
+      instance: %{mode: "hosted", deployment_kind: "operator"},
+      agent: %{kind: "codex", priority: [], backend_configs: %{}}
+    }
+
+    assert :ok = StartupChecks.validate_deployment_credentials(settings, %{"CODEX_HOME" => home})
+    consumer = put_in(settings.instance.deployment_kind, "consumer")
+    assert {:error, messages} = StartupChecks.validate_deployment_credentials(consumer, %{"CODEX_HOME" => home})
+    assert Enum.any?(messages, &String.contains?(&1, "CODEX_HOME/auth.json"))
+  end
+
   test "hosted Linear configuration does not require GitHub credentials" do
     settings = %{
       tracker: %{kind: "linear"},
