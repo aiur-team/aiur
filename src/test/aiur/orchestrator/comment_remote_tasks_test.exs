@@ -83,14 +83,12 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
       comment: %{
         "state" => "CHANGES_REQUESTED",
         "body" => "please fix",
-        "submitted_at" => submitted_at,
-        "user" => %{"login" => "its-everdred"}
+        "submitted_at" => submitted_at
       },
       pull_request: %{
         "review_decision" => "CHANGES_REQUESTED",
         "head_committed_at" => head_committed_at
       },
-      human_merger_allowed_fun: &(&1 == "its-everdred"),
       issue_state_fetcher: fn _ids -> {:ok, [issue]} end,
       open_pr_fetcher: fn _issue_key ->
         {:ok, %{"number" => 2337, "head" => %{"sha" => "head-sha"}}}
@@ -139,14 +137,12 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
       comment: %{
         "state" => "CHANGES_REQUESTED",
         "body" => "please fix",
-        "submitted_at" => submitted_at,
-        "user" => %{"login" => "its-everdred"}
+        "submitted_at" => submitted_at
       },
       pull_request: %{
         "review_decision" => "CHANGES_REQUESTED",
         "head_committed_at" => head_committed_at
       },
-      human_merger_allowed_fun: &(&1 == "its-everdred"),
       issue_state_fetcher: fn _ids -> {:ok, [issue]} end,
       open_pr_fetcher: fn _issue_key ->
         {:ok, %{"number" => 2337, "head" => %{"sha" => "head-sha"}}}

@@ -99,10 +99,8 @@ defmodule Aiur.Orchestrator.CommentWake.TrustAndGatesTest do
         comment: %{
           "state" => "CHANGES_REQUESTED",
           "body" => "please fix",
-          "user" => %{"login" => "its-everdred"},
           "submitted_at" => @stale_submitted_at
         },
-        human_merger_allowed_fun: &(&1 == "its-everdred"),
         pull_request: pull_request
       }
     end
@@ -166,10 +164,8 @@ defmodule Aiur.Orchestrator.CommentWake.TrustAndGatesTest do
               comment: %{
                 "state" => "CHANGES_REQUESTED",
                 "body" => "please fix",
-                "user" => %{"login" => "its-everdred"},
                 "submitted_at" => "2026-08-10T05:00:00Z"
               },
-              human_merger_allowed_fun: fn login -> login == "its-everdred" end,
               pull_request: %{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at}
             },
             &1

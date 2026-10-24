@@ -104,16 +104,14 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
       comment: %{
         "state" => "CHANGES_REQUESTED",
         "body" => "two blockers before this can merge",
-        "submitted_at" => submitted_at,
-        "user" => %{"login" => "its-everdred"}
+        "submitted_at" => submitted_at
       },
       pull_request: %{
         "review_decision" => "CHANGES_REQUESTED",
         "head_committed_at" => head_committed_at
       },
       issue_state_fetcher: fn _ids -> {:ok, [issue]} end,
-      open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 337, "head" => %{"sha" => "52617e7"}}} end,
-      human_merger_allowed_fun: &(&1 == "its-everdred")
+      open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 337, "head" => %{"sha" => "52617e7"}}} end
     }
     |> Map.merge(overrides)
   end

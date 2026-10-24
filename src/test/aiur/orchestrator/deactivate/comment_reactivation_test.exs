@@ -305,11 +305,9 @@ defmodule Aiur.Orchestrator.Deactivate.CommentReactivationTest do
             "id" => 9_601,
             "state" => "CHANGES_REQUESTED",
             "body" => "Still not right — please rework the wake path.",
-            "user" => %{"login" => "its-everdred"},
             "commit_id" => new_head,
             "submitted_at" => "2026-09-10T02:01:17Z"
           },
-          human_merger_allowed_fun: &(&1 == "its-everdred"),
           # The aggregate verdict is unchanged: it was already CHANGES_REQUESTED
           # from the earlier head. Only the review's own identity is new.
           pull_request: %{
