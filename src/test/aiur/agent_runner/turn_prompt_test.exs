@@ -174,6 +174,25 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert TurnPrompt.build_turn_prompt(issue, [], 1, nil) == PromptBuilder.build_prompt(issue, [])
     end
 
+    test "the first prompt includes durable answered decisions with attribution and time" do
+      accepted_at = DateTime.from_naive!(~N[2026-10-20 18:02:03], "Etc/UTC")
+      decision = %{question: "Ship this release?", answer: "Proceed exactly", actor: "operator: kevin", accepted_at: accepted_at}
+
+      prompt =
+        TurnPrompt.build_turn_prompt(
+          %Issue{identifier: "5491", title: "Resume", state: "in-progress"},
+          [answered_decisions: [decision]],
+          1,
+          nil
+        )
+
+      assert prompt =~ "## Answered decisions"
+      assert prompt =~ "Ship this release?"
+      assert prompt =~ "Proceed exactly"
+      assert prompt =~ "operator: kevin"
+      assert prompt =~ "2026-10-20T18:02:03Z"
+    end
+
     test "turn one resumed session uses restart continuation guidance" do
       issue = %Issue{id: "378", identifier: "378", title: "Resume sessions"}
 

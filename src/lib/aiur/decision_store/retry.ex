@@ -185,6 +185,7 @@ defmodule Aiur.DecisionStore.Retry do
   def dispatchable?(%Decision{decision_status: :resolved}, _retry_failed?), do: false
   def dispatchable?(%Decision{decision_status: :moot}, _retry_failed?), do: false
   def dispatchable?(%Decision{revision_result: :no_longer_applicable}, _retry_failed?), do: false
+  def dispatchable?(%Decision{pending_for_session?: true}, _retry_failed?), do: false
 
   def dispatchable?(%Decision{} = decision, retry_failed?) do
     case List.last(Decision.active_dispatch_attempts(decision)) do
