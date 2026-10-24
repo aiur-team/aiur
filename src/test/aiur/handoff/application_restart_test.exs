@@ -1,3 +1,4 @@
+# Cohesion: both cases cover subprocess cleanup for the supervised restart lifecycle.
 defmodule Aiur.Handoff.ApplicationRestartTest do
   use ExUnit.Case, async: false
 
