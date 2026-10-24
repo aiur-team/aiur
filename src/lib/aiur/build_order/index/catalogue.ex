@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.Index.Catalogue do
   @moduledoc false
-  alias Aiur.BuildOrder.{Epic, FeatureStats, SourceFreshness}
+  alias Aiur.BuildOrder.{Epic, FeatureDefaults, FeatureStats, SourceFreshness}
   alias Aiur.BuildOrder.Index.Rows
   alias Aiur.Heroicons
   @statuses Map.new(~w(done failed not_planned closed running queued open)a, &{Atom.to_string(&1), &1})
@@ -35,7 +35,7 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
 
   defp feature_rows(sorted, metadata_by_id, stats) do
     Map.new(sorted, fn {slug, feature} ->
-      metadata = Map.get(metadata_by_id, slug, %{})
+      metadata = feature_metadata_for(slug, feature, metadata_by_id)
 
       {slug,
        %{
@@ -65,7 +65,8 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
   end
 
   defp feature_epic(slug, feature, epic, metadata_by_id) do
-    metadata = Map.get(metadata_by_id, slug, %{})
+    lane = epic_lane(slug, epic.key)
+    metadata = metadata_for_lane(lane || slug, slug, metadata_by_id)
 
     %{
       key: epic.key,
@@ -80,10 +81,63 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
     }
   end
 
-  defp feature_metadata(%{pack_metadata: %{"workstreams" => workstreams}}) when is_list(workstreams),
-    do: Map.new(workstreams, fn workstream -> {workstream["id"], workstream} end)
+  defp feature_metadata(%{pack_metadata: %{"workstreams" => workstreams}}) when is_list(workstreams) do
+    workstreams
+    |> Enum.filter(&is_map/1)
+    |> Enum.group_by(&Map.get(&1, "root_number"))
+    |> Map.new(fn {root, records} -> {root, Map.new(records, &{&1["id"], &1})} end)
+  end
 
   defp feature_metadata(_parts), do: %{}
+
+  defp feature_metadata_for(slug, feature, metadata_by_root) do
+    root = root_number(slug)
+    scoped = Map.get(metadata_by_root, root, %{})
+
+    case Map.get(scoped, slug) do
+      metadata when is_map(metadata) ->
+        metadata_with_defaults(slug, metadata)
+
+      _missing ->
+        Enum.find_value(feature.epics, metadata_with_defaults(slug, %{}), fn epic ->
+          case epic_lane(slug, epic.key) do
+            nil ->
+              nil
+
+            lane ->
+              case metadata_for_lane(lane, slug, metadata_by_root) do
+                %{} = metadata when map_size(metadata) > 0 -> metadata
+                _empty -> nil
+              end
+          end
+        end)
+    end
+  end
+
+  defp metadata_for_lane(nil, slug, metadata_by_root), do: metadata_for_lane(slug, slug, metadata_by_root)
+
+  defp metadata_for_lane(lane, slug, metadata_by_root) do
+    scoped = Map.get(metadata_by_root, root_number(slug), %{})
+    metadata = Map.get(scoped, lane) || Map.get(Map.get(metadata_by_root, nil, %{}), lane, %{})
+    metadata_with_defaults(lane, metadata)
+  end
+
+  defp metadata_with_defaults(id, metadata), do: Map.merge(FeatureDefaults.get(id), metadata)
+
+  defp epic_lane(slug, key) do
+    prefix = "f-#{slug}-"
+    lane = String.replace_prefix(key, prefix, "")
+    if lane != key and lane != "", do: lane
+  end
+
+  defp root_number("bo-" <> number) do
+    case Integer.parse(number) do
+      {root, ""} -> root
+      _invalid -> nil
+    end
+  end
+
+  defp root_number(_slug), do: nil
 
   defp wave_label(value) when is_integer(value) and value >= 0, do: Integer.to_string(value)
   defp wave_label(value) when is_binary(value), do: value

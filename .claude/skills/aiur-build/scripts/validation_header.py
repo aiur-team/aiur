@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unicodedata
-from pathlib import Path
 from typing import Any
 
 from validation_common import (
@@ -19,6 +18,7 @@ from validation_common import (
     strict_object,
 )
 from validation_requirements import validate_requirements
+from validation_icons import ALIASES, VALID_NAMES
 
 
 TOP_KEYS = {
@@ -99,7 +99,7 @@ def validate_workstreams(data: dict[str, Any], report: Report) -> set[str]:
             report.error(f"{label}.title must be a non-empty string")
         icon = record.get("icon")
         if "icon" in record:
-            if not isinstance(icon, str) or icon not in _heroicon_names():
+            if not isinstance(icon, str) or icon not in VALID_NAMES:
                 report.error(f"{label}.icon must name a Heroicons v2 outline icon")
         summary = record.get("summary")
         if "summary" in record and (
@@ -115,18 +115,11 @@ def validate_workstreams(data: dict[str, Any], report: Report) -> set[str]:
                 and not any(unicodedata.category(char) == "Cc" for char in wave))
         ):
             report.error(f"{label}.wave must be a nonnegative integer or short label")
-    aliases = {"bug": "bug-ant", "pen": "paint-brush", "server": "server-stack", "docs": "book-open"}
-    icons = [aliases.get(record.get("icon"), record.get("icon")) for record in records
+    icons = [ALIASES.get(record.get("icon"), record.get("icon")) for record in records
              if isinstance(record, dict) and isinstance(record.get("icon"), str)]
     if len(icons) != len(set(icons)):
         report.error("workstream icons must be unique within the pack")
     return found
-
-
-def _heroicon_names() -> set[str]:
-    root = Path(__file__).resolve().parents[4]
-    outline = root / "src/deps/heroicons/optimized/24/outline"
-    return {path.stem for path in outline.glob("*.svg")} | {"bug", "pen", "server", "docs"}
 
 
 def validate_boundary(data: dict[str, Any], report: Report) -> list[str]:

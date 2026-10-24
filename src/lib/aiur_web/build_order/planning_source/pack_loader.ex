@@ -15,10 +15,15 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
   @doc false
   @spec feature_metadata() :: map()
   def feature_metadata do
-    case load_packs() do
-      [pack | _] -> pack.metadata
-      [] -> %{"workstreams" => []}
-    end
+    %{
+      "workstreams" =>
+        Enum.flat_map(load_packs(), fn pack ->
+          pack.metadata
+          |> Map.get("workstreams", [])
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(&Map.put(&1, "root_number", pack.root_number))
+        end)
+    }
   end
 
   @doc false

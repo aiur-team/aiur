@@ -136,6 +136,38 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert index.epics["f-plain"].icon == Heroicons.generic_name()
   end
 
+  test "root-imported lane features receive default workstream metadata" do
+    root_feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-home", label: "Platform program · Home"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    p =
+      parts([row(3043)])
+      |> put_in(
+        [:features],
+        {:ok,
+         %{
+           features: %{"bo-3042" => root_feature},
+           owners: %{},
+           also: %{},
+           health: health()
+         }}
+      )
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "home", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(p)
+    assert index.features["bo-3042"].icon == "home"
+    assert index.features["bo-3042"].summary == "Show the platform program and its Build Order work clearly."
+    assert index.features["bo-3042"].wave == "0"
+    assert index.epics["f-bo-3042-home"].icon == "home"
+  end
+
   test "producer fields win over older history fields" do
     p = parts([row(4, %{labels: ["complexity:2"], lifecycle: %Lifecycle{state: :open}})])
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, title: "Fresher", created: 123, cx: 3, pts: 3}])
