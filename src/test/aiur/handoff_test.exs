@@ -18,6 +18,13 @@ defmodule Aiur.HandoffTest do
     def handle_call(:handoff_state, _from, state), do: {:reply, state, state}
   end
 
+  defmodule HeldRunner do
+    use GenServer
+
+    def start_link(_args), do: GenServer.start_link(__MODULE__, :held)
+    def init(state), do: {:ok, state}
+  end
+
   test "prepare holds dispatch, waits for tool completion, snapshots once and persists both agents" do
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
     test_pid = self()
@@ -188,7 +195,7 @@ defmodule Aiur.HandoffTest do
   test "snapshot timeout and a gone runner fall back by ticket without blocking other snapshots" do
     {:ok, ledger} = start_supervised({ToolCallLedger, name: nil})
 
-    pids = for _ <- 1..3, do: spawn(fn -> Process.sleep(:infinity) end)
+    pids = for _ <- 1..3, do: start_supervised!({HeldRunner, []}, id: make_ref())
 
     running =
       Map.new(Enum.zip(["1", "2", "3"], pids), fn {id, pid} ->
@@ -207,7 +214,6 @@ defmodule Aiur.HandoffTest do
     [timeout_pid, gone_pid, healthy_pid] = pids
 
     on_exit(fn ->
-      Enum.each(pids, &Process.exit(&1, :kill))
       Aiur.TestCleanup.rm_rf!(dir)
       Handoff.reset()
     end)
