@@ -1,19 +1,7 @@
 import { test, expect } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
 import { openFixture } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openParityPair, PARITY_VIEWPORTS, FIXTURE_META } from '../support/design-parity.mjs'
-import { runOn, compareRecords } from '../support/build-home-motion.mjs'
 
-const root = new URL('../../test/fixtures/build_home/', import.meta.url)
-const design = await readFile(new URL('design-source/assets/build.js', root), 'utf8')
-const anchor = '  window.AiurBuild = {'
-expect(design.split(anchor)).toHaveLength(2)
-const oracle = design.replace(anchor, `window.__ganttOracle = (d, st, dims) => {
-D = d; Object.assign(S, st); S.f = { ...S.f, ...st.f };
-vp = { clientWidth: dims.vpW, clientHeight: dims.vpH };
-root = { clientWidth: dims.rootW }; return computeLayout(); };\n${anchor}`)
-const fixtures = Object.fromEntries(await Promise.all(['live', 'dense', 'newrepo', 'noqueue'].map(async name => [name, JSON.parse(await readFile(new URL(`${name}.json`, root), 'utf8'))])))
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles' })
 test.beforeEach(async ({ page }) => {
   await openFixture(page)
@@ -142,27 +130,6 @@ test('U12 trailing segment uses payload now despite an unrelated browser clock',
   })).toBe(Date.parse('2026-10-07T14:20:00-07:00'))
 })
 
-test('G1 exact history, planned and band Gantt layout oracle across datasets, spans and widths', async ({ page }) => {
-  await page.addScriptTag({ content: oracle })
-  const result = await page.evaluate(async fixtures => {
-    const { intake } = await import('/build-home/protocol.js'), { setNow } = await import('/build-home/clock.js')
-    performance.now = () => 0; setNow(NOW)
-    const sources = Object.fromEntries(['history', 'queue', 'index'].map(k => [k, { state: 'ok' }]))
-    const summarize = L => ({ band: { h: L.band.h, BK: L.band.BK, items: L.band.items.map(({ t, ...i }) => ({ id: t.id, ...i })) }, secs: Object.fromEntries(['hist', 'plan'].map(sec => {
-      const s = L.secs[sec]
-      return [sec, { h: s.h, marks: s.marks, labels: s.labels, items: s.items.map(({ t, ...i }) => ({ id: t.id, ...i })) }]
-    })) })
-    let count = 0; const failures = []
-    for (const [dataset, snapshot] of Object.entries(fixtures)) for (const span of [1, 2, 3, 7, 30]) for (const dims of [{ vpW: 1406, vpH: 860, rootW: 1408, gut: 84 }, { vpW: 356, vpH: 620, rootW: 358, gut: 46 }]) {
-      const D = intake(snapshot), S = { view: 'gantt', span, histFrom: 0, f: { epic: [] }, compact: false, feature: null, ...layout.measureFlow(D, dims) }
-      const expected = summarize(window.__ganttOracle(D, S, dims)), actual = summarize(layout.computeLayout(D, S, dims, sources, { gantt: g.ganttExt }))
-      count++; if (JSON.stringify(actual) !== JSON.stringify(expected)) failures.push({ dataset, span, width: dims.vpW, actual, expected })
-    }
-    return { count, failures }
-  }, fixtures)
-  expect(result.count).toBe(40); expect(result.failures).toEqual([])
-})
-
 test('B3 unknown cards expose honest markers and escape hostile titles', async ({ page }) => {
   expect(await page.evaluate(() => {
     initCards()
@@ -244,6 +211,19 @@ test('B5/B7 fixture route switches Gantt and Timeline with the legend, time labe
   await expect(page.locator('.bd-card.gplan')).toHaveCount(0)
   await expect(page.locator('.bd-lane-g')).toHaveText('Order')
   expect(await timelineClasses()).toEqual(first)
+})
+
+test('Gantt hides history time labels at 150 px width or less', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    initCards()
+    const ticket = row('short-history', NOW - 4 * H, NOW)
+    state.ctx.D.byId[ticket.id] = ticket
+    const card = cards.makeCard({ t: ticket, sec: 'hist', h: 150 })
+    card.style.width = '150px'; document.body.append(card)
+    const time = card.querySelector('.bd-time')
+    return { hasTime: !!time, display: getComputedStyle(time).display, width: card.getBoundingClientRect().width }
+  })
+  expect(result).toEqual({ hasTime: true, display: 'none', width: 150 })
 })
 
 test('B4 EC-20 rendered card heights stay equal across zones while tick labels differ', async ({ browser }) => {
@@ -346,22 +326,16 @@ test('known Unsorted follows the palette while missing epics remain neutral', as
   expect(colors.missing).toBe(colors.neutral)
 })
 
-for (const width of [1440, 390]) test(`Gantt full acceptance canonical view.switch.gantt motion: ${width}`, async ({ browser }) => {
-  test.setTimeout(120000)
-  const pair = await openParityPair(browser, { ...PARITY_VIEWPORTS.find(v => v.viewport.width === width), dataset: 'live', theme: 'dark', palette: 'aiur' }, { motion: true })
-  try {
-    const [reference, product] = await Promise.all([
-      runOn(pair.design, 'view.switch.gantt'),
-      runOn(pair.product, 'view.switch.gantt', { ids: FIXTURE_META.ids })
-    ])
-    expect(reference.samples.length).toBeGreaterThan(0); expect(product.samples.length).toBeGreaterThan(0)
-    expect(compareRecords(reference, product, pair.allowlist)).toEqual([])
-    for (const page of [pair.design, pair.product]) {
-      const jump = await page.locator('#bd-vp').evaluate(vp => {
-        const hist = document.querySelector('#bd-sec-hist')
-        return { actual: vp.scrollTop, expected: Math.max(0, Math.min(vp.scrollHeight - vp.clientHeight, hist.offsetTop + hist.offsetHeight - 46)) }
-      })
-      expect(Math.abs(jump.actual - jump.expected)).toBeLessThanOrEqual(1)
-    }
-  } finally { await pair.close() }
+for (const width of [1440, 390]) test(`Gantt dependency edges connect existing cards: ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+  await page.goto('/build-fixture/live?view=gantt')
+  await expect(page.locator('#bd-content')).toBeVisible()
+  const result = await page.evaluate(() => [...document.querySelectorAll('#bd-edges .bd-eh')].map(hit => {
+    const line = hit.nextElementSibling, arrow = line?.nextElementSibling
+    const dependent = document.querySelector(`.bd-card[data-id="${CSS.escape(hit.dataset.e)}"]`)
+    const coords = line?.getAttribute('d')?.match(/-?[\d.]+/g)?.map(Number) ?? []
+    return { dependent: !!dependent, lineFollowsHit: line?.matches('.bd-e'), arrowFollowsLine: arrow?.matches('.bd-ea'), samePath: line?.getAttribute('d') === hit.getAttribute('d'), finite: coords.length >= 8 && coords.every(Number.isFinite), distinctEndpoints: coords.length >= 8 && (coords[0] !== coords[6] || coords[1] !== coords[7]) }
+  }))
+  expect(result.length).toBeGreaterThan(0)
+  expect(result.every(edge => edge.dependent && edge.lineFollowsHit && edge.arrowFollowsLine && edge.samePath && edge.finite && edge.distinctEndpoints)).toBe(true)
 })

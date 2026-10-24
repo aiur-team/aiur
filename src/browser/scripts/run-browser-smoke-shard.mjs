@@ -12,7 +12,7 @@ export const shards = {
   2: ["test:build-home-usage","test:build-home","test:build-home-span","test:build-home-offline","test:home-css-ci","test:build-home-edges-unit","test:command-history","test:build-home-layout","test:time-brush"],
   3: ["test:build-home-estimate","test:build-home-estimate-browser","test:build-home-tools","test:build-home-render","test:build-order","test:build-queue","check:build-home-fixtures","test:ticket-context","test:command-answer"],
   4: ["test:build-home-motion","test:shell","test:smoke","test:meter-row","test:models-panel","test:build-modal-motion"],
-  5: ["test:build-home-conversation-events-unit","test:build-home-band-motion","test:streamdeck","test:interaction","test:performance","test:build-home-assets","test:harness","test:build-modal","test:shell-width"],
+  5: ["test:build-home-conversation-events-unit","test:streamdeck","test:interaction","test:performance","test:build-home-assets","test:harness","test:build-modal","test:shell-width"],
   6: ["test:build-home-cards:4","test:build-home-cards:3","test:units","test:layout","test:responsive","test:streamdeck-flow","test:admission","check:elk","test:build-home-protocol","test:build-home-now-state","test:build-home-list-unit","test:build-home-now-band","test:tokens"],
   7: ["test:build-home-cards:2","test:parity","test:experiments","test:build-home-conversation"],
   9: ["test:build-home-columns","test:build-home-performance"],

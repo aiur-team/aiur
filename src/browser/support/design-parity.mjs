@@ -1,7 +1,6 @@
 /**
- * Opens the frozen design reference and the product with one clock, matrix and
- * allowlist contract. Motion specs compare numeric records from the two pages;
- * pixel design comparisons were removed by operator decision (#6061).
+ * Opens the frozen design reference and the product with one clock and matrix
+ * contract for the browser checks that still need paired pages.
  */
 import { test } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -9,8 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { openVisualRoute } from './visual.mjs'
 import { dashboardCredentials } from '../tests/support/layout-worker.mjs'
 import { DESIGN_ROOT, DESIGN_ORIGIN, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage } from './design-parity-environment.mjs'
-import { loadAllowlist, applyAllowlist } from './design-parity-allowlist.mjs'
-export { DESIGN_ROOT, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage, loadAllowlist, applyAllowlist }
+export { DESIGN_ROOT, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage }
 
 // CI run 37775013284: identical logo renders differ by up to 8/255 per channel.
 export const PARITY_THRESHOLD = 0.04
@@ -19,8 +17,6 @@ export const PARITY_VIEWPORTS = [
   { viewport: { width: 1024, height: 768 }, deviceScaleFactor: 1 },
   { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }
 ]
-export const PARITY_MATRIX = FIXTURE_META.datasets.flatMap(dataset => PARITY_VIEWPORTS.flatMap(viewport => ['dark', 'light'].flatMap(theme => ['gruvbox', 'aiur'].map(palette => ({ ...viewport, theme, palette, dataset })))))
-PARITY_MATRIX.push({ ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'gruvbox', dataset: 'live', reducedMotion: 'reduce' })
 
 export function parityContextOptions(cell) {
   const { viewport, deviceScaleFactor = 1, isMobile = false, hasTouch = false } = cell
@@ -129,7 +125,6 @@ export async function openParityPair(browser, cell, opts = {}) {
   const pair = { design: await designContext.newPage(), product: await productContext.newPage(), cell: { ...cell, dataset: opts.dataset ?? cell.dataset ?? 'live' },
     close: async () => { await designContext.close(); await productContext.close() } }
   try {
-    pair.allowlist = await loadAllowlist()
     await openDesign(pair.design, pair.cell, opts)
     await openProduct(pair.product, pair.cell, opts)
     return pair

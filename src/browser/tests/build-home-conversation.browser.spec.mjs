@@ -59,6 +59,13 @@ test('mounted body requests the real exported conversation and closes its subscr
   expect(await page.evaluate(id => window.conversationCalls.filter(c => c.event === 'conversation-close' && c.payload.id === id).length, id)).toBe(1)
 })
 
+test('conversation opens scrolled to its newest message', async ({ page }) => {
+  await scenario(page, 'kinds')
+  await expect.poll(() => page.locator('#cv-log').evaluate(el =>
+    Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) <= 1
+  )).toBe(true)
+})
+
 test('all six item branches render; hostile text stays text and unknown times/models stay unknown', async ({ page }) => {
   await scenario(page, 'kinds')
   for (const kind of ['sys', 'say', 'op', 'tool', 'diff', 'ev']) await expect(page.locator('#cv-log [data-k=' + kind + ']')).toHaveCount(1)

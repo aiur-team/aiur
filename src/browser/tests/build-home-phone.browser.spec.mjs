@@ -145,6 +145,13 @@ test('phone guard: offline age stays visible on a phone', async ({ browser }) =>
   } finally { await pair.close() }
 })
 
+test('degraded offline board has no horizontal overflow at 390 px', async ({ browser }) => {
+  const { page, close } = await openPhoneProduct(browser, phoneCell('p390', 'offline'))
+  try {
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  } finally { await close() }
+})
+
 // EC-27 phone half: the ±700 px DOM window (J:706) holds the same cards as the design at each stop.
 test('phone guard: DOM window at phone width', async ({ browser }) => {
   const pair = await openParityPair(browser, phoneCell('p390', 'dense'))

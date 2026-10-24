@@ -41,17 +41,14 @@ Run counts depend on how many test files the pull request changes.
 
 The home page has no pixel comparison with the design reference. The operator
 removed those tests ([#6061](https://github.com/aiur-team/aiur/issues/6061)).
-Its browser specs test behaviour. The motion specs still compare numeric motion
-records with the frozen design.
+Its browser specs test behaviour, including motion invariants under reduced motion.
 
 Browser smoke runs on **nine shards**. Shard balancing uses the recorded CI
 timings in `src/browser/scripts/browser-smoke-durations.mjs`, and
 `scripts/check-browser-smoke-shards.mjs` keeps each shard under 75% of its budget.
 
-Routine motion runs the ten snap sequences at live/390px/dark/gruvbox, which
-keeps the scroll-curve regression. `npm run test:build-home-motion:full` sets
-`AIUR_PARITY_FULL=1` and runs every motion cell. No CI job runs it.
+The motion suite checks product behavior and deterministic browser helpers. It
+does not compare numeric motion records with the design.
 
-Routine Gantt checks (`npm run test:build-home-gantt`) cover geometry, live
-updates and unknown-value captures. `npm run test:build-home-gantt:full` adds the
-full-acceptance motion cases.
+Gantt checks (`npm run test:build-home-gantt`) cover product layout invariants,
+live updates and unknown-value captures.

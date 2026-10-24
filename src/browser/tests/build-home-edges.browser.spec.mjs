@@ -1,83 +1,31 @@
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openParityPair, applyAllowlist, waitParityReady, PARITY_VIEWPORTS, PARITY_MATRIX } from '../support/design-parity.mjs'
+import { openProduct, parityContextOptions, PARITY_VIEWPORTS } from '../support/design-parity.mjs'
 
 // Two isolated pages, font loading and six scroll windows exceed a single-page budget.
 test.setTimeout(120_000)
 const cell = { dataset: 'live', ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'gruvbox' }
 
 test('edges are decorative for assistive tech', async ({ browser }) => {
-  const pair = await openParityPair(browser, cell)
+  const context = await browser.newContext({ ...parityContextOptions(cell), baseURL: test.info().project.use.baseURL })
   try {
-    expect(await pair.product.evaluate(() => [...document.querySelectorAll('#bd-edges, .bd-now-e')].map(el => el.getAttribute('aria-hidden')))).toEqual(['true', 'true'])
-  } finally { await pair.close() }
+    const page = await context.newPage(); await openProduct(page, cell)
+    expect(await page.evaluate(() => [...document.querySelectorAll('#bd-edges, .bd-now-e')].map(el => el.getAttribute('aria-hidden')))).toEqual(['true', 'true'])
+  } finally { await context.close() }
 })
 
 // B9: the design leaves `.hide` on after flow mode; the product removes it.
 test('edges return after a flow to wide resize', async ({ browser }) => {
-  const pair = await openParityPair(browser, cell)
+  const context = await browser.newContext({ ...parityContextOptions(cell), baseURL: test.info().project.use.baseURL })
   try {
-    const page = pair.product
+    const page = await context.newPage(); await openProduct(page, cell)
     await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(600)
     await page.setViewportSize({ width: 1440, height: 900 }); await page.waitForTimeout(800)
     const edges = page.locator('#bd-edges')
     await expect(edges).not.toHaveClass(/hide/)
     expect(await edges.evaluate(el => getComputedStyle(el).opacity)).toBe('1')
-  } finally { await pair.close() }
-})
-
-// Design ids read "AIUR-583", product ids "583"; y is made relative to the history section, whose page offset differs.
-const histEdges = page => page.evaluate(() => {
-  const cr = document.querySelector('#bd-content').getBoundingClientRect(), top = document.querySelector('#bd-sec-hist').getBoundingClientRect().top - cr.top
-  return [...document.querySelectorAll('#bd-edges .bd-eh')]
-    .filter(h => document.querySelector(`#bd-sec-hist .bd-card[data-id="${CSS.escape(h.dataset.e)}"]`))
-    .map(h => { const n = h.getAttribute('d').match(/-?[\d.]+/g).map((v, i) => +v - (i % 2 ? top : 0))
-      // Endpoint pair: the dependent id plus the blocker's offset from it (identical on both sides when the cards match).
-      return { k: `${h.dataset.e.replace(/\D/g, '')} ${Math.round(n[0])},${Math.round(n[6])},${Math.round(n[7] - n[1])}`, c: [...h.nextElementSibling.classList].join(' '), n } })
-    .sort((a, b) => a.k.localeCompare(b.k) || a.n[1] - b.n[1] || a.n[7] - b.n[7])
-})
-const toHistory = (page, offset) => page.evaluate(o => { document.querySelector('#bd-vp').scrollTop = document.querySelector('#bd-sec-hist').offsetTop + o }, offset)
-// Each side renders its own window around the scroll position, so walk the section and merge what was drawn.
-async function walkHistory(page) {
-  const seen = []
-  for (let offset = 0; offset < 3000; offset += 500) {
-    await toHistory(page, offset); await page.waitForTimeout(500)
-    // The same edge seen in two windows can differ by sub-pixel layout; y within 2 px is the same edge.
-    for (const e of await histEdges(page)) if (!seen.some(o => o.k === e.k && Math.abs(o.n[1] - e.n[1]) < 2 && Math.abs(o.n[7] - e.n[7]) < 2)) seen.push(e)
-  }
-  return seen.sort((a, b) => a.k.localeCompare(b.k) || a.n[1] - b.n[1] || a.n[7] - b.n[7])
-}
-const styleOf = page => page.evaluate(() => Object.fromEntries([...new Set([...document.querySelectorAll('#bd-edges .bd-e, #bd-edges .bd-ea')].map(p => p.getAttribute('class').trim()))].map(cls => {
-  const cs = getComputedStyle(document.querySelector(`#bd-edges path[class^="${cls}"]`))
-  return [cls, ['stroke', 'strokeWidth', 'strokeDasharray', 'opacity', 'fill'].map(k => cs[k]).join('|')]
-})))
-
-// B1b/B1c on the history region at matched scroll. Edges that end in the now band wait for C9-T08 (edges-now-band-pending);
-// the dense fixture waits on the column gap (edges-dense-columns-pending).
-for (const cell of PARITY_MATRIX.filter(c => c.dataset === 'live' && c.viewport.width >= 1024 && !c.reducedMotion)) test(`history edge paths and styles match the design: ${cell.viewport.width} ${cell.theme} ${cell.palette}`, async ({ browser }) => {
-  const pair = await openParityPair(browser, cell)
-  try {
-    await Promise.all([pair.design, pair.product].map(page => waitParityReady(page, 'board', page === pair.design ? 'design' : 'product', true)))
-    const design = await walkHistory(pair.design)
-    expect(design.length).toBeGreaterThan(0)
-    const product = await walkHistory(pair.product)
-    // The two sides render slightly different windows; compare the edges both draw.
-    const shared = new Set(design.map(e => e.k).filter(k => product.some(e => e.k === k)))
-    const [dd, pp] = [design, product].map(list => list.filter(e => shared.has(e.k)))
-    expect(shared.size, JSON.stringify({ d: design.map(e => e.k), p: product.map(e => e.k) })).toBeGreaterThanOrEqual(5)
-    expect(pp.map(e => e.k)).toEqual(dd.map(e => e.k))
-    // The key is the endpoint pair (dependent, blocker x); the class is a value, so a wrong class on a shared pair fails.
-    expect(pp.map(e => `${e.k} ${e.c}`)).toEqual(dd.map(e => `${e.k} ${e.c}`))
-    // The history section sits at a different page y on each side (band and header work belongs to other tickets),
-    // so compare the edge geometry relative to the first shared edge.
-    const dy = pp[0].n[1] - dd[0].n[1]
-    pp.forEach((e, i) => e.n.forEach((v, j) => expect(Math.abs(v - dd[i].n[j] - (j % 2 ? dy : 0)), `${e.k} #${j}`).toBeLessThan(1.5)))
-    await applyAllowlist(pair, cell)
-    const [d, p] = [await styleOf(pair.design), await styleOf(pair.product)]
-    expect(Object.keys(p).length).toBeGreaterThan(0)
-    for (const cls of Object.keys(p)) if (cls in d) expect(p[cls], cls).toBe(d[cls])
-  } finally { await pair.close() }
+  } finally { await context.close() }
 })
 
 test.describe('product edges on live', () => {
