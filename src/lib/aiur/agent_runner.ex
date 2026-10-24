@@ -10,6 +10,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
+  alias Aiur.Instance.LeaseStore
   alias Aiur.Opencode.ApiClient
   alias Aiur.Signal
   alias Aiur.Workspace.Ownership
@@ -19,6 +20,26 @@ defmodule Aiur.AgentRunner do
 
   @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+    lease_watch = Keyword.get(opts, :lease_watch_fun, &LeaseStore.watch/1)
+
+    lease =
+      if is_binary(issue.pr_head_ref),
+        do: :disabled,
+        else: lease_watch.(issue)
+
+    case lease do
+      result when result in [:ok, :disabled] ->
+        run_with_ticket_lease(issue, codex_update_recipient, opts)
+
+      :not_owned ->
+        exit(:shared_ticket_lease_not_owned)
+
+      {:error, reason} ->
+        exit({:shared_ticket_lease_unavailable, reason})
+    end
+  end
+
+  defp run_with_ticket_lease(issue, codex_update_recipient, opts) do
     # A bare `model:<name>` the catalogue cache could not place gets one bounded
     # refresh before anything reads the backend, so a model released since the
     # last refresh still decides this run.
