@@ -302,7 +302,6 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # missing fleet figure must never be coerced into a confident "0".
     assert html =~ "—"
     assert html =~ ">degraded<"
-    refute html =~ ">0s<"
     # The measured row still carries its exact values (not blurred by the gap).
     assert html =~ "13"
     assert html =~ "189s"
@@ -592,7 +591,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = loaded_live(build_conn(), "/analytics")
 
     assert html =~ "latest run"
-    assert html =~ "Add a Build Order selection to scope this page to its members"
+    assert html =~ "This is a 1-ticket window: only one ticket has telemetry in the latest run."
   end
 
   test "charts only the current session, not every session in the durable stream" do

@@ -60,6 +60,7 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
 
   for (const issue of metricColumns) issues.push(issue)
   for (const issue of filterCounts) issues.push(issue)
+  if (name === 'analytics') issues.push(...analyticsAxisIssues(snapshot.analyticsCharts || []))
   issues.push(...buildDashboardIssues(name, snapshot, expectedActiveAgents))
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
   for (const errorState of snapshot.errorStates || []) issues.push({ kind: 'error-state', detail: errorState })
@@ -117,6 +118,22 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
       capacityReadings: snapshot.capacityReadings
     }
   }
+}
+
+export function analyticsAxisIssues(charts) {
+  const issues = []
+  for (const chart of charts) {
+    const yValues = (chart.yLabels || []).map((label) => Number(label.replaceAll(',', '').replace(/%$/, ''))).filter(Number.isFinite)
+    if (yValues.length > 1 && yValues.some((value, index) => index > 0 && value < yValues[index - 1])) {
+      issues.push({ kind: 'axis-non-monotonic', detail: `${chart.label} y-axis labels are not monotonic: ${yValues.join(', ')}` })
+    }
+    const xLabels = chart.xLabels || []
+    const duplicates = [...new Set(xLabels.filter((label, index) => xLabels.indexOf(label) !== index))]
+    if (duplicates.length > 0) {
+      issues.push({ kind: 'axis-repeated-label', detail: `${chart.label} x-axis repeats ${duplicates.join(', ')}` })
+    }
+  }
+  return issues
 }
 
 export function extractCapacityReadings(kpis) {

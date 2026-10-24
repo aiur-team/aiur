@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, analyticsAxisIssues, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
 import './capture-dashboard-build_test.mjs'
 
 const captureScript = fileURLToPath(new URL('../capture-dashboard.mjs', import.meta.url))
@@ -228,6 +228,19 @@ test('keeps a healthy dashboard healthy across repeated settled observations', (
     const result = analyzeDashboardSnapshot('analytics', healthySnapshot, 14)
     assert.equal(result.verdict, 'healthy', `attempt ${attempt + 1}`)
   }
+})
+
+test('flags non-monotonic and repeated analytics axis labels', () => {
+  const issues = analyticsAxisIssues([
+    { label: 'Per-unit CPU', yLabels: ['0%', '1600%', '1867%', '533%'], xLabels: ['0m', '0m', '1m'] },
+    { label: 'Memory', yLabels: ['0', '10', '20'], xLabels: ['0s', '5s', '10s'] }
+  ])
+
+  assert.deepEqual(issues, [
+    { kind: 'axis-non-monotonic', detail: 'Per-unit CPU y-axis labels are not monotonic: 0, 1600, 1867, 533' },
+    { kind: 'axis-repeated-label', detail: 'Per-unit CPU x-axis repeats 0m' }
+  ])
+  assert.equal(analyzeDashboardSnapshot('analytics', { ...healthySnapshot, analyticsCharts: [{ label: 'CPU', yLabels: ['0', '2', '1'], xLabels: [] }] }).verdict, 'attention')
 })
 
 test('reports visible staleness, empty tables, and configured-cap contradictions', () => {

@@ -42,6 +42,13 @@ export async function inspectPage(page, name) {
       value: card.querySelector('.an-kpi-val')?.innerText.trim() || '',
       sub: card.querySelector('.an-kpi-sub')?.innerText.trim() || ''
     }))
+    const analyticsCharts = pageName === 'analytics'
+      ? Array.from(document.querySelectorAll('#analytics-page .an-chart svg')).map((svg) => ({
+        label: svg.getAttribute('aria-label') || 'unnamed chart',
+        yLabels: Array.from(svg.querySelectorAll('text[text-anchor="end"]')).map((node) => node.textContent.trim()),
+        xLabels: Array.from(svg.querySelectorAll('text[text-anchor="middle"]')).map((node) => node.textContent.trim()).filter((value) => /^(?:\d+s|\d+m(?: \d+s)?|\d+h(?: \d+m)?)$/.test(value))
+      }))
+      : []
     const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state:not(.filtered-empty)'))
       .filter(visible)
       .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
@@ -87,6 +94,7 @@ export async function inspectPage(page, name) {
       emptyStates,
       errorStates,
       kpis,
+      analyticsCharts,
       hasNAInMetric,
       buildUnavailable,
       buildSkeleton,

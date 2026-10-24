@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   @w 760
   @minimum_domain_ms 1_000
+  @y_tick_count 4
 
   alias AiurWeb.OperatorControlCenter.Analytics.{ConcurrencyCoverage, LifecycleLane, Presenter}
 
@@ -43,7 +44,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     {inside, after_domain} = Enum.split_while(rest, &(&1.t_ms <= t1))
     Enum.take(before, -1) ++ inside ++ Enum.take(after_domain, 1)
   end
-
   defp crop_series(series, t0, t1, false), do: Enum.filter(series, &(&1.t_ms >= t0 and &1.t_ms <= t1))
 
   @doc "Normalizes hook event values to a non-degenerate chart-axis domain."
@@ -82,7 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     totals =
       Enum.map(series, fn s -> s.exec_cpu + s.other_cpu + Enum.sum(Enum.map(units, &Map.get(s.per, &1.key, 0.0))) end)
 
-    vmax = Enum.max([ceiling | totals]) |> max(1)
+    vmax = Enum.max([ceiling | totals]) |> max(1) |> nice_axis_max()
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
@@ -114,7 +114,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     h = 220
     {ml, mr, mt, mb} = {30, 14, 16, 26}
     {pw, ph} = {@w - ml - mr, h - mt - mb}
-    vmax = max(cap || 0, peak) |> max(1)
+    vmax = max(cap || 0, peak) |> max(1) |> nice_axis_max()
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
@@ -129,9 +129,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
     time_svg(@w, h, inner, "Concurrency against the cap", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
-
   defp capacity_band(_series, nil, _xf, _yf, _ml, _mr), do: ""
-
   defp capacity_band(series, cap, xf, yf, ml, mr) do
     cap_y = r2(yf.(cap))
     band_top = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(cap)} end)
@@ -164,8 +162,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       |> Enum.filter(&is_number/1)
 
     wait_values = series |> Enum.map(&Map.get(&1, :build_queue_oldest_wait_seconds)) |> Enum.filter(&is_number/1)
-    count_max = Enum.max([1 | count_values])
-    wait_max = Enum.max([1 | wait_values])
+    count_max = Enum.max([1 | count_values]) |> nice_axis_max()
+    wait_max = Enum.max([1 | wait_values]) |> nice_axis_max()
     count_y = fn value -> count_bottom - value / count_max * (count_bottom - top) end
     wait_y = fn value -> wait_bottom - value / wait_max * (wait_bottom - wait_top) end
 
@@ -195,7 +193,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
     time_svg(@w, h, inner, "Whole-host fleet-wide occupancy and build pressure", {t0, t1, ml, @w - mr, top, wait_bottom})
   end
-
   defp pressure_path(series, key, xf, yf, color, label) do
     series
     |> Enum.chunk_by(&is_number(Map.get(&1, key)))
@@ -205,7 +202,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       ~s|<path d="#{step_line(points)}" fill="none" stroke="#{color}" stroke-width="1.8">#{title(label)}</path>|
     end)
   end
-
   defp pressure_state_color(:measured), do: "var(--good)"
   defp pressure_state_color(:stale_fleet), do: "var(--attention)"
   defp pressure_state_color(:degraded_build), do: "var(--blocking)"
@@ -220,7 +216,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     {ml, mr, mt, mb} = {46, 14, 16, 26}
     pw = @w - ml - mr
     ph = h - mt - mb
-    vmax = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)]))
+    vmax = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)])) |> nice_axis_max()
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
     pts = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(s.total_mem)} end)
@@ -347,7 +343,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         y = mt + ph - bar_h
         color = "var(--an-s#{tier.tier})"
         count_label = if tier.count > 0, do: to_string(tier.count), else: "—"
-        average_label = (tier.average_wall_clock_ms && fmt_elapsed(tier.average_wall_clock_ms)) || "—"
+        average_label = (tier.average_wall_clock_ms && fmt_elapsed(tier.average_wall_clock_ms, :minutes)) || "—"
         center = x + barw / 2
 
         ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bar_h)}" rx="3" fill="#{color}" fill-opacity="0.85">#{title("Complexity #{tier.tier}: #{count_label} tickets, average #{average_label}")}</rect>| <>
@@ -467,11 +463,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   end
 
   def token_destination(_tokens), do: ""
-
   defp model_label(label) when is_binary(label) do
     if String.length(label) > 24, do: String.slice(label, 0, 24) <> "…", else: label
   end
-
   defp model_label(_label), do: "Unknown"
 
   # ---- shared builders ----
@@ -526,20 +520,21 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   defp x_axis(t0, t1, xf, x0, x1, baseline, origin_ms) do
     ticks = for i <- 0..4, do: t0 + (t1 - t0) * i / 4
+    precision = if t1 - t0 < 300_000, do: :seconds, else: :minutes
 
     base = ~s|<line x1="#{x0}" x2="#{x1}" y1="#{baseline}" y2="#{baseline}" stroke="var(--line)"/>|
 
     labels =
       Enum.map_join(ticks, "", fn t ->
-        text(r2(xf.(t)), baseline + 15, fmt_elapsed(t - origin_ms), anchor: "middle", fill: "var(--muted)")
+        text(r2(xf.(t)), baseline + 15, fmt_elapsed(t - origin_ms, precision), anchor: "middle", fill: "var(--muted)")
       end)
 
     base <> labels
   end
 
   defp y_grid(vmax, yf, x0, x1, fmt) do
-    for i <- 0..3, into: "" do
-      v = vmax * i / 3
+    for i <- 0..@y_tick_count, into: "" do
+      v = vmax * i / @y_tick_count
       y = r2(yf.(v))
 
       ~s|<line x1="#{x0}" x2="#{x1}" y1="#{y}" y2="#{y}" stroke="var(--hairline)"/>| <>
@@ -547,6 +542,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     end
   end
 
+  defp nice_axis_max(maximum) do
+    magnitude = :math.pow(10, :math.floor(:math.log10(maximum / @y_tick_count)))
+    step = Enum.find([1, 2, 5, 10], &(maximum / @y_tick_count / magnitude <= &1)) * magnitude
+    :math.ceil(maximum / step) * step
+  end
   defp svg(w, h, inner, label) do
     ~s|<svg viewBox="0 0 #{w} #{h}" role="img" aria-label="#{label}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block;overflow:visible">#{inner}</svg>|
   end
@@ -624,20 +624,20 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   defp cost_label(a, :mem), do: fmt_bytes(a.peak_mem_bytes)
   defp cost_label(a, _cpu), do: "#{a.cpu_seconds}s"
 
-  defp fmt_elapsed(ms) when ms <= 0, do: "0m"
-
-  defp fmt_elapsed(ms) do
+  defp fmt_elapsed(ms, :seconds) do
+    seconds = max(div(round(ms), 1000), 0)
+    if seconds < 60, do: "#{seconds}s", else: "#{div(seconds, 60)}m #{rem(seconds, 60)}s"
+  end
+  defp fmt_elapsed(ms, :minutes) do
     total_min = div(round(ms / 1000), 60)
     h = div(total_min, 60)
     m = rem(total_min, 60)
-
     cond do
       h > 0 and m > 0 -> "#{h}h #{m}m"
       h > 0 -> "#{h}h"
       true -> "#{total_min}m"
     end
   end
-
   defp fmt_bytes(b) when is_number(b) do
     cond do
       b >= 1_073_741_824 -> "#{Float.round(b / 1_073_741_824, 1)} GB"
