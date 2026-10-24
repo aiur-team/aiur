@@ -15,7 +15,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     failures =
       Enum.filter(
         runs,
-        &(&1["conclusion"] in ["failure", "cancelled", "timed_out", "startup_failure"] and
+        &(&1["conclusion"] in ["failure", "timed_out", "startup_failure"] and
             is_integer(&1["id"]))
       )
 
@@ -295,13 +295,14 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp failure_paths(log), do: MergeGroupFailureEvidence.test_paths(log)
 
   defp route_innocent(prs, observations, run, failure, reason, opts) do
-    {repeat, first} = split_repeated_heads(prs, observations, opts)
+    failure_identities = failure_identities(failure)
+    {repeat, first} = split_repeated_failures(prs, observations, failure_identities, opts)
 
     _ = record_blame(run, prs, failure, if(repeat == [], do: :innocent_requeued, else: :repeat_ejected), opts)
 
     case MergeGroupRequeue.requeue_group_prs(first, observations, run, reason, opts) do
       :ok ->
-        with :ok <- record_requeued_heads(first, observations, opts),
+        with :ok <- record_requeued_heads(first, observations, failure_identities, opts),
              do: rework_repeat_prs(repeat, observations, failure, run, opts)
 
       {:error, _} = error ->
@@ -309,39 +310,50 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     end
   end
 
-  defp split_repeated_heads(prs, observations, opts) do
-    Enum.split_with(prs, &repeat_head?(&1, observations, opts))
+  defp split_repeated_failures(prs, observations, failure_identities, opts) do
+    Enum.split_with(prs, &repeat_failure?(&1, observations, failure_identities, opts))
   end
 
-  defp repeat_head?(number, observations, opts) do
+  defp repeat_failure?(number, observations, failure_identities, opts) do
     case Enum.find(observations, &(&1.number == number)) do
       %{head: head} when is_binary(head) ->
-        case Journal.merge_group_blame_attempts(number, head, opts) do
-          {:ok, count} -> count >= 1
-          _ -> false
-        end
+        Enum.any?(failure_identities, &failure_repeated?(number, head, &1, opts))
 
       _ ->
         false
     end
   end
 
-  defp record_requeued_heads(prs, observations, opts) do
-    Enum.reduce_while(prs, :ok, &record_requeued_head(&1, &2, observations, opts))
-  end
-
-  defp record_requeued_head(number, :ok, observations, opts) do
-    case Enum.find(observations, &(&1.number == number)) do
-      %{head: head} when is_binary(head) ->
-        case Journal.record_merge_group_blame_attempt(number, head, opts) do
-          {:ok, _count} -> {:cont, :ok}
-          {:error, _} = error -> {:halt, error}
-        end
-
-      _ ->
-        {:cont, :ok}
+  defp failure_repeated?(number, head, identity, opts) do
+    case Journal.merge_group_failure_attempts(number, head, identity, opts) do
+      {:ok, count} -> count >= 1
+      _ -> false
     end
   end
+
+  defp record_requeued_heads(prs, observations, failure_identities, opts) do
+    pr_head_failures =
+      Enum.flat_map(prs, fn number ->
+        case Enum.find(observations, &(&1.number == number)) do
+          %{head: head} when is_binary(head) -> [{number, head, failure_identities}]
+          _ -> []
+        end
+      end)
+
+    case Journal.record_merge_group_failure_attempts(pr_head_failures, opts) do
+      {:ok, _counts} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp failure_identities(%{log: log, job: job}) do
+    case MergeGroupFailureEvidence.test_identities(log) do
+      [_ | _] = identities -> Enum.sort(identities)
+      [] -> [job["name"] || "unknown failing spec"]
+    end
+  end
+
+  defp failure_identities(_), do: ["unknown failing spec"]
 
   defp rework_repeat_prs([], _observations, _failure, _run, _opts), do: :ok
 

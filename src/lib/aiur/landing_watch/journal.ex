@@ -236,21 +236,48 @@ defmodule Aiur.LandingWatch.Journal do
     end)
   end
 
-  @doc "Counts innocent merge-group failures for one PR head and returns its new attempt number."
-  @spec record_merge_group_blame_attempt(pos_integer(), String.t(), keyword()) :: {:ok, pos_integer()} | {:error, term()}
-  def record_merge_group_blame_attempt(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+  @doc "Counts innocent merge-group failures for one PR head and failing spec/test."
+  @spec record_merge_group_failure_attempt(pos_integer(), String.t(), String.t(), keyword()) ::
+          {:ok, pos_integer()} | {:error, term()}
+  def record_merge_group_failure_attempt(pr, head, failure, opts \\ [])
+      when is_integer(pr) and is_binary(head) and is_binary(failure) do
+    key = failure_key(pr, head, failure)
+
+    case record_merge_group_failure_attempts([{pr, head, [failure]}], opts) do
+      {:ok, counts} -> {:ok, Map.fetch!(counts, key)}
+      other -> other
+    end
+  end
+
+  @doc "Counts innocent merge-group failures for all requeued PRs in one journal update."
+  @spec record_merge_group_failure_attempts([{pos_integer(), String.t(), [String.t()]}], keyword()) ::
+          {:ok, %{String.t() => pos_integer()}} | {:error, term()}
+  def record_merge_group_failure_attempts(pr_head_failures, opts \\ [])
+      when is_list(pr_head_failures) do
     update(opts, fn state ->
-      attempts = Map.get(state, "merge_group_blame_attempts", %{})
-      identity = key(pr, head)
-      count = Map.get(attempts, identity, 0) + 1
-      {:ok, Map.put(state, "merge_group_blame_attempts", Map.put(attempts, identity, count)), count}
+      attempts = Map.get(state, "merge_group_failure_attempts", %{})
+
+      identities =
+        for {pr, head, failures} <- pr_head_failures,
+            failure <- failures,
+            do: failure_key(pr, head, failure)
+
+      {updated, counts} =
+        Enum.reduce(identities, {attempts, %{}}, fn identity, {updated, counts} ->
+          count = Map.get(updated, identity, 0) + 1
+          {Map.put(updated, identity, count), Map.put(counts, identity, count)}
+        end)
+
+      {:ok, Map.put(state, "merge_group_failure_attempts", updated), counts}
     end)
   end
 
-  @spec merge_group_blame_attempts(pos_integer(), String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def merge_group_blame_attempts(pr, head, opts \\ []) when is_integer(pr) and is_binary(head) do
+  @spec merge_group_failure_attempts(pos_integer(), String.t(), String.t(), keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def merge_group_failure_attempts(pr, head, failure, opts \\ [])
+      when is_integer(pr) and is_binary(head) and is_binary(failure) do
     with {:ok, state} <- state(opts) do
-      {:ok, get_in(state, ["merge_group_blame_attempts", key(pr, head)]) || 0}
+      {:ok, get_in(state, ["merge_group_failure_attempts", failure_key(pr, head, failure)]) || 0}
     end
   end
 
@@ -301,6 +328,7 @@ defmodule Aiur.LandingWatch.Journal do
              "merge_group_run_failures",
              "quarantine_merge_group_runs",
              "merge_group_requeues",
+             "merge_group_failure_attempts",
              "ci_merges"
            ] or
              MapSet.member?(retained, entry_key)
@@ -337,6 +365,7 @@ defmodule Aiur.LandingWatch.Journal do
   defp backoff(1), do: 60_000
   defp backoff(_), do: 5 * 60_000
   defp key(pr, head), do: "#{pr}:#{head}"
+  defp failure_key(pr, head, failure), do: "#{pr}:#{head}:#{failure}"
 
   defp current_head_key(%{number: number, head: head}) when is_integer(number) and is_binary(head) and head != "", do: key(number, head)
   defp current_head_key(_), do: nil
