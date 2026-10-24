@@ -12,7 +12,12 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdictCancelledTest do
     ]
 
     result = %{decision: :failed, failures: [%{name: "ci gate"}]}
-    pr = %{"head" => %{"sha" => "head"}, "mergeQueueEntry" => %{"state" => "UNMERGEABLE"}}
+
+    pr = %{
+      "head" => %{"sha" => "head"},
+      "merge_queue" => %{merge_queue_entry: %{"state" => "UNMERGEABLE"}}
+    }
+
     opts = [required_checks: {:ok, [%{name: "ci gate", app_id: nil}]}]
 
     assert %{
@@ -30,7 +35,10 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdictCancelledTest do
 
     result = %{decision: :failed, failures: [%{name: "ci gate"}]}
 
-    pr = %{"head" => %{"sha" => "head"}, "mergeQueueEntry" => %{"state" => "UNMERGEABLE"}}
+    pr = %{
+      "head" => %{"sha" => "head"},
+      "merge_queue" => %{merge_queue_entry: %{"state" => "UNMERGEABLE"}}
+    }
 
     assert %{decision: :pending, pending_reason: :required_checks_unavailable} =
              Evaluation.enforce_required_checks(
