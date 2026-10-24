@@ -324,10 +324,7 @@ defmodule Aiur.LandingWatch.Journal do
               MapSet.member?(retained, entry_key)
           end)
 
-        holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)
-        state = if map_size(holds) == 0, do: Map.delete(state, "merge_group_head_holds"), else: Map.put(state, "merge_group_head_holds", holds)
-
-        {:ok, state}
+        {:ok, retain_head_holds(state, holds, retained)}
       end)
     else
       :ok
@@ -335,6 +332,11 @@ defmodule Aiur.LandingWatch.Journal do
   end
 
   def retain_current_heads(_, _), do: {:error, :invalid_landing_watch_observations}
+
+  defp retain_head_holds(state, holds, retained) do
+    holds = Map.filter(holds, fn {entry_key, _} -> MapSet.member?(retained, entry_key) end)
+    if map_size(holds) == 0, do: state, else: Map.put(state, "merge_group_head_holds", holds)
+  end
 
   @doc false
   @spec update(keyword(), (map() -> term())) :: term()
