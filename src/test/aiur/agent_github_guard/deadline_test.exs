@@ -165,6 +165,39 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     child_pgid_file = Path.join(context.workspace, "term-child.pgid")
     supervisor_pid_file = Path.join(context.workspace, "term-supervisor.pid")
     supervisor_pgid_file = Path.join(context.workspace, "term-supervisor.pgid")
+    ready_file = Path.join(context.workspace, "term-ready")
+    python_bin = Path.join(context.workspace, "term-python-bin")
+    File.mkdir_p!(python_bin)
+
+    # Deliver TERM from inside Popen's waitpid call, while its internal lock is
+    # held. This makes the regression deterministic: synchronous cleanup from
+    # the signal handler re-enters child.wait/terminate_process_group on that
+    # same lock and cannot unwind; the handler that raises CallerSignal can.
+    python_shim = Path.join(python_bin, "python3")
+
+    File.write!(python_shim, """
+    #!/usr/bin/python3
+    import os, sys
+    arguments = sys.argv[1:]
+    if len(arguments) >= 3 and arguments[:2] == ["-I", "-c"]:
+        instrumentation = r'''\
+    import os as _aiur_os, signal as _aiur_signal
+    _aiur_waitpid = _aiur_os.waitpid
+    _aiur_term_sent = False
+    def _aiur_waitpid_with_term(pid, options):
+        global _aiur_term_sent
+        ready = _aiur_os.environ.get("AIUR_GH_TERM_READY_FILE")
+        if not _aiur_term_sent and ready and _aiur_os.path.exists(ready):
+            _aiur_term_sent = True
+            _aiur_os.kill(_aiur_os.getpid(), _aiur_signal.SIGTERM)
+        return _aiur_waitpid(pid, options)
+    _aiur_os.waitpid = _aiur_waitpid_with_term
+    '''
+        arguments[2] = instrumentation + "\\n" + arguments[2]
+    os.execv("/usr/bin/python3", ["/usr/bin/python3", *arguments])
+    """)
+
+    File.chmod!(python_shim, 0o700)
 
     File.write!(broker, """
     import os, signal, subprocess, time
@@ -193,6 +226,8 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
         pid = int(fields[1])
     else:
         raise RuntimeError("deadline supervisor was not found")
+    with open(os.environ["AIUR_GH_TERM_READY_FILE"], "w", encoding="ascii") as output:
+        output.write("ready")
     time.sleep(30)
     """)
 
@@ -212,6 +247,8 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
             AIUR_GH_TERM_CHILD_PGID_FILE: child_pgid_file,
             AIUR_GH_TERM_SUPERVISOR_PID_FILE: supervisor_pid_file,
             AIUR_GH_TERM_SUPERVISOR_PGID_FILE: supervisor_pgid_file,
+            AIUR_GH_TERM_READY_FILE: ready_file,
+            PATH: python_bin <> ":" <> System.get_env("PATH", ""),
             AIUR_GH_CALL_TIMEOUT_SECONDS: "30"
           ],
           fn {name, value} -> {Atom.to_string(name), value} end
@@ -246,7 +283,6 @@ defmodule Aiur.AgentGitHubGuard.DeadlineTest do
     assert File.read!(child_pgid_file) == pgid
     child_start_time = process_start_time!(child_pid)
 
-    assert {"", 0} = System.cmd("kill", ["-TERM", supervisor_pid])
     assert_receive {^port, {:exit_status, 143}}, 3_000
     wait_until(fn -> process_gone?(String.to_integer(supervisor_pid)) end)
     wait_until(fn -> process_gone?(broker_pid) end)
