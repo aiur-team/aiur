@@ -187,6 +187,7 @@ aiur_engine_main() {
       ;;
     --instance=*)
       export AIUR_REMOTE_INSTANCE="${1#--instance=}"
+      [ -n "$AIUR_REMOTE_INSTANCE" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
       shift
       ;;
   esac

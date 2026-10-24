@@ -8,8 +8,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   @w 760
   @minimum_domain_ms 1_000
+  @y_tick_count 4
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{ConcurrencyCoverage, LifecycleLane, Presenter}
+  alias AiurWeb.OperatorControlCenter.Analytics.{ChartAxis, ConcurrencyCoverage, LifecycleLane, Presenter}
 
   @doc "Returns a model cropped to one shared, valid chart-axis domain."
   @spec with_time_domain(map(), term()) :: map()
@@ -82,7 +83,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     totals =
       Enum.map(series, fn s -> s.exec_cpu + s.other_cpu + Enum.sum(Enum.map(units, &Map.get(s.per, &1.key, 0.0))) end)
 
-    vmax = Enum.max([ceiling | totals]) |> max(1)
+    {vmax, y_ticks} = Enum.max([ceiling | totals]) |> max(1) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
 
@@ -98,7 +99,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         text(@w - mr, ceiling_y - 5, "machine ceiling #{round(ceiling)}%", anchor: "end", fill: "var(--blocking)")
 
     inner =
-      y_grid(vmax, yf, ml, @w - mr, fn v -> "#{round(v)}%" end) <>
+      y_grid(y_ticks, yf, ml, @w - mr, fn v -> "#{round(v)}%" end) <>
         stacked_areas(series, layers, xf, yf) <>
         ceiling_mark <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
@@ -164,8 +165,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       |> Enum.filter(&is_number/1)
 
     wait_values = series |> Enum.map(&Map.get(&1, :build_queue_oldest_wait_seconds)) |> Enum.filter(&is_number/1)
-    count_max = Enum.max([1 | count_values])
-    wait_max = Enum.max([1 | wait_values])
+    {count_max, count_ticks} = Enum.max([1 | count_values]) |> then(&ChartAxis.nice_axis(&1, @y_tick_count, 1))
+    {wait_max, _wait_ticks} = Enum.max([1 | wait_values]) |> then(&ChartAxis.nice_axis(&1, @y_tick_count, 1))
     count_y = fn value -> count_bottom - value / count_max * (count_bottom - top) end
     wait_y = fn value -> wait_bottom - value / wait_max * (wait_bottom - wait_top) end
 
@@ -185,7 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       end)
 
     inner =
-      y_grid(count_max, count_y, ml, @w - mr, &to_string(round(&1))) <>
+      y_grid(count_ticks, count_y, ml, @w - mr, &to_string(round(&1))) <>
         lines <>
         strip <>
         text(ml, 188, "source state", fill: "var(--muted)") <>
@@ -220,7 +221,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     {ml, mr, mt, mb} = {46, 14, 16, 26}
     pw = @w - ml - mr
     ph = h - mt - mb
-    vmax = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)]))
+    {vmax, y_ticks} = max(host, Enum.max([1 | Enum.map(series, & &1.total_mem)])) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
     pts = Enum.map(series, fn s -> {xf.(s.t_ms), yf.(s.total_mem)} end)
@@ -231,7 +232,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         ~s|<path d="#{line(pts)}" fill="none" stroke="var(--good)" stroke-width="1.8"/>| <>
         ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{host_y}" y2="#{host_y}" stroke="var(--blocking)" stroke-width="1" opacity="0.8"/>| <>
         text(@w - mr, host_y + 12, "host #{fmt_bytes(host)}", anchor: "end", fill: "var(--blocking)") <>
-        y_grid(vmax, yf, ml, @w - mr, &fmt_bytes/1) <>
+        y_grid(y_ticks, yf, ml, @w - mr, &fmt_bytes/1) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
 
@@ -347,7 +348,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         y = mt + ph - bar_h
         color = "var(--an-s#{tier.tier})"
         count_label = if tier.count > 0, do: to_string(tier.count), else: "—"
-        average_label = (tier.average_wall_clock_ms && fmt_elapsed(tier.average_wall_clock_ms)) || "—"
+        average_label = (tier.average_wall_clock_ms && ChartAxis.elapsed(tier.average_wall_clock_ms, :minutes)) || "—"
         center = x + barw / 2
 
         ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bar_h)}" rx="3" fill="#{color}" fill-opacity="0.85">#{title("Complexity #{tier.tier}: #{count_label} tickets, average #{average_label}")}</rect>| <>
@@ -384,7 +385,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     ph = h - mt - mb
     n = length(entries)
     total = entries |> Enum.map(& &1.total) |> Enum.sum()
-    maxv = max(total, 1)
+    {maxv, y_ticks} = max(total, 1) |> then(&ChartAxis.nice_axis(&1, @y_tick_count))
 
     {steps, _} =
       Enum.map_reduce(entries, 0, fn entry, acc ->
@@ -411,7 +412,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       end)
 
     inner =
-      y_grid(maxv, yf, ml, @w - mr, &to_string(round(&1))) <>
+      y_grid(y_ticks, yf, ml, @w - mr, &to_string(round(&1))) <>
         segments <>
         ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{r2(mt + ph)}" y2="#{r2(mt + ph)}" stroke="var(--line)"/>|
 
@@ -526,25 +527,25 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   defp x_axis(t0, t1, xf, x0, x1, baseline, origin_ms) do
     ticks = for i <- 0..4, do: t0 + (t1 - t0) * i / 4
+    precision = if t1 - t0 < 300_000, do: :seconds, else: :minutes
 
     base = ~s|<line x1="#{x0}" x2="#{x1}" y1="#{baseline}" y2="#{baseline}" stroke="var(--line)"/>|
 
     labels =
       Enum.map_join(ticks, "", fn t ->
-        text(r2(xf.(t)), baseline + 15, fmt_elapsed(t - origin_ms), anchor: "middle", fill: "var(--muted)")
+        text(r2(xf.(t)), baseline + 15, ChartAxis.elapsed(t - origin_ms, precision), anchor: "middle", fill: "var(--muted)")
       end)
 
     base <> labels
   end
 
-  defp y_grid(vmax, yf, x0, x1, fmt) do
-    for i <- 0..3, into: "" do
-      v = vmax * i / 3
+  defp y_grid(ticks, yf, x0, x1, fmt) do
+    Enum.map_join(ticks, "", fn v ->
       y = r2(yf.(v))
 
       ~s|<line x1="#{x0}" x2="#{x1}" y1="#{y}" y2="#{y}" stroke="var(--hairline)"/>| <>
         text(x0 - 6, y + 3, fmt.(v), anchor: "end", fill: "var(--muted)")
-    end
+    end)
   end
 
   defp svg(w, h, inner, label) do
@@ -623,20 +624,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   defp cost_label(a, :peakcpu), do: "#{round(a.peak_cpu)}%"
   defp cost_label(a, :mem), do: fmt_bytes(a.peak_mem_bytes)
   defp cost_label(a, _cpu), do: "#{a.cpu_seconds}s"
-
-  defp fmt_elapsed(ms) when ms <= 0, do: "0m"
-
-  defp fmt_elapsed(ms) do
-    total_min = div(round(ms / 1000), 60)
-    h = div(total_min, 60)
-    m = rem(total_min, 60)
-
-    cond do
-      h > 0 and m > 0 -> "#{h}h #{m}m"
-      h > 0 -> "#{h}h"
-      true -> "#{total_min}m"
-    end
-  end
 
   defp fmt_bytes(b) when is_number(b) do
     cond do
