@@ -203,12 +203,28 @@ defmodule Aiur.Instance.LeaseStoreTest do
         assert Enum.count(results, &(&1 == :held)) == 1
 
         expiry_key = "lease-test/expiry##{suffix}"
-        assert LeaseStore.claim(expiry_key, server: left, ttl_ms: 100, grace_ms: 150) == :acquired
-        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 100, grace_ms: 150) == :held
-        Process.sleep(200)
-        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 100, grace_ms: 150) == :held
-        Process.sleep(100)
-        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 100, grace_ms: 150) == :acquired
+        assert LeaseStore.claim(expiry_key, server: left, ttl_ms: 1_000, grace_ms: 10_000) == :acquired
+        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 1_000, grace_ms: 10_000) == :held
+
+        connection = :sys.get_state(left).conn
+
+        assert {:ok, %{num_rows: 1}} =
+                 Postgrex.query(
+                   connection,
+                   "UPDATE aiur_ticket_leases SET expires_at = clock_timestamp() - interval '1 second' WHERE ticket_key = $1",
+                   [expiry_key]
+                 )
+
+        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 1_000, grace_ms: 10_000) == :held
+
+        assert {:ok, %{num_rows: 1}} =
+                 Postgrex.query(
+                   connection,
+                   "UPDATE aiur_ticket_leases SET expires_at = clock_timestamp() - interval '11 seconds' WHERE ticket_key = $1",
+                   [expiry_key]
+                 )
+
+        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 1_000, grace_ms: 10_000) == :acquired
         assert LeaseStore.renew(expiry_key, server: left, ttl_ms: 100) == {:error, :lease_lost}
         assert :ok = LeaseStore.release(expiry_key, server: left)
         assert LeaseStore.holder(expiry_key, server: right) == {:held, right_id}

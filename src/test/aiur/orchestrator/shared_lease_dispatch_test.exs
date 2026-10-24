@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
 
   alias Aiur.Instance.LeaseStore
   alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.TestSupport.Isolation
 
   test "two dispatcher instances race through launch and start only one runner" do
     parent = self()
@@ -90,10 +91,13 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
     start_worker = fn instance_id ->
       fn _issue, _runner, _recipient, _context, _opts ->
         worker =
-          spawn(fn ->
-            send(parent, {:runner_started, instance_id, self()})
-            receive do: (:stop -> :ok)
-          end)
+          Isolation.start_owned!(
+            {Task,
+             fn ->
+               send(parent, {:runner_started, instance_id, self()})
+               receive do: (:stop -> :ok)
+             end}
+          )
 
         {:ok, worker}
       end
