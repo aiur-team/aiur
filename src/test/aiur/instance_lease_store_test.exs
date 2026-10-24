@@ -119,6 +119,41 @@ defmodule Aiur.Instance.LeaseStoreTest do
     assert_receive {:DOWN, ^monitor, :process, ^worker, {:shared_ticket_lease_lost, "owner/repo#42"}}, 1_000
   end
 
+  test "a blocked renewal cannot keep a worker alive past its lease deadline" do
+    previous = Application.get_env(:aiur, :lease_database_url)
+    Application.put_env(:aiur, :lease_database_url, "postgres://test.invalid/aiur")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :lease_database_url, previous), else: Application.delete_env(:aiur, :lease_database_url)
+    end)
+
+    server = Module.concat(__MODULE__, "BlockedRenewal#{System.unique_integer([:positive])}")
+    {:ok, store} = LeaseStore.start_link(name: server, url: nil, instance_id: "self", leases: MapSet.new(["owner/repo#42"]))
+    Process.unlink(store)
+    on_exit(fn -> if Process.alive?(store), do: safe_stop_genserver(store) end)
+    parent = self()
+
+    {worker, monitor} =
+      spawn_monitor(fn ->
+        :ok =
+          LeaseStore.watch("owner/repo#42",
+            server: server,
+            renew_interval_ms: 1,
+            ttl_ms: 200,
+            renew_margin_ms: 50,
+            renew_fun: fn _key, _server, _ttl ->
+              send(parent, :blocked_renewal_started)
+              receive do: (:never -> :ok)
+            end
+          )
+
+        receive do: (:never -> :ok)
+      end)
+
+    assert_receive :blocked_renewal_started, 1_000
+    assert_receive {:DOWN, ^monitor, :process, ^worker, {:shared_ticket_lease_lost, "owner/repo#42"}}, 500
+  end
+
   @tag skip: is_nil(System.get_env("AIUR_LEASE_DATABASE_URL"))
   test "PostgreSQL atomically admits one claimant across independent store processes" do
     case System.get_env("AIUR_LEASE_DATABASE_URL") do
@@ -166,6 +201,17 @@ defmodule Aiur.Instance.LeaseStoreTest do
 
         assert Enum.count(results, &(&1 == :acquired)) == 1
         assert Enum.count(results, &(&1 == :held)) == 1
+
+        expiry_key = "lease-test/expiry##{suffix}"
+        assert LeaseStore.claim(expiry_key, server: left, ttl_ms: 100, grace_ms: 150) == :acquired
+        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 100, grace_ms: 150) == :held
+        Process.sleep(200)
+        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 100, grace_ms: 150) == :held
+        Process.sleep(100)
+        assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 100, grace_ms: 150) == :acquired
+        assert LeaseStore.renew(expiry_key, server: left, ttl_ms: 100) == {:error, :lease_lost}
+        assert :ok = LeaseStore.release(expiry_key, server: left)
+        assert LeaseStore.holder(expiry_key, server: right) == {:held, right_id}
     end
   end
 

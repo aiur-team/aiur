@@ -29,23 +29,82 @@ defmodule Aiur.Instance.LeaseStore.Renewal do
   end
 
   defp renew_loop(%{parent: parent, monitor: monitor, interval: interval} = renewal) do
-    receive do
-      {:DOWN, ^monitor, :process, ^parent, _reason} -> :ok
-    after
-      interval -> renew_once(renewal)
+    deadline = renewal.last_good_ms + renewal.ttl_ms - renewal.margin_ms
+    remaining_ms = deadline - renewal.now_fun.()
+
+    if remaining_ms <= 0 do
+      fence(renewal, :deadline)
+    else
+      receive do
+        {:DOWN, ^monitor, :process, ^parent, _reason} ->
+          :ok
+      after
+        min(interval, remaining_ms) ->
+          if renewal.now_fun.() >= deadline do
+            fence(renewal, :deadline)
+          else
+            renew_once(renewal)
+          end
+      end
     end
   end
 
   defp renew_once(%{key: key, server: server, ttl_ms: ttl, renew_fun: renew_fun} = renewal) do
-    case renew_fun.(key, server, ttl) do
-      :ok ->
-        renew_loop(%{renewal | last_good_ms: renewal.now_fun.()})
+    deadline = renewal.last_good_ms + renewal.ttl_ms - renewal.margin_ms
+    remaining_ms = deadline - renewal.now_fun.()
 
-      {:error, :lease_lost} ->
-        Process.exit(renewal.parent, {:shared_ticket_lease_lost, key})
+    if remaining_ms <= 0 do
+      fence(renewal, :deadline)
+    else
+      case bounded_renew(renew_fun, key, server, ttl, remaining_ms) do
+        {:return, :ok} ->
+          renew_loop(%{renewal | last_good_ms: renewal.now_fun.()})
 
-      {:error, reason} ->
-        retry_or_fence(renewal, reason)
+        {:return, {:error, :lease_lost}} ->
+          fence(renewal, :lease_lost)
+
+        {:return, {:error, reason}} ->
+          retry_or_fence(renewal, reason)
+
+        {:exit, reason} ->
+          retry_or_fence(renewal, reason)
+
+        :timeout ->
+          fence(renewal, :deadline)
+      end
+    end
+  end
+
+  defp bounded_renew(renew_fun, key, server, ttl, timeout_ms) do
+    parent = self()
+    result_ref = make_ref()
+
+    {pid, monitor} =
+      spawn_monitor(fn ->
+        result =
+          try do
+            {:return, renew_fun.(key, server, ttl)}
+          rescue
+            error -> {:exit, error}
+          catch
+            kind, reason -> {:exit, {kind, reason}}
+          end
+
+        send(parent, {result_ref, result})
+      end)
+
+    receive do
+      {^result_ref, result} ->
+        Process.demonitor(monitor, [:flush])
+        result
+
+      {:DOWN, ^monitor, :process, ^pid, reason} ->
+        {:exit, reason}
+    after
+      timeout_ms ->
+        Process.exit(pid, :kill)
+        receive do: ({:DOWN, ^monitor, :process, ^pid, _reason} -> :ok)
+        :timeout
     end
   end
 
@@ -54,12 +113,15 @@ defmodule Aiur.Instance.LeaseStore.Renewal do
     remaining_ms = deadline - renewal.now_fun.()
 
     if remaining_ms <= 0 do
-      Logger.error("ticket lease renewal deadline missed key=#{renewal.key}: #{inspect(reason)}; stopping worker")
-      Process.exit(renewal.parent, {:shared_ticket_lease_lost, renewal.key})
+      fence(renewal, reason)
     else
       Logger.warning("ticket lease renewal unavailable key=#{renewal.key}: #{inspect(reason)}; worker stops in #{remaining_ms}ms unless renewed")
-      Process.sleep(min(renewal.interval, remaining_ms))
       renew_loop(renewal)
     end
+  end
+
+  defp fence(renewal, reason) do
+    Logger.error("ticket lease renewal deadline missed key=#{renewal.key}: #{inspect(reason)}; stopping worker")
+    Process.exit(renewal.parent, {:shared_ticket_lease_lost, renewal.key})
   end
 end
