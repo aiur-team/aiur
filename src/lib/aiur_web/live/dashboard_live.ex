@@ -705,8 +705,7 @@ defmodule AiurWeb.DashboardLive do
   def render(assigns) do
     assigns =
       assigns
-      |> Map.put_new(:selected_decision_health, nil)
-      |> Map.put_new(:repository_leader, Aiur.Instance.RepositoryLeader.status())
+      |> Map.merge(%{selected_decision_health: nil, repository_leader: Aiur.Instance.RepositoryLeader.status()})
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
