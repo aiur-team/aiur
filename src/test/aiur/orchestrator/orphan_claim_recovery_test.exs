@@ -36,6 +36,29 @@ defmodule Aiur.Orchestrator.OrphanClaimRecoveryTest do
     refute_received {:comment, _, _}
   end
 
+  test "live ci-wait owner with transient in-progress label is not orphan-released on reconcile ticks" do
+    issue = issue()
+    owner = self()
+    state = %State{running: %{issue.id => %{identifier: issue.identifier, pid: owner, paused_reason: :ci_wait}}}
+
+    opts = opts()
+
+    state = %{state | claimed: MapSet.new([issue.id])}
+
+    {observed, [^issue]} = StartupClaimReconciler.reconcile(state, [issue], Keyword.put(opts, :now_ms, 0))
+
+    observed =
+      Enum.reduce(1..6, observed, fn tick, current ->
+        {next, [^issue]} = StartupClaimReconciler.reconcile(current, [issue], Keyword.put(opts, :now_ms, tick * 60_000))
+        next
+      end)
+
+    assert observed.orphaned_claim_since == %{}
+    refute_received {:write, _, _, _}
+    refute_received {:comment, _, _}
+    refute_received {:alert, "ticket.3622.agent.attention.startup_orphan_claim_released", _}
+  end
+
   test "a claimed same-boot marker cannot disable recovery after an Orchestrator restart" do
     opts = Keyword.put(opts(), :read_boot_marker_fun, fn -> {:ok, Aiur.Boot.run_id()} end)
     {waiting, [_]} = StartupClaimReconciler.reconcile(%State{}, [issue()], Keyword.put(opts, :now_ms, 0))
