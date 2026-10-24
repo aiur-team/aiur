@@ -1,6 +1,23 @@
 defmodule Aiur.Handoff.ApplicationRestartTest do
   use ExUnit.Case, async: false
 
+  test "a timed out subprocess kills its complete process group" do
+    shell = System.find_executable("sh")
+    script = "sleep 300 & child=$!; group=$(ps -o pgid= -p $$ | tr -d ' '); printf '%s %s %s\\n' $$ $group $child; wait"
+
+    {:timeout, output, pid} = run_monitored_command(shell, ["-c", script], [], 250)
+    [shell_pid, group_id, child_pid] = output |> String.trim() |> String.split() |> Enum.map(&String.to_integer/1)
+
+    try do
+      assert shell_pid == pid
+      assert group_id == pid
+      refute process_running?(shell_pid)
+      refute process_running?(child_pid)
+    after
+      Enum.each([shell_pid, child_pid], &System.cmd("kill", ["-KILL", to_string(&1)], stderr_to_stdout: true))
+    end
+  end
+
   @tag timeout: 120_000
   test "a real supervised app restart adopts the relay turn without redispatch" do
     runtime_root = Aiur.TestSupport.tmp_root!("handoff-restart")
@@ -125,49 +142,77 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     paths = Path.wildcard(Path.join([Mix.Project.build_path(), "lib", "*", "ebin"]))
     args = Enum.flat_map(paths, &["-pa", &1]) ++ ["-e", script]
 
-    port =
-      Port.open({:spawn_executable, String.to_charlist(System.find_executable("setsid"))}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        args: [System.find_executable("elixir") | args],
-        env: [
-          {~c"ERL_FLAGS", ~c"+S 2:2 +SDio 1 +SDcpu 1"},
-          {~c"AIUR_HANDOFF_RUNTIME_ROOT", String.to_charlist(runtime_root)}
-        ]
-      ])
-
-    {:os_pid, pid} = Port.info(port, :os_pid)
-
     try do
-      case collect_output(port, "", 105_000) do
-        {:timeout, captured} ->
-          System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
-          close_port(port)
+      case run_monitored_command(
+             System.find_executable("elixir"),
+             args,
+             [
+               {"ERL_FLAGS", "+S 2:2 +SDio 1 +SDcpu 1"},
+               {"AIUR_HANDOFF_RUNTIME_ROOT", runtime_root}
+             ],
+             105_000
+           ) do
+        {:timeout, captured, _pid} ->
           flunk("nested VM timed out; last output:\n#{captured}")
 
-        {captured, status} ->
+        {captured, status, _pid} ->
           assert status == 0, captured
           assert captured =~ "supervised-handoff-restart-ok"
       end
     after
-      System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
-      close_port(port)
-
       Aiur.TestCleanup.rm_rf!(runtime_root)
     end
   end
 
-  defp collect_output(port, output, timeout) do
-    receive do
-      {^port, {:data, chunk}} ->
-        next = output <> chunk
-        collect_output(port, next, timeout)
+  defp run_monitored_command(executable, args, env, timeout) do
+    port =
+      Port.open({:spawn_executable, String.to_charlist(executable)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: args,
+        env: Enum.map(env, fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end)
+      ])
 
-      {^port, {:exit_status, status}} ->
-        {output, status}
+    {:os_pid, pid} = Port.info(port, :os_pid)
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    try do
+      case collect_output(port, "", deadline) do
+        {:timeout, output} ->
+          kill_process_group(pid)
+          {:timeout, output, pid}
+
+        {output, status} ->
+          {output, status, pid}
+      end
     after
-      timeout -> {:timeout, output}
+      kill_process_group(pid)
+      close_port(port)
+    end
+  end
+
+  defp collect_output(port, output, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      {:timeout, output}
+    else
+      receive do
+        {^port, {:data, chunk}} -> collect_output(port, output <> chunk, deadline)
+        {^port, {:exit_status, status}} -> {output, status}
+      after
+        remaining -> {:timeout, output}
+      end
+    end
+  end
+
+  defp kill_process_group(pid), do: System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
+
+  defp process_running?(pid) do
+    case System.cmd("ps", ["-o", "stat=", "-p", to_string(pid)], stderr_to_stdout: true) do
+      {state, 0} -> not String.starts_with?(String.trim(state), "Z")
+      _ -> false
     end
   end
 
