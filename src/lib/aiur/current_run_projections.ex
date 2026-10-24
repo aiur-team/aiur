@@ -40,17 +40,18 @@ defmodule Aiur.CurrentRunProjections do
   @spec refresh(GenServer.server()) :: :ok
   def refresh(server \\ __MODULE__), do: GenServer.call(server, :refresh, @refresh_timeout)
 
+  @doc false
+  @spec subscribe(GenServer.server()) :: :ok
+  def subscribe(server \\ __MODULE__), do: GenServer.call(server, {:subscribe, self()})
+
   @impl true
   def init(opts) do
     state = State.new(opts)
-    subscribe(opts)
-    schedule(:clock_tick, state.clock_interval_ms)
-    schedule(:reconcile_tick, state.reconcile_interval_ms)
+    state = if state.active?, do: activate(state), else: state
 
     state =
-      if Keyword.get(opts, :refresh_on_init?, true) do
-        send(self(), :refresh_sources)
-        %{state | refresh_pending?: true}
+      if state.active? and Keyword.get(opts, :refresh_on_init?, true) do
+        request_initial_refresh(state)
       else
         state
       end
@@ -64,6 +65,14 @@ defmodule Aiur.CurrentRunProjections do
 
   def handle_call({:snapshot, :outcomes}, _from, state),
     do: {:reply, state.outcome_snapshot, state}
+
+  def handle_call({:subscribe, pid}, _from, state) do
+    state = add_subscriber(state, pid)
+    was_active? = state.active?
+    state = if was_active?, do: state, else: activate(state)
+    state = if was_active?, do: state, else: request_initial_refresh(state)
+    {:reply, :ok, state}
+  end
 
   def handle_call(:refresh, from, %{checkpoint_write: write} = state) when is_map(write) do
     {:noreply, queue_waiter(state, from)}
@@ -87,8 +96,8 @@ defmodule Aiur.CurrentRunProjections do
 
   def handle_info(:refresh_sources, state), do: {:noreply, state}
 
-  def handle_info(:clock_tick, state) do
-    schedule(:clock_tick, state.clock_interval_ms)
+  def handle_info(:clock_tick, %{active?: true} = state) do
+    state = %{state | clock_timer_ref: schedule(:clock_tick, state.clock_interval_ms)}
 
     state =
       if is_nil(state.refresh) and is_nil(state.checkpoint_write) and not state.refresh_pending? do
@@ -100,10 +109,14 @@ defmodule Aiur.CurrentRunProjections do
     {:noreply, state}
   end
 
-  def handle_info(:reconcile_tick, state) do
-    schedule(:reconcile_tick, state.reconcile_interval_ms)
+  def handle_info(:clock_tick, state), do: {:noreply, state}
+
+  def handle_info(:reconcile_tick, %{active?: true} = state) do
+    state = %{state | reconcile_timer_ref: schedule(:reconcile_tick, state.reconcile_interval_ms)}
     {:noreply, Refresh.request_full(state)}
   end
+
+  def handle_info(:reconcile_tick, state), do: {:noreply, state}
 
   def handle_info({:current_run_source_result, ref, key, result}, %{refresh: %{ref: ref} = refresh} = state) do
     refresh = SourceCollector.put_result(refresh, key, result)
@@ -128,22 +141,34 @@ defmodule Aiur.CurrentRunProjections do
   end
 
   def handle_info({:current_run_membership_changed, _payload}, state),
-    do: {:noreply, Refresh.schedule(state)}
+    do: {:noreply, schedule_refresh(state)}
 
   def handle_info({:current_run_membership_health_changed, _payload}, state),
-    do: {:noreply, Refresh.schedule(state)}
+    do: {:noreply, schedule_refresh(state)}
 
   def handle_info({:ticket_activity_changed, _payload}, state),
-    do: {:noreply, Refresh.schedule(state)}
+    do: {:noreply, schedule_refresh(state)}
 
   def handle_info({:running_changed, _payload}, state),
-    do: {:noreply, Refresh.schedule(state)}
+    do: {:noreply, schedule_refresh(state)}
 
   def handle_info({:status_changed, _payload}, state),
-    do: {:noreply, Refresh.schedule(state)}
+    do: {:noreply, schedule_refresh(state)}
 
-  def handle_info(:observability_updated, state), do: {:noreply, Refresh.schedule(state)}
-  def handle_info({:observability_updated, _event_id}, state), do: {:noreply, Refresh.schedule(state)}
+  def handle_info(:observability_updated, state), do: {:noreply, schedule_refresh(state)}
+  def handle_info({:observability_updated, _event_id}, state), do: {:noreply, schedule_refresh(state)}
+
+  def handle_info({:DOWN, ref, :process, pid, _reason}, state) do
+    case Map.pop(state.subscribers, pid) do
+      {^ref, subscribers} ->
+        state = %{state | subscribers: subscribers}
+        {:noreply, if(map_size(subscribers) == 0, do: deactivate_if_idle(state), else: state)}
+
+      {_other, _subscribers} ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
@@ -154,17 +179,48 @@ defmodule Aiur.CurrentRunProjections do
 
   defp queue_waiter(state, from), do: %{state | queued_waiters: [from | state.queued_waiters]}
 
-  defp subscribe(opts) do
-    opts
-    |> Keyword.get(:subscribe_funs, [
-      &Aiur.CurrentRunMembership.subscribe/0,
-      &Aiur.TicketActivity.subscribe/0,
-      &Aiur.AgentPubSub.subscribe_running/0,
-      &Aiur.AgentPubSub.subscribe_status/0,
-      &Aiur.Signal.subscribe_refresh/0
-    ])
-    |> Enum.each(&safe_subscribe/1)
+  defp activate(state) do
+    Enum.each(state.subscribe_funs, &safe_subscribe/1)
+
+    %{
+      state
+      | active?: true,
+        clock_timer_ref: schedule(:clock_tick, state.clock_interval_ms),
+        reconcile_timer_ref: schedule(:reconcile_tick, state.reconcile_interval_ms)
+    }
   end
+
+  defp deactivate_if_idle(%{idle_without_subscribers?: true} = state) do
+    cancel_timer(state.clock_timer_ref)
+    cancel_timer(state.reconcile_timer_ref)
+
+    %{state | active?: false, clock_timer_ref: nil, reconcile_timer_ref: nil, refresh_pending?: false}
+  end
+
+  defp deactivate_if_idle(state), do: state
+
+  defp add_subscriber(state, pid) do
+    if Map.has_key?(state.subscribers, pid) do
+      state
+    else
+      %{state | subscribers: Map.put(state.subscribers, pid, Process.monitor(pid))}
+    end
+  end
+
+  defp request_initial_refresh(state) do
+    if state.active? and is_nil(state.refresh) and not state.refresh_pending? do
+      send(self(), :refresh_sources)
+      %{state | refresh_pending?: true}
+    else
+      state
+    end
+  end
+
+  defp schedule_refresh(%{active?: true} = state), do: Refresh.schedule(state)
+  defp schedule_refresh(state), do: state
+
+  defp cancel_timer(nil), do: :ok
+  defp cancel_timer(ref), do: Process.cancel_timer(ref)
 
   defp safe_subscribe(fun) do
     fun.()
@@ -174,6 +230,6 @@ defmodule Aiur.CurrentRunProjections do
     _kind, _reason -> :ok
   end
 
-  defp schedule(_message, :infinity), do: :ok
+  defp schedule(_message, :infinity), do: nil
   defp schedule(message, interval), do: Process.send_after(self(), message, interval)
 end

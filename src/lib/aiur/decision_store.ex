@@ -65,7 +65,8 @@ defmodule Aiur.DecisionStore do
   an optional `"version"`/`:version` key in `payload` states which
   version this request targets (defaults to `1`, i.e. a fresh Decision).
   """
-  @spec request(map(), keyword(), GenServer.server(), timeout()) :: {:ok, accept_result()} | {:error, term()}
+  @spec request(map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, accept_result()} | {:error, term()}
   def request(payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_map(payload) and is_list(opts) do
     GenServer.call(server, {:request, payload, opts}, timeout)
@@ -119,14 +120,25 @@ defmodule Aiur.DecisionStore do
   """
   @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
-  def escalate_executor_command(decision_id, payload, server \\ __MODULE__, timeout \\ @request_timeout)
+  def escalate_executor_command(
+        decision_id,
+        payload,
+        server \\ __MODULE__,
+        timeout \\ @request_timeout
+      )
       when is_binary(decision_id) and is_map(payload) do
     GenServer.call(server, {:escalate_executor_command, decision_id, payload}, timeout)
   end
 
   @doc "Durably lets the Executor reclassify a human-required decision as answerable, with rationale."
-  @spec reclassify_authority(String.t(), map(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
-  def reclassify_authority(decision_id, payload, server \\ __MODULE__, timeout \\ @request_timeout)
+  @spec reclassify_authority(String.t(), map(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def reclassify_authority(
+        decision_id,
+        payload,
+        server \\ __MODULE__,
+        timeout \\ @request_timeout
+      )
       when is_binary(decision_id) and is_map(payload) do
     GenServer.call(server, {:reclassify_authority, decision_id, payload}, timeout)
   end
@@ -140,7 +152,8 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc "Durably defers an open Decision to the Executor without recording an answer."
-  @spec defer(String.t(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec defer(String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
   def defer(decision_id, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_list(opts) do
     GenServer.call(server, {:defer, decision_id, opts}, timeout)
@@ -149,7 +162,13 @@ defmodule Aiur.DecisionStore do
   @doc "Durably expires an open Decision that no live agent can act on."
   @spec expire(String.t(), String.t(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
-  def expire(decision_id, reason_class, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+  def expire(
+        decision_id,
+        reason_class,
+        opts \\ [],
+        server \\ __MODULE__,
+        timeout \\ @request_timeout
+      )
       when is_binary(decision_id) and is_binary(reason_class) and is_list(opts) do
     GenServer.call(server, {:expire, decision_id, reason_class, opts}, timeout)
   end
@@ -206,7 +225,13 @@ defmodule Aiur.DecisionStore do
   """
   @spec supersede(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
-  def supersede(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+  def supersede(
+        decision_id,
+        payload,
+        opts \\ [],
+        server \\ __MODULE__,
+        timeout \\ @request_timeout
+      )
       when is_binary(decision_id) and is_map(payload) and is_list(opts) do
     GenServer.call(server, {:supersede, decision_id, payload, opts}, timeout)
   end
@@ -220,7 +245,13 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc "Durably handles a blocking revision follow-up before clearing its reminder."
-  @spec handle_revision_follow_up(String.t(), String.t(), keyword(), GenServer.server(), timeout()) ::
+  @spec handle_revision_follow_up(
+          String.t(),
+          String.t(),
+          keyword(),
+          GenServer.server(),
+          timeout()
+        ) ::
           {:ok, map()} | {:error, term()}
   def handle_revision_follow_up(
         decision_id,
@@ -261,7 +292,8 @@ defmodule Aiur.DecisionStore do
   redelivered. The call is a cast, so a spawn never waits on this store.
   """
   @spec deliver_pending_answers(String.t(), GenServer.server()) :: :ok
-  def deliver_pending_answers(ticket_identifier, server \\ __MODULE__) when is_binary(ticket_identifier) do
+  def deliver_pending_answers(ticket_identifier, server \\ __MODULE__)
+      when is_binary(ticket_identifier) do
     GenServer.cast(server, {:deliver_pending_answers, ticket_identifier})
   end
 
@@ -275,7 +307,8 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc "Synchronously persist provider-confirmed delivery for one correlated queue item."
-  @spec record_delivery(map(), GenServer.server()) :: {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
+  @spec record_delivery(map(), GenServer.server()) ::
+          {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
   def record_delivery(item, server \\ __MODULE__) when is_map(item) do
     GenServer.call(server, {:transport_transition, :delivered, item, nil}, @request_timeout)
   catch
@@ -283,14 +316,20 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc "Asynchronously report a later queue settlement without blocking the Orchestrator."
-  @spec record_transport_async(:restored | :consumed | :failed, map(), term(), GenServer.server()) :: :ok
+  @spec record_transport_async(:restored | :consumed | :failed, map(), term(), GenServer.server()) ::
+          :ok
   def record_transport_async(type, item, reason \\ nil, server \\ __MODULE__)
       when type in [:restored, :consumed, :failed] and is_map(item) do
     record_transport_batch_async(type, [item], reason, server)
   end
 
   @doc "Asynchronously report one queue mutation's correlated settlements as a single batch."
-  @spec record_transport_batch_async(:restored | :consumed | :failed, [map()], term(), GenServer.server()) :: :ok
+  @spec record_transport_batch_async(
+          :restored | :consumed | :failed,
+          [map()],
+          term(),
+          GenServer.server()
+        ) :: :ok
   def record_transport_batch_async(type, items, reason \\ nil, server \\ __MODULE__)
       when type in [:restored, :consumed, :failed] and is_list(items) do
     GenServer.cast(server, {:transport_transitions, type, items, reason})
@@ -330,7 +369,8 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc "Returns a bounded retained Decision page, available total metadata, and canonical counts atomically."
-  @spec retained_query(map(), GenServer.server()) :: {:ok, map()} | {:error, :store_unavailable | :invalid_query}
+  @spec retained_query(map(), GenServer.server()) ::
+          {:ok, map()} | {:error, :store_unavailable | :invalid_query}
   def retained_query(query, server \\ __MODULE__) when is_map(query) do
     GenServer.call(server, {:retained_query, query})
   end
@@ -400,6 +440,20 @@ defmodule Aiur.DecisionStore do
     :exit, _reason -> {:error, :store_unavailable}
   end
 
+  @doc "Returns open blocking Command ids grouped by ticket identifier in one store call."
+  @spec open_blocking_decision_ids_by_ticket([String.t()], GenServer.server(), timeout()) ::
+          {:ok, %{optional(String.t()) => [String.t()]}} | {:error, :store_unavailable}
+  def open_blocking_decision_ids_by_ticket(
+        ticket_identifiers,
+        server \\ __MODULE__,
+        timeout \\ 1_000
+      )
+      when is_list(ticket_identifiers) do
+    GenServer.call(server, {:open_blocking_decision_ids_by_ticket, ticket_identifiers}, timeout)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
   @doc "Returns whether an optional agent question, with no open blocking Command, explains a ticket's self-pause."
   @spec nonblocking_question_pause?(String.t(), GenServer.server(), timeout()) ::
           {:ok, boolean()} | {:error, :store_unavailable}
@@ -429,7 +483,9 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc "Returns every Decision's complete immutable audit history in one serialized read."
-  @spec all_audit_history(GenServer.server()) :: %{String.t() => [Decision.t() | DecisionEvent.t()]}
+  @spec all_audit_history(GenServer.server()) :: %{
+          String.t() => [Decision.t() | DecisionEvent.t()]
+        }
   def all_audit_history(server \\ __MODULE__) do
     GenServer.call(server, :all_audit_history)
   end
@@ -463,8 +519,11 @@ defmodule Aiur.DecisionStore do
   def init(opts) do
     state =
       case Boot.state_dir(opts) do
-        {:ok, dir} -> Boot.boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))
-        {:error, reason} -> Boot.unavailable_state(nil, {:path_unresolved, reason})
+        {:ok, dir} ->
+          Boot.boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))
+
+        {:error, reason} ->
+          Boot.unavailable_state(nil, {:path_unresolved, reason})
       end
       |> Map.put(:legacy_question_version_limit, Index.legacy_question_version_limit(opts))
       |> Boot.configure_dispatch(opts)

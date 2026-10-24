@@ -65,7 +65,12 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
 
   test "projects an orphaned claim as waiting rather than queued" do
     parent = self()
-    snapshot = %{running: [], retrying: [], idle: [row("I-orphaned", waiting_reason: :orphaned_claim)]}
+
+    snapshot = %{
+      running: [],
+      retrying: [],
+      idle: [row("I-orphaned", waiting_reason: :orphaned_claim)]
+    }
 
     assert [_] =
              Reconciler.reconcile_snapshot(
@@ -82,7 +87,9 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     dir = Aiur.TestSupport.tmp_root!("aiur-membership-reconciler")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
-    {:ok, store} = Store.start_link(name: nil, state_dir: dir, run_id: "reconciler-membership-run")
+    {:ok, store} =
+      Store.start_link(name: nil, state_dir: dir, run_id: "reconciler-membership-run")
+
     terminal = row("I-terminal", []).tracker_identity
 
     assert {:ok, %{generation: 1}} =
@@ -125,7 +132,9 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
-    {:ok, first_store} = Store.start_link(name: store_name, state_dir: dir, run_id: "reconciler-restart-run")
+    {:ok, first_store} =
+      Store.start_link(name: store_name, state_dir: dir, run_id: "reconciler-restart-run")
+
     # ExUnit executes on_exit after the test worker ends; make the test own
     # teardown explicitly instead of racing that worker's linked children.
     Process.unlink(first_store)
@@ -134,7 +143,9 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       Reconciler.start_link(
         name: reconciler_name,
         snapshot_fun: fn -> snapshot end,
-        observe_fun: fn identity, lifecycle -> send(parent, {:reconciled, identity.provider_id, lifecycle}) end,
+        observe_fun: fn identity, lifecycle ->
+          send(parent, {:reconciled, identity.provider_id, lifecycle})
+        end,
         terminal_states_fun: &MapSet.new/0,
         subscribe_fun: fn -> :ok end,
         reconciliation_fun: fn _status -> :ok end
@@ -192,6 +203,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
           send(parent, {:reconciliation, status})
           result
         end,
+        running_change_min_interval_ms: 0,
         reconcile_interval_ms: 10
       )
 
@@ -207,9 +219,54 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
              Store.snapshot(server: current_store)
   end
 
+  test "running changes observe only newly appeared or changed lifecycle rows" do
+    parent = self()
+    reconciler_name = Module.concat(__MODULE__, "Delta#{System.unique_integer([:positive])}")
+
+    snapshot =
+      start_supervised!({Agent, fn -> %{running: [], retrying: [], idle: Enum.map(1..50, &row("I-#{&1}", []))} end})
+
+    owner =
+      start_supervised!(
+        {Reconciler,
+         name: reconciler_name,
+         snapshot_fun: fn -> Agent.get(snapshot, & &1) end,
+         observe_fun: fn identity, lifecycle ->
+           send(parent, {:observed, identity.provider_id, lifecycle})
+           {:ok, %{}}
+         end,
+         terminal_states_fun: &MapSet.new/0,
+         subscribe_fun: fn -> :ok end,
+         membership_subscribe_fun: fn -> :ok end,
+         reconciliation_fun: fn _status -> :ok end,
+         reconcile_interval_ms: :infinity}
+      )
+
+    assert is_pid(owner)
+    assert_receive {:observed, "I-1", :queued}, 1000
+
+    Enum.each(2..50, fn id ->
+      expected = "I-#{id}"
+      assert_receive {:observed, ^expected, :queued}, 1000
+    end)
+
+    send(reconciler_name, {:running_changed, []})
+    refute_receive {:observed, _, _}, 300
+
+    Agent.update(snapshot, fn snapshot ->
+      update_in(snapshot.idle, fn [first | rest] -> [%{first | work_state: :paused} | rest] end)
+    end)
+
+    send(reconciler_name, {:running_changed, []})
+    assert_receive {:observed, "I-1", :paused}, 1500
+    refute_receive {:observed, _, _}, 100
+  end
+
   test "an unavailable source marks reconciliation freshness unavailable" do
     parent = self()
-    reconciler_name = Module.concat(__MODULE__, "Unavailable#{System.unique_integer([:positive])}")
+
+    reconciler_name =
+      Module.concat(__MODULE__, "Unavailable#{System.unique_integer([:positive])}")
 
     on_exit(fn ->
       assert pid = Process.whereis(reconciler_name)

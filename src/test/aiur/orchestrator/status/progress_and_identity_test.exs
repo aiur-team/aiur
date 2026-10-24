@@ -67,7 +67,8 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
 
     pid = orchestrator_running_only("issue-stale-progress", "2001", identity)
 
-    assert %{running: [%{progress_percent: 70, progress_freshness: :stale}]} = GenServer.call(pid, :snapshot)
+    assert %{running: [%{progress_percent: 70, progress_freshness: :stale}]} =
+             GenServer.call(pid, :snapshot)
   end
 
   test "snapshot reports a never-observed ticket as unknown progress" do
@@ -77,7 +78,8 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
 
     pid = orchestrator_running_only("issue-unobserved-progress", "2002", identity)
 
-    assert %{running: [%{progress_percent: nil, progress_freshness: :unknown}]} = GenServer.call(pid, :snapshot)
+    assert %{running: [%{progress_percent: nil, progress_freshness: :unknown}]} =
+             GenServer.call(pid, :snapshot)
   end
 
   test "snapshot keeps a fresh progress reading fresh" do
@@ -87,7 +89,8 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
 
     pid = orchestrator_running_only("issue-fresh-progress", "2003", identity)
 
-    assert %{running: [%{progress_percent: 40, progress_freshness: :fresh}]} = GenServer.call(pid, :snapshot)
+    assert %{running: [%{progress_percent: 40, progress_freshness: :fresh}]} =
+             GenServer.call(pid, :snapshot)
   end
 
   test "snapshot rounds a float progress reading rather than discarding it" do
@@ -102,7 +105,8 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
 
     pid = orchestrator_running_only("issue-float-progress", "2004", identity)
 
-    assert %{running: [%{progress_percent: 71, progress_freshness: :fresh}]} = GenServer.call(pid, :snapshot)
+    assert %{running: [%{progress_percent: 71, progress_freshness: :fresh}]} =
+             GenServer.call(pid, :snapshot)
   end
 
   test "an unreachable activity projection reports unknown progress rather than zeroing the fleet" do
@@ -115,7 +119,8 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     on_exit(fn -> :sys.resume(TicketActivity) end)
     :sys.suspend(TicketActivity)
 
-    assert %{running: [%{progress_percent: nil, progress_freshness: :unknown}]} = GenServer.call(pid, :snapshot)
+    assert %{running: [%{progress_percent: nil, progress_freshness: :unknown}]} =
+             GenServer.call(pid, :snapshot)
   end
 
   test "status API, snapshot, and PubSub retain exact tracker identities" do
@@ -177,13 +182,22 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     assert [%{tracker_identity: ^idle_identity}] = snapshot.idle
 
     assert %{tracker_identity: ^running_identity} =
-             Enum.find(Orchestrator.status(orchestrator_name, 5_000), &(&1.identifier == "MT-701"))
+             Enum.find(
+               Orchestrator.status(orchestrator_name, 5_000),
+               &(&1.identifier == "MT-701")
+             )
 
     assert %{tracker_identity: ^retry_identity} =
-             Enum.find(Orchestrator.status(orchestrator_name, 5_000), &(&1.identifier == "MT-702"))
+             Enum.find(
+               Orchestrator.status(orchestrator_name, 5_000),
+               &(&1.identifier == "MT-702")
+             )
 
     assert %{tracker_identity: ^idle_identity} =
-             Enum.find(Orchestrator.status(orchestrator_name, 5_000), &(&1.identifier == "MT-703"))
+             Enum.find(
+               Orchestrator.status(orchestrator_name, 5_000),
+               &(&1.identifier == "MT-703")
+             )
 
     :ok = AgentPubSub.subscribe_running()
     :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
@@ -271,7 +285,10 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     stale_entry =
       "issue-stale"
       |> running_entry("MT-600", :working)
-      |> Map.put(:last_codex_timestamp, DateTime.add(DateTime.utc_now(), -10 * 24 * 60 * 60, :second))
+      |> Map.put(
+        :last_codex_timestamp,
+        DateTime.add(DateTime.utc_now(), -10 * 24 * 60 * 60, :second)
+      )
       |> Map.merge(%{codex_app_server_pid: nil, last_codex_message: nil, last_codex_event: nil})
 
     :sys.replace_state(pid, fn state ->
@@ -294,21 +311,32 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
               state: "ci-wait",
               title: "Waiting on CI"
             },
-            "issue-retrying" => %Issue{id: "issue-retrying", identifier: "MT-602", state: "In Progress"}
+            "issue-retrying" => %Issue{
+              id: "issue-retrying",
+              identifier: "MT-602",
+              state: "In Progress"
+            }
           }
       }
     end)
 
     snapshot = Orchestrator.snapshot(orchestrator_name, 5_000)
 
-    assert [%{identifier: "MT-600", waiting_reason: :unresponsive, stale_for_seconds: stale_for_seconds}] =
+    assert [
+             %{
+               identifier: "MT-600",
+               waiting_reason: :unresponsive,
+               stale_for_seconds: stale_for_seconds
+             }
+           ] =
              snapshot.running
 
     assert stale_for_seconds > 24 * 60 * 60
 
     # A tracker-active issue already shown in the retry-backoff bucket must
     # not also double up as an idle row.
-    assert [%{identifier: "MT-601", state: "ci-wait", waiting_reason: :waiting_for_ci}] = snapshot.idle
+    assert [%{identifier: "MT-601", state: "ci-wait", waiting_reason: :waiting_for_ci}] =
+             snapshot.idle
   end
 
   test "orchestrator snapshot reads open decisions without calling the per-ticket store" do
@@ -324,7 +352,13 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
 
     :ok = SubscriptionStore.attach(identifier)
     :ok = SubscriptionStore.add_attention(identifier, "operator-decision")
-    assert {:ok, %{decision: decision}} = DecisionStore.request(%{"question" => "Which acceptance boundary applies?", "blocking" => true}, ticket: %{identifier: identifier})
+
+    assert {:ok, %{decision: decision}} =
+             DecisionStore.request(
+               %{"question" => "Which acceptance boundary applies?", "blocking" => true},
+               ticket: %{identifier: identifier}
+             )
+
     on_exit(fn -> DecisionStore.expire(decision.decision_id, "agent_not_running") end)
     [{store_pid, 1}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier)
 
@@ -366,5 +400,26 @@ defmodule Aiur.Orchestrator.Status.ProgressAndIdentityTest do
     assert_receive :decision_store_ready, 1_000
 
     assert {0, :unavailable} = RowFacts.open_decision_count("MT-TEST", store_name)
+  end
+
+  test "status decision counts are fetched in one store call for all rows" do
+    parent = self()
+
+    store =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:open_blocking_decision_ids_by_ticket, identifiers}} ->
+            send(parent, {:decision_count_batch, identifiers})
+            GenServer.reply(from, {:ok, %{"MT-ONE" => ["cmd-1", "cmd-2"], "MT-TWO" => []}})
+        end
+      end)
+
+    assert RowFacts.open_decision_counts(["MT-ONE", "MT-TWO", "MT-ONE"], store) == %{
+             "MT-ONE" => {2, :available},
+             "MT-TWO" => {0, :available}
+           }
+
+    assert_received {:decision_count_batch, ["MT-ONE", "MT-TWO"]}
+    Process.exit(store, :normal)
   end
 end
