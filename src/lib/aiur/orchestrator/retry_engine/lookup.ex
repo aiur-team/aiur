@@ -344,7 +344,8 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
       next_state =
         dispatch.(state, issue, attempt, metadata[:worker_host],
           prior_work: prior_work?,
-          rework_head_sha: metadata[:rework_head_sha]
+          rework_head_sha: metadata[:rework_head_sha],
+          stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true
         )
 
       {:noreply, ensure_active_retry_started(next_state, issue, attempt, metadata, opts)}
@@ -392,7 +393,8 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
         prior_work: metadata[:prior_work] == true,
         worker_host: metadata[:worker_host],
         workspace_path: metadata[:workspace_path],
-        rework_head_sha: metadata[:rework_head_sha]
+        rework_head_sha: metadata[:rework_head_sha],
+        stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true
       })
     end
   end

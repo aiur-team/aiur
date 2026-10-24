@@ -151,6 +151,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
                 # it sees at dispatch time rather than trusting stale metadata.
                 delay_type: metadata[:delay_type],
                 local_budget_hold: metadata[:local_budget_hold],
+                stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true,
                 retry_label?: failure_retry?(metadata)
               })
         }
@@ -217,6 +218,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
           handoff_fallback: Map.get(retry_entry, :handoff_fallback, false),
           terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false),
           rework_head_sha: Map.get(retry_entry, :rework_head_sha),
+          stalled_alert_outstanding: Map.get(retry_entry, :stalled_alert_outstanding, false),
           retry_label?: Map.get(retry_entry, :retry_label?, false)
         }
 
