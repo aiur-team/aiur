@@ -2,12 +2,11 @@ import { alignBoard, primeBoardPaint } from '../support/build-home-band-canvas.m
 import { installScrollPaint, flushScrollPaint } from '../support/build-home-scroll-paint.mjs'
 import { normalizeColumnCapture } from '../support/build-home-columns-motion.mjs'
 import { prepareTreeMotion, prepareTreeFrame } from '../support/build-home-tree-motion.mjs'
-import { prepareFeatureMotion } from '../support/build-home-feature-motion.mjs'
 import { prepareFilterCapture } from '../support/build-home-filter-parity.mjs'
-// One spec keeps the required mutations, sequence contracts, and sign-off gate collected together.
 import { openVisualRoute } from '../support/visual.mjs'
 import { test, expect } from '@playwright/test'
 import { openDesign, openProduct, selectProductDataset, guardNetwork, parityContextOptions, FIXTURE_META } from '../support/design-parity.mjs'
+
 // Per-action DOM traces dominate the frame sampler; failures retain numeric diffs and screenshots.
 test.use({ trace: 'off' })
 
@@ -169,7 +168,6 @@ for (const name of Object.keys(SEQUENCES)) for (const reduce of [false, true]) {
 }
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { pairedBrowser } from '../support/build-home-feature-parity-source.mjs'
 import { DESIGN_ROOT, loadAllowlist, expectDesignParity, openParityPair, PARITY_MATRIX, waitParityReady, compareParityPixels, applyAllowlist } from '../support/design-parity.mjs'
 
 const plants = [
@@ -300,11 +298,11 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
   for (const name of Object.keys(SEQUENCES).filter(n => !['inventory', 'grain.static'].includes(n))) test(name, async ({ browser }) => {
     test.setTimeout(120_000)
     const owner = ownerFor(name), reduce = selectedCell.reducedMotion === 'reduce'
-    const pair = await openParityPair(await pairedBrowser(browser), selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('feature.') || name.startsWith('columns.') || name.startsWith('snap.') || name.startsWith('tree.') || name === 'filter.dim' ? undefined : owner.anchor, productPending: owner.pending })
+    const pair = await openParityPair(browser, selectedCell, { ...await sequenceOptions(name, selectedCell), productAnchor: name.startsWith('columns.') || name.startsWith('snap.') || name.startsWith('tree.') || name === 'filter.dim' ? undefined : owner.anchor, productPending: owner.pending })
     try {
       const absent = owner.pending || (owner.anchor && !await pair.product.locator(owner.anchor).count() && !(name.startsWith('columns.') && await pair.product.locator('#bd-content.flow').count())) || (name === 'snap.scroll-curve' && !await pair.product.locator('.bd-cal [data-span="7"]').count())
       if (absent) missingPorts.add(`${name}: ${owner.owners.join(', ')}`)
-      if (name === 'filter.dim' || name.startsWith('feature.')) expect(absent, 'filter/feature port must be present').toBeFalsy()
+      if (name === 'filter.dim') expect(absent, 'filter port must be present').toBeFalsy()
       else test.fixme(absent, `awaiting ${owner.owners.join(', ')}`)
       if (name.startsWith('columns.') || name === 'snap.scroll-curve') {
         await Promise.all([pair.design, pair.product].map(async page => {
@@ -325,7 +323,8 @@ for (const selectedCell of interactionCells) test.describe(`product interactions
       }
       if (name.startsWith('snap.')) { await alignBoard(pair) }
       if (name.startsWith('tree.')) await prepareTreeMotion(pair)
-      if (name.startsWith('feature.')) await prepareFeatureMotion(pair); else if (name === 'filter.dim') { await prepareFilterCapture(pair); for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(el => el.getAnimations().filter(a => a.transitionProperty === 'background-size').forEach(a => a.finish())) }
+      // CSS ignores the fake clock; finish only the initial dot-grid resize before the click.
+      if (name === 'filter.dim') { await prepareFilterCapture(pair); for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(el => el.getAnimations().filter(a => a.transitionProperty === 'background-size').forEach(a => a.finish())) }
       const entries = scopedEntries(pair.allowlist, selectedCell), barrier = frameBarrier(pair, name, reduce)
       const [design, product] = await Promise.all([runOn(pair.design, name, { reduce, onFrame: barrier.frame }).finally(barrier.abort), runOn(pair.product, name, { reduce, onFrame: barrier.frame, ids: FIXTURE_META.ids }).finally(barrier.abort)])
       if (name.startsWith('columns.') && (!design.samples.length || !product.samples.length))

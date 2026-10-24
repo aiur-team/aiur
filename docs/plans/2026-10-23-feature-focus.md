@@ -16,7 +16,7 @@ server statistics and the existing layout, paging, and filter APIs (#3154).
 2. Add nullable `oldest` to `src/lib/aiur/build_order/index/catalogue.ex`,
    `src/lib/aiur_web/build/payload_schema.ex`, and the browser fixture mapper.
    Count only closed owning/also-affecting rows, independently of loaded pages.
-3. Add focused unit, browser interaction, paging, and design-parity tests;
+3. Add focused unit, browser interaction, paging, keyboard and narrow-screen behaviour tests;
    register their package scripts. Update the existing dashboard guide because
    the feature changes a visible surface.
 
@@ -26,8 +26,8 @@ server statistics and the existing layout, paging, and filter APIs (#3154).
   compact runs, loaded ghosts, date-less gaps, cancellation and unknown figures.
 - `src/browser/tests/build-home-features.browser.spec.mjs`: header, mode/clear,
   URL navigation, live diffs, focus dims, compact ghosts and history paging.
-- Feature header parity against frozen `design-source/assets/build.js` for known
-  figures; existing feature motion checks become active.
+- Keyboard mode/Clear focus ownership and 390px overflow checks; parity work
+  is excluded by the binding #6061 decision.
 - `src/test/aiur/build_order/feature_oldest_test.exs`: earliest owner/also closure,
   no closed members, whole-index result despite a paged window.
 - Run affected tests, compile, lint, format, structural and pre-PR gates. Prove

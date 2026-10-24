@@ -12,6 +12,7 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  'test:build-home-features': 130,
   // #3166 local run (2026-10-21): six control cases 36.6s; four parity cells 133.1s.
   // Include startup margin; refresh these provisional bounds from the first CI shard log.
   'test:browser-suite -- build-home-agent-control': 50,
@@ -112,8 +113,7 @@ export const recordedSeconds = {
   'test:tokens': 27,
   'test:shell-parity': 169,
   'test:build-home': 89,
-  // Existing full-suite baseline 508s + final feature subset 288.1s; rounded for suite overhead (2026-10-23).
-  'test:build-home-motion': 810,
+  'test:build-home-motion': 508,
   'test:build-home-offline': 12,
   'test:build-home-render': 190,
   'test:build-home-columns': 636,
@@ -146,10 +146,4 @@ export const recordedSeconds = {
   'test:build-home-filters-parity': 418,
   // Scoped desktop/reduced/mobile filter motion: local harness 49.3s (2026-10-18).
   'test:build-home-filters-motion': 50,
-  // Initial 12-case feature run: 78s + units 4s; retain the bound after the 15-case rerun.
-  // Canonical header matrix: 24 passing cases total 866.3s across a restart; round up.
-  'test:build-home-features': 82,
-  'test:browser-suite -- build-home-features-parity': 870,
-  // Canonical 18-scene matrix: 800.9s across full and scoped runs (2026-10-23).
-  'test:browser-suite -- build-home-feature-scenes-parity': 810,
 }
