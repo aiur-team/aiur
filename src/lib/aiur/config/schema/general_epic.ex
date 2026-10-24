@@ -25,7 +25,7 @@ defmodule Aiur.Config.Schema.GeneralEpic do
     # @config-detail build_order.general_epics.hue | integer | required | Colour hue, 0–359. |
     field(:hue, :integer)
     # @config-reference config-configuration-build-order-00 build_order.general_epics.icon
-    # @config-detail build_order.general_epics.icon | string | required | A Heroicons v2 outline name; legacy `bug`, `pen`, `server` and `docs` aliases retain their existing appearance. |
+    # @config-detail build_order.general_epics.icon | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
     field(:icon, :string)
   end
 

@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from validation_common import Report
+from heroicon_names import OUTLINE_NAMES
 
 ALIASES = {"bug": "bug-ant", "pen": "paint-brush", "server": "server-stack", "docs": "book-open"}
+VALID_NAMES = OUTLINE_NAMES | ALIASES.keys()
 DEFAULT_EPICS = [
     {"key": "bugs", "labels": ["bug"], "icon": "bug"},
     {"key": "design", "labels": ["design"], "icon": "pen"},

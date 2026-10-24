@@ -1,8 +1,9 @@
 defmodule AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard do
   @moduledoc false
   require Logger
-  alias Aiur.Heroicons
+  alias Aiur.{BuildOrder.FeatureDefaults, Heroicons}
 
+  @spec sanitize(map()) :: map()
   def sanitize(pack) do
     workstreams = Map.get(pack.metadata, "workstreams", [])
     projection = Map.get(pack.metadata, "label_projection", %{})
@@ -15,9 +16,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard do
 
     {workstreams, collisions} =
       Enum.map_reduce(List.wrap(workstreams), [], fn
-        %{"id" => id, "icon" => icon} = workstream, found when is_binary(id) and is_binary(icon) ->
+        %{"id" => id} = workstream, found when is_binary(id) ->
+          workstream = Map.merge(FeatureDefaults.get(id), workstream)
+          icon = Map.get(workstream, "icon")
           collision = Enum.find(general, &collides_on_member?(&1, id, icon, pack, projection))
-          if collision, do: {Map.put(workstream, "icon", Heroicons.generic_name()), [{id, collision.key} | found]}, else: {workstream, found}
+          if collision && is_binary(icon), do: {Map.put(workstream, "icon", Heroicons.generic_name()), [{id, collision.key} | found]}, else: {workstream, found}
 
         workstream, found ->
           {workstream, found}
@@ -31,7 +34,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard do
   end
 
   defp collides_on_member?(epic, id, icon, pack, projection) do
-    Heroicons.canonical_name(epic.icon) == Heroicons.canonical_name(icon) and
+    is_binary(icon) and Heroicons.canonical_name(epic.icon) == Heroicons.canonical_name(icon) and
       Enum.any?(pack.tickets, fn ticket ->
         ticket.lane == id and not MapSet.disjoint?(MapSet.new(epic.labels), projected_labels(ticket, id, projection))
       end)
