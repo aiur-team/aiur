@@ -8,10 +8,11 @@ The Units page is the hidden dashboard rollback route `/units`, retained for one
 
 Paused agents remain listed, but only pauses that reserve capacity count as
 occupied slots. A provider usage-limit pause releases its slot while it waits
-for a fallback or for the provider reset, and its row shows `Slot released`.
-When a resume is refused for capacity, `aiur resume` reports the slots in use,
-how many are active and how many paused entries hold, and the load-envelope
-limit when it is below max-agents.
+for a fallback or for the provider reset.
+
+Its row shows `Slot released`. When a resume is refused for capacity,
+`aiur resume` reports the slots in use, how many are active and how many paused
+entries hold, and the load-envelope limit when it is below max-agents.
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 

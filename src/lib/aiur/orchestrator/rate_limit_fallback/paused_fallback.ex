@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
   @moduledoc false
 
   alias Aiur.{CodingAgent, Issue, ModelAvailability}
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{RateLimitFallback, State}
 
   @wait_seconds 600
 
@@ -47,7 +47,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback.PausedFallback do
     end
   end
 
-  defp put_entry(state, issue_id, entry), do: Aiur.Orchestrator.RateLimitFallback.put_running_entry(state, issue_id, entry)
+  defp put_entry(state, issue_id, entry), do: RateLimitFallback.put_running_entry(state, issue_id, entry)
 
   defp fallback_target_usable?(backend, current_backend, issue, opts) do
     is_binary(backend) and backend in CodingAgent.known_backends() and backend != current_backend and
