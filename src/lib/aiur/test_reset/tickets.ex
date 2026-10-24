@@ -202,7 +202,10 @@ defmodule Aiur.TestReset.Tickets do
   def reset_labels_command_args(id) do
     reset_labels =
       Labels.state_labels("agent") ++
-        Labels.paused_labels("agent") ++ Labels.queued_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+        Labels.reason_modifier_labels("agent") ++
+        Labels.paused_labels("agent") ++
+        Labels.queued_labels("agent") ++
+        Labels.required_rate_limit_fallback_labels("agent")
 
     [
       ["issue", "edit", to_string(id), "--remove-label", Enum.join(reset_labels, ",")],
