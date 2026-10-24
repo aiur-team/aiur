@@ -28,6 +28,7 @@
     "Aiur.BuildOrder.GraphProjection",
     "Aiur.BuildOrder.GraphProjection.Snapshot",
     "Aiur.BuildOrder.History",
+    "Aiur.BuildOrder.History.Export",
     "Aiur.BuildOrder.History.Timing",
     "Aiur.BuildOrder.Index",
     "Aiur.BuildOrder.Metadata",

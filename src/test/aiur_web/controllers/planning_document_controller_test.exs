@@ -2,6 +2,7 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
   use Aiur.TestSupport
   import Plug.Conn
   import Plug.Test
+  alias Aiur.Config.SessionOptions
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.{FinancialDataAccess, Router}
 
@@ -82,7 +83,8 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
   end
 
   defp request(path, authenticated? \\ true) do
-    request = conn(:get, path) |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
+    session_options = Plug.Session.init(SessionOptions.runtime_options())
+    request = conn(:get, path) |> Plug.Session.call(session_options) |> fetch_session() |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
     request = if authenticated?, do: put_req_header(request, "authorization", "Basic " <> Base.encode64("operator:secret")), else: request
     Router.call(request, Router.init([]))
   end
