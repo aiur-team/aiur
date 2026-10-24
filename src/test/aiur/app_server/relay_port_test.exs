@@ -27,8 +27,19 @@ defmodule Aiur.AppServer.RelayPortTest do
 
     on_exit(fn ->
       if is_pid(relay) and Process.alive?(relay) do
-        :ok = Transport.acknowledge(relay)
-        Transport.close(relay)
+        _ =
+          try do
+            Transport.acknowledge(relay)
+          rescue
+            _ -> :ok
+          end
+
+        _ =
+          try do
+            Transport.close(relay)
+          rescue
+            _ -> :ok
+          end
       end
     end)
 
@@ -41,11 +52,7 @@ defmodule Aiur.AppServer.RelayPortTest do
     closer = Task.async(fn -> Transport.close(relay) end)
     result = Task.yield(closer, 1_000)
 
-    if is_nil(result) do
-      :ok = Transport.acknowledge(relay)
-      assert true = Task.await(closer, 2_000)
-    end
-
+    if is_nil(result), do: Task.shutdown(closer, :brutal_kill)
     assert result == {:ok, true}
   end
 
