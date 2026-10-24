@@ -3,6 +3,22 @@ defmodule Aiur.AgentRunnerTest do
 
   alias Aiur.AgentRunner
 
+  test "agent workers renew the same issue key that dispatch claimed" do
+    issue = %Aiur.Issue{id: "42", identifier: "42", state: "todo"}
+    parent = self()
+
+    assert catch_exit(
+             AgentRunner.run(issue, nil,
+               lease_watch_fun: fn ticket ->
+                 send(parent, {:lease_watch_ticket, ticket})
+                 :not_owned
+               end
+             )
+           ) == :shared_ticket_lease_not_owned
+
+    assert_receive {:lease_watch_ticket, ^issue}, 1_000
+  end
+
   # Regression: open_aiur_turn_streams posted the `__aiur_turn__:<id>`
   # marker SYNCHRONOUSLY in a for-loop, one POST per attached
   # opencode-serve. Each POST blocks until opencode's chat-completion
