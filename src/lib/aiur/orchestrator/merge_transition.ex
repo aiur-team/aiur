@@ -39,8 +39,8 @@ defmodule Aiur.Orchestrator.MergeTransition do
   end
 
   # Rate limits already have retry/wait behavior at the GitHub request
-  # boundary. A local hold beyond that wait's ceiling must be retried here so
-  # a terminal merge write is not dropped when the hold later clears.
+  # boundary. Local holds are waited out to reset_at by LocalHold for terminal
+  # writes, even when they exceed its ordinary wait ceiling.
   defp retryable_terminal_write_error?({:github, :local_hold, _detail}, true), do: true
 
   defp retryable_terminal_write_error?({:github, kind, _detail}, _retry_local_hold?)
@@ -59,7 +59,11 @@ defmodule Aiur.Orchestrator.MergeTransition do
       fn ->
         LocalHold.run(
           fn -> update_issue_state_fun.(to_string(identifier), "done") end,
-          LocalHold.caller_opts(Keyword.put(opts, :local_hold_max_wait_ms, 3_600_000))
+          LocalHold.caller_opts(
+            opts
+            |> Keyword.put(:local_hold_max_wait_ms, 3_600_000)
+            |> Keyword.put(:local_hold_wait_for_reset, true)
+          )
         )
       end,
       opts,
