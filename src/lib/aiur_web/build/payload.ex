@@ -6,6 +6,8 @@ defmodule AiurWeb.Build.Payload do
 
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
   features, order, counts (whole-index totals or nil), feature_progress (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation time; plan version and extras), sections (hist/now/plan/nq),
+  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), optional
+  icons catalog, epics, features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
@@ -88,14 +90,18 @@ defmodule AiurWeb.Build.Payload do
 
   @spec snapshot(map(), String.t(), non_neg_integer()) :: map()
   def snapshot(data, epoch, generation) do
-    data |> scrub() |> Map.drop(["index_generation", "v", "kind", "epoch", "generation"]) |> Map.merge(envelope("snapshot", epoch, generation))
+    data
+    |> scrub()
+    |> pack_icons()
+    |> Map.drop(["index_generation", "v", "kind", "epoch", "generation"])
+    |> Map.merge(envelope("snapshot", epoch, generation))
   end
 
   @spec diff(map(), String.t(), non_neg_integer(), map() | nil) :: map()
   def diff(changes, epoch, generation, history) do
     changes = scrub(changes)
     upsert = Enum.reject(changes["upsert"], &outside_window?(&1, history))
-    set = history_set(changes["set"], history)
+    set = changes["set"] |> history_set(history) |> pack_icons()
     envelope("diff", epoch, generation) |> Map.merge(%{"now" => changes["now"], "upsert" => upsert, "remove" => changes["remove"], "set" => set})
   end
 
@@ -145,4 +151,32 @@ defmodule AiurWeb.Build.Payload do
   defp history_set(%{"history_meta" => meta} = set, history) when is_map(meta) and is_map(history), do: set |> Map.delete("history_meta") |> Map.put("history", Map.merge(history, meta))
   defp history_set(%{"history_meta" => meta} = set, nil) when is_map(meta), do: Map.delete(set, "history_meta")
   defp history_set(set, _history), do: set
+
+  defp pack_icons(blocks) when is_map(blocks) do
+    {epics, epic_icons} = take_icons(blocks["epics"] || %{})
+    {features, feature_icons} = take_icons(blocks["features"] || %{})
+    icons = Map.merge(epic_icons, feature_icons)
+
+    blocks
+    |> maybe_put("epics", epics, Map.has_key?(blocks, "epics"))
+    |> maybe_put("features", features, Map.has_key?(blocks, "features"))
+    |> maybe_put("icons", icons, map_size(icons) > 0)
+  end
+
+  defp pack_icons(blocks), do: blocks
+
+  defp take_icons(items) when is_map(items) do
+    Enum.reduce(items, {%{}, %{}}, fn
+      {key, %{"svg" => svg, "icon" => icon} = item}, {items, icons} when is_binary(svg) and is_binary(icon) ->
+        {Map.put(items, key, Map.delete(item, "svg")), Map.put(icons, icon, svg)}
+
+      {key, item}, {items, icons} ->
+        {Map.put(items, key, item), icons}
+    end)
+  end
+
+  defp take_icons(items), do: {items, %{}}
+
+  defp maybe_put(map, key, value, true), do: Map.put(map, key, value)
+  defp maybe_put(map, _key, _value, false), do: map
 end

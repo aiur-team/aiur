@@ -5,7 +5,13 @@ defmodule AiurWeb.Build.PayloadValidator do
 
   @spec validate(map()) :: :ok | {:error, [{String.t(), atom()}]}
   def validate(message) do
-    optional = if message["kind"] == "ticket", do: ~w(row control chat by_you_at), else: []
+    optional =
+      case message["kind"] do
+        "ticket" -> ~w(row control chat by_you_at)
+        "snapshot" -> ["icons"]
+        _ -> []
+      end
+
     errors = check(message, {:object, Schema.message(message["kind"]), optional}, "") ++ references(message) ++ page_rules(message)
     if errors == [], do: :ok, else: {:error, errors}
   end

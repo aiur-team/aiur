@@ -20,6 +20,23 @@ defmodule AiurWeb.Build.PayloadTest do
     end
   end
 
+  test "snapshot stores each rendered icon once in the icon catalog" do
+    svg = "<svg><path/></svg>"
+
+    data =
+      fixture()
+      |> put_in(["epics", "bugs", "icon"], "home")
+      |> put_in(["epics", "bugs", "svg"], svg)
+      |> put_in(["features", "khala", "icon"], "home")
+      |> put_in(["features", "khala", "svg"], svg)
+
+    snapshot = Payload.snapshot(data, "E", 1)
+
+    assert snapshot["icons"] == %{"home" => svg}
+    refute Map.has_key?(snapshot["epics"]["bugs"], "svg")
+    refute Map.has_key?(snapshot["features"]["khala"], "svg")
+  end
+
   test "runtime reason states remain valid in the Now wire payload" do
     data = fixture()
     row = get_in(data, ["sections", "now", Access.at(0)])
