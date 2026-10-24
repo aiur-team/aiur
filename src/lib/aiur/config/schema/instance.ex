@@ -25,7 +25,8 @@ defmodule Aiur.Config.Schema.Instance.Ignore do
         }
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
-  def changeset(schema, attrs), do: cast(schema, attrs, [:tickets, :labels, :label_prefixes], empty_values: [nil])
+  def changeset(schema, attrs),
+    do: cast(schema, attrs, [:tickets, :labels, :label_prefixes], empty_values: [nil])
 end
 
 defmodule Aiur.Config.Schema.Instance do
@@ -37,17 +38,26 @@ defmodule Aiur.Config.Schema.Instance do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-configuration-00 instance.id
+    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+    field(:id, :string)
+
     # @config-reference config-configuration-00 instance.role
     # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
     field(:role, :string, default: "primary")
-    embeds_one(:ignore, Aiur.Config.Schema.Instance.Ignore, on_replace: :update, defaults_to_struct: true)
+
+    embeds_one(:ignore, Aiur.Config.Schema.Instance.Ignore,
+      on_replace: :update,
+      defaults_to_struct: true
+    )
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:role], empty_values: [])
+    |> cast(attrs, [:role, :id], empty_values: [])
     |> validate_inclusion(:role, ["primary", "secondary"])
+    |> validate_length(:id, min: 1, max: 200)
     |> cast_embed(:ignore, with: &Ignore.changeset/2)
   end
 end
