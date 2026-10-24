@@ -71,7 +71,6 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
         case explain_base_fix(run, jobs, started, opts) do
           {:ok, {:refresh, _}} = refresh -> refresh
           {:ok, nil} -> explain_from_workflow(run, jobs, started, observation, opts)
-          error -> error
         end
     end
   end
