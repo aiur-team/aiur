@@ -144,30 +144,43 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   defp route_classification(classification, failure, run, observations, prs, blame_opts, opts)
        when classification in [:known_non_pr, :pr_caused] do
     identities = failure_identities(failure)
-    {repeats, remaining} = split_repeated_failures(prs, observations, identities, opts)
+    route_failure_by_blame(classification, failure, run, observations, prs, blame_opts, identities, opts)
+  end
+
+  defp route_failure_by_blame(classification, failure, run, observations, prs, blame_opts, identities, opts) do
+    case blamed_pr(failure, prs, blame_opts) do
+      {:culprits, numbers} -> route_attributed_failure(numbers, prs -- numbers, observations, failure, run, identities, opts)
+      {:mixed, numbers} -> route_attributed_failure(numbers, prs -- numbers, observations, failure, run, identities, opts)
+      :none -> route_unattributed_failure(:innocent, classification, prs, observations, failure, run, identities, opts)
+      _ -> route_unattributed_failure(:unresolved, classification, prs, observations, failure, run, identities, opts)
+    end
+  end
+
+  defp route_attributed_failure(culprits, innocent, observations, failure, run, identities, opts) do
+    {repeats, first} = split_repeated_failures(culprits, observations, identities, opts)
+
+    with :ok <- hold_failed_heads(first, observations, opts),
+         :ok <- route_repeated_failures(repeats, observations, failure, run, opts),
+         :ok <- requeue_and_count(innocent, observations, run, "group contained a PR-caused failure", identities, opts),
+         :ok <- route_failed_prs(first, observations, failure, run, opts),
+         do: record_counted_failures(first, observations, identities, opts)
+  end
+
+  defp route_unattributed_failure(kind, classification, prs, observations, failure, run, identities, opts) do
+    {repeats, first} = split_repeated_failures(prs, observations, identities, opts)
 
     with :ok <- route_repeated_failures(repeats, observations, failure, run, opts) do
-      route_remaining_failures(classification, failure, run, observations, remaining, blame_opts, identities, opts)
+      route_first_unattributed(kind, classification, first, observations, failure, run, identities, opts)
     end
   end
 
-  defp route_remaining_failures(_classification, _failure, _run, _observations, [], _blame_opts, _identities, _opts), do: :ok
+  defp route_first_unattributed(:innocent, _classification, [], _observations, _failure, _run, _identities, _opts), do: :ok
 
-  defp route_remaining_failures(classification, failure, run, observations, prs, blame_opts, identities, opts) do
-    case blamed_pr(failure, prs, blame_opts) do
-      {:culprits, numbers} -> route_first_pr_caused(numbers, prs -- numbers, observations, failure, run, identities, opts)
-      {:mixed, numbers} -> route_first_pr_caused(numbers, prs -- numbers, observations, failure, run, identities, opts)
-      :none -> route_innocent(prs, observations, run, failure, "untouched failing test", identities, opts)
-      _ -> route_unresolved(classification, failure, run, observations, prs, identities, opts)
-    end
-  end
+  defp route_first_unattributed(:innocent, _classification, prs, observations, failure, run, identities, opts),
+    do: route_innocent(prs, observations, run, failure, "untouched failing test", identities, opts)
 
-  defp route_first_pr_caused(culprits, innocent, observations, failure, run, identities, opts) do
-    with :ok <- hold_failed_heads(culprits, observations, opts),
-         :ok <- requeue_and_count(innocent, observations, run, "group contained a PR-caused failure", identities, opts),
-         :ok <- route_failed_prs(culprits, observations, failure, run, opts),
-         do: record_counted_failures(culprits, observations, identities, opts)
-  end
+  defp route_first_unattributed(:unresolved, classification, prs, observations, failure, run, identities, opts),
+    do: route_unresolved(classification, failure, run, observations, prs, identities, opts)
 
   defp hold_failed_heads(numbers, observations, opts) do
     Enum.reduce_while(numbers, :ok, &hold_failed_head(&1, &2, observations, opts))
