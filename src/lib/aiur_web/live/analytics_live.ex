@@ -486,7 +486,7 @@ defmodule AiurWeb.AnalyticsLive do
     [
       Map.merge(
         %{label: "Peak concurrency", tone: nil},
-        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)}#{over_cap(model, present?)} / #{Presenter.cap_label(model)}")
+        ConcurrencyCoverage.tile(model, scope, "#{LiveConcurrency.label(model, present?, scope)} / #{Presenter.cap_label(model)}")
       ),
       Map.merge(%{label: "Mean utilization", tone: nil}, ConcurrencyCoverage.utilization(model, scope, "of #{model.cores} cores")),
       %{
@@ -511,11 +511,6 @@ defmodule AiurWeb.AnalyticsLive do
       }
     ]
   end
-
-  defp over_cap(%{live_occupied: n, cap: cap, cap_available?: true}, true) when is_integer(n) and is_integer(cap) and n > cap,
-    do: ", #{n - cap} over cap"
-
-  defp over_cap(_model, _present?), do: ""
 
   defp provider_spend_item(%{state: :available, amount: amount, source: source}),
     do: %{label: "Provider spend", val: amount, sub: source, tone: nil}
