@@ -37,6 +37,7 @@
       "AIUR_CI_CHANGED_PATHS_B64",
       "GITHUB_EVENT_NAME",
       "HOME",
+      "HOSTNAME",
       "XDG_CONFIG_HOME",
       "XDG_STATE_HOME"
     ],
@@ -62,6 +63,7 @@
   ],
   "env": [
     "HOME",
+    "HOSTNAME",
     "XDG_CONFIG_HOME",
     "XDG_STATE_HOME"
   ],
