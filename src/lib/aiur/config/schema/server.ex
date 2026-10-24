@@ -3,6 +3,8 @@ defmodule Aiur.Config.Schema.Server do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias AiurWeb.TrustedProxy
+
   @primary_key false
   embedded_schema do
     # 0 = bind a free OS-assigned loopback port. The dashboard must bind so
@@ -40,27 +42,5 @@ defmodule Aiur.Config.Schema.Server do
     end)
   end
 
-  defp valid_proxy_entry?("platform"), do: true
-
-  defp valid_proxy_entry?(entry) when is_binary(entry) do
-    case String.split(entry, "/", parts: 2) do
-      [address] ->
-        match?({:ok, _}, :inet.parse_address(String.to_charlist(address)))
-
-      [address, bits] ->
-        with {:ok, ip} <- :inet.parse_address(String.to_charlist(address)),
-             width <- address_width(ip),
-             {prefix, ""} <- Integer.parse(bits),
-             true <- prefix >= 0 and prefix <= width do
-          true
-        else
-          _ -> false
-        end
-    end
-  end
-
-  defp valid_proxy_entry?(_), do: false
-
-  defp address_width(ip) when tuple_size(ip) == 4, do: 32
-  defp address_width(_ip), do: 128
+  defp valid_proxy_entry?(entry), do: TrustedProxy.valid_entry?(entry)
 end
