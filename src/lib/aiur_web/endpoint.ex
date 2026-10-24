@@ -22,7 +22,6 @@ defmodule AiurWeb.Endpoint do
 
   @before_compile AiurWeb.EndpointCallGuard
 
-  plug(AiurWeb.TrustedProxy)
   LiveView.mount(@session_options)
   Streamdeck.mount(@session_options)
   Voice.mount(@session_options)

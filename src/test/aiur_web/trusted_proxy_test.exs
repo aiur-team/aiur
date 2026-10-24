@@ -8,7 +8,7 @@ defmodule AiurWeb.TrustedProxyTest do
       Plug.Test.conn(:get, "/")
       |> Plug.Conn.put_req_header("x-forwarded-proto", "https")
       |> Plug.Conn.put_req_header("x-forwarded-host", "dashboard.example.com")
-      |> Plug.Conn.put_req_header("x-forwarded-for", "198.51.100.9, 10.0.0.3")
+      |> Plug.Conn.put_req_header("x-forwarded-for", "127.0.0.1, 198.51.100.9")
       |> Map.put(:remote_ip, {10, 0, 0, 2})
 
     untrusted = TrustedProxy.apply_forwarded_headers(request, ["192.0.2.0/24"])

@@ -18,7 +18,7 @@ defmodule AiurWeb.PublicBindGuard do
 
   @impl Plug
   def call(conn, _opts) do
-    if AiurWeb.EndpointConfig.get(:public_bind, false) and not public_path?(conn) do
+    if AiurWeb.EndpointConfig.get(:public_bind, false) and not public_path?(conn) and not supervisor_auth_path?(conn) do
       AiurWeb.FinancialDataAccess.authenticate_request(conn, browser?: browser_request?(conn), required?: true)
     else
       conn
@@ -31,6 +31,9 @@ defmodule AiurWeb.PublicBindGuard do
   def public_path?(%Plug.Conn{method: method, path_info: ["readyz"]}) when method in ["GET", "HEAD"], do: true
   def public_path?(%Plug.Conn{method: "POST", path_info: ["api", "v1", "github", "webhook"]}), do: true
   def public_path?(%Plug.Conn{method: method, path_info: path}), do: MapSet.member?(@public_auth_paths, {method, path})
+
+  defp supervisor_auth_path?(%Plug.Conn{path_info: ["api", "v1", "decisions" | _]}), do: true
+  defp supervisor_auth_path?(_conn), do: false
 
   defp browser_request?(%Plug.Conn{path_info: ["api" | _]}), do: false
   defp browser_request?(_conn), do: true

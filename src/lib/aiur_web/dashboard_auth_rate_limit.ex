@@ -47,6 +47,9 @@ defmodule AiurWeb.DashboardAuthRateLimit do
   alias AiurWeb.DashboardAuthRateLimit.Store
   @window_ms 60_000
   @limit 20
+  # ponytail: once 10,000 distinct client IPs are active in one window, new
+  # clients get a conservative 429 until older entries expire; the cap bounds
+  # memory when a trusted proxy exposes attacker-controlled client addresses.
   @paths MapSet.new([
            {"GET", ["auth", "login"]},
            {"GET", ["auth", "google"]},
