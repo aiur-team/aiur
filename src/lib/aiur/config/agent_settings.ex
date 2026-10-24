@@ -18,7 +18,11 @@ defmodule Aiur.Config.AgentSettings do
   every route that names a model.
   """
   @spec agent_priority() :: [String.t()]
-  def agent_priority, do: Aiur.Config.settings!().agent.priority || []
+  def agent_priority, do: agent_priority(Aiur.Config.settings!())
+
+  @doc false
+  @spec agent_priority(Schema.t()) :: [String.t()]
+  def agent_priority(settings), do: settings.agent.priority || []
 
   @doc """
   Whether dispatch should route away from a route that is currently inside a
@@ -54,9 +58,12 @@ defmodule Aiur.Config.AgentSettings do
 
   @doc "The backends named by `agent_priority/0`, in order, with the model segment stripped and duplicates collapsed."
   @spec agent_priority_backends() :: [String.t()]
-  def agent_priority_backends do
-    agent_priority() |> Enum.map(&RoutingValue.routing_backend/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
-  end
+  def agent_priority_backends, do: agent_priority_backends(Aiur.Config.settings!())
+
+  @doc false
+  @spec agent_priority_backends(Schema.t()) :: [String.t()]
+  def agent_priority_backends(settings),
+    do: settings |> agent_priority() |> Enum.map(&RoutingValue.routing_backend/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
   @doc "Default backend: the backend of the first `agent.priority` route when present, else the deprecated `agent.kind` field."
   @spec agent_kind() :: String.t() | BackendCatalog.unavailable()
@@ -83,8 +90,12 @@ defmodule Aiur.Config.AgentSettings do
   backend (`openrouter:a` and `openrouter:b`) and they configure one transport.
   """
   @spec agent_backend_configs() :: map()
-  def agent_backend_configs do
-    Enum.reduce(agent_priority_backends(), Aiur.Config.settings!().agent.backend_configs || %{}, fn backend, acc ->
+  def agent_backend_configs, do: agent_backend_configs(Aiur.Config.settings!())
+
+  @doc false
+  @spec agent_backend_configs(Schema.t()) :: map()
+  def agent_backend_configs(settings) do
+    Enum.reduce(agent_priority_backends(settings), settings.agent.backend_configs || %{}, fn backend, acc ->
       Map.update(acc, backend, %{"enabled" => true}, &Map.put(&1, "enabled", true))
     end)
   end

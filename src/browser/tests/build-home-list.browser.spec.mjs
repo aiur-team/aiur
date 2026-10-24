@@ -61,6 +61,43 @@ test('B1 list registration renders sections and counts in design order', async (
   for (const sec of ['now', 'plan', 'nq', 'hist']) await expect(page.locator('.lr.' + sec)).toHaveCount(result.expected[sec])
   expect(await page.locator('.lr.hist').evaluateAll(els => els.map(el => el.dataset.id))).toEqual(result.hist)
 })
+test('List shows selection is keyboard accessible, persisted, and scoped to List view', async ({ page }) => {
+  const tabs = page.getByRole('tablist', { name: 'List shows' })
+  await expect(tabs).toBeVisible()
+  await expect(tabs.getByRole('tab', { name: 'Tickets' })).toHaveAttribute('aria-selected', 'true')
+  await tabs.getByRole('tab', { name: 'Tickets' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(tabs.getByRole('tab', { name: 'Features' })).toBeFocused()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/list=epics/)
+  await expect(page.locator('.bd-list-placeholder')).toHaveText('Epics view is not available yet')
+  await expect(tabs.getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await page.reload()
+  const restored = page.getByRole('tablist', { name: 'List shows' })
+  await expect(restored.getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await expect(page.getByRole('tablist', { name: 'List shows' })).toHaveCount(0)
+  await page.getByRole('tab', { name: 'List' }).click()
+  await expect(page.getByRole('tablist', { name: 'List shows' }).getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Tickets' }).click()
+  await expect(page).not.toHaveURL(/list=/)
+  await expect(page.locator('.bd-list')).toHaveCount(1)
+})
+test('List shows label stays beside options on a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const label = page.locator('.bd-list-label')
+  const options = page.locator('.bd-list-shows')
+  await expect(label).toBeVisible()
+  await expect(options).toBeVisible()
+  const layout = await page.evaluate(() => {
+    const labelRect = document.querySelector('.bd-list-label').getBoundingClientRect()
+    const optionsRect = document.querySelector('.bd-list-shows').getBoundingClientRect()
+    return { labelBottom: labelRect.bottom, optionsTop: optionsRect.top, viewportWidth: innerWidth, pageWidth: document.documentElement.scrollWidth }
+  })
+  expect(layout.labelBottom).toBeGreaterThan(layout.optionsTop)
+  expect(layout.pageWidth).toBeLessThanOrEqual(layout.viewportWidth)
+})
 test('B2 delegated Enter opens once across renders and remounts', async ({ page }) => {
   for (let mount = 0; mount < 2; mount++) {
     if (mount) {
