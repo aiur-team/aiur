@@ -36,6 +36,17 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:analytics]
     },
     %{
+      id: :instances,
+      label: "Instances",
+      icon: "▦",
+      description: "Shared instance liveness and lease-store details.",
+      path: "/instances",
+      type: :live,
+      owner: :instances,
+      availability: :available,
+      active_actions: [:instances]
+    },
+    %{
       id: :experiments,
       label: "Experiments",
       icon: "⚗",

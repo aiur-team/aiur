@@ -20,6 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
              :build,
              :commands,
              :analytics,
+             :instances,
              :streamdeck
            ]
 
@@ -62,6 +63,13 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert route.description == "Live run utilization."
   end
 
+  test "registers the shared instance roster route" do
+    assert {:ok, route} = RouteRegistry.route(:instances, %{})
+    assert route.path == "/instances"
+    assert route.owner == :instances
+    assert RouteRegistry.current_route(:instances) == route
+  end
+
   test "keeps direct Decision URLs inside the Commands route" do
     assert {:ok, %{path: "/commands"}} = RouteRegistry.route(:commands, %{})
     assert %{id: :commands} = RouteRegistry.current_route(:decisions)
@@ -85,7 +93,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
 
   test "Experiments capability inserts a separate owner after Analytics" do
     runtime = %{experiments_available?: true}
-    assert Enum.map(RouteRegistry.routes(runtime), & &1.id) == [:build, :commands, :analytics, :experiments, :streamdeck]
+    assert Enum.map(RouteRegistry.routes(runtime), & &1.id) == [:build, :commands, :analytics, :instances, :experiments, :streamdeck]
     assert RouteRegistry.route(:experiments, %{}) == :error
     assert RouteRegistry.route(:experiments, %{experiments_available?: false}) == :error
     assert {:ok, route} = RouteRegistry.route(:experiments, runtime)

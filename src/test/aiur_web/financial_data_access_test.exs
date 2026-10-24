@@ -205,6 +205,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
              "/build-orders/:root_number",
              "/build",
              "/analytics",
+             "/instances",
              "/post-deploy",
              "/streamdeck",
              "/experiments",

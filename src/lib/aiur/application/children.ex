@@ -8,6 +8,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore}
+  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
 
   @doc """
   Build the supervision children for the given run shape.
@@ -301,7 +302,7 @@ defmodule Aiur.Application.Children do
 
   defp coordination_children do
     if LeaseStore.configured?(),
-      do: [LeaseStore, Heartbeat],
+      do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
       else: []
   end
 

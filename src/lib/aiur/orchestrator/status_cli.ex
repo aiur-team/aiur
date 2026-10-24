@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.ControlCLI.CiWait
   alias Aiur.ExecutorAttention
   alias Aiur.GitHub.HoldPressure
+  alias Aiur.Instance.{LeaseStore, Roster}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.StatusObservation
@@ -106,6 +107,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
     footer = Sections.start(footer_sections(opts))
     header_outcomes = Sections.await(header, deadline_ms, bound_ms)
     IO.puts(Aiur.Instance.status_line())
+    print_instance_roster(opts)
     tracker_states = StatusTable.tracker_state_sets()
     # Count printed rows so hidden releases cannot inflate the headline (#1475).
     visible_statuses = Enum.filter(statuses, &StatusTable.visible_status_row?(&1, tracker_states))
@@ -129,6 +131,51 @@ defmodule Aiur.Orchestrator.StatusCLI do
     footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
     exit_marker(status_exit_code(header_outcomes ++ footer_outcomes))
   end
+
+  defp print_instance_roster(opts) do
+    if LeaseStore.configured?(), do: render_instance_roster(roster(opts))
+  rescue
+    _error -> IO.puts("INSTANCES unavailable (shared lease store could not be read)")
+  end
+
+  defp roster(opts) do
+    case Keyword.fetch(opts, :instance_roster) do
+      {:ok, result} -> result
+      :error -> configured_roster()
+    end
+  end
+
+  defp configured_roster do
+    case Application.get_env(:aiur, :instance_roster_fun) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> Roster.list()
+    end
+  end
+
+  defp render_instance_roster({:ok, %{observed_at: observed_at, age_ms: age_ms, instances: instances}}) do
+    IO.puts("INSTANCES observed_at=#{DateTime.to_iso8601(observed_at)} age_ms=#{age_ms}")
+
+    Enum.each(instances, fn row ->
+      IO.puts(
+        "  #{row.instance_id} #{state_label(row.state)} #{row.version} heartbeat_age_ms=#{row.age_ms} host=#{Map.get(row, :host_kind) || "unknown"} public_url=#{Map.get(row, :public_url) || "unavailable"} leader=#{leader_label(Map.get(row, :leader?))} agents=#{value(Map.get(row, :agent_count))}/#{value(Map.get(row, :agent_capacity))} held_tickets=#{held_tickets(Map.get(row, :held_tickets))}"
+      )
+
+      Enum.each(Map.get(row, :agents) || [], fn agent ->
+        IO.puts("    #{agent["identifier"] || "unknown ticket"} #{agent["state"] || "unknown"} observed_age_ms=#{row.age_ms}")
+      end)
+    end)
+  end
+
+  defp render_instance_roster({:error, _reason}), do: IO.puts("INSTANCES unavailable (shared lease store could not be read)")
+  defp render_instance_roster(_disabled), do: :ok
+  defp state_label(state), do: state |> to_string() |> String.upcase()
+  defp leader_label(true), do: "yes"
+  defp leader_label(false), do: "no"
+  defp leader_label(_), do: "unknown"
+  defp value(value) when is_integer(value), do: Integer.to_string(value)
+  defp value(_), do: "unknown"
+  defp held_tickets(tickets) when is_list(tickets), do: Enum.join(tickets, ",")
+  defp held_tickets(_), do: "unknown"
 
   defp header_sections do
     [

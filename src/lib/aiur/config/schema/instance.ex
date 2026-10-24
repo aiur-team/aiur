@@ -42,6 +42,10 @@ defmodule Aiur.Config.Schema.Instance do
     # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
     field(:id, :string)
 
+    # @config-reference config-configuration-00 instance.roster_stale_retention_ms
+    # @config-detail instance.roster_stale_retention_ms | integer | 300000 | How long expired instance heartbeats remain in the dashboard and status roster, in milliseconds. |
+    field(:roster_stale_retention_ms, :integer, default: 300_000)
+
     # @config-reference config-configuration-00 instance.role
     # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
     field(:role, :string, default: "primary")
@@ -55,7 +59,8 @@ defmodule Aiur.Config.Schema.Instance do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:role, :id], empty_values: [])
+    |> cast(attrs, [:role, :id, :roster_stale_retention_ms], empty_values: [])
+    |> validate_number(:roster_stale_retention_ms, greater_than_or_equal_to: 0)
     |> validate_inclusion(:role, ["primary", "secondary"])
     |> validate_length(:id, min: 1, max: 200)
     |> cast_embed(:ignore, with: &Ignore.changeset/2)

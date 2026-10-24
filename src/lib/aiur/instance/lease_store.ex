@@ -164,6 +164,14 @@ defmodule Aiur.Instance.LeaseStore do
   @spec list_live(keyword()) :: {:ok, [map()]} | {:error, term()}
   def list_live(opts \\ []), do: request(opts, :list_live)
 
+  @doc "Lists heartbeat records including recently expired instances for stale roster display."
+  @spec list_roster(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def list_roster(opts \\ []), do: request(opts, {:list_roster, Keyword.get(opts, :retention_ms, 300_000), Keyword.get(opts, :now)})
+
+  @doc "Returns unexpired ticket keys held by the current instance."
+  @spec owned_tickets(keyword()) :: {:ok, [String.t()]} | {:error, term()}
+  def owned_tickets(opts \\ []), do: request(opts, :owned_tickets)
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
@@ -288,6 +296,34 @@ defmodule Aiur.Instance.LeaseStore do
         """,
         [],
         &Postgres.decode_instances/1
+      )
+
+    reply_with_reconnect(result, state)
+  end
+
+  def handle_call({:list_roster, retention_ms, _now}, _from, state) do
+    result =
+      query(
+        state,
+        """
+        SELECT instance_id, build_version, metadata_json, heartbeat_at, expires_at
+        FROM aiur_instances WHERE expires_at + make_interval(secs => $1) > clock_timestamp()
+        ORDER BY instance_id
+        """,
+        [retention_ms / 1_000],
+        &Postgres.decode_instances/1
+      )
+
+    reply_with_reconnect(result, state)
+  end
+
+  def handle_call(:owned_tickets, _from, state) do
+    result =
+      query(
+        state,
+        "SELECT ticket_key FROM aiur_ticket_leases WHERE instance_id = $1 AND expires_at > clock_timestamp() ORDER BY ticket_key",
+        [instance_id(state)],
+        fn %{rows: rows} -> {:ok, Enum.map(rows, fn [key] -> key end)} end
       )
 
     reply_with_reconnect(result, state)
