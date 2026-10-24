@@ -34,6 +34,7 @@ tracker:
 # Merge policy defaults; currently validated and shown in status/capabilities.
 # For a second daemon on the same GitHub repository, set instance.role: secondary.
 instance:
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # primary | secondary; one primary per repository
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix

@@ -6,7 +6,7 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, RunnerQueue}
+  alias Aiur.LandingWatch.{Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, QueueAdmission, RunnerQueue}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -378,19 +378,8 @@ defmodule Aiur.LandingWatch do
     end
   end
 
-  defp revalidate_attribution_and_enqueue(observation, opts) do
-    revalidate = Keyword.get(opts, :revalidate_fun, &Observer.revalidate_approved_head/3)
-    attribution = Keyword.get(opts, :attribution_fun, &default_attribution(&1, opts))
-
-    with :ok <- LocalRead.run(revalidate, [observation.number, observation.head, opts], opts) do
-      case LocalRead.run(attribution, [observation], opts) do
-        {:ok, :clean} -> maybe_enqueue(observation, opts)
-        {:ok, {:ai_attribution, detail}} -> route_rework(observation, [%{name: "AI commit attribution", excerpt: detail}], opts)
-        {:error, reason} -> {:error, reason}
-        _ -> {:error, :invalid_attribution_result}
-      end
-    end
-  end
+  defp revalidate_attribution_and_enqueue(observation, opts),
+    do: QueueAdmission.run(observation, opts, &maybe_enqueue/2, &route_rework/3)
 
   defp maybe_enqueue(%{merge_queue_entry: entry}, _opts) when is_map(entry), do: :ok
   defp maybe_enqueue(%{auto_merge_request: request}, _opts) when is_map(request), do: :ok
@@ -487,8 +476,6 @@ defmodule Aiur.LandingWatch do
     emitter.("system.pr.landing.rework", central: true, needs_attention: false, message: message, reason: message)
     Keyword.get(opts, :after_rework, fn _issue, _paused? -> :ok end).(issue, Keyword.get(opts, :conflict_ticket_paused?, false))
   end
-
-  defp default_attribution(observation, opts), do: Attribution.pull_request_clean?(observation.number, opts)
 
   defp failure_text(%{name: name, excerpt: excerpt}) when is_binary(excerpt) and excerpt != "", do: "#{name}: #{excerpt}"
   defp failure_text(%{name: name}), do: to_string(name)
