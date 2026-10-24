@@ -4,6 +4,8 @@ defmodule Aiur.GitHub.BudgetBroker do
 
   require Logger
 
+  alias Aiur.GitHub.BrokerTimeout
+
   @telemetry_event [:aiur, :github, :budget_broker, :command]
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -95,6 +97,8 @@ defmodule Aiur.GitHub.BudgetBroker do
       summary = summarize_stats(state.stats)
       Logger.info("GitHub budget broker one-minute measurements=#{inspect(summary)}")
       :telemetry.execute([:aiur, :github, :budget_broker, :window], Map.delete(summary, :by_command_type), %{})
+
+      report_checkpoint_state(state.stats)
     end
 
     Process.send_after(self(), :report_stats, :timer.minutes(1))
@@ -107,6 +111,14 @@ defmodule Aiur.GitHub.BudgetBroker do
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp report_checkpoint_state(stats) do
+    if Enum.any?(stats, fn {_outcome, measurements} -> measurements[:sqlite_checkpoint_stale] end) do
+      BrokerTimeout.record_checkpoint_degraded()
+    else
+      BrokerTimeout.record_checkpoint_recovered()
+    end
+  end
 
   defp reply_line(line, state) do
     case Jason.decode(line) do
@@ -124,6 +136,9 @@ defmodule Aiur.GitHub.BudgetBroker do
             "sqlite_checkpoint_busy",
             "sqlite_wal_frames",
             "sqlite_checkpointed_frames",
+            "sqlite_wal_size_bytes",
+            "sqlite_checkpoint_age_ms",
+            "sqlite_checkpoint_stale",
             "command_type"
           ])
 
@@ -166,6 +181,9 @@ defmodule Aiur.GitHub.BudgetBroker do
           |> put_metric(:sqlite_checkpoint_busy, python_metrics["sqlite_checkpoint_busy"])
           |> put_metric(:sqlite_wal_frames, python_metrics["sqlite_wal_frames"])
           |> put_metric(:sqlite_checkpointed_frames, python_metrics["sqlite_checkpointed_frames"])
+          |> put_metric(:sqlite_wal_size_bytes, python_metrics["sqlite_wal_size_bytes"])
+          |> put_metric(:sqlite_checkpoint_age_ms, python_metrics["sqlite_checkpoint_age_ms"])
+          |> Map.put(:sqlite_checkpoint_stale, python_metrics["sqlite_checkpoint_stale"] == true)
           |> Map.put(:command_type, safe_command_type(python_metrics["command_type"]) |> prefer_command_type(command_type))
 
         observe_command(outcome, measurements)
@@ -216,6 +234,9 @@ defmodule Aiur.GitHub.BudgetBroker do
       |> put_metric(:sqlite_checkpoint_busy, python_metrics["sqlite_checkpoint_busy"])
       |> put_metric(:sqlite_wal_frames, python_metrics["sqlite_wal_frames"])
       |> put_metric(:sqlite_checkpointed_frames, python_metrics["sqlite_checkpointed_frames"])
+      |> put_metric(:sqlite_wal_size_bytes, python_metrics["sqlite_wal_size_bytes"])
+      |> put_metric(:sqlite_checkpoint_age_ms, python_metrics["sqlite_checkpoint_age_ms"])
+      |> Map.put(:sqlite_checkpoint_stale, python_metrics["sqlite_checkpoint_stale"] == true)
       |> Map.put(:command_type, safe_command_type(python_metrics["command_type"]) |> prefer_command_type(command_type))
 
     observe_command(:late_response, measurements)
@@ -284,6 +305,8 @@ defmodule Aiur.GitHub.BudgetBroker do
       sqlite_command_p99_ms: percentile(measurements, :sqlite_command_ms, 0.99),
       sqlite_commit_p99_ms: percentile(measurements, :sqlite_commit_ms, 0.99),
       sqlite_checkpoint_p99_ms: percentile(measurements, :sqlite_checkpoint_ms, 0.99),
+      sqlite_wal_size_bytes_max: maximum(measurements, :sqlite_wal_size_bytes),
+      sqlite_checkpoint_age_ms_max: maximum(measurements, :sqlite_checkpoint_age_ms),
       by_command_type: by_command_type
     }
   end
