@@ -3,7 +3,6 @@ defmodule Aiur.AgentRunner.SessionResume do
 
   require Logger
 
-  alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.SessionHandle
@@ -79,7 +78,7 @@ defmodule Aiur.AgentRunner.SessionResume do
     count = SessionHandle.record_resume_failure(identifier, thread_id, opts)
 
     if count >= @resume_port_closed_limit do
-      diagnostics = StreamDiagnostics.recent_text(Map.get(session, :port))
+      diagnostics = CodingAgent.stream_diagnostics(Map.get(session, :port))
 
       Logger.warning(
         "Resumed thread lost its transport at turn start #{count} times for #{identifier} thread_id=#{thread_id}; next attempt starts a fresh session stream_diagnostics=#{inspect(diagnostics)}"
