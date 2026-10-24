@@ -104,14 +104,10 @@ See [CLI and control commands](/reference/cli) for the complete operational surf
 
 ## Running two daemons against one repository
 
-Set the same `AIUR_LEASE_DATABASE_URL` on every daemon so they share ticket
-claims, heartbeats, and one repository leader lease. Keep `instance.role` at
-`primary` on instances eligible to lead; set `instance.role: secondary` on an
-instance that must never lead. The lease holder runs repository-wide landing,
-quarantine, merge-queue, main-branch and label-heal work, and another eligible
-instance takes over after the lease expires. Ticket dispatch and per-ticket CI
-handling remain available on every instance. `aiur status` and the dashboard
-show the current leader and lease age.
+Set the same `AIUR_LEASE_DATABASE_URL` on every daemon. Eligible instances
+(`instance.role: primary`) share ticket leases and elect one repository leader;
+`secondary` instances never lead. The leader runs repository services, with
+failover after expiry. Dashboard and `aiur status` show its ID and lease age.
 
 Use distinct `tracker.github.label_prefix` values to split dispatch between
 instances. The role is read at daemon start, so restart after changing it.

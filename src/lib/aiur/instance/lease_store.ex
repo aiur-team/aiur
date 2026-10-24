@@ -4,9 +4,8 @@ defmodule Aiur.Instance.LeaseStore do
 
   require Logger
 
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Instance.Identity
-  alias Aiur.Instance.LeaseStore.{Postgres, Renewal, TicketKey}
+  alias Aiur.Instance.LeaseStore.{Postgres, Renewal, RepositoryLease, TicketKey}
 
   @name __MODULE__
   @default_ttl_ms 30_000
@@ -165,66 +164,11 @@ defmodule Aiur.Instance.LeaseStore do
   @spec list_live(keyword()) :: {:ok, [map()]} | {:error, term()}
   def list_live(opts \\ []), do: request(opts, :list_live)
 
-  @doc "Atomically acquires the repository's global-service lease."
-  @spec claim_leader(String.t(), keyword()) :: :acquired | :held | :disabled | {:error, term()}
-  def claim_leader(repository, opts \\ []) do
-    with {:ok, repo} <- repository_key(repository) do
-      request(opts, {:claim_leader, repo, Keyword.get(opts, :ttl_ms, @default_ttl_ms)})
-    end
-  end
-
-  @doc "Renews the current instance's repository leader lease."
-  @spec renew_leader(String.t(), keyword()) :: :ok | {:error, term()}
-  def renew_leader(repository, opts \\ []) do
-    with {:ok, repo} <- repository_key(repository) do
-      request(opts, {:renew_leader, repo, Keyword.get(opts, :ttl_ms, @default_ttl_ms)})
-    end
-  end
-
-  @doc "Returns the live repository lease holder and its database timestamps."
-  @spec leader(String.t(), keyword()) :: map() | :unheld | :disabled | :unknown
-  def leader(repository, opts \\ []) do
-    case {configured?(), repository_key(repository)} do
-      {false, _} ->
-        :disabled
-
-      {true, {:ok, repo}} ->
-        case request(opts, {:leader, repo}) do
-          {:ok, nil} -> :unheld
-          {:ok, lease} -> lease
-          _ -> :unknown
-        end
-
-      {true, {:error, _reason}} ->
-        :unknown
-    end
-  rescue
-    _ -> :unknown
-  end
-
-  @doc "Fails closed unless this instance currently holds the repository lease."
-  @spec leader_owned?(String.t(), keyword()) :: boolean() | :disabled | :unknown
-  def leader_owned?(repository, opts \\ []) do
-    case leader(repository, opts) do
-      %{instance_id: holder} -> holder == current_instance_id(opts)
-      :unheld -> false
-      :disabled -> :disabled
-      :unknown -> :unknown
-    end
-  end
-
-  @doc false
-  @spec repository_key(String.t() | nil) :: {:ok, String.t()} | {:error, :invalid_repository}
-  def repository_key(repository \\ nil) do
-    repo = repository || GitHubConfig.repo()
-
-    case String.split(String.downcase(String.trim(to_string(repo))), "/") do
-      [owner, name] when owner != "" and name != "" -> {:ok, "#{owner}/#{name}"}
-      _ -> {:error, :invalid_repository}
-    end
-  rescue
-    _ -> {:error, :invalid_repository}
-  end
+  defdelegate claim_leader(repository, opts \\ []), to: RepositoryLease, as: :claim
+  defdelegate renew_leader(repository, opts \\ []), to: RepositoryLease, as: :renew
+  defdelegate leader(repository, opts \\ []), to: RepositoryLease
+  defdelegate leader_owned?(repository, opts \\ []), to: RepositoryLease
+  defdelegate repository_key(repository \\ nil), to: RepositoryLease
 
   @impl true
   def init(opts) do
@@ -355,61 +299,8 @@ defmodule Aiur.Instance.LeaseStore do
     reply_with_reconnect(result, state)
   end
 
-  def handle_call({:claim_leader, repo, ttl_ms}, _from, state) do
-    result =
-      query(
-        state,
-        """
-        INSERT INTO aiur_repository_leases (repository, instance_id, heartbeat_at, expires_at)
-        VALUES ($1, $2, clock_timestamp(), clock_timestamp() + make_interval(secs => $3))
-        ON CONFLICT (repository) DO UPDATE
-        SET instance_id = EXCLUDED.instance_id, heartbeat_at = EXCLUDED.heartbeat_at, expires_at = EXCLUDED.expires_at
-        WHERE aiur_repository_leases.expires_at <= clock_timestamp()
-           OR aiur_repository_leases.instance_id = EXCLUDED.instance_id
-        RETURNING repository
-        """,
-        [repo, instance_id(state), ttl_ms / 1_000],
-        fn %{num_rows: rows} -> if(rows == 1, do: :acquired, else: :held) end
-      )
-
-    reply_with_reconnect(result, state)
-  end
-
-  def handle_call({:renew_leader, repo, ttl_ms}, _from, state) do
-    result =
-      query(
-        state,
-        """
-        UPDATE aiur_repository_leases SET heartbeat_at = clock_timestamp(),
-          expires_at = clock_timestamp() + make_interval(secs => $3)
-        WHERE repository = $1 AND instance_id = $2 AND expires_at > clock_timestamp()
-        RETURNING repository
-        """,
-        [repo, instance_id(state), ttl_ms / 1_000],
-        fn %{num_rows: rows} -> if(rows == 1, do: :ok, else: {:error, :lease_lost}) end
-      )
-
-    reply_with_reconnect(result, state)
-  end
-
-  def handle_call({:leader, repo}, _from, state) do
-    result =
-      query(
-        state,
-        """
-        SELECT instance_id, heartbeat_at, expires_at FROM aiur_repository_leases
-        WHERE repository = $1 AND expires_at > clock_timestamp()
-        """,
-        [repo],
-        fn
-          %{rows: [[id, heartbeat_at, expires_at]]} ->
-            {:ok, %{instance_id: id, heartbeat_at: heartbeat_at, expires_at: expires_at}}
-
-          %{rows: []} ->
-            {:ok, nil}
-        end
-      )
-
+  def handle_call({:repository_lease, action, repo, ttl_ms, instance_id}, _from, state) do
+    result = RepositoryLease.handle(state, action, repo, ttl_ms, instance_id)
     reply_with_reconnect(result, state)
   end
 
