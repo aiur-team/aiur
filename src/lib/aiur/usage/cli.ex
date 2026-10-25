@@ -21,15 +21,6 @@ defmodule Aiur.Usage.CLI do
     end)
   end
 
-  @doc false
-  @spec legacy_ticket_usage(String.t(), boolean()) :: :ok
-  def legacy_ticket_usage(identifier, json) do
-    guarded("ticket-usage", fn ->
-      result = Aiur.TicketUsageCLI.run(identifier, json: json)
-      exit_marker(result)
-    end)
-  end
-
   @spec run(binary() | nil, boolean(), keyword()) :: 0 | 64
   def run(provider \\ nil, json \\ false, opts \\ []) do
     case payload(provider, opts) do

@@ -148,7 +148,7 @@ test("usage compatibility commands emit deprecations and dispatch through the sh
     { argv: ["accounts", "claude", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("Y2xhdWRl"))' },
     { argv: ["github-cost"], replacement: "aiur usage github", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Z2l0aHVi"), false)' },
     { argv: ["github-usage", "--json"], replacement: "aiur usage github", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Z2l0aHVi"), true)' },
-    { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.Usage.CLI.legacy_ticket_usage(Base.decode64!("NDI="), true)' },
+    { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.TicketUsageCLI.rpc(Base.decode64!("NDI="), json: true)' },
   ];
 
   for (const item of cases) {

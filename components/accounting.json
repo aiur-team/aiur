@@ -7,7 +7,6 @@
     "src/lib/aiur/accounting/**",
     "src/lib/aiur/accounts.ex",
     "src/lib/aiur/accounts/**",
-    "src/lib/aiur/ticket_usage_cli.ex",
     "src/lib/aiur/agent/**",
     "src/lib/aiur/provider_account_generation.ex",
     "src/lib/aiur/provider_account_generation/**",

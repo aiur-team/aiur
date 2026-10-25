@@ -60,7 +60,7 @@ defmodule AiurEngineCommandsTest do
       {"accounts", "aiur usage", "claude --json", "Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!(\"Y2xhdWRl\"))"},
       {"github-cost", "aiur usage github", "", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), false)"},
       {"github-usage", "aiur usage github", "--json", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), true)"},
-      {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.Usage.CLI.legacy_ticket_usage(Base.decode64!(\"NTY5Mg==\"), true)"}
+      {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.TicketUsageCLI.rpc(Base.decode64!(\"NTY5Mg==\"), json: true)"}
     ]
 
     for {command, replacement, args, expression} <- aliases do

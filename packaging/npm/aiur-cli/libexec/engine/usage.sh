@@ -77,7 +77,7 @@ usage_alias() {
     [[ "$positional" =~ ^[1-9][0-9]*$ ]] || die "ticket-usage requires a numeric ticket id"
     local encoded_ticket expression
     encoded_ticket="$(encode_control_value "$positional")"
-    expression="Aiur.Usage.CLI.legacy_ticket_usage(Base.decode64!(\"$encoded_ticket\"), $json)"
+    expression="Aiur.TicketUsageCLI.rpc(Base.decode64!(\"$encoded_ticket\"), json: $json)"
     run_control_rpc "$expression"
     return
   fi
