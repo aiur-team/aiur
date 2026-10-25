@@ -99,17 +99,16 @@ defmodule Aiur.AgentGitHubGuard.HoldSleepTest do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
 
-    assert {"", 0} =
-             System.cmd("python3", [broker, "hold", "--scope", "token", "--delay-ms", delay_ms, "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+    recorded_wait =
+      run_held_guard(context, ["pr", "view", "1670"],
+        AIUR_GITHUB_BUDGET_ROOT: budget_root,
+        AIUR_GITHUB_BUDGET_KEY: key,
+        AIUR_GITHUB_BUDGET_BROKER: broker,
+        HOLD_PROXY_RESPONSE: "wait 0",
+        HOLD_PROXY_RECORDED_WAIT: "wait #{delay_ms}"
+      )
 
-    assert String.starts_with?(
-             run_held_guard(context, ["pr", "view", "1670"],
-               AIUR_GITHUB_BUDGET_ROOT: budget_root,
-               AIUR_GITHUB_BUDGET_KEY: key,
-               AIUR_GITHUB_BUDGET_BROKER: broker
-             ),
-             "wait "
-           )
+    assert recorded_wait == "wait 0"
 
     refute File.exists?(context.calls)
   end
@@ -126,13 +125,22 @@ defmodule Aiur.AgentGitHubGuard.HoldSleepTest do
 
     File.write!(proxy, """
     import os, subprocess, sys
-    result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *sys.argv[1:]], capture_output=True, text=True)
-    sys.stderr.write(result.stderr)
-    if sys.argv[1] == "acquire" and result.stdout.startswith("wait"):
+    if sys.argv[1] == "acquire":
+        response = os.environ.get("HOLD_PROXY_RESPONSE")
+        if response is None:
+            result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *sys.argv[1:]], capture_output=True, text=True)
+            sys.stderr.write(result.stderr)
+            response = result.stdout
+            if not response.startswith("wait"):
+                sys.stdout.write(response)
+                sys.exit(result.returncode)
+            response = os.environ.get("HOLD_PROXY_RECORDED_WAIT", response)
         with open(os.environ["HOLD_PROXY_HOLDS"], "a") as holds:
-            holds.write(result.stdout)
+            holds.write(response)
         print("wait 0")
         sys.exit(0)
+    result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *sys.argv[1:]], capture_output=True, text=True)
+    sys.stderr.write(result.stderr)
     sys.stdout.write(result.stdout)
     sys.exit(result.returncode)
     """)
