@@ -108,8 +108,10 @@ Set the same `AIUR_LEASE_DATABASE_URL` on every daemon. Eligible instances
 (`instance.role: primary`) share ticket leases and elect one repository leader
 on equal terms; `secondary` instances never lead. The leader runs repository
 services, with failover after expiry. Dashboard and `aiur status` show its ID
-and lease age. Each instance continues to heal labels for tickets in its own
-tracker view, so split label prefixes do not depend on the repository leader.
+and lease age.
+
+Each instance continues to heal labels for tickets in its own tracker view, so
+split label prefixes do not depend on the repository leader.
 
 Use distinct `tracker.github.label_prefix` values to split dispatch between
 instances. The role is read at daemon start, so restart after changing it.

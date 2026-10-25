@@ -9,7 +9,7 @@ defmodule Aiur.Instance.RepositoryLeaderTest do
     unknown = RepositoryLeader.status(now, repository: "owner/repo", leader_fun: fn _ -> :unknown end)
     none = RepositoryLeader.status(now, repository: "owner/repo", leader_fun: fn _ -> :unheld end)
 
-    assert unknown == %{leader: "unknown", lease_age: "unknown", observed_at: now}
-    assert none == %{leader: "none", lease_age: "unknown", observed_at: now}
+    assert unknown == %{leader: "unknown", lease_age: "unknown", observed_at: now, freshness: :fresh}
+    assert none == %{leader: "none", lease_age: "unknown", observed_at: now, freshness: :fresh}
   end
 end

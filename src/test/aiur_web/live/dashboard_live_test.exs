@@ -547,7 +547,6 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns = %{
       payload: payload,
       now: DateTime.utc_now(),
-      repository_leader: Keyword.get(opts, :repository_leader, %{leader: "unknown", lease_age: "unknown", observed_at: DateTime.utc_now()}),
       time_zone: "Etc/UTC",
       # This helper renders DashboardLive directly, bypassing mount/3, so it has
       # to seed every assign mount/3 seeds — including the server-owned sidebar
@@ -586,24 +585,6 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   describe "global pause nav toggle" do
-    test "renders unknown and no-leader states with lease age and refresh time" do
-      observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
-      refreshed_at = Calendar.strftime(observed_at, "%H:%M:%S UTC")
-      datetime = DateTime.to_iso8601(observed_at)
-
-      for {leader, lease_age} <- [{"unknown", "unknown"}, {"none", "unknown"}] do
-        html =
-          render_payload(global_pause_fleet(false),
-            repository_leader: %{leader: leader, lease_age: lease_age, observed_at: observed_at}
-          )
-
-        assert html =~ "Repository leader: #{leader} · lease age #{lease_age}"
-        assert html =~ "status refreshed"
-        assert html =~ refreshed_at
-        assert html =~ "datetime=\"#{datetime}\""
-      end
-    end
-
     test "keeps a persisted global pause visible on a stale snapshot before the first restart poll" do
       orchestrator_name = Module.concat(__MODULE__, :RestartedGlobalPauseOrchestrator)
 

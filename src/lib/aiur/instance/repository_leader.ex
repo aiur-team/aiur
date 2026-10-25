@@ -9,26 +9,26 @@ defmodule Aiur.Instance.RepositoryLeader do
   @ttl_ms 30_000
   @renew_interval_ms 10_000
 
-  @spec status(DateTime.t(), keyword()) :: %{leader: String.t(), lease_age: String.t(), observed_at: DateTime.t()}
+  @spec status(DateTime.t(), keyword()) :: %{leader: String.t(), lease_age: String.t(), observed_at: DateTime.t(), freshness: atom()}
   def status(now \\ DateTime.utc_now(), opts \\ []) do
     leader_fun = Keyword.get(opts, :leader_fun, &LeaseStore.leader/1)
     repository = Keyword.get_lazy(opts, :repository, &Aiur.GitHub.Config.repo/0)
 
     case leader_fun.(repository) do
       %{instance_id: id, heartbeat_at: %DateTime{} = heartbeat_at} ->
-        %{leader: id, lease_age: "#{max(DateTime.diff(now, heartbeat_at, :second), 0)}s", observed_at: now}
+        %{leader: id, lease_age: "#{max(DateTime.diff(now, heartbeat_at, :second), 0)}s", observed_at: now, freshness: :fresh}
 
       :unheld ->
-        %{leader: "none", lease_age: "unknown", observed_at: now}
+        %{leader: "none", lease_age: "unknown", observed_at: now, freshness: :fresh}
 
       :disabled ->
-        %{leader: "unconfigured", lease_age: "unknown", observed_at: now}
+        %{leader: "unconfigured", lease_age: "unknown", observed_at: now, freshness: :fresh}
 
       _ ->
-        %{leader: "unknown", lease_age: "unknown", observed_at: now}
+        %{leader: "unknown", lease_age: "unknown", observed_at: now, freshness: :fresh}
     end
   rescue
-    _ -> %{leader: "unknown", lease_age: "unknown", observed_at: now}
+    _ -> %{leader: "unknown", lease_age: "unknown", observed_at: now, freshness: :fresh}
   end
 
   @spec status_text(map()) :: String.t()
