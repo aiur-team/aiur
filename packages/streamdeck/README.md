@@ -104,8 +104,9 @@ in time.
 
 Install the downloaded sidecar and unit, then create the required private
 environment file. The entry point reads `STREAMDECK_BRIGHTNESS`,
-`AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and
-`AIUR_DASHBOARD_PASSWORD` from `~/.config/aiur/streamdeck.env`.
+`AIUR_PHOENIX_URL`, and `AIUR_CLIENT_TOKEN` from
+`~/.config/aiur/streamdeck.env`. The token is preferred; dashboard
+username/password remain supported for loopback migration.
 
 ```sh
 install -d -m755 ~/.local/share/aiur
@@ -148,8 +149,7 @@ Set the environment file to mode `600` and use the supported settings:
 ```dotenv
 STREAMDECK_BRIGHTNESS=80
 AIUR_PHOENIX_URL=http://127.0.0.1:4000
-AIUR_DASHBOARD_USERNAME=operator
-AIUR_DASHBOARD_PASSWORD=replace-me
+AIUR_CLIENT_TOKEN=replace-with-token-from-aiur-token-create
 ```
 
 Keep the EnvironmentFile private and do not commit a populated copy. The

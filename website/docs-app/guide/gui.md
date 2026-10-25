@@ -192,7 +192,7 @@ Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, t
 
 Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` to be configured. Those credentials remain the authentication path for machine clients.
 
-After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. The API and Stream Deck token endpoint continue to use Basic Auth.
+After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. Machine API clients can use individually revocable bearer tokens created with `aiur token create`; browser routes continue to use sign-in sessions.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 

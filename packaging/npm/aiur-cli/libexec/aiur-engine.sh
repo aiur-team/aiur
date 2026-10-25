@@ -75,6 +75,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur --instance <name|all> <command>  run a supported control command against one or every remote instance
        aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]  explicit launch form
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
+       aiur token create <name> [--scope read|write] | list | revoke <name>  manage machine credentials
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
        aiur accounts [<harness>] [--json]  list registered accounts
        aiur logout <harness> <name> [--purge]  remove a backend account
@@ -227,6 +228,10 @@ aiur_engine_main() {
       ;;
     login)
       run_account_login "$@"
+      ;;
+    token)
+      shift
+      run_local_cli token "$@"
       ;;
     accounts)
       shift

@@ -52,6 +52,28 @@ defmodule AiurWeb.RouterAuthTest do
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
+  test "client-token pipelines preserve optional loopback dashboard authentication" do
+    Application.put_env(:aiur, AiurWeb.Endpoint, dashboard_auth_required: false)
+
+    path = Path.join(System.tmp_dir!(), "aiur-loopback-token-#{System.unique_integer([:positive])}.json")
+    previous = Application.get_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+    assert {:ok, token} = Aiur.ClientTokens.create("loopback-client", "read")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    conn =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> Router.call(Router.init([]))
+
+    assert conn.status == 200
+  end
+
   test "event-feed reads use the dashboard authentication pipeline" do
     unauthorized = Router.call(dashboard_conn(:get, "/api/v1/agent-1/events"), Router.init([]))
     assert unauthorized.status == 401
@@ -63,6 +85,77 @@ defmodule AiurWeb.RouterAuthTest do
       |> Router.call(Router.init([]))
 
     assert authorized.status == 200
+  end
+
+  test "read client tokens authorize reads and cannot call machine write routes" do
+    path = Path.join(System.tmp_dir!(), "aiur-router-token-#{System.unique_integer([:positive])}.json")
+    previous = Application.get_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+    assert {:ok, token} = Aiur.ClientTokens.create("read-only", "read")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    read =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> Router.call(Router.init([]))
+
+    assert read.status == 200
+    assert read.assigns.token_name == "read-only"
+    assert read.assigns.token_scope == "read"
+
+    write =
+      :post
+      |> dashboard_conn("/api/v1/pane/hide", nil)
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> Router.call(Router.init([]))
+
+    assert write.status == 403
+
+    assert :ok = Aiur.ClientTokens.revoke("read-only")
+
+    revoked =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> Router.call(Router.init([]))
+
+    assert revoked.status == 401
+  end
+
+  test "public API requests reject Basic Auth but accept a client token" do
+    Phoenix.Config.put(AiurWeb.Endpoint, :public_bind, true)
+    previous_public_bind = Keyword.get(Application.get_env(:aiur, AiurWeb.Endpoint, []), :public_bind)
+    path = Path.join(System.tmp_dir!(), "aiur-public-token-#{System.unique_integer([:positive])}.json")
+    previous = Application.get_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+    assert {:ok, token} = Aiur.ClientTokens.create("public-client", "read")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
+      Phoenix.Config.put(AiurWeb.Endpoint, :public_bind, previous_public_bind)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    basic =
+      :get
+      |> dashboard_conn("/api/v1/state")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> Router.call(Router.init([]))
+
+    assert basic.status == 401
+
+    bearer =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> Router.call(Router.init([]))
+
+    assert bearer.status == 200
   end
 
   test "event-feed writes return the standard method-not-allowed response" do

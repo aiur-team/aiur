@@ -96,6 +96,22 @@ defmodule AiurWeb.PublicBindAuthTest do
       assert Plug.Conn.get_resp_header(unknown, "location") == ["/auth/login"]
     end
 
+    basic_api =
+      Plug.Test.conn(:get, "/api/v1/state")
+      |> Plug.Test.init_test_session(%{})
+      |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
+
+    assert basic_api.status == 401
+
+    basic_page =
+      Plug.Test.conn(:get, "/")
+      |> Plug.Test.init_test_session(%{})
+      |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
+
+    assert basic_page.status == 401
+
     for route <- Phoenix.Router.routes(AiurWeb.Router) do
       path = Regex.replace(~r/[:*][^\/]+/, route.path, "fixture")
       method = "GET"

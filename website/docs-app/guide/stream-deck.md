@@ -100,11 +100,14 @@ The service applies `STREAMDECK_BRIGHTNESS`, reconnects after device hotplug, su
 | Setting | Where |
 | --- | --- |
 | `AIUR_PHOENIX_URL` | `~/.config/aiur/streamdeck.env` |
+| `AIUR_CLIENT_TOKEN` | `~/.config/aiur/streamdeck.env`; optional engine environment for pane control |
 | `AIUR_DASHBOARD_USERNAME` | `~/.config/aiur/streamdeck.env` |
 | `AIUR_DASHBOARD_PASSWORD` | `~/.config/aiur/streamdeck.env` |
 | `STREAMDECK_BRIGHTNESS` | Sidecar environment |
 
-The password mints the channel token and never enters the WebSocket URL.
+The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
+dashboard credentials to mint a short-lived channel token. Neither credential
+enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
 
 The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
 
