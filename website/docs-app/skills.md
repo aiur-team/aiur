@@ -63,9 +63,9 @@ runner.
 The `aiurdev --test` / `--test3` guard prevents destructive Aiur
 sandbox resets from issue workspaces, not ordinary repository tests.
 
-## Executor skills
-
 For a home-page epic, issue workers use `aiur_set_epic` or `aiur_feature`; Executors use `aiur epic set` or `aiur feature add`. Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
+
+## Executor skills
 
 These stay with the Executor and are not copied into ticket workspaces.
 

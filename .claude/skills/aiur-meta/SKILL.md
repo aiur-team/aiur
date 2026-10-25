@@ -335,7 +335,7 @@ workflow); deliberately parked findings carry `needs-triage` or `human:todo`
 with the reason in the body. The meta epic is an explicitly named container and
 remains undispatched.
 
-**Give every new ticket a home-page epic.** After issue creation returns its number, run `aiur epic list` for the configured general keys, then `aiur epic set <epic> <ids…>` once per epic (up to 200 ids). Defaults are `bugs`, `design`, `infra`, `docs`; repositories can change them. An unknown key is refused with the list of valid keys; read it rather than guess. For feature members, use `aiur feature add <slug> <ids…>` instead. If unsure, set none: the ticket shows as Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. Epic assignment is local Aiur state; if it fails, report the failure and continue filing. Meta findings usually fit `infra` or `bugs`.
+**Give every new ticket a home-page epic.** Use `aiur epic set <epic> <ids…>` (keys from `aiur epic list`) or `aiur feature add <slug> <ids…>` for feature members; meta findings usually fit `infra` or `bugs`; never use epic labels. Follow the [full category and fallback rule](../aiur-run/references/executor.md) for label matching, Unsorted, batching and failures.
 
 Include the evidence that would let someone else confirm it without repeating the
 investigation: the command, its output, file:line, the screenshot.
