@@ -139,6 +139,20 @@ defmodule Aiur.Commands do
   @spec list_decisions() :: [Aiur.Decision.t()]
   defdelegate list_decisions(), to: Aiur.DecisionStore, as: :list
 
+  @spec list_decisions(GenServer.server()) :: [Aiur.Decision.t()]
+  defdelegate list_decisions(server), to: Aiur.DecisionStore, as: :list
+
+  @doc false
+  @spec list_decisions(GenServer.server(), timeout()) :: [Aiur.Decision.t()]
+  defdelegate list_decisions(server, timeout), to: Aiur.DecisionStore, as: :list
+
+  @spec consume_pending_for_session(String.t(), String.t(), [String.t()], GenServer.server()) :: :ok
+  defdelegate consume_pending_for_session(ticket_identifier, session_id, action_ids, server), to: Aiur.DecisionStore
+
+  @doc false
+  @spec consume_pending_for_session_async(String.t(), String.t(), [String.t()], GenServer.server()) :: :ok
+  defdelegate consume_pending_for_session_async(ticket_identifier, session_id, action_ids, server), to: Aiur.DecisionStore
+
   @spec metrics_snapshot(String.t()) :: {:ok, map()} | {:error, :not_found}
   defdelegate metrics_snapshot(decision_id), to: Aiur.DecisionMetrics, as: :snapshot
 
