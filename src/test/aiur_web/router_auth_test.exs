@@ -150,7 +150,11 @@ defmodule AiurWeb.RouterAuthTest do
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
-      Phoenix.Config.put(AiurWeb.Endpoint, :public_bind, previous_public_bind)
+
+      if Process.whereis(AiurWeb.Endpoint) do
+        Phoenix.Config.put(AiurWeb.Endpoint, :public_bind, previous_public_bind)
+      end
+
       Aiur.TestCleanup.rm_rf!(path)
     end)
 
