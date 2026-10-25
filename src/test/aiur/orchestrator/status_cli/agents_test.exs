@@ -7,6 +7,7 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
 
   alias Aiur.DecisionStore
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.Issue
 
   alias Aiur.Orchestrator.ControlCLI.TestFixture
 
@@ -19,6 +20,20 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
   alias Aiur.Orchestrator.StatusCLI, as: AgentControlCLI
 
   describe "agents/0" do
+    test "prints persisted runtime reason labels exactly", %{orchestrator: pid} do
+      agent =
+        "issue-ci"
+        |> running_entry("repo#ci", :paused)
+        |> Map.put(:issue, %Issue{id: "issue-ci", identifier: "repo#ci", state: "ci-wait", labels: ["agent:ci-wait", "agent:ci-red"]})
+
+      :sys.replace_state(pid, fn state -> %{state | running: %{"issue-ci" => agent}} end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ "repo#ci"
+      assert output =~ "agent:ci-wait,agent:ci-red"
+    end
+
     test "prints empty table when no agents are running" do
       output = capture_io(fn -> AgentControlCLI.agents() end)
 
@@ -66,6 +81,40 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "hides ordinary idle tickets by default and shows them with --all" do
+      idle = fn number ->
+        %{identifier: "repo##{number}", issue_id: "#{number}", work_state: :idle, state: "todo", queue_depth: 0}
+      end
+
+      attention_idle = [
+        idle.(503) |> Map.put(:work_state, :paused),
+        idle.(504) |> Map.put(:waiting_reason, :waiting_for_human),
+        idle.(505) |> Map.put(:queue_depth, 1),
+        idle.(506) |> Map.put(:claim_released?, true),
+        idle.(507) |> Map.put(:waiting_reason, :waiting_for_dependency)
+      ]
+
+      running = [
+        running_entry("issue-1", "repo#1", :working) |> Map.put(:issue_id, "1"),
+        running_entry("issue-2", "repo#2", :working) |> Map.put(:issue_id, "2")
+      ]
+
+      snapshot = %{running: running, retrying: [], idle: Enum.map(3..502, idle) ++ attention_idle}
+      freshness = %{status: :current, age_ms: 0, observed_at: DateTime.to_iso8601(DateTime.utc_now())}
+      view = {:ok, snapshot, freshness}
+
+      default_output = capture_io(fn -> AgentControlCLI.agents(fleet_view: view) end)
+      assert length(Regex.scan(~r/^#\d+\s/m, default_output)) == 7
+      refute default_output =~ "#3"
+      assert Enum.all?(503..507, &(default_output =~ "##{&1}"))
+      assert default_output =~ "(500 idle tickets hidden; use --all to show)"
+
+      all_output = capture_io(fn -> AgentControlCLI.agents(all: true, fleet_view: view) end)
+      assert length(Regex.scan(~r/^#\d+\s/m, all_output)) == 507
+      assert all_output =~ "#507"
+      refute all_output =~ "idle tickets hidden"
+    end
+
     test "shows startup and retry as distinct from a live turn", %{orchestrator: pid} do
       at = DateTime.utc_now()
       starting = running_entry("issue-2895", "repo#2895", :working) |> Map.put(:session_id, nil)
@@ -90,9 +139,9 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
       end)
 
       output = capture_io(fn -> AgentControlCLI.agents() end)
-      assert output =~ ~r/#2895\s+starting\s/
+      assert output =~ ~r/#2895\s+agent:in-progress\s/
       assert output =~ "(starting provider; no live turn yet)"
-      assert output =~ ~r/#2896\s+retrying\s/
+      assert output =~ ~r/#2896\s+agent:retrying\s/
       assert output =~ "startup failed: {:port_exit, 23}"
       assert output =~ DateTime.to_iso8601(at)
       assert output =~ "#2897"
@@ -140,7 +189,8 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
 
       # Open decision: both surfaces say the agent waits for a human.
       assert status_line.(52) =~ "waiting=waiting_for_human"
-      assert agents_line.(52) =~ ~r/^#52\s+waiting\s/
+      assert status_line.(52) =~ "agent:paused-decision"
+      assert agents_line.(52) =~ ~r/^#52\s+agent:paused-decision\s/
       assert agents_line.(52) =~ "(waiting_for_human: 1 open decision)"
 
       # No decision: neither surface says waiting_for_human; both say it works.
@@ -173,7 +223,7 @@ defmodule Aiur.OrchestratorStatusCliAgentsTest do
 
       output = capture_io(fn -> AgentControlCLI.agents() end)
 
-      assert output =~ ~r/^#46\s+paused\s+.*\(waiting_for_human: 1 open decision\)/m
+      assert output =~ ~r/^#46\s+agent:paused-decision\s+.*\(waiting_for_human: 1 open decision\)/m
       assert output =~ ~r/^#47\s+deactivated\s+.*\(waiting_for_human: 1 open decision\)/m
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end

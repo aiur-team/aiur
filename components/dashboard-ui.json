@@ -16,6 +16,7 @@
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "config",
     "event-bus",
     "identity",
     "kernel",
@@ -23,7 +24,8 @@
     "projections",
     "signal",
     "web-kit",
-    "web-shell"
+    "web-shell",
+    "workspace"
   ],
   "optional": [
     "accounting",

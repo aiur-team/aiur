@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
     {:ok, store} = GenServer.start(RecentMergeStore, [name: store_name, state_dir: dir], name: store_name)
 
     on_exit(fn ->
-      if pid = Process.whereis(store_name), do: GenServer.stop(pid, :normal, :infinity)
+      Aiur.TestSupport.safe_stop(store_name)
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
@@ -37,7 +37,7 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
 
     assert {_, []} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
     assert RecentMergeStore.ticket_reconciled?(merge.id, issue.identifier, store)
-    GenServer.stop(store)
+    Aiur.TestSupport.safe_stop(store)
 
     {:ok, restarted_store} = RecentMergeStore.start_link(name: store_name, state_dir: dir)
     assert RecentMergeStore.ticket_reconciled?(merge.id, issue.identifier, restarted_store)
@@ -54,7 +54,7 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
              )
   end
 
-  test "a parked ticket carrying the marker is not commented again" do
+  test "a ticket carrying the persisted reference marker is not commented again" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "human-review", labels: ["needs-triage"]}
     merge = stored_merge("Refs #1570")
 
@@ -62,7 +62,7 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
              MergedTicketReconciler.reconcile(%State{}, [issue],
                recent_merges_fun: fn -> [merge] end,
                now_fun: fn -> @now end,
-               reference_merge_reconciled_fun: fn _, _ -> false end,
+               reference_merge_reconciled_fun: fn _, _ -> true end,
                update_issue_state_fun: fn _, _, _ -> flunk("already triaged ticket must not transition again") end,
                add_label_fun: fn _, _ -> flunk("already triaged ticket must not be relabeled") end,
                create_comment_fun: fn _, _ -> flunk("already triaged ticket must not receive a duplicate comment") end
@@ -99,10 +99,10 @@ defmodule Aiur.Orchestrator.NonClosingMergeRestartTest do
     assert Agent.get(writes, & &1) == []
 
     assert {%State{}, []} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
-    assert Enum.sort(Agent.get(writes, & &1)) == [:comment, :marker, :state]
+    assert Agent.get(writes, & &1) == [:comment]
 
     assert {%State{}, [^issue]} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
-    assert Enum.sort(Agent.get(writes, & &1)) == [:comment, :marker, :state]
+    assert Agent.get(writes, & &1) == [:comment]
 
     Agent.stop(writes)
     Agent.stop(lookups)

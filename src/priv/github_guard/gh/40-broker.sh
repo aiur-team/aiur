@@ -11,7 +11,27 @@ budget_sleep_ms() {
   budget_delay=$1
   case "$budget_delay" in ''|0|*[!0-9]*) return 1 ;; esac
   budget_seconds=$(awk "BEGIN { printf \"%.3f\", $budget_delay / 1000 }")
-  sleep "$budget_seconds"
+  interruptible_sleep "$budget_seconds"
+}
+
+# A foreground sleep can defer a shell's TERM trap until the child exits. Keep
+# its pid so the trap can stop an in-flight wait and `wait` itself is
+# interruptible by a trapped signal.
+interruptible_sleep() {
+  sleep "$1" >/dev/null 2>&1 &
+  interruptible_sleep_pid=$!
+  wait "$interruptible_sleep_pid"
+  interruptible_sleep_status=$?
+  interruptible_sleep_pid=
+  return "$interruptible_sleep_status"
+}
+
+stop_interruptible_sleep() {
+  if [ -n "${interruptible_sleep_pid:-}" ]; then
+    kill "$interruptible_sleep_pid" 2>/dev/null || true
+    wait "$interruptible_sleep_pid" 2>/dev/null || true
+    interruptible_sleep_pid=
+  fi
 }
 
 # The broker's captured stdout+stderr, folded into one bounded line fit for an
@@ -69,6 +89,16 @@ PY
 
 budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
+
+  # Lease contention is allowed to use the governed call's full deadline; a
+  # short admission cutoff turns ordinary parallel work into needless retries.
+  # Keep a lower override for deterministic tests of the named busy failure.
+  budget_waited_ms=0
+  budget_wait_limit_ms=${AIUR_GITHUB_ADMISSION_WAIT_MS:-120000}
+  case "$budget_wait_limit_ms" in
+    ''|*[!0-9]*) budget_wait_limit_ms=120000 ;;
+  esac
+  if [ "$budget_wait_limit_ms" -gt 120000 ]; then budget_wait_limit_ms=120000; fi
 
   # Free endpoints (the shared EndpointPolicy table marks only `rate_limit`
   # non-billable) are still admitted and leased for ordering, but their
@@ -198,13 +228,25 @@ budget_acquire() {
         # An actor-ceiling hold is `wait actor <ms>`; the `actor` token is the
         # Elixir side's cue for the hold reason and is not part of the delay.
         budget_wait_ms=${budget_wait_ms#actor }
+        if [ "$budget_waited_ms" -ge "$budget_wait_limit_ms" ]; then
+          printf 'aiur: GitHub budget broker busy; admission wait exceeded %sms\n' "$budget_wait_limit_ms" >&2
+          return 75
+        fi
+        budget_remaining_ms=$((budget_wait_limit_ms - budget_waited_ms))
+        case "$budget_wait_ms" in
+          ''|*[!0-9]*) ;;
+          *) [ "$budget_wait_ms" -le "$budget_remaining_ms" ] || budget_wait_ms=$budget_remaining_ms ;;
+        esac
         if ! budget_sleep_ms "$budget_wait_ms"; then
           printf '%s\n' 'aiur: GitHub budget broker returned an invalid or unusable wait response' >&2
           return 75
         fi
         case "$budget_wait_ms" in
           ''|*[!0-9]*) ;;
-          *) cache_claim_waited_ms=$((cache_claim_waited_ms + budget_wait_ms)) ;;
+          *)
+            budget_waited_ms=$((budget_waited_ms + budget_wait_ms))
+            cache_claim_waited_ms=$((cache_claim_waited_ms + budget_wait_ms))
+            ;;
         esac
         # Patience spent. The leader may have died between claiming the resource
         # and answering for it, and a follower that waits forever on a dead

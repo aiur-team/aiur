@@ -91,7 +91,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
       SnapshotStore.forget(@orchestrator)
     end)
 
-    start_endpoint(orchestrator: @orchestrator)
+    start_endpoint([orchestrator: @orchestrator], boot_elapsed_ms: fn -> 0 end)
     payload = PayloadLoader.load(:fresh)
 
     assert payload.units.status == :loading
@@ -228,7 +228,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
       )
 
     conn = Plug.Conn.put_req_header(build_conn(), "authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
-    {:ok, view, _html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/units")
     current = render(view)
     assert length(unit_rows(current)) == 1
     refute current =~ "Stale list."

@@ -1,3 +1,4 @@
+import { activeFeature } from './features.js';
 // Port of design build.js:807–877, 1543–1547; unknowns are explicit at the trust boundary.
 import { S, ctx, fx, onReset } from './state.js';
 import { esc } from './dom.js';
@@ -8,7 +9,7 @@ import { progress } from './now-state.js';
 import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
-import { estOf } from './gantt.js';
+import { estHours, estLabel } from './estimate.js';
 
 const CX = ['❶', '❷', '❸', '❹', '❺'], CXH = [145, 110, 80, 50, 25];
 export const finite = (x, lo = 0, hi = Number.MAX_SAFE_INTEGER) => Number.isFinite(x) && x >= lo && x <= hi ? x : null;
@@ -29,6 +30,13 @@ function tickAges() {
   for (const el of rendered()) {
     const row = ctx.D.byId[el.dataset.id], cue = el.querySelector('.bd-q.promo');
     if (row && cue) cue.innerHTML = promo(row.cue?.promoted);
+  }
+}
+export function alignActiveGlow(el) {
+  const glow = el.querySelector('.bd-glow');
+  if (!glow || !el.classList.contains('ag-active')) return;
+  for (const animation of glow.getAnimations()) {
+    if (animation.animationName === 'bdRot') animation.startTime = 0;
   }
 }
 function epic(key) {
@@ -64,10 +72,10 @@ function planContent(t, points) {
   const body = c.failed ? '<div class="bd-alert">' + I.warn + '<span>Prereq #' + number(c.failed.by, 'failed.by', 'Prerequisite unknown') + ' failed' +
     (blocks.length ? ' · blocks ' + blocks.map(n => '#' + number(n, 'failed.blocks', 'Blocked ticket unknown')).join(' ') : '') + '</span></div>' :
     cues.length ? '<div class="bd-cues">' + cues.join('') + '</div>' : '';
-  const est = finite(t.override?.hours) ?? finite(t.est);
+
   const label = t.id.startsWith('pack:') && t.num === null ? 'Planned · not filed' : 'Q' + number(t.qpos, 'qpos', 'Queue position unknown') +
     (c.held ? ' · held' : c.failed ? ' · prereq failed' : c.wait ? ' · waiting' : ' · queued');
-  return { body, status: '<div class="bd-status"><span>' + label + '</span><span>≈' + (est === null ? unk('est', 'Estimate unknown') : est + 'h') + ' · ' + points + ' pts</span></div>' };
+  return { body, status: '<div class="bd-status"><span>' + label + '</span><span>' + (estHours(t) === null ? unk('est', 'Estimate unknown') : estLabel(t)) + ' · ' + points + ' pts</span></div>' };
 }
 function historyContent(t, points) {
   const labels = { done: 'Merged', failed: 'Failed · closed', not_planned: 'Not planned', closed: 'Closed' };
@@ -90,7 +98,7 @@ export function makeCard(it) {
   const pg = t.sec === 'now' ? progress(finite(t.pct, 0, 100)) : null;
   const el = document.createElement('div');
   const startUnknown = it.startUnknown || (S.view === 'gantt' && t.sec === 'hist' && t.start == null);
-  const estUnknown = it.estUnknown || (S.view === 'gantt' && t.sec === 'now' && estOf(t) === null);
+  const estUnknown = it.estUnknown || (S.view === 'gantt' && t.sec === 'now' && estHours(t) === null);
   el._it = it; el.dataset.id = t.id; el.tabIndex = -1;
   el.className = 'bd-card ' + det + ' ' + t.sec + (t.status === 'failed' ? ' failed' : '') + (cls.ag ? ' ' + cls.ag : '') +
     (startUnknown ? ' start-unknown' : '') + (estUnknown ? ' est-unknown' : '') + (it.ghost ? ' ghost' : '') + (e.unsorted ? ' unsorted' : '') + (it.gantt ? ' gplan' : '') +
@@ -122,7 +130,7 @@ export function makeCard(it) {
   decorate(el); return el;
 }
 export function decorate(el) {
-  const t = ctx.D.byId[el.dataset.id], F = S.feature;
+  const t = ctx.D.byId[el.dataset.id], F = activeFeature();
   if (!t) return;
   const inFeat = F && t.feature === F, also = F && !inFeat && t.also.includes(F), ghost = el.classList.contains('ghost');
   el.classList.toggle('dim', !match(t) || (!!F && S.fmode === 'focus' && !inFeat && !also && !ghost));
@@ -135,9 +143,10 @@ export function refreshTicket(id) {
   if (!ctx.L) return;
   for (const it of ctx.L.band.items) if (it.t.id === id && ctx.D.byId[id]) {
     it.t = ctx.D.byId[id];
-    const el = makeCard(it); el.classList.add('noanim'); place(el, it);
-    it.el?.replaceWith(el); it.el = el;
+    const el = makeCard(it);
+    el.classList.add('noanim'); place(el, it);
+    it.el?.replaceWith(el); it.el = el; alignActiveGlow(el);
   }
   fx.drawEdgesSoon(30);
 }
-Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges });
+Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges, alignActiveGlow });

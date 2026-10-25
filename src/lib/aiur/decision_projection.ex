@@ -301,6 +301,8 @@ defmodule Aiur.DecisionProjection do
       "content_hash" => decision.content_hash,
       "decision_status" => Atom.to_string(decision.decision_status),
       "delivery_status" => Atom.to_string(decision.delivery_status),
+      "pending_for_session" => decision.pending_for_session?,
+      "ticket_comment_status" => decision.ticket_comment_status && Atom.to_string(decision.ticket_comment_status),
       "answer" => decision.answer && DecisionAnswer.to_json_safe(decision.answer),
       "active_action_id" => decision.active_action_id,
       "revision_sequence" => decision.revision_sequence,

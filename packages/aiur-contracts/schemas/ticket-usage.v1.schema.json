@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-usage.v1.schema.json",
+  "title": "TicketUsage",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "const": "aiur.ticket_usage" },
+    "contract_version": { "const": 1 },
+    "schema_version": { "const": 1 },
+    "ticket": { "$ref": "#/$defs/ticket" },
+    "state": { "enum": ["ok", "partial", "stale", "known_empty"] },
+    "currency": { "type": "string" },
+    "authority": { "$ref": "#/$defs/authority" },
+    "freshness": { "$ref": "#/$defs/freshness" },
+    "totals": { "$ref": "#/$defs/measure" },
+    "by_model": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/modelMeasure" }
+    },
+    "by_provider": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/providerMeasure" }
+    },
+    "sessions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/session" }
+    }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "schema_version",
+    "ticket",
+    "state",
+    "currency",
+    "authority",
+    "freshness",
+    "totals",
+    "by_model",
+    "by_provider",
+    "sessions"
+  ],
+  "$defs": {
+    "ticket": {
+      "title": "TicketUsageIdentity",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "owner": { "type": "string" },
+        "repository": { "type": "string" },
+        "identifier": { "type": "string" }
+      },
+      "required": ["owner", "repository", "identifier"]
+    },
+    "authority": {
+      "title": "TicketUsageAuthority",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "aggregate_generation": { "type": "integer", "minimum": 0 },
+        "source_generation": { "type": "integer", "minimum": 0 },
+        "source_position": { "type": "integer", "minimum": 0 },
+        "price_table_revision": { "type": "string" }
+      },
+      "required": ["schema_version", "aggregate_generation", "source_generation", "source_position", "price_table_revision"]
+    },
+    "freshness": {
+      "title": "TicketUsageFreshness",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["fresh", "stale"] },
+        "projected_position": { "type": "integer", "minimum": 0 },
+        "ledger_position": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["status", "projected_position", "ledger_position"]
+    },
+    "money": {
+      "title": "TicketUsageMoney",
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$" }
+    },
+    "tokens": {
+      "title": "TicketUsageTokens",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["input", "output"]
+    },
+    "coverage": {
+      "title": "TicketUsageCoverage",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["known", "partial", "unknown", "none"] },
+        "known": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 },
+        "reasons": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["status", "known", "unknown", "reasons"]
+    },
+    "apiEquivalent": {
+      "title": "TicketUsageApiEquivalent",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "amount": { "$ref": "#/$defs/money" },
+        "coverage": { "$ref": "#/$defs/coverage" }
+      },
+      "required": ["amount", "coverage"]
+    },
+    "measure": {
+      "title": "TicketUsageMeasure",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "tokens": { "$ref": "#/$defs/tokens" },
+        "provider_reported": { "$ref": "#/$defs/money" },
+        "api_equivalent": { "$ref": "#/$defs/apiEquivalent" }
+      },
+      "required": ["tokens", "provider_reported", "api_equivalent"]
+    },
+    "modelMeasure": {
+      "title": "TicketUsageByModel",
+      "allOf": [
+        { "$ref": "#/$defs/measure" },
+        {
+          "type": "object",
+          "properties": { "model": { "type": ["string", "null"] } },
+          "required": ["model"]
+        }
+      ]
+    },
+    "providerMeasure": {
+      "title": "TicketUsageByProvider",
+      "allOf": [
+        { "$ref": "#/$defs/measure" },
+        {
+          "type": "object",
+          "properties": {
+            "provider": { "type": ["string", "null"] },
+            "upstream_provider": { "type": ["string", "null"] }
+          },
+          "required": ["provider", "upstream_provider"]
+        }
+      ]
+    },
+    "session": {
+      "title": "TicketUsageSession",
+      "allOf": [
+        { "$ref": "#/$defs/measure" },
+        {
+          "type": "object",
+          "properties": {
+            "run_id": { "type": ["string", "null"] },
+            "by_model": { "type": "array", "items": { "$ref": "#/$defs/modelMeasure" } },
+            "by_provider": { "type": "array", "items": { "$ref": "#/$defs/providerMeasure" } }
+          },
+          "required": ["run_id", "by_model", "by_provider"]
+        }
+      ]
+    }
+  }
+}

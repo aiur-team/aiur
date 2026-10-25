@@ -10,17 +10,25 @@ defmodule AiurWeb.Endpoint do
   @session_options [
     store: :cookie,
     key: "_aiur_key",
-    signing_salt: "aiur-session"
+    signing_salt: "aiur-session",
+    encryption_salt: "aiur-session-encryption",
+    same_site: "Lax",
+    max_age: 31_536_000
   ]
 
   require LiveView
   require Streamdeck
   require Voice
 
+  @before_compile AiurWeb.EndpointCallGuard
+
   LiveView.mount(@session_options)
   Streamdeck.mount(@session_options)
   Voice.mount(@session_options)
 
+  plug(AiurWeb.Session, @session_options)
+  plug(:fetch_session)
+  plug(AiurWeb.PublicBindGuard)
   plug(:authenticate_static_asset)
 
   plug(Plug.Static,
@@ -75,14 +83,13 @@ defmodule AiurWeb.Endpoint do
 
   plug(Plug.MethodOverride)
   plug(Plug.Head)
-  plug(Plug.Session, @session_options)
   plug(AiurWeb.Router)
 
   @doc false
   @spec authenticate_static_asset(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def authenticate_static_asset(conn, opts) do
     if AiurWeb.StaticAssets.served_path?(conn.path_info) do
-      conn = AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+      conn = AiurWeb.FinancialDataAccess.authenticate_request(conn, Keyword.put(opts, :browser?, true))
       if conn.halted, do: conn, else: AiurWeb.DashboardPagesGate.call(conn, [])
     else
       conn

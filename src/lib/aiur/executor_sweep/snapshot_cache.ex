@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorSweep.SnapshotCache do
   @moduledoc "Reads the current repository's already-cached GitHub resources."
 
+  alias Aiur.ExecutorSweep.{CacheAges, CiObservation}
   alias Aiur.GitHub.{Config, ResourceStore}
 
   @spec read((-> Aiur.OpenTicketSource.Snapshot.t())) :: map()
@@ -28,10 +29,15 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       snapshot
       |> Map.put(:pull_requests, pull_requests)
       |> Map.put(:merge_queue, merge_queue_entries(pull_requests))
+      |> Map.put(:github_cache_ages, github_cache_ages(owner, name))
     else
       _ -> Map.merge(%{pull_requests: [], tickets: []}, local_snapshot())
     end
   end
+
+  @doc false
+  @spec github_cache_ages(String.t(), String.t(), integer()) :: map()
+  def github_cache_ages(owner, repo, now_ms \\ System.system_time(:millisecond)), do: CacheAges.for_repo(owner, repo, now_ms)
 
   # The store keeps label rows for closed issues and merged PRs, so ticket checks
   # read the open-ticket projection, which excludes both. Before a full listing
@@ -54,7 +60,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
   defp local_snapshot do
     decisions =
       Enum.map(list_decisions(), fn decision ->
-        %{id: decision.decision_id, blocking: decision.blocking, status: Atom.to_string(decision.decision_status), created_at: decision.created_at}
+        %{id: decision.decision_id, ticket: decision.ticket.identifier, blocking: decision.blocking, status: Atom.to_string(decision.decision_status), created_at: decision.created_at}
       end)
 
     queue = Aiur.BuildQueue.show()
@@ -78,7 +84,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       queue_order_declared?: declared_order?,
       merge_groups:
         Enum.map(value(main_watch, :merge_groups, []), fn run ->
-          %{name: "run #{value(run, :id, "?")}", state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
+          %{id: value(run, :id, nil), name: "run #{value(run, :id, "?")}", head_branch: value(run, :head_branch, nil), state: value(run, :status, "unknown"), started_at: value(run, :started_at, nil)}
         end),
       # Main's per-commit check results; a PR red is caused_by_pr only if its base passed (#5119).
       base_checks:
@@ -138,9 +144,14 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     :exit, _ -> {%{}, %{name: "dispatcher", status: "stalled"}}
   end
 
+  # A secondary instance never starts the repository-global watchers, so their absence is not an outage.
   defp watcher_services do
-    ([watcher_service("landing watcher", safe_state(&Aiur.LandingWatch.state/0))] ++
-       if(Aiur.MainWatch.enabled?(), do: [watcher_service("default-branch watcher", safe_state(&Aiur.MainWatch.state/0))], else: []))
+    if Aiur.Config.booted_instance_role() == "primary" do
+      [watcher_service("landing watcher", safe_state(&Aiur.LandingWatch.state/0))] ++
+        if(Aiur.MainWatch.enabled?(), do: [watcher_service("default-branch watcher", safe_state(&Aiur.MainWatch.state/0))], else: [])
+    else
+      []
+    end
     |> Enum.reject(&is_nil/1)
   rescue
     _ -> []
@@ -184,20 +195,7 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
     }
   end
 
-  defp attach_ci(pr, ci_wait) do
-    case Enum.find(ci_wait, fn ci ->
-           (value(ci, :pr_number, nil) == pr.number or value(ci, :identifier, nil) == to_string(pr.issue_number)) and
-             value(ci, :head_sha, nil) == pr.head_sha
-         end) do
-      nil ->
-        pr
-
-      ci ->
-        failures = value(ci, :failures, [])
-        required = Enum.map(failures, &%{name: value(&1, :name, "required check"), conclusion: value(&1, :result, value(&1, :conclusion, nil))})
-        Map.merge(pr, %{required_checks: required, failure_class: to_string(value(ci, :failure_class, "unknown"))})
-    end
-  end
+  defp attach_ci(pr, ci_wait), do: CiObservation.attach(pr, ci_wait)
 
   defp merge_queue_entries(pull_requests) do
     pull_requests
@@ -223,11 +221,11 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       merge_queue: merge_queue_entries(pull_requests),
       tickets:
         tickets &&
-          Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by, open_ticket_numbers, complete_open_ticket_snapshot?(ticket_snapshot), {tracker_owner, tracker_repo}))
+          Enum.map(tickets, &normalize_ticket(&1, issues, blocked_by, timelines, open_ticket_numbers, complete_open_ticket_snapshot?(ticket_snapshot), {tracker_owner, tracker_repo}))
     }
   end
 
-  defp normalize_ticket({number, labels}, issues, blocked_by, open_ticket_numbers, complete_open_ticket_snapshot?, tracker_repository) do
+  defp normalize_ticket({number, labels}, issues, blocked_by, timelines, open_ticket_numbers, complete_open_ticket_snapshot?, tracker_repository) do
     issue = Map.get(issues, number, %{})
     blockers = Map.get(blocked_by, number, [])
     blockers = if is_list(blockers), do: blockers, else: []
@@ -238,12 +236,33 @@ defmodule Aiur.ExecutorSweep.SnapshotCache do
       number: number,
       labels: labels,
       created_at: value(issue, "created_at", nil),
-      # Prefer the complete open-ticket projection; the issue row and embedded
-      # edge state are fallbacks when that listing cannot decide.
+      updated_at: value(issue, "updated_at", nil),
+      ci_wait_since: ci_wait_since(labels, Map.get(timelines, number), value(issue, "updated_at", nil)),
+      # Prefer complete open-ticket projection; issue/embedded edges are fallbacks.
       open_blocked_by: Enum.filter(blockers, &(blocker_state.(&1) == "open")),
       closed_blockers: blockers |> Enum.filter(&(blocker_state.(&1) == "closed")) |> Enum.map(&value(&1, "number", nil))
     }
   end
+
+  defp ci_wait_since(labels, timeline, updated_at) do
+    if "agent:ci-wait" in labels or "ci-wait" in labels do
+      latest_ci_wait_label(timeline, updated_at)
+    end
+  end
+
+  defp latest_ci_wait_label(%{"events" => events}, updated_at) when is_list(events) do
+    events
+    |> Enum.filter(fn event ->
+      value(event, "event", nil) == "labeled" and value(value(event, "label", %{}), "name", nil) in ["agent:ci-wait", "ci-wait"]
+    end)
+    |> Enum.max_by(&value(&1, "created_at", ""), fn -> nil end)
+    |> case do
+      nil -> updated_at
+      event -> value(event, "created_at", updated_at)
+    end
+  end
+
+  defp latest_ci_wait_label(_timeline, updated_at), do: updated_at
 
   defp blocker_state(blocker, issues, open_ticket_numbers, complete_snapshot?, tracker_repository) do
     blocker_number = positive_number(value(blocker, "number", nil))

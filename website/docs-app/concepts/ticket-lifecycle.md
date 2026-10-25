@@ -15,10 +15,10 @@ signal trustworthy.
 
 ### State labels
 
-There are exactly **ten** state suffixes (`src/lib/aiur/github/labels.ex:23-25`):
+There are exactly **eleven** state suffixes (`src/lib/aiur/github/labels.ex:23-25`):
 
 ```text
-todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled
+todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelled  canceled  budget-exhausted
 ```
 | Label | Meaning |
 | --- | --- |
@@ -30,9 +30,10 @@ todo  in-progress  ci-wait  human-review  rework  merging  done  error  cancelle
 | `agent:merging` | An accepted PR entering merge. Active for polling but **never dispatchable**. |
 | `agent:done` | Work complete. Terminal. |
 | `agent:error` | The agent hit an execution failure. In neither the active nor the terminal set, so it is never auto-redispatched — an operator (or bounded auto-resume on transient causes) must clear it. With `pr_health.enabled`, an error ticket whose open, non-draft PR has a blocking `CHANGES_REQUESTED` review at its head moves to `agent:rework` once per review. |
+| `agent:budget-exhausted` | The ticket reached its configured USD spend cap. Aiur persisted the exhaustion fence, stopped its agent, and closed the ticket. This is terminal and distinct from failure or cancellation. |
 | `agent:cancelled` / `agent:canceled` | Terminal cancellation. **Both spellings exist**; both are real labels. |
 
-The terminal states are exactly `done | cancelled | canceled`
+The built-in terminal states are `done | cancelled | canceled | budget-exhausted`
 (`src/lib/aiur/github/state_policy.ex:23,31`). The two `@no_agent_work_states`
 — `merging` and `ci-wait` — stay active for polling and fence purposes but are
 never dispatchable (`src/lib/aiur/orchestrator/dispatch_policy/issue_states.ex:27,63`).
@@ -110,14 +111,29 @@ goes to `ci-wait` instead when the PR is approved and that approval carries to
 the head: approved at the head, or only merge drift since. A rework handback
 keeps `human-review`.
 
-A rework handback to `ci-wait` or `human-review` must answer the latest
-blocking review. Its numbered `file:line` items form the rework prompt's
-checklist. The agent passes one `review_findings` answer per item: `fixed`
-with a commit, or `disputed` with evidence.
+The state tool reports the applied `state` and the
+`requested_state` separately. An approval redirect includes
+`result.reason: "approval_carries_to_pr_head"`; it does not mean CI is pending
+or that the worker must update its branch.
 
-The write is refused if an item has no answer. It is refused if a `fixed`
-commit is not a branch commit since the review, or if no such commit changed
-the item's file. Merge commits do not count.
+A handback to `ci-wait` or `human-review` must answer the latest blocking
+review. This applies while that review has numbered items, even if the worker
+moved the ticket to `in-progress` first. Every numbered item in the review becomes an
+entry in the rework prompt's checklist, whether or not it names a `file:line`.
+
+The agent passes one `review_findings` answer per item: `fixed` with a commit,
+or `disputed` with evidence. An item that names no file may instead be `fixed`
+by a PR body edit made after the review.
+
+The write is refused if an item has no answer, and the refusal names each
+unanswered item. It is refused if a `fixed` commit is not a branch commit since
+the review, or if no such commit changed the item's file. Merge commits do not
+count.
+
+A run that stops at `agent.max_turns` or the no-op bound is not handed back
+automatically while the review still has findings. The ticket stays in
+`rework`. A `ticket.<id>.agent.rework_findings_open` alert lists the items that
+remain.
 
 The write is also refused with no commit since the review, unless every item
 is disputed or the PR body was edited after the review. A body edit covers a
@@ -238,11 +254,14 @@ stateDiagram-v2
     done --> [*]
 
     inprogress --> error: retry exhausted
+    inprogress --> budgetexhausted: ticket spend cap reached
     rework --> error: retry exhausted
     error --> todo: latch reset
+    budgetexhausted --> [*]
 
     todo: agent:todo
     inprogress: agent:in-progress
+    budgetexhausted: agent:budget-exhausted
     ciwait: agent:ci-wait
     humanreview: agent:human-review
     rework: agent:rework

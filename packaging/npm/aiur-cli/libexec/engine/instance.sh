@@ -126,6 +126,14 @@ aiur_crash_marker_path() {
   printf '%s/%s.last-crash' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
 }
 
+aiur_restart_diagnostic_path() {
+  printf '%s/%s.last-restart' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
+}
+
+aiur_restart_crash_evidence_path() {
+  printf '%s.crash' "$(aiur_restart_diagnostic_path)"
+}
+
 # Sentinel `stop` drops before killing the BEAM so the watchdog knows the exit
 # was intentional and does not record a false crash.
 aiur_stop_sentinel_path() {

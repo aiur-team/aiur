@@ -31,7 +31,7 @@ test('required full CI gate rejects failures, cancellations and skipped browser 
   for (const browser of ['success', 'failure', 'cancelled', 'skipped']) {
     for (const css of ['success', 'failure', 'cancelled', 'skipped']) {
       const needs = Object.fromEntries(gate.needs.map(job => [job, { result: 'success' }]))
-      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false' }
+      needs.changes.outputs = { full_ci: 'true', dialyzer: 'false', browser_smoke: 'true' }
       needs.browser.result = browser
       needs['home-css'].result = css
       const result = spawnSync('bash', ['-c', step.run], {
@@ -51,7 +51,7 @@ test('browser shards have bounded timeouts and home matrix keeps an independent 
   assert.equal(browser.steps[2].uses, './.github/actions/browser-smoke')
   assert.equal(browser.steps[2].with.shard, '${{ matrix.shard }}')
   assert.equal(browser.name, 'browser smoke (${{ matrix.shard }}/' + shardIds.length + ')')
-  assert.equal(browser['timeout-minutes'], 22)
+  assert.equal(browser['timeout-minutes'], 45)
   assert.equal(browser.strategy['fail-fast'], false)
   assert.deepEqual(browser.strategy.matrix.shard, shardIds)
   assert.deepEqual(browser.strategy.matrix.include, [
@@ -59,7 +59,7 @@ test('browser shards have bounded timeouts and home matrix keeps an independent 
     { shard: 2, visual_regression: 'first' },
     { shard: 5, visual_regression: 'second' },
     ...Object.entries(shards).filter(([id, commands]) => Number(id) !== 1 &&
-      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity', 'test:build-home-gantt'].includes(command)))
+      commands.some(command => ['test:build-home-usage', 'test:build-home-edges-parity', 'test:build-home-gantt', 'test:build-home-chains'].includes(command)))
       .map(([id]) => ({ shard: Number(id), upload_evidence: true })),
   ])
   assert.equal(browser.steps[2].with.visual_regression, "${{ matrix.visual_regression || 'none' }}")
@@ -113,7 +113,7 @@ test('browser shards execute every core suite exactly once', () => {
     assert.deepEqual(selected, expected)
     assert.equal(selected.length, new Set(selected).size, 'each core suite runs exactly once across shards')
     const runner = readFileSync(fileURLToPath(new URL('./run-browser-smoke-shard.mjs', import.meta.url)), 'utf8')
-    assert.match(runner, /export const budgetMs = 20 \* 60_000/)
+    assert.match(runner, /export const budgetMs = 33 \* 60_000/)
     assert.match(runner, /slowest completed suites/)
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 })
@@ -137,4 +137,33 @@ test('a new build-home spec file joins exactly one shard with no list edit', () 
   assert.deepEqual(['build-home-a', 'build-home-b-parity', 'build-home-c', 'build-home-fixture-new'].map(name => suiteShard(name, 5)), [5, 4, 3, 1])
   assert.deepEqual(suiteArgs('build-home-x'), ['tests/build-home-x.browser.spec.mjs'])
   assert.deepEqual(suiteArgs('build-home-x-parity'), ['tests/build-home-x-parity.browser.spec.mjs', '--config', 'playwright.design-parity.config.mjs'])
+})
+
+test('routine filter parity covers breakpoints and full selection retains every cell', () => {
+  const { AIUR_PARITY_FULL, ...ordinaryEnv } = process.env
+  const expectedFull = [], expectedRoutine = [
+    'filter parity live 1440 dark gruvbox',
+    'filter parity live 1024 light aiur',
+    'filter parity live 390 dark aiur',
+    'filter parity dense 1440 light gruvbox',
+    'filter parity dense 390 dark gruvbox',
+    'selected viewport 1440 dark gruvbox model=claude&tstate=merged,failed&astate=active',
+    'selected viewport 1440 dark gruvbox epic=docs',
+  ]
+  for (const width of [1440, 1024, 390]) for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
+    for (const dataset of ['live', 'dense']) expectedFull.push(`filter parity ${dataset} ${width} ${theme} ${palette}`)
+    for (const query of ['model=claude&tstate=merged,failed&astate=active', 'epic=docs'])
+      expectedFull.push(`selected viewport ${width} ${theme} ${palette} ${query}`)
+  }
+  for (const full of [false, true]) {
+    const result = spawnSync(process.execPath, ['node_modules/@playwright/test/cli.js', 'test',
+      'tests/build-home-filters-parity.browser.spec.mjs', '--config', 'playwright.design-parity.config.mjs', '--list'], {
+      cwd: new URL('../', import.meta.url), encoding: 'utf8',
+      env: { ...ordinaryEnv, AIUR_PARITY_FULL: full ? '1' : '', AIUR_BROWSER_PORT: '49152' } // Listing never starts a server.
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const titles = result.stdout.split('\n').filter(line => line.includes(' › ')).map(line => line.split(' › ').at(-1))
+    assert.deepEqual(titles.sort(), (full ? expectedFull : expectedRoutine).sort())
+    assert.match(result.stdout, new RegExp(`Total: ${full ? 48 : 7} tests in 1 file`))
+  }
 })

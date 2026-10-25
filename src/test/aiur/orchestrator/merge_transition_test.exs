@@ -1,8 +1,36 @@
+defmodule Aiur.Orchestrator.MergeTransitionTest.ParkedTracker do
+  alias Aiur.GitHub.IssueState
+
+  def setup(labels, request_fun), do: :persistent_term.put({__MODULE__, :test_state}, {labels, request_fun})
+  def cleanup, do: :persistent_term.erase({__MODULE__, :test_state})
+
+  def update_issue_state("3778", state_name, opts) do
+    {labels, request_fun} = :persistent_term.get({__MODULE__, :test_state})
+
+    IssueState.apply_issue_state_update(
+      %{
+        request_fun: request_fun,
+        token: "test-token",
+        owner: "owner",
+        repo: "repo",
+        issue_number: "3778",
+        issue_url: "https://api.github.com/repos/owner/repo/issues/3778",
+        prefix: "agent",
+        opts: Keyword.put(opts, :request_fun, request_fun)
+      },
+      %{"state" => "closed", "labels" => Enum.map(Agent.get(labels, & &1), &%{"name" => &1})},
+      state_name,
+      "agent:#{state_name}"
+    )
+  end
+end
+
 defmodule Aiur.Orchestrator.MergeTransitionTest do
   use Aiur.TestSupport
 
   alias Aiur.GitHub.IssueState
   alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, MergeTransition, State}
+  alias Aiur.Orchestrator.MergeTransitionTest.ParkedTracker
 
   setup do
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -37,6 +65,20 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     refute log =~ "private issue body"
   end
 
+  test "a merged PR for another instance's ticket writes nothing and raises no attention (#5803)" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [3778]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+    parent = self()
+    write = fn _identifier, target -> send(parent, {:write, target}) && :ok end
+
+    log = capture_log(fn -> merge(%{"state" => "open", "labels" => [], "body" => ""}, fn state, _ -> state end, update_issue_state_fun: write) end)
+
+    refute_received {:write, _}
+    refute_received :terminated
+    refute log =~ "merge_terminal_write_failed"
+  end
+
   test "operator hold labels follow the configured agent prefix" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
@@ -45,6 +87,49 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     )
 
     assert MergeStateWriter.operator_hold_labels() == ["needs-triage", "human:todo", "sym:paused", "sym:parked"]
+  end
+
+  test "merged parked ticket transitions to done and clears parked and paused labels" do
+    labels = start_supervised!({Agent, fn -> ["agent:parked", "agent:paused", "agent:in-progress"] end}, id: :labels)
+
+    request_fun = fn request ->
+      case request.method do
+        :get ->
+          {:ok, %{status: 200, body: %{"state" => "closed", "labels" => Enum.map(Agent.get(labels, & &1), &%{"name" => &1})}}}
+
+        :post ->
+          Agent.update(labels, &Enum.uniq(&1 ++ request.body["labels"]))
+          {:ok, %{status: 200, body: Enum.map(Agent.get(labels, & &1), &%{"name" => &1})}}
+
+        :delete ->
+          removed = URI.decode(request.url |> String.split("/") |> List.last())
+          Agent.update(labels, &Enum.reject(&1, fn label -> label == removed end))
+          {:ok, %{status: 200, body: Enum.map(Agent.get(labels, & &1), &%{"name" => &1})}}
+
+        :patch ->
+          {:ok, %{status: 200, body: %{}}}
+      end
+    end
+
+    ParkedTracker.setup(labels, request_fun)
+    on_exit(&ParkedTracker.cleanup/0)
+
+    updater = fn identifier, target ->
+      MergeStateWriter.write_if_current(identifier, target,
+        fetch_issue_states_fun: fn ["3778"] -> {:ok, [%Aiur.Issue{state: "closed"}]} end,
+        tracker: ParkedTracker
+      )
+    end
+
+    merge(
+      %{"state" => "closed", "labels" => [%{"name" => "agent:parked"}, %{"name" => "agent:paused"}]},
+      fn state, _identifier -> state end,
+      target_state: "done",
+      update_issue_state_fun: updater
+    )
+
+    assert_received :terminated
+    assert Agent.get(labels, & &1) == ["agent:done"]
   end
 
   test "a closed ticket with an active label is repaired to done" do
@@ -86,10 +171,8 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
   end
 
   test "transient terminal label failure retries and completes the merged ticket" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    {:ok, labels} = Agent.start_link(fn -> ["agent:in-progress"] end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
-    on_exit(fn -> if Process.alive?(labels), do: Agent.stop(labels) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
+    labels = start_supervised!({Agent, fn -> ["agent:in-progress"] end}, id: :labels)
     parent = self()
 
     request_fun = fn request ->
@@ -165,36 +248,29 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     assert Agent.get(labels, & &1) == ["agent:done"]
   end
 
-  test "local hold and rate limit are left to the request boundary wait" do
-    for reason <- [
-          {:github, :local_hold, %{reset_at: 123}},
-          {:github, :rate_limited, %{retry_after: 1}}
-        ] do
-      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+  test "rate limits are left to the request boundary wait" do
+    reason = {:github, :rate_limited, %{retry_after: 1}}
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :rate_limit_attempts)
 
-      updater = fn _id, _target ->
-        Agent.update(attempts, &(&1 + 1))
-        {:error, reason}
-      end
-
-      result =
-        MergeTransition.retry_terminal_write(fn -> updater.("3778", "done") end,
-          merge_terminal_write_sleep_fun: fn _ ->
-            flunk("must not inner-retry request-boundary holds")
-          end
-        )
-
-      assert result == {:error, reason}
-      assert Agent.get(attempts, & &1) == 1
-      Agent.stop(attempts)
+    updater = fn _id, _target ->
+      Agent.update(attempts, &(&1 + 1))
+      {:error, reason}
     end
+
+    result =
+      MergeTransition.retry_terminal_write(fn -> updater.("3778", "done") end,
+        merge_terminal_write_sleep_fun: fn _ ->
+          flunk("must not inner-retry request-boundary rate limits")
+        end
+      )
+
+    assert result == {:error, reason}
+    assert Agent.get(attempts, & &1) == 1
   end
 
   test "a no-body duplicate merge wake preserves done after the first closing wake fails" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    {:ok, labels} = Agent.start_link(fn -> ["agent:in-progress"] end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
-    on_exit(fn -> if Process.alive?(labels), do: Agent.stop(labels) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
+    labels = start_supervised!({Agent, fn -> ["agent:in-progress"] end}, id: :labels)
 
     request_fun = fn request ->
       case request.method do
@@ -265,14 +341,12 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
     )
 
     assert_receive {:merge_write_attempt, 2, _result}, 1_000
-
     assert Agent.get(labels, & &1) == ["agent:done"]
     assert Agent.get(attempts, & &1) == 2
   end
 
   test "transient non-terminal merge target failure is retried" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
     parent = self()
 
     updater = fn "3778", "human-review" ->
@@ -316,8 +390,7 @@ defmodule Aiur.Orchestrator.MergeTransitionTest do
   end
 
   test "transient terminal write retries stop at the configured attempt limit" do
-    {:ok, attempts} = Agent.start_link(fn -> 0 end)
-    on_exit(fn -> if Process.alive?(attempts), do: Agent.stop(attempts) end)
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :attempts)
     parent = self()
 
     updater = fn _id, _target ->

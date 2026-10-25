@@ -5,7 +5,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   alias Aiur.BuildOrder.Icon
 
-  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, BuildOrderIcon, DecisionDetail, FleetTable, LifecycleComponents}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderGraph, DecisionDetail, LifecycleComponents}
 
   import AiurWeb.OperatorControlCenterComponentsFixtures
 
@@ -94,52 +94,6 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     # Closed ad hoc ticket renders merged at 100%.
     assert html =~ ~s(data-bo-card="1247")
     assert html =~ ~s(class="bo-epic-count">1<)
-  end
-
-  test "renders every presenter-derived icon key through accessible local components" do
-    keys = [
-      :lane_plan_graph,
-      :lane_runtime,
-      :lane_dashboard_ui,
-      :lane_accounting,
-      :lane_platform,
-      :lane_generic,
-      :status_ready,
-      :status_blocking,
-      :status_terminal_unsatisfied,
-      :status_unknown,
-      :status_cyclic,
-      :status_generic,
-      :status_completed,
-      :status_not_planned,
-      :status_paused,
-      :status_retrying,
-      :status_waiting,
-      :status_working
-    ]
-
-    for key <- keys do
-      label = "Accessible #{key}"
-
-      html =
-        render_component(&BuildOrderIcon.build_order_icon/1, %{
-          icon: %Aiur.BuildOrder.Icon{key: key, text: label}
-        })
-
-      assert html =~ ~s(data-icon-key="#{key}")
-      assert html =~ ~s(aria-label="#{label}")
-      assert html =~ ~s(aria-hidden="true")
-    end
-
-    fallback =
-      render_component(&BuildOrderIcon.build_order_icon/1, %{
-        icon: %Aiur.BuildOrder.Icon{key: :from_github_fixture, text: "unsafe fixture icon"}
-      })
-
-    assert fallback =~ ~s(data-icon-key="generic")
-    assert fallback =~ ~s(aria-label="Status unavailable")
-    refute fallback =~ "from_github_fixture"
-    refute fallback =~ "unsafe fixture icon"
   end
 
   test "renders typed card progress, complexity, and a progress bar" do
@@ -282,75 +236,5 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "dispatch: Failed"
     assert html =~ "revision: No longer applicable"
     refute html =~ "supervising agent"
-  end
-
-  test "names the model a fleet row is running, titled with the raw id" do
-    # Units and Fleet are two views of the same agents; a model named on one
-    # and missing on the other makes an operator cross-check to answer "what
-    # is this actually running on".
-    fleet = %{
-      running: [
-        %{
-          issue_identifier: "AIUR-987",
-          title: "Operator Control Center",
-          state: "in-progress",
-          work_state: :working,
-          waiting_reason: :active,
-          runtime_seconds: 60,
-          open_decision_count: 0,
-          backend: "claude",
-          requested_model: "opus",
-          resolved_model: "claude-opus-5-1"
-        }
-      ],
-      retrying: [],
-      idle: []
-    }
-
-    html =
-      render_component(&FleetTable.fleet_table/1, %{
-        fleet: fleet,
-        decisions: [],
-        now: ~U[2026-07-12 13:00:00Z]
-      })
-
-    assert html =~ ~s(class="u-pill u-model" title="claude-opus-5-1">OPUS 5.1</span>)
-  end
-
-  test "gives fleet icon actions accessible names" do
-    fleet = %{
-      running: [
-        %{
-          issue_identifier: "AIUR-987",
-          title: "Operator Control Center",
-          state: "in-progress",
-          work_state: :working,
-          waiting_reason: :active,
-          last_message: "Reviewing the dashboard",
-          runtime_seconds: 60,
-          open_decision_count: 1,
-          url: "https://example.test/issues/987"
-        }
-      ],
-      retrying: [],
-      idle: []
-    }
-
-    decisions = [%{decision_id: "dec-accessible", ticket: %{identifier: "AIUR-987"}}]
-
-    html =
-      render_component(&FleetTable.fleet_table/1, %{
-        fleet: fleet,
-        decisions: decisions,
-        now: ~U[2026-07-12 13:00:00Z]
-      })
-
-    assert html =~ ~s(aria-label="Open pending Command")
-    assert html =~ ~s(aria-label="Read agent conversation")
-    assert html =~ ~s(aria-label="Open tracker ticket")
-    assert html =~ ~s(data-label="Ticket")
-    assert html =~ ~s(data-label="Latest")
-    assert html =~ ~s(data-label="Elapsed")
-    assert html =~ ~s(data-label="Commands")
   end
 end

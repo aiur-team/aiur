@@ -2,24 +2,31 @@ defmodule Aiur.LandingWatch.TicketLookup do
   @moduledoc false
 
   alias Aiur.GitHub.Client
+  alias Aiur.Instance
   alias Aiur.LandingWatch.LocalRead
   alias Aiur.TicketBranch
 
   @ticket_states ["rework", "in-progress", "todo", "human-review", "ci-wait", "merging"]
 
-  @spec fetch(map(), keyword()) :: {:ok, String.t(), String.t(), boolean()} | {:error, term()}
+  @spec fetch(map(), keyword()) :: {:ok, String.t(), String.t(), boolean(), boolean()} | {:error, term()}
   def fetch(observation, opts) do
     case TicketBranch.ticket_id(get_in(observation.rest || %{}, ["head", "ref"])) do
       nil ->
         {:error, :pull_request_not_linked_to_ticket_branch}
 
       issue ->
-        case LocalRead.run(Keyword.get(opts, :ticket_state_fun, &fetch_state/2), [issue, opts], opts) do
-          {:ok, %{state: state, paused?: paused?}} -> {:ok, issue, state, paused?}
-          {:ok, state} -> {:ok, issue, state, false}
-          {:error, _} = error -> error
-          _ -> {:error, :ticket_state_unavailable}
-        end
+        if Instance.skip?(issue, nil, :landing_watch), do: {:ok, issue, "foreign", false, false}, else: lookup(issue, opts)
+    end
+  end
+
+  # "foreign" matches no landing state, so callers neither enqueue, withdraw nor route rework for it.
+  defp lookup(issue, opts) do
+    case LocalRead.run(Keyword.get(opts, :ticket_state_fun, &fetch_state/2), [issue, opts], opts) do
+      {:ok, %{state: state, paused?: paused?, held?: held?}} -> {:ok, issue, state, paused?, held?}
+      {:ok, %{state: state, paused?: paused?}} -> {:ok, issue, state, paused?, false}
+      {:ok, state} -> {:ok, issue, state, false, false}
+      {:error, _} = error -> error
+      _ -> {:error, :ticket_state_unavailable}
     end
   end
 
@@ -29,8 +36,9 @@ defmodule Aiur.LandingWatch.TicketLookup do
       # Gating states win while label edits add before removing the old state.
       {:ok,
        %{
-         state: Enum.find(@ticket_states, "other", &("agent:#{&1}" in names)),
-         paused?: "#{prefix()}:paused" in names
+         state: if(Instance.skip?(issue, names, :landing_watch), do: "foreign", else: Enum.find(@ticket_states, "other", &("agent:#{&1}" in names))),
+         paused?: "#{prefix()}:paused" in names,
+         held?: "#{prefix()}:parked" in names or Enum.any?(names, &String.starts_with?(&1, "#{prefix()}:executor:"))
        }}
     end
   end

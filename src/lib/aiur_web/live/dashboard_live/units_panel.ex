@@ -2,12 +2,16 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [push_patch: 2]
+  import Phoenix.LiveView, only: [push_patch: 2, start_async: 3]
 
   alias Aiur.OpenTicketSource
-  alias AiurWeb.DashboardLive
+  alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.DashboardLive.Controls
-  alias AiurWeb.OperatorControlCenter.{AddAgentSubmission, AgentRoutingPreview, TicketsPresenter, UnitsPresenter, UnitsURL}
+  alias AiurWeb.OperatorControlCenter.AddAgentSubmission
+  alias AiurWeb.OperatorControlCenter.AgentRoutingPreview
+  alias AiurWeb.OperatorControlCenter.TicketsPresenter
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
+  alias AiurWeb.OperatorControlCenter.UnitsURL
 
   @table_sort_columns %{
     "units" => ~w(id unit ticket latest),
@@ -22,22 +26,8 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   @spec units_path(Phoenix.LiveView.Socket.t(), map()) :: String.t()
   def units_path(socket, selection) do
     params = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort])
-    "/?" <> URI.encode_query(params)
+    Map.get(socket.assigns, :units_base_path, "/units") <> "?" <> URI.encode_query(params)
   end
-
-  # Emit only positive known counts; this producer cannot distinguish zero from unknown.
-  @doc false
-  @spec nav_counts(map(), map() | nil) :: map()
-  def nav_counts(units_view, retained_counts) do
-    %{}
-    |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
-    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :awaiting))
-  end
-
-  defp put_nav_count(counts, key, value) when is_integer(value) and value > 0,
-    do: Map.put(counts, key, value)
-
-  defp put_nav_count(counts, _key, _value), do: counts
 
   @doc false
   @spec assign_units_selection(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
@@ -216,7 +206,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
     OpenTicketSource.refresh()
     Aiur.Orchestrator.request_refresh(Controls.capacity_orchestrator())
-    DashboardLive.reload_after_action(socket)
+    Commands.reload_after_action(socket)
   rescue
     _error -> socket
   catch
@@ -260,5 +250,41 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
       1 -> "1 unit"
       count -> "#{count} units"
     end
+  end
+
+  @doc false
+  @spec on_open_add_agent(String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  def on_open_add_agent(token, socket) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  @doc false
+  @spec on_confirm_add_agent(map(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  def on_confirm_add_agent(params, modal, socket) do
+    modal =
+      if Map.has_key?(params, "backend") do
+        change_add_agent(modal, params)
+      else
+        modal
+      end
+
+    orchestrator = Controls.capacity_orchestrator()
+
+    {:noreply,
+     socket
+     |> assign(:add_agent_pending, modal)
+     |> assign(:add_agent_modal, Map.put(modal, :pending?, true))
+     |> start_async(:add_agent_submission, fn ->
+       result = AddAgentSubmission.run(modal)
+
+       if match?(%{error: nil, authorization: :authorized, state: "todo"}, result) do
+         Aiur.Orchestrator.note_queued_demand(orchestrator, [modal.identifier])
+       end
+
+       result
+     end)}
   end
 end

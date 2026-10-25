@@ -3,9 +3,9 @@ defmodule Aiur.GitHub.TransportTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{CIRecovery, Transport}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -353,6 +353,37 @@ defmodule Aiur.GitHub.TransportTest do
                })
 
       assert_receive {:if_none_match, ["W/\"abc123\""]}, 1000
+    end
+
+    # #6154: ConflictUpdate's update-branch is a PUT; without a :put clause it crashed the landing-watch poll.
+    test "CIRecovery.update_branch sends a PUT through the real transport" do
+      test_pid = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:update_branch, conn.method, conn.request_path, Jason.decode!(body)})
+        conn |> Plug.Conn.put_status(202) |> Req.Test.json(%{"message" => "Updating pull request branch."})
+      end)
+
+      assert {:ok, %{"message" => "Updating pull request branch."}} =
+               CIRecovery.update_branch(5506, "head-sha", token: "token", caller: "landing_watch_conflict_update")
+
+      assert_receive {:update_branch, "PUT", "/repos/owner/repo/pulls/5506/update-branch", %{"expected_head_sha" => "head-sha"}}, 1000
+    end
+
+    test "a crash inside default_request_fun does not carry the request credential" do
+      log =
+        capture_log(fn ->
+          task = start_supervised!({Task, fn -> Transport.default_request_fun(%{method: :head, url: "https://api.github.com/repos/owner/repo", token: "secret-credential"}) end})
+          ref = Process.monitor(task)
+
+          assert_receive {:DOWN, ^ref, :process, ^task, {:function_clause, [{Transport, :do_request, [request], _location} | _]} = reason}, 1000
+          assert request.url == "https://api.github.com/repos/owner/repo"
+          Aiur.TestSupport.refute_leak(reason, "secret-credential")
+        end)
+
+      assert log =~ "do_request"
+      refute log =~ "secret-credential"
     end
 
     test "default_request_fun omits If-None-Match when no etag is cached" do

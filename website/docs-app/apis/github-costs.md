@@ -4,7 +4,11 @@
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
 
+An accepted blocking decision answer is mirrored to its ticket with a stable action marker, so retries do not duplicate comments. If no agent is running, Aiur keeps the answer pending and includes it in the next session's launch prompt.
+
 Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
+
+Setting `PUT /api/v1/<ticket>/spend-cap` resolves that issue once through the existing `issue_by_id` read before it stores a repository-qualified tracker identity. Reading or clearing an existing cap is local and adds no GitHub request.
 
 Idle restacks use delivered PR facts and the agent credential file, with cached GitHub helpers cleared. Push propagation uses exact-head leases for fast-forward commits. Each direct dependent’s push advances the cascade; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
 
@@ -30,7 +34,17 @@ Attempts are journaled before writes; queued PRs are left alone. Recovery does n
 
 Three failed CI/rework handoffs per PR raise one attention naming tests and hold further rework/fallback wakes. The Executor fixes or reruns the current head until all required checks pass, releasing the hold and resetting the cycle count. Acknowledging the alert alone does not release it.
 
+Rework handbacks also read classified PR conversation comments once to catch trusted change requests newer than the last formal review. Automatic end-of-turn handbacks use the same current-head evidence and feedback checks as tool-requested handbacks.
+
 A rerun not observed within ten minutes raises attention. Journaled attention holds avoid repeated recovery reads; normal CI polling continues. No saving is claimed.
+
+Runner-queue reporting reuses the open-PR observations already fetched by the landing watcher and adds only the queued workflow-run listing. At the current queue depth this is one Actions REST page per poll. Caller: `landing_watch_runner_queue`; Actions read required. This makes queue pressure visible; it claims no saving.
+
+A rework handback with no commit since the blocking review reads the PR body's GraphQL `lastEditedAt` once, attributed to `rework_body_edit`, so a body-only fix can pass the [rework guard](/concepts/ticket-lifecycle).
+
+The read costs one GraphQL point per handback attempt and never runs on a poll. Handbacks with a new commit skip it; a failed read counts as no edit.
+
+When handoff evidence is stale, the daemon may apply a validated workspace-staged PR body through `agent_handoff_body`, then re-reads the PR to confirm the stored body and head before allowing handoff.
 
 Orphan-claim recovery reads mergeability/reviews before guarded add-before-remove state writes. It posts a reason comment and wakes the Executor ([Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Successful writes retain GitHub's returned state.
 

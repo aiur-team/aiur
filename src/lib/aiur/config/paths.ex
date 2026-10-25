@@ -25,6 +25,12 @@ defmodule Aiur.Config.Paths do
 
   @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
+  @doc false
+  @spec dashboard_secret_root() :: Path.t()
+  def dashboard_secret_root do
+    Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+  end
+
   @doc """
   Returns the per-launch log directory. Defaults to `<cwd>/log` when no
   `--logs-root` was set. It does not survive a daemon restart.
@@ -115,6 +121,15 @@ defmodule Aiur.Config.Paths do
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "progress-retention")}
         end
+    end
+  end
+
+  @doc "Resolves the durable estimate overrides beneath the decision state root."
+  @spec build_estimates_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_estimates_state_dir do
+    case Application.get_env(:aiur, :build_estimates_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "build-estimates")}
     end
   end
 

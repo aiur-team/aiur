@@ -277,6 +277,16 @@ defmodule Aiur.Events.GithubWebhook do
   # already carry, so a generic wake would only duplicate the targeted pass.
   defp nudge_orchestrator(%{kind: :main_ci}, _opts), do: Aiur.MainWatch.reconcile()
 
+  defp nudge_orchestrator(%{kind: :ci, action: "synchronize", ticket: ticket, pr_number: pr_number}, opts)
+       when is_binary(ticket) and is_integer(pr_number) do
+    case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
+      pid when is_pid(pid) -> send(pid, {:github_pr_synchronize, ticket, pr_number})
+      nil -> :ok
+    end
+
+    maybe_wake_orchestrator(opts)
+  end
+
   defp nudge_orchestrator(%{kind: :review_thread} = hint, opts) do
     case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
       pid when is_pid(pid) -> send(pid, {:github_webhook_reconcile, hint})

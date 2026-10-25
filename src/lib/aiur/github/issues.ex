@@ -14,14 +14,15 @@ defmodule Aiur.GitHub.Issues do
     Labels,
     OpenIssueListing,
     ResourceStore,
+    StateLabels,
     StatePolicy,
     Transport
   }
 
   alias Aiur.GitHub.Issues.DispatchAuthorization
   alias Aiur.Orchestrator.DispatchPolicy
-
-  @max_issue_response_bytes 65_536
+  # Worst-case JSON escaping is 6 bytes per character: 65,536 × 6 + 128 KiB metadata.
+  @max_issue_response_bytes 524_288
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
   # assignees, and bodies measured ~390 KiB (#2140), and a backlog whose ticket
@@ -445,15 +446,11 @@ defmodule Aiur.GitHub.Issues do
 
     healable =
       rest
-      |> Enum.filter(&(degenerate_state_labels?(&1) or &1.state in ~w(ci-wait human-review error)))
+      |> StateLabels.filter_candidate_repair_labels(prefix, active_states)
       |> TestTicketScope.filter_issues()
 
     authorized ++ healable
   end
-
-  defp degenerate_state_labels?(%Issue{state_labels: []}), do: true
-  defp degenerate_state_labels?(%Issue{state_labels: [_, _ | _]}), do: true
-  defp degenerate_state_labels?(_issue), do: false
 
   @spec fetch_issues_for_each_label(
           [String.t()],

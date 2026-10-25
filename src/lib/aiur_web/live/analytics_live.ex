@@ -22,7 +22,7 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, LiveConcurrency, Loading, Presenter, Runtime, ScopeResolver, Styles}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, ConcurrencyCoverage, LiveConcurrency, Loading, Presenter, Runtime, ScopeResolver, SourceInfo, Styles}
 
   @usage_summary_max_age_ms 30_000
   # Matches the CLI: telemetry within this window is "just now", older telemetry shows elapsed age.
@@ -55,8 +55,27 @@ defmodule AiurWeb.AnalyticsLive do
   defdelegate handle_info(message, socket), to: Runtime
 
   @impl true
-  def handle_async(:analytics_model, {:ok, {result, rtk}}, %{assigns: %{unavailable: :loading}} = socket) do
+  def handle_async(:analytics_model, {:ok, {result, rtk}}, socket), do: accept_analytics_result(socket, result, rtk)
+
+  def handle_async(:analytics_model, {:exit, reason}, socket) do
+    if socket.assigns[:analytics_refreshing?] || socket.assigns[:analytics_timed_out?] do
+      {:noreply, assign(socket, :analytics_refreshing?, false)}
+    else
+      Logger.warning("Analytics loading failed: #{inspect(reason)}")
+      handle_async(:analytics_model, {:ok, {{:unavailable, :error}, %{state: :absent, title: "Compression unavailable", message: "Analytics loading failed."}}}, socket)
+    end
+  end
+
+  def handle_async(:analytics_model, _result, socket), do: {:noreply, socket}
+
+  defp chart_model(model, {start_ms, end_ms}) when is_integer(start_ms) and is_integer(end_ms),
+    do: Charts.with_exact_time_domain(model, {start_ms, end_ms}, boundary_samples: false)
+
+  defp chart_model(model, _domain), do: model
+
+  defp accept_analytics_result(socket, result, rtk) do
     now = DateTime.utc_now()
+    if socket.assigns[:analytics_cache_key], do: Runtime.cache_result(socket.assigns.analytics_cache_key, result)
     socket = assign(socket, :rtk, rtk)
 
     socket =
@@ -67,10 +86,12 @@ defmodule AiurWeb.AnalyticsLive do
           socket
           |> assign(
             model: model,
+            chart_model: chart_model(model, domain),
             provider_spend: provider_spend(socket, model.source_boot_id),
             selected: MapSet.new(model.actors, & &1.key),
             unavailable: nil,
-            source: source_info(model, now),
+            source: SourceInfo.for_model(model, now),
+            analytics_refreshing?: false,
             now: now
           )
           |> assign_time_domain(domain)
@@ -84,19 +105,13 @@ defmodule AiurWeb.AnalyticsLive do
             selected: MapSet.new(),
             source: nil,
             unavailable: reason,
+            analytics_refreshing?: false,
             now: now
           )
       end
 
     {:noreply, socket}
   end
-
-  def handle_async(:analytics_model, {:exit, reason}, %{assigns: %{unavailable: :loading}} = socket) do
-    Logger.warning("Analytics loading failed: #{inspect(reason)}")
-    handle_async(:analytics_model, {:ok, {{:unavailable, :error}, %{state: :absent, title: "Compression unavailable", message: "Analytics loading failed."}}}, socket)
-  end
-
-  def handle_async(:analytics_model, _result, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
@@ -167,6 +182,8 @@ defmodule AiurWeb.AnalyticsLive do
           state={@unavailable}
           elapsed_seconds={@analytics_load_elapsed_seconds}
           timeout_seconds={@analytics_load_timeout_seconds}
+          refreshing?={@analytics_refreshing?}
+          refresh_timed_out?={@analytics_timed_out?}
         />
         <div :if={@unavailable && @unavailable not in [:loading, :timeout]} class="an-empty" data-empty-reason={@unavailable}>
           <div :if={@unavailable == :no_telemetry}>
@@ -186,7 +203,7 @@ defmodule AiurWeb.AnalyticsLive do
           <div>
             <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
             <p class="an-scope-note">
-              {scope_note(@analytics_scope)}
+              {scope_note(@analytics_scope, @model)}
             </p>
             <p :if={@source} class="an-source" data-source-kind={@source.kind} title={source_title(@source)}>
               Source: <b>{source_kind_label(@source.kind)}</b>
@@ -262,7 +279,7 @@ defmodule AiurWeb.AnalyticsLive do
                 <p :if={ConcurrencyCoverage.partial_reason(@model, @analytics_scope)} id="analytics-concurrency-coverage" class="an-card-sub" role="status">{ConcurrencyCoverage.partial_reason(@model, @analytics_scope)}</p>
               </div>
             </div>
-            <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{if ConcurrencyCoverage.unknown?(@model, @analytics_scope), do: "Concurrency unknown: no active agents were sampled.", else: Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
+            <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{if ConcurrencyCoverage.unknown?(@model, @analytics_scope), do: ConcurrencyCoverage.chart_unknown_label(@model, @analytics_scope), else: Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
           </section>
 
           <section class="an-card wide">
@@ -557,37 +574,19 @@ defmodule AiurWeb.AnalyticsLive do
   defp provider_spend_view(_view), do: %{state: :unavailable}
 
   defp analytics_scope(root_number), do: ScopeResolver.resolve(root_number)
-
   defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, latest run"
   defp scope_label(:session), do: "latest run"
   defp scope_label(:unavailable), do: "selected Build Order unavailable"
 
-  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in the latest run with telemetry."
-  defp scope_note(:session), do: "The latest run with telemetry. Add a Build Order selection to scope this page to its members."
-  defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
+  defp scope_note(%{kind: :build_order}, _model), do: "Only the selected Build Order's typed members in the latest run with telemetry."
+  defp scope_note(:session, %{tickets: [_ticket]}), do: "This is a 1-ticket window: only one ticket has telemetry in the latest run."
+  defp scope_note(:session, _model), do: "The latest run with telemetry. Add a Build Order selection to scope this page to its members."
+  defp scope_note(:unavailable, _model), do: "The selected Build Order could not provide a valid member graph."
 
   # The rendered charts can come from the live boot or from a retained prior
   # run (the restart fallback). The source line makes which one visible so a
   # run that ended an hour ago is never presented as the current boot, and so
   # the cutover when a fresh boot takes over is not silent.
-  defp source_info(model, now) do
-    current = safe_boot_id()
-    boot_id = Map.get(model, :source_boot_id)
-    observed_at = parse_observed(Map.get(model, :source_observed_at))
-    age_ms = if observed_at, do: max(DateTime.diff(now, observed_at, :millisecond), 0), else: nil
-
-    %{
-      kind: source_kind(boot_id, current),
-      boot_id: boot_id,
-      observed_at: observed_at,
-      age_ms: age_ms
-    }
-  end
-
-  defp source_kind(boot_id, current) when is_binary(boot_id) and boot_id != "" and boot_id == current, do: :live
-  defp source_kind(boot_id, _current) when is_binary(boot_id) and boot_id != "", do: :retained
-  defp source_kind(_boot_id, _current), do: :history
-
   defp source_kind_label(:live), do: "live boot"
   defp source_kind_label(:retained), do: "retained run"
   defp source_kind_label(:history), do: "retained history"
@@ -615,25 +614,6 @@ defmodule AiurWeb.AnalyticsLive do
   defp short_boot(nil), do: nil
   defp short_boot(id) when is_binary(id) and byte_size(id) > 8, do: binary_part(id, 0, 8)
   defp short_boot(id), do: id
-
-  defp parse_observed(nil), do: nil
-
-  defp parse_observed(iso) when is_binary(iso) do
-    case DateTime.from_iso8601(iso) do
-      {:ok, observed_at, _offset} -> observed_at
-      _invalid -> nil
-    end
-  end
-
-  defp parse_observed(_other), do: nil
-
-  defp safe_boot_id do
-    Aiur.RunTelemetry.boot_id()
-  rescue
-    _error -> nil
-  catch
-    _kind, _reason -> nil
-  end
 
   defp pressure_time(ms) when is_integer(ms), do: ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
   defp pressure_time(_ms), do: "—"

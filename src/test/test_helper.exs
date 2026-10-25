@@ -1,25 +1,11 @@
-contaminating_env_vars = [
-  "TMUX",
-  "TMUX_PANE",
-  "ERL_AFLAGS",
-  "AIUR_DASHBOARD_USERNAME",
-  "AIUR_DASHBOARD_PASSWORD",
-  "AIUR_DEV_TEST_TICKET_IDS",
-  "AIUR_DEV_TEST_STATE_DIR",
-  "AIUR_DEBUG",
-  "AIUR_SUPERVISOR_TOKEN",
-  "AIUR_NODE",
-  "AIUR_ERLANG_COOKIE",
-  "AIUR_TMUX_CONF",
-  "AIUR_TMUX_SESSION",
-  "AIUR_TMUX_SOCKET",
-  "AIUR_AGENT_TMUX_SOCKET",
-  "AIUR_LOGS_ROOT"
-]
+Code.require_file("support/test_environment.ex", __DIR__)
+Aiur.TestEnvironment.clear_inherited!()
 
-for var <- contaminating_env_vars do
-  System.delete_env(var)
-end
+# Container probes must never observe the host's real cgroup from tests unless
+# a test explicitly installs its own fake cgroup tree.
+test_cgroup_root = Path.join(System.tmp_dir!(), "aiur-test-cgroup-disabled-#{System.unique_integer([:positive])}")
+if File.exists?(test_cgroup_root), do: raise("test cgroup root must not exist: #{test_cgroup_root}")
+Application.put_env(:aiur, :cgroup_root_override, test_cgroup_root)
 
 run_orchestrator_guard_probes = System.get_env("AIUR_RUN_ORCHESTRATOR_GUARD_PROBES") == "1"
 
@@ -92,6 +78,13 @@ ExUnit.start(
 
 Code.require_file("support/test_tmp.exs", __DIR__)
 
+dashboard_secret_root = Application.fetch_env!(:aiur, :dashboard_secret_root)
+
+Aiur.TestTmp.after_final_round(fn _result ->
+  Application.delete_env(:aiur, :dashboard_secret_root)
+  Aiur.TestCleanup.rm_rf!(dashboard_secret_root)
+end)
+
 test_run_root =
   Aiur.TestTmp.start!(Path.join(System.tmp_dir!(), "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"))
 
@@ -123,7 +116,9 @@ Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml_sections.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/orchestrator_child.exs", __DIR__)
+Code.require_file("support/test_support/codeowners_guard_state.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
+Code.require_file("support/test_support/supervisor_exit.exs", __DIR__)
 Code.require_file("support/test_support/orchestrator_guard.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/test_support/runner_tasks.exs", __DIR__)
@@ -167,6 +162,7 @@ Code.put_compiler_option(:no_warn_undefined, [])
 
 Aiur.TestSupport.EndpointStubs.init!()
 Aiur.TestSupport.LifecycleLeakGuard.start!()
+Aiur.TestSupport.LifecycleLeakGuard.install_late_log_handler!()
 
 # Keep plain ExUnit.Case modules and between-case application timers from
 # publishing Orchestrator poll state or alerts into the suite-wide ledger.

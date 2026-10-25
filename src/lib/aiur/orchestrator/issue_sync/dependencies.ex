@@ -7,19 +7,29 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
 
   alias Aiur.AgentQueue
   alias Aiur.AgentQueueStore
-  alias Aiur.Alerts
+  alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoSubscriptions
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.PushRouting
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   @capacity_starvation_alert_after_ms 60_000
   @doc false
   @spec emit_dependency_transition_events(State.t(), Issue.t() | nil, term()) :: State.t()
-  def emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
+  def emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue),
+    do: emit_dependency_transition_events(state, previous_issue, issue, [])
+
+  def emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
+
+  @spec emit_dependency_transition_events(State.t(), Issue.t() | nil, term(), keyword()) :: State.t()
+  def emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue, opts) do
+    state = sync_dependency_reason_label(state, previous_issue, issue, opts)
+
     if is_nil(previous_issue) do
       state
     else
@@ -59,7 +69,54 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
     end
   end
 
-  def emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
+  def emit_dependency_transition_events(%State{} = state, _previous_issue, _issue, _opts), do: state
+
+  # Compares against the labels the tracker reported, so a restart (no previous
+  # issue) writes only where the label is wrong and a stale label heals.
+  defp sync_dependency_reason_label(state, _previous_issue, issue, opts) do
+    current_open? = open_dependency?(issue)
+    labeled? = "#{Config.label_prefix()}:blocked" in Enum.map(List.wrap(issue.labels), &String.downcase/1)
+
+    if is_nil(current_open?) or current_open? == labeled? do
+      state
+    else
+      schedule_dependency_reason_label(state, issue, current_open?, opts)
+    end
+  end
+
+  defp schedule_dependency_reason_label(state, issue, current_open?, opts) do
+    action = if current_open?, do: :add, else: :remove
+    writer = Keyword.get(opts, :reason_label_writer, &write_dependency_reason_label/2)
+
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, issue.identifier},
+      fn -> writer.(issue.identifier, action) end,
+      &apply_dependency_label_result(&1, &2, issue.identifier)
+    )
+  end
+
+  defp apply_dependency_label_result(state, :ok, _identifier), do: state
+
+  defp apply_dependency_label_result(state, {:error, reason}, identifier) do
+    Logger.warning("blocked reason label update failed: issue=#{identifier} reason=#{inspect(reason)}")
+    state
+  end
+
+  defp open_dependency?(%Issue{blocked_by: []}), do: false
+
+  defp open_dependency?(%Issue{blocked_by: blockers}) when is_list(blockers) do
+    Enum.any?(blockers, fn
+      %{state: state} when is_binary(state) -> not DispatchPolicy.terminal_issue_state?(state, DispatchPolicy.terminal_state_set())
+      _unknown -> true
+    end)
+  end
+
+  defp open_dependency?(%Issue{blocked_by: blockers}) when is_nil(blockers), do: nil
+  defp open_dependency?(_issue), do: nil
+
+  defp write_dependency_reason_label(identifier, action),
+    do: TicketTransition.write_reason_modifier(identifier, action, "blocked", writer: :issue_sync_dependencies)
 
   @spec blocker_map(term()) :: map()
   def blocker_map(%Issue{blocked_by: blockers}) when is_list(blockers) do
@@ -294,7 +351,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
     topic = dependency_circular_wait_topic(entry.identifier)
     message = "Circular wait: #{entry.identifier} is queued while #{entry.waiting_count} parked agent(s) wait on it."
 
-    case Alerts.emit_system(topic,
+    case Signal.alert(topic,
            message: message,
            issue: entry.identifier,
            reason: message,
@@ -314,7 +371,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
     |> Enum.each(fn entry ->
       message = "Circular wait cleared for #{entry.identifier}."
 
-      Alerts.emit_system(dependency_circular_wait_topic(entry.identifier) <> ".resolved",
+      Signal.alert(dependency_circular_wait_topic(entry.identifier) <> ".resolved",
         message: message,
         issue: entry.identifier,
         reason: message,

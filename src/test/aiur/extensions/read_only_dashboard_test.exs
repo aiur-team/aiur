@@ -46,7 +46,7 @@ defmodule Aiur.Extensions.ReadOnlyDashboardTest do
       units_activity_fun: &static_units_activity/0
     )
 
-    {:ok, view, _html} = live(build_conn(), "/")
+    {:ok, view, _html} = live(build_conn(), "/units")
 
     token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
@@ -72,7 +72,7 @@ defmodule Aiur.Extensions.ReadOnlyDashboardTest do
       snapshot_timeout_ms: 5
     )
 
-    {:ok, _view, html} = live(build_conn(), "/")
+    {:ok, _view, html} = live(build_conn(), "/units")
     assert html =~ "No fleet data"
     assert html =~ "orchestrator_unavailable"
     # The presenter still carries the unpublished wording for other codes; an

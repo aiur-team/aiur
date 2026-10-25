@@ -1,9 +1,11 @@
 defmodule Aiur.AgentRunner.TurnCompletion do
+  # Cohesion: final state, retry, no-op and handoff decisions share one turn
+  # context and return through the same runner completion contract.
   @moduledoc false
 
   require Logger
   alias Aiur.AgentCompaction.Handoff
-  alias Aiur.AgentRunner.{NoopWait, ReworkHandoff, TurnAlerts, TurnLoop, TurnProgress}
+  alias Aiur.AgentRunner.{NoopWait, ReworkFindings, ReworkHandoff, ReworkHandoffGuard, TurnAlerts, TurnLoop, TurnProgress}
   alias Aiur.{Config, Issue}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
@@ -46,8 +48,8 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     end
   end
 
-  # #2806: fold turn progress into the no-op counter and stop without mutating
-  # the ticket once an unproductive run reaches its cap. Productive turns reset it.
+  # #2806: fold turn progress into the no-op counter and hand off once an
+  # unproductive run reaches its cap. Productive turns reset the counter.
   defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue, message_handler) do
     %{
       workspace: workspace,
@@ -111,19 +113,22 @@ defmodule Aiur.AgentRunner.TurnCompletion do
   @doc "Handoff for a no-op turn; the bound and the park share these opts (#3971)."
   @spec noop_handoff(map(), Aiur.Issue.t()) :: {:handoff, term()} | :none | {:error, term()}
   def noop_handoff(turn_context, issue) do
-    opts = Keyword.put(turn_context.opts, :superseded_review_handoff?, noop_failure_state(issue) == "error")
+    opts = Keyword.put(turn_context.opts, :superseded_review_handoff?, noop_failure_state(issue, turn_context.opts) == "error")
     transition_agent_handoff(%{turn_context | opts: opts}, issue)
   end
 
   defp complete_noop_bound_without_handoff(turn_context, issue, progress, witness, cap) do
     %{workspace: workspace, worker_host: worker_host, turn_number: turn_number} = turn_context
 
-    case noop_failure_state(issue) do
-      nil ->
+    case noop_bound_disposition(issue, turn_context.opts) do
+      :handoff ->
+        handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number)
+
+      :keep_rework ->
         emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)
         TurnLoop.return_completed(turn_context, issue)
 
-      state_name ->
+      {:fail, state_name} ->
         case TicketTransition.write_state(issue.identifier, state_name, writer: :turn_loop) do
           :ok ->
             failed_issue = %{issue | state: state_name}
@@ -133,6 +138,26 @@ defmodule Aiur.AgentRunner.TurnCompletion do
           {:error, reason} ->
             {:error, {:noop_bound_state_write_failed, reason}}
         end
+    end
+  end
+
+  defp handoff_noop_without_state(turn_context, issue, workspace, worker_host, progress, witness, cap, turn_number) do
+    reason = "Agent reached the no-op turn limit without making progress."
+
+    case TicketTransition.write_comment(issue.identifier, reason, writer: :turn_loop) do
+      :ok ->
+        case TicketTransition.write_state(issue.identifier, "human-review", writer: :turn_loop) do
+          :ok ->
+            review_issue = %{issue | state: "human-review"}
+            emit_noop_bound_alert(review_issue, workspace, worker_host, progress, witness, cap, turn_number)
+            TurnLoop.return_completed(turn_context, review_issue)
+
+          {:error, write_reason} ->
+            {:error, {:noop_bound_state_write_failed, write_reason}}
+        end
+
+      {:error, comment_reason} ->
+        {:error, {:noop_bound_comment_write_failed, comment_reason}}
     end
   end
 
@@ -159,17 +184,43 @@ defmodule Aiur.AgentRunner.TurnCompletion do
 
     case stopped_agent_handoff(refreshed_issue, workspace, worker_host, opts) do
       {:handoff, state} ->
-        case TicketTransition.write_state(refreshed_issue.identifier, state, writer: :turn_loop) do
+        case open_review_findings(refreshed_issue, opts) do
+          [] ->
+            handoff_after_evidence_check(turn_context, refreshed_issue, state, workspace, worker_host, opts)
+
+          findings ->
+            TurnAlerts.emit_rework_findings_open_alert(refreshed_issue, workspace, worker_host, findings)
+            :none
+        end
+
+      :none ->
+        :none
+    end
+  end
+
+  # #5746: a run stopped by a turn cap must not hand back a review whose findings only `aiur_set_ticket_state` can
+  # verify. An unreadable review keeps the previous handback.
+  defp open_review_findings(issue, opts) do
+    case ReworkFindings.fetch(issue.identifier, opts) do
+      {:ok, %{findings: findings}} -> findings
+      {:error, _reason} -> []
+    end
+  end
+
+  defp handoff_after_evidence_check(turn_context, issue, state, workspace, worker_host, opts) do
+    case ReworkHandoffGuard.evidence_blockers(issue, state, workspace, opts) do
+      :allow ->
+        case TicketTransition.write_state(issue.identifier, state, writer: :turn_loop) do
           :ok ->
-            TurnAlerts.emit_rework_handoff_alert(refreshed_issue, workspace, worker_host, state)
-            {:handoff, TurnLoop.return_completed(turn_context, %{refreshed_issue | state: state})}
+            TurnAlerts.emit_rework_handoff_alert(issue, workspace, worker_host, state)
+            {:handoff, TurnLoop.return_completed(turn_context, %{issue | state: state})}
 
           {:error, reason} ->
             {:error, {:rework_handoff_state_write_failed, reason}}
         end
 
-      :none ->
-        :none
+      {:refused, reason, message} ->
+        {:error, {:rework_handoff_evidence_refused, reason, message}}
     end
   end
 
@@ -184,10 +235,19 @@ defmodule Aiur.AgentRunner.TurnCompletion do
     )
   end
 
-  defp noop_failure_state(issue) do
+  @doc false
+  @spec noop_failure_state(Issue.t(), keyword()) :: String.t() | nil
+  def noop_failure_state(issue, opts) do
+    case noop_bound_disposition(issue, opts) do
+      {:fail, state_name} -> state_name
+      _other -> nil
+    end
+  end
+
+  defp noop_bound_disposition(issue, opts) do
     case DispatchPolicy.normalize_issue_state(issue.state) do
-      "rework" -> "error"
-      _ -> nil
+      "rework" -> if open_review_findings(issue, opts) == [], do: {:fail, "error"}, else: :keep_rework
+      _ -> :handoff
     end
   end
 

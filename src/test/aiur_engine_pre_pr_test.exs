@@ -1,10 +1,11 @@
 defmodule AiurEnginePrePrTest do
   use ExUnit.Case, async: false
+  import Aiur.PrePrFixture
 
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
   @shim Path.expand("../../scripts/aiurdev", __DIR__)
 
-  test "conflicting origin main reports the file, aborts, and leaves the checkout clean" do
+  test "pre-pr snapshots origin main without merging it into the checkout" do
     fixture = fixture("conflict")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
@@ -15,17 +16,49 @@ defmodule AiurEnginePrePrTest do
     File.write!(Path.join(repo, "collision.txt"), "main\n")
     git!(repo, ["commit", "-am", "main"])
     git!(repo, ["switch", "feature"])
+    feature_head = git_output!(repo, ["rev-parse", "HEAD"])
 
     {output, status} = run_pre_pr(fixture, repo)
 
     assert status == 1
-    assert output =~ "FAIL merge conflict: collision.txt"
+    assert output =~ "PASS base origin/main"
+    assert output =~ "Base SHA:"
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
-    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
+    assert output =~ "--- end aiur pre-pr result ---\n"
     assert git_output!(repo, ["status", "--porcelain"]) == ""
+    assert git_output!(repo, ["rev-parse", "HEAD"]) == feature_head
+    assert File.read!(Path.join(repo, "collision.txt")) == "feature\n"
     refute File.exists?(Path.join(fixture, "home/.aiur"))
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
+  end
+
+  test "pre-pr does not merge main after two non-conflicting base moves" do
+    fixture = fixture("two-base-moves")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.write!(Path.join(repo, "feature.txt"), "feature\n")
+    git!(repo, ["add", "feature.txt"])
+    git!(repo, ["commit", "-m", "feature change"])
+    git!(repo, ["switch", "main"])
+
+    for name <- ["main-one.txt", "main-two.txt"] do
+      File.write!(Path.join(repo, name), "#{name}\n")
+      git!(repo, ["add", name])
+      git!(repo, ["commit", "-m", "move main #{name}"])
+    end
+
+    git!(repo, ["switch", "feature"])
+    head = git_output!(repo, ["rev-parse", "HEAD"])
+    commit_count = git_output!(repo, ["rev-list", "--count", "HEAD"])
+    tree = git_output!(repo, ["rev-parse", "HEAD^{tree}"])
+
+    {_output, _status} = run_pre_pr(fixture, repo)
+
+    assert git_output!(repo, ["rev-parse", "HEAD"]) == head
+    assert git_output!(repo, ["rev-list", "--count", "HEAD"]) == commit_count
+    assert git_output!(repo, ["rev-parse", "HEAD^{tree}"]) == tree
+    assert git_output!(repo, ["status", "--porcelain"]) == ""
   end
 
   test "PR body refresh fixes stale head and writes plain base evidence" do
@@ -40,7 +73,10 @@ defmodule AiurEnginePrePrTest do
         "\nBase: `main` @ `" <> sha <> "`\nSelection: focused\n- `mix test` -> pass\n"
 
     # Each refresh rewrites pr.json, so every run starts again from this seed.
-    File.write!(Path.join(fixture, "pr-seed.json"), Jason.encode!(%{"number" => 123, "body" => body}))
+    File.write!(
+      Path.join(fixture, "pr-seed.json"),
+      Jason.encode!(%{"number" => 123, "body" => body})
+    )
 
     File.write!(
       Path.join(fixture, "bin/gh"),
@@ -106,42 +142,30 @@ defmodule AiurEnginePrePrTest do
     assert File.read!(Path.join(fixture, "polls")) == "1\n", output
 
     # GitHub never reports the pushed head: fail after exactly the injected bound.
-    {output, never} = run_refresh(fixture, repo, [{"FAKE_HEAD_FROM_POLL", "1000"}, {"FAKE_MAX_POLLS", "3"}, {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}])
+    {output, never} =
+      run_refresh(fixture, repo, [
+        {"FAKE_HEAD_FROM_POLL", "1000"},
+        {"FAKE_MAX_POLLS", "3"},
+        {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}
+      ])
+
     assert never == 1
     assert output =~ "did not report pushed head #{sha}"
     assert File.read!(Path.join(fixture, "polls")) == "3\n"
 
     # GitHub reports the pushed head on poll 3: pass.
-    {output, late} = run_refresh(fixture, repo, [{"FAKE_HEAD_FROM_POLL", "3"}, {"FAKE_MAX_POLLS", "3"}, {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}])
+    {output, late} =
+      run_refresh(fixture, repo, [
+        {"FAKE_HEAD_FROM_POLL", "3"},
+        {"FAKE_MAX_POLLS", "3"},
+        {"AIUR_PRE_PR_REFRESH_ATTEMPTS", "3"}
+      ])
+
     assert late == 0, output
     assert File.read!(Path.join(fixture, "polls")) == "3\n"
   end
 
-  test "an existing PR that gh cannot read fails pre-pr" do
-    fixture = fixture("unreadable-pr")
-    repo = Path.join(fixture, "repo")
-    git!(repo, ["switch", "-c", "feature"])
-    File.write!(Path.join(fixture, "bin/gh"), "#!/usr/bin/env bash\necho 'HTTP 502: Bad Gateway' >&2\nexit 1\n")
-
-    {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
-
-    assert status == 1
-    assert output =~ "FAIL refresh-pr-body-evidence (could not read PR with gh)"
-    assert output =~ "HTTP 502"
-  end
-
-  test "no PR yet skips the refresh and asks for a rerun after gh pr create" do
-    fixture = fixture("no-pr")
-    repo = Path.join(fixture, "repo")
-    git!(repo, ["switch", "-c", "feature"])
-
-    {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
-
-    assert status == 0
-    assert output =~ "SKIP refresh-pr-body-evidence (no PR yet; rerun aiur pre-pr after gh pr create)"
-  end
-
-  test "full-suite fallback is reported and matching reader tests run" do
+  test "full selection defers coverage partitions to CI and runs matching reader tests" do
     fixture = fixture("gate")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
@@ -165,13 +189,15 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "FAIL mix format --check-formatted"
 
     assert output =~
-             "NOTE full suite recommended (fixture requires full suite); runs in merge queue"
+             "NOTE full selection (fixture requires full suite); running discovered reader tests locally; CI owns the full coverage partitions"
+
+    refute File.exists?(Path.join(fixture, "coverage-partitions"))
 
     assert output =~ "PASS reader tests"
     assert File.read!(Path.join(fixture, "reader-tests")) =~ "changed_reader_test.exs"
     refute File.read!(Path.join(fixture, "reader-tests")) =~ "changed_mention_test.exs"
     refute File.exists?(Path.join(fixture, "make-ci-ran"))
-    assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
+    assert File.read!(Path.join(fixture, "test-env")) == "clean\n"
 
     temp_dirs =
       fixture
@@ -179,7 +205,7 @@ defmodule AiurEnginePrePrTest do
       |> File.read!()
       |> String.split("\n", trim: true)
 
-    assert length(temp_dirs) == 2
+    assert length(temp_dirs) == 1
     assert Enum.all?(temp_dirs, &String.starts_with?(&1, Path.join(fixture, "aiur-pre-pr.")))
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
@@ -253,6 +279,23 @@ defmodule AiurEnginePrePrTest do
     assert status == 1
     assert output =~ "PASS affected tests"
     assert File.read!(Path.join(fixture, "test-command")) =~ "test/scoped_test.exs"
+    assert File.read!(Path.join(fixture, "nice-command")) =~ "-n 10"
+  end
+
+  test "shared support that selects no tests refuses pre-pr" do
+    fixture = fixture("empty-support-selection")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.mkdir_p!(Path.join(repo, "src/test/support"))
+    File.write!(Path.join(repo, "src/test/support/helper.exs"), "# shared support\n")
+    git!(repo, ["add", "."])
+    git!(repo, ["commit", "-m", "change test support"])
+
+    {output, status} = run_pre_pr(fixture, repo, selector_mode: "empty")
+
+    assert status == 1
+    assert output =~ "FAIL affected tests (shared support changed but no tests were selected)"
+    assert output =~ "Result: FAIL"
   end
 
   test "reader failures identify test files the branch did not edit" do
@@ -304,8 +347,24 @@ defmodule AiurEnginePrePrTest do
     {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
 
     assert status == 0
-    assert output =~ "Result: PASS (full suite not run)"
-    assert output =~ "Not run: Credo and specs (make lint), dialyzer, full suite"
+    assert output =~ "PASS pinned layout assets"
+    assert File.read!(Path.join(fixture, "npm-command")) =~ "ci --ignore-scripts"
+    assert File.read!(Path.join(fixture, "npm-command")) =~ "run vendor:elk -- --check"
+    assert output =~ "Result: PASS (full CI suite not run)"
+    assert output =~ "Not run: Credo and specs (make lint), dialyzer, full CI suite"
+  end
+
+  test "missing Node and npm reports an actionable pinned-layout prerequisite" do
+    fixture = fixture("missing-npm")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    {output, status} = run_pre_pr(fixture, repo, missing_tool: "npm")
+
+    assert status == 1
+    assert output =~ "FAIL pinned layout assets"
+    assert output =~ "Node/npm required"
+    assert output =~ "npm ci --ignore-scripts"
+    assert output =~ "Result: FAIL"
   end
 
   # The dev shim marks pre-pr as a retryable control command; its tests must not inherit that.
@@ -324,6 +383,7 @@ defmodule AiurEnginePrePrTest do
           {"AIUR_SKIP_BUILD", "1"},
           {"AIUR_AGENT_WORKSPACE", repo},
           {"AIUR_BASE_BRANCH", "main"},
+          {"PRE_PR_SELECTOR_MODE", "scoped"},
           {"HOME", Path.join(fixture, "home")},
           {"TMPDIR", fixture},
           {"TMUX", nil},
@@ -334,101 +394,6 @@ defmodule AiurEnginePrePrTest do
 
     assert output =~ "--- aiur pre-pr result"
     assert File.read!(Path.join(fixture, "test-env")) == "clean\n", output
-  end
-
-  defp fixture(name) do
-    root = Aiur.TestSupport.tmp_root!("pre-pr-#{name}")
-    repo = Path.join(root, "repo")
-    bin = Path.join(root, "bin")
-    File.mkdir_p!(repo)
-    File.mkdir_p!(bin)
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
-    git!(repo, ["init", "-b", "main"])
-    git!(repo, ["config", "user.email", "pre-pr@example.invalid"])
-    git!(repo, ["config", "user.name", "pre-pr test"])
-    git!(repo, ["remote", "add", "origin", "."])
-    File.mkdir_p!(Path.join(repo, "src"))
-    File.mkdir_p!(Path.join(repo, "scripts"))
-    File.write!(Path.join(repo, "src/mix.exs"), "")
-
-    for script <- [
-          "check-pr-structure.py",
-          "check-file-size.py",
-          "check-config-docs.py",
-          "check-hot-list-format.py"
-        ] do
-      File.write!(Path.join(repo, "scripts/#{script}"), "")
-    end
-
-    File.write!(Path.join(repo, "collision.txt"), "base\n")
-    git!(repo, ["add", "."])
-    git!(repo, ["commit", "-m", "base"])
-    write_fake_tools(bin, root)
-    root
-  end
-
-  defp write_fake_tools(bin, root) do
-    mise = """
-    #!/usr/bin/env bash
-    case "$*" in
-      *"mix test"*)
-        if [ -n "${AIUR_AGENT_WORKSPACE+x}${AIUR_INSTANCE_KEY+x}${AIUR_PROJECT_ROOT+x}${AIUR_CONTROL_RELEASE_RETRYABLE+x}${AIUR_CONTROL_RELEASE_RETRY_SIGNAL+x}" ]; then echo leaked > "#{root}/test-env"; exit 79; fi
-        echo clean >> "#{root}/test-env"
-        echo "$TMPDIR" >> "#{root}/test-tmpdirs"
-        echo "$*" > "#{root}/test-command"
-        if [ "${PRE_PR_READER_MODE:-}" = failure ] && [[ "$*" == *unmodified_reader_test.exs* ]]; then echo '     test/unmodified_reader_test.exs:28'; exit 2; fi
-        case "$*" in *changed_reader_test.exs*) echo "$*" > "#{root}/reader-tests" ;; esac
-        ;;
-    esac
-    case "$*" in
-      *"mix aiur.affected_tests"*)
-        case "${PRE_PR_SELECTOR_MODE:-full}" in
-          failure) exit 42 ;;
-          unknown) echo '{"status":"unexpected"}' ;;
-          scoped) echo '{"status":"scoped","tests":["src/test/scoped_test.exs"]}' ;;
-          *) echo '{"status":"full","reason":"fixture requires full suite"}' ;;
-        esac
-        ;;
-      *"make ci"*) echo yes > "#{root}/make-ci-ran"; exit 88 ;;
-      *"mix format"*)
-        if [ "${PRE_PR_GATE_MODE:-fail}" = pass ]; then exit 0; fi
-        echo 'format failure'; exit 13
-        ;;
-      *) exit 0 ;;
-    esac
-    """
-
-    gh = "#!/usr/bin/env bash\necho 'no pull requests found for branch \"feature\"' >&2\nexit 1\n"
-
-    for {name, contents} <- [{"mise", mise}, {"gh", gh}] do
-      path = Path.join(bin, name)
-      File.write!(path, contents)
-      File.chmod!(path, 0o755)
-    end
-  end
-
-  defp run_pre_pr(fixture, repo, opts \\ []) do
-    env = [
-      {"AIUR_ENGINE", @engine},
-      {"AIUR_AGENT_WORKSPACE", repo},
-      {"AIUR_BASE_BRANCH", "main"},
-      {"HOME", Path.join(fixture, "home")},
-      {"TMPDIR", fixture},
-      {"PATH", Path.join(fixture, "bin") <> ":" <> System.get_env("PATH")},
-      {"PRE_PR_SELECTOR_MODE", Keyword.get(opts, :selector_mode, "full")},
-      {"PRE_PR_GATE_MODE", Keyword.get(opts, :gate_mode, "fail")},
-      {"PRE_PR_READER_MODE", Keyword.get(opts, :reader_mode, "pass")},
-      {"PRE_PR_MISSING_TOOL", Keyword.get(opts, :missing_tool, "")}
-    ]
-
-    command =
-      "command() { if [ \"$1\" = -v ] && [ \"$2\" = \"${PRE_PR_MISSING_TOOL:-}\" ]; then return 1; fi; builtin command \"$@\"; }; source \"$AIUR_ENGINE\"; aiur_engine_main pre-pr"
-
-    System.cmd("bash", ["-c", command],
-      cd: repo,
-      env: env,
-      stderr_to_stdout: true
-    )
   end
 
   defp run_refresh(fixture, repo, env) do
@@ -444,18 +409,6 @@ defmodule AiurEnginePrePrTest do
         ] ++ env,
       stderr_to_stdout: true
     )
-  end
-
-  defp git!(repo, args) do
-    {output, status} =
-      System.cmd("git", args,
-        cd: repo,
-        env: [{"AIUR_AGENT_WORKSPACE", repo}],
-        stderr_to_stdout: true
-      )
-
-    if status != 0, do: flunk("git #{Enum.join(args, " ")} failed: #{output}")
-    output
   end
 
   defp git_output!(repo, args), do: repo |> git!(args) |> String.trim()

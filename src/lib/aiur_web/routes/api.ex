@@ -11,6 +11,8 @@ defmodule AiurWeb.Routes.Api do
 
         post("/api/v1/refresh", AiurWeb.ObservabilityApiController, :refresh)
         match(:*, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :method_not_allowed)
+        post("/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :cancel)
+        match(:*, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :method_not_allowed)
         post("/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :send_message)
         match(:*, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :method_not_allowed)
         post("/api/v1/:issue_identifier/pause", AiurWeb.ObservabilityApiController, :pause)

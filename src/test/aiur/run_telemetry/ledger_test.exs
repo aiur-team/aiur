@@ -4,7 +4,7 @@ defmodule Aiur.RunTelemetry.LedgerTest do
   alias Aiur.RunTelemetry.{Ledger, Summaries}
 
   setup do
-    root = Aiur.TestSupport.tmp_root!("ticket-ledger")
+    root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "ticket-ledger-#{System.pid()}-#{System.unique_integer([:positive])}")
     prior = for key <- [:repo_base_root, :analytics_repo], do: {key, Application.fetch_env(:aiur, key)}
     enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
     enabled = :persistent_term.get(enabled_key, :unset)

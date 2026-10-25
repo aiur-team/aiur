@@ -14,9 +14,9 @@ defmodule Aiur.DecisionAnswer do
   @identity_max 200
   @response_max 4_000
   @rationale_max 4_000
-  @actor_kinds [:operator, :executor, :agent, :supervisor, :system]
+  @actor_kinds [:operator_relayed, :operator, :executor, :agent, :supervisor, :system]
 
-  @type actor :: %{kind: :operator | :executor | :agent | :supervisor | :system, id: String.t() | nil}
+  @type actor :: %{kind: :operator_relayed | :operator | :executor | :agent | :supervisor | :system, id: String.t() | nil}
 
   @type t :: %__MODULE__{
           action_id: String.t(),
@@ -27,9 +27,12 @@ defmodule Aiur.DecisionAnswer do
           custom_response: String.t() | nil,
           rationale: String.t() | nil,
           supervisor_basis: DecisionDelegation.basis() | nil,
+          operator_quote: String.t() | nil,
+          relayed_by: String.t() | nil,
           actor: actor(),
           accepted_at: DateTime.t(),
-          content_hash: String.t()
+          content_hash: String.t(),
+          ticket_comment_pending?: boolean()
         }
 
   @enforce_keys [
@@ -42,7 +45,15 @@ defmodule Aiur.DecisionAnswer do
     :content_hash
   ]
   defstruct @enforce_keys ++
-              [selected_option_id: nil, custom_response: nil, rationale: nil, supervisor_basis: nil]
+              [
+                selected_option_id: nil,
+                custom_response: nil,
+                rationale: nil,
+                supervisor_basis: nil,
+                operator_quote: nil,
+                relayed_by: nil,
+                ticket_comment_pending?: false
+              ]
 
   @doc "Normalize an untrusted answer payload using trusted Decision and actor context."
   @spec normalize(map(), keyword()) :: {:ok, t()} | {:error, {:answer_invalid, term()}}
@@ -51,6 +62,7 @@ defmodule Aiur.DecisionAnswer do
     decision_version = Keyword.fetch!(opts, :decision_version)
     options = Keyword.get(opts, :options, [])
     now = Keyword.get(opts, :now, DateTime.utc_now())
+    ticket_comment_pending? = Keyword.get(opts, :ticket_comment_pending?, false)
 
     with {:ok, idempotency_key} <- required_string(payload, :idempotency_key, @identity_max),
          {:ok, expected_version} <- required_version(payload, :expected_version),
@@ -61,7 +73,9 @@ defmodule Aiur.DecisionAnswer do
          :ok <- validate_option(selected_option_id, options, Keyword.get(opts, :allow_unchecked_option, false)),
          {:ok, rationale} <- optional_string(payload, :rationale, @rationale_max),
          {:ok, actor} <- normalize_actor(Keyword.fetch!(opts, :actor)),
+         {:ok, relay} <- normalize_relay(payload, actor),
          {:ok, supervisor_basis} <- normalize_supervisor_basis(actor, opts),
+         :ok <- validate_ticket_comment_pending(ticket_comment_pending?),
          :ok <- validate_datetime(now, :accepted_at) do
       action_id = action_id(decision_id, idempotency_key)
 
@@ -76,6 +90,7 @@ defmodule Aiur.DecisionAnswer do
           rationale: rationale,
           actor: actor
         }
+        |> Map.merge(relay)
         |> maybe_put_supervisor_basis(supervisor_basis)
 
       {:ok,
@@ -83,7 +98,8 @@ defmodule Aiur.DecisionAnswer do
          __MODULE__,
          Map.merge(content, %{
            accepted_at: now,
-           content_hash: DecisionValidation.content_hash(content)
+           content_hash: DecisionValidation.content_hash(content),
+           ticket_comment_pending?: ticket_comment_pending?
          })
        )}
     else
@@ -107,7 +123,9 @@ defmodule Aiur.DecisionAnswer do
                "expected_version" => decision_version,
                "option_id" => Map.get(raw, "selected_option_id"),
                "custom_response" => Map.get(raw, "custom_response"),
-               "rationale" => Map.get(raw, "rationale")
+               "rationale" => Map.get(raw, "rationale"),
+               "operator_quote" => Map.get(raw, "operator_quote"),
+               "relayed_by" => Map.get(raw, "relayed_by")
              },
              decision_id: decision_id,
              decision_version: decision_version,
@@ -115,6 +133,7 @@ defmodule Aiur.DecisionAnswer do
              now: accepted_at,
              allow_unchecked_option: true,
              supervisor_basis: Map.get(raw, "supervisor_basis"),
+             ticket_comment_pending?: Map.get(raw, "ticket_comment_pending", false),
              allow_legacy_supervisor_basis: not Map.has_key?(raw, "supervisor_basis")
            ),
          :ok <- compare_persisted(answer.action_id, persisted_action_id, :action_id_mismatch),
@@ -128,6 +147,27 @@ defmodule Aiur.DecisionAnswer do
   @doc "JSON-safe durable representation."
   @spec to_json_safe(t()) :: map()
   def to_json_safe(%__MODULE__{} = answer) do
+    answer_json_safe(answer)
+    |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
+  end
+
+  @doc "Answers with delivery metadata removed, for immutable answer comparisons."
+  @spec content(t()) :: t()
+  def content(%__MODULE__{} = answer), do: %{answer | ticket_comment_pending?: false}
+
+  @doc false
+  @spec to_event_json_safe(t()) :: map()
+  def to_event_json_safe(%__MODULE__{} = answer) do
+    answer
+    |> answer_json_safe()
+    |> maybe_put_ticket_comment_pending(answer.ticket_comment_pending?)
+    |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
+  end
+
+  defp maybe_put_ticket_comment_pending(json, true), do: Map.put(json, "ticket_comment_pending", true)
+  defp maybe_put_ticket_comment_pending(json, _false), do: json
+
+  defp answer_json_safe(answer) do
     %{
       "action_id" => answer.action_id,
       "decision_id" => answer.decision_id,
@@ -140,8 +180,11 @@ defmodule Aiur.DecisionAnswer do
       "accepted_at" => DateTime.to_iso8601(answer.accepted_at),
       "content_hash" => answer.content_hash
     }
-    |> maybe_put_supervisor_basis_json(answer.supervisor_basis)
+    |> maybe_put_relay_json(answer)
   end
+
+  defp validate_ticket_comment_pending(value) when is_boolean(value), do: :ok
+  defp validate_ticket_comment_pending(_value), do: {:error, {:ticket_comment_pending, :invalid}}
 
   @doc "Canonical Decision-scoped identity for one logical answer action."
   @spec action_id(String.t(), String.t()) :: String.t()
@@ -186,6 +229,27 @@ defmodule Aiur.DecisionAnswer do
   end
 
   defp normalize_actor(_other), do: {:error, {:actor, :invalid_type}}
+
+  defp normalize_relay(payload, %{kind: :operator_relayed, id: id}) do
+    quote = get(payload, :operator_quote)
+
+    with {:ok, relayed_by} <- required_string(payload, :relayed_by, @identity_max),
+         true <- id == relayed_by or {:error, {:relayed_by, :actor_mismatch}},
+         {:ok, _validated} <- required_string(payload, :operator_quote, @response_max),
+         true <- String.length(quote) <= @response_max or {:error, {:operator_quote, :too_long}} do
+      {:ok, %{operator_quote: quote, relayed_by: relayed_by}}
+    end
+  end
+
+  defp normalize_relay(payload, _actor) do
+    if is_nil(get(payload, :operator_quote)) and is_nil(get(payload, :relayed_by)), do: {:ok, %{}}, else: {:error, {:operator_quote, :unexpected}}
+  end
+
+  defp maybe_put_relay_json(content, %{actor: %{kind: :operator_relayed}} = answer) do
+    Map.merge(content, %{"operator_quote" => answer.operator_quote, "relayed_by" => answer.relayed_by})
+  end
+
+  defp maybe_put_relay_json(content, _answer), do: content
 
   defp normalize_supervisor_basis(%{kind: :supervisor}, opts) do
     case Keyword.get(opts, :supervisor_basis) do

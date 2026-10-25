@@ -72,7 +72,7 @@ defmodule Aiur.OrchestratorStatusCliWatchTest do
       output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
 
       assert output =~ "TICKET  STATE         CX  AGE     DOING"
-      assert output =~ ~r/#44\s+in-progress\s+3\s/
+      assert output =~ ~r/#44\s+agent:in-progress\s+3\s/
       assert output =~ "running mix test"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
@@ -92,9 +92,9 @@ defmodule Aiur.OrchestratorStatusCliWatchTest do
       end)
 
       output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
-      assert output =~ ~r/#2895\s+starting\s/
+      assert output =~ ~r/#2895\s+agent:in-progress\s/
       assert output =~ "(starting provider; no live turn yet)"
-      assert output =~ ~r/#2896\s+retrying\s/
+      assert output =~ ~r/#2896\s+agent:retrying\s/
       assert output =~ "startup failed: {:port_exit, 23}"
     end
 
@@ -216,7 +216,7 @@ defmodule Aiur.OrchestratorStatusCliWatchTest do
 
       output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
 
-      assert output =~ ~r/#46\s+paused\s+2\s/
+      assert output =~ ~r/#46\s+agent:todo,agent:paused\s+2\s/
       assert output =~ "(paused: operator)"
     end
 

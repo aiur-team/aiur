@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     path = Path.join(root, "CODEOWNERS")
     File.write!(path, "* @acme/team @direct # trailing comment\n")
     # The CodeOwners server resolves teams with the configured token.
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous_token = :persistent_term.get(token_key, :unset)
     :persistent_term.put(token_key, "test-gh-token")
     on_exit(fn -> if previous_token == :unset, do: :persistent_term.erase(token_key), else: :persistent_term.put(token_key, previous_token) end)
@@ -113,19 +113,22 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
 
     server = start_snapshot(path, request)
     assert CodeOwners.allowed?("member", server)
-    Agent.update(mode, fn _ -> :failure end)
-    CodeOwners.refresh(server)
     previous = Process.whereis(CodeOwners)
-    if previous, do: Process.unregister(CodeOwners)
-    Process.register(server, CodeOwners)
+    assert is_pid(previous)
+    Process.unregister(CodeOwners)
 
     on_exit(fn ->
-      if Process.whereis(CodeOwners) == server, do: Process.unregister(CodeOwners)
-      if previous && Process.alive?(previous), do: Process.register(previous, CodeOwners)
+      if previous && Process.alive?(previous) && is_nil(Process.whereis(CodeOwners)), do: Process.register(previous, CodeOwners)
     end)
 
     payload = %{author: "member", comment: %{"user" => %{"login" => "member"}, "body" => "/aiur <request>"}}
-    sanitized = payload |> Sanitizer.scrub() |> Sanitizer.stamp_author_trust() |> Sanitizer.put_comment_message()
+    trust_fun = &CodeOwners.allowed?(&1, server)
+    trusted = payload |> Sanitizer.scrub() |> Sanitizer.stamp_author_trust(trust_fun: trust_fun)
+    assert trusted.author_trusted? == true
+
+    Agent.update(mode, fn _ -> :failure end)
+    CodeOwners.refresh(server)
+    sanitized = payload |> Sanitizer.scrub() |> Sanitizer.stamp_author_trust(trust_fun: trust_fun) |> Sanitizer.put_comment_message()
     assert sanitized.comment["body"] == "/aiur &lt;request&gt;"
     assert sanitized.author_trusted? == false
     refute PrCommandScanner.command?(Map.put(sanitized.comment, :author_trusted?, sanitized.author_trusted?), "/aiur", nil)

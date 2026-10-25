@@ -9,13 +9,14 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
 
   require Logger
 
-  alias Aiur.{Alerts, CodeHost, Tracker}
+  alias Aiur.{CodeHost, Signal, Tracker}
   alias Aiur.Orchestrator.{CommentWake, ReviewFreshness, ReworkGate, State, TrackerTasks}
 
   @spec changes_requested(State.t(), String.t(), map(), keyword()) :: State.t()
   def changes_requested(%State{} = state, identifier, event, opts \\ []) do
     # A stale or since-approved review must not pull an approved PR back out of the queue.
-    if changes_requested_review?(event) and CommentWake.trusted_comment_event?(event) and is_nil(ReviewFreshness.rework_skip_reason(event)) do
+    if changes_requested_review?(event) and CommentWake.trusted_comment_event?(event) and is_nil(ReviewFreshness.rework_skip_reason(event)) and
+         not Aiur.Instance.skip?(identifier, nil, :landing_withdrawal) do
       TrackerTasks.run(state, {:landing_withdrawal, identifier, make_ref()}, fn -> withdraw(to_string(identifier), opts) end, fn current, _result -> current end)
     else
       state
@@ -41,7 +42,7 @@ defmodule Aiur.Orchestrator.ReviewLandingWithdrawal do
     if actions != [], do: comment(identifier, number, actions, opts)
     Logger.warning("landing withdrawal failed issue_identifier=#{identifier} pr=#{number} reason=#{inspect(reason)}")
 
-    Keyword.get(opts, :emit_alert, &Alerts.emit_system/2).(
+    Keyword.get(opts, :emit_alert, &Signal.alert/2).(
       "ticket.#{identifier}.agent.attention.landing_withdrawal_failed",
       issue: identifier,
       message: "PR ##{number} got CHANGES_REQUESTED but Aiur could not take it out of the merge queue (#{inspect(reason)})",

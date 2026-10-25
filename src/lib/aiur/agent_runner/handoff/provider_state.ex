@@ -3,34 +3,19 @@ defmodule Aiur.AgentRunner.Handoff.ProviderState do
 
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.AgentTools.Dispatch
-  alias Aiur.Codex.SessionLifecycle, as: CodexSessionLifecycle
 
   @spec restore_session(map(), Aiur.Issue.t()) :: map()
   def restore_session(%{backend: backend} = session, issue) when backend in ["codex", "claude"] do
     server = Aiur.ProviderAccountGeneration
-    binding = if backend == "codex", do: Aiur.Codex.AccountGeneration.new_binding(server), else: Aiur.Claude.AccountGeneration.new_binding(server)
+    adapter = Aiur.CodingAgent.adapter(backend)
+    session = adapter.restore_handoff_session(session, issue, server)
 
-    session =
-      Map.merge(session, %{
-        clock: &DateTime.utc_now/0,
-        account_generation_binding: binding.binding,
-        account_generation_authority: binding.authority,
-        account_generation_context: binding.context,
-        account_generation_topic: binding.topic,
-        account_generation_server: server,
-        provider_meter_ingester: &Aiur.ProviderMeters.ingest/1,
-        provider_meter_failure_recorder: &Aiur.ProviderMeters.record_failure/1
-      })
-
-    if backend == "codex" do
-      metadata = Map.get(session, :metadata, %{})
-
-      session
-      |> Map.put(:containment, CodexSessionLifecycle.register_pause_containment(issue.identifier, metadata, session.workspace))
-      |> Map.put(:account_generation_notification_handler, CodexSessionLifecycle.notification_handler(session, fn _ -> :ok end))
-    else
-      session
-    end
+    Map.merge(session, %{
+      clock: &DateTime.utc_now/0,
+      account_generation_server: server,
+      provider_meter_ingester: &Aiur.ProviderMeters.ingest/1,
+      provider_meter_failure_recorder: &Aiur.ProviderMeters.record_failure/1
+    })
   end
 
   def restore_session(session, _issue), do: session

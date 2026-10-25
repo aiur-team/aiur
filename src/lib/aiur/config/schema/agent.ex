@@ -47,13 +47,16 @@ defmodule Aiur.Config.Schema.Agent do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.CatalogValidation
   alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, GitIdentity, PricingPolicy, Rtk}
 
+  @default_backend "codex"
+  @default_rate_limit_fallback "claude"
   @primary_key false
   embedded_schema do
     # Deprecated: `priority` wins when present; read the effective value via `Aiur.Config.agent_kind/0`.
     # @config-reference config-configuration-agent-00 agent.kind | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
-    field(:kind, :string, default: Aiur.CodingAgent.default_backend())
+    field(:kind, :string, default: @default_backend)
 
     # Ordered dispatch preference. Presence enables a backend, the first available entry is the default, and the array is the fallback order when a backend hits a token or usage limit.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
@@ -81,19 +84,9 @@ defmodule Aiur.Config.Schema.Agent do
     # never circuit-broken. 0 disables the latch.
     # @config-reference config-configuration-agent-00 agent.max_dispatches_per_ticket | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
     field(:max_dispatches_per_ticket, :integer, default: 0)
-    # Ceiling for new fleet admissions. When omitted (nil), it derives from the
-    # measured host capacity (see `Config.default_max_concurrent_agents/1`):
-    # schedulers + 1/4 schedulers, which matches the measured ~19-20 concurrent
-    # agents on a 16-core host. Explicit config still wins. The load envelope
-    # reduces effective concurrency below this ceiling under host pressure.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.max_concurrent_agents | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The adaptive envelope reduces effective concurrency below this ceiling under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
+    # @config-reference config-configuration-agent-00 agent.max_concurrent_agents | integer or nil | derived from available capacity | Global simultaneous-agent cap. When omitted under cgroup v2, it is the minimum of `max(2, schedulers + floor(schedulers / 4))` and `max(1, floor(memory.max / 4 GiB))`; finite CPU quota supplies floored schedulers. Explicit config wins. The adaptive envelope reduces effective concurrency under CPU pressure. [Fixer tickets](/reference/merge-policy) take the next free slot first, within this cap and the same pressure gates. |
     field(:max_concurrent_agents, :integer)
-    # Per-scheduler runnable-process ceiling for the instantaneous run-queue
-    # dispatch gate. nil disables the gate (the 1-minute load gate and envelope
-    # still apply); a positive value holds new dispatch while `procs_running`
-    # strictly exceeds `run_queue_threshold * schedulers`, catching short CPU
-    # bursts the lagging load average smooths out.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.run_queue_threshold | float or nil | nil | Optional per-scheduler runnable ceiling used only when CPU PSI is unavailable. Subtracts CPU niced above the daemon and outside registered fleet-agent trees; holds above the scaled ceiling only below 60% reclaimable CPU; null disables it. |
     field(:run_queue_threshold, :float)
@@ -112,8 +105,13 @@ defmodule Aiur.Config.Schema.Agent do
     field(:build_start_stagger_seconds, :integer, default: 0)
     # Optional Linux MemAvailable floor shared by normal dispatch and the local
     # Mix build gate. Omitted means memory admission is disabled.
-    # @config-reference config-configuration-agent-00 agent.min_free_memory_mb | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-reference config-configuration-agent-00 agent.min_free_memory_mb | integer or nil | nil | Host `MemAvailable` floor shared by dispatch and the Mix build gate. For containers with a usable cgroup v2 memory limit, the dispatch memory gate uses `memory.current - inactive_file` instead. |
     field(:min_free_memory_mb, :integer)
+    # Fraction of cgroup v2 memory.max that may be used before dispatch holds.
+    # nil disables the container-specific memory gate.
+    # @config-reference config-configuration-agent-00 agent.cgroup_memory_threshold | float or nil | 0.8 | Holds new dispatch when cgroup v2 `memory.current - inactive_file` exceeds this share of `memory.max`. Null disables the container gate. |
+    field(:cgroup_memory_threshold, :float, default: 0.8)
     # Absolute wall-clock cap (seconds) on how long any one build-gate slot may
     # be held (#2349). The detached lease holder releases the slot at the cap
     # and the daemon raises a needs-attention alert naming the command. 0
@@ -129,28 +127,15 @@ defmodule Aiur.Config.Schema.Agent do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.build_gate_retain_seconds | integer | 120 | Maximum post-command window the lease holder keeps a slot after the wrapped command exits, gated on a descendant still consuming CPU. The holder releases the moment the retained tree goes idle, so this bounds only a genuinely-busy descendant (a runaway build), not an adopted idle daemon; `0` disables the courtesy. |
     field(:build_gate_retain_seconds, :integer, default: 120)
-    # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
-    # `unlimited` (or an absent key) resolves to nil; any present number must
-    # be > 0.
-    #
-    # #2806 asked whether this should default to a finite value, and the answer
-    # is no. This cap counts *effort*, not outcome: it cannot tell eleven wasted
-    # turns from eleven turns of real work, so any default low enough to stop a
-    # spin is also low enough to cut a legitimate long run short. Reaching it
-    # does not abort the ticket — the loop hands control back and the
-    # orchestrator recycles the ticket with `prior_work: true` — but that costs
-    # a fresh provider session and the context rebuild #378 exists to avoid.
-    # `max_consecutive_noop_turns` below is the outcome-based bound instead:
-    # productive turns are unbounded, unproductive ones are not. Operators who
-    # do want an effort cap set this key, or `max_turns_by_complexity`.
+    # Nil / `none` / `unlimited` is uncapped: this bounds dispatch effort, not
+    # outcome, so productive runs are not cut short. A cap recycles with
+    # `prior_work: true` and rebuilds context (#378); the no-op bound below
+    # handles wasted work.
     # @config-reference config-configuration-agent-00 agent.max_turns | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
     field(:max_turns, :integer)
-    # #2806: how many CONSECUTIVE continuation turns that changed nothing
-    # observable (no commit, no push, no working-tree change, no label change,
-    # and no new input in the prompt) a run may take before the loop stops and
-    # raises a needs-attention alert. A productive turn resets the count, so
-    # this never caps a long run of real work — unlike `max_turns`, which does.
-    # 0 / `nil` disables the bound.
+    # #2806: consecutive turns with no commit, push, working-tree/label change
+    # or new prompt input before alerting; productive turns reset the count,
+    # and 0 / nil disables this outcome-based bound.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.max_consecutive_noop_turns | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. An open PR is handed to CI wait or human review; so is rework whose head is newer than every blocking review, red CI included; rework with nothing pushed for its review becomes `agent:error`; otherwise the current label is kept. After the first no-op turn the worker parks and waits for a queued ticket event or operator message instead of re-prompting (a pushed rework PR is handed off right away); the count survives the wake, so the bound caps wakes that still change nothing. A productive turn resets the count; 0 disables the bound. The park lasts at most two minutes: on timeout the worker resumes with a normal turn and the surviving count still ends an idle ticket. |
     field(:max_consecutive_noop_turns, :integer, default: 3)
@@ -228,14 +213,30 @@ defmodule Aiur.Config.Schema.Agent do
     # fallback disables it.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.rate_limit_primary | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |
-    field(:rate_limit_primary, :string, default: Aiur.CodingAgent.default_backend())
+    field(:rate_limit_primary, :string, default: @default_backend)
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-reference config-configuration-agent-00 agent.rate_limit_fallback | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
-    field(:rate_limit_fallback, :string, default: Aiur.CodingAgent.default_rate_limit_fallback())
+    field(:rate_limit_fallback, :string, default: @default_rate_limit_fallback)
     # @config-reference config-configuration-agent-00 agent.complexity_prompts | map | `%{}` | Adds prompt guidance by complexity level. |
     field(:complexity_prompts, :map, default: %{})
     # @config-reference config-configuration-agent-00 agent.max_turns_by_complexity | map | `%{}` | Per-complexity turn caps. |
     field(:max_turns_by_complexity, :map, default: %{})
+
+    # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Five tolerates brief polling; steer at 5 identical results and stop at 6. `0` disables it. |
+    field(:max_repeated_identical_commands, :integer, default: 5)
+
+    # @config-reference config-configuration-agent-00 agent.local_gate_wait_steer_minutes | positive integer | 20 | Green CI: steer only after this long waiting on local gate work. |
+    field(:local_gate_wait_steer_minutes, :integer, default: 20)
+
+    # @config-reference config-configuration-agent-00 agent.local_gate_wait_stop_minutes | positive integer | 30 | Stop after steer grace so the worker can refresh the PR body and hand off. |
+    field(:local_gate_wait_stop_minutes, :integer, default: 30)
+
+    # @config-reference config-configuration-agent-00 agent.local_gate_ci_max_age_minutes | positive integer | 15 | Trust cached green CI only this long to prevent stale-head actions. |
+    field(:local_gate_ci_max_age_minutes, :integer, default: 15)
+    # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional shell-command cap per turn; null disables. Suggested value: 1,000. |
+    field(:max_commands_per_turn, :integer)
+    # @config-reference config-configuration-agent-00 agent.max_input_tokens_per_turn | integer or nil | nil | Optional turn input-token cap; null disables it. Suggested starting value: 20,000,000. |
+    field(:max_input_tokens_per_turn, :integer)
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
     # already reads these via Config.agent_turn_timeout_ms/0).
     # @config-reference config-configuration-agent-00 agent.turn_timeout_ms | integer | 3600000 | Backstop timeout for one turn. |
@@ -328,12 +329,12 @@ defmodule Aiur.Config.Schema.Agent do
     # How long the degraded retry rate must persist before the single
     # `system.github.budget_broker_degraded` alert raises (#2434/#2449 dwell):
     # a momentary blip that clears within this bound produces nothing, a
-    # sustained degradation raises exactly once. Kept longer than the rate
-    # window so a burst that stops ages out of the window before the dwell
-    # completes — the dwell then filters exactly the momentary cases.
+    # sustained degradation raises exactly once. Kept shorter than the rate
+    # window so an active timeout pattern can satisfy the dwell before its
+    # earliest event ages out.
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_alert_after_seconds | integer | 600 | How long the degraded budget-broker retry rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained degradation raises exactly once. |
-    field(:budget_broker_degraded_alert_after_seconds, :integer, default: 600)
+    # @config-reference config-configuration-agent-00 agent.budget_broker_degraded_alert_after_seconds | integer | 60 | How long the budget-broker timeout rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained outage raises once with its duration. |
+    field(:budget_broker_degraded_alert_after_seconds, :integer, default: 60)
     # A dispatch declined by a local GitHub budget hold is a retry. It raises an
     # Executor attention only once the same ticket has been declined this many
     # times in a row (#4067).
@@ -366,6 +367,7 @@ defmodule Aiur.Config.Schema.Agent do
         :build_nice,
         :build_start_stagger_seconds,
         :min_free_memory_mb,
+        :cgroup_memory_threshold,
         :build_gate_max_hold_seconds,
         :build_gate_retain_seconds,
         :max_turns,
@@ -382,6 +384,12 @@ defmodule Aiur.Config.Schema.Agent do
         :rate_limit_fallback,
         :complexity_prompts,
         :max_turns_by_complexity,
+        :max_repeated_identical_commands,
+        :local_gate_wait_steer_minutes,
+        :local_gate_wait_stop_minutes,
+        :local_gate_ci_max_age_minutes,
+        :max_commands_per_turn,
+        :max_input_tokens_per_turn,
         :turn_timeout_ms,
         :stall_timeout_ms,
         :max_agent_duration_minutes,
@@ -421,6 +429,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:build_nice, greater_than_or_equal_to: 0, less_than_or_equal_to: 19)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
+    |> validate_number(:cgroup_memory_threshold, greater_than: 0, less_than_or_equal_to: 1)
     |> validate_number(:build_gate_max_hold_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:build_gate_retain_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:max_turns, greater_than: 0)
@@ -449,31 +458,13 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> validate_number(:dispatch_hold_attention_threshold, greater_than: 0)
-    |> AgentValidation.validate_backend_configs()
-    |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
-    |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
-    |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
-    |> AgentValidation.validate_agent_routing(:routing)
-    |> AgentValidation.split_routing_candidates()
-    |> AgentValidation.validate_dispatch_selections()
-    |> AgentValidation.validate_agent_priority(:priority)
-    |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
-      known = Aiur.CodingAgent.known_backends()
-
-      cond do
-        backends != Enum.uniq(backends) -> [switch_model_on_ratelimit: "must not contain duplicate backends"]
-        Enum.all?(backends, &(&1 in known)) -> []
-        true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
-      end
-    end)
-    |> validate_change(:rate_limit_primary, fn :rate_limit_primary, backend ->
-      known = Aiur.CodingAgent.known_backends()
-
-      if backend in known,
-        do: [],
-        else: [rate_limit_primary: "must be a registered backend; known backends: #{inspect(known)}"]
-    end)
-    |> AgentValidation.validate_rate_limit_fallback()
+    |> validate_number(:max_repeated_identical_commands, greater_than_or_equal_to: 0)
+    |> validate_number(:local_gate_wait_steer_minutes, greater_than: 0)
+    |> validate_number(:local_gate_wait_stop_minutes, greater_than: 0)
+    |> validate_number(:local_gate_ci_max_age_minutes, greater_than: 0)
+    |> validate_number(:max_commands_per_turn, greater_than: 0)
+    |> validate_number(:max_input_tokens_per_turn, greater_than: 0)
+    |> CatalogValidation.validate()
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
     |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
@@ -483,6 +474,16 @@ defmodule Aiur.Config.Schema.Agent do
     |> cast_embed(:git_identity, with: &GitIdentity.changeset/2)
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
     |> cast_embed(:rtk, with: &Rtk.changeset/2)
+    |> validate_local_gate_thresholds()
+  end
+
+  defp validate_local_gate_thresholds(changeset) do
+    steer_minutes = get_field(changeset, :local_gate_wait_steer_minutes)
+    stop_minutes = get_field(changeset, :local_gate_wait_stop_minutes)
+
+    if is_integer(steer_minutes) and is_integer(stop_minutes) and stop_minutes <= steer_minutes,
+      do: add_error(changeset, :local_gate_wait_stop_minutes, "must exceed local_gate_wait_steer_minutes"),
+      else: changeset
   end
 
   defp validate_accounts(field, accounts) when is_map(accounts) do

@@ -25,7 +25,7 @@ test('header, permanent noanim cards, minimize URL and preset toggles are wired'
   await open(page)
   await expect(page.locator('.bd-now-st')).toHaveText('3 running3 stuck2 paused')
   await expect(page.locator('#bd-now .bd-card.noanim')).toHaveCount(8)
-  await expect(page.locator('.bd-now-eta')).toHaveText('62 to go · ETA —')
+  await expect(page.locator('.bd-now-eta')).toHaveText('62 to go · ETA ≥51h')
   await page.locator('[data-min]').click()
   await expect(page).toHaveURL(/live=min/)
   await expect(page.locator('#bd-now')).toHaveClass(/min/)
@@ -56,6 +56,13 @@ test('empty fleet is 86px, unavailable source has separate copy and no presets',
   expect((await page.request.get('/build-control/diff?name=agents-unavailable')).ok()).toBe(true)
   await expect(page.locator('.bd-now-empty')).toHaveText('Agent states unavailable')
   await expect(page.locator('.bd-now-st button, .bd-now-sum')).toHaveCount(0)
+})
+test('unavailable band rows without a rendered card element are skipped during relayout', async ({ page }) => {
+  await open(page, 'now0')
+  await page.evaluate(async () => {
+    const { place } = await import('/build-home/render.js')
+    place(undefined, { sec: 'now', key: 'b0', y: 0, h: 20 })
+  })
 })
 test('clock ticks on payload minute boundaries without new diffs and preserves cached timestamps', async ({ page }) => {
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000); await open(page)
@@ -150,16 +157,23 @@ test('tall fleet, paging and scrollbar drag suppress snapping', async ({ page })
   }
 })
 test('destroy cancels band frames, settle locks and clock ticks; remount resets scrolling', async ({ page }) => {
+  await openFixture(page)
   await page.clock.install({ time: 1791407999000 }); await page.clock.pauseAt(1791408000000)
   await page.addInitScript(() => {
-    window.bandTimerCalls = { registered: 0, cancelled: 0, active: new Set() }
+    window.bandTimerCalls = { registered: 0, cancelled: 0, afterDestroy: 0, active: new Set() }
     const isBandCallback = () => /\/build-home\/(?:band|band-scroll)\.js/.test(new Error().stack)
     for (const [schedule, cancel] of [['setTimeout', 'clearTimeout'], ['requestAnimationFrame', 'cancelAnimationFrame']]) {
       const nativeSchedule = window[schedule].bind(window), nativeCancel = window[cancel].bind(window)
       window[schedule] = (fn, ...args) => {
         const band = isBandCallback()
         let id
-        id = nativeSchedule((...values) => { if (band) bandTimerCalls.active.delete(id); return fn(...values) }, ...args)
+        id = nativeSchedule((...values) => {
+          if (band) {
+            bandTimerCalls.active.delete(id)
+            if (window.bandDestroyed) bandTimerCalls.afterDestroy++
+          }
+          return fn(...values)
+        }, ...args)
         if (band) { bandTimerCalls.registered++; bandTimerCalls.active.add(id) }
         return id
       }
@@ -169,7 +183,6 @@ test('destroy cancels band frames, settle locks and clock ticks; remount resets 
       }
     }
   })
-  await openFixture(page)
   await open(page); await settle(page)
   await page.evaluate(() => {
     m.fx.scrollVP(300, true); m.fx.markScrolling()
@@ -185,6 +198,11 @@ test('destroy cancels band frames, settle locks and clock ticks; remount resets 
   await page.evaluate(() => { window.bandDestroyed = true })
   expect(await page.evaluate(() => bandTimerCalls.active.size)).toBe(0)
   expect(await page.evaluate(() => bandTimerCalls.registered)).toBeGreaterThan(0)
+  // The build hook is gone; keep LiveView's separate reconnect watchdog out of this long fake-time window.
+  await page.evaluate(() => liveSocket.disconnect())
+  await page.clock.runFor(65000)
+  expect(await page.evaluate(() => bandTimerCalls.afterDestroy)).toBe(0)
+  expect(await page.evaluate(() => bandTimerCalls.active.size)).toBe(0)
   expect(await page.evaluate(() => bandTimerCalls.cancelled)).toBeGreaterThan(0)
   expect(await page.evaluate(() => ({ writes: old.writes, text: old.time.textContent, disposed: m.ctx.life.disposed }))).toEqual(stopped)
   await open(page); await expect(page.locator('.bd-now-h > b')).toHaveText('Live')
@@ -233,12 +251,14 @@ test('Live button floating state and click use the actual band geometry', async 
   await open(page); await settle(page)
   await page.evaluate(() => { m.ctx.vp.scrollTop = m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 146; m.fx.update() })
   await expect(page.locator('#bd-nowbtn')).toHaveClass(/at/)
-  await page.locator('#bd-nowbtn').evaluate(el => el.click()); await settle(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.locator('#bd-nowbtn').evaluate(el => el.click())
   const error = await page.evaluate(() => {
     const vp = m.ctx.vp, target = Math.max(0, Math.min(m.ctx.secs.hist.el.offsetTop + m.ctx.L.secs.hist.h - 46, vp.scrollHeight - vp.clientHeight))
     return Math.abs(vp.scrollTop - target)
   })
   expect(error).toBeLessThanOrEqual(1)
+  await page.clock.runFor(20)
   await expect(page.locator('#bd-nowbtn')).not.toHaveClass(/at/)
 })
 
@@ -280,7 +300,7 @@ test('future guard: a mounted hook awaiting its first snapshot never presents mi
   const state = await page.evaluate(async () => {
     const { createBuildHomeHook } = await import('/build-home/hook.js')
     const { ctx } = await import('/build-home/state.js'), clock = await import('/build-home/clock.js')
-    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '</main>'
+    document.body.innerHTML = '<main id="build-root" class="bd-root">' + ['bd-usage', 'bd-offline', 'bd-fh', 'bd-tools-l', 'bd-filters', 'bd-tools', 'bd-vp', 'bd-sb', 'bd-tree', 'bd-status'].map(id => `<div id="${id}">${id === 'bd-sb' ? '<i></i>' : ''}</div>`).join('') + '<div id="tk-backdrop"><div id="tk-modal"><header id="tk-head"></header><div id="tk-body"></div></div></div></main>'
     const hook = Object.assign(createBuildHomeHook(), { el: document.querySelector('#build-root'), handleEvent() {}, pushEvent: () => new Promise(() => {}) })
     hook.mounted()
     const result = { now: clock.nowMs(), data: ctx.D, text: document.querySelector('.bd-now-h time')?.textContent ?? null }

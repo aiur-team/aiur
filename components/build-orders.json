@@ -13,19 +13,21 @@
     "src/lib/aiur/feature_cli/**",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
-    "src/lib/aiur_web/build_order_presenter/**",
-    "src/lib/aiur_web/live/build_order*.ex"
+    "src/lib/aiur_web/build_order_presenter/**"
   ],
   "facades": [
     "Aiur.BuildOrder.Catalog",
     "Aiur.BuildOrder.Component",
     "Aiur.BuildOrder.DependencyChain",
+    "Aiur.BuildOrder.EstimateCLI",
+    "Aiur.BuildOrder.Estimates",
     "Aiur.BuildOrder.Features",
     "Aiur.BuildOrder.Features.LabelProjection",
     "Aiur.BuildOrder.GitHubGraph",
     "Aiur.BuildOrder.GraphProjection",
     "Aiur.BuildOrder.GraphProjection.Snapshot",
     "Aiur.BuildOrder.History",
+    "Aiur.BuildOrder.History.Export",
     "Aiur.BuildOrder.History.Timing",
     "Aiur.BuildOrder.Index",
     "Aiur.BuildOrder.Metadata",
@@ -74,6 +76,7 @@
     ],
     "env": [],
     "state": [
+      "build_estimates_state_dir",
       "build_features_state_dir",
       "build_history_state_dir",
       "epic_overrides_state_dir"

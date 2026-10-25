@@ -19,6 +19,18 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
     assert is_pid(Process.whereis(Aiur.Orchestrator))
   end
 
+  test "verify_restored_shared_state also checks and restores supervised children", context do
+    previous_app_env = Aiur.TestSupport.capture_app_env()
+    previous_instance_key = System.get_env("AIUR_INSTANCE_KEY")
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
+
+    assert_raise RuntimeError, ~r/left Aiur.Orchestrator down/, fn ->
+      OrchestratorGuard.verify_restored_shared_state!(previous_app_env, previous_instance_key, context)
+    end
+
+    assert is_pid(Process.whereis(Aiur.Orchestrator))
+  end
+
   test "verify_restored! catches CodeOwners state left changed by a test", context do
     previous = CodeOwners.snapshot()
     baseline = OrchestratorGuard.capture_shared_state().codeowners
@@ -31,6 +43,22 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
       OrchestratorGuard.verify_restored!(Map.put(context, :aiur_expected_shared_state, expected))
     end
 
+    assert CodeOwners.snapshot() == baseline.allowlist
+    assert CodeOwners.codeowners_snapshot() == baseline.codeowners
+  end
+
+  test "verify_restored! reports and restores CodeOwners while its name is unregistered", context do
+    pid = Process.whereis(CodeOwners)
+    baseline = OrchestratorGuard.capture_shared_state().codeowners
+    assert is_pid(pid)
+    on_exit(fn -> if Process.alive?(pid) and is_nil(Process.whereis(CodeOwners)), do: Process.register(pid, CodeOwners) end)
+    Process.unregister(CodeOwners)
+
+    assert_raise RuntimeError,
+                 ~r/Aiur\.TestSupport\.OrchestratorGuardTest: test verify_restored! reports and restores CodeOwners while its name is unregistered .*Aiur\.GitHub\.CodeOwners unregistered during Aiur\.TestSupport\.OrchestratorGuardTest: test verify_restored! reports and restores CodeOwners while its name is unregistered/,
+                 fn -> OrchestratorGuard.verify_restored!(context) end
+
+    assert Process.whereis(CodeOwners) == pid
     assert CodeOwners.snapshot() == baseline.allowlist
     assert CodeOwners.codeowners_snapshot() == baseline.codeowners
   end
@@ -150,7 +178,7 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
       )
 
     assert status != 0
-    assert output =~ "16 tests, 3 failures"
+    assert output =~ "18 tests, 4 failures"
     assert output =~ "Aiur.Orchestrator was down before Aiur.BTestSupportWiringNeighbourTest"
     assert output =~ "last finished test: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down"
     assert output =~ "last finished test: Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed"
@@ -161,7 +189,10 @@ defmodule Aiur.TestSupport.OrchestratorGuardTest do
              "plain ExUnit tests broke Aiur.Orchestrator: Aiur.APlainCaseWiringProbeTest: test leaves orchestrator down (down), Aiur.DPlainCaseUnnamedProbeTest: test leaves the supervised orchestrator unnamed (down), Aiur.ZZPlainCaseLastProbeTest: test leaves orchestrator down at suite end (down)"
 
     assert output =~
-             "plain ExUnit tests left shared runtime children down: Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down (Aiur.PubSub unregistered)"
+             ~r/plain ExUnit tests left shared runtime children down: .*Aiur.FPlainCasePubSubLeakProbeTest: test leaves the PubSub registry table down \(Aiur.PubSub unregistered\)/
+
+    assert output =~
+             "Aiur.IPlainCaseDecisionStoreLeakProbeTest: test leaves the durable decision store down (Aiur.DecisionStore unregistered)"
 
     assert output =~ ~r/YTestSupportStandInProbeTest: test leaves a stand-in holding the name left Aiur.Orchestrator held by a stand-in #PID<[\d.]+> \(restore: :ok\)/
     # Borrowing the name in setup and giving it back is not a leak.

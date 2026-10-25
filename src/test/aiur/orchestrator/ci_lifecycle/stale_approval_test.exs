@@ -106,6 +106,23 @@ defmodule Aiur.Orchestrator.CiLifecycle.StaleApprovalTest do
     refute_received {:event, %{topic: ^stale_topic}}
   end
 
+  test "a push on another instance's ticket is neither classified nor alerted (#5803)" do
+    path = Workflow.workflow_file_path()
+    write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    label_prefixes: [nuc]\n")
+    :ok = Aiur.WorkflowStore.force_reload()
+    identifier = unique_identifier("ci-foreign-approval")
+    topic = "ticket.#{identifier}.agent.attention.stale_approved_pr_head"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+    {issue, state, result} = approved_push(identifier, 948)
+    issue = %{issue | labels: ["nuc:ci-wait"]}
+
+    poll_ci(state, issue, result, classifier_opts({:changed, %{reason: :contribution_changed, hunks: []}}))
+
+    refute_received {:classified, _, _, _}
+    refute_receive {:event, %{topic: ^topic}}, 200
+  end
+
   test "a push that edits a PR-owned line raises attention with the differing hunk" do
     identifier = unique_identifier("ci-changed-approval")
     topic = "ticket.#{identifier}.agent.attention.stale_approved_pr_head"

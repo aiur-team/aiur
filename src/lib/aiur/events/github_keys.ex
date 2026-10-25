@@ -80,6 +80,15 @@ defmodule Aiur.Events.GithubKeys do
 
   def pr_dedup_key(_repo, _pr_number, _action, _head_sha), do: nil
 
+  @doc "Returns a PR lifecycle replay key scoped to one ticket target."
+  @spec pr_dedup_key(term(), term(), term(), term(), term()) :: {String.t(), String.t(), String.t()} | nil
+  def pr_dedup_key(repo, pr_number, action, head_sha, ticket)
+      when is_binary(repo) and is_integer(pr_number) and is_binary(action) and
+             is_binary(head_sha) and is_binary(ticket),
+      do: {repo, "pr:#{action}:#{pr_number}:#{ticket}", head_sha}
+
+  def pr_dedup_key(_repo, _pr_number, _action, _head_sha, _ticket), do: nil
+
   @doc """
   Returns the Publisher dedup key for issue and PR comment events.
   """

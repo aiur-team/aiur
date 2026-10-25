@@ -18,7 +18,9 @@ defmodule Aiur.DecisionStore.Revisions do
   def handle_revision(decision_id, payload, opts, state) do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
-         {:ok, actor} <- Answers.fetch_actor(opts) do
+         {:ok, actor} <- Answers.fetch_actor(opts),
+         :ok <- Answers.require_relay_enabled(actor, state),
+         :ok <- require_relay_may_replace(decision, actor) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted -> replay_revision(decision, accepted, payload, actor, opts, state)
         nil -> accept_revision_unless_moot(decision, payload, actor, opts, state)
@@ -27,6 +29,17 @@ defmodule Aiur.DecisionStore.Revisions do
       nil -> {:reply, {:error, :answer_missing}, state}
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
+  end
+
+  # A relayed quote must not override an answer recorded directly by the operator.
+  # This runs in the serialized revision path, also used by supersede.
+  defp require_relay_may_replace(decision, actor) do
+    kind = Map.get(actor, :kind, Map.get(actor, "kind"))
+
+    if kind in [:operator_relayed, "operator_relayed"] and
+         match?(%DecisionAnswer{actor: %{kind: :operator}}, Decision.active_answer(decision)),
+       do: {:error, {:answer_invalid, {:operator_relay, :operator_answer_present}}},
+       else: :ok
   end
 
   # A mooted Command must never deliver again, so a new revision cannot revive
@@ -207,6 +220,7 @@ defmodule Aiur.DecisionStore.Revisions do
   defp persist_revision(decision, revision, state) do
     case Persistence.build_and_persist_event(:revision_recorded, decision, revision, revision.recorded_at, state) do
       {:ok, next_state, updated} ->
+        Answers.notify_operator_relay(revision.answer, updated, next_state)
         next_state = Settlement.ensure_superseded_revision_follow_ups(next_state, updated)
         current = Map.fetch!(next_state.current, updated.decision_id)
         next_state = Dispatch.maybe_schedule_after_answer(next_state, current, false)

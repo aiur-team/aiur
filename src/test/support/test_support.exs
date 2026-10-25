@@ -288,6 +288,7 @@ defmodule Aiur.TestSupport do
 
       setup context do
         lifecycle_test_pid = LifecycleLeakGuard.track(context)
+        Process.put(:aiur_test_process_pid, lifecycle_test_pid)
         workflow_base = Application.fetch_env!(:aiur, :test_run_root)
         previous_test_scope_state = Aiur.TestScopeGuard.capture()
 
@@ -404,6 +405,7 @@ defmodule Aiur.TestSupport do
   defdelegate start_owned_endpoint!(), to: Aiur.TestSupport.Processes
   defdelegate await_process_down(process, timeout \\ 2_000), to: Aiur.TestSupport.Processes
   defdelegate await_supervised_restart(name, prior, timeout \\ 5_000), to: Aiur.TestSupport.Processes
+  defdelegate await_supervised_restart_unbounded(name, prior), to: Aiur.TestSupport.Processes
   defdelegate ensure_runtime_children_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_orchestrator_running(), to: Aiur.TestSupport.RuntimeChildren
   defdelegate ensure_orchestrator_running(context), to: Aiur.TestSupport.OrchestratorGuard, as: :ensure_running
@@ -434,18 +436,22 @@ defmodule Aiur.TestSupport do
   def freeze_live_orchestrator do
     case Process.whereis(Aiur.Orchestrator) do
       pid when is_pid(pid) ->
-        :sys.replace_state(pid, fn state ->
-          if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+        try do
+          :sys.replace_state(pid, fn state ->
+            if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
 
-          %{
-            state
-            | tick_timer_ref: nil,
-              tick_token: make_ref(),
-              next_poll_due_at_ms: nil,
-              poll_check_in_progress: false,
-              poll_frozen: true
-          }
-        end)
+            %{
+              state
+              | tick_timer_ref: nil,
+                tick_token: make_ref(),
+                next_poll_due_at_ms: nil,
+                poll_check_in_progress: false,
+                poll_frozen: true
+            }
+          end)
+        catch
+          :exit, _reason -> :ok
+        end
 
       nil ->
         :ok

@@ -10,6 +10,10 @@ defmodule AiurWeb.BuildLiveTest do
 
   defmodule Spy do
     @behaviour AiurWeb.Build.DataSource
+    alias Aiur.TestSupport.BuildHome.FixtureSource
+    @impl true
+    def ticket(id, opts), do: FixtureSource.ticket(id, opts)
+
     @impl true
     def subscribe(opts) do
       send(opts[:test_pid], :subscribe)

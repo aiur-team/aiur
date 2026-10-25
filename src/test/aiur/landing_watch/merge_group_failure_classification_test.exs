@@ -42,6 +42,44 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
              )
   end
 
+  test "an all-cancelled merge-group run with only a failed gate is cancelled before fetching logs" do
+    jobs = [
+      %{"name" => "test", "conclusion" => "cancelled"},
+      %{"name" => "lint", "conclusion" => "cancelled"},
+      %{"name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:cancelled, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6050, "failure", "pr-42-a"),
+               jobs,
+               [],
+               job_log_fun: fn _, _ -> flunk("cancelled runs do not need job logs") end
+             )
+
+    assert MergeFailureClassifier.cancelled_group?(%{"event" => "pull_request"}, jobs)
+
+    superseded_jobs = [%{"name" => "test", "conclusion" => "cancelled"}, %{"name" => "ci gate", "conclusion" => "cancelled"}]
+
+    assert {:ok, {:cancelled, nil}} =
+             MergeFailureClassifier.classify(
+               Map.put(group_run(6052, "cancelled", "pr-42-a"), "event", "merge_group"),
+               superseded_jobs,
+               [],
+               job_log_fun: fn _, _ -> flunk("cancelled runs do not need job logs") end
+             )
+
+    mixed = List.replace_at(jobs, 1, %{"name" => "lint", "conclusion" => "failure"})
+
+    assert {:ok, {:pr_caused, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6051, "failure", "pr-42-a"),
+               mixed,
+               [],
+               job_log_fun: fn _, _ -> {:ok, ""} end
+             )
+  end
+
   test "only a cancellation that reaches its timeout is infrastructure" do
     log = fixture("run-38742645458-browser.log")
     run = group_run(407, "failure", "pr-17-a")
@@ -93,6 +131,30 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
              )
   end
 
+  test "a timeout cancellation with a failed gate is infrastructure, not a cancelled group" do
+    timeout_job = %{
+      "name" => "browser smoke",
+      "conclusion" => "cancelled",
+      "started_at" => "2026-10-15T13:30:00Z",
+      "completed_at" => "2026-10-15T13:45:00Z"
+    }
+
+    jobs = [
+      %{"name" => "changes", "conclusion" => "success"},
+      %{"name" => "soak", "conclusion" => "skipped"},
+      timeout_job,
+      %{"name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:infra, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6053, "cancelled", "pr-42-a"),
+               jobs,
+               [],
+               timeout_minutes_by_job: %{"browser smoke" => 15}
+             )
+  end
+
   test "recorded inherited ci gate failure is classified separately from PR test failures" do
     log = fixture("run-38742654941-inherited.log")
 
@@ -109,7 +171,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
   end
 
   test "known failure in untouched file is non-PR while a touched-file failure stays PR-caused" do
-    log = "mix test src/test/aiur/example_test.exs:12 test issue signature failed"
+    log = "  1) test issue signature (Aiur.ExampleTest)\n     test/aiur/example_test.exs:12"
     run = group_run(304, "failure", "pr-17-a")
     jobs = [%{"name" => "test", "conclusion" => "failure"}]
 
@@ -134,6 +196,25 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
 
     assert {:ok, {:known_non_pr, _}} =
              MergeFailureClassifier.classify(run, jobs, [], main_failure_opts)
+  end
+
+  test "blame is incomplete when any failed non-gate job has no ExUnit failure location" do
+    jobs = [
+      %{"id" => 1, "name" => "test", "conclusion" => "failure"},
+      %{"id" => 2, "name" => "file size", "conclusion" => "failure"},
+      %{"id" => 3, "name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:pr_caused, %{blame_complete: false, log: log}}} =
+             MergeFailureClassifier.classify(group_run(501, "failure", "pr-17-a"), jobs, [],
+               job_log_fun: fn
+                 %{"name" => "test"}, _ -> {:ok, "  1) test changed (Aiur.SampleTest)\n     test/aiur/sample_test.exs:12"}
+                 _, _ -> {:ok, "file size check rejected the diff"}
+               end
+             )
+
+    assert log =~ "sample_test.exs"
+    assert log =~ "file size check"
   end
 
   defp group_run(id, conclusion, prs) do

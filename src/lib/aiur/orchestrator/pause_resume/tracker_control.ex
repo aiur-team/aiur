@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   Runs operator resume and dispatch-budget reset controls as tracker steps outside the orchestrator call.
   """
 
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
@@ -19,6 +18,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.Signal
   alias Aiur.Tracker
   require Logger
 
@@ -44,7 +44,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   end
 
   defp emit_reset_success_alert(alert_issue_id, issue_identifier) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset.resolved",
       "Lifetime dispatch budget reset completed for #{issue_identifier}.",
       issue: alert_issue_id,
@@ -56,7 +56,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   end
 
   defp emit_reset_failure_alert(alert_issue_id, issue_identifier, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset",
       "Lifetime dispatch budget reset failed for #{issue_identifier}: #{inspect(reason)}.",
       issue: alert_issue_id,

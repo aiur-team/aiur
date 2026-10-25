@@ -15,20 +15,26 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
     path = Path.join(root, "CODEOWNERS")
     File.write!(path, "* @acme/team\n")
-    previous = Process.whereis(CodeOwners)
-    if previous, do: Process.unregister(CodeOwners)
+    server = Process.whereis(CodeOwners)
+    assert is_pid(server)
+    previous_state = :sys.get_state(server)
+
+    :sys.replace_state(server, fn state ->
+      %{state | codeowners_path: path, request_fun: fn _ -> {:ok, %{status: 503, body: %{}}} end}
+    end)
+
+    on_exit(fn ->
+      current_state = :sys.get_state(server)
+      :sys.replace_state(server, fn _ -> %{previous_state | timer_ref: current_state.timer_ref} end)
+    end)
+
     # The CodeOwners server resolves teams with the configured token.
-    token_key = {Aiur.GitHub.Config, :resolved_token}
+    token_key = {Aiur.GitHub.Access.Token, :resolved_token}
     previous_token = :persistent_term.get(token_key, :unset)
     :persistent_term.put(token_key, "test-gh-token")
     on_exit(fn -> if previous_token == :unset, do: :persistent_term.erase(token_key), else: :persistent_term.put(token_key, previous_token) end)
 
-    on_exit(fn ->
-      if previous && Process.alive?(previous), do: Process.register(previous, CodeOwners)
-    end)
-
-    server =
-      start_supervised!({CodeOwners, path: path, request_fun: fn _ -> {:ok, %{status: 503, body: %{}}} end, alert_fun: fn _, _, _ -> :ok end, refresh_seconds: 86_400})
+    CodeOwners.refresh(server)
 
     assert CodeOwners.trust_snapshot(server).degradation.cause ==
              {:team_lookup_failed, "@acme/team", {:github, :http, %{status: 503}}}
@@ -36,7 +42,7 @@ defmodule AiurWeb.CodeownersTrustDashboardTest do
     start_endpoint()
 
     conn = build_conn() |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
-    {:ok, view, _html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/units")
     banner = element(view, "#codeowners-trust-degraded")
     html = render(banner)
     assert html =~ "Team lookup failed for @acme/team"

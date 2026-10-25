@@ -26,14 +26,15 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 | `docs/` only | No. |
 | Another inactive branch only | No. |
 
-## The Build Order page
+## Build Order URLs
 
 | Surface | Shows |
 | --- | --- |
-| `/build-orders` | Discovered catalog. |
-| `/build-orders/:root_number` | One root's phases, lanes, graph, members, usage, and analytics. |
-| `aiur build-orders [<root>]` | The same projection in a terminal. |
+| `/build-orders[/:root]` | Redirects to the Build home, focused on the root's imported feature `bo-<root>`. |
+| `aiur build-orders [<root>]` | The discovered catalog, or one root's phases, lanes, graph and members, in a terminal. |
 | `--json` | Machine-readable Build Order rows. |
+
+`/build-orders` opens the Build home. An invalid root (a leading zero, a non-digit, `0`, or more than 19 digits) also opens the unfocused home. Only a valid `ticket` query key carries over (`/build-orders/42?ticket=7` opens `/?feature=bo-42&ticket=7`); other keys are dropped. The redirects sit behind dashboard authentication like every other page.
 
 The catalog's **Tickets completed** percentage counts accepted completions over all members. With partial lifecycle coverage, the percentage is a lower bound and the resolved count appears alongside it.
 
@@ -66,15 +67,30 @@ On the catalog, ticket, epic and wave counts remain numeric when resolution succ
 
 These states are intentionally not estimates. `aiur build-orders --json` reports the same cause as `count_resolution_failure`, with `count_resolution_reset_at` when a reset horizon is known.
 
-A local planning pack remains readable when a run starts globally paused before its first membership snapshot. The selected page and `aiur build-orders` identify unavailable current-run membership or ticket status separately from plan readability; any unobserved ticket state or completion remains unresolved.
+A local planning pack remains readable when a run starts globally paused before its first membership snapshot. `aiur build-orders` identifies unavailable current-run membership or ticket status separately from plan readability; any unobserved ticket state or completion remains unresolved.
 
 Draft members carry local ticket document paths and no invented GitHub issue URL; draft blockers cannot claim a live blocking state.
 
-<img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
-
-The Analytics pane shows an **Optimistic starts** tile when member telemetry records early starts. It counts redone and discarded work and reports head start (the interval from dependent start to blocker merge, floored at zero), never time saved.
-
 Missing head-start evidence is shown as unknown. A parked optimistic member stays `optimistic_parked` in the lifecycle chart until it resumes.
+
+### Usage and cost
+
+A root's usage pane renders the authenticated Usage and cost summary.
+
+Its **Tokens by model** card is followed by **Cost by provider route**.
+
+| Route case | How it reads |
+| --- | --- |
+| Routed call | Names both hops, such as `OpenRouter -> DeepSeek`. |
+| Direct provider | Appears without an arrow. |
+| Unreported upstream | Reads `OpenRouter -> upstream unknown`. |
+| Unavailable estimate | Reads **Unknown**, never zero. |
+| `mix aiur.cost_report --json` | Keeps `provider` and `upstream_provider` as separate fields. |
+| `mix aiur.pricing_window` | Shows which peak/off-peak pricing window is currently in force, the next boundary, and how `avoid_peak_pricing` routing treats it. |
+
+Provider-reported and API-equivalent estimates stay separate. Peak/off-peak
+windowed providers (DeepSeek) price a call at the rate actually in force; when
+the window cannot be determined, the conservative peak rate is reported.
 
 ## The repository state node
 
@@ -208,7 +224,9 @@ Transient label failures retry after 1, 4 and 16 seconds through scheduled recon
 
 Membership commands report the first marker failure immediately, retain the pending marker and retry it in the background.
 
-Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+Queue label requests use the daemon ledger callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+
+The consolidated `aiur usage github` view reports quota windows. The deprecated `github-cost` alias keeps its caller rankings, budget selection and output formats.
 
 The dispatch poll normally renews the open-issue snapshot the queue plans from. When that snapshot is older than the observation age, a non-empty queue lists open issues itself with caller `build_queue_open_issue_list`: at most once per observation age, starting one observation age after boot. The listing selects and authorizes no dispatch candidates.
 
@@ -273,15 +291,9 @@ Remove `todo` from work that must wait, and retain the local queue store for a
 later upgrade. Releases without the marker read `agent:queued` as a state, so
 also remove it from open issues before you downgrade.
 
-## Build queue dashboard panel
+## Build queue reads
 
-The `/build-orders` catalog includes a read-only Build queue panel. It uses the same held read model as `aiur queue show`: queues, completion progress, items in start order, prerequisite verdicts, rank, and open attentions. Manage membership and holds through the CLI.
-
-Every source shows its observation timestamp, age and freshness. Stale readiness is dimmed; unavailable readings show Unknown rather than zero or ready. Disabled queues, unsupported trackers, store failures and paused writes have distinct notices.
-
-Queue and progress notifications arrive in batches spaced at least 500 ms apart, then coalesce for 500 ms before the panel rereads local state. Each subscription group can hold only one unacknowledged batch; newer notifications replace older ones by event type.
-
-A local refresh every five seconds updates freshness without tracker requests. Resolved attentions remain visible for 60 seconds; connection loss uses the dashboard’s existing disconnected indicator.
+`aiur queue show` reads the held queue model: queues, completion progress, items in start order, prerequisite verdicts, rank, source freshness, and open attentions. Manage membership and holds through the CLI.
 
 Build Order roots appear as features named `bo-<number>`. Membership follows
 direct sub-issues, and build lanes become feature epics. The import writes no

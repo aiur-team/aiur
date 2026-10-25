@@ -3,7 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
-  alias Aiur.Config.{Schema, SemanticChecks, TestRunOverrides}
+  alias Aiur.Config.{BackendCatalog, Schema, SemanticChecks, TestRunOverrides}
   alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
@@ -20,6 +20,15 @@ defmodule Aiur.Config do
           thread_sandbox: String.t(),
           turn_sandbox_policy: map()
         }
+
+  @doc "Whether the operator explicitly permits recording relayed answers."
+  @spec relay_operator_answers?() :: boolean()
+  def relay_operator_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.relay_operator_answers == true
+      {:error, _reason} -> false
+    end
+  end
 
   @doc """
   The parsed config.
@@ -62,7 +71,7 @@ defmodule Aiur.Config do
   # reused, without copying the full config term on this hot path. See
   # `env_epoch/2` for why that is not the whole environment.
   defp cached_settings(workflow, cache_identity) do
-    key = {cache_identity, env_epoch(workflow, cache_identity)}
+    key = {cache_identity, {env_epoch(workflow, cache_identity), BackendCatalog.impl()}}
 
     case WorkflowStoreCache.fetch_settings(key) do
       {:ok, settings} ->
@@ -151,8 +160,10 @@ defmodule Aiur.Config do
 
   @doc false
   @spec settings_from({:ok, map()} | {:error, term()}) :: {:ok, Schema.t()} | {:error, term()}
-  def settings_from({:ok, %{config: config}}) when is_map(config),
-    do: config |> prepare_config() |> Schema.parse() |> TestRunOverrides.apply()
+  def settings_from({:ok, %{config: config}}) when is_map(config) do
+    with {:ok, _catalog} <- BackendCatalog.impl(),
+         do: config |> prepare_config() |> Schema.parse() |> TestRunOverrides.apply()
+  end
 
   def settings_from({:error, reason}), do: {:error, reason}
 
@@ -167,7 +178,26 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "The `voice.conversation` settings, with a relative `roles_dir` resolved against the config file."
+  @spec voice_conversation() :: Schema.VoiceConversation.t()
+  def voice_conversation do
+    Schema.VoiceConversation.resolve_roles_dir(settings!().voice.conversation, Workflow.workflow_file_path())
+  end
+
   defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
+  @spec instance_role() :: String.t()
+  def instance_role, do: settings!().instance.role
+
+  @spec instance_mode() :: String.t()
+  def instance_mode, do: settings!().instance.mode
+
+  # The role the repository-global services were gated on at boot; a hot reload does not re-gate them.
+  @spec booted_instance_role() :: String.t()
+  def booted_instance_role, do: Application.get_env(:aiur, :booted_instance_role) || instance_role()
+
+  # Hosted safety is evaluated against the mode selected at boot; reloads may not cross this boundary.
+  @spec booted_instance_mode() :: String.t()
+  def booted_instance_mode, do: Application.get_env(:aiur, :booted_instance_mode) || instance_mode()
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
@@ -239,11 +269,15 @@ defmodule Aiur.Config do
   defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
   defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings
-  defdelegate default_max_concurrent_agents(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers, memory_max_bytes), to: Aiur.Config.CapacitySettings
+  defdelegate default_agent_memory_estimate_mb(), to: Aiur.Config.CapacitySettings
   defdelegate run_queue_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_builds(), to: Aiur.Config.CapacitySettings
   defdelegate build_start_stagger_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate min_free_memory_mb(), to: Aiur.Config.CapacitySettings
+  defdelegate cgroup_memory_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_max_hold_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_retain_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate mix_scheduler_cap(), to: Aiur.Config.CapacitySettings
@@ -336,15 +370,15 @@ defmodule Aiur.Config do
   defp inferred_agent_kind(config) do
     agent = map_section(config, "agent")
 
-    Enum.find(Aiur.CodingAgent.configurable_backends(), fn backend ->
+    Enum.find(BackendCatalog.configurable_backends(), fn backend ->
       has_section?(config, backend) or Map.has_key?(backend_config_sections(config, agent), backend)
-    end) || Aiur.CodingAgent.default_config_backend()
+    end) || BackendCatalog.default_config_backend()
   end
 
   defp backend_config_sections(config, agent) do
     explicit = map_section(agent, "backend_configs")
 
-    Aiur.CodingAgent.known_backends()
+    BackendCatalog.known_backends()
     |> Enum.reduce(explicit, fn backend, sections ->
       section =
         config
@@ -369,6 +403,14 @@ defmodule Aiur.Config do
 
   @doc false
   @spec format_config_error(term()) :: String.t()
+  def format_config_error({:instance_mode_change_requires_restart, booted, configured}) do
+    "instance.mode cannot change from #{booted} to #{configured} while Aiur is running; restart the daemon"
+  end
+
+  def format_config_error({:unsafe_hosted_mode, violations}) do
+    "Hosted mode safety checks failed:\n- #{Enum.join(violations, "\n- ")}"
+  end
+
   def format_config_error(reason) do
     label = config_file_label()
 
