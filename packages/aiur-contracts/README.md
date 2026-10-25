@@ -6,8 +6,8 @@ registry without the Aiur repository. The main contract entrypoint is
 dependency-free; the optional webhook receiver entrypoint uses the official
 `standardwebhooks` package declared as a runtime dependency.
 The v1 schemas use JSON Schema draft 2020-12. They cover capabilities, the
-CLI and HTTP status surfaces, per-ticket usage, per-ticket progress, and
-ticket spend caps and outbound ticket events.
+CLI and HTTP status surfaces, per-ticket usage, per-ticket progress, ticket
+spend caps, and outbound ticket events.
 Clients ignore unknown IDs and additive fields. A breaking change adds v2 beside v1.
 
 Capability `mode` now accepts any string so merge policy can report `ci=wait local_tests=partial`.
@@ -34,6 +34,8 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `ticket-lifecycle-event.v1` | outbound webhook | `aiur.ticket_lifecycle_event` |
 | `ticket-progress-event.v1` | outbound webhook | `aiur.ticket_progress_event` |
 | `ticket-usage-event.v1` | outbound webhook | `aiur.ticket_usage_event` |
+| `ticket-spend-cap-reached-event.v1` | outbound webhook | `aiur.ticket_spend_cap_reached` |
+| `ticket-cancel-result-event.v1` | outbound webhook | `aiur.ticket_cancel` |
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
 | `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
 

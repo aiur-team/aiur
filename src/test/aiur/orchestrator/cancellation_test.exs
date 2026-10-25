@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.CancellationTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Issue, Tracker, Workflow}
+  alias Aiur.{Issue, Tracker, TrackerIdentity, Workflow}
   alias Aiur.Orchestrator.{Calls, Cancellation, RetryEngine, State}
   alias Aiur.Orchestrator.RetryEngine.AgentDown
 
@@ -22,7 +22,18 @@ defmodule Aiur.Orchestrator.CancellationTest do
   test "the public API writes the tracker state, observes exit, and removes the running entry" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
 
-    issue = %Issue{id: "issue-42", identifier: "42", state: "in-progress"}
+    identity = %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "aiur-team",
+      repository: "aiur",
+      provider_id: "I_42",
+      database_id: 42,
+      identifier: "42"
+    }
+
+    issue = %Issue{id: "issue-42", identifier: "42", state: "in-progress", tracker_identity: identity}
     previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
     Application.put_env(:aiur, :memory_tracker_issues, [issue])
 
@@ -39,6 +50,7 @@ defmodule Aiur.Orchestrator.CancellationTest do
         issue.id =>
           issue.id
           |> running_entry(issue.identifier, pid, make_ref(), "42:attempt-api")
+          |> Map.put(:issue, issue)
           |> Map.put(:headless_os_pid, 42_424)
       },
       claimed: MapSet.new([issue.id])
@@ -59,8 +71,14 @@ defmodule Aiur.Orchestrator.CancellationTest do
              Cancellation.cancel_agent(server, "42",
                reap_fun: fn _stage -> :reaped end,
                shell_alive_fun: fn _stage -> false end,
-               os_exit_timeout_ms: 0
+               os_exit_timeout_ms: 0,
+               event_publish_fun: fn result, published_issue ->
+                 send(self(), {:cancel_result_published, result, published_issue})
+                 :ok
+               end
              )
+
+    assert_receive {:cancel_result_published, %{process: %{status: "exited"}}, ^issue}, 1_000
 
     refute Map.has_key?(:sys.get_state(server).running, issue.id)
     assert {:ok, [%Issue{state: "cancelled"}]} = Tracker.fetch_issue_states_by_ids([issue.id])

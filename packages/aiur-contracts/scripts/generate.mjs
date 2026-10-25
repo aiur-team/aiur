@@ -28,6 +28,8 @@ const outputs = [
       'ticket-lifecycle-event.v1.schema.json',
       'ticket-progress-event.v1.schema.json',
       'ticket-usage-event.v1.schema.json',
+      'ticket-spend-cap-reached-event.v1.schema.json',
+      'ticket-cancel-result-event.v1.schema.json',
     ],
   },
   {

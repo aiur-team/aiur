@@ -9,6 +9,25 @@ defmodule Aiur.Events.Outbound.Event do
   @lifecycle_sources ["status_report", "tracker"]
   @token_fields ["input", "cached_input", "cache_creation_input", "output", "reasoning_output", "provider_reported_total"]
   @money_fields ["amount", "currency", "unit", "measurement_kind", "counter_scope", "source", "source_version"]
+  @spend_cap_fields [
+    "contract",
+    "contract_version",
+    "schema_version",
+    "job_id",
+    "ticket",
+    "currency",
+    "cap_amount",
+    "spent_amount",
+    "remaining_amount",
+    "state",
+    "end_state",
+    "coverage",
+    "authority",
+    "configured_at",
+    "reached_at"
+  ]
+  @cancel_fields ["contract", "contract_version", "issue_identifier", "tracker_state", "process"]
+  @cancel_exit_statuses ["normal", "shutdown", "killed", "noproc", "unknown"]
   @decimal ~r/^[0-9]+(?:\.[0-9]+)?$/
 
   @spec normalize(map(), DateTime.t()) :: {:ok, map()} | :drop
@@ -26,6 +45,44 @@ defmodule Aiur.Events.Outbound.Event do
          {:ok, data} <- lifecycle_data(data),
          {:ok, envelope} <- envelope("aiur.ticket_lifecycle_event", "ticket.lifecycle.changed", id, emitted_at, identity, job_id) do
       {:ok, Map.put(envelope, "data", data)}
+    else
+      _invalid -> :drop
+    end
+  end
+
+  def normalize(
+        %{
+          "contract" => "aiur.ticket_spend_cap_reached",
+          id: id,
+          topic: topic,
+          ticket_observation: %TicketObservation{} = observation
+        } = event,
+        %DateTime{} = emitted_at
+      ) do
+    with {:ok, identity, job_id} <- correlation(observation, id),
+         true <- topic == "ticket.#{identity.identifier}.usage.spend_cap_reached",
+         {:ok, data} <- spend_cap_data(event, identity),
+         {:ok, envelope} <- envelope("aiur.ticket_spend_cap_reached", "ticket.spend_cap.reached", id, emitted_at, identity, job_id) do
+      {:ok, Map.merge(data, envelope)}
+    else
+      _invalid -> :drop
+    end
+  end
+
+  def normalize(
+        %{
+          id: id,
+          topic: topic,
+          outbound_event: %{kind: :ticket_cancel_result, data: data},
+          ticket_observation: %TicketObservation{} = observation
+        },
+        %DateTime{} = emitted_at
+      ) do
+    with {:ok, identity, job_id} <- correlation(observation, id),
+         true <- topic == "ticket.#{identity.identifier}.cancel.result",
+         {:ok, data} <- cancel_result_data(data, identity),
+         {:ok, envelope} <- envelope("aiur.ticket_cancel", "ticket.cancel.result", id, emitted_at, identity, job_id) do
+      {:ok, Map.merge(data, envelope)}
     else
       _invalid -> :drop
     end
@@ -134,6 +191,85 @@ defmodule Aiur.Events.Outbound.Event do
 
   defp usage_data(_data), do: :error
 
+  defp spend_cap_data(
+         %{
+           "contract" => "aiur.ticket_spend_cap_reached",
+           "contract_version" => 1,
+           "schema_version" => 1,
+           "job_id" => job_id,
+           "ticket" => %{"owner" => owner, "repository" => repository, "identifier" => identifier},
+           "currency" => "USD",
+           "cap_amount" => cap,
+           "spent_amount" => spent,
+           "remaining_amount" => remaining,
+           "state" => "budget_exhausted",
+           "end_state" => "budget_exhausted",
+           "coverage" => coverage,
+           "authority" => authority,
+           "configured_at" => configured_at,
+           "reached_at" => reached_at
+         } = data,
+         %TrackerIdentity{} = identity
+       ) do
+    with true <- job_id == identity.identifier,
+         true <- {owner, repository, identifier} == {identity.owner, identity.repository, identity.identifier},
+         true <- Enum.all?([cap, spent, remaining], &valid_decimal?/1),
+         true <- is_map(coverage) and is_map(authority),
+         true <- valid_iso8601?(configured_at) and valid_iso8601?(reached_at) do
+      {:ok, Map.take(data, @spend_cap_fields)}
+    else
+      _invalid -> :error
+    end
+  end
+
+  defp spend_cap_data(_data, _identity), do: :error
+
+  defp cancel_result_data(
+         %{
+           "contract" => "aiur.ticket_cancel",
+           "contract_version" => 1,
+           "issue_identifier" => identifier,
+           "tracker_state" => "cancelled",
+           "process" => process
+         } = data,
+         %TrackerIdentity{} = identity
+       ) do
+    with true <- identifier == identity.identifier,
+         :ok <- valid_cancel_process(process) do
+      {:ok, Map.take(data, @cancel_fields)}
+    else
+      _invalid -> :error
+    end
+  end
+
+  defp cancel_result_data(_data, _identity), do: :error
+
+  defp valid_cancel_process(%{
+         "handle" => handle,
+         "status" => "exited",
+         "exit_status" => exit_status,
+         "exited_at" => exited_at,
+         "observed_at" => observed_at
+       }) do
+    if non_empty_string?(handle) and exit_status in @cancel_exit_statuses and valid_iso8601?(exited_at) and
+         valid_iso8601?(observed_at),
+       do: :ok,
+       else: :error
+  end
+
+  defp valid_cancel_process(%{
+         "handle" => handle,
+         "status" => status,
+         "exit_status" => nil,
+         "exited_at" => nil,
+         "observed_at" => observed_at
+       })
+       when status in ["still_running", "kill_failed", "generation_changed"] do
+    if non_empty_string?(handle) and valid_iso8601?(observed_at), do: :ok, else: :error
+  end
+
+  defp valid_cancel_process(_process), do: :error
+
   defp usage_delta(%{
          "tokens" => raw_tokens,
          "cost" => raw_cost,
@@ -187,6 +323,14 @@ defmodule Aiur.Events.Outbound.Event do
   end
 
   defp money(_money), do: :error
+
+  defp valid_decimal?(value), do: is_binary(value) and Regex.match?(@decimal, value)
+
+  defp valid_iso8601?(value) when is_binary(value) do
+    match?({:ok, %DateTime{}, _offset}, DateTime.from_iso8601(value))
+  end
+
+  defp valid_iso8601?(_value), do: false
 
   defp coverage_reasons(reasons) when is_list(reasons) do
     if Enum.all?(reasons, &non_empty_string?/1) and Enum.uniq(reasons) == reasons, do: {:ok, reasons}, else: :error

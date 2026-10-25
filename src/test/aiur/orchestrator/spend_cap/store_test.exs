@@ -31,8 +31,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
            send(owner, {:stopped, stopped, end_state, checkpoint})
            :ok
          end,
-         event_fun: fn topic, payload, event_id ->
-           send(owner, {:event, topic, payload, event_id})
+         event_fun: fn topic, payload, event_id, event_identity ->
+           send(owner, {:event, topic, payload, event_id, event_identity})
            {:ok, event_id, 1}
          end,
          transition_fun: fn identifier, state ->
@@ -52,7 +52,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
     assert_receive {:stopped, ^identity, :budget_exhausted, checkpoint}, 1_000
     assert Jason.decode!(checkpoint)["records"] |> hd() |> Map.fetch!("state") == "budget_exhausted"
 
-    assert_receive {:event, "ticket.5693.usage.spend_cap_reached", event, 42}, 1_000
+    assert_receive {:event, "ticket.5693.usage.spend_cap_reached", event, 42, ^identity}, 1_000
     assert event["contract"] == "aiur.ticket_spend_cap_reached"
     assert event["contract_version"] == 1
     assert event["end_state"] == "budget_exhausted"

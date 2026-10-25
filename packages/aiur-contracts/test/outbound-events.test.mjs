@@ -9,12 +9,16 @@ const cases = [
   ['ticket lifecycle', 'ticket-lifecycle-event.v1'],
   ['ticket progress', 'ticket-progress-event.v1'],
   ['ticket usage', 'ticket-usage-event.v1'],
+  ['ticket spend cap reached', 'ticket-spend-cap-reached-event.v1'],
+  ['ticket cancel result', 'ticket-cancel-result-event.v1'],
 ];
 
 test('outbound event fixtures validate against their v1 schemas', () => {
   const ajv = new Ajv2020({ allErrors: true, formats: { 'date-time': true } });
   const envelope = read('schemas/outbound-event-envelope.v1.schema.json');
   ajv.addSchema(envelope);
+  ajv.addSchema(read('schemas/ticket-spend-cap-reached.v1.schema.json'));
+  ajv.addSchema(read('schemas/ticket-cancel.v1.schema.json'));
 
   for (const [name, stem] of cases) {
     const schema = read(`schemas/${stem}.schema.json`);

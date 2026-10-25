@@ -10,7 +10,7 @@ const fixture = (name) => readFileSync(join(root, 'fixtures', name), 'utf8');
 const dir = mkdtempSync(join(tmpdir(), 'aiur-contracts-'));
 const probe = join(dir, 'fixtures.mts');
 writeFileSync(probe, [
-  `import type { AgentsStatus, CapabilitiesReport, CapabilityError, FleetStatus, TicketCancel, TicketLifecycleChangedEvent, TicketProgress, TicketProgressChangedEvent, TicketSpendCap, TicketSpendCapReached, TicketStatus, TicketUsage, TicketUsageChangedEvent } from ${JSON.stringify(join(root, 'src/index.js'))};`,
+  `import type { AgentsStatus, CapabilitiesReport, CapabilityError, FleetStatus, TicketCancel, TicketCancelResultEvent, TicketLifecycleChangedEvent, TicketProgress, TicketProgressChangedEvent, TicketSpendCap, TicketSpendCapReached, TicketSpendCapReachedEvent, TicketStatus, TicketUsage, TicketUsageChangedEvent } from ${JSON.stringify(join(root, 'src/index.js'))};`,
   `export const report: CapabilitiesReport = ${fixture('capabilities.v1.json')};`,
   `export const error: CapabilityError = ${fixture('capability-error.v1.json')};`,
   `export const agents: AgentsStatus = ${fixture('agents.v1.json')};`,
@@ -24,6 +24,8 @@ writeFileSync(probe, [
   `export const ticketUsageEvent: TicketUsageChangedEvent = ${fixture('ticket-usage-event.v1.json')};`,
   `export const ticketSpendCap: TicketSpendCap = ${fixture('ticket-spend-cap.v1.json')};`,
   `export const ticketSpendCapReached: TicketSpendCapReached = ${fixture('ticket-spend-cap-reached.v1.json')};`,
+  `export const ticketSpendCapReachedEvent: TicketSpendCapReachedEvent = ${fixture('ticket-spend-cap-reached-event.v1.json')};`,
+  `export const ticketCancelResultEvent: TicketCancelResultEvent = ${fixture('ticket-cancel-result-event.v1.json')};`,
 ].join('\n'));
 const tsc = join(root, 'node_modules/typescript/bin/tsc');
 const result = spawnSync(process.execPath, [tsc, '--noEmit', '--strict', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--target', 'ES2022', probe], { stdio: 'inherit' });
