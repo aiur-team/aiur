@@ -15,6 +15,7 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.StateLabels
   alias Aiur.GitHub.TicketPullRequest
   alias Aiur.GitHub.Transport
   alias Aiur.Issue
@@ -234,6 +235,13 @@ defmodule Aiur.GitHub.Tracker do
   def fetch_issue_states_by_ids(issue_ids),
     do: client_module().fetch_issue_states_by_ids(issue_ids)
 
+  @impl Aiur.Tracker.IssueTracker
+  @spec foreign_state_label?([String.t()]) :: boolean()
+  def foreign_state_label?(labels) do
+    active_states = Aiur.Config.active_states() |> MapSet.new()
+    StateLabels.foreign_candidate_state_label?(labels, Config.label_prefix(), active_states)
+  end
+
   @doc """
   Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
   Dependencies API. Called only on the dispatch path (the issue actually being
@@ -330,6 +338,9 @@ defmodule Aiur.GitHub.Tracker do
 
   @impl Aiur.Tracker.CodeHost
   defdelegate pull_request_body_edited_at(number), to: Aiur.GitHub.PullRequestBodyEdit, as: :last_edited_at
+
+  @impl Aiur.Tracker.CodeHost
+  defdelegate update_pull_request_body(number, body), to: Aiur.GitHub.PullRequests, as: :update_body
 
   @impl Aiur.Tracker.IssueTracker
   defdelegate reopen_issue(issue_id), to: Aiur.GitHub.IssueReopen, as: :reopen

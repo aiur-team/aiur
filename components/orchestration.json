@@ -36,6 +36,7 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "agent-runner",
+    "agent-sandbox",
     "commands",
     "config",
     "event-bus",
@@ -50,6 +51,8 @@
   ],
   "optional": [
     "build-queue",
+    "executor-attention",
+    "github",
     "github-listeners"
   ],
   "owns": {
@@ -59,7 +62,9 @@
       "pr_watch",
       "worker"
     ],
-    "env": [],
+    "env": [
+      "AIUR_LEASE_DATABASE_URL"
+    ],
     "state": [
       "current_run_membership_state_dir"
     ],
@@ -90,7 +95,9 @@
     "pr_watch",
     "worker"
   ],
-  "env": [],
+  "env": [
+    "AIUR_LEASE_DATABASE_URL"
+  ],
   "capabilities": [],
   "forbid": [
     "Aiur.GitHub.Listeners.*"

@@ -10,14 +10,36 @@ defmodule Aiur.AgentRunner do
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
+  alias Aiur.Instance.LeaseStore
   alias Aiur.Opencode.ApiClient
   alias Aiur.Signal
   alias Aiur.Workspace.Ownership
 
   @type worker_host :: String.t() | nil
+  @max_before_run_timeout_retries 3
 
   @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+    lease_watch = Keyword.get(opts, :lease_watch_fun, &LeaseStore.watch/1)
+
+    lease =
+      if is_binary(issue.pr_head_ref),
+        do: :disabled,
+        else: lease_watch.(issue)
+
+    case lease do
+      result when result in [:ok, :disabled] ->
+        run_with_ticket_lease(issue, codex_update_recipient, opts)
+
+      :not_owned ->
+        exit(:shared_ticket_lease_not_owned)
+
+      {:error, reason} ->
+        exit({:shared_ticket_lease_unavailable, reason})
+    end
+  end
+
+  defp run_with_ticket_lease(issue, codex_update_recipient, opts) do
     # A bare `model:<name>` the catalogue cache could not place gets one bounded
     # refresh before anything reads the backend, so a model released since the
     # last refresh still decides this run.
@@ -60,6 +82,10 @@ defmodule Aiur.AgentRunner do
       transient_run_error?(reason, CodingAgent.backend_for(issue)) ->
         Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
         :ok
+
+      match?({:workspace_hook_timeout, "before_run", _timeout_ms}, reason) ->
+        Logger.error("Agent run exhausted automatic before_run timeout retries for #{issue_context(issue)}: #{inspect(reason)}")
+        exit(reason)
 
       local_budget_hold?(reason) ->
         Logger.warning("Agent run deferred by local GitHub budget hold for #{issue_context(issue)}: #{inspect(reason)}; retrying after the hold resets")
@@ -156,14 +182,45 @@ defmodule Aiur.AgentRunner do
   end
 
   defp run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+    run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, 0)
+  end
+
+  defp run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, timeout_retries) do
     case run_worker_attempt_once(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do
+      {:before_run_retry, {:workspace_hook_timeout, "before_run", timeout_ms}, _reported_timeout_ms} ->
+        reason = {:workspace_hook_timeout, "before_run", timeout_ms}
+
+        if timeout_retries >= @max_before_run_timeout_retries do
+          Logger.error(
+            "Stopping before_run timeout retries for #{issue_context(issue)} after #{@max_before_run_timeout_retries} retries; " <>
+              "handing the timeout to the normal failure path"
+          )
+
+          {:error, reason}
+        else
+          delay_ms = before_run_timeout_retry_delay(timeout_retries)
+
+          Logger.warning(
+            "Retrying before_run hook after timeout for #{issue_context(issue)} timeout_ms=#{timeout_ms} " <>
+              "retry=#{timeout_retries + 1}/#{@max_before_run_timeout_retries} delay_ms=#{delay_ms}"
+          )
+
+          Process.sleep(delay_ms)
+          run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, timeout_retries + 1)
+        end
+
       :resume_after_before_run_pause ->
         opts = begin_workspace_setup_retry(issue, opts)
-        run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host)
+        run_worker_attempt(ownership, workspace, issue, codex_update_recipient, opts, worker_host, 0)
 
       result ->
         result
     end
+  end
+
+  defp before_run_timeout_retry_delay(retries) do
+    delay = 1_000 * 2 ** min(retries, 10)
+    min(delay, Config.settings!().agent.max_retry_backoff_ms)
   end
 
   defp run_worker_attempt_once(ownership, workspace, issue, codex_update_recipient, opts, worker_host) do

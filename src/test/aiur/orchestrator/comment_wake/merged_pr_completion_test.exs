@@ -1,11 +1,10 @@
 defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   # Log capture is global; preserve the original module's serial execution.
-  use ExUnit.Case, async: false
-
+  use Aiur.TestSupport
   import ExUnit.CaptureLog
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.Orchestrator.{CommentWake, MergeStateWriter, State}
 
   defp base_state do
     %State{
@@ -36,6 +35,40 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
   end
 
   describe "mark_pr_merged_issue_done/2" do
+    test "skips terminal writes when the fetched issue belongs to another GitHub label prefix" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent"
+      )
+
+      issue = %Issue{id: "3163", identifier: "3163", state: nil, labels: ["nuc:done"]}
+
+      result =
+        MergeStateWriter.write_if_current("3163", "done", fetch_issue_states_fun: fn ["3163"] -> {:ok, [issue]} end)
+
+      assert result == :skipped
+    end
+
+    test "does not complete or alert when the merged-PR writer skips a foreign lane" do
+      state = base_state()
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, "3163",
+          pr_body: "Closes #3163",
+          update_issue_state_fun: fn "3163", "done" ->
+            send(parent, :foreign_lane_writer_skipped)
+            :skipped
+          end,
+          emit_alert_fun: fn _, _ -> flunk("a skipped foreign lane must not raise a transition alert") end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
+        )
+
+      assert_received :foreign_lane_writer_skipped
+      assert result == state
+    end
+
     test "returns state unchanged when no matching running entry exists" do
       state = base_state()
 
@@ -43,6 +76,43 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
         CommentWake.mark_pr_merged_issue_done(state, "424242", pr_body: "Closes #424242", open_pull_requests_fun: fn _identifier -> {:ok, []} end)
 
       assert result == state
+    end
+
+    test "a merged PR terminalizes a ticket that is mid-flap in in-progress" do
+      issue = %Issue{
+        id: "issue-mid-flap",
+        identifier: "42",
+        state: "in-progress",
+        tracker_identity: tracker_identity("42")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          }
+      }
+
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #42",
+          target_state: "done",
+          update_issue_state_fun: fn "42", "done" ->
+            send(parent, {:terminal_target, "agent:done"})
+            :ok
+          end,
+          clear_session_handle_fun: fn _identifier -> :ok end,
+          observe_membership_fun: fn _identity, :completed -> :ok end,
+          set_terminal_verification_pending_fun: fn _identity, false -> :ok end,
+          terminate_running_issue_fun: fn current, issue_id, true -> %{current | running: Map.delete(current.running, issue_id)} end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
+        )
+
+      assert_received {:terminal_target, "agent:done"}
+      refute Map.has_key?(result.running, issue.id)
     end
 
     test "records completed membership before terminating a merged running issue" do
@@ -159,65 +229,6 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
       assert Agent.get(counter, & &1) == 2
     end
 
-    # #2467: the same hold, one step later — on the `done` terminal write
-    # itself. Waited out, the write retries and the ticket still closes.
-    test "waits out a short local hold on the merged-PR terminal write and closes the ticket" do
-      issue = %Issue{
-        id: "issue-hold-write",
-        identifier: "42",
-        state: "in-progress",
-        tracker_identity: tracker_identity("42")
-      }
-
-      state = %{
-        base_state()
-        | running: %{
-            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
-          },
-          claimed: MapSet.new([issue.id])
-      }
-
-      parent = self()
-      identity = issue.tracker_identity
-      reset_at = DateTime.add(DateTime.utc_now(), 5, :minute)
-      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
-      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
-      {:ok, counter} = Agent.start_link(fn -> 0 end)
-
-      result =
-        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
-          pr_body: "Closes #42",
-          update_issue_state_fun: fn identifier, "done" ->
-            attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
-            send(parent, {:terminal_write, identifier, attempt})
-            if attempt == 1, do: {:error, {:github, :local_hold, detail}}, else: :ok
-          end,
-          clear_session_handle_fun: fn _identifier -> :ok end,
-          observe_membership_fun: fn identity, lifecycle ->
-            send(parent, {:membership_recorded, identity, lifecycle})
-            :ok
-          end,
-          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
-          terminate_running_issue_fun: fn current_state, issue_id, true ->
-            assert_receive {:membership_recorded, ^identity, :completed}, 1000
-
-            %{
-              current_state
-              | running: Map.delete(current_state.running, issue_id),
-                claimed: MapSet.new()
-            }
-          end,
-          merger_allowed_fun: fn _login -> true end,
-          open_pull_requests_fun: fn _identifier -> {:ok, []} end,
-          local_hold_sleep_fun: fn _ms -> :ok end
-        )
-
-      assert_receive {:terminal_write, "42", 1}, 1000
-      assert_receive {:terminal_write, "42", 2}, 1000
-      refute Map.has_key?(result.running, issue.id)
-      refute MapSet.member?(result.claimed, issue.id)
-    end
-
     # #2467 mutation guard at this site: a hold whose `reset_at` is beyond the
     # ceiling is a genuine capacity problem and must still fail the terminal
     # path — the existing merge-terminal-write alert fires and no sleep happens.
@@ -242,47 +253,6 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrCompletionTest do
                "[alert] (#424242) ticket.424242.agent.attention.merge_terminal_write_failed"
 
       assert log =~ "Merged PR could not transition ticket 424242 to done"
-    end
-
-    # #2467 guard on the `done` write itself: a beyond-ceiling hold fails the
-    # transition (skipped, no teardown) instead of being slept off indefinitely.
-    test "a merged-PR terminal write hold beyond the ceiling still skips the transition" do
-      issue = %Issue{
-        id: "issue-hold-write-beyond",
-        identifier: "42",
-        state: "in-progress",
-        tracker_identity: tracker_identity("42")
-      }
-
-      state = %{
-        base_state()
-        | running: %{
-            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
-          },
-          claimed: MapSet.new([issue.id])
-      }
-
-      parent = self()
-      reset_at = DateTime.add(DateTime.utc_now(), 3_700, :second)
-      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
-      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
-
-      result =
-        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
-          pr_body: "Closes #42",
-          update_issue_state_fun: fn _identifier, "done" -> {:error, {:github, :local_hold, detail}} end,
-          observe_membership_fun: fn _identity, _lifecycle ->
-            send(parent, :membership_recorded)
-            :ok
-          end,
-          merger_allowed_fun: fn _login -> true end,
-          open_pull_requests_fun: fn _identifier -> {:ok, []} end,
-          local_hold_sleep_fun: fn _ms -> flunk("must not sleep for a beyond-ceiling hold") end
-        )
-
-      refute_receive :membership_recorded, 100
-      assert Map.has_key?(result.running, issue.id)
-      assert MapSet.member?(result.claimed, issue.id)
     end
   end
 

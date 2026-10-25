@@ -152,6 +152,11 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
 
       assert stop =~ ~r/kill_beams_matching "-name \$\{AIUR_RELEASE_NODE\}".+reap_workspace_cwd_from_file "\$workspace_root_file"/s,
              "cmd_stop must run the cwd sweep after the BEAM node-name reap"
+
+      restart = cmd_restart_block()
+
+      assert restart =~ ~r{cmd_stop \|\| stop_status=\$\?[\s\S]*?wait_for_node_name_release "\$\{AIUR_RELEASE_NODE\}"},
+             "restart must wait for epmd to release the node name before rebuilding"
     end
 
     test "watchdog receives the workspace root file and sweeps after BEAM death" do
@@ -303,6 +308,13 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
   defp cmd_stop_block do
     [_, block] =
       Regex.run(~r/cmd_stop\(\) \{(.+?)\n\}\n/us, Aiur.EngineSource.text(), capture: :all)
+
+    block
+  end
+
+  defp cmd_restart_block do
+    [_, block] =
+      Regex.run(~r/cmd_restart\(\) \{(.+?)\n\}\n/mus, Aiur.EngineSource.text(), capture: :all)
 
     block
   end

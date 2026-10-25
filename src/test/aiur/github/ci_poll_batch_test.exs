@@ -19,7 +19,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "query AiurCIPollBatch"
-      assert body["query"] =~ "checkSuite { id app { databaseId } }"
+      assert body["query"] =~ "checkSuite { id app { databaseId } workflowRun { workflow { databaseId } } }"
       assert body["query"] =~ "mergeQueueEntry { id state }"
       assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100)"
       assert body["query"] =~ "reviews(last: 100) { nodes { state commit { oid } } }"
@@ -39,7 +39,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
                  "nodes" => [
-                   Map.merge(pull_request(), %{
+                   Map.merge(pull_request_with_workflow_run(), %{
                      "reviews" => %{
                        # Oldest first, as `last:` returns them: the newest approval is the head.
                        "nodes" => [%{"state" => "APPROVED", "commit" => %{"oid" => "older-head"}}, %{"state" => "APPROVED", "commit" => %{"oid" => "reviewed-head"}}]
@@ -77,8 +77,27 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              }
            } = batch.pull_request
 
-    assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15_368}}] = batch.check_runs
+    assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "workflow_id" => 44, "app" => %{"id" => 15_368}}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
+  end
+
+  defp pull_request_with_workflow_run do
+    put_in(
+      pull_request(),
+      [
+        "commits",
+        "nodes",
+        Access.at(0),
+        "commit",
+        "statusCheckRollup",
+        "contexts",
+        "nodes",
+        Access.at(0),
+        "checkSuite",
+        "workflowRun"
+      ],
+      %{"workflow" => %{"databaseId" => 44}}
+    )
   end
 
   # #2310 — a `check_run` delivery answers a target, so the batch drops it from

@@ -98,8 +98,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
-                <span :if={!present?(row.build_lane) && present?(row.tracker_state)} class="u-lane is-state">
-                  <span class="u-lane-dot" aria-hidden="true"></span>{row.tracker_state |> to_string() |> String.replace("-", " ") |> String.upcase()}
+                <span :if={state_label = UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{state_label}
+                </span>
+                <span :if={reason_label = UnitsPresentation.reason_label(row)} class="u-lane is-state" title={reason_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{reason_label}
                 </span>
               </td>
 
@@ -119,6 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <div class="ut-latest-meta mono num">
                   <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
                   <span><span class="sr-only">Runtime </span>{runtime(row, @now, @view)}</span>
+                  <span :if={slot_released?(row)} title="Paused on a provider usage limit; not counted against max-agents">Slot released</span>
                 </div>
                 <div class="ut-latest-meta ut-agent-context mono num">
                   <span title={turn_count_title(row)}>Turns {turn_count(row)}</span>
@@ -418,6 +422,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp unit_sort_value(row), do: Enum.join(Enum.reject([agent_label(row), model_label(row)], &is_nil/1), " ")
 
   defp latest_text(row), do: UnitsPresentation.latest_text(row)
+
+  defp slot_released?(row), do: get_in(row, [:reasons, :waiting]) == :provider_limited
 
   defp progress_width(progress), do: known_percent(progress) || 0
 
