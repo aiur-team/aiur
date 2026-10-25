@@ -4,7 +4,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
   alias Aiur.Codex.SessionRecovery
   alias Aiur.ModelCatalog
   alias Aiur.ProviderMeterProbe
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @spec entry() :: Aiur.CodingAgent.Backend.capabilities()
   def entry do
@@ -74,7 +74,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       },
       usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
       meter_probe: &ProviderMeterProbe.probe_session/3,
-      run_telemetry: &Lifecycle.decode_codex_operation/1,
+      run_telemetry: &Signal.decode_codex_operation/1,
       account_generation: %{
         backends: [:app_server],
         trusted_sources: [:codex_app_server],
