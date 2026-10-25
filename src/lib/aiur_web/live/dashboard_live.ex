@@ -5,7 +5,7 @@ defmodule AiurWeb.DashboardLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.Agent.UsageSnapshotService
-  alias Aiur.Netlify.Usage, as: NetlifyUsage
+  alias AiurWeb.DashboardLive.NetlifyUsage
 
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCoordinator
@@ -92,8 +92,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(%{payload: payload, now: DateTime.utc_now(), repository_leader: RepositoryLeaderBanner.initial_status()})
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
-      |> assign(:netlify_usage, NetlifyUsage.snapshot())
-      |> assign(:netlify_enabled?, Aiur.Config.netlify_settings().enabled)
+      |> assign(:netlify_dashboard, NetlifyUsage.snapshot())
       |> Voice.assign_voice()
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
@@ -150,7 +149,6 @@ defmodule AiurWeb.DashboardLive do
       |> PayloadLoader.mark_joined(connected)
 
     if connected do
-      Phoenix.PubSub.subscribe(Aiur.PubSub, NetlifyUsage.topic())
       schedule_runtime_tick()
       schedule_github_quota_tick()
       schedule_elevenlabs_quota_tick()
@@ -207,10 +205,7 @@ defmodule AiurWeb.DashboardLive do
   defp conversation_route_row?(_row, _owner, _repository, _identifier), do: false
 
   @impl true
-  def handle_info(:runtime_tick, socket) do
-    schedule_runtime_tick()
-    {:noreply, RepositoryLeaderBanner.refresh(socket)}
-  end
+  def handle_info(:runtime_tick, socket), do: {:noreply, NetlifyUsage.tick(socket, &schedule_runtime_tick/0)}
 
   def handle_info(:github_quota_tick, socket) do
     schedule_github_quota_tick()
@@ -220,10 +215,6 @@ defmodule AiurWeb.DashboardLive do
   def handle_info(:elevenlabs_quota_tick, socket) do
     schedule_elevenlabs_quota_tick()
     {:noreply, Voice.assign_voice(socket)}
-  end
-
-  def handle_info({:netlify_usage_changed, _snapshot}, socket) do
-    {:noreply, assign(socket, :netlify_usage, NetlifyUsage.snapshot())}
   end
 
   @impl true
@@ -840,8 +831,7 @@ defmodule AiurWeb.DashboardLive do
           meters={@provider_meters_view}
           github_quota={@github_quota}
           elevenlabs_quota={@elevenlabs_quota}
-          netlify_usage={@netlify_usage}
-          netlify_enabled?={@netlify_enabled?}
+          netlify_dashboard={@netlify_dashboard}
           now={@now}
         />
 

@@ -60,7 +60,6 @@ Aiur watches nonterminal tickets in the run scope and, once a ticket's **converg
 | CI | Current state when available, for tickets already alerted. |
 
 A ticket that becomes terminal or leaves the run scope resolves its active advisory and forgets its convergence state; a re-opened ticket starts a fresh episode.
-
 ## tracker
 
 The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a matching open local request and nonce; daemon authorship alone grants no trust.
@@ -107,7 +106,6 @@ The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a ma
 | `tracker.restack_after_blocker_merge` | boolean | true | Fast-forward restack idle GitHub dependents after a blocker squash-merges. Requires git 2.40+. Live agents restack themselves; false disables only the daemon path. |
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
-
 ## polling
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-02 -->
@@ -157,13 +155,11 @@ Freshness thresholds follow this cadence. You do not set them separately.
   a freshly restarted fleet starts at the base interval, and a live fleet with
   dispatchable tickets keeps the base interval so work is not left waiting
   behind a backed-off sweep (#2138).
-
 ## monitoring
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-03 -->
 | --- | --- | --- | --- |
 | `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
-
 ## webhooks
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-04 -->
@@ -174,7 +170,6 @@ Freshness thresholds follow this cadence. You do not set them separately.
 | `webhooks.sweep_interval_seconds` | integer | 60 | How often proven repos are checked for silence. |
 
 See [GitHub polling and webhooks](/apis/github-polling) for the setup story and runtime states.
-
 ## workspace
 
 The `wip_*` keys bound the save of uncommitted work described in [Saved uncommitted work](/reference/cli#saved-uncommitted-work).
@@ -294,7 +289,6 @@ The `aiur run` upgrade-version notice is optional and opt-out: it caches with a 
 
 `AIUR_UPGRADE_CHECK_DISABLED` (and the legacy `AIUR_NO_UPDATE_NOTIFIER`) are the
 environment-variable equivalents; the check also stays silent in CI runs.
-
 ## alerts
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-13 -->
 | --- | --- | --- | --- |
@@ -303,10 +297,14 @@ environment-variable equivalents; the check also stays silent in CI runs.
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
 
-## usage and netlify
+## usage
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
 | --- | --- | --- | --- |
 | `usage.alerts` | map | %{} | Per-provider low-usage alert thresholds; each threshold is remaining percent from 0 to 100. |
+
+## netlify
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
+| --- | --- | --- | --- |
 | `netlify.enabled` | boolean | false | Enable read-only Netlify usage polling and the dashboard card. |
 | `netlify.account_id` | string | nil | Netlify team or account ID to read. |
 | `netlify.poll_seconds` | integer | 900 | Netlify usage polling interval in seconds. |

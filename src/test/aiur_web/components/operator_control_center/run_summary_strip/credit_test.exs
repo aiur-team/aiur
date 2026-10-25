@@ -382,18 +382,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
       run: %{state: :loading},
       usage: %{state: :ready, providers: %{}},
       meters: %{state: :authorized, cards: []},
-      netlify_usage: nil,
-      netlify_enabled?: true,
+      netlify_dashboard: nil,
       now: @now
     }
 
     zero_html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         base
-        | netlify_usage: %{
-            state: :ready,
-            age_ms: 61_000,
-            fields: %{credits: %{estimated_remaining: 0, runway_days: 0}, sites: [], account: %{usages_exceeded: false}}
+        | netlify_dashboard: %{
+            enabled?: true,
+            snapshot: %{state: :ready, age_ms: 61_000, fields: %{credits: %{estimated_remaining: 0, runway_days: 0}, sites: [], account: %{usages_exceeded: false}}}
           }
       })
 
@@ -404,7 +402,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
     unavailable_html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         base
-        | netlify_usage: %{state: :unavailable, age_ms: 61_000, fields: %{credits: %{estimated_remaining: nil}, sites: [], account: %{}}}
+        | netlify_dashboard: %{enabled?: true, snapshot: %{state: :unavailable, age_ms: 61_000, fields: %{credits: %{estimated_remaining: nil}, sites: [], account: %{}}}}
       })
 
     assert unavailable_html =~ "Estimated credits: unavailable"

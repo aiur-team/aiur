@@ -1,8 +1,10 @@
 defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.NetlifyRow do
+  @moduledoc "Renders the dashboard's Netlify usage estimate and availability state."
   use Phoenix.Component
 
   attr(:usage, :map, default: nil)
 
+  @spec netlify_api_row(map()) :: Phoenix.LiveView.Rendered.t()
   def netlify_api_row(assigns) do
     usage = assigns.usage || %{}
     fields = Map.get(usage, :fields, Map.get(usage, "fields", %{}))

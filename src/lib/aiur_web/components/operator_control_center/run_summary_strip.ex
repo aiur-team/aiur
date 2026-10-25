@@ -42,8 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:meters, :map, required: true)
   attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:elevenlabs_quota, :map, default: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
-  attr(:netlify_usage, :map, default: nil)
-  attr(:netlify_enabled?, :boolean, default: false)
+  attr(:netlify_dashboard, :map, default: nil)
   attr(:now, :any, required: true)
   # Provider families the workflow routes work to; nil reads the live config.
   attr(:configured_providers, :any, default: nil)
@@ -53,11 +52,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     assigns =
       assigns
       |> assign(:cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
-      |> assign(:netlify_usage, assigns.netlify_usage || usage_provider(assigns.usage, :netlify))
+      |> assign(:netlify_dashboard, assigns.netlify_dashboard || %{snapshot: usage_provider(assigns.usage, :netlify), enabled?: false})
 
     ~H"""
     <section class="run-summary" aria-label="Provider and API usage">
-      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} netlify_usage={@netlify_usage} netlify_enabled?={@netlify_enabled?} now={@now} />
+      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} netlify_dashboard={@netlify_dashboard} now={@now} />
       <ModelsPanel.models_panel :if={@cards != []} cards={@cards} now={@now} />
     </section>
     """
@@ -70,8 +69,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   attr(:github_quota, :map, required: true)
   attr(:elevenlabs_quota, :map, required: true)
-  attr(:netlify_usage, :map, default: nil)
-  attr(:netlify_enabled?, :boolean, default: false)
+  attr(:netlify_dashboard, :map, default: nil)
   attr(:now, :any, required: true)
 
   # The APIS pane holds one row per non-model API. GitHub always has a row; the
@@ -126,7 +124,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           </div>
         </div>
         <.elevenlabs_api_row :if={@elevenlabs?} quota={@elevenlabs_quota} now={@now} />
-        <NetlifyRow.netlify_api_row :if={@netlify_enabled?} usage={@netlify_usage} />
+        <NetlifyRow.netlify_api_row :if={@netlify_dashboard && @netlify_dashboard.enabled?} usage={@netlify_dashboard.snapshot} />
       </div>
     </div>
     """
