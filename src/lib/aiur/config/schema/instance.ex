@@ -42,6 +42,14 @@ defmodule Aiur.Config.Schema.Instance do
     # @config-detail instance.mode | string | `local` | `hosted` adds static startup, reload, and dispatch checks for permission, network, credentials, the effective API-key-only fallback, Remote Control, local panes, and REPL isolation. Authentication for primary routes and account profiles is learned at runtime: unsafe first or later observations fail closed. Claude reauthorizes each action; Codex refuses an unsafe initial account read and later unsafe notifications before subsequent progress, tool calls, or success. Current production backends remain ineligible until #5701. Read once at daemon start; restart to change. |
     field(:mode, :string, default: "local")
 
+    # Operator deployments use the owner's subscription credentials; consumer
+    # deployments are restricted to API keys. Kept separate from `mode`, which
+    # controls hosted execution isolation rather than billing identity.
+    # @config-reference config-configuration-00 instance.deployment_kind
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail instance.deployment_kind | string | `operator` | Selects credential owner. Hosted operators may use subscriptions; consumers use API keys only. |
+    field(:deployment_kind, :string, default: "operator")
+
     # @config-reference config-configuration-00 instance.id
     # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
     field(:id, :string)
@@ -67,8 +75,9 @@ defmodule Aiur.Config.Schema.Instance do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:mode, :role, :id, :owns, :pool], empty_values: [])
+    |> cast(attrs, [:mode, :deployment_kind, :role, :id, :owns, :pool], empty_values: [])
     |> validate_inclusion(:mode, ["local", "hosted"])
+    |> validate_inclusion(:deployment_kind, ["operator", "consumer"])
     |> validate_inclusion(:role, ["primary", "secondary"])
     |> validate_length(:id, min: 1, max: 200)
     |> validate_owns()

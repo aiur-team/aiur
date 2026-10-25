@@ -75,6 +75,13 @@ defmodule Aiur.CodingAgent.HeadroomDispatchTest do
   defp select(issue \\ ticket(), overrides \\ []), do: CodingAgent.select_for_dispatch(issue, opts(overrides))
 
   describe "issue #3960 acceptance" do
+    test "an auth-rejected provider is skipped while another backend remains available" do
+      state = %{"backends" => %{"claude" => %{"auth_rejected" => true}}}
+
+      assert {:ok, %Issue{selected_backend: "codex"}} =
+               select(ticket(), state: state, usage_snapshot: fn _backend, _names -> %{} end)
+    end
+
     test "Codex 5%, Claude/default 100%, Claude/everdred 64%: a complexity-3 ticket picks Claude/default" do
       assert {:ok, %Issue{selected_backend: "claude", selected_account: "default", selected_model: "sonnet"} = issue} = select()
 
