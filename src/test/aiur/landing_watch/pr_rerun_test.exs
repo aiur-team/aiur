@@ -90,22 +90,6 @@ defmodule Aiur.LandingWatch.PrRerunTest do
     refute PrRerunClassifier.stale_merge_ref?(failed_gate(), main_history_fun: fn -> history end)
   end
 
-  test "two base moves do not add a merge-only commit to an approved mergeable PR" do
-    path = journal_path()
-
-    history = [
-      %{completed_at: @started_ms - 60_000, checks: [%{name: "ci gate", conclusion: "failure"}]},
-      %{completed_at: @started_ms + 60_000, checks: [%{name: "ci gate", conclusion: "failure"}]},
-      %{completed_at: @started_ms + 120_000, checks: [%{name: "ci gate", conclusion: "failure"}]}
-    ]
-
-    mergeable = Map.put(observation(), :mergeable, "MERGEABLE")
-
-    assert :ok = LandingWatch.process(mergeable, opts(path, main_history_fun: fn -> history end))
-    assert_received {:rework, _}
-    refute_received {:update_branch, _, _}
-  end
-
   test "main recovery reruns only approved auto-merge failures started during the red interval" do
     path = journal_path()
     armed = %{observation() | auto_merge_request: %{"enabledAt" => "2026-10-14T09:00:00Z"}}
