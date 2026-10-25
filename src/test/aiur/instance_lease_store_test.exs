@@ -35,11 +35,11 @@ defmodule Aiur.Instance.LeaseStoreTest do
 
   test "leader claim and renew return store_unavailable when the store server is down" do
     dead_server =
-      spawn(fn ->
+      start_supervised!({Task, fn ->
         receive do
           :stop -> :ok
         end
-      end)
+      end})
 
     ref = Process.monitor(dead_server)
     send(dead_server, :stop)
