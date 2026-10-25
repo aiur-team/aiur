@@ -1,7 +1,7 @@
 defmodule Aiur.OperatorRelayCLI do
   @moduledoc "Records an operator's already-given answer with explicit relay attribution."
 
-  alias Aiur.DecisionStore
+  alias Aiur.Commands
 
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ []) do
@@ -42,11 +42,10 @@ defmodule Aiur.OperatorRelayCLI do
   end
 
   defp record(params, payload, actor, deps) do
-    store = Keyword.get(deps, :decision_store, DecisionStore)
-
-    if params[:supersede] == true,
-      do: DecisionStore.supersede(params[:decision_id], payload, [actor: actor], store),
-      else: DecisionStore.answer(params[:decision_id], payload, [actor: actor], store)
+    operation = if params[:supersede] == true, do: :supersede, else: :answer
+    args = [params[:decision_id], payload, [actor: actor]]
+    args = if Keyword.has_key?(deps, :decision_store), do: args ++ [deps[:decision_store]], else: args
+    apply(Commands, operation, args)
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
   end
