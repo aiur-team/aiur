@@ -30,6 +30,26 @@ export function boardAudit(audit) {
   }
 }
 
+// Axe may address the same card interior by title instead of by its data-id.
+// Resolve that selector against the actual DOM before applying the narrow rule.
+export async function canonicalBoardOverlaps(page, audit) {
+  const result = structuredClone(audit)
+  const checks = result.incomplete.filter(rule => rule.id === 'color-contrast')
+    .flatMap(rule => rule.nodes).flatMap(node => [...node.any, ...node.all, ...node.none])
+  const related = checks.filter(check => ['imgNode', 'elmPartiallyObscured'].includes(check.data?.messageKey))
+    .flatMap(check => check.relatedNodes ?? []).filter(node => node.target.length === 1)
+  const mapping = await page.evaluate(selectors => Object.fromEntries(selectors.map(selector => {
+    const nodes = document.querySelectorAll(selector)
+    const node = nodes.length === 1 ? nodes[0] : null
+    const interior = node?.closest('.bd-in')
+    const card = interior?.parentElement
+    return [selector, card?.matches('.bd-card[data-id]') ?
+      'div[data-id=' + JSON.stringify(card.dataset.id) + '] > .bd-in' : null]
+  })), [...new Set(related.map(node => node.target[0]))])
+  for (const node of related) if (mapping[node.target[0]]) node.target = [mapping[node.target[0]]]
+  return result
+}
+
 export function contrastRatio(foreground, background) {
   const luminance = hex => {
     if (!/^#[\da-f]{6}$/i.test(hex)) throw new Error(`Expected an opaque sRGB token, received ${hex}`)

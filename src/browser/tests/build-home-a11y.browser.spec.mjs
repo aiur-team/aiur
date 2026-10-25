@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import AxeBuilder from '@axe-core/playwright'
 import { measureGlyphContrast, expectGlyphContrast } from './support/build-home-glyph-contrast.mjs'
 import { recordContrastBaselines, measureContrastBaselines } from './support/build-home-contrast-baselines.mjs'
-import { boardAudit, contrastRatio } from './support/build-home-a11y-audit.mjs'
+import { boardAudit, canonicalBoardOverlaps, contrastRatio } from './support/build-home-a11y-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
 
@@ -20,6 +20,24 @@ async function open(page, dataset = 'live', view = 'graph', mode = 'read_only') 
     window.state = await import('/build-home/state.js')
   })
 }
+
+test('overlap selectors resolve only to actual card interiors', async ({ page }) => {
+  await page.setContent('<svg id="bd-edges"></svg><div class="bd-card" data-id="607">' +
+    '<div class="bd-in" title="#607 · Card"><span id="inside">Text</span></div></div>' +
+    '<div title="#608 · Unrelated">Text</div>')
+  const input = { violations: [], incomplete: [{ id: 'color-contrast', nodes: [{ target: ['#inside'],
+    any: [{ data: { messageKey: 'imgNode' }, relatedNodes: [
+      { target: ['#bd-edges'] }, { target: ['div[title="#607 · Card"]'] }
+    ] }], all: [], none: [] }] }] }
+  const normalized = await canonicalBoardOverlaps(page, input)
+  expect(normalized.incomplete[0].nodes[0].any[0].relatedNodes[1].target)
+    .toEqual(['div[data-id="607"] > .bd-in'])
+  expectAuditClean(boardAudit(normalized))
+  expect(input.incomplete[0].nodes[0].any[0].relatedNodes[1].target).toEqual(['div[title="#607 · Card"]'])
+  input.incomplete[0].nodes[0].any[0].relatedNodes[1].target = ['div[title="#608 · Unrelated"]']
+  const unrelated = await canonicalBoardOverlaps(page, input)
+  expect(() => expectAuditClean(boardAudit(unrelated))).toThrow()
+})
 
 test('cards expose complete names and a single roving button stop', async ({ page }) => {
   await open(page)
@@ -187,7 +205,7 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         await test.info().attach('axe-audit', { body: JSON.stringify(audit), contentType: 'application/json' })
         const cell = { dataset, view, theme, mode }
         const measurements = await measureContrastBaselines(page, audit, cell)
-        const classified = recordContrastBaselines(boardAudit(audit), cell, measurements)
+        const classified = recordContrastBaselines(boardAudit(await canonicalBoardOverlaps(page, audit)), cell, measurements)
         await test.info().attach('known-contrast-baseline-violations', {
           body: JSON.stringify(classified.known), contentType: 'application/json'
         })

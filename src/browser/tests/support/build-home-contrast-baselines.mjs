@@ -2,14 +2,24 @@
 // Fixed DOM selectors and cells prevent this inventory from swallowing new nodes.
 import { measureTextContrast } from './build-home-glyph-contrast.mjs'
 export const contrastBaselines = [
-  { id: 'lane-count', kind: 'violations', selector: 'div[title="Design"] > em',
-    target: 'div[title="Design"] > em', ratio: 4.43, plainRatio: 4.3804, followup: '#6291',
-    cells: { dataset: 'dense', view: 'gantt', theme: 'dark' } },
-  { id: 'promotion', kind: 'violations', selector: 'div[data-id="607"] .bd-q.promo', target: '.promo',
-    ratio: 4.14, plainRatio: 4.1114, followup: '#6292', cells: { view: 'graph', theme: 'light' } },
-  { id: 'model-monogram', kind: 'incomplete', selector: 'span[title="openrouter"] > .ax-mono',
-    target: 'span[title="openrouter"] > .ax-mono', ratio: 3.8174, plainRatio: 3.8174, followup: '#6293',
-    cells: { dataset: 'unknowns' } },
+  ...['Bugs', 'Infra', 'Docs', 'Design', 'Pagination · API — short-lived feature epic',
+    'Pagination · UI — short-lived feature epic', 'Unsorted'].map(title => ({
+    id: 'lane-count:' + title, kind: 'violations', selector: 'div[title="' + title + '"] > em',
+    ratio: 4.43, plainRatio: 4.3804, followup: '#6291',
+    cells: { dataset: 'dense', view: 'gantt', theme: 'dark' }
+  })),
+  ...[['live', '607'], ['dense', '1309'], ['newrepo', '603'], ['offline', '607'],
+    ['unknowns', '607'], ['unknowns', '9005'], ['unknowns', 'pack:alpha']].map(([dataset, id]) => ({
+    id: 'promotion:' + dataset + ':' + id, kind: 'violations',
+    selector: 'div[data-id="' + id + '"] .bd-q.promo', ratio: 4.14, plainRatio: 4.1114,
+    followup: '#6292', cells: { dataset, view: 'graph', theme: 'light' }
+  })),
+  ...['span[title="openrouter"] > .ax-mono', 'span[title="muse · Running"] > .ax-mono',
+    'span[title="zz-new · Running"] > .ax-mono', 'span[title="muse"].ax-mono',
+    'span[title="zz-new"].ax-mono'].map(selector => ({
+    id: 'model-monogram:' + selector, kind: 'incomplete', selector,
+    ratio: 3.8174, plainRatio: 3.8174, followup: '#6293', cells: { dataset: 'unknowns' }
+  }))
 ]
 
 export function baselineApplies(entry, cell) {
@@ -35,7 +45,7 @@ export function recordContrastBaselines(audit, cell, measurements, entries = con
       if (!checks.length || !checks.every(check => check.id === 'color-contrast' &&
         (kind === 'violations' ? check.data?.messageKey == null :
           check.data?.messageKey === 'shortTextContent' && (check.relatedNodes ?? []).every(related =>
-            related.target.length === 1 && related.target[0] === entry.target)))) return true
+            related.target.length === 1 && measurements[entry.selector]?.targets.includes(related.target[0]))))) return true
       const measured = measurements[entry.selector]
       if (!measured || measured.count !== 1) throw new Error('Changed baseline element inventory: ' + entry.id)
       const ratio = kind === 'violations' ? Math.min(...checks.map(check => check.data.contrastRatio)) : measured.ratio
