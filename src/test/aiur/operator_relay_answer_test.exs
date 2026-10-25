@@ -25,7 +25,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
         if is_nil(value), do: Application.delete_env(:aiur, key), else: Application.put_env(:aiur, key, value)
       end)
 
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir, config: config}

@@ -9,7 +9,6 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --all` | Includes all matching results instead of the default subset. | `aiur --all` |
 | `aiur --bg` | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
 | `aiur --blocking` | Marks a supported command as blocking. | `aiur --blocking` |
-| `aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR` | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1` |
 | `aiur --body TEXT` | Uses the supplied text as a command body. | `aiur --body 'Investigate this issue'` |
 | `aiur --body-file PATH` | Reads a command body from a file. | `aiur --body-file request.md` |
 | `aiur --debug` | Enables debug logs and durable chat-pane recording for this run. Analytics capture does not depend on `--debug`. | `aiur --debug` |
@@ -41,6 +40,7 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --urgency LEVEL` | Sets urgency for a supported command. | `aiur --urgency high` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
+| `aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR` | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1` |
 
 ## Remote instances
 

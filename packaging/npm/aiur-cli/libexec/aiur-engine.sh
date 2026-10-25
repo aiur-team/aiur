@@ -275,6 +275,7 @@ aiur_engine_main() {
       shift
       cmd_commands "$@"
       ;;
+    # @cli-reference aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1
     operator-relay-answer)
       shift
       cmd_operator_relay_answer "$@"
