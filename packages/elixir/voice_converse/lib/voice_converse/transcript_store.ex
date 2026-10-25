@@ -83,6 +83,9 @@ defmodule VoiceConverse.TranscriptStore do
       store = %__MODULE__{conversation_id: conversation_id, path: path, fd: fd, datasync: datasync}
 
       with :ok <- sync_fs.(), :ok <- write_line(store, line) do
+        # The transcript is authoritative. A later boot rebuilds this derived index if its own
+        # append fails, so a usable durable transcript is never discarded for index trouble.
+        _ = VoiceConverse.TranscriptIndex.record_opened(root, conversation_id)
         {:ok, store}
       else
         {:error, reason} ->
@@ -126,7 +129,10 @@ defmodule VoiceConverse.TranscriptStore do
   end
 
   def append(%__MODULE__{} = store, record) when is_map(record) do
-    with {:ok, line} <- encode(record), do: write_line(store, line)
+    with {:ok, line} <- encode(record), :ok <- write_line(store, line) do
+      maybe_record_closed(store, record)
+      :ok
+    end
   end
 
   @spec close(session_store()) :: :ok | {:error, term()}
@@ -199,6 +205,12 @@ defmodule VoiceConverse.TranscriptStore do
 
   defp write_line(%__MODULE__{fd: fd, datasync: datasync}, line) do
     with :ok <- :file.write(fd, line), do: datasync.(fd)
+  end
+
+  defp maybe_record_closed(store, record) do
+    if Map.get(record, :type, Map.get(record, "type")) == "session_ended" do
+      _ = VoiceConverse.TranscriptIndex.record_closed(Path.dirname(store.path), store.conversation_id)
+    end
   end
 
   defp ensure_root(root) do
