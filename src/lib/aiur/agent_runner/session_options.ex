@@ -71,16 +71,7 @@ defmodule Aiur.AgentRunner.SessionOptions do
     hosted? = match?(%{instance: %{mode: "hosted"}}, deployment)
     env = deployment_auth_env(backend_name, kind, inherited, hosted?, backend)
 
-    cond do
-      env == [] ->
-        session_opts
-
-      hosted? ->
-        replace_hosted_provider_auth(session_opts, env)
-
-      true ->
-        Keyword.update(session_opts, :env, env, &(&1 ++ env))
-    end
+    if env == [], do: session_opts, else: replace_hosted_provider_auth(session_opts, env)
   end
 
   defp maybe_put_deployment_auth(session_opts, _backend, _opts), do: session_opts
@@ -125,16 +116,6 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp deployment_auth_env("codex", _kind, env, true, _transport) when is_map(env) do
     if present_env?(env, "OPENAI_API_KEY"), do: [{"OPENAI_API_KEY", env["OPENAI_API_KEY"]}], else: []
   end
-
-  defp deployment_auth_env("claude", "operator", env, false, "claude") when is_map(env),
-    do:
-      if(present_env?(env, "CLAUDE_CODE_OAUTH_TOKEN"),
-        do: [{"CLAUDE_CODE_OAUTH_TOKEN", env["CLAUDE_CODE_OAUTH_TOKEN"]}],
-        else: []
-      )
-
-  defp deployment_auth_env("claude", _kind, env, false, _transport) when is_map(env),
-    do: if(present_env?(env, "ANTHROPIC_API_KEY"), do: [{"ANTHROPIC_API_KEY", env["ANTHROPIC_API_KEY"]}], else: [])
 
   defp deployment_auth_env(_backend, _kind, _env, false, _transport), do: []
   defp deployment_auth_env(_backend, _kind, _env, _hosted?, _transport), do: []
