@@ -4,7 +4,7 @@ defmodule Aiur.MainWatch do
   require Logger
   alias Aiur.Config
   alias Aiur.Events
-  alias Aiur.GitHub.{Budget, MergeQueue, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, MergeQueue}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
@@ -142,7 +142,7 @@ defmodule Aiur.MainWatch do
     task =
       Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
         # Poll, suspects, fixer and reruns all run here, so they share main-watch priority.
-        Budget.prioritize()
+        Access.prioritize()
         capability = Keyword.get_lazy(opts, :actions_write, fn -> GitHub.actions_write?(opts) end)
 
         result =
@@ -159,7 +159,7 @@ defmodule Aiur.MainWatch do
 
   defp bounded_requests(opts) do
     count = :atomics.new(1, [])
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
     Keyword.put(opts, :request_fun, fn call ->
       if :atomics.add_get(count, 1, 1) <= @request_limit, do: request.(call), else: {:error, :main_watch_request_limit}
@@ -413,7 +413,7 @@ defmodule Aiur.MainWatch do
 
   defp publication_key(topic, payload) do
     id = :crypto.hash(:sha256, :erlang.term_to_binary({topic, payload})) |> Base.encode16(case: :lower)
-    ResourceStore.key_for_repo(:main_watch, GitHubConfig.repo(), "publication:" <> id)
+    Access.key_for_repo(:main_watch, GitHubConfig.repo(), "publication:" <> id)
   end
 
   defp emit(topic, payload) do
