@@ -87,16 +87,15 @@ defmodule Aiur.BuildOrder.History.ClassificationCost do
         {dimension, figure}
       end)
 
-    model = summary.groups.by_model |> Map.keys() |> Enum.sort()
+    {tokens, partial || :unknown, model(summary.groups.by_model)}
+  end
 
-    model =
-      case model do
-        [] -> nil
-        [single] -> single
-        multiple -> multiple
-      end
-
-    {tokens, partial || :unknown, model}
+  defp model(groups) do
+    case groups |> Map.keys() |> Enum.sort() do
+      [] -> nil
+      [single] -> single
+      multiple -> multiple
+    end
   end
 
   defp github(label, opts) do
