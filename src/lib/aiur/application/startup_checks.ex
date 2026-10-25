@@ -19,8 +19,9 @@ defmodule Aiur.Application.StartupChecks do
     if Application.get_env(:aiur, :env) == :test do
       :ok
     else
-      settings = Aiur.Config.settings_uncached()
-      env = configure_codex_home(settings, System.get_env())
+      settings_result = Aiur.Config.settings_uncached()
+      env = configure_codex_home(settings_result, System.get_env())
+      settings = unwrap_settings(settings_result)
 
       validate_deployment_credentials!(settings, env)
       validate_auth_before_secrets!(settings, env)
@@ -145,6 +146,9 @@ defmodule Aiur.Application.StartupChecks do
   end
 
   def configure_codex_home(_settings, env), do: env
+
+  defp unwrap_settings({:ok, settings}), do: settings
+  defp unwrap_settings(settings), do: settings
 
   defp configured_routes(agent) do
     routing =
@@ -341,7 +345,6 @@ defmodule Aiur.Application.StartupChecks do
   # is GitHub; a Linear or memory tracker has no GitHub credential to satisfy.
   defp github_tracker?(settings) do
     case settings do
-      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
       %{tracker: %{kind: kind}} -> kind == "github"
       _ -> true
     end
