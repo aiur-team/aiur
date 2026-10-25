@@ -31,7 +31,16 @@ defmodule Aiur.ModelAvailability do
   @retry_delay_seconds 120
 
   @spec path() :: Path.t()
-  def path, do: Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
+  def path do
+    state_dir =
+      case {Aiur.Config.booted_instance_mode(), System.get_env("AIUR_BG_STATE_DIR")} do
+        {"hosted", state_dir} when is_binary(state_dir) and state_dir != "" -> state_dir
+        {"hosted", _} -> Path.expand("~/.config/aiur")
+        _ -> Path.dirname(Workflow.workflow_file_path())
+      end
+
+    Path.join(state_dir, "model-usage.json")
+  end
 
   @spec load(Path.t()) :: map()
   def load(path \\ path()) do
@@ -71,6 +80,18 @@ defmodule Aiur.ModelAvailability do
     observe(backend, %{"limited" => true, "reset_at" => reset_at}, opts)
   end
 
+  @spec mark_auth_rejected(String.t(), String.t(), keyword()) :: {:ok, :first | :already_held} | {:error, term()}
+  defdelegate mark_auth_rejected(backend, fingerprint, opts \\ []), to: Aiur.ModelAvailability.AuthHold, as: :mark_rejected
+
+  @spec clear_changed_auth_hold(String.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
+  defdelegate clear_changed_auth_hold(backend, fingerprint, opts \\ []), to: Aiur.ModelAvailability.AuthHold, as: :clear_changed
+
+  @spec auth_rejected?(String.t(), keyword()) :: boolean()
+  defdelegate auth_rejected?(backend, opts \\ []), to: Aiur.ModelAvailability.AuthHold, as: :rejected?
+
+  @spec auth_rejected_alert_once(String.t(), String.t(), keyword()) :: {:ok, :first | :already_held} | {:error, term()}
+  defdelegate auth_rejected_alert_once(backend, fingerprint, opts \\ []), to: Aiur.ModelAvailability.AuthHold, as: :mark_rejected
+
   @doc """
   The ledger key for a backend **or a full route**. A route is reduced to its
   backend first, because a usage limit is an account-level fact: every
@@ -97,9 +118,10 @@ defmodule Aiur.ModelAvailability do
   def available?(backend, opts \\ []) when is_binary(backend) do
     backend = backend_key(backend)
     now = Keyword.get(opts, :now, DateTime.utc_now())
-    entry = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path()))) |> get_in(["backends", backend]) || %{}
+    state = Keyword.get_lazy(opts, :state, fn -> load(Keyword.get_lazy(opts, :path, &path/0)) end)
+    entry = get_in(state, ["backends", backend]) || %{}
 
-    not Limits.limited?(entry, now)
+    not auth_rejected?(backend, state: state) and not Limits.limited?(entry, now)
   end
 
   @doc "Whether availability is backed by a positive observation or a real elapsed reset."
@@ -139,31 +161,7 @@ defmodule Aiur.ModelAvailability do
 
   @doc false
   @spec provider_freshness_detail([String.t()], keyword()) :: String.t()
-  def provider_freshness_detail(backends, opts \\ []) do
-    now = Keyword.get(opts, :now, DateTime.utc_now())
-    state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
-
-    details =
-      backends
-      |> Enum.map(&backend_key/1)
-      |> Enum.uniq()
-      |> Enum.map(fn backend ->
-        entry = get_in(state, ["backends", backend]) || %{}
-        observed_at = Map.get(entry, "observed_at", "unknown")
-
-        freshness =
-          cond do
-            not Map.has_key?(entry, "observed_at") -> "unknown"
-            stale?(backend, state: state, now: now) -> "stale"
-            true -> "fresh"
-          end
-
-        next_probe = Map.get(entry, "retry_scheduled_at", "unknown")
-        "#{backend}=#{freshness} observed_at=#{observed_at} next_probe=#{next_probe}"
-      end)
-
-    "backends=" <> Enum.join(details, "; ")
-  end
+  defdelegate provider_freshness_detail(backends, opts \\ []), to: Aiur.ModelAvailability.Presentation
 
   @doc """
   Schedule a retry probe for this backend after the retry delay (2 minutes).
