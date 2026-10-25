@@ -249,7 +249,11 @@ defmodule Aiur.BuildOrder.History.ExportTest do
   # GitHub read for a missing body; it passes on the first commit by design.
   test "the export modules reference no GitHub read path" do
     for path <- ["lib/aiur/build_order/history/export.ex", "lib/aiur/history_cli.ex"],
-        forbidden <- ["Aiur.GitHub.Issues", "Aiur.GitHub.Transport", "Aiur.GitHub.ReadCache", "Aiur.GitHub.ResourceFetch", "request_fun"] do
+        forbidden <- [
+          "Aiur.GitHub.Issues", "Aiur.GitHub.Transport", "Aiur.GitHub.ReadCache", "Aiur.GitHub.ResourceFetch", "request_fun",
+          "Access.fetch_json", "Access.github_graphql", "Access.resource_need", "Access.host_command",
+          "Access.preflight_auth", "Access.ensure_preflight", "Access.require_token"
+        ] do
       refute File.read!(path) =~ forbidden, "#{path} references #{forbidden}"
     end
   end
