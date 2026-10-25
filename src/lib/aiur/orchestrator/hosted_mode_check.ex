@@ -5,10 +5,10 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
 
   alias Aiur.AgentEnvironment.Contributor
   alias Aiur.Config.AgentSettings
+  alias Aiur.Config.HostedAuthPolicy
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
   alias Aiur.Harness.Capabilities
-  alias Aiur.Config.HostedAuthPolicy
 
   @impl true
   def applies?(_settings), do: true
