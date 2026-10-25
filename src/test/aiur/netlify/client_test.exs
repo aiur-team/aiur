@@ -53,9 +53,32 @@ defmodule Aiur.Netlify.ClientTest do
   end
 
   test "recorded balance endpoints remain unsupported and are not guessed" do
-    fixture = fixture("unsupported-balance-endpoints.json")
-    assert Enum.all?(fixture, fn {_path, response} -> response["status"] == 404 end)
-    refute Map.has_key?(fixture, "/api/v1/accounts/acct")
+    unsupported = fixture("unsupported-balance-endpoints.json")
+    owner = self()
+
+    supported = %{
+      "/api/v1/accounts/acct" => %{status: 200, body: fixture("account.json")},
+      "/api/v1/accounts/acct/audit?per_page=100" => %{status: 200, body: fixture("audit.json")},
+      "/api/v1/accounts/acct/bandwidth" => %{status: 200, body: fixture("bandwidth.json")},
+      "/api/v1/sites?per_page=100" => %{status: 200, body: []}
+    }
+
+    request = fn %{url: url} ->
+      path = String.replace_prefix(url, "https://api.netlify.com", "")
+      send(owner, {:requested_path, path})
+
+      case Map.fetch(supported, path) do
+        {:ok, response} -> {:ok, response}
+        :error -> {:error, :unexpected_endpoint}
+      end
+    end
+
+    assert {:ok, %{account: _account}} =
+             Client.fetch("acct", "token", request_fun: request, now: ~U[2026-10-25 12:00:00Z])
+
+    requested = for _ <- 1..4, do: receive(do: ({:requested_path, path} -> path))
+    assert MapSet.new(requested) == MapSet.new(Map.keys(supported))
+    assert Enum.all?(unsupported, fn {path, response} -> response["status"] == 404 and path not in requested end)
   end
 
   defp fixture(name), do: Path.join(__DIR__, "../../fixtures/netlify/#{name}") |> Path.expand() |> File.read!() |> Jason.decode!()
