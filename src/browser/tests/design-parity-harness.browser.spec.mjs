@@ -369,7 +369,7 @@ test('shell phase and query are available to consumers', async ({ browser }) => 
 
 test('visual route seeds the optional palette', async ({ page }) => {
   const { openVisualRoute } = await import('../support/visual.mjs')
-  await openVisualRoute(page, { theme: 'dark', palette: 'aiur', route: '/build-orders' })
+  await openVisualRoute(page, { theme: 'dark', palette: 'aiur', route: '/analytics' })
   expect(await page.evaluate(() => localStorage.getItem('aiur-palette'))).toBe('aiur')
 })
 
