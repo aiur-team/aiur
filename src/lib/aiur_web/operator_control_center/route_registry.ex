@@ -71,17 +71,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       owner: :dashboard,
       availability: :available,
       active_actions: [:index]
-    },
-    %{
-      id: :build_order,
-      label: "Build Order",
-      icon: "◌",
-      description: "",
-      path: "/build-orders",
-      type: :live,
-      owner: :build_order,
-      availability: :available,
-      active_actions: [:build_orders, :build_order]
     }
   ]
 

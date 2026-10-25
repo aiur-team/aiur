@@ -202,22 +202,26 @@ defmodule Aiur.Events.GithubFirehoseRetryTest do
       refute_receive {:event, %{topic: "ticket.5605.pr.merged"}}, 100
     end
 
-    test "a closing keyword routes a merged PR when commit evidence cannot be fetched" do
+    test "body-attributed merges advance the cursor after a transient commit fetch failure" do
+      # Regression guard: body attribution makes retrying unavailable commit evidence unnecessary.
       :ok = Exchange.subscribe("ticket.5605.pr.merged")
+      commit_fetches = :atomics.new(1, [])
+      boot_time = DateTime.add(DateTime.utc_now(), -3600, :second) |> DateTime.to_unix()
 
       stub = fn %{url: url} ->
         if String.contains?(url, "/pulls/5606/commits") do
+          :atomics.add(commit_fetches, 1, 1)
           {:error, :offline}
         else
           {:ok,
            %{
              status: 200,
-             headers: [{"ETag", ~s("close-merge")}],
+             headers: [{"ETag", ~s("close-merge-etag")}],
              body: [
                %{
                  "id" => "close-merge",
                  "type" => "PullRequestEvent",
-                 "created_at" => "2026-07-12T17:59:00Z",
+                 "created_at" => DateTime.to_iso8601(DateTime.utc_now()),
                  "actor" => %{"login" => "carol"},
                  "repo" => %{"name" => "owner/repo"},
                  "payload" => %{
@@ -230,8 +234,22 @@ defmodule Aiur.Events.GithubFirehoseRetryTest do
         end
       end
 
-      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub, boot_time: ~U[2026-07-12 18:00:00Z] |> DateTime.to_unix())
+      assert {:ok, %{count: 1, last_event_id: "close-merge", etag: ~s("close-merge-etag")}} =
+               GithubFirehose.poll(request_fun: stub, boot_time: boot_time)
+
       assert_receive {:event, %{topic: "ticket.5605.pr.merged"}}, 500
+      assert :atomics.get(commit_fetches, 1) == 1
+
+      assert {:ok, %{count: 0, last_event_id: "close-merge", etag: ~s("close-merge-etag")}} =
+               GithubFirehose.poll(
+                 request_fun: stub,
+                 etag: ~s("close-merge-etag"),
+                 last_event_id: "close-merge",
+                 boot_time: boot_time
+               )
+
+      refute_receive {:event, %{topic: "ticket.5605.pr.merged"}}, 100
+      assert :atomics.get(commit_fetches, 1) == 1
     end
   end
 

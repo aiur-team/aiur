@@ -31,7 +31,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CredentialHeadroom
   alias Aiur.GitHub.Errors
-  alias Aiur.GitHub.{GraphQLErrors, HoldPressure}
+  alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.{Quota, Transport.TestScope}
   alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.Transport.{GraphQL, OffProcess}
@@ -168,7 +168,7 @@ defmodule Aiur.GitHub.Transport do
         budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
+        {:error, {:aiur, :locally_held, Settings.current().hold_observer.(hold)}}
     end
   end
 
@@ -195,7 +195,7 @@ defmodule Aiur.GitHub.Transport do
         end
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
+        {:error, {:aiur, :locally_held, Settings.current().hold_observer.(hold)}}
 
       {:error, _reason} = error ->
         error
@@ -242,7 +242,7 @@ defmodule Aiur.GitHub.Transport do
   defp remaining_deadline_ms(deadline_at_ms),
     do: max(deadline_at_ms - System.monotonic_time(:millisecond), 0)
 
-  defp orchestrator_process?, do: self() == GenServer.whereis(Application.get_env(:aiur, :github_poll_owner))
+  defp orchestrator_process?, do: self() == GenServer.whereis(Settings.current().poll_owner)
 
   defp quota_preflight(quota, request), do: Quota.preflight(quota, request)
 

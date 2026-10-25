@@ -173,6 +173,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     AiurWeb.DashboardAuth.ChallengeStore,
+    AiurWeb.DashboardAuthRateLimit.Store,
     Aiur.BuildOrder.Estimates,
     AiurWeb.Build.IndexSupervisor
   ]
@@ -204,6 +205,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.DashboardAuth.ChallengeStore,
+            AiurWeb.DashboardAuthRateLimit.Store,
             AiurWeb.Build.IndexSupervisor,
             {Aiur.HttpServer, dashboard_pages?: true}
           ])

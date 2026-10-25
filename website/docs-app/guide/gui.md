@@ -2,7 +2,7 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the build history, the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
-High-rate snapshot notifications on Home, Units, Commands, Build Orders, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+High-rate snapshot notifications on Home, Units, Commands, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
 
 ## Open the GUI
 
@@ -28,11 +28,9 @@ Use the browser when you need interactive detail; use the paired command when te
 
 | GUI label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
-| **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
+| **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
 | **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
-| **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail, reachable by URL without a navigation item. | `aiur build-orders` |
-| **Build queue** | `/build-orders` includes the read-only queue panel on the catalog page: item states, waiting prerequisites, start-order ranks, progress, source freshness and observation age, and open or recently resolved attentions. Manage queues with the CLI. | `aiur queue show` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
@@ -43,9 +41,8 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/?v=1&scope=…&conditions=…` | Opens Build with the matching legacy Units filter. |
 | `/commands` and `/commands/:decision_id` | Current Commands inbox and detail URLs. |
 | `/decisions` and `/decisions/:decision_id` | Redirect permanently to the `/commands` equivalents. |
+| `/build-orders` and `/build-orders/:root_number` | Redirect permanently to `/` and `/?feature=bo-<root>`; an invalid root opens `/`, and only `ticket` carries over. |
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
-
-On narrow screens, scroll within the **Build queue** table to see prerequisites, ranks and attentions.
 
 The operator-facing UI and CLI call these records **Commands**.
 
@@ -116,26 +113,6 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
-### Read a Build Order program
-
-Normal releases include discovered state-node planning packs on `/build-orders`
-and `/build-orders/:root_number`. Pack members without GitHub issues appear as
-drafts; promoted members use live issue state when available.
-
-Pack workstreams name the epic columns, and pack phases name the rows, including
-phase zero.
-Click an epic heading to collapse or expand its cards; counts remain visible.
-External gates appear in an expandable list above the graph.
-
-A bounded GitHub catalog preview reports how many members were read out of the
-reported total when truncated. The selected GitHub read also remains bounded;
-an installed planning pack supplies its full membership. Missing live membership
-or ticket status remains explicit even when the plan is readable.
-
-Open a draft card to read its local document. Descriptions longer than 4,000
-bytes show a sanitized preview and a **Full document** link to the authenticated
-pack document, or the issue for promoted tickets. Documents are read-only.
-
 ### Read fleet and build pressure
 
 Analytics records fleet and build-gate whole-host sources alongside daemon process
@@ -191,22 +168,25 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a dashboard bound beyond loopback without both credentials. A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set.
+Public binds require machine credentials, browser Basic Auth off, and Google sign-in with an email allowlist or an enrolled passkey. Loopback may bind without machine credentials, but refuses dashboard requests until they are set.
 
 To enable Google sign-in, configure an HTTPS `server.public_url`, set the operator email allowlist, and add both OAuth client values to `~/.aiur/.env`:
 
 ```yaml
 server:
-  public_url: https://<host>.ts.net:4001
+  public_url: https://dashboard.example.com
+  trusted_proxies: [10.0.0.0/8]
 dashboard_auth:
   google:
     allowed_emails: [operator@gmail.com]
   passkeys: true
   session_max_age_days: 30
-  browser_basic_auth: true
+  browser_basic_auth: false
 ```
 
-In Google Cloud, create an OAuth consent screen in External / Testing mode, add the operator as a test user, and request `openid email`. Create a Web application OAuth client with redirect URI `https://<host>.ts.net:4001/auth/google/callback`.
+Replace the CIDR with the actual proxy peer range. The `platform` shortcut trusts private IPv4 and IPv6 peers and is safe only when the host platform isolates that network from untrusted workloads. Public deployments must keep browser Basic Auth off; the configured credentials remain available to machine clients.
+
+In Google Cloud, create an OAuth consent screen in External / Testing mode, add the operator as a test user, and request `openid email`. Create a Web application OAuth client with redirect URI `https://dashboard.example.com/auth/google/callback`.
 
 Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, then restart Aiur. Sign in with the allowlisted, verified account and register a passkey while that Google sign-in is fresh; enroll each device (iCloud Keychain can sync Apple devices).
 

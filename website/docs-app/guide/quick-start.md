@@ -13,7 +13,7 @@ npm install -g aiur-cli
 | Tool | Why you need it |
 | --- | --- |
 | Node.js | Runs the `aiur-cli` npm package. |
-| `gh` (GitHub CLI) | Authenticates with GitHub. Run `gh auth login` once — the boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
+| `gh` (GitHub CLI) | Provides git push/PR credentials. Local daemon auth can also use the keyring after `gh auth login`; hosted/container daemon auth requires a GitHub App unless `AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. |
 | `tmux` | The launcher runs each Aiur daemon in its own detached tmux session. |
 | A tracker repository | The repository `aiur init` is pointed at, with issues carrying `agent:todo`. |
 
@@ -59,11 +59,11 @@ The wizard offers these setup steps:
 | Detect tools | Finds available agent toolchains. |
 | Scaffold | Writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and `.aiur/alerts`. |
 | Prepare state | Creates the repository state node and optional `.aiur/prewarm`. |
-| GitHub auth | Defaults to `GITHUB_TOKEN` and offers GitHub App setup as an optional upgrade when agents are hitting rate limits. A `gh auth login` keyring credential also satisfies the boot gate. |
+| GitHub auth | Local setup defaults to `GITHUB_TOKEN` and offers GitHub App setup. Hosted/container setup defaults to the GitHub App; `AIUR_GITHUB_ALLOW_PAT=1` is required to opt into `GITHUB_TOKEN`. |
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
-Add `agent:todo` to the issues you want worked. If agents are hitting rate limits, consider the optional [GitHub App setup](/apis/github-auth#github-app-authentication).
+Add `agent:todo` to the issues you want worked. For hosted/container deployment, configure the [GitHub App](/apis/github-auth#github-app-authentication) and its required permissions and webhook events.
 
 GitHub Free does not expose rulesets or classic branch protection for private repositories. When GitHub reports that plan limit during CI-readiness setup, `aiur init` shows GitHub's explanation and continues without saving a full readiness assessment. Make the repository public or upgrade its plan to enable that verification.
 
