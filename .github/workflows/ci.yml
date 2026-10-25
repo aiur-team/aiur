@@ -25,8 +25,7 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up Elixir for selection
-        uses: ./.github/actions/setup-elixir
+      - { name: Set up Elixir for selection, uses: ./.github/actions/setup-elixir }
       - name: Classify the changed paths
         id: classify
         env:
@@ -109,8 +108,7 @@ jobs:
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh && bash .claude/skills/aiur-run/scripts/tests/check-stack-order_test.sh
       - name: Test file size gate
         run: bash scripts/test-check-file-size.sh
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+      - { name: Set up Bun, uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 } # v2.0.2
   build:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
@@ -125,9 +123,7 @@ jobs:
         if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up Elixir
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-elixir
+      - { name: Set up Elixir, if: "${{ needs.changes.outputs.docs_only != 'true' }}", uses: ./.github/actions/setup-elixir }
       - name: Build release
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make build
@@ -626,5 +622,9 @@ jobs:
     timeout-minutes: 2
     permissions: { actions: write, contents: read }
     steps:
-      - { uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd } # v6.0.2
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - { env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" }, run: bash scripts/dispatch-nightly.sh }
