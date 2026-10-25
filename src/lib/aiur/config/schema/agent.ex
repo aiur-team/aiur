@@ -225,13 +225,13 @@ defmodule Aiur.Config.Schema.Agent do
     # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Five tolerates brief polling; steer at 5 identical results and stop at 6. `0` disables it. |
     field(:max_repeated_identical_commands, :integer, default: 5)
 
-    # @config-reference config-configuration-agent-00 agent.local_gate_wait_steer_minutes | positive integer | 20 | When a ticket has green required CI, steer after this long of only waiting on or polling a local test/gate command; the delay avoids interrupting ordinary builds. |
+    # @config-reference config-configuration-agent-00 agent.local_gate_wait_steer_minutes | positive integer | 20 | Green CI: steer only after this long waiting on local gate work. |
     field(:local_gate_wait_steer_minutes, :integer, default: 20)
 
-    # @config-reference config-configuration-agent-00 agent.local_gate_wait_stop_minutes | positive integer | 30 | Stop a green-CI local gate wait after this long; it is ten minutes after the steer threshold so the worker can refresh the PR body and hand off. |
+    # @config-reference config-configuration-agent-00 agent.local_gate_wait_stop_minutes | positive integer | 30 | Stop after steer grace so the worker can refresh the PR body and hand off. |
     field(:local_gate_wait_stop_minutes, :integer, default: 30)
 
-    # @config-reference config-configuration-agent-00 agent.local_gate_ci_max_age_minutes | positive integer | 15 | Trust the cached green-CI verdict only while its ticket poll observation is this recent, so a pass from before a head change cannot steer or stop the worker. |
+    # @config-reference config-configuration-agent-00 agent.local_gate_ci_max_age_minutes | positive integer | 15 | Trust cached green CI only this long to prevent stale-head actions. |
     field(:local_gate_ci_max_age_minutes, :integer, default: 15)
     # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional shell-command cap per turn; null disables. Suggested value: 1,000. |
     field(:max_commands_per_turn, :integer)

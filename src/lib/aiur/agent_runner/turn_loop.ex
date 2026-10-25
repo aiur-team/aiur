@@ -4,8 +4,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   require Logger
 
   alias Aiur.AgentRunner.{
-    LocalGateCICache,
     Handoff,
+    LocalGateCICache,
     MessageHandler,
     NoopWait,
     QueueDrain,
@@ -187,10 +187,48 @@ defmodule Aiur.AgentRunner.TurnLoop do
         RepeatedCommandGuard.finish_turn()
       end
 
+    complete_supported_turn(
+      turn_context,
+      app_session,
+      result,
+      %{
+        issue: issue,
+        lifecycle_attempt_id: lifecycle_attempt_id,
+        operation_id: operation_id,
+        turn_number: turn_number,
+        codex_update_recipient: codex_update_recipient,
+        aiur_turn_id: aiur_turn_id,
+        wip_notices: wip_notices,
+        worker_host: worker_host,
+        max_turns: max_turns,
+        message_handler: message_handler,
+        orchestrator: orchestrator,
+        workspace: workspace,
+        opts: opts
+      }
+    )
+  end
+
+  defp complete_supported_turn(turn_context, app_session, result, context) do
+    %{
+      issue: issue,
+      lifecycle_attempt_id: lifecycle_attempt_id,
+      operation_id: operation_id,
+      turn_number: turn_number,
+      codex_update_recipient: codex_update_recipient,
+      aiur_turn_id: aiur_turn_id,
+      wip_notices: wip_notices,
+      worker_host: worker_host,
+      max_turns: max_turns,
+      message_handler: message_handler,
+      orchestrator: orchestrator,
+      workspace: workspace,
+      opts: opts
+    } = context
+
     TurnSupport.record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
 
-    if turn_number == 1,
-      do: SessionResume.track_resume_turn_start(app_session, issue.identifier, result)
+    if turn_number == 1, do: SessionResume.track_resume_turn_start(app_session, issue.identifier, result)
 
     TurnStreams.close(issue, aiur_turn_id, TurnSupport.turn_done_reason(result))
     backend = SessionLifecycle.session_backend!(app_session)
