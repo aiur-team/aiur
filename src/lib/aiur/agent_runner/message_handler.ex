@@ -20,7 +20,6 @@ defmodule Aiur.AgentRunner.MessageHandler do
   alias Aiur.AgentRunner.RepeatedCommandGuard
   alias Aiur.AgentRunner.TurnProgress
   alias Aiur.Protocol.MapAccess
-  alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Signal
   alias Aiur.Usage.Headless.Emitter
 
@@ -35,7 +34,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def build(recipient, issue, workspace, worker_host, backend, turn_id, lifecycle_opts)
       when is_list(lifecycle_opts) do
     lifecycle_opts =
-      if Lifecycle.enabled?(lifecycle_opts) do
+      if Signal.lifecycle_enabled?(lifecycle_opts) do
         Keyword.put_new(lifecycle_opts, :tracker, make_ref())
       else
         lifecycle_opts
