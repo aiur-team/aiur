@@ -112,6 +112,8 @@ Complexity points measure size and uncertainty only:
 - `4`: cross-context/high-uncertainty; split unless intrinsically indivisible;
 - `5`: irreducible cross-system risk or capstone, with explicit rationale.
 
+**Leave the estimate alone unless you have a strong, specific reason for an estimate override.** Planned estimates come from complexity (1, 2, 4, 7, 11 hours for complexities 1–5). For bigger or more uncertain work, fix the complexity label or split the ticket. Override only duration complexity does not capture, such as human review rounds, outside waits, or a long migration: `aiur ticket estimate <id> <hours> --reason "<cause> — from <old>h to <new>h"`. The operator sees the reason word for word on the planned card and in the ticket modal: write one line, at most 500 characters, that they can check. Undo with `aiur ticket estimate <id> --clear --reason "<why>"`. Only the Executor changes estimates; issue workers have no estimate tool.
+
 Track risk and capability needs separately. A ticket with its own multi-phase
 plan is usually an umbrella, not an executable complexity-5 ticket.
 
@@ -190,6 +192,8 @@ is optional user complexity, never a hardcoded Aiur workflow.
 
 Use `agent:queued` in the same creation request for executable members; the queue
 promotes ready members to `agent:todo`. Never create first and label later.
+
+**Give promoted members a home-page epic through their feature collection.** Follow continuous-build intake below, defining feature epics and assigning members with `aiur feature add <slug> <ids…> --epic <epic>` when needed. Choose column names using the lane guidance in [decomposition workflow](references/decomposition-workflow.md); new collections need no Build Order root. Existing legacy roots retain their sub-issue and `build-lane:<lane>` mapping. Tickets filed outside the collection follow the [Executor home-page epic rule](../aiur-run/references/executor.md).
 
 Promotion is deliberately not machinery: the Executor creates each issue with
 the corresponding `tickets/<ID>.md` content verbatim, records the returned
