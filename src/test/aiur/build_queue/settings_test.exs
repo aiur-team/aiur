@@ -18,4 +18,9 @@ defmodule Aiur.BuildQueue.SettingsTest do
     assert {:ok, settings} = Schema.parse(%{"polling" => %{"interval_seconds" => 300}, "build_queue" => %{"observation_max_age_seconds" => 30}})
     assert Settings.observation_max_age_ms(settings) == 30_000
   end
+
+  test "budget exhaustion is terminal independently of tracker configuration" do
+    assert {:ok, settings} = Schema.parse(%{"tracker" => %{"terminal_states" => ["done"]}})
+    assert MapSet.member?(Settings.terminal_states(settings), "budget-exhausted")
+  end
 end

@@ -218,6 +218,7 @@ alerts:
 # === Executor sweep ===
 # Threshold for an open, non-draft PR in agent:human-review that has no review on its current head.
 # executor:
+#   relay_operator_answers: false     # opt-in quoted operator answers recorded by an attended Executor
 #   sweep:
 #     unreviewed_pr_minutes: 10
 {{ELEVENLABS_SECTION}}

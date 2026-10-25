@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.RetryEngine.Exhaustion
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.{TicketTransition, TrackerTasks}
+  alias Aiur.Signal
 
   @continuation_retry_delay_ms 1_000
 
@@ -48,7 +48,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
 
       alert_message = Exhaustion.retry_exhausted_alert_message(error)
 
-      Alerts.emit_custom("ticket.#{identifier}.agent.retry_exhausted", alert_message,
+      Signal.agent_alert("ticket.#{identifier}.agent.retry_exhausted", alert_message,
         issue: identifier,
         reason: alert_message,
         needs_attention: true,
