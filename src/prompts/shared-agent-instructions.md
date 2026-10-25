@@ -145,12 +145,11 @@ rebase `$AIUR_BASE_BRANCH` into its PR branch just because the base moved, files
 overlap, CI is red/cancelled/missing, or a freshness check says it is behind.
 The merge queue tests each PR on the current base. Integrate the base in these
 states only when GitHub reports the PR `CONFLICTING`
-(`gh pr view --json mergeable,reviewDecision`) or a reviewer explicitly asks
-for it; explain a conflict-driven integration in a PR comment. In `rework`,
-follow the reviewer’s request, including “merge current origin/main” when asked.
-This applies while any open PR waits for CI, review, or the merge queue: a
-mergeable head gets no base-only merge commits. If a newer base commit fixes a
-failing check, name that commit before refreshing the branch.
+(`gh pr view --json mergeable,reviewDecision`), or when a specific newer base
+commit fixes a failing required check. Name that commit and check before
+refreshing the branch. This rule applies in every ticket state, including
+`rework`: a reviewer request, red CI by itself, and ordinary base movement do
+not authorize a base-only merge. A mergeable head gets no merge-only commits.
 The agent `git` guard refuses a push to a PR that is in the merge queue unless
 it is conflicting or has changes requested.
 
