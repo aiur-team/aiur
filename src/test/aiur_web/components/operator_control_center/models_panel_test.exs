@@ -137,6 +137,7 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
 
     assert html =~ "Last headroom reading is stale · 1900s old"
     assert html =~ "rs-ln has-tag is-stale"
+    assert html =~ "stale usage"
     refute html =~ ~s(<span class="rs-pc">0% left</span>)
   end
 
@@ -156,6 +157,38 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
       marks = Regex.scan(~r/class="rs-ln[^"]*is-stale"/, html)
       assert length(marks) == if(stale?, do: 2, else: 0), "age #{age}s"
     end
+  end
+
+  test "the model usage card renders shared freshness and observation age" do
+    usage = %Aiur.Usage.Provider.Codex{
+      provider: :codex,
+      freshness: :stale,
+      age_ms: 1_200_000,
+      observed_at: DateTime.add(@now, -1_200, :second),
+      source: "provider_meter_projection",
+      fields: %{}
+    }
+
+    html = render([card(:codex, [window("codex:session", "Session", 40, 3_600)], %{usage: usage})])
+
+    assert html =~ ~r/class="rs-ln[^\"]*is-stale"/
+    assert html =~ "stale usage"
+    assert html =~ "usage observed 1200s ago"
+  end
+
+  test "the model usage card labels an unknown observation age" do
+    usage = %Aiur.Usage.Provider.Codex{
+      provider: :codex,
+      freshness: :unknown,
+      age_ms: nil,
+      observed_at: nil,
+      source: "provider_meter_projection",
+      fields: %{}
+    }
+
+    html = render([card(:codex, [window("codex:session", "Session", 40, 3_600)], %{usage: usage})])
+
+    assert html =~ "usage age unknown"
   end
 
   # A cached re-serve under the cutoff is what `aiur accounts` calls

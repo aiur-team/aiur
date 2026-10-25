@@ -257,3 +257,8 @@ compaction:
 #     after_step_days: 7
 #     after_max_days: 42
 #     metric_packs: ["delivery"]
+# Optional per-provider low-usage alerts use remaining percent (unknown/stale readings are ignored):
+# usage:
+#   alerts:
+#     codex:
+#       threshold: 10
