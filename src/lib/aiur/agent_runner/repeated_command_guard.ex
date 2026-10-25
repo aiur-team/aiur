@@ -3,6 +3,8 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   Tracks consecutive identical read-only command results within one turn.
   """
 
+  alias Aiur.AgentRunner.LocalGateWaitGuard
+
   @type state :: %{command: term(), output: term(), count: non_neg_integer()}
 
   @key {__MODULE__, :turn}
@@ -11,6 +13,15 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   @spec start_turn(keyword()) :: map()
   def start_turn(opts) when is_list(opts) do
     threshold = Keyword.get(opts, :repeat_threshold, 5)
+    now_fun = Keyword.get(opts, :now_fun, fn -> System.system_time(:millisecond) end)
+
+    gate_wait_opts = [
+      steer_after_ms: Keyword.get(opts, :local_gate_wait_steer_minutes, 20) * 60_000,
+      stop_after_ms: Keyword.get(opts, :local_gate_wait_stop_minutes, 30) * 60_000,
+      max_ci_age_ms: Keyword.get(opts, :local_gate_ci_max_age_minutes, 15) * 60_000,
+      ci_reader: Keyword.get(opts, :local_gate_ci_reader),
+      now_fun: now_fun
+    ]
 
     Process.put(@key, %{
       threshold: if(is_integer(threshold) and threshold > 0, do: threshold, else: 0),
@@ -22,7 +33,9 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
       input_tokens: 0,
       usage_epoch: nil,
       usage_baseline: nil,
-      pending_commands: %{}
+      pending_commands: %{},
+      local_gate_wait: LocalGateWaitGuard.new_state(),
+      gate_wait_opts: gate_wait_opts
     })
   end
 
@@ -58,10 +71,11 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   defp observe_command_event(message) do
     case {Process.get(@key), command_event(message)} do
       {%{} = context, {:started, id, command}} ->
-        store_pending_command(context, id, command)
+        context = store_pending_command(context, id, command)
+        if is_map(context), do: observe_gate_start(context, command), else: :ok
 
       {%{} = context, {:completed, id, output}} ->
-        observe_pending_command(context, id, output)
+        observe_pending_command(context, id, output, message)
 
       {%{} = context, {:complete, command, output}} ->
         observe_shell_command(context, command, output)
@@ -72,25 +86,27 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   end
 
   defp store_pending_command(context, id, command) when is_binary(id) and is_binary(command),
-    do: Process.put(@key, put_in(context, [:pending_commands, id], command))
+    do: put_in(context, [:pending_commands, id], command)
 
   defp store_pending_command(_context, _id, _command), do: :ok
 
-  defp observe_pending_command(context, id, output) when is_binary(id) and is_binary(output) do
+  defp observe_pending_command(context, id, output, _message) when is_binary(id) and is_binary(output) do
     case Map.pop(context.pending_commands, id) do
       {command, pending} when is_binary(command) ->
-        observe_shell_command(%{context | pending_commands: pending}, command, output)
+        context = %{context | pending_commands: pending}
+        observe_shell_command(context, command, output)
 
       _ ->
         :ok
     end
   end
 
-  defp observe_pending_command(_context, _id, _output), do: :ok
+  defp observe_pending_command(_context, _id, _output, _message), do: :ok
 
   defp observe_shell_command(context, command, output) do
     commands = context.commands + 1
-    next = %{context | commands: commands}
+    {next, gate_signal} = observe_gate_completion(%{context | commands: commands}, command)
+    maybe_stop_gate_wait(gate_signal)
 
     {next, signal} =
       if read_only_command?(command) do
@@ -105,8 +121,30 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
       throw({:turn_cap, :commands, commands})
     end
 
-    signal
+    case gate_signal do
+      {:steer, _body} = steering -> steering
+      _ -> signal
+    end
   end
+
+  defp observe_gate_start(context, command) do
+    now_ms = Keyword.fetch!(context.gate_wait_opts, :now_fun).()
+    wait = LocalGateWaitGuard.started(context.local_gate_wait, command, now_ms)
+    Process.put(@key, %{context | local_gate_wait: wait})
+  end
+
+  defp observe_gate_completion(context, command) do
+    opts = context.gate_wait_opts
+    now_ms = Keyword.fetch!(opts, :now_fun).()
+    {wait, signal} = LocalGateWaitGuard.completed(context.local_gate_wait, command, now_ms, opts)
+    {%{context | local_gate_wait: wait}, signal}
+  end
+
+  defp maybe_stop_gate_wait({:stop, verdict, elapsed_minutes}) do
+    throw({:green_ci_local_gate_wait, verdict.head_sha, verdict.pr_number, elapsed_minutes})
+  end
+
+  defp maybe_stop_gate_wait(_signal), do: :ok
 
   defp observe_read_result(context, command, output) do
     {state, kind} = observe(context.state, command, output)
@@ -144,8 +182,14 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
     notification_command_event(method, get(item, :type), item)
   end
 
-  defp notification_command_event("item/completed", "commandExecution", item),
-    do: {:complete, codex_command(item), get(item, :aggregatedOutput) || ""}
+  defp notification_command_event("item/started", "commandExecution", item),
+    do: {:started, get(item, :id), codex_command(item)}
+
+  defp notification_command_event("item/completed", "commandExecution", item) do
+    id = get(item, :id)
+    output = get(item, :aggregatedOutput) || ""
+    if is_binary(id), do: {:completed, id, output}, else: {:complete, codex_command(item), output}
+  end
 
   defp notification_command_event("item/created", "tool_call", item) do
     if get(item, :name) == "Bash",

@@ -153,11 +153,20 @@ blocking finding is the only enforcement they have.
 ## The loop
 
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
-`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
-into the PR body; it records the merged `origin/main` SHA and each gate result.
-It never pushes and refuses a dirty checkout. Once a PR exists it rewrites the
-body's `Tested head:` and `Base:` lines; with no PR yet it skips that. So the
-order is: push, `gh pr create`, `aiur pre-pr` again, then hand off;
+`aiurdev pre-pr`) from the branch checkout. It runs only selected or matching
+reader tests locally; CI owns the full coverage partitions. Paste its complete
+result block into the PR body; it records the merged `origin/main` SHA and
+each gate result. It never pushes and refuses a dirty checkout. When a PR is
+open, it rewrites the body's `Tested head:` and `Base:` lines. With no PR yet
+it skips body refresh. So the order is: push, `gh pr create`, `aiur pre-pr`
+again, then hand off;
+
+During a turn, Aiur watches transcript events for prolonged waiting on or
+polling local test/gate commands. If the daemon's recent CI cache says the
+current PR head is green, Aiur steers at the configured threshold to stop the
+local gate, refresh the PR body and mark the PR ready. If polling continues to
+the stop threshold, Aiur pauses the worker. Pending, red, stale or unavailable
+CI never triggers this rule.
 `aiur_set_ticket_state` refuses `ci-wait`/`human-review` while the body fails `mix pr_body.check` at the PR head.
 If `Tested head` is stale, the refusal names both the body SHA and live PR head;
 rerun the touched tests at the pushed head and update the evidence before handback.

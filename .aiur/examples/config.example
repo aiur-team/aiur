@@ -91,6 +91,9 @@ agent:
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
   # max_repeated_identical_commands: 5  # steer after five identical read-only results; stop on the next repeat; 0 disables
+  # local_gate_wait_steer_minutes: 20    # only after prolonged local gate polling with fresh green CI; lets ordinary builds finish
+  # local_gate_wait_stop_minutes: 30     # ten minutes after the steer, to give the worker time to refresh the PR body and hand off
+  # local_gate_ci_max_age_minutes: 15    # ignore a green cache entry old enough to belong to a previous PR head
   # max_commands_per_turn: 1000  # optional tool-call cap; null disables
   # max_input_tokens_per_turn: 20000000  # optional input-token cap; null disables
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # runtime cap: release worker, route to rework/review; 0 = off

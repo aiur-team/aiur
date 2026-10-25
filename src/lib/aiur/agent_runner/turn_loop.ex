@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   require Logger
 
   alias Aiur.AgentRunner.{
+    LocalGateCICache,
     Handoff,
     MessageHandler,
     NoopWait,
@@ -149,7 +150,11 @@ defmodule Aiur.AgentRunner.TurnLoop do
     RepeatedCommandGuard.start_turn(
       repeat_threshold: agent_settings.max_repeated_identical_commands,
       command_cap: agent_settings.max_commands_per_turn,
-      input_token_cap: agent_settings.max_input_tokens_per_turn
+      input_token_cap: agent_settings.max_input_tokens_per_turn,
+      local_gate_wait_steer_minutes: agent_settings.local_gate_wait_steer_minutes,
+      local_gate_wait_stop_minutes: agent_settings.local_gate_wait_stop_minutes,
+      local_gate_ci_max_age_minutes: agent_settings.local_gate_ci_max_age_minutes,
+      local_gate_ci_reader: fn -> LocalGateCICache.read(orchestrator, issue.identifier) end
     )
 
     result =
@@ -172,6 +177,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
       catch
         :throw, {:repeated_identical_command, command, count} ->
           {:error, {:repeated_identical_command, command, count}}
+
+        :throw, {:green_ci_local_gate_wait, head_sha, pr_number, elapsed_minutes} ->
+          {:error, {:green_ci_local_gate_wait, head_sha, pr_number, elapsed_minutes}}
 
         :throw, {:turn_cap, cap, count} ->
           {:error, {:turn_cap, cap, count}}
@@ -233,6 +241,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
         case reason do
           {:repeated_identical_command, command, count} ->
             RepeatedCommandStop.stop_on_repeated_command(turn_context, command, count)
+
+          {:green_ci_local_gate_wait, head_sha, pr_number, elapsed_minutes} ->
+            RepeatedCommandStop.stop_on_green_ci_local_gate_wait(turn_context, head_sha, pr_number, elapsed_minutes)
 
           {:turn_cap, cap, count} ->
             RepeatedCommandStop.stop_on_turn_cap(turn_context, cap, count)

@@ -246,6 +246,15 @@ defmodule Aiur.Config.Schema.Agent do
 
     # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Five tolerates brief polling; steer at 5 identical results and stop at 6. `0` disables it. |
     field(:max_repeated_identical_commands, :integer, default: 5)
+    # 20 minutes lets an ordinary build or brief wait finish before intervening.
+    # @config-reference config-configuration-agent-00 agent.local_gate_wait_steer_minutes | positive integer | 20 | When a ticket has green required CI, steer after this long of only waiting on or polling a local test/gate command; the delay avoids interrupting ordinary builds. |
+    field(:local_gate_wait_steer_minutes, :integer, default: 20)
+    # The additional ten minutes leaves time to follow the steer before the runner stops a continuing poll loop.
+    # @config-reference config-configuration-agent-00 agent.local_gate_wait_stop_minutes | positive integer | 30 | Stop a green-CI local gate wait after this long; it is ten minutes after the steer threshold so the worker can refresh the PR body and hand off. |
+    field(:local_gate_wait_stop_minutes, :integer, default: 30)
+    # Several ordinary CI polls fit inside this window; older passes may refer to a previous PR head.
+    # @config-reference config-configuration-agent-00 agent.local_gate_ci_max_age_minutes | positive integer | 15 | Trust the cached green-CI verdict only while its ticket poll observation is this recent, so a pass from before a head change cannot steer or stop the worker. |
+    field(:local_gate_ci_max_age_minutes, :integer, default: 15)
     # Optional command/input ceilings are disabled when absent.
     # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional shell-command cap per turn; null disables. Suggested value: 1,000. |
     field(:max_commands_per_turn, :integer)
@@ -399,6 +408,9 @@ defmodule Aiur.Config.Schema.Agent do
         :complexity_prompts,
         :max_turns_by_complexity,
         :max_repeated_identical_commands,
+        :local_gate_wait_steer_minutes,
+        :local_gate_wait_stop_minutes,
+        :local_gate_ci_max_age_minutes,
         :max_commands_per_turn,
         :max_input_tokens_per_turn,
         :turn_timeout_ms,
@@ -470,6 +482,9 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> validate_number(:dispatch_hold_attention_threshold, greater_than: 0)
     |> validate_number(:max_repeated_identical_commands, greater_than_or_equal_to: 0)
+    |> validate_number(:local_gate_wait_steer_minutes, greater_than: 0)
+    |> validate_number(:local_gate_wait_stop_minutes, greater_than: 0)
+    |> validate_number(:local_gate_ci_max_age_minutes, greater_than: 0)
     |> validate_number(:max_commands_per_turn, greater_than: 0)
     |> validate_number(:max_input_tokens_per_turn, greater_than: 0)
     |> CatalogValidation.validate()
@@ -482,6 +497,18 @@ defmodule Aiur.Config.Schema.Agent do
     |> cast_embed(:git_identity, with: &GitIdentity.changeset/2)
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
     |> cast_embed(:rtk, with: &Rtk.changeset/2)
+    |> validate_local_gate_thresholds()
+  end
+
+  defp validate_local_gate_thresholds(changeset) do
+    steer_minutes = get_field(changeset, :local_gate_wait_steer_minutes)
+    stop_minutes = get_field(changeset, :local_gate_wait_stop_minutes)
+
+    if is_integer(steer_minutes) and is_integer(stop_minutes) and stop_minutes <= steer_minutes do
+      add_error(changeset, :local_gate_wait_stop_minutes, "must exceed local_gate_wait_steer_minutes")
+    else
+      changeset
+    end
   end
 
   defp validate_accounts(field, accounts) when is_map(accounts) do
