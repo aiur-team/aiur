@@ -137,6 +137,7 @@ defmodule AiurWeb.Router do
   # Per-ticket usage read (#5692).
   alias AiurWeb.Routes.Usage
   require Usage
+  Usage.mutations()
   Usage.reads()
   UsageProgressRoutes.reads()
 

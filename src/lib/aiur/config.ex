@@ -21,6 +21,15 @@ defmodule Aiur.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc "Whether the operator explicitly permits recording relayed answers."
+  @spec relay_operator_answers?() :: boolean()
+  def relay_operator_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.relay_operator_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   The parsed config.
 

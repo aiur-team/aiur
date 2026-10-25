@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue
@@ -23,6 +22,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   # Refreshes the open-blocking-Command ticket set in State from the local store.
@@ -436,7 +436,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
     else
       state = maybe_resolve_dispatch_decline(state, issue)
 
-      Alerts.emit_custom(
+      Signal.agent_alert(
         dispatch_decline_topic(issue, attention?),
         "Dispatch declined for #{issue.identifier}: #{inspect(reason)}.",
         issue: issue.identifier,
@@ -458,7 +458,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
     case Map.get(state.dispatch_declines, issue.id) do
       reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :rework_claim_failed, :dependency_hydration_failed] ->
-        Alerts.emit_custom(
+        Signal.agent_alert(
           dispatch_decline_topic(issue, true) <> ".resolved",
           "Dispatch decline cleared for #{issue.identifier}.",
           issue: issue.identifier,

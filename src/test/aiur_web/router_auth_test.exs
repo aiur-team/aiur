@@ -129,6 +129,28 @@ defmodule AiurWeb.RouterAuthTest do
 
     assert write_with_write_token.status == 422
 
+    spend_cap_read =
+      :put
+      |> dashboard_conn("/api/v1/not-a-ticket/spend-cap", nil)
+      |> put_req_header("authorization", "Bearer #{read_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert spend_cap_read.status == 403
+
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, true)
+
+    spend_cap_write =
+      :put
+      |> dashboard_conn("/api/v1/not-a-ticket/spend-cap", nil)
+      |> put_req_header("authorization", "Bearer #{write_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert spend_cap_write.status == 422
+
     assert :ok = Aiur.ClientTokens.revoke("read-only")
 
     revoked =

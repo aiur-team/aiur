@@ -55,6 +55,15 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  test "operator relay defaults off and must be explicitly enabled" do
+    assert {:ok, defaults} = Schema.parse(%{})
+    assert defaults.executor.relay_operator_answers == false
+    assert {:ok, enabled} = Schema.parse(%{"executor" => %{"relay_operator_answers" => true}})
+    assert enabled.executor.relay_operator_answers == true
+    assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"executor" => %{"relay_operator_answers" => "yes please"}})
+    assert message =~ "relay_operator_answers"
+  end
+
   describe "agent Mix scheduler cap" do
     test "defaults to four and accepts an explicit override" do
       assert {:ok, defaults} = Schema.parse(%{})

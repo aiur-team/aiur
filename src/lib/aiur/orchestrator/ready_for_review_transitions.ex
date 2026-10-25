@@ -241,7 +241,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
 
   defp emit_stale_attention(ticket, pr_number, head_sha, age_ms, repo, opts) do
     message = "PR ##{pr_number} for ticket ##{ticket} has been ready and unreviewed for #{Float.round(age_ms / 3_600_000, 1)} hours (head #{head_sha})."
-    emitter = Keyword.get(opts, :alert_emitter, &Aiur.Alerts.emit_system/2)
+    emitter = Keyword.get(opts, :alert_emitter, &Aiur.Signal.alert/2)
 
     emitter.("ticket.#{ticket}.agent.attention.unreviewed_ready_pr",
       issue: ticket,
