@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.AccessSettings do
   alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Credential
-  alias Aiur.GitHub.{HoldPressure, QueueCost}
+  alias Aiur.GitHub.{AuthPolicy, HoldPressure, QueueCost}
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
 
@@ -26,6 +26,8 @@ defmodule Aiur.GitHub.AccessSettings do
       state_root: &decision_root/0,
       budget_dir: &budget_dir/0,
       budget_enabled?: Application.get_env(:aiur, :github_budget_enabled?, true),
+      hosted_auth_required?: AuthPolicy.hosted_auth_required?(config, System.get_env()),
+      pat_opted_in?: Aiur.Secrets.truthy?(System.get_env("AIUR_GITHUB_ALLOW_PAT")),
       budget: if(is_struct(github), do: plain(github), else: %{}),
       repo: repo,
       config_error: config_error,

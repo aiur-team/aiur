@@ -22,6 +22,8 @@ defmodule Aiur.GitHub.Access.Settings do
     credentials: [],
     budget: %{},
     budget_enabled?: true,
+    hosted_auth_required?: false,
+    pat_opted_in?: false,
     cache: %{},
     broker_timeout: %{budget_broker_rate_window_seconds: 300, budget_broker_degraded_retry_threshold: 5, budget_broker_degraded_alert_after_seconds: 600},
     alert_sink: &Aiur.Signal.alert/2,

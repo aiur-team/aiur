@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.Access.SettingsPortsTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.Access.{Settings, StaticSettings}
+  alias Aiur.GitHub.Access.{Settings, StaticSettings, Token}
   alias Aiur.GitHub.Transport
   alias Aiur.GitHub.Transport.TestScope
 
@@ -20,6 +20,15 @@ defmodule Aiur.GitHub.Access.SettingsPortsTest do
     Application.put_env(:aiur, :github_access_settings, Settings.new(root, request_taggers: taggers, write_scope: scope))
 
     assert {:scoped, "u", %{caller: "ab"}} = TestScope.run(%{url: "u"}, & &1)
+  end
+
+  test "hosted credential policy from settings refuses PAT resolution without opt-in", %{root: root} do
+    Application.put_env(:aiur, :github_access_settings, Settings.new(root, hosted_auth_required?: true))
+
+    assert Token.resolve_token(
+             validate_fun: fn _ -> flunk("hosted PAT must not be validated") end,
+             keyring_fun: fn -> flunk("hosted auth must not consult the keyring") end
+           ) == nil
   end
 
   # Future regression guard: a static consumer can preserve its declared caller.
