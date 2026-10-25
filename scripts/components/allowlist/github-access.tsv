@@ -1,2 +1,1 @@
 # rule	target_module	reason
-R-declared	Aiur.Instance.LeaderFence	#5948: GitHub transport fences repository writes against the elected leader lease

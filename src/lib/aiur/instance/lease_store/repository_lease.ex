@@ -13,6 +13,12 @@ defmodule Aiur.Instance.LeaseStore.RepositoryLease do
   @spec renew(String.t(), keyword()) :: :ok | {:error, term()}
   def renew(repository, opts \\ []), do: call(:renew, repository, opts)
 
+  @doc false
+  def claim_for_store(action, repository, opts, server) do
+    instance_id = Keyword.get_lazy(opts, :instance_id, fn -> GenServer.call(server, :instance_id) end)
+    call(action, repository, Keyword.put(opts, :instance_id, instance_id))
+  end
+
   @spec leader(String.t(), keyword()) :: map() | :unheld | :disabled | :unknown
   def leader(repository, opts \\ []) do
     case {LeaseStore.configured?(), repository_key(repository)} do

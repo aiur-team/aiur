@@ -165,26 +165,13 @@ defmodule Aiur.Instance.LeaseStore do
   def list_live(opts \\ []), do: request(opts, :list_live)
 
   @spec claim_leader(String.t(), keyword()) :: :acquired | :held | {:error, term()}
-  def claim_leader(repository, opts \\ []), do: repository_lease_call(:claim, repository, opts)
+  def claim_leader(repository, opts \\ []), do: RepositoryLease.claim_for_store(:claim, repository, opts, Keyword.get(opts, :server, @name))
 
   @spec renew_leader(String.t(), keyword()) :: :ok | {:error, term()}
-  def renew_leader(repository, opts \\ []), do: repository_lease_call(:renew, repository, opts)
+  def renew_leader(repository, opts \\ []), do: RepositoryLease.claim_for_store(:renew, repository, opts, Keyword.get(opts, :server, @name))
   defdelegate leader(repository, opts \\ []), to: RepositoryLease
   defdelegate leader_owned?(repository, opts \\ []), to: RepositoryLease
   defdelegate repository_key(repository \\ nil), to: RepositoryLease
-
-  defp repository_lease_call(action, repository, opts) do
-    server = Keyword.get(opts, :server, @name)
-    instance_id = Keyword.get_lazy(opts, :instance_id, fn -> GenServer.call(server, :instance_id) end)
-    lease_opts = Keyword.put(opts, :instance_id, instance_id)
-
-    case action do
-      :claim -> RepositoryLease.claim(repository, lease_opts)
-      :renew -> RepositoryLease.renew(repository, lease_opts)
-    end
-  catch
-    :exit, reason -> {:error, {:store_unavailable, reason}}
-  end
 
   defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit), to: Aiur.Instance.LeaseStore.SharedState
   defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points), to: Aiur.Instance.LeaseStore.SharedState
