@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote node_name control commands executor_commands report_commands test-private-state lifecycle restart handoff upgrade pre_pr history ticket ticket_usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands executor_commands report_commands test-private-state lifecycle restart handoff upgrade pre_pr history ticket ticket_usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -72,8 +72,8 @@ unset __aiur_engine_module
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
-       aiur --instance <name> <command>  run a supported control command against a named remote instance
-       aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
+       aiur --instance <name|all> <command>  run a supported control command against one or every remote instance
+       aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]  explicit launch form
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
        aiur accounts [<harness>] [--json]  list registered accounts
@@ -130,7 +130,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
-       aiur set max-agents <n>   change the concurrent-agent cap at runtime
+       aiur set <key> <json> | --list [--json] | --unset <key>   manage persistent runtime settings
+       aiur set max-agents <n>   change the session concurrent-agent cap
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
@@ -162,7 +163,11 @@ dispatch_run() {
   reject_legacy_config "$@"
 
   for arg in "$@"; do
-    if [ "$arg" = "--bg" ]; then
+    if [ "$arg" = "--container" ]; then
+      [ "$mode" != "background" ] || die "--container cannot be combined with --bg"
+      mode="container"
+    elif [ "$arg" = "--bg" ]; then
+      [ "$mode" != "container" ] || die "--container cannot be combined with --bg"
       mode="background"
     else
       args+=("$arg")
@@ -197,6 +202,7 @@ aiur_engine_main() {
   AIUR_CONTROL_COMMAND="${cmd:-run}"
   if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
     validate_remote_instance_name || return $?
+    [ "$AIUR_REMOTE_INSTANCE" != all ] || ensure_remote_all_read_command "$@" || return $?
     ensure_remote_command_allowed "$@" || return $?
   fi
   case "$cmd" in

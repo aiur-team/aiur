@@ -10,6 +10,8 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
   rerun attempt for the current head.
   """
 
+  alias Aiur.Events.GithubCIPoller.CancelledRun
+
   @spec settle(map(), [map()], String.t(), keyword()) :: map()
   def settle(result, runs, head_sha, opts) do
     if required_checks_unavailable?(opts),
@@ -17,10 +19,17 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
       else: settle_known(result, runs, head_sha, opts)
   end
 
-  defp settle_known(%{decision: :failed, failures: failures} = result, _runs, _head_sha, opts) do
-    if required_failure?(failures, opts),
-      do: result,
-      else: %{result | decision: :passed, failures: []}
+  defp settle_known(%{decision: :failed, failures: failures} = result, runs, _head_sha, opts) do
+    cond do
+      CancelledRun.cancelled?(%{"event" => "pull_request"}, runs) ->
+        Map.merge(result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+
+      required_failure?(failures, opts) ->
+        result
+
+      true ->
+        %{result | decision: :passed, failures: []}
+    end
   end
 
   defp settle_known(
