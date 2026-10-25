@@ -33,6 +33,34 @@ defmodule AiurEnginePrePrTest do
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end
 
+  test "pre-pr does not merge main after two non-conflicting base moves" do
+    fixture = fixture("two-base-moves")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    File.write!(Path.join(repo, "feature.txt"), "feature\n")
+    git!(repo, ["add", "feature.txt"])
+    git!(repo, ["commit", "-m", "feature change"])
+    git!(repo, ["switch", "main"])
+
+    for name <- ["main-one.txt", "main-two.txt"] do
+      File.write!(Path.join(repo, name), "#{name}\n")
+      git!(repo, ["add", name])
+      git!(repo, ["commit", "-m", "move main #{name}"])
+    end
+
+    git!(repo, ["switch", "feature"])
+    head = git_output!(repo, ["rev-parse", "HEAD"])
+    commit_count = git_output!(repo, ["rev-list", "--count", "HEAD"])
+    tree = git_output!(repo, ["rev-parse", "HEAD^{tree}"])
+
+    {_output, _status} = run_pre_pr(fixture, repo)
+
+    assert git_output!(repo, ["rev-parse", "HEAD"]) == head
+    assert git_output!(repo, ["rev-list", "--count", "HEAD"]) == commit_count
+    assert git_output!(repo, ["rev-parse", "HEAD^{tree}"]) == tree
+    assert git_output!(repo, ["status", "--porcelain"]) == ""
+  end
+
   test "PR body refresh fixes stale head and writes plain base evidence" do
     fixture = fixture("body-refresh")
     repo = Path.join(fixture, "repo")
