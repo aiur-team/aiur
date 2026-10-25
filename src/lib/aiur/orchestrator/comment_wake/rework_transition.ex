@@ -246,7 +246,7 @@ defmodule Aiur.Orchestrator.CommentWake.ReworkTransition do
   end
 
   # The rework-attempt attention's emitter is injectable for tests; production
-  # routes through `Aiur.Alerts.emit_system/2`.
+  # routes through `Aiur.Signal.alert/2`.
   defp rework_attempt_alert_opts(event) do
     case Map.get(event, :emit_alert_fun) do
       fun when is_function(fun, 2) -> [emit_alert_fun: fun]

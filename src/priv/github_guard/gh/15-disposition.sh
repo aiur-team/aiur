@@ -164,6 +164,79 @@ trap 'marker_cleanup; exit 143' HUP INT TERM
 trap 'marker_cleanup' 0
 
 if [ "$command_key" = "issue create" ]; then
+  # Agent-filed flake follow-ups are parked for triage so they cannot jump
+  # ahead of the operator's queue. Daemon quarantine tickets use the daemon
+  # API client, not this agent-only `gh` wrapper.
+  flake_followup=0
+  title_value=
+  prior=
+  for arg in "$@"; do
+    label_value=
+    case "$arg" in
+      --title=*) title_value=${arg#--title=} ;;
+      --label=*) label_value=${arg#--label=} ;;
+      -l?*) label_value=${arg#-l} ;;
+      *)
+        case "$prior" in
+          --title|-t) title_value=$arg ;;
+          --label|-l) label_value=$arg ;;
+        esac
+        ;;
+    esac
+    case ",$label_value," in
+      *,flake,*) flake_followup=1 ;;
+    esac
+    prior=$arg
+  done
+
+  case "$title_value" in
+    "Flaky test:"*) flake_followup=1 ;;
+  esac
+
+  if [ "$flake_followup" -eq 1 ]; then
+    eval "set -- $(python3 -c '
+import sys
+import shlex
+args = sys.argv[1:]
+prefix = sys.argv[1]
+args = args[1:]
+result = []
+dispatch_labels = {prefix + ":" + state for state in (
+    "todo", "queued", "in-progress", "ci-wait", "human-review", "rework",
+    "merging", "done", "cancelled", "canceled"
+)}
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg in ("--label", "-l") and i + 1 < len(args):
+        labels = args[i + 1].split(",")
+        labels = [label for label in labels if label not in dispatch_labels]
+        if labels:
+            result.extend((arg, ",".join(labels)))
+        i += 2
+    elif arg.startswith("--label="):
+        labels = arg[len("--label="):].split(",")
+        labels = [label for label in labels if label not in dispatch_labels]
+        if labels:
+            result.append("--label=" + ",".join(labels))
+        i += 1
+    elif arg.startswith("-l") and len(arg) > 2:
+        labels = arg[2:].split(",")
+        labels = [label for label in labels if label not in dispatch_labels]
+        if labels:
+            result.append("-l" + ",".join(labels))
+        i += 1
+    else:
+        result.append(arg)
+        i += 1
+result.extend(("--label", "needs-triage", "--label", prefix + ":parked"))
+for value in result:
+    print(shlex.quote(value), end=" ")
+' "$dispatch_prefix" "$@")"
+    disposition=1
+  fi
+  unset prior arg label_value title_value flake_followup
+
   disposition=0
   prior=
   for arg in "$@"; do
@@ -214,4 +287,3 @@ budget_derive_identity
 # mapping is applied: the only admitted `none`-resource command is `api
 # rate_limit`, and non-admitted `none` commands (config/auth token) never
 # reach the broker.
-

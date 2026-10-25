@@ -1,7 +1,7 @@
 instance:
   mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
   # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
-  role: primary                       # primary | secondary; one primary per repository
+  role: primary                       # eligible primary candidates share leader election; secondary never leads
   # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
   # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
@@ -112,6 +112,12 @@ agent:
     approval_policy: never
     thread_sandbox: workspace-write
 prompt_file: linear-codex.prompt.md
+
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false
+
 compaction:
   # Opt in only when you want synchronous native compaction at handoff.
   # Codex's app-server API has no threshold trigger; other providers are unsupported.
