@@ -104,17 +104,25 @@ See [CLI and control commands](/reference/cli) for the complete operational surf
 
 ## Running two daemons against one repository
 
-Use one primary and distinct `tracker.github.label_prefix` values. Set
-`instance.role: secondary` on other daemons: they keep dispatching and handling
-ticket CI, while repository-wide watchers run only on primary. The role is read at daemon start, so restart after changing it. `aiur status`
-shows each role and disabled service.
+Set the same `tracker.github.label_prefix` on each daemon and use
+`instance.owns` to reserve selected tickets without changing their labels. For
+example, `instance.owns: [{label: "build-lane:voice"}]` sends matching work to
+the NUC while it is live and dispatching; when it stops or pauses, matching
+tickets return to the shared pool.
 
-Dispatch is split by prefix, but per-ticket watchers (landing, merge close-out,
-pr_health, the Executor sweep and wake inbox) see every ticket. On each daemon,
-list the other instance's tickets under `instance.ignore`.
+`instance.pool: false` keeps a daemon on its owned tickets only. These rules
+require the shared `AIUR_LEASE_DATABASE_URL`.
 
-`label_prefixes: [nuc]` is the durable rule; `tickets: [4121]` covers a ticket
-handed over mid-flight. Edits apply without a restart, and `aiur status` prints
-the active rules and the count of events ignored since boot.
+Set `instance.role: secondary` on other daemons when repository-wide watchers
+should run only on primary. Secondary instances still dispatch tickets and
+handle ticket CI; the role is read at daemon start, so restart after changing
+it. `aiur status` shows ownership rules for this instance and other live ones.
 
-Register each daemon in `~/.aiur/remote-instances.yaml` as described under [Remote instances](/reference/cli-options#remote-instances). From the machine running the Executor, use `aiur --instance nuc status` (or another supported control command) to operate the named daemon without a second local Aiur run.
+`instance.ignore` remains available for static installations and per-ticket
+watcher filtering. Its `label_prefixes: [nuc]` and `tickets: [4121]` entries do
+not affect dispatch; use `instance.owns` for live rule-based dispatch.
+
+Register each daemon in `~/.aiur/remote-instances.yaml` as described under
+[Remote instances](/reference/cli-options#remote-instances). From the Executor
+machine, use `aiur --instance nuc status` (or another control command) to
+operate the named daemon without starting a second local Aiur run.
