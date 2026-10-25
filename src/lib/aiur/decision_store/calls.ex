@@ -61,6 +61,10 @@ defmodule Aiur.DecisionStore.Calls do
     Answers.handle_answer(decision_id, payload, opts, state)
   end
 
+  def handle_call({:consume_pending_for_session, ticket_identifier, session_id, action_ids}, _from, state) do
+    {:reply, :ok, Answers.consume_pending_for_session(ticket_identifier, session_id, action_ids, state)}
+  end
+
   def handle_call({:escalate_executor_command, _decision_id, _payload}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -343,5 +347,9 @@ defmodule Aiur.DecisionStore.Calls do
 
   def handle_cast({:deliver_pending_answers, ticket_identifier}, state) do
     {:noreply, Retry.schedule_pending_answer_delivery(state, ticket_identifier)}
+  end
+
+  def handle_cast({:consume_pending_for_session, ticket_identifier, session_id, action_ids}, state) do
+    {:noreply, Answers.consume_pending_for_session(ticket_identifier, session_id, action_ids, state)}
   end
 end
