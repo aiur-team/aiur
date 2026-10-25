@@ -2,7 +2,7 @@
 
 ## API budgets
 
-With `AIUR_LEASE_DATABASE_URL`, daemons share admissions, holds, quota snapshots and account-scoped provider readings. Local agents submit governed `gh` budget commands to their daemon over an instance-local Unix socket, so agent calls from instances sharing the store use the same credential budget. If the daemon socket is unavailable, the guard reports that it is falling back to its per-host ledger. Remote agents continue using their remote host ledger. Agents never receive the database URL.
+With `AIUR_LEASE_DATABASE_URL`, local agents send governed `gh` budget commands to their daemon over an instance-local Unix socket. Instances using the shared store draw from one credential budget. If the socket is unreachable, the guard reports its per-host ledger fallback. Agents never receive the database URL. Remote agents keep their host-local ledger.
 
 `aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls use separate per-workspace ceilings within the shared credential budget. Without `AIUR_LEASE_DATABASE_URL`, shared admission is off.
 
