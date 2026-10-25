@@ -15,7 +15,7 @@ defmodule Aiur.Events.Outbound.ExportJournal do
   alias Aiur.Config.Paths
   alias Aiur.Events.{Exchange, Journal}
   alias Aiur.Events.Outbound.Event
-  alias Aiur.{Fs, JsonStore}
+  alias Aiur.JsonStore
 
   require Logger
 
@@ -157,7 +157,7 @@ defmodule Aiur.Events.Outbound.ExportJournal do
     else
       contents = Enum.map(remaining, &[Jason.encode!(&1), "\n"])
 
-      case Fs.atomic_write(state.journal_path, contents, fsync: true, mode: 0o600) do
+      case Journal.rewrite(state.journal_path, contents) do
         :ok -> {:ok, %{state | records: :queue.from_list(remaining), compacted_cursor: cursor}}
         {:error, reason} -> {:error, reason}
       end

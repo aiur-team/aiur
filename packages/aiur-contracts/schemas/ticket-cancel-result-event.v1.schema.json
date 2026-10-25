@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-cancel-result-event.v1.schema.json",
+  "title": "TicketCancelResultEvent",
+  "allOf": [
+    { "$ref": "outbound-event-envelope.v1.schema.json" },
+    { "$ref": "ticket-cancel.v1.schema.json" },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "event_type": { "const": "ticket.cancel.result" }
+      },
+      "required": ["event_type"]
+    }
+  ]
+}

@@ -58,8 +58,8 @@ configured `subject_id` matches either identifier exactly.
 | Ticket lifecycle | `aiur.ticket_lifecycle_event` v1 |
 | Ticket progress | `aiur.ticket_progress_event` v1 |
 | Ticket usage | `aiur.ticket_usage_event` v1 |
-| Spend-cap transition | `aiur.spend_cap_event` v1 |
-| Cancellation result | `aiur.cancel_result_event` v1 |
+| Spend-cap transition | `aiur.ticket_spend_cap_reached` v1 |
+| Cancellation result | `aiur.ticket_cancel` v1 |
 
 Treat additive fields and unknown event types as forward-compatible. A breaking
 wire change adds another schema version instead of changing v1 in place.

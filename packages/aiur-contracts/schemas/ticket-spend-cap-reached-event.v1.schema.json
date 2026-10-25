@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-spend-cap-reached-event.v1.schema.json",
+  "title": "TicketSpendCapReachedEvent",
+  "allOf": [
+    { "$ref": "outbound-event-envelope.v1.schema.json" },
+    { "$ref": "ticket-spend-cap-reached.v1.schema.json" },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "event_type": { "const": "ticket.spend_cap.reached" }
+      },
+      "required": ["event_type"]
+    }
+  ]
+}

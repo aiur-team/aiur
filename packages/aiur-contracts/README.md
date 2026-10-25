@@ -38,6 +38,8 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `ticket-lifecycle-event.v1` | outbound webhook | `aiur.ticket_lifecycle_event` |
 | `ticket-progress-event.v1` | outbound webhook | `aiur.ticket_progress_event` |
 | `ticket-usage-event.v1` | outbound webhook | `aiur.ticket_usage_event` |
+| `ticket-spend-cap-reached-event.v1` | outbound webhook | `aiur.ticket_spend_cap_reached` |
+| `ticket-cancel-result-event.v1` | outbound webhook | `aiur.ticket_cancel` |
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
 | `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
 

@@ -5,7 +5,12 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type OutboundEvent = TicketLifecycleChangedEvent | TicketProgressChangedEvent | TicketUsageChangedEvent;
+export type OutboundEvent =
+  | TicketLifecycleChangedEvent
+  | TicketProgressChangedEvent
+  | TicketUsageChangedEvent
+  | TicketSpendCapReachedEvent
+  | TicketCancelResultEvent;
 export type TicketLifecycleChangedEvent = OutboundEventEnvelope & {
   contract: "aiur.ticket_lifecycle_event";
   event_type: "ticket.lifecycle.changed";
@@ -63,6 +68,17 @@ export type Money = {
   source_version: string;
   [k: string]: unknown;
 } | null;
+export type TicketSpendCapReachedEvent = OutboundEventEnvelope &
+  TicketSpendCapReached & {
+    event_type: "ticket.spend_cap.reached";
+    [k: string]: unknown;
+  };
+export type TicketSpendCapReachedAmount = string;
+export type TicketCancelResultEvent = OutboundEventEnvelope &
+  TicketCancel & {
+    event_type: "ticket.cancel.result";
+    [k: string]: unknown;
+  };
 
 export interface Delta {
   tokens: Tokens;
@@ -78,4 +94,81 @@ export interface Tokens {
   output: number | null;
   reasoning_output: number | null;
   provider_reported_total: number | null;
+}
+export interface TicketSpendCapReached {
+  contract: "aiur.ticket_spend_cap_reached";
+  contract_version: 1;
+  schema_version: 1;
+  job_id: string;
+  ticket: TicketSpendCapReachedIdentity;
+  currency: "USD";
+  cap_amount: TicketSpendCapReachedAmount;
+  spent_amount: TicketSpendCapReachedAmount;
+  remaining_amount: TicketSpendCapReachedAmount;
+  state: "budget_exhausted";
+  end_state: "budget_exhausted";
+  coverage: TicketSpendCapReachedCoverage;
+  authority: {
+    [k: string]: unknown;
+  };
+  configured_at: string;
+  reached_at: string;
+  [k: string]: unknown;
+}
+export interface TicketSpendCapReachedIdentity {
+  owner: string;
+  repository: string;
+  identifier: string;
+  [k: string]: unknown;
+}
+export interface TicketSpendCapReachedCoverage {
+  status?: "known" | "partial" | "unknown" | "none";
+  known?: number;
+  unknown?: number;
+  reasons?: string[];
+  [k: string]: unknown;
+}
+export interface TicketCancel {
+  contract: "aiur.ticket_cancel";
+  contract_version: 1;
+  issue_identifier: string;
+  tracker_state: "cancelled";
+  process:
+    | TicketCancelExitedProcess
+    | TicketCancelStillRunningProcess
+    | TicketCancelKillFailedProcess
+    | TicketCancelGenerationChangedProcess;
+  [k: string]: unknown;
+}
+export interface TicketCancelExitedProcess {
+  handle: string;
+  status: "exited";
+  exit_status: "normal" | "shutdown" | "killed" | "noproc" | "unknown";
+  exited_at: string;
+  observed_at: string;
+  [k: string]: unknown;
+}
+export interface TicketCancelStillRunningProcess {
+  handle: string;
+  status: "still_running";
+  exit_status: null;
+  exited_at: null;
+  observed_at: string;
+  [k: string]: unknown;
+}
+export interface TicketCancelKillFailedProcess {
+  handle: string;
+  status: "kill_failed";
+  exit_status: null;
+  exited_at: null;
+  observed_at: string;
+  [k: string]: unknown;
+}
+export interface TicketCancelGenerationChangedProcess {
+  handle: string;
+  status: "generation_changed";
+  exit_status: null;
+  exited_at: null;
+  observed_at: string;
+  [k: string]: unknown;
 }
