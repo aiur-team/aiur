@@ -163,7 +163,9 @@ an opaque `handle`, `status: "exited"`, bounded `exit_status`, `exited_at`, and
 Changing the tracker state alone is not success. If the selected process does
 not exit before the bound, the same versioned body returns with `409` and
 `process.status` set to `still_running` or `kill_failed`; both exit fields are
-`null`. A replacement agent generation produces `generation_changed` without
+`null`.
+
+A replacement agent generation produces `generation_changed` without
 stopping the replacement. An ambiguous identifier also returns `409` before
 any tracker or process mutation.
 
