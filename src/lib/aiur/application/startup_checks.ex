@@ -20,17 +20,23 @@ defmodule Aiur.Application.StartupChecks do
       :ok
     else
       settings_result = Aiur.Config.settings_uncached()
-      env = configure_codex_home(settings_result, System.get_env())
-      settings = unwrap_settings(settings_result)
-
-      validate_deployment_credentials!(settings, env)
-      validate_auth_before_secrets!(settings, env)
-      clear_rotated_provider_auth_holds(settings, env)
-
-      Aiur.Env.validate_startup!(env, require_github_credential: github_tracker?(settings))
-      Aiur.Env.warn_disabled_integrations()
-      Aiur.Env.warn_precedence_conflicts()
+      validate_environment(settings_result, System.get_env())
     end
+  end
+
+  @doc false
+  @spec validate_environment(term(), map()) :: :ok
+  def validate_environment(settings_result, env) do
+    env = configure_codex_home(settings_result, env)
+    settings = unwrap_settings(settings_result)
+
+    validate_deployment_credentials!(settings, env)
+    validate_auth_before_secrets!(settings, env)
+    clear_rotated_provider_auth_holds(settings, env)
+
+    Aiur.Env.validate_startup!(env, require_github_credential: github_tracker?(settings))
+    Aiur.Env.warn_disabled_integrations()
+    Aiur.Env.warn_precedence_conflicts()
   end
 
   @doc false
@@ -190,7 +196,8 @@ defmodule Aiur.Application.StartupChecks do
         :ok
 
       {:error, reason} ->
-        raise ArgumentError, "could not reconcile provider credential hold for #{backend}: #{inspect(reason)}"
+        Logger.error("could not reconcile provider credential hold for #{backend}; keeping it in place: #{inspect(reason)}")
+        :ok
     end
   end
 

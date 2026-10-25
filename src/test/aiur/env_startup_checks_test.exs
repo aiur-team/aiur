@@ -1,6 +1,7 @@
 defmodule Aiur.EnvStartupChecksTest do
   use ExUnit.Case, async: false
   import Bitwise
+  import ExUnit.CaptureLog
 
   alias Aiur.Application.StartupChecks
   alias Aiur.Env
@@ -137,6 +138,94 @@ defmodule Aiur.EnvStartupChecksTest do
     assert StartupChecks.configure_codex_home({:ok, %{instance: %{mode: "local"}}}, local_env) == local_env
     assert System.get_env("CODEX_HOME") == explicit_home
   end
+
+  test "settings result validation clears local and hosted rotated provider holds" do
+    root = Aiur.TestSupport.tmp_root!("startup-auth-hold-reconcile")
+    state_dir = Path.join(root, "hosted-state")
+    workflow_path = Path.join([root, "local", ".aiur", "config"])
+    File.mkdir_p!(Path.dirname(workflow_path))
+
+    previous_workflow = Application.fetch_env(:aiur, :workflow_file_path)
+    previous_mode = Application.fetch_env(:aiur, :booted_instance_mode)
+    previous_codex_home = System.get_env("CODEX_HOME")
+
+    on_exit(fn ->
+      restore_app_env(:workflow_file_path, previous_workflow)
+      restore_app_env(:booted_instance_mode, previous_mode)
+      restore_env("CODEX_HOME", previous_codex_home)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    local_settings = startup_settings("local")
+    local_ledger = Path.join(Path.dirname(workflow_path), "model-usage.json")
+    Aiur.Workflow.set_workflow_file_path(workflow_path)
+    Application.put_env(:aiur, :booted_instance_mode, "local")
+    assert {:ok, :first} = Aiur.ModelAvailability.mark_auth_rejected("claude", "unavailable", path: local_ledger)
+
+    assert :ok =
+             StartupChecks.validate_environment({:ok, local_settings}, %{
+               "ANTHROPIC_API_KEY" => "rotated-local-key",
+               "GITHUB_TOKEN" => "fixture-token"
+             })
+
+    refute Aiur.ModelAvailability.auth_rejected?("claude", path: local_ledger)
+
+    hosted_settings = startup_settings("hosted")
+    hosted_ledger = Path.join(state_dir, "model-usage.json")
+    assert {:ok, :first} = Aiur.ModelAvailability.mark_auth_rejected("claude", "old-hosted-key", path: hosted_ledger)
+
+    hosted_env = %{
+      "AIUR_BG_STATE_DIR" => state_dir,
+      "ANTHROPIC_API_KEY" => "rotated-hosted-key",
+      "GITHUB_TOKEN" => "fixture-token"
+    }
+
+    assert :ok = StartupChecks.validate_environment({:ok, hosted_settings}, hosted_env)
+    refute Aiur.ModelAvailability.auth_rejected?("claude", path: hosted_ledger)
+  end
+
+  test "failed auth-hold ledger rewrite is logged while startup continues and retains the hold" do
+    root = Aiur.TestSupport.tmp_root!("startup-auth-hold-read-only")
+    workflow_path = Path.join([root, ".aiur", "config"])
+    ledger_dir = Path.dirname(workflow_path)
+    File.mkdir_p!(ledger_dir)
+    previous_workflow = Application.fetch_env(:aiur, :workflow_file_path)
+    previous_mode = Application.fetch_env(:aiur, :booted_instance_mode)
+
+    on_exit(fn ->
+      File.chmod!(ledger_dir, 0o700)
+      restore_app_env(:workflow_file_path, previous_workflow)
+      restore_app_env(:booted_instance_mode, previous_mode)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    Aiur.Workflow.set_workflow_file_path(workflow_path)
+    Application.put_env(:aiur, :booted_instance_mode, "local")
+    ledger = Path.join(ledger_dir, "model-usage.json")
+    assert {:ok, :first} = Aiur.ModelAvailability.mark_auth_rejected("claude", "unavailable", path: ledger)
+    File.chmod!(ledger_dir, 0o500)
+
+    log =
+      capture_log(fn ->
+        assert :ok = StartupChecks.validate_environment({:ok, startup_settings("local")}, %{})
+      end)
+
+    assert log =~ "could not reconcile provider credential hold for claude; keeping it in place"
+    assert Aiur.ModelAvailability.auth_rejected?("claude", path: ledger)
+  end
+
+  defp startup_settings(mode) do
+    %{
+      instance: %{mode: mode, deployment_kind: "operator"},
+      tracker: %{kind: "memory"},
+      server: %{host: "127.0.0.1"},
+      webhooks: %{repos: []},
+      agent: %{kind: "claude", priority: ["claude"], routing: %{}, backend_configs: %{}}
+    }
+  end
+
+  defp restore_app_env(key, {:ok, value}), do: Application.put_env(:aiur, key, value)
+  defp restore_app_env(key, :error), do: Application.delete_env(:aiur, key)
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
