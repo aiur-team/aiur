@@ -21,6 +21,14 @@ defmodule Aiur.GitHub.Budget.LedgerVersionTest do
     token = "rate-limit-pacing-token"
     key = Budget.token_key(token)
 
+    opts = [
+      state_dir: root,
+      requests_per_minute: 1,
+      stagger_ms: 0,
+      timeout_ms: 2_000,
+      broker_server: start_supervised!({Aiur.GitHub.BudgetBroker, name: nil})
+    ]
+
     assert {"granted " <> _lease, 0} =
              System.cmd("python3", [
                broker,
@@ -60,15 +68,18 @@ defmodule Aiur.GitHub.Budget.LedgerVersionTest do
 
     assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
 
+    # Warm the resident broker against the same ledger before timing the pacing
+    # request. This keeps Python broker startup out of the 2s admission deadline;
+    # deadline expiry itself is covered by the broker failure tests.
+    assert %{admissions: [%{endpoint_family: "rate_limit", billable: false}]} =
+             Budget.snapshot(token, opts)
+
     # One free admission fills the single requests-per-minute slot, so a second
     # admission in the same minute is paced even though the first cost nothing.
     assert {:hold, %{reason: :shared_budget}} =
              Budget.acquire(
                request(token, "/repos/owner/repo/issues/1477"),
-               state_dir: root,
-               requests_per_minute: 1,
-               stagger_ms: 0,
-               timeout_ms: 300
+               opts
              )
   end
 
