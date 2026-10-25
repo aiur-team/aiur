@@ -12,6 +12,7 @@ defmodule AiurWeb.Build.FreshnessTest do
     :ok = PollCadence.publish_effective_interval_ms(120_000)
 
     assert Freshness.snapshot_tolerance_ms() == 240_000
+    assert Freshness.snapshot_tolerance_ms(:undefined) == 240_000
   end
 
   test "daemon preserves state, heartbeat, read time and privacy" do

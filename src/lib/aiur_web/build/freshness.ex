@@ -42,13 +42,16 @@ defmodule AiurWeb.Build.Freshness do
   end
 
   @spec snapshot_tolerance_ms() :: non_neg_integer()
-  def snapshot_tolerance_ms do
+  def snapshot_tolerance_ms, do: snapshot_tolerance_ms(:ets.whereis(AiurWeb.Endpoint))
+
+  @spec snapshot_tolerance_ms(:undefined | atom()) :: non_neg_integer()
+  def snapshot_tolerance_ms(:undefined) do
+    PollCadence.snapshot_tolerance_ms(15_000, class: :dispatch)
+  end
+
+  def snapshot_tolerance_ms(_endpoint_table) do
     timeout =
-      if :ets.whereis(AiurWeb.Endpoint) == :undefined do
-        15_000
-      else
-        EndpointConfig.get(:snapshot_timeout_ms) || 15_000
-      end
+      EndpointConfig.get(:snapshot_timeout_ms) || 15_000
 
     PollCadence.snapshot_tolerance_ms(timeout, class: :dispatch)
   end
