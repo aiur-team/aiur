@@ -41,7 +41,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
            receive do
              :complete_transition -> :ok
            end
-         end}
+         end,
+         task_start_fun: tracked_task_start(owner)}
       )
 
     assert {:ok, payload} = Store.put(store, identity, "1.25")
@@ -61,7 +62,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
     assert Store.delete(store, "5693") == {:error, :exhaustion_transition_pending}
     send(transition_task, :complete_transition)
 
-    assert eventually(fn -> match?({:ok, %{"effects" => %{"tracker_transition" => "completed"}}}, Store.get(store, "5693")) end)
+    await_effect_tasks(3)
+    assert {:ok, %{"effects" => %{"tracker_transition" => "completed"}}} = Store.get(store, "5693")
     assert :ok = Store.delete(store, "5693")
   end
 
@@ -89,7 +91,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
            :ok
          end,
          event_fun: fn _topic, _payload, event_id -> {:ok, event_id, 0} end,
-         transition_fun: fn _identifier, _state -> :ok end}
+         transition_fun: fn _identifier, _state -> :ok end,
+         task_start_fun: tracked_task_start(owner)}
       )
 
     assert {:ok, %{"state" => "active"}} = Store.put(store, identity, "1.00")
@@ -97,7 +100,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
     send(store, {:usage_aggregate_changed, %{generation: 4}})
 
     assert_receive {:stopped_after_update, ^identity, :budget_exhausted}, 1_000
-    assert eventually(fn -> match?({:ok, %{"state" => "budget_exhausted"}}, Store.get(store, "5693")) end)
+    await_effect_tasks(3)
+    assert {:ok, %{"state" => "budget_exhausted"}} = Store.get(store, "5693")
   end
 
   test "restart reuses the persisted event id and resumes only unfinished effects", %{dir: dir} do
@@ -121,22 +125,19 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
            {:error, :offline}
          end,
          transition_fun: fn _identifier, _state -> flunk("transition must wait for the event") end,
+         task_start_fun: tracked_task_start(owner),
          retry_ms: 60_000}
       )
 
     assert {:ok, %{"state" => "budget_exhausted"}} = Store.put(first, identity, "1.00")
     assert_receive {:first_event_attempt, 42}, 1_000
+    await_effect_tasks(2)
+    assert {:ok, %{"effects" => %{"stop" => "completed", "event" => "pending"}}} = Store.get(first, "5693")
 
-    assert eventually(fn ->
-             case File.read(path) do
-               {:ok, json} ->
-                 record = json |> Jason.decode!() |> Map.fetch!("records") |> hd()
-                 record["event_id"] == 42 and record["effects"]["stop"] == "completed" and record["effects"]["event"] == "pending"
-
-               _other ->
-                 false
-             end
-           end)
+    record = path |> File.read!() |> Jason.decode!() |> Map.fetch!("records") |> hd()
+    assert record["event_id"] == 42
+    assert record["effects"]["stop"] == "completed"
+    assert record["effects"]["event"] == "pending"
 
     assert :ok = stop_supervised(Store)
 
@@ -377,15 +378,16 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
     }
   end
 
-  defp eventually(fun, attempts \\ 100)
-  defp eventually(fun, 0), do: fun.()
-
-  defp eventually(fun, attempts) do
-    if fun.() do
-      true
-    else
-      Process.sleep(10)
-      eventually(fun, attempts - 1)
+  defp tracked_task_start(owner) do
+    fn run ->
+      Task.start_link(fn ->
+        run.()
+        send(owner, :spend_cap_effect_finished)
+      end)
     end
+  end
+
+  defp await_effect_tasks(count) do
+    Enum.each(1..count, fn _index -> assert_receive :spend_cap_effect_finished, 1_000 end)
   end
 end
