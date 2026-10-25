@@ -7,7 +7,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{BlockerProgress, Config}
-  alias Aiur.Instance.{Heartbeat, LeaseStore}
+  alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
 
   @doc """
   Build the supervision children for the given run shape.
@@ -46,8 +46,7 @@ defmodule Aiur.Application.Children do
         Application.get_env(:aiur, :ls_remote_ticker_enabled?, true)
       )
 
-    primary_instance? =
-      Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0) == "primary"
+    instance_role = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0)
 
     github_tracker? =
       Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
@@ -293,8 +292,7 @@ defmodule Aiur.Application.Children do
       # last in this `:rest_for_one` list so their restarts can never cascade
       # into the dashboard, the Principal, or the opencode supervisors.
       if(recording?, do: [Aiur.AllowedContributors, BuildOrders.child_specs(:recording, opts)]),
-      BuildOrders.child_specs(:final, opts),
-      if(primary_instance? and main_watch_enabled?, do: Aiur.MainWatch)
+      BuildOrders.child_specs(:final, opts)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
@@ -307,13 +305,11 @@ defmodule Aiur.Application.Children do
           feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]
         ) ++
         BuildOrders.child_specs(:label_projection, opts) ++
-        landing_watch_children(primary_instance?, github_tracker?) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
-        dashboard_final_children(dashboard?, opts) ++
-        coordination_children()
+        coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
+        dashboard_final_children(dashboard?, opts)
     )
   end
 
@@ -334,19 +330,24 @@ defmodule Aiur.Application.Children do
     )
   end
 
-  defp coordination_children do
-    if LeaseStore.configured?(),
-      do: [LeaseStore, Heartbeat],
-      else: []
+  defp coordination_children(role, github_tracker?, main_watch_enabled?) do
+    store_children = if LeaseStore.configured?(), do: [LeaseStore, Heartbeat], else: []
+
+    services =
+      []
+      |> maybe_service(github_tracker?, Aiur.LandingWatch)
+      |> maybe_service(github_tracker?, Aiur.LandingWatch.QuarantineLifter)
+      |> maybe_service(github_tracker? and main_watch_enabled?, Aiur.MainWatch)
+
+    store_children ++
+      [
+        {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Instance.GlobalServices},
+        {RepositoryLeader, role: role, services: services, supervisor: Aiur.Instance.GlobalServices}
+      ]
   end
 
-  defp landing_watch_children(true, true), do: [Aiur.LandingWatch]
-
-  defp landing_watch_children(_primary_instance?, _github_tracker?), do: []
-
-  defp quarantine_lifter_children(true, true), do: [Aiur.LandingWatch.QuarantineLifter]
-
-  defp quarantine_lifter_children(_primary_instance?, _github_tracker?), do: []
+  defp maybe_service(children, true, service), do: children ++ [service]
+  defp maybe_service(children, false, _service), do: children
 
   defp executor_sweep_children do
     if AiurConfig.tracker_kind() == "github", do: [Aiur.ExecutorSweep], else: []
