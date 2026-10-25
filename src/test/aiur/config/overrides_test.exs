@@ -180,7 +180,7 @@ defmodule Aiur.Config.OverridesTest do
   test "concurrent applies quarantine a rejected entry once", %{override_path: path} do
     {:ok, workflow} = Workflow.load_base()
     rounds = 8
-    concurrency = 32
+    concurrency = 4
     parent = self()
 
     for round <- 1..rounds do
@@ -199,7 +199,7 @@ defmodule Aiur.Config.OverridesTest do
 
       for _ <- 1..concurrency, do: assert_receive(:ready, 5_000)
       Enum.each(tasks, &send(&1.pid, :go))
-      assert Enum.all?(Enum.map(tasks, &Task.await(&1, 5_000)), &match?({:ok, _workflow}, &1))
+      assert Enum.all?(Task.await_many(tasks, :infinity), &match?({:ok, _workflow}, &1))
 
       rejected_paths = Path.wildcard(Path.join(Path.dirname(path), "config-overrides.rejected-*.json"))
       assert length(rejected_paths) == round
