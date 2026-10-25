@@ -6,8 +6,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
   alias Aiur.Events.GithubCIPoller
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
-  alias Aiur.Orchestrator.CiLifecycle.ApprovedHeadConflict
   alias Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert
+  alias Aiur.Orchestrator.CiLifecycle.ApprovedHeadConflict
   alias Aiur.Orchestrator.CiLifecycle.FailureComment
   alias Aiur.Orchestrator.CiLifecycle.OwnerlessPass
   alias Aiur.Orchestrator.CiLifecycle.Poll
