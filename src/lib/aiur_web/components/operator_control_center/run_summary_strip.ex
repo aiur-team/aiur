@@ -41,24 +41,36 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:meters, :map, required: true)
   attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:elevenlabs_quota, :map, default: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
+  attr(:netlify_usage, :map, default: nil)
+  attr(:netlify_enabled?, :boolean, default: false)
   attr(:now, :any, required: true)
   # Provider families the workflow routes work to; nil reads the live config.
   attr(:configured_providers, :any, default: nil)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
-    assigns = assign(assigns, :cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
+    assigns =
+      assigns
+      |> assign(:cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
+      |> assign(:netlify_usage, assigns.netlify_usage || usage_provider(assigns.usage, :netlify))
 
     ~H"""
     <section class="run-summary" aria-label="Provider and API usage">
-      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} now={@now} />
+      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} netlify_usage={@netlify_usage} netlify_enabled?={@netlify_enabled?} now={@now} />
       <ModelsPanel.models_panel :if={@cards != []} cards={@cards} now={@now} />
     </section>
     """
   end
 
+  defp usage_provider(usage, provider) do
+    providers = Map.get(usage || %{}, :providers, Map.get(usage || %{}, "providers", %{}))
+    Map.get(providers, provider, Map.get(providers, Atom.to_string(provider)))
+  end
+
   attr(:github_quota, :map, required: true)
   attr(:elevenlabs_quota, :map, required: true)
+  attr(:netlify_usage, :map, default: nil)
+  attr(:netlify_enabled?, :boolean, default: false)
   attr(:now, :any, required: true)
 
   # The APIS pane holds one row per non-model API. GitHub always has a row; the
@@ -113,10 +125,56 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           </div>
         </div>
         <.elevenlabs_api_row :if={@elevenlabs?} quota={@elevenlabs_quota} now={@now} />
+        <.netlify_api_row :if={@netlify_enabled?} usage={@netlify_usage} />
       </div>
     </div>
     """
   end
+
+  attr(:usage, :map, default: nil)
+
+  defp netlify_api_row(assigns) do
+    usage = assigns.usage || %{}
+    fields = Map.get(usage, :fields, Map.get(usage, "fields", %{}))
+    credits = Map.get(fields, :credits, Map.get(fields, "credits", %{}))
+    remaining = Map.get(credits, :estimated_remaining, Map.get(credits, "estimated_remaining"))
+    runway = Map.get(credits, :runway_days, Map.get(credits, "runway_days"))
+    state = Map.get(usage, :state, Map.get(usage, "state"))
+    age = Map.get(usage, :age_ms, Map.get(usage, "age_ms"))
+    sites = Map.get(fields, :sites, Map.get(fields, "sites", []))
+    account = Map.get(fields, :account, Map.get(fields, "account", %{}))
+    exceeded = Map.get(account, :usages_exceeded, Map.get(account, "usages_exceeded", false))
+
+    assigns =
+      assign(assigns, :fields, fields)
+      |> assign(:credits, credits)
+      |> assign(:remaining, remaining)
+      |> assign(:runway, runway)
+      |> assign(:state, state)
+      |> assign(:ready?, state in [:ready, "ready"])
+      |> assign(:age, age)
+      |> assign(:sites, sites)
+      |> assign(:exceeded, exceeded)
+      |> assign(:account, account)
+
+    ~H"""
+    <div class="rs-api rs-netlify rs-provider-row" data-testid="netlify-usage-card">
+      <div class="rs-head"><span class="rs-limit-label">Netlify</span></div>
+      <div class="rs-provider-body">
+        <span :if={@ready? && is_number(@remaining)} class="rs-limit-meta">
+          Estimated credits: {Float.round(@remaining * 1.0, 1)} · runway {format_runway(@runway)} · observed {format_age(@age)} ago
+        </span>
+        <span :if={not @ready? || not is_number(@remaining)} class="rs-limit-meta">Estimated credits: unavailable</span>
+        <span :if={is_map(@account)} class="rs-limit-meta">{length(@sites)} sites · {if(@exceeded, do: "usage exceeded", else: "within usage limits")}</span>
+      </div>
+    </div>
+    """
+  end
+
+  defp format_runway(days) when is_number(days), do: "#{Float.round(days * 1.0, 1)} days"
+  defp format_runway(_), do: "unknown"
+  defp format_age(ms) when is_integer(ms), do: "#{div(ms, 1_000)}s"
+  defp format_age(_), do: "unknown age"
 
   defp fleet_budget_label(%{state: :observed, resources: resources, observed_instances: count, age_seconds: age}, _now) do
     "Shared daemon spend: Core #{Map.get(resources, "core", 0)} requests, GraphQL #{Map.get(resources, "graphql", 0)} points across #{count} observed instances (#{age}s old); agent gh calls are counted per host."

@@ -198,6 +198,12 @@ alerts:
 
 # Optional low-usage alerts. Thresholds are remaining percentages; unknown or stale readings do not trigger alerts.
 # usage:
+#   alerts: {claude: {threshold: 10}} # remaining percent; Netlify credits have a separate `netlify` section
+# netlify:
+#   enabled: false
+#   account_id: your-netlify-team-id
+#   poll_seconds: 900
+#   credit_alert_threshold: 100
 #   alerts:
 #     claude:
 #       threshold: 10

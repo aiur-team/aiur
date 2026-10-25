@@ -403,6 +403,17 @@ defmodule Aiur.AgentEnvironmentTest do
     refute remote_output =~ "elevenlabs-secret"
   end
 
+  test "Netlify usage token is scrubbed from agent environments" do
+    previous = System.get_env("NETLIFY_AUTH_TOKEN")
+    System.put_env("NETLIFY_AUTH_TOKEN", "netlify-secret")
+    on_exit(fn -> restore_env("NETLIFY_AUTH_TOKEN", previous) end)
+    assert {~c"NETLIFY_AUTH_TOKEN", false} in AgentEnvironment.workspace_env("/work/aiur/5823")
+    assert "NETLIFY_AUTH_TOKEN" in AgentEnvironment.provider_credential_env_names()
+    command = AgentEnvironment.scrub_shell_command("env | grep '^NETLIFY_AUTH_TOKEN=' || true")
+    {output, 0} = System.cmd("bash", ["-lc", command], env: [{"NETLIFY_AUTH_TOKEN", "netlify-secret"}])
+    assert output == ""
+  end
+
   # The GitHub App credentials are the daemon's identity (#2266). This asserts on
   # the RESULTING environment, not on the scrub list, and includes a name that
   # does not exist yet — so a future App credential that is added without being

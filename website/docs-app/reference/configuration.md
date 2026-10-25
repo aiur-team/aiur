@@ -294,7 +294,6 @@ The `aiur run` upgrade-version notice is optional and opt-out: it caches with a 
 environment-variable equivalents; the check also stays silent in CI runs.
 
 ## alerts
-
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-13 -->
 | --- | --- | --- | --- |
 | `alerts.alerts_file` | string path or nil | bundled alerts file | Topic-to-sound YAML map. |
@@ -303,13 +302,15 @@ environment-variable equivalents; the check also stays silent in CI runs.
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
 
 ## usage
-
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
 | --- | --- | --- | --- |
 | `usage.alerts` | map | %{} | Per-provider low-usage alert thresholds; each threshold is remaining percent from 0 to 100. |
+| `netlify.enabled` | boolean | false | Enable read-only Netlify usage polling and the dashboard card. |
+| `netlify.account_id` | string | nil | Netlify team or account ID to read. |
+| `netlify.poll_seconds` | integer | 900 | Netlify usage polling interval in seconds. |
+| `netlify.credit_alert_threshold` | integer | 0 | Emit a low-credit alert at or below this estimated balance; 0 disables the threshold. |
 
 ## elevenlabs
-
 Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
 
 This optional section configures voice features; `aiur init` records declines as `enabled: false` and skips them on resume.

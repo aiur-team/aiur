@@ -376,4 +376,38 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
     refute html =~ "DeepSeek"
     refute html =~ "OpenRouter"
   end
+
+  test "Netlify card renders age and keeps zero distinct from unavailable" do
+    base = %{
+      run: %{state: :loading},
+      usage: %{state: :ready, providers: %{}},
+      meters: %{state: :authorized, cards: []},
+      netlify_usage: nil,
+      netlify_enabled?: true,
+      now: @now
+    }
+
+    zero_html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        base
+        | netlify_usage: %{
+            state: :ready,
+            age_ms: 61_000,
+            fields: %{credits: %{estimated_remaining: 0, runway_days: 0}, sites: [], account: %{usages_exceeded: false}}
+          }
+      })
+
+    assert zero_html =~ "Estimated credits: 0.0"
+    assert zero_html =~ "observed 61s ago"
+    assert zero_html =~ "0 sites · within usage limits"
+
+    unavailable_html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        base
+        | netlify_usage: %{state: :unavailable, age_ms: 61_000, fields: %{credits: %{estimated_remaining: nil}, sites: [], account: %{}}}
+      })
+
+    assert unavailable_html =~ "Estimated credits: unavailable"
+    refute unavailable_html =~ "Estimated credits: 0.0"
+  end
 end

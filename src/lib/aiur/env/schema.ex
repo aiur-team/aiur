@@ -190,6 +190,7 @@ defmodule Aiur.Env.Schema do
     {"MOONSHOT_API_KEY", type: :secret, group: :provider_keys, purpose: "Moonshot backend key; used when a backend config names this env var."},
     {"OPENROUTER_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter backend key; used when a backend config names this env var.", fetch: "openrouter.ai -> Keys -> Create key"},
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},
+    {"NETLIFY_AUTH_TOKEN", type: :secret, group: :provider_keys, purpose: "Netlify read-only usage API credential; never logged or sent to agents."},
 
     # --- Runtime (launcher-managed) ---
     {"AIUR_SECRETS_FROM_ENV", type: :boolean, group: :runtime, purpose: "Disable dotenv files so hosted secrets must be supplied by the daemon environment."},

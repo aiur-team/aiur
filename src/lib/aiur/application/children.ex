@@ -313,7 +313,7 @@ defmodule Aiur.Application.Children do
         quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
         dashboard_final_children(dashboard?, opts) ++
-        coordination_children()
+        coordination_children() ++ [Aiur.Netlify.Usage]
     )
   end
 
