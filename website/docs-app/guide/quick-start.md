@@ -108,8 +108,10 @@ Set the same `tracker.github.label_prefix` on each daemon and use
 `instance.owns` to reserve selected tickets without changing their labels. For
 example, `instance.owns: [{label: "build-lane:voice"}]` sends matching work to
 the NUC while it is live and dispatching; when it stops or pauses, matching
-tickets return to the shared pool. `instance.pool: false` keeps a daemon on its
-owned tickets only. These rules require the shared `AIUR_LEASE_DATABASE_URL`.
+tickets return to the shared pool.
+
+`instance.pool: false` keeps a daemon on its owned tickets only. These rules
+require the shared `AIUR_LEASE_DATABASE_URL`.
 
 Set `instance.role: secondary` on other daemons when repository-wide watchers
 should run only on primary. Secondary instances still dispatch tickets and
