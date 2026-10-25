@@ -22,8 +22,8 @@ defmodule Aiur.Orchestrator.AutoResume do
   """
 
   require Logger
-  alias Aiur.{Issue, Signal}
   alias Aiur.GitHub.Access
+  alias Aiur.{Issue, Signal}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State, TicketTransition, TrackerTasks}
 
   @backoff_ms [120_000, 300_000, 900_000]
