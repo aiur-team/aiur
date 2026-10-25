@@ -42,6 +42,44 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
              )
   end
 
+  test "an all-cancelled merge-group run with only a failed gate is cancelled before fetching logs" do
+    jobs = [
+      %{"name" => "test", "conclusion" => "cancelled"},
+      %{"name" => "lint", "conclusion" => "cancelled"},
+      %{"name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:cancelled, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6050, "failure", "pr-42-a"),
+               jobs,
+               [],
+               job_log_fun: fn _, _ -> flunk("cancelled runs do not need job logs") end
+             )
+
+    assert MergeFailureClassifier.cancelled_group?(%{"event" => "pull_request"}, jobs)
+
+    superseded_jobs = [%{"name" => "test", "conclusion" => "cancelled"}, %{"name" => "ci gate", "conclusion" => "cancelled"}]
+
+    assert {:ok, {:cancelled, nil}} =
+             MergeFailureClassifier.classify(
+               Map.put(group_run(6052, "cancelled", "pr-42-a"), "event", "merge_group"),
+               superseded_jobs,
+               [],
+               job_log_fun: fn _, _ -> flunk("cancelled runs do not need job logs") end
+             )
+
+    mixed = List.replace_at(jobs, 1, %{"name" => "lint", "conclusion" => "failure"})
+
+    assert {:ok, {:pr_caused, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6051, "failure", "pr-42-a"),
+               mixed,
+               [],
+               job_log_fun: fn _, _ -> {:ok, ""} end
+             )
+  end
+
   test "only a cancellation that reaches its timeout is infrastructure" do
     log = fixture("run-38742645458-browser.log")
     run = group_run(407, "failure", "pr-17-a")
@@ -90,6 +128,30 @@ defmodule Aiur.LandingWatch.MergeGroupFailureClassificationTest do
              MergeFailureClassifier.classify(run, [timed_out], [],
                job_log_fun: fn _, _ -> {:ok, log} end,
                timeout_minutes_by_job: %{"browser" => 15}
+             )
+  end
+
+  test "a timeout cancellation with a failed gate is infrastructure, not a cancelled group" do
+    timeout_job = %{
+      "name" => "browser smoke",
+      "conclusion" => "cancelled",
+      "started_at" => "2026-10-15T13:30:00Z",
+      "completed_at" => "2026-10-15T13:45:00Z"
+    }
+
+    jobs = [
+      %{"name" => "changes", "conclusion" => "success"},
+      %{"name" => "soak", "conclusion" => "skipped"},
+      timeout_job,
+      %{"name" => "ci gate", "conclusion" => "failure"}
+    ]
+
+    assert {:ok, {:infra, _}} =
+             MergeFailureClassifier.classify(
+               group_run(6053, "cancelled", "pr-42-a"),
+               jobs,
+               [],
+               timeout_minutes_by_job: %{"browser smoke" => 15}
              )
   end
 

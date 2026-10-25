@@ -127,10 +127,10 @@ answered. It walks:
 4. **Limits** — max concurrent agents, max turns, max duration, pre-warmed
    sessions, and the tracker polling interval. The same polling interval is the
    debounce before Aiur raises a sustained fleet-capacity starvation alert.
-5. **GitHub authentication** — defaults to `GITHUB_TOKEN` and offers a GitHub
-   App as an optional daemon upgrade when agents are hitting rate limits. With
-   no selected credential yet, the wizard explains the next step instead of
-   failing.
+5. **GitHub authentication** — local setup defaults to `GITHUB_TOKEN` and
+   offers a GitHub App as an optional daemon upgrade. Hosted/container setup
+   defaults to the App and prints its required permissions and webhook events;
+   `AIUR_GITHUB_ALLOW_PAT=1` explicitly opts into a PAT.
 6. **CI readiness** — for GitHub repositories, verifies the configured base
    branch exists, a pull-request workflow targets it, branch protection or an
    applicable ruleset requires a check, and that a workflow produces that check.
