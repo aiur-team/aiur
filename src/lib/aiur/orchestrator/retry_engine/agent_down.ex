@@ -224,7 +224,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
       released_at_ms: System.monotonic_time(:millisecond)
     }
 
-    %{state | released_claims: Map.put(state.released_claims || %{}, issue_id, release)}
+    %{state | released_claims: Map.put(state.released_claims, issue_id, release)}
   end
 
   defp maybe_reap_orphaned_agent_shell(state, running_entry) do
