@@ -51,7 +51,7 @@ defmodule Aiur.Config.Schema.Instance do
     field(:deployment_kind, :string, default: "operator")
 
     # @config-reference config-configuration-00 instance.id
-    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+    # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
     field(:id, :string)
 
     # @config-reference config-configuration-00 instance.owns
@@ -63,7 +63,7 @@ defmodule Aiur.Config.Schema.Instance do
     field(:pool, :boolean, default: true)
 
     # @config-reference config-configuration-00 instance.role
-    # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
+    # @config-detail instance.role | string | `primary` | `secondary` never claims the repository leader lease; `primary` is eligible to lead on equal terms with other eligible instances when `AIUR_LEASE_DATABASE_URL` is configured. Only the lease holder runs repository-wide landing, quarantine, merge-queue, and main-branch work. Label heals remain scoped to each instance's tracker view. Without a shared store, primary retains single-instance behavior. Read once at daemon start; change it with a restart. |
     field(:role, :string, default: "primary")
 
     embeds_one(:ignore, Aiur.Config.Schema.Instance.Ignore,
