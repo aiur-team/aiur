@@ -4,7 +4,8 @@ defmodule Aiur.BuildOrder.History.ClassificationCost do
 
   Token dimensions overlap and must never be summed. Missing dimensions mean
   zero or unreported usage (`:none_recorded`); missing evidence is unknown.
-  Pass `:baseline_partial_records` from the dispatch read to `read_sample/2`.
+  Trust healthy ticket-scoped recorded token cells. Global partial coverage
+  includes occurrence time, account identity and money; it is diagnostic only.
   Pass `:dispatched_at` to retain the dispatch time in hourly samples;
   `github_total/2` requires it on the first sample to detect an initial gap.
   Samples and timestamps are native Elixir terms, intended for local release RPC.
@@ -20,7 +21,7 @@ defmodule Aiur.BuildOrder.History.ClassificationCost do
   @spec read_sample(map(), keyword()) :: map()
   def read_sample(pilot, opts \\ []) do
     query = Keyword.get(opts, :query_fun, &UsageAggregate.query/1)
-    {tokens, partial, model} = tokens(pilot, query, opts)
+    {tokens, partial, model} = tokens(pilot, query)
 
     %{
       tokens: tokens,
@@ -56,24 +57,21 @@ defmodule Aiur.BuildOrder.History.ClassificationCost do
 
   def project(_sample, _inputs), do: {:unknown, [:invalid_population_or_sample_size]}
 
-  defp tokens(pilot, query, opts) do
+  defp tokens(pilot, query) do
     case TrackerIdentity.from_github(%{"node_id" => pilot.node_id, "number" => pilot.number}, pilot.repo, pilot.repo) do
-      {:ok, identity} -> token_summary(query.(%{tickets: [identity]}), opts)
+      {:ok, identity} -> token_summary(query.(%{tickets: [identity]}))
       {:error, _reason} -> {figures(UsageEnvelope.token_dimensions(), {:unknown, [:unjoinable_ticket]}), :unknown, nil}
     end
   end
 
-  defp token_summary(summary, opts) do
+  defp token_summary(summary) do
     partial = get_in(summary, [:coverage, :projection, :partial_records])
-    baseline = Keyword.get(opts, :baseline_partial_records)
 
     reasons =
       []
       |> reason(summary.health != :healthy, :aggregate_unhealthy)
       |> reason(summary.scope.rejected_tickets != 0, :ticket_rejected)
       |> reason(summary.coverage.selected_cells == 0 or summary.totals.tokens == %{}, :no_usage_recorded)
-      |> reason(not is_integer(baseline), :no_partial_baseline)
-      |> reason(is_integer(baseline) and partial != baseline, :partial_records_during_pilot)
 
     tokens =
       Map.new(UsageEnvelope.token_dimensions(), fn dimension ->

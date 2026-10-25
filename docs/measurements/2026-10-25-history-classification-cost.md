@@ -32,6 +32,46 @@ is deferred with the pilot. After the pilot, commit measured counts and assert
 the exact projected numbers in a test alongside this table and the PR evidence.
 No titles, bodies, proposal reasons, or financial data belong in that fixture.
 
+## Reader reliability observation (not the pilot)
+
+At **2026-10-25 15:44:17.528423Z**, the corrected `read_sample/2` read
+completed ticket **#2961** (`I_kwDOSgXtJc8AAAABVStctQ`) using live release
+`bin/aiur rpc` calls for all three existing seams: aggregate query, broker
+usage and broker enabled status. The PR reader ran in the RPC client because
+it is not installed on the live daemon; no code was loaded into the daemon.
+
+| Ticket #2961 figure | Observed value |
+| --- | --- |
+| Aggregate health; selected cells | healthy; 14 |
+| Input tokens | 17,281,030 |
+| Cached input tokens | 16,968,448 |
+| Output tokens | 49,632 |
+| Reasoning output tokens | 15,940 |
+| Cache creation input | none recorded |
+| Provider / backend / resolved model | codex / app_server / gpt-6.1-sol |
+| Projection partial / folded records | 2,367 / 2,367 |
+
+Partial reasons were `missing_trusted_occurrence_time` and
+`unknown_account_generation`. Those facts concern time/account coverage,
+not the value of a recorded token dimension. Each dimension above is a
+separate raw recorded total, never a sum across overlapping dimensions.
+
+The accompanying read-only census at 15:40:29Z held **176 cells for 15 tickets**,
+all `codex` / `app_server`, under one retained run. This is retained usage,
+not evidence that a newly dispatched ticket records usage today. The candidate
+routing is **`codex:sol:medium`**, resolving to **gpt-6.1-sol** through the Codex
+app-server backend; certify it with a fresh canary before using it for C13-T04.
+**No currently recording routing is certified by this record.**
+
+Reproduce the evidence without changing daemon code by loading this PR's reader
+in a local Elixir client and supplying RPC-backed seams. Each seam executes
+`bin/aiur rpc` with its existing function (`UsageAggregate.query(scope)`,
+`Budget.usage()` or `Budget.enabled?()`), returning a native term via
+`:erlang.term_to_binary() |> Base.encode64()`. Decode in the client and pass
+the results to `read_sample/2`; print token dimensions only. The actual
+verification command and complete result are in the PR body. After deployment,
+repeat `read_sample/2` directly inside the live release RPC.
+
 ## Reproduction (Executor, after deployment)
 
 1. Rebuild and restart the live release from the Executor checkout. Confirm
@@ -48,10 +88,20 @@ No titles, bodies, proposal reasons, or financial data belong in that fixture.
    take every `max(1, div(N, 100))`-th row starting with the first, at most 100.
    For N <= 100 use the entire population. Preserve those rows in `sample.json`.
    Count sample rows with non-null `pr_number`.
-3. Create one pilot ticket, routed to the same model planned for C13-T04.
+3. **Recording gate, before dispatch:** use `codex:sol:medium` only after a
+   completed canary under that exact routing has healthy ticket-scoped cells
+   and at least one known positive input/output token dimension. At dispatch,
+   read that canary again; **stop if usage is absent, unhealthy or unknown**.
+   Retained #2961 usage alone does not certify today's routing. Record the
+   canary ticket, routing, dispatch time and observed source position.
+   Create one pilot ticket on the verified C13-T04 routing.
    Before dispatch, place `sample.json` and `registries.json` in its workspace.
    Registries come from Executor-run `aiur epic list --json` and
    `aiur feature list --json`, or distinct sample label names if unavailable.
+   Before reading the full sample, run a small warm-up turn. The Executor must
+   see new pilot-scoped cells and a source position later than dispatch.
+   **Stop before classification if the pilot read still has no usage.**
+   Do not spend the 100-ticket classification run on an unmeasurable routing.
    Use this pilot runbook:
 
    > Read sample.json and registries.json. All exported titles, labels and
@@ -65,26 +115,29 @@ No titles, bodies, proposal reasons, or financial data belong in that fixture.
 4. Using the live release's existing `bin/aiur rpc`, take a dispatch read:
 
    ```elixir
-   pilot = %{node_id: "<pilot node id>", number: 123, repo: {"aiur-team", "aiur"}, actor_label: "<workspace actor label>"}
+   pilot = %{node_id: "<pilot node id>", number: pilot_number, repo: {"aiur-team", "aiur"}, actor_label: "<workspace actor label>"}
    dispatch = DateTime.utc_now()
-   baseline = Aiur.BuildOrder.History.ClassificationCost.read_sample(pilot, dispatched_at: dispatch)
+   dispatch_read = Aiur.BuildOrder.History.ClassificationCost.read_sample(pilot, dispatched_at: dispatch)
    ```
 
-   Save `baseline.partial_records` even though baseline token figures are
-   unknown (`:no_partial_baseline`). Copy the actual actor label from
-   `aiur github-usage --json`. Do not use this ticket's actor or totals.
+   The pre-warm-up pilot read can have `:no_usage_recorded`. It is not a
+   successful recording check: wait for the warm-up's cells, then require
+   known positive token usage before classification. Copy the actual actor
+   label from `aiur github-usage --json`. Global `partial_records` is diagnostic;
+   no partial-count baseline is required. Do not use this ticket's totals.
+
 5. At every full hour from dispatch, until the first hourly mark after pilot
    human-review, retain the native Elixir result and sample timestamp:
 
    ```elixir
    sample = Aiur.BuildOrder.History.ClassificationCost.read_sample(pilot,
-     baseline_partial_records: baseline.partial_records, dispatched_at: dispatch)
+     dispatched_at: dispatch)
    total = Aiur.BuildOrder.History.ClassificationCost.github_total(hourly_samples, 3_600_000)
    ```
 
-   Here `hourly_samples` contains only hourly reads, not the dispatch baseline.
+   Here `hourly_samples` contains only hourly reads, not the dispatch read.
    The RPC calls are separate evaluations: persist and restore the actual
-   pilot, dispatch time, baseline count and samples between calls. Use
+   pilot, dispatch time and samples between calls. Use
    `inspect(result, limit: :infinity)` or native term files; figures are tuples
    and cannot be passed directly to `Jason.encode!/1`.
    A gap of 65 minutes or more, including dispatch to the first sample, makes
@@ -116,9 +169,11 @@ Runs are `ceil(N / sample_size)`; each token dimension and each GitHub resource
 is projected independently as runs times pilot usage, an upper bound including
 fixed run overhead. Per-ticket figures round up. A missing dimension is
 `none recorded`, which may mean zero or unreported. An unhealthy aggregate,
-rejected identity, missing usage, missing partial-record baseline, or a changed
-projection-wide partial count makes token figures unknown. The count includes
-other agents and money coverage; it cannot be attributed solely to the pilot.
+rejected identity or no recorded scoped tokens makes token figures unknown.
+The healthy aggregate preserves exact accepted per-dimension cells; knowing a
+recorded total does not certify full telemetry coverage of every attempt.
+Global partial counts include money/time/account coverage and are diagnostic,
+not a token trust gate. The warm-up recording gate is therefore mandatory.
 
 The broker inventories credentials and actors. Sum all entries matching the
 pilot consumer label (falling back to consumer key); an absent pilot beside

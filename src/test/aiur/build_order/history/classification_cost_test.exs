@@ -24,7 +24,6 @@ defmodule Aiur.BuildOrder.History.ClassificationCostTest do
       query_fun: fn %{tickets: [%Aiur.TrackerIdentity{identifier: "123", owner: "aiur-team"}]} -> summary() end,
       usage_fun: fn -> %{actors: [actor("daemon", 99), actor("ws-123", 7)]} end,
       enabled_fun: fn -> true end,
-      baseline_partial_records: 2,
       now: now(),
       dispatched_at: now()
     ]
@@ -67,10 +66,33 @@ defmodule Aiur.BuildOrder.History.ClassificationCostTest do
     assert read([query_fun: fn _ -> flunk("unjoinable ticket must not query") end], %{pilot() | node_id: nil}).tokens.input == {:unknown, [:unjoinable_ticket]}
   end
 
-  test "partial baseline compares changes rather than historical partial records" do
-    assert read().tokens.input == {:known, 900}
-    assert read(baseline_partial_records: 1).tokens.input == {:unknown, [:partial_records_during_pilot]}
-    assert read(baseline_partial_records: nil).tokens.input == {:unknown, [:no_partial_baseline]}
+  test "pilot token cells remain known when its own records increase partial coverage" do
+    alias Aiur.UsageAggregate.{Projection, Query}
+    import Aiur.TestSupport.UsageAggregate, only: [envelope: 1, record: 3]
+
+    {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => pilot().node_id, "number" => pilot().number}, pilot().repo, pilot().repo)
+
+    envelope =
+      envelope(%{
+        occurred_at: nil,
+        attribution: %{tracker_identity: identity, run_id: "pilot-run"},
+        account_generation: %{provider: :codex, backend: :app_server, generation: nil, freshness: :unknown, health: :unknown, reason: :never_observed}
+      })
+
+    baseline = Projection.new()
+    projection = Projection.apply_record(baseline, record(1, envelope, %{tokens: %{input: 900, output: 120}}))
+    assert baseline.coverage.partial_records == 0
+    assert projection.coverage.partial_records == 1
+    assert MapSet.member?(projection.coverage.reasons, :missing_trusted_occurrence_time)
+    assert MapSet.member?(projection.coverage.reasons, :unknown_account_generation)
+
+    state = %{projection: projection, health: :healthy, freshness: %{}, source_coverage: %{}}
+    query = fn scope -> Query.summary(state, scope) end
+    sample = read(query_fun: query)
+    assert sample.partial_records == 1
+    assert sample.tokens.input == {:known, 900}
+    assert sample.tokens.output == {:known, 120}
+    assert sample.tokens.reasoning_output == :none_recorded
   end
 
   test "unavailable and disabled broker figures are unknown" do
@@ -109,7 +131,7 @@ defmodule Aiur.BuildOrder.History.ClassificationCostTest do
   end
 
   test "empty population is known zero even when pilot inputs are unknown" do
-    sample = read(baseline_partial_records: nil, enabled_fun: fn -> false end)
+    sample = read(enabled_fun: fn -> false end)
     assert {:ok, projection} = Cost.project(sample, inputs(%{population: 0, feature_writes_in_sample: {:unknown, [:unmeasured]}}))
     assert projection.runs == 0
     assert Enum.uniq(Map.values(projection.tokens)) == [{:known, 0}]
@@ -131,7 +153,7 @@ defmodule Aiur.BuildOrder.History.ClassificationCostTest do
 
   test "unknown token github or write figure makes projection unknown" do
     sample = read()
-    assert Cost.project(put_in(sample, [:tokens, :input], {:unknown, [:partial_records_during_pilot]}), inputs()) == {:unknown, [:partial_records_during_pilot]}
+    assert Cost.project(put_in(sample, [:tokens, :input], {:unknown, [:aggregate_unhealthy]}), inputs()) == {:unknown, [:aggregate_unhealthy]}
     assert Cost.project(put_in(sample, [:github, :core], {:unknown, [:sampling_gap]}), inputs()) == {:unknown, [:sampling_gap]}
     assert Cost.project(read(), inputs(%{epic_writes_in_sample: {:unknown, [:unmeasured]}})) == {:unknown, [:unmeasured]}
     assert Cost.project(%{sample | tokens: %{}}, inputs()) == {:unknown, [:missing_figures]}
