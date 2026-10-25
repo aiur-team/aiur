@@ -13,7 +13,9 @@ name: release-npm
 #   stable   push of a v* tag, or workflow_dispatch with channel=stable.
 #            Version comes from src/mix.exs; a tag must agree with it.
 #            Publishes under `latest`.
-#   nightly  the nightly schedule, or workflow_dispatch with channel=nightly.
+#   nightly  workflow_dispatch with channel=nightly. nightly-release.yml
+#            dispatches it on a `nightly/aiur/<date>` tag once main is green
+#            after Los Angeles midnight; this file has no schedule of its own.
 #            Version is <mix.exs>-nightly.<short-sha>, published under the
 #            `nightly` dist-tag. Never touches `latest` or `next`.
 #   dry-run  default for workflow_dispatch. Builds, smokes, and runs
@@ -22,12 +24,6 @@ on:
   push:
     tags:
       - "v*"
-  schedule:
-    # Nightly cut. GitHub cron is UTC and has no DST handling: 07:00 UTC is
-    # 00:00 America/Los_Angeles while PDT is in effect, and 23:00 the previous
-    # day under PST. The "did main move" gate below keys off the head commit,
-    # not the calendar, so that one-hour drift can neither skip nor double-cut.
-    - cron: "0 7 * * *"
   workflow_dispatch:
     inputs:
       channel:
@@ -104,8 +100,6 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             channel=stable
-          elif [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-            channel=nightly
           else
             channel="${{ inputs.channel }}"
             channel="${channel:-dry-run}"
