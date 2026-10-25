@@ -24,10 +24,10 @@ defmodule Aiur.ProviderMeterProjection do
   use GenServer
 
   alias Aiur.Instance.LeaseStore
+  alias Aiur.ProviderMeterProjection.SharedRefresh
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeters.HostObservations
   alias Aiur.ProviderMeterSnapshot
-  alias Aiur.ProviderMeterProjection.SharedRefresh
 
   # Registry-derived at compile time (a literal list, so the `in @providers`
   # guards below still inline) — a new metered backend projects with no edit.
