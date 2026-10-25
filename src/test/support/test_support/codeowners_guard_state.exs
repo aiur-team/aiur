@@ -17,6 +17,25 @@ defmodule Aiur.TestSupport.CodeownersGuardState do
 
   def unregistered?, do: is_pid(saved_pid()) and is_nil(Process.whereis(CodeOwners))
 
+  def leaks(expected, test_name) when expected in [:unset, nil] do
+    if unregistered?, do: [unregistered_leak(test_name)], else: []
+  end
+
+  def leaks(expected, test_name) do
+    if unregistered?() do
+      [unregistered_leak(test_name)]
+    else
+      case Process.whereis(CodeOwners) do
+        nil -> []
+        pid -> if state(pid) == expected, do: [], else: ["Aiur.GitHub.CodeOwners changed from #{inspect(expected)} to #{inspect(state(pid))}"]
+      end
+    end
+  end
+
+  defp unregistered_leak(test_name), do: "Aiur.GitHub.CodeOwners unregistered during #{test_name || "unknown"}"
+
+  defp state(pid), do: %{allowlist: CodeOwners.snapshot(pid), codeowners: CodeOwners.codeowners_snapshot(pid)}
+
   def restore(%{allowlist: allowlist, codeowners: codeowners}) do
     case Process.whereis(CodeOwners) || saved_pid() do
       pid when is_pid(pid) ->

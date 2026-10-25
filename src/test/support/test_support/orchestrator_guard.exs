@@ -16,7 +16,6 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   """
   use GenServer
 
-  alias Aiur.GitHub.CodeOwners
   alias Aiur.TestSupport.CodeownersGuardState
   alias Aiur.TestSupport.OrchestratorChild
 
@@ -165,9 +164,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     actual_instance_key = System.get_env("AIUR_INSTANCE_KEY")
     instance_key_leaks = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
 
-    codeowners_leaks =
-      codeowners_leaks(:persistent_term.get(@codeowners_key, :unset))
-      |> attribute_unregistered_codeowners(%{module: "previous test", test: last_finished() || "unknown"})
+    codeowners_leaks = codeowners_leaks(:persistent_term.get(@codeowners_key, :unset), last_finished() || "unknown")
 
     leaks = app_env_leaks() ++ instance_key_leaks ++ codeowners_leaks
 
@@ -334,7 +331,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
     instance_key_leaks = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
     expected_codeowners = Map.get(expected, :codeowners, :unset)
-    codeowners_leaks = codeowners_leaks(expected_codeowners) |> attribute_unregistered_codeowners(context)
+    codeowners_leaks = codeowners_leaks(expected_codeowners, test_name(context))
     leaks = app_env_leaks ++ instance_key_leaks ++ codeowners_leaks
 
     if leaks != [] do
@@ -347,7 +344,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   end
 
   defp verify_shared_state_restored!(context) do
-    leaks = codeowners_leaks() |> attribute_unregistered_codeowners(context)
+    leaks = codeowners_leaks(:persistent_term.get(@codeowners_key, :unset), test_name(context))
     if leaks != [], do: restore_codeowners(:persistent_term.get(@codeowners_key, :unset))
     leaks
   end
@@ -359,36 +356,14 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     end
   end
 
-  defp attribute_unregistered_codeowners(leaks, context) do
-    if CodeownersGuardState.unregistered?(), do: ["Aiur.GitHub.CodeOwners unregistered during #{test_name(context)}"], else: leaks
-  end
-
   @doc false
   def restore_codeowners_state!(state), do: restore_codeowners(state)
 
   @doc false
   def restore_codeowners_baseline!, do: restore_codeowners(:persistent_term.get(@codeowners_key, :unset))
 
-  defp codeowners_leaks(expected \\ :persistent_term.get(@codeowners_key, :unset))
-
-  defp codeowners_leaks(expected) when expected in [:unset, nil], do: []
-
-  defp codeowners_leaks(expected) do
-    if CodeownersGuardState.unregistered?() do
-      ["Aiur.GitHub.CodeOwners unregistered after #{last_finished() || "unknown"}"]
-    else
-      case Process.whereis(CodeOwners) do
-        nil -> []
-        _pid -> compare_codeowners_state(expected)
-      end
-    end
-  end
-
-  defp compare_codeowners_state(expected) do
-    case codeowners_state() do
-      ^expected -> []
-      actual -> ["Aiur.GitHub.CodeOwners changed from #{inspect(expected)} to #{inspect(actual)}"]
-    end
+  defp codeowners_leaks(expected \\ :persistent_term.get(@codeowners_key, :unset), test_name \\ last_finished()) do
+    CodeownersGuardState.leaks(expected, test_name)
   end
 
   defp restore_codeowners(expected) do
@@ -401,21 +376,6 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     end
   catch
     :exit, _reason -> :ok
-  end
-
-  defp codeowners_state do
-    case Process.whereis(Aiur.GitHub.CodeOwners) do
-      pid when is_pid(pid) ->
-        %{
-          allowlist: CodeOwners.snapshot(pid),
-          codeowners: CodeOwners.codeowners_snapshot(pid)
-        }
-
-      nil ->
-        nil
-    end
-  catch
-    :exit, _reason -> nil
   end
 
   defp decision_store_leaks do
