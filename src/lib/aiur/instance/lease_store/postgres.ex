@@ -29,6 +29,72 @@ defmodule Aiur.Instance.LeaseStore.Postgres do
              )
              """,
              []
+           ),
+         {:ok, _} <-
+           Postgrex.query(
+             conn,
+             """
+             CREATE TABLE IF NOT EXISTS aiur_github_budget_admissions (
+               lease_id text PRIMARY KEY,
+               credential_key text NOT NULL,
+               instance_id text NOT NULL,
+               resource text NOT NULL,
+               consumer_key text NOT NULL,
+               points integer NOT NULL DEFAULT 1,
+               admitted_at timestamptz NOT NULL DEFAULT clock_timestamp()
+             )
+             """,
+             []
+           ),
+         {:ok, _} <- Postgrex.query(conn, "ALTER TABLE aiur_github_budget_admissions ADD COLUMN IF NOT EXISTS points integer NOT NULL DEFAULT 1", []),
+         {:ok, _} <-
+           Postgrex.query(
+             conn,
+             "CREATE INDEX IF NOT EXISTS aiur_github_budget_admissions_window ON aiur_github_budget_admissions (credential_key, resource, admitted_at)",
+             []
+           ),
+         {:ok, _} <-
+           Postgrex.query(
+             conn,
+             """
+             CREATE TABLE IF NOT EXISTS aiur_github_budget_holds (
+               credential_key text NOT NULL,
+               resource text NOT NULL,
+               until_at timestamptz NOT NULL,
+               updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+               PRIMARY KEY (credential_key, resource)
+             )
+             """,
+             []
+           ),
+         {:ok, _} <-
+           Postgrex.query(
+             conn,
+             """
+             CREATE TABLE IF NOT EXISTS aiur_provider_meter_snapshots (
+               snapshot_key text PRIMARY KEY,
+               provider text NOT NULL,
+               account_key text NOT NULL,
+               snapshot_payload bytea NOT NULL,
+               observed_at timestamptz NOT NULL,
+               instance_id text NOT NULL,
+               updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+             )
+             """,
+             []
+           ),
+         {:ok, _} <-
+           Postgrex.query(
+             conn,
+             """
+             CREATE TABLE IF NOT EXISTS aiur_github_quota_snapshots (
+               instance_id text PRIMARY KEY,
+               snapshot_payload bytea NOT NULL,
+               observed_at timestamptz NOT NULL,
+               updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
+             )
+             """,
+             []
            ) do
       :ok
     else
