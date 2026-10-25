@@ -14,7 +14,7 @@ defmodule Aiur.AppServer.Rpc do
     Transport.command(port, line)
   end
 
-  @type notification_handler :: (map() -> :handled | :ignore)
+  @type notification_handler :: (map() -> :handled | :ignore | {:error, term()})
 
   @doc false
   @spec retain_late_sensitive_response(port() | pid(), integer()) :: :ok
@@ -104,8 +104,10 @@ defmodule Aiur.AppServer.Rpc do
         {:error, {:response_error, response_payload}}
 
       {:ok, %{} = other} ->
-        maybe_route_notification(other, on_notification, backend_label)
-        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
+        case maybe_route_notification(other, on_notification, backend_label) do
+          :ok -> with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
+          {:error, _reason} = error -> error
+        end
 
       {:error, _} ->
         unless sensitive_response?, do: StreamDiagnostics.record(port, payload)
@@ -118,6 +120,7 @@ defmodule Aiur.AppServer.Rpc do
     case on_notification.(payload) do
       :handled -> :ok
       :ignore -> Logger.debug("Ignoring #{describe_message(payload)} while waiting for #{backend_label} response")
+      {:error, _reason} = error -> error
       _ -> Logger.debug("Ignoring unrecognized notification handler result while waiting for #{backend_label} response")
     end
   rescue
