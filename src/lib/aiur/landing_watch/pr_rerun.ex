@@ -39,25 +39,12 @@ defmodule Aiur.LandingWatch.PrRerun do
 
       Enum.any?(failed, &stale_merge_ref?(&1, opts)) ->
         stale = Enum.filter(failed, &stale_merge_ref?(&1, opts))
-        recover_stale_merge_ref(observation, stale, {red_since, recovered_at}, opts)
+        reason = "base input fix event red-window:#{red_since}:#{recovered_at}; merge ref predates a fix on the base branch"
+        recovery_opts = Keyword.put(opts, :main_ci_recovery_window, {red_since, recovered_at})
+        remedy(observation, stale, :refresh, reason, "base-fix-overlap-red-window:#{red_since}:#{recovered_at}", recovery_opts)
 
       true ->
         request_remedy(observation, failed, :rerun, "main CI recovered", opts)
-    end
-  end
-
-  defp recover_stale_merge_ref(observation, stale, window, opts) do
-    reason = "base input fix event red-window:#{elem(window, 0)}:#{elem(window, 1)}; merge ref predates a fix on the base branch"
-
-    case base_overlap(observation, opts) do
-      {:ok, []} ->
-        request_remedy(observation, stale, :refresh, reason, Keyword.put(opts, :refresh_overlap, {:ok, []}))
-
-      {:ok, paths} ->
-        route_overlap_rework(observation, stale, paths, reason, opts)
-
-      {:error, _} = error ->
-        error
     end
   end
 
