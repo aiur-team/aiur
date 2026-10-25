@@ -144,6 +144,14 @@
           },
           "uniqueItems": true
         },
+        "boundary_reference_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
         "owns": {
           "type": "object",
           "additionalProperties": false,
