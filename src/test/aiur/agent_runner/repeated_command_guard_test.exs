@@ -44,9 +44,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
     sent = self()
 
     handler =
-      MessageHandler.build(nil, %Issue{}, nil, nil, "codex", nil,
-        repeated_command_steerer: &send(sent, {:steer, &1})
-      )
+      MessageHandler.build(nil, %Issue{}, nil, nil, "codex", nil, repeated_command_steerer: &send(sent, {:steer, &1}))
 
     issue = %Issue{id: "issue-repeat", identifier: "AIUR-6016"}
 
@@ -82,16 +80,14 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
     assert_receive {:pause_marker, "AIUR-6016", label}, 100
     assert String.ends_with?(label, ":paused")
 
-    assert_receive {:attention, "ticket.AIUR-6016.agent.attention.repeated-identical-command",
-                    opts},
+    assert_receive {:attention, "ticket.AIUR-6016.agent.attention.repeated-identical-command", opts},
                    100
 
     assert opts[:needs_attention]
     assert opts[:message] =~ "tail -40 build.log"
     assert opts[:message] =~ "6 times"
 
-    assert_receive {:worker_control_state, "issue-repeat", :paused,
-                    %{kind: :repeated_identical_command}},
+    assert_receive {:worker_control_state, "issue-repeat", :paused, %{kind: :repeated_identical_command}},
                    100
   end
 
@@ -133,9 +129,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
     sent = self()
 
     handler =
-      MessageHandler.build(nil, %Issue{}, nil, nil, "codex", nil,
-        repeated_command_steerer: &send(sent, {:steer, &1})
-      )
+      MessageHandler.build(nil, %Issue{}, nil, nil, "codex", nil, repeated_command_steerer: &send(sent, {:steer, &1}))
 
     handler.(codex_gate_started("gate-1", "mix test --max-cases 4 test/changed_test.exs"))
     Process.put(:gate_now_ms, 60_000)
@@ -210,15 +204,13 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
     assert_receive {:pause_marker, "AIUR-6099", label}, 100
     assert String.ends_with?(label, ":paused")
 
-    assert_receive {:attention, "ticket.AIUR-6099.agent.attention.green-ci-local-gate-wait",
-                    opts},
+    assert_receive {:attention, "ticket.AIUR-6099.agent.attention.green-ci-local-gate-wait", opts},
                    100
 
     assert opts[:message] =~ String.duplicate("a", 40)
     assert opts[:message] =~ "31 minutes"
 
-    assert_receive {:worker_control_state, "issue-green-gate", :paused,
-                    %{kind: :green_ci_local_gate_wait}},
+    assert_receive {:worker_control_state, "issue-green-gate", :paused, %{kind: :green_ci_local_gate_wait}},
                    100
   after
     Process.delete(:gate_now_ms)
@@ -246,9 +238,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
       sent = self()
 
       handler =
-        MessageHandler.build(nil, %Issue{}, nil, nil, "codex", nil,
-          repeated_command_steerer: &send(sent, {:steer, &1})
-        )
+        MessageHandler.build(nil, %Issue{}, nil, nil, "codex", nil, repeated_command_steerer: &send(sent, {:steer, &1}))
 
       handler.(codex_gate_started("gate-1", "make coverage-partition"))
       Process.put(:gate_now_ms, 30_000)
@@ -286,14 +276,10 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
   test "Codex command completion without a matching start still observes its command" do
     RepeatedCommandGuard.start_turn(repeat_threshold: 2)
 
-    assert RepeatedCommandGuard.observe_message(
-             codex_gate_completed("orphaned-item-1", "cat README.md", "readme")
-           ) == :ok
+    assert RepeatedCommandGuard.observe_message(codex_gate_completed("orphaned-item-1", "cat README.md", "readme")) == :ok
 
     assert {:steer, body} =
-             RepeatedCommandGuard.observe_message(
-               codex_gate_completed("orphaned-item", "cat README.md", "readme")
-             )
+             RepeatedCommandGuard.observe_message(codex_gate_completed("orphaned-item", "cat README.md", "readme"))
 
     assert body =~ "cat README.md"
   after
@@ -305,9 +291,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
     sent = self()
 
     handler =
-      MessageHandler.build(nil, %Issue{}, nil, nil, "kimi", nil,
-        repeated_command_steerer: &send(sent, {:steer, &1})
-      )
+      MessageHandler.build(nil, %Issue{}, nil, nil, "kimi", nil, repeated_command_steerer: &send(sent, {:steer, &1}))
 
     for _ <- 1..5, do: openai_command(handler, "tail -40 build.log", "same")
     assert_receive {:steer, body}, 100
@@ -353,9 +337,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuardTest do
     RepeatedCommandGuard.start_turn(input_token_cap: 100)
     assert RepeatedCommandGuard.observe_message(%{accounting_usage: %{input_tokens: 80}}) == :ok
 
-    assert catch_throw(
-             RepeatedCommandGuard.observe_message(%{accounting_usage: %{input_tokens: 101}})
-           ) ==
+    assert catch_throw(RepeatedCommandGuard.observe_message(%{accounting_usage: %{input_tokens: 101}})) ==
              {:turn_cap, :input_tokens, 101}
 
     RepeatedCommandGuard.start_turn(input_token_cap: 100)

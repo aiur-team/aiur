@@ -210,15 +210,11 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
 
   defp notification_command_event("item/created", "tool_call", item) do
     if get(item, :name) == "Bash",
-      do:
-        {:started, get(item, :tool_use_id) || get(item, :id),
-         item |> get(:input) |> then(&get(&1 || %{}, :command))}
+      do: {:started, get(item, :tool_use_id) || get(item, :id), item |> get(:input) |> then(&get(&1 || %{}, :command))}
   end
 
   defp notification_command_event("item/created", "tool_result", item),
-    do:
-      {:completed, get(item, :tool_use_id) || get(item, :id),
-       normalize_output(get(item, :content))}
+    do: {:completed, get(item, :tool_use_id) || get(item, :id), normalize_output(get(item, :content))}
 
   defp notification_command_event(_method, _type, _item), do: :none
 
@@ -293,8 +289,7 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   @doc "Returns a concise steering instruction with the repeated command and count."
   @spec steering_message(term(), pos_integer()) :: String.t()
   def steering_message(command, count),
-    do:
-      "The output of `#{inspect(command)}` has not changed for #{count} consecutive calls; act on it or stop and hand off."
+    do: "The output of `#{inspect(command)}` has not changed for #{count} consecutive calls; act on it or stop and hand off."
 
   @read_commands ~w(cat cut file grep head ls pwd stat tail wc)
 
