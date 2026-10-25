@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 import time
-from components.reference_rules import RULES, STRICT_RULES, edge_rules, namespace_private, report_cycles, seam_rules
+from components.reference_rules import RULES, STRICT_RULES, edge_rules, module_matches, namespace_private, report_cycles, seam_rules
 from components.ratchet import growth_errors, stale_entries, write_summary
 from components.promotion_report import run as report_component_debt, validate_options as validate_report_options
 from components.manifest import read_manifest, write_manifest
@@ -296,6 +296,13 @@ def module_violations(root, manifest, file_owners, include_modules=False):
                                   'reference' if kind in ('alias', 'literal') else kind, path)
         for rule in strict:
             violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
+        if kind == 'alias' and source == 'event-bus':
+            destination = modules.get(target)
+            same_component = destination == source
+            allowed_alias = any(module_matches(pattern, target)
+                                for pattern in component.get('alias_allowlist', []))
+            if not same_component and not allowed_alias:
+                violations.setdefault(('R-forbid', source, target), f'{path}:{line} ({source_module})')
         # Namespace privacy also covers aliases/literals and composition-root wiring.
         destination = modules.get(target)
         if destination is not None and source != destination and namespace_private(components[destination], target):

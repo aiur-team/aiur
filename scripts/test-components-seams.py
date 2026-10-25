@@ -111,19 +111,36 @@ def event_bus_alias_check(name, source, targets, expected, message):
         component['paths'] = []
         component['status'] = 'core'
     manifest['features'] = []
-    components['event-bus']['facades'] = ['Aiur.Events.Exchange']
-    components['event-bus']['requires'] = ['orchestration']
-    components['event-bus']['paths'] = ['src/lib/aiur/events/exchange.ex']
+    components['event-bus']['facades'] = ['Aiur.Events.Exchange', 'Aiur.Events.Topic']
+    components['event-bus']['requires'] = ['orchestration', 'config', 'kernel']
+    components['event-bus']['paths'] = ['src/lib/aiur/events/exchange.ex', 'src/lib/aiur/events/topic.ex']
     components['orchestration']['paths'] = ['src/lib/aiur/orchestrator/state.ex']
     components['orchestration']['facades'] = ['Aiur.Orchestrator.State']
-    components['event-bus']['requires'] = []
+    components['config']['paths'] = ['src/lib/aiur/config.ex', 'src/lib/aiur/workflow.ex']
+    components['config']['facades'] = ['Aiur.Config']
+    components['config']['layer'] = 0
+    components['kernel']['paths'] = ['src/lib/aiur/json_store.ex', 'src/lib/aiur/json_safe.ex',
+                                     'src/lib/aiur/shell.ex']
+    components['kernel']['facades'] = ['Aiur.JsonStore', 'Aiur.JSONSafe', 'Aiur.Shell']
+    components['kernel']['layer'] = 0
+    # Edge-rule fixtures opt into the tested target so they reach R-private/R-down;
+    # the dedicated allowlist fixtures below exercise the default contract.
+    if expected == 1 and message.startswith(('R-down', 'R-private')):
+        components['event-bus']['alias_allowlist'].extend(targets)
     with tempfile.TemporaryDirectory(prefix='event-bus-alias-') as directory:
         root = Path(directory)
         (root / 'components.schema.json').write_text(SCHEMA)
         (root / 'components.json').write_text(json.dumps(manifest))
         files = {
             'src/lib/aiur/events/exchange.ex': 'defmodule Aiur.Events.Exchange do\n' + source + '\nend\n',
-            'src/lib/aiur/orchestrator/state.ex': '\n'.join(f'defmodule {target} do\nend' for target in targets),
+            'src/lib/aiur/orchestrator/state.ex': '\n'.join(
+                f'defmodule {target} do\nend' for target in targets if target.startswith('Aiur.Orchestrator.')),
+            'src/lib/aiur/config.ex': 'defmodule Aiur.Config do\nend\n',
+            'src/lib/aiur/json_store.ex': 'defmodule Aiur.JsonStore do\nend\n',
+            'src/lib/aiur/json_safe.ex': 'defmodule Aiur.JSONSafe do\nend\n',
+            'src/lib/aiur/shell.ex': 'defmodule Aiur.Shell do\nend\n',
+            'src/lib/aiur/workflow.ex': 'defmodule Aiur.Workflow do\nend\n',
+            'src/lib/aiur/events/topic.ex': 'defmodule Aiur.Events.Topic do\nend\n',
         }
         for file, content in files.items():
             target = root / file
@@ -142,14 +159,23 @@ for name, source, target, rule in [
     ('event_bus_alias_private_upward_fails', 'alias Aiur.Orchestrator.Internal', 'Aiur.Orchestrator.Internal', 'R-private'),
     ('event_bus_grouped_alias_public_upward_fails', 'alias Aiur.Orchestrator.{State, Internal}', 'Aiur.Orchestrator.State', 'R-down'),
     ('event_bus_grouped_alias_private_upward_fails', 'alias Aiur.Orchestrator.{State, Internal}', 'Aiur.Orchestrator.Internal', 'R-private'),
-    ('event_bus_alias_private_without_call_fails', 'alias Aiur.Orchestrator.Internal', 'Aiur.Orchestrator.Internal', 'R-private'),
 ]:
     if not SELECTED or name in SELECTED:
         RAN.add(name)
         event_bus_alias_check(name, source, [target], 1, f'{rule} event-bus -> {target}')
 if not SELECTED or 'event_bus_kernel_alias_passes' in SELECTED:
     RAN.add('event_bus_kernel_alias_passes')
-    event_bus_alias_check('event_bus_kernel_alias_passes', 'alias Enum\nalias Map', [], 0, 'R-down: 0')
+    event_bus_alias_check('event_bus_kernel_alias_passes',
+                          'alias Aiur.Config\nalias Aiur.JsonStore\nalias Aiur.JSONSafe\nalias Aiur.Events.Topic',
+                          ['Aiur.Config', 'Aiur.JsonStore', 'Aiur.JSONSafe', 'Aiur.Events.Topic'], 0, 'R-down: 0')
+for name, source, target in [
+    ('event_bus_pubsub_alias_forbidden', 'alias Phoenix.PubSub', 'Phoenix.PubSub'),
+    ('event_bus_kernel_alias_forbidden', 'alias Aiur.Shell', 'Aiur.Shell'),
+    ('event_bus_config_alias_forbidden', 'alias Aiur.Workflow', 'Aiur.Workflow'),
+]:
+    if not SELECTED or name in SELECTED:
+        RAN.add(name)
+        event_bus_alias_check(name, source, [target], 1, f'R-forbid event-bus -> {target}')
 check('file_level_alias_is_forbidden', 'nil', 1, 'R-forbid build-queue -> Aiur.Orchestrator:',
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex',
       preamble='alias Aiur.Orchestrator\n')
