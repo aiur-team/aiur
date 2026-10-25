@@ -47,17 +47,33 @@ defmodule Aiur.HttpServer do
 
     with {:ok, ip} <- parse_host(host),
          :ok <- guard_dashboard_credentials(ip, host, dashboard_writable) do
+      previous_endpoint_config = Application.get_env(:aiur, Endpoint)
+      previous_dashboard_pages = Application.get_env(:aiur, :dashboard_pages)
       configure_endpoint(opts, host, ip, port, dashboard_writable)
 
-      opts
-      |> Keyword.get(:endpoint_start_fun, &Endpoint.start_link/0)
-      |> start_endpoint()
-      |> handle_endpoint_start(opts, host, ip, port)
+      endpoint_result = opts |> Keyword.get(:endpoint_start_fun, &Endpoint.start_link/0) |> start_endpoint()
+
+      case endpoint_result do
+        {:ok, _pid} = success ->
+          handle_endpoint_start(success, opts, host, ip, port)
+
+        failure ->
+          restore_endpoint_env(previous_endpoint_config, previous_dashboard_pages)
+          handle_endpoint_start(failure, opts, host, ip, port)
+      end
     else
       :dashboard_credentials_missing -> :ignore
       other -> other
     end
   end
+
+  defp restore_endpoint_env(endpoint_config, dashboard_pages) do
+    restore_env(:aiur, Endpoint, endpoint_config)
+    restore_env(:aiur, :dashboard_pages, dashboard_pages)
+  end
+
+  defp restore_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_env(app, key, value), do: Application.put_env(app, key, value)
 
   defp configure_endpoint(opts, host, ip, port, dashboard_writable) do
     settings = Config.settings!().server
