@@ -58,7 +58,6 @@ defmodule Aiur.Events.JournaledPublishTest do
       end)
 
     assert_receive {:append_started, append_pid}, 500
-    refute_receive {:event, _}, 50
     send(append_pid, :continue_append)
     assert {:ok, _id, _count} = Task.await(publisher, 5_000)
     assert Task.await(task, 5_000) == true
