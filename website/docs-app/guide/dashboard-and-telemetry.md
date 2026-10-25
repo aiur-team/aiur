@@ -84,6 +84,12 @@ Clicking a dependency arrow locks its chain on touch screens too. Escape closes
 the tree, then releases the lock. Links outside the loaded board are counted;
 “links not yet known” means the dependency index is incomplete.
 
+### Shared provider usage
+
+The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
+
+Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
 ### Shared GitHub quota
 
 GitHub-backed runs meter the shared credential's core and GraphQL budgets, with reset times, read/write attribution, and top ticket consumer. API and model bars show the share remaining: full is 100% left, empty is unusable until reset. Labels match the bar and warning colours appear near empty. Aiur alerts at 10% remaining and pauses dispatch until reset.
@@ -224,7 +230,7 @@ Errors use the `{"error":{"code":…,"message":…}}` shape.
 | `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
 | `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
 
-`aiur ticket-usage <ticket> --json` prints the same payload.
+The deprecated `aiur ticket-usage <ticket> --json` command keeps its per-ticket ledger report. `aiur usage ticket` is the aggregate provider snapshot, not a per-ticket report.
 
 ### Ticket progress API
 
