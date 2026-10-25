@@ -42,6 +42,18 @@ defmodule Aiur.LandingWatch.PrRefreshSafetyTest do
     assert {:error, :base_changed_pr_files} = PrRefreshSafety.apply(observation, opts)
   end
 
+  test "a GitHub compare response that overlaps the PR files refuses refresh" do
+    observation = observation("REVIEW_REQUIRED")
+
+    assert {:error, :base_changed_pr_files} =
+             PrRefreshSafety.apply(observation,
+               refresh_observation_fun: fn _, _ -> {:ok, live_pr("REVIEW_REQUIRED")} end,
+               base_branch: "main",
+               base_changes_fun: fn _, _, _ -> {:ok, %{"files" => [%{"filename" => "src/lib/feature.ex"}]}} end,
+               changed_paths_fun: fn _, _ -> {:ok, ["src/lib/feature.ex"]} end
+             )
+  end
+
   test "an approved refresh still requires the approval to carry to the refreshed head" do
     observation = observation("APPROVED")
 

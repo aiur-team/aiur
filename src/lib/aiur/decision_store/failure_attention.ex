@@ -32,7 +32,7 @@ defmodule Aiur.DecisionStore.FailureAttention do
   end
 
   def project_delivery_attention(state, prior, updated, type)
-      when type in [:dispatch_queued, :restored, :delivered, :acknowledged] do
+      when type in [:dispatch_queued, :restored, :delivered, :acknowledged, :pending_for_session] do
     if prior.delivery_status == :failed or outcome_unknown_pending?(prior), do: emit_failure_resolution(updated)
     state
   end

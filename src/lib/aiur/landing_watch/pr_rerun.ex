@@ -334,7 +334,7 @@ defmodule Aiur.LandingWatch.PrRerun do
     safety_opts =
       opts
       |> Keyword.put_new(:refresh_observation_fun, &CIRecovery.observe/2)
-      |> Keyword.put_new(:base_changes_fun, &base_changes/3)
+      |> Keyword.put_new(:base_changes_fun, &default_base_changes/3)
       |> Keyword.put_new(:update_branch_fun, &CIRecovery.update_branch/3)
       |> Keyword.put_new(:observe_refresh_fun, &CIRecovery.observe/2)
 

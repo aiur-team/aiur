@@ -50,7 +50,8 @@ defmodule Aiur.LandingWatch.PrRefreshSafety do
 
   defp verify_no_base_overlap(observation, opts) do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
-         {:ok, base_paths} <- Keyword.fetch!(opts, :base_changes_fun).(observation.head, base, opts),
+         {:ok, base_changes} <- Keyword.fetch!(opts, :base_changes_fun).(observation.head, base, opts),
+         {:ok, base_paths} <- normalize_base_paths(base_changes),
          {:ok, own_paths} when is_list(own_paths) <- Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2).(observation.number, opts) do
       if base_paths == :all or Enum.any?(own_paths, &(&1 in base_paths)), do: {:error, :base_changed_pr_files}, else: :ok
     else
@@ -58,6 +59,11 @@ defmodule Aiur.LandingWatch.PrRefreshSafety do
       _ -> {:error, :refresh_overlap_unavailable}
     end
   end
+
+  defp normalize_base_paths(%{"files" => files}) when is_list(files) and length(files) >= 300, do: {:ok, :all}
+  defp normalize_base_paths(%{"files" => files}) when is_list(files), do: {:ok, Enum.flat_map(files, &[&1["filename"], &1["previous_filename"]])}
+  defp normalize_base_paths(paths) when is_list(paths), do: {:ok, paths}
+  defp normalize_base_paths(_), do: {:error, :refresh_overlap_unavailable}
 
   defp verify_approval_carry(%{review_decision: "APPROVED"} = observation, %{"headRefOid" => head}, opts) when is_binary(head) and head != "" do
     classifier = Keyword.get(opts, :approval_carry_classifier, &GithubCIPoller.classify_contribution/4)
