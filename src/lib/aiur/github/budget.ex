@@ -232,19 +232,7 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  @doc """
-  Per-actor (daemon vs each agent workspace) Core/GraphQL usage and ceilings.
-
-  Reads the broker's whole actor inventory — one entry per consumer it has seen,
-  keyed by credential and consumer fingerprint — with the rolling-hour `used`
-  count, the configured `limit` (0 = no ceiling), and `reset_at_ms`: the wall-
-  clock moment the actor's usage next drops (the hold release when the actor is
-  over its ceiling, otherwise when its oldest in-window admission ages out).
-
-  Returns `%{actors: []}` when the broker is unavailable or disabled, so a
-  report command degrades to "nothing observed" rather than failing loudly on a
-  host without a broker.
-  """
+  @doc "Per-actor Core/GraphQL usage and ceilings, or no actors when unavailable."
   @spec usage(keyword()) :: map()
   def usage(opts \\ []) do
     case BrokerPort.command(["usage"], "", Keyword.put(opts, :include_token_key, false)) do
