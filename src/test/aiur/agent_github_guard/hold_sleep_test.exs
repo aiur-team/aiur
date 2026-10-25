@@ -94,7 +94,7 @@ defmodule Aiur.AgentGitHubGuard.HoldSleepTest do
     assert {_, 1} = System.cmd("kill", ["-0", sleep_pid], stderr_to_stdout: true)
   end
 
-  defp assert_token_wait(context, _delay_ms) do
+  defp assert_token_wait(context, delay_ms) do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
@@ -104,10 +104,12 @@ defmodule Aiur.AgentGitHubGuard.HoldSleepTest do
         AIUR_GITHUB_BUDGET_ROOT: budget_root,
         AIUR_GITHUB_BUDGET_KEY: key,
         AIUR_GITHUB_BUDGET_BROKER: broker,
-        HOLD_PROXY_RESPONSE: "wait 0"
+        HOLD_PROXY_DELAY_MS: delay_ms
       )
 
-    assert recorded_wait == "wait 0"
+    assert [_, wait_ms] = Regex.run(~r/^wait ([0-9]+)$/, recorded_wait)
+    assert String.to_integer(wait_ms) > 0
+    assert String.to_integer(wait_ms) <= String.to_integer(delay_ms)
 
     refute File.exists?(context.calls)
   end
@@ -125,15 +127,25 @@ defmodule Aiur.AgentGitHubGuard.HoldSleepTest do
     File.write!(proxy, """
     import os, subprocess, sys
     if sys.argv[1] == "acquire":
-        response = os.environ.get("HOLD_PROXY_RESPONSE")
-        if response is None:
-            result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *sys.argv[1:]], capture_output=True, text=True)
-            sys.stderr.write(result.stderr)
-            response = result.stdout
-            if not response.startswith("wait"):
-                sys.stdout.write(response)
-                sys.exit(result.returncode)
-            response = os.environ.get("HOLD_PROXY_RECORDED_WAIT", response)
+        acquire_args = sys.argv[1:]
+        if "HOLD_PROXY_DELAY_MS" in os.environ:
+            def option(name):
+                return acquire_args[acquire_args.index(name) + 1]
+            hold = subprocess.run([
+                sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], "hold",
+                "--scope", "token", "--delay-ms", os.environ["HOLD_PROXY_DELAY_MS"],
+                "--db", option("--db"), "--token-key", option("--token-key")
+            ], capture_output=True, text=True)
+            sys.stderr.write(hold.stderr)
+            if hold.returncode != 0:
+                sys.stdout.write(hold.stdout)
+                sys.exit(hold.returncode)
+        result = subprocess.run([sys.executable, os.environ["HOLD_PROXY_REAL_BROKER"], *acquire_args], capture_output=True, text=True)
+        sys.stderr.write(result.stderr)
+        response = result.stdout
+        if not response.startswith("wait"):
+            sys.stdout.write(response)
+            sys.exit(result.returncode)
         with open(os.environ["HOLD_PROXY_HOLDS"], "a") as holds:
             holds.write(response)
         print("wait 0")
