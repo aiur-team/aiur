@@ -4,8 +4,8 @@ feature_id: MP-R2
 chunk_id: MP-R2-C5
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Aiur.Events.Catalog — code-level topic registry (class, export flag, allowlists, payload_version, owner) for every topic published today
-status: blocked
-blocked_by: [DESIGN-R2 §2 (KQ-R2-3 identifiers-only external feed), MP-R2-C2-T08, MP-R2-C1-T05]
+status: ready
+blocked_by: []
 prior_units: [U7, U8]
 prior_boundaries: [BUS #10, signal port #11]
 prior_features: [MP-R1 (component map), MP-E2, MP-E1]
@@ -38,14 +38,13 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **DESIGN-R2 §2, KQ-R2-3** — whether the external feed is identifiers-only.
-  The allowlists in this ticket are written for the plan's recommendation
-  (identifiers and enums only, contract §4.2). If Kevin allows free text,
-  the `attrs` lists change; the module shape does not. Status stays
-  `blocked` until KQ-R2-3 is answered.
-- **C2-T08** (`Aiur.Events.matches?/2` facade), **C1-T05** (placement-rule
-  test; its `@known_violations` list is the source of the seven
-  out-of-grammar alert topics this catalog must classify).
+- **DESIGN-R2 §2, KQ-R2-3 — satisfied.** The identifiers-only external
+  feed is approved in `EXECUTOR-APPROVALS.md` at `9ce9fdc6`; the allowlists
+  below use identifiers and enums only (contract §4.2).
+- **C2-T08 and C1-T05 — satisfied:** closed as #3359/#3349 and merged
+  with C1–C4. The `Aiur.Events.matches?/2` facade and placement-rule test
+  are present at the refreshed head; `@known_violations` supplies the eight
+  out-of-grammar alert topics this catalog must classify.
 - Concurrent with C5-T02 (envelope consumes the entry struct; agree the
   struct in this PR first), C5-T03, C6-T01.
 
@@ -93,7 +92,7 @@ end
   failure (catalog must be unambiguous). Unknown topics resolve to
   `default/0` — `live`, not exported (contract §9 "Unknown topics are
   `live`, not exported").
-- **Initial `export?: true` set** (identifiers-only, pending KQ-R2-3):
+- **Initial `export?: true` set** (identifiers-only, approved KQ-R2-3):
   `ticket.*.agent.decision.#` (refs `ticket, decision_id, decision_version`;
   attrs `slug` enum), `ticket.*.pr.opened|ready_for_review|merged`
   (refs `ticket, pr_number, head_sha`), `ticket.*.ci.passed|failed`
@@ -108,7 +107,7 @@ end
   `executor.#` is **not exported** (contract §2: the Executor stream is
   private to the Executor principal). `ticket.*.agent.custom.#` is not
   exported (plan §C5 open question; resolved: free-form, agent-authored).
-- **Out-of-grammar alert topics:** seven explicit entries with
+- **Out-of-grammar alert topics:** eight explicit entries with
   `class: :ledgered, export?: false, owner: <emitting component>`
   (`decision_store.*` → commands, `executor_events.corrupted` →
   executor-attention, `github.dispatch_authorization.*` → github,
@@ -121,7 +120,7 @@ end
 
 1. Add `Entry` and `Catalog` (lookup, exported, default).
 2. Add `entries.ex` with one entry per row of inventory §2.1–§2.3 and the
-   seven out-of-grammar topics; each entry cites its producer file in a
+   eight out-of-grammar topics; each entry cites its producer file in a
    comment.
 3. Add the census fixture: `test/aiur/events/catalog_test.exs` reads the
    producer topic literals with the same docs/comment-stripping scan helper
@@ -167,7 +166,7 @@ delete the module. Versioning: `payload_version` per entry starts at 1
    `lookup("executor.decision.requested").export? == false`,
    `lookup("ticket.1.agent.custom.x").export? == false`. Guards the privacy
    decision; fails if either is flipped.
-6. `"out-of-grammar alert topics are ledgered and not exported"` — the seven
+6. `"out-of-grammar alert topics are ledgered and not exported"` — the eight
    names resolve to their explicit entries.
 
 ```text
@@ -183,7 +182,8 @@ reverted hunk): remove one entry → test 1 fails; set
 
 ## Completion and handoff
 
-- [ ] KQ-R2-3 answered; allowlists match the answer.
+- [x] KQ-R2-3 answered: identifiers-only (`EXECUTOR-APPROVALS.md`, `9ce9fdc6`).
+- [ ] Allowlists match the approved answer.
 - [ ] Every published topic at the implementation head has an entry.
 - [ ] Tests 1–6 added and mutation-checked.
 - [ ] Docs: none yet (inert). C5-T03 adds the reserved namespaces to

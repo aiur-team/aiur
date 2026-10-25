@@ -5,7 +5,7 @@ chunk_id: MP-R2-C5
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Instance identity provider for exported envelopes (instance_id from MP-R1 Identity; feed unavailable when identity is degraded)
 status: blocked
-blocked_by: [DESIGN-R2 §2, MP-R2-C5-T02, MP-R1-C2-T01 (machine identity.json), MP-R1-C2-T02 (instance_id composition)]
+blocked_by: [MP-R2-C5-T02]
 prior_units: [U8]
 prior_boundaries: [BUS #10]
 prior_features: [MP-R1 (owns identity contract, RC-04), MP-N2]
@@ -33,10 +33,12 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **MP-R1-C2-T01/T02** (identity owner per RC-04): `identity.json` created at
-  first daemon boot (RC-01) and the daemon composing `instance_id`. Until
-  they land there is no stable id to stamp; status `blocked`.
-- C5-T02 (envelope takes `instance:` from opts).
+- **DESIGN-R2 §2 — satisfied.** Approval is recorded in
+  `EXECUTOR-APPROVALS.md` at `9ce9fdc6`.
+- **MP-R1-C2-T01/T02 — satisfied** (identity owner per RC-04): closed as
+  #3260/#3261. The implemented `Aiur.Identity` facade provides machine
+  identity and `instance_id/0`; its API is verified below.
+- **C5-T02 — remaining blocker:** envelope takes `instance:` from opts.
 - Concurrent with C5-T03, C6-T01.
 
 ## Verified starting point (761756f394e6783794c777668fc1a26a540e4059)
@@ -72,9 +74,8 @@ end
 
 - `provider/0` = `Application.get_env(:aiur, __MODULE__, Aiur.Identity)`
   (default in `src/config/config.exs`), so the bus has no compile-time edge
-  to the identity component; the function name `instance_id/0` follows
-  whatever MP-R1-C2-T02 ships (adjust the one call if MP-R1 names it
-  differently).
+  to the identity component; `instance_id/0` matches the implemented
+  MP-R1-C2-T02 facade.
 - **Identity unavailable ⇒ export unavailable.** The exporter (C6-T02) does
   not start writing: it reports `events_unavailable` with reason
   `identity_unavailable`, the capability `events.export` is
@@ -128,7 +129,8 @@ string case in test 2 fails; restore → pass.
 
 ## Completion and handoff
 
-- [ ] MP-R1-C2-T01/T02 merged; provider call matches their API.
+- [x] MP-R1-C2-T01/T02 closed (#3260/#3261); provider call matches the
+      implemented `Aiur.Identity.instance_id/0` API.
 - [ ] Tests 1–2 added and mutation-checked.
 - [ ] Docs: none (C7-T01 documents `instance` in the wire format).
 - Dependents: C6-T02, C6-T03 (epoch on identity change), C7-T03

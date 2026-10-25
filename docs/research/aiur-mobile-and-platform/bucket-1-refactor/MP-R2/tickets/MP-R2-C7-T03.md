@@ -5,7 +5,7 @@ chunk_id: MP-R2-C7
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Advertise the events.export capability {v, retention} through the MP-R1 capability registry
 status: blocked
-blocked_by: [DESIGN-R2 §2, MP-R1-C3-T01 (Aiur.Capabilities registry + Provider behaviour), MP-R2-C6-T01, MP-R2-C7-T01]
+blocked_by: [MP-R2-C6-T01, MP-R2-C7-T01]
 prior_units: []
 prior_boundaries: [BUS #10]
 prior_features: [MP-R1 (capability registry, RC-12)]
@@ -25,16 +25,20 @@ researched: 2026-10-06
   `aiur capabilities`, instead of probing `/api/v1/events` and guessing;
   MP-N3 shows "unavailable", never zeros (brief §7).
 - **Deliverable:** `Aiur.Events.CapabilityProvider` implementing the
-  PROPOSED `Aiur.Capabilities.Provider` behaviour, registered in
+  `Aiur.Capabilities.Provider` behaviour, registered in
   `config :aiur, :capability_providers`; capability ID `events.export`.
 - **Non-goals:** the registry, endpoint, CLI and `system.capabilities.changed`
   are MP-R1-C3; this ticket only contributes one provider.
 
 ## Dependencies and blockers
 
-- **MP-R1-C3-T01** (registry + `Provider` behaviour) — external, not yet
-  ticketed in files at research time; status `blocked` until it exists.
-- C6-T01 (config keys to read), C7-T01 (route the capability describes).
+- **DESIGN-R2 §2 — satisfied.** Approval is recorded in
+  `EXECUTOR-APPROVALS.md` at `9ce9fdc6`.
+- **MP-R1-C3-T01 — satisfied:** closed as #3262. The registry and
+  `Aiur.Capabilities.Provider` behaviour are implemented at the refreshed
+  head (verified below).
+- **C6-T01 and C7-T01 — remaining blockers:** config keys to read and
+  the route the capability describes.
 - Identity contract RC-ID-3 adopts `events.export` with `{v, retention}`
   (`contracts/identity-and-capabilities.md` §5).
 
@@ -68,8 +72,9 @@ PROPOSED: events export provider. Register through the existing provider interfa
 | enabled, exporter reports corrupt journal (`Aiur.Events.Export.status/0 == {:error, :events_unavailable}`, C6-T02) | `%{state: "degraded", reason: "journal_corrupt"}` |
 | enabled and healthy | `%{state: "available", version: 1, v: 1, retention: %{max_age_s: …, max_records: …}, head_seq: n}` |
 
-- `retention` echoes the configured values from C6-T01 (KQ-R2-1 decides the
-  defaults; this ticket only reports what is configured).
+- `retention` echoes the configured values from C6-T01 (KQ-R2-1 approved
+  configurable defaults of 7 days or 50,000 events, whichever is smaller;
+  this ticket only reports what is configured).
 - `journal_corrupt` is in the identity contract's reason enum (§2.2, accepted in
   Phase D, CR-R2-4). An instance without `instance_id` reports
   `dependency_unavailable` with `depends_on: ["identity"]`.

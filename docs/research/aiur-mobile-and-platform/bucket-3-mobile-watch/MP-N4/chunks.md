@@ -7,7 +7,7 @@ date: 2026-10-06
 # MP-N4 chunks
 
 > Bus citations refreshed 2026-10-25 from 45a290e3 to `761756f394e6783794c777668fc1a26a540e4059`. Other feature research remains pinned to its original base.
-> DurableConsumer and Source now exist (src/lib/aiur/events/durable_consumer/source.ex:1-23). R2-C6-T04 must supply ExportSource before push can consume a retained feed. Cursors use dense seq; event id remains a dedupe identity.
+> DurableConsumer and Source now exist (src/lib/aiur/events/durable_consumer/source.ex:1-20). R2-C6-T04 must supply ExportSource before push can consume a retained feed. Cursors use dense seq; event id remains a dedupe identity.
 
 **Phase C (2026-10-06):** full ticket docs are in [tickets/](https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-3-mobile-watch/MP-N4/tickets/README.md). Changes
 from the Phase B lists below: C2 splits packaging (T05, ready) from the default deployment

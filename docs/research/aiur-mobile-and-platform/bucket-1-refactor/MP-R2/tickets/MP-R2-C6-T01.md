@@ -4,8 +4,8 @@ feature_id: MP-R2
 chunk_id: MP-R2-C6
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Config keys events.export.enabled, events.export.retention_days, events.export.retention_max_events with docs rows
-status: blocked
-blocked_by: [DESIGN-R2 §2 S1 (KQ-R2-1 retention default and whether configurable)]
+status: ready
+blocked_by: []
 prior_units: [U8]
 prior_boundaries: [BUS #10, CFG]
 prior_features: [MP-R1 (C4 config ownership by registration)]
@@ -30,12 +30,9 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **KQ-R2-1 (DESIGN-R2 §2 S1)** — retention default and whether it is
-  user-configurable. The plan proposes "7 days **or** 50 000 events,
-  whichever is smaller; configurable". This ticket implements exactly that
-  proposal; if Kevin chooses differently, change the two defaults (or
-  remove the keys and hard-code) — the shape below already separates the
-  two bounds. Status `blocked` until answered.
+- **KQ-R2-1 (DESIGN-R2 §2 S1) — satisfied.** `EXECUTOR-APPROVALS.md`
+  at `9ce9fdc6` approves 7 days **or** 50,000 events, whichever is smaller,
+  configurable. This ticket implements those approved defaults and bounds.
 - **MP-R1-C4** registers `events.*` from the owning component (decisions:
   MP-R2-C4-T02 absorbed). This is not a blocker: either path below works, so Phase D removed the
   chunk-level `MP-R1-C4` entry from `blocked_by`. If MP-R1-C4's events ticket has landed, add the
@@ -66,8 +63,8 @@ PROPOSED: EventsExport schema and export accessors. Keep new code in small modul
 events:
   export:
     enabled: false              # default; the feed, route, socket and process do not exist
-    retention_days: 7           # KQ-R2-1 proposal
-    retention_max_events: 50000 # KQ-R2-1 proposal; whichever bound is hit first trims
+    retention_days: 7           # KQ-R2-1 approved
+    retention_max_events: 50000 # KQ-R2-1 approved; whichever bound is hit first trims
 ```
 
 - `EventsExport` embedded schema: `enabled :boolean default false`,
@@ -143,7 +140,9 @@ Mutation check: delete the `retention_max_events` docs row →
 
 ## Completion and handoff
 
-- [ ] KQ-R2-1 answered; defaults match the answer.
+- [x] KQ-R2-1 answered: 7 days or 50,000 events, whichever is smaller,
+      configurable (`EXECUTOR-APPROVALS.md`, `9ce9fdc6`).
+- [ ] Defaults match the approved answer.
 - [ ] Three keys, three docs rows, example updated (AGENTS.md config-key rule;
       `check-config-docs.py` enforces the rows).
 - [ ] Tests added and mutation-checked.
