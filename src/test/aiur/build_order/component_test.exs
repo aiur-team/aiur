@@ -176,6 +176,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     AiurWeb.DashboardAuth.ChallengeStore,
     AiurWeb.DashboardAuthRateLimit.Store,
     Aiur.BuildOrder.Estimates,
+    Aiur.GitHub.AgentBudgetSocket,
     AiurWeb.Build.IndexSupervisor
   ]
 

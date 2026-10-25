@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.Budget do
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
 
+  alias Aiur.AgentGitHubGuard.AgentToken
   alias Aiur.GitHub.Access.Settings, as: AccessSettings
   alias Aiur.GitHub.Budget.{BrokerPort, ResponseLimits, Settings, Shared, StateDir}
   alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy}
@@ -145,6 +146,200 @@ defmodule Aiur.GitHub.Budget do
   end
 
   def release(_lease, _opts), do: :ok
+
+  @doc false
+  @spec agent_guard_command([String.t()], keyword()) :: {:ok, String.t()} | {:error, term()}
+  def agent_guard_command(args, opts \\ []) when is_list(args) do
+    with {:ok, token} <- agent_token(),
+         {:ok, request, budget_opts} <- agent_request(args, token, opts) do
+      dispatch_agent_command(args, token, request, budget_opts)
+    end
+  end
+
+  defp dispatch_agent_command(["acquire" | _], _token, request, opts), do: agent_acquire(request, opts)
+  defp dispatch_agent_command(["release" | _] = args, token, _request, opts), do: agent_release(args, token, opts)
+  defp dispatch_agent_command(["reconcile" | _] = args, token, _request, opts), do: agent_reconcile(args, token, opts)
+  defp dispatch_agent_command([command | _] = args, token, _request, opts) when command in ["renew", "hold"], do: agent_simple_command(args, token, opts)
+  defp dispatch_agent_command(_args, _token, _request, _opts), do: {:error, :invalid_request}
+
+  defp agent_acquire(request, opts) do
+    if Keyword.get(opts, :priority?), do: prioritize()
+
+    try do
+      acquire(request, opts) |> acquire_response()
+    after
+      Process.delete(@priority_key)
+    end
+  end
+
+  defp acquire_response({:ok, %{id: id}}), do: {:ok, "granted #{id}\n"}
+
+  defp acquire_response({:hold, %{resource: resource, reset_at: reset_at, reason: :shared_budget}}),
+    do: {:ok, "hold shared #{resource} #{DateTime.to_unix(reset_at, :millisecond)}\n"}
+
+  defp acquire_response({:hold, %{reset_at: reset_at, reason: reason}}) do
+    delay = max(DateTime.diff(reset_at, DateTime.utc_now(), :millisecond), 1)
+    prefix = if reason == :actor_budget, do: "wait actor", else: "wait"
+    {:ok, "#{prefix} #{delay}\n"}
+  end
+
+  defp acquire_response({:error, _} = error), do: error
+  defp acquire_response(:bypass), do: {:error, :github_budget_broker_unavailable}
+
+  defp agent_release(["release", "--lease-id", id], token, opts) do
+    if valid_agent_lease?(id) do
+      release(%{id: id, token_key: token_key(token)}, opts)
+      {:ok, "released\n"}
+    else
+      {:error, :invalid_request}
+    end
+  end
+
+  defp agent_release(_args, _token, _opts), do: {:error, :invalid_request}
+
+  defp agent_reconcile(["reconcile", "--lease-id", id, "--status", "304"], token, opts) do
+    if valid_agent_lease?(id) do
+      reconcile_response(%{id: id, token_key: token_key(token)}, {:ok, %{status: 304}}, opts)
+      {:ok, "reconciled\n"}
+    else
+      {:error, :invalid_request}
+    end
+  end
+
+  defp agent_reconcile(_args, _token, _opts), do: {:error, :invalid_request}
+
+  defp valid_agent_lease?(id), do: Regex.match?(~r/\\A[a-f0-9]{32}\\z/, id)
+
+  defp agent_token do
+    path = AgentToken.path()
+
+    case File.read(path) do
+      {:ok, token} ->
+        case String.trim(token) do
+          value when value != "" -> {:ok, value}
+          _empty -> {:error, :credential_unavailable}
+        end
+
+      _missing ->
+        {:error, :credential_unavailable}
+    end
+  end
+
+  defp agent_request(["acquire" | args], token, opts) do
+    values = parse_guard_args(args)
+    family = Map.get(values, "--endpoint-family")
+    consumer_label = Map.get(values, "--consumer-label")
+    consumer_key = Map.get(values, "--consumer-key")
+    families = EndpointPolicy.families() |> Enum.map(&elem(&1, 0))
+
+    with true <- family in families,
+         true <- is_binary(consumer_label) and String.starts_with?(consumer_label, "workspace:"),
+         true <- consumer_key == token_key(consumer_label),
+         {_family, resource, _billable} <- Enum.find(EndpointPolicy.families(), &(elem(&1, 0) == family)),
+         true <- Map.get(values, "--resource") == resource do
+      url = family_url(family)
+      request = %{token: token, url: url, credential_key: token_key(token)}
+
+      budget_opts =
+        opts
+        |> Keyword.put(:consumer_key, consumer_label)
+        |> Keyword.put(:enabled?, true)
+        |> Keyword.put(:max_inflight, int_arg(values, "--max-inflight", 4))
+        |> Keyword.put(:max_inflight_per_endpoint, int_arg(values, "--max-inflight-per-endpoint", 2))
+        |> Keyword.put(:requests_per_minute, int_arg(values, "--requests-per-minute", 300))
+        |> Keyword.put(:stagger_ms, int_arg(values, "--stagger-ms", 75))
+        |> Keyword.put(:lease_timeout_ms, max(div(int_arg(values, "--lease-ttl-ms", 35_000) - 5000, 2), 1000))
+        |> Keyword.put(:timeout_ms, 120_000)
+        |> Keyword.put(:agent_core_limit_per_hour, int_arg(values, "--core-limit", 0))
+        |> Keyword.put(:agent_graphql_limit_per_hour, int_arg(values, "--graphql-limit", 0))
+        |> Keyword.put(:agent_search_limit_per_hour, int_arg(values, "--search-limit", 0))
+        |> Keyword.put(:cache_key, Map.get(values, "--cache-key"))
+        |> Keyword.put(:cache_claim_ttl_ms, int_arg(values, "--cache-claim-ttl-ms", 35_000))
+        |> Keyword.put(:ignore_token_cooldown?, Map.has_key?(values, "--ignore-token-cooldown"))
+        |> Keyword.put(:cache_ignore_claim?, Map.has_key?(values, "--cache-ignore-claim"))
+        |> Keyword.put(:priority?, Map.has_key?(values, "--priority"))
+
+      {:ok, request, budget_opts}
+    else
+      _invalid -> {:error, :invalid_request}
+    end
+  rescue
+    _error -> {:error, :invalid_request}
+  end
+
+  defp agent_request([command | _], token, opts) when command in ["release", "reconcile", "renew", "hold"] do
+    {:ok, %{token: token, url: "https://api.github.com/rate_limit"}, Keyword.put(opts, :enabled?, true)}
+  end
+
+  defp agent_request(_args, _token, _opts), do: {:error, :invalid_request}
+
+  defp agent_simple_command(["renew", "--lease-id", id, "--lease-ttl-ms", ttl], token, opts) do
+    if Regex.match?(~r/\\A[a-f0-9]{32}\\z/, id) and match?({n, ""} when n in 1000..3_600_000, Integer.parse(ttl)) do
+      key = token_key(token)
+      broker_call(["renew", "--lease-id", id, "--lease-ttl-ms", ttl], key, opts)
+    else
+      {:error, :invalid_request}
+    end
+  end
+
+  defp agent_simple_command(["hold", "--scope", scope, "--resource", resource, "--delay-ms", delay], token, opts)
+       when scope in ["token", "resource"] and resource in ["core", "graphql", "search"] do
+    case Integer.parse(delay) do
+      {milliseconds, ""} when milliseconds in 1..3_600_000 ->
+        key = token_key(token)
+        request = %{token: token, url: family_url(resource)}
+        agent_hold(scope, resource, delay, milliseconds, request, key, opts)
+
+      _invalid ->
+        {:error, :invalid_request}
+    end
+  end
+
+  defp agent_simple_command(_, _token, _opts), do: {:error, :invalid_request}
+
+  defp agent_hold(scope, resource, delay, milliseconds, request, key, opts) do
+    case broker_call(["hold", "--scope", scope, "--resource", resource, "--delay-ms", delay], key, opts) do
+      {:ok, _output} ->
+        shared_resource = if scope == "token", do: "*", else: resource
+        Shared.publish_hold(request, key, shared_resource, milliseconds)
+        {:ok, "held\n"}
+
+      {:error, _} = error ->
+        error
+
+      _unavailable ->
+        {:error, :github_budget_broker_unavailable}
+    end
+  end
+
+  defp broker_call(args, key, opts) do
+    BrokerPort.command(args, key, opts)
+  end
+
+  defp int_arg(values, name, default) do
+    case Integer.parse(Map.get(values, name, "")) do
+      {number, ""} -> number
+      _invalid -> default
+    end
+  end
+
+  defp parse_guard_args(args), do: parse_guard_args(args, %{})
+  defp parse_guard_args([], values), do: values
+
+  defp parse_guard_args([flag | rest], values) when flag in ["--priority", "--ignore-token-cooldown", "--cache-ignore-claim"] do
+    parse_guard_args(rest, Map.put(values, flag, true))
+  end
+
+  defp parse_guard_args([flag, value | rest], values) when is_binary(flag) and is_binary(value) do
+    parse_guard_args(rest, Map.put(values, flag, value))
+  end
+
+  defp parse_guard_args(_args, values), do: values
+
+  defp family_url("rate_limit"), do: "https://api.github.com/rate_limit"
+  defp family_url("graphql"), do: "https://api.github.com/graphql"
+  defp family_url("search"), do: "https://api.github.com/search/issues"
+  defp family_url(family), do: "https://api.github.com/repos/aiur/budget/#{family}"
 
   # `release/2` shares the request deadline and may be abandoned before broker
   # acknowledgment. An abandoned release holds headroom until broker expiry;
@@ -422,8 +617,21 @@ defmodule Aiur.GitHub.Budget do
       Integer.to_string(graphql_limit),
       "--search-limit",
       Integer.to_string(search_limit)
-    ] ++ billable_args ++ priority_args(request)
+    ] ++ billable_args ++ cache_args(opts) ++ cooldown_args(opts) ++ priority_args(request)
   end
+
+  defp cache_args(opts) do
+    case Keyword.get(opts, :cache_key) do
+      key when is_binary(key) and key != "" ->
+        ["--cache-key", key, "--cache-claim-ttl-ms", Integer.to_string(Keyword.get(opts, :cache_claim_ttl_ms, 35_000))] ++
+          if(Keyword.get(opts, :cache_ignore_claim?, false), do: ["--cache-ignore-claim"], else: [])
+
+      _ ->
+        []
+    end
+  end
+
+  defp cooldown_args(opts), do: if(Keyword.get(opts, :ignore_token_cooldown?, false), do: ["--ignore-token-cooldown"], else: [])
 
   # Main-watch (and the base-CI fixer it drives) may hold one lease above the in-flight caps so bulk
   # polling cannot starve default-branch health checks; cooldowns, ceilings and pacing still apply.

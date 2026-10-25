@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   alias Aiur.AgentEnvironment.TestRunIsolation
   alias Aiur.AgentGitHubGuard
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.AgentBudgetSocket
   alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
 
@@ -38,6 +39,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       # other repository must not have its answers filed under this one.
       {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
       {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
+      {~c"AIUR_GITHUB_BUDGET_SOCKET", AgentBudgetSocket.socket_path() |> String.to_charlist()},
       # #2356: the path to the token file the daemon wrote for the `gh` guard.
       # This is a PATH, not a credential — the raw token lives on disk and the
       # wrapper injects it only into a governed call's real `gh` child, so the
@@ -73,6 +75,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       publication_credential_export(opts) <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
+      "export AIUR_GITHUB_BUDGET_SOCKET=#{Aiur.Shell.escape(AgentBudgetSocket.socket_path())}\n" <>
       "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=#{github_budget.max_inflight_per_endpoint}\n" <>

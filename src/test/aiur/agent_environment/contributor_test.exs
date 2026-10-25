@@ -3,11 +3,11 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
 
   alias Aiur.{AgentEnvironment, AgentGitHubGuard, AgentProcessLog}
   alias Aiur.AgentEnvironment.Contributor
-  alias Aiur.GitHub.{AgentEnvironmentContributor, Budget}
+  alias Aiur.GitHub.{AgentBudgetSocket, AgentEnvironmentContributor, Budget}
 
   @credentials ~w(AIUR_SECRET_KEY_BASE GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
                   GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH
-                  GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY)
+                  GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY AIUR_LEASE_DATABASE_URL)
   @fixture Path.expand("../../fixtures/agent_environment_contributor.json", __DIR__)
 
   defmodule UnsafeContributor do
@@ -171,6 +171,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     replacements = [
       {to_string(:code.priv_dir(:aiur)), "<priv>"},
       {Budget.state_dir(), "<budget>"},
+      {AgentBudgetSocket.socket_path(), "<runtime>/agent-github-budget.sock"},
       {context.workspace, "<workspace>"},
       {context.home, "<home>"},
       {context.workflow_root, "<root>"},
