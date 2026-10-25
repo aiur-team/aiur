@@ -2,6 +2,7 @@ defmodule AiurWeb.DashboardLive.GitHubQuotaSnapshot do
   @moduledoc false
 
   alias Aiur.GitHub.Budget.FleetSnapshot
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Quota
 
   @spec read() :: map()
@@ -19,7 +20,9 @@ defmodule AiurWeb.DashboardLive.GitHubQuotaSnapshot do
           end
       end
 
-    Map.put(snapshot, :fleet_budget, FleetSnapshot.read())
+    snapshot
+    |> Map.put(:fleet_budget, FleetSnapshot.read())
+    |> Map.put(:auth_mode, GitHubConfig.token_source())
   end
 
   defp stale(snapshot, age_ms, observed_at_ms) do

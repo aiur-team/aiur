@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdtempSync,
   mkdirSync,
@@ -9,6 +10,7 @@ import {
   existsSync,
   rmSync,
   chmodSync,
+  realpathSync,
 } from "node:fs";
 import path from "node:path";
 import { root, captureFile, setupRealLauncher, useTempRoot } from "./launcher-support.mjs";
@@ -124,10 +126,12 @@ function setupBackgroundLauncher() {
       "#!/usr/bin/env bash",
       'echo "TMUX:$*" >>"$AIUR_TEST_OUT"',
       'state="${AIUR_FAKE_TMUX_STATE:?}"',
+      'socket=""',
       "args=()",
       'while [ "$#" -gt 0 ]; do',
       '  case "$1" in',
-      "    -L|-f|-t|-s|-x|-y|-T) shift 2 ;;",
+      '    -L) socket="$2"; shift 2 ;;',
+      "    -f|-t|-s|-x|-y|-T) shift 2 ;;",
       "    -d) shift ;;",
       '    *) args+=("$1"); shift ;;',
       "  esac",
@@ -135,6 +139,7 @@ function setupBackgroundLauncher() {
       'cmd="${args[0]:-}"',
       'case "$cmd" in',
       "  has-session)",
+      '    [ "$socket" = "${AIUR_SESSION_PREFIX}-${USER:-user}" ] && exit 0',
       '    [ -f "$state" ] && exit 0 || exit 1',
       "    ;;",
       "  new-session)",
@@ -181,6 +186,9 @@ function runBackgroundLauncher({ existingSession = false, controlReady = true, k
       AIUR_FAKE_WATCHDOG_REAPED: watchdogReaped,
       AIUR_BG_STATE_DIR: path.join(root, "state"),
       AIUR_COOKIE_FILE: path.join(root, "state", "cookie"),
+      AIUR_INSTANCE_KEY: `test-${path.basename(root)}`,
+      AIUR_RELEASE_NODE: `aiur-${process.env.USER || "user"}-test-${path.basename(root)}@127.0.0.1`,
+      AIUR_SESSION_PREFIX: "aiur-session-test",
       XDG_RUNTIME_DIR: root,
       PATH: `${fakeBin}:/usr/bin:/bin`,
     },
@@ -194,7 +202,13 @@ test("launcher routes init to a distribution-free foreground exec", () => {
 
   const result = spawnSync(launcher, ["init", "--force"], {
     encoding: "utf8",
-    env: { ...process.env, AIUR_RELEASE_DIR: releaseDir, AIUR_TEST_OUT: captureFile },
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      AIUR_INSTANCE_KEY: `test-${path.basename(root)}`,
+      AIUR_RELEASE_NODE: `aiur-${process.env.USER || "user"}-test-${path.basename(root)}@127.0.0.1`,
+    },
   });
 
   expect(result.status).toBe(0);
@@ -238,6 +252,8 @@ test("launcher dotenv keeps shell exports and prefers repo-local provider creden
     AIUR_RELEASE_DIR: releaseDir,
     AIUR_TMUX_CONF: tmuxConf,
     AIUR_SESSION_PREFIX: "aiur-test",
+    AIUR_INSTANCE_KEY: `test-${path.basename(root)}`,
+    AIUR_RELEASE_NODE: `aiur-${process.env.USER || "user"}-test-${path.basename(root)}@127.0.0.1`,
     MOONSHOT_API_KEY: "shell-moonshot",
   };
   delete env.DEEPSEEK_API_KEY;
@@ -315,7 +331,7 @@ test("idempotent background start preserves the live workspace handoff for degra
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   expect(existsSync(first.watchdogReaped)).toBe(true);
-});
+}, 15000);
 
 test("background start reclaims stale tmux session state before creating a new session", () => {
   const { result } = runBackgroundLauncher({ existingSession: true, controlReady: false });
@@ -345,3 +361,55 @@ test("background start records its headless surface when no tmux session exists"
   const record = readFileSync(path.join(stateDir, "instances", recordName), "utf8");
   expect(record).toContain("AIUR_RECORD_SURFACE_MODE=headless");
 });
+
+test("background launch paths leave checkout and legacy daemon processes untouched", async () => {
+  const projectRoot = findProjectRoot(process.cwd());
+  const checkoutKey = createHash("sha256").update(projectRoot).digest("hex").slice(0, 10);
+  const user = process.env.USER || "user";
+  const checkoutNode = `aiur-${user}-${checkoutKey}@127.0.0.1`;
+  const legacyNode = `aiur-${user}@127.0.0.1`;
+  const decoys = [startNamedBeamDecoy(checkoutNode), startNamedBeamDecoy(legacyNode)];
+
+  try {
+    await waitForNamedDecoys([checkoutNode, legacyNode]);
+    for (const options of [{}, { existingSession: true, controlReady: false }]) {
+      const { result } = runBackgroundLauncher(options);
+      expect(result.status).toBe(0);
+      expect([checkoutNode, legacyNode].every(namedDecoyIsAlive)).toBe(true);
+    }
+  } finally {
+    const exited = decoys.map((decoy) => new Promise((resolve) => {
+      if (decoy.exitCode !== null || decoy.signalCode !== null) resolve();
+      else decoy.once("exit", resolve);
+    }));
+    for (const decoy of decoys) decoy.kill("SIGTERM");
+    await Promise.all(exited);
+  }
+}, 15000);
+
+function findProjectRoot(start) {
+  let current = realpathSync(start);
+  while (current !== path.dirname(current)) {
+    if (existsSync(path.join(current, ".aiur", "config"))) return current;
+    current = path.dirname(current);
+  }
+  throw new Error("could not find checkout .aiur/config for daemon decoy test");
+}
+
+function startNamedBeamDecoy(node) {
+  return spawn("bash", ["-c", 'exec -a "$1" /usr/bin/sleep 60', "aiur-test-decoy", `beam.smp -name ${node}`], {
+    stdio: "ignore",
+  });
+}
+
+async function waitForNamedDecoys(nodes) {
+  const deadline = Date.now() + 2000;
+  while (!nodes.every(namedDecoyIsAlive) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  expect(nodes.every(namedDecoyIsAlive)).toBe(true);
+}
+
+function namedDecoyIsAlive(node) {
+  return spawnSync("/usr/bin/pgrep", ["-f", `beam.smp -name ${node}`]).status === 0;
+}

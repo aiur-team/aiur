@@ -209,7 +209,8 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
+from the environment. GitHub uses the App when configured; local fallback is `GITHUB_TOKEN` or `gh` keyring, while hosted/container requires the App unless
+`AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. On a run,
 credential precedence is: an already-exported environment value, then
 `./.env` in the current repository, then `~/.aiur/.env`. Each dotenv file only
 fills unset names, blank values count for nothing, and GitHub credentials
@@ -223,9 +224,9 @@ Google browser sign-in uses `AIUR_GOOGLE_CLIENT_ID` / `AIUR_GOOGLE_CLIENT_SECRET
 `OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
 `AIUR_SECRET_KEY_BASE` (64+ bytes) overrides dashboard signing; otherwise Aiur stores a mode-0600 key per instance under `~/.aiur/instances/`. Hosted mode can set `AIUR_SECRETS_FROM_ENV=1` to disable dotenv; startup and `aiur status` list missing credential names only. Set `AIUR_STATE_PERSISTENT=1` only when state survives restarts; otherwise set `AIUR_SECRET_KEY_BASE`.
 `AIUR_LEASE_DATABASE_URL` optionally configures the shared PostgreSQL coordination store for multi-instance ticket leases and instance heartbeats. Every participating instance must use the same TLS PostgreSQL URL; new dispatch and live-instance reads fail closed when the configured store is unreachable. The credential is removed from agent environments.
+`aiur run --container` requires `AIUR_ERLANG_COOKIE` (at least 16 letters, digits, `_` or `-`) or a mounted `AIUR_COOKIE_FILE`; it never reads `releases/COOKIE`, and `docker exec` control commands must use the same cookie. See [the CLI reference](website/docs-app/reference/cli.md) for details.
 Dashboard Host/origin checks use the public URL and loopback; loopback listeners also accept `*.ts.net` Hosts and HTTPS origins while they remain loopback-bound. `server.allowed_hosts` adds Host names.
-Keep the global per-user file outside Git trees and never commit either dotenv
-file. `aiur init` also reads `.env` for the GitHub token during setup.
+Keep the global per-user file outside Git trees and never commit either dotenv file. `aiur init` also reads `.env` for the GitHub token during setup.
 
 `ERL_CRASH_DUMP` and `ERL_CRASH_DUMP_SECONDS` optionally override the daemon's
 durable BEAM dump path and bounded write time. They apply only to the Aiur
@@ -233,9 +234,8 @@ daemon: agent and build children have both variables removed from their
 environment so they cannot overwrite daemon evidence or inherit its dump
 policy.
 
-GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
-for git pushes/PRs. Verify with `gh auth status` in the same shell that
-will run the agent.
+Use `gh auth setup-git` for git pushes/PRs, and verify with `gh auth status` in
+the same shell that will run the agent.
 
 Agent processes do **not** inherit `GITHUB_TOKEN`/`GH_TOKEN`: the daemon
 scrubs them from every agent environment and the `gh` guard injects the

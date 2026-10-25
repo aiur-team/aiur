@@ -69,6 +69,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     assigns =
       assigns
       |> assign(:windows, github_windows(assigns.github_quota))
+      |> assign(:auth_mode, github_auth_mode(assigns.github_quota))
       |> assign(:backoffs, github_backoffs(assigns.github_quota))
       |> assign(:fleet_budget, Map.get(assigns.github_quota, :fleet_budget, %{state: :unknown}))
       |> assign(:elevenlabs?, elevenlabs_configured?(assigns.elevenlabs_quota))
@@ -84,6 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-api rs-provider-row">
           <div class="rs-head">
             <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="Github" title="Github - for ticket state" />
+            <span class="rs-auth-mode" aria-label={"GitHub authentication: #{github_auth_label(@auth_mode)}"}>{github_auth_label(@auth_mode)}</span>
           </div>
           <div class="rs-provider-body">
             <div class="rs-limits">
@@ -121,6 +123,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp fleet_budget_label(_unknown, _now), do: "Shared daemon budget has no fleet sample yet; agent gh calls are counted per host."
+
+  defp github_auth_mode(%{auth_mode: mode}), do: mode
+  defp github_auth_mode(_quota), do: :unknown
+
+  defp github_auth_label(:github_app), do: "GitHub App"
+  defp github_auth_label(:env), do: "PAT"
+  defp github_auth_label(:keyring), do: "gh keyring"
+  defp github_auth_label(:none), do: "No credential"
+  defp github_auth_label(_mode), do: "Auth unknown"
 
   attr(:quota, :map, required: true)
   attr(:now, :any, required: true)
