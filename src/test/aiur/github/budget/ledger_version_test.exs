@@ -6,6 +6,7 @@ defmodule Aiur.GitHub.Budget.LedgerVersionTest do
   alias Aiur.GitHub.BudgetTestSupport
 
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.BudgetBroker
 
   setup do
     BudgetTestSupport.setup()
@@ -68,11 +69,16 @@ defmodule Aiur.GitHub.Budget.LedgerVersionTest do
 
     assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
 
-    # Warm the resident broker against the same ledger before timing the pacing
-    # request. This keeps Python broker startup out of the 2s admission deadline;
-    # deadline expiry itself is covered by the broker failure tests.
-    assert %{admissions: [%{endpoint_family: "rate_limit", billable: false}]} =
-             Budget.snapshot(token, opts)
+    # Warm the resident broker against the same ledger with its own deadline.
+    # Budget.snapshot/2 turns broker errors into an empty snapshot, so call the
+    # broker directly and require a successful response before testing pacing.
+    assert {:ok, _snapshot, 0} =
+             BudgetBroker.command(
+               opts[:broker_server],
+               broker,
+               ["snapshot", "--db", db, "--token-key", key],
+               System.monotonic_time(:millisecond) + 5_000
+             )
 
     # One free admission fills the single requests-per-minute slot, so a second
     # admission in the same minute is paced even though the first cost nothing.
