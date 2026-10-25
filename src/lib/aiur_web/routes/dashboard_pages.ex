@@ -36,14 +36,14 @@ defmodule AiurWeb.Routes.DashboardPages do
         get("/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show)
         get("/decisions", AiurWeb.CommandsRedirectController, :legacy)
         get("/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy)
+        get("/build-orders", AiurWeb.BuildOrderRedirectController, :catalog)
+        get("/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root)
 
         live_session :dashboard, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
           live("/", AiurWeb.BuildLive, :build)
           live("/units", AiurWeb.DashboardLive, :index)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
-          live("/build-orders", AiurWeb.BuildOrderLive, :build_orders)
-          live("/build-orders/:root_number", AiurWeb.BuildOrderLive, :build_order)
           live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
           live("/post-deploy", AiurWeb.PostDeployLive, :index)
