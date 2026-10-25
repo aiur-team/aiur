@@ -1,14 +1,21 @@
 defmodule Aiur.MergePolicyCLI do
   @moduledoc "Merge policy visibility for the local control CLI."
 
+  alias Aiur.Instance.RepositoryLeader
+
   @spec print() :: :ok
   def print do
     policy = Aiur.MergePolicy.current()
     role = Aiur.Config.booted_instance_role()
-    state = if role == "primary", do: Aiur.MainWatch.state(), else: %{watcher: :not_running}
-    landing = if role == "primary", do: Aiur.LandingWatch.state(), else: %{watcher: :not_running}
+    state = if role == "primary" and Process.whereis(Aiur.MainWatch), do: Aiur.MainWatch.state(), else: %{watcher: :not_running}
+    landing = if role == "primary" and Process.whereis(Aiur.LandingWatch), do: Aiur.LandingWatch.state(), else: %{watcher: :not_running}
     IO.puts(status_line(policy, role, state, landing))
+    IO.puts(leader_status_line(RepositoryLeader.status()))
   end
+
+  @spec leader_status_line(map()) :: String.t()
+  def leader_status_line(leader),
+    do: "REPOSITORY LEADER holder=#{leader.leader} lease_age=#{leader.lease_age}"
 
   defp status_line(policy, role, state, landing) do
     "MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels(policy)} role=#{role} repo_global_off=#{disabled(role)} main_watch=#{watch(policy, role)} watcher=#{state.watcher}#{watch_error(state)} landing_watcher=#{landing.watcher}#{main(policy, state)}"
