@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur/boot.ex",
     "src/lib/aiur/bounded.ex",
+    "src/lib/aiur/build_stamp.ex",
     "src/lib/aiur/coordination_tasks.ex",
     "src/lib/aiur/display_sanitizer.ex",
     "src/lib/aiur/fs.ex",

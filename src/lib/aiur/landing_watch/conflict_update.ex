@@ -27,7 +27,15 @@ defmodule Aiur.LandingWatch.ConflictUpdate do
 
   @spec attempt(map(), keyword()) :: result()
   def attempt(observation, opts) do
-    if eligible?(observation), do: attempt_owned(observation, opts), else: :skip
+    if eligible?(observation), do: attempt_unheld(observation, opts), else: :skip
+  end
+
+  defp attempt_unheld(%{number: number, head: head} = observation, opts) do
+    case Journal.merge_group_head_held?(number, head, opts) do
+      {:ok, true} -> :held
+      {:ok, false} -> attempt_owned(observation, opts)
+      {:error, _} = error -> error
+    end
   end
 
   # reviewDecision APPROVED at the head also rules out a request-changes review at the head.
