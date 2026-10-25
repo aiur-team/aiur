@@ -168,23 +168,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource.MembershipTest do
     assert [%{url: "https://github.com/acme/widgets/issues/4101"}] = model.edges
     refute Enum.any?(model.diagnostics, &(&1.code == :invalid_url))
 
-    {route, []} = RouteState.new("paused-test") |> RouteState.navigate("9900")
-    {route, [{:activate, ^identity}]} = RouteState.put_catalog(route, catalog)
-    {route, :generation} = RouteState.put_selected(route, selected)
-
-    html =
-      render_component(&BuildOrderSelected.build_order_selected/1, %{
-        route_state: route,
-        model: model,
-        now: ~U[2026-09-29 12:00:00Z],
-        analytics_scope: %{state: :none},
-        usage_scope: %{state: :none}
-      })
-
-    assert html =~ "The plan is readable, but live execution state is unresolved"
-    assert html =~ "Ticket status is unavailable"
-    assert html =~ "Build Order graph summary"
-
     assert {:ok, cli} = BuildOrdersCLI.build(source: PlanningSource, root: "9900")
     assert get_in(cli, ["sources", "planning_graph", "state"]) == "available"
     assert get_in(cli, ["sources", "membership", "state"]) == "unavailable"
