@@ -3,10 +3,10 @@ defmodule AiurEngineTicketUsageTest do
 
   import Aiur.TestSupport.EngineCase
 
-  test "ticket-usage forwards the legacy ticket argument to the shared provider CLI" do
+  test "ticket-usage forwards the legacy ticket argument through the usage CLI" do
     {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\nusage_alias ticket-usage 5692 --json|, [])
     assert out =~ "deprecated; use 'aiur usage ticket'"
-    assert out =~ ~s|RPC:Aiur.Usage.CLI.rpc(Base.decode64!("dGlja2V0"), true)|
+    assert out =~ ~s|RPC:Aiur.Usage.CLI.legacy_ticket_usage(Base.decode64!("NTY5Mg=="), true)|
   end
 
   test "ticket-usage rejects malformed legacy arguments before an RPC" do

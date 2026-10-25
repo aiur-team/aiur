@@ -56,10 +56,11 @@ defmodule AiurEngineCommandsTest do
 
   test "legacy usage commands print a deprecation line and route to the shared CLI" do
     aliases = [
-      {"accounts", "aiur usage", "", "Aiur.Usage.CLI.rpc(nil, false)"},
+      {"accounts", "aiur usage", "", "Aiur.Usage.CLI.legacy_accounts(false, nil)"},
+      {"accounts", "aiur usage", "claude --json", "Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!(\"Y2xhdWRl\"))"},
       {"github-cost", "aiur usage github", "", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), false)"},
       {"github-usage", "aiur usage github", "--json", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), true)"},
-      {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.Usage.CLI.rpc(Base.decode64!(\"dGlja2V0\"), true)"}
+      {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.Usage.CLI.legacy_ticket_usage(Base.decode64!(\"NTY5Mg==\"), true)"}
     ]
 
     for {command, replacement, args, expression} <- aliases do

@@ -53,18 +53,33 @@ usage_alias() {
     esac
   done
 
-  if [ "$command" = accounts ] && [ -n "$positional" ]; then
-    case "$positional" in
-      claude|codex)
-        [ "$all" = false ] || die "accounts cannot combine --all with a provider"
-        provider="$positional"
-        ;;
-      *) die "accounts harness filters are unavailable in usage; use $replacement" ;;
-    esac
+  if [ "$command" = accounts ]; then
+    [ "$all" = false ] || [ -z "$positional" ] || die "accounts cannot combine --all with a harness filter"
+    if [ -n "$positional" ]; then
+      case "$positional" in claude|codex) ;; *) die "accounts accepts a Claude or Codex harness filter" ;; esac
+    fi
+
+    # Keep the old account rows and harness filter during the deprecation release.
+    if [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$(probe_node_liveness)" = "down" ]; then
+      run_local_cli accounts "$@"
+      return
+    fi
+
+    local encoded_harness expression
+    encoded_harness="$(encode_control_value "$positional")"
+    expression="Aiur.Usage.CLI.legacy_accounts($json, Base.decode64!(\"$encoded_harness\"))"
+    [ -n "$positional" ] || expression="Aiur.Usage.CLI.legacy_accounts($json, nil)"
+    run_control_rpc "$expression"
+    return
   fi
 
   if [ "$command" = ticket-usage ]; then
-    [[ "$positional" =~ ^[1-9][0-9]*$ ]] || die "ticket-usage requires a numeric ticket id; use $replacement for the ticket usage aggregate"
+    [[ "$positional" =~ ^[1-9][0-9]*$ ]] || die "ticket-usage requires a numeric ticket id"
+    local encoded_ticket expression
+    encoded_ticket="$(encode_control_value "$positional")"
+    expression="Aiur.Usage.CLI.legacy_ticket_usage(Base.decode64!(\"$encoded_ticket\"), $json)"
+    run_control_rpc "$expression"
+    return
   fi
 
   local args=()

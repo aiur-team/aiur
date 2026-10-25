@@ -144,11 +144,11 @@ test("github-cost points to the shared usage provider when the daemon is down", 
 
 test("usage compatibility commands emit deprecations and dispatch through the shared CLI", () => {
   const cases = [
-    { argv: ["accounts"], replacement: "aiur usage", expression: "Aiur.Usage.CLI.rpc(nil, false)" },
-    { argv: ["accounts", "claude", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Y2xhdWRl"), true)' },
+    { argv: ["accounts"], replacement: "aiur usage", expression: "Aiur.Usage.CLI.legacy_accounts(false, nil)" },
+    { argv: ["accounts", "claude", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("Y2xhdWRl"))' },
     { argv: ["github-cost"], replacement: "aiur usage github", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Z2l0aHVi"), false)' },
     { argv: ["github-usage", "--json"], replacement: "aiur usage github", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Z2l0aHVi"), true)' },
-    { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("dGlja2V0"), true)' },
+    { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.Usage.CLI.legacy_ticket_usage(Base.decode64!("NDI="), true)' },
   ];
 
   for (const item of cases) {

@@ -1,11 +1,31 @@
 defmodule Aiur.Usage.CLI do
   @moduledoc false
+  alias Aiur.AccountsCLI
+  alias Aiur.Accounts.UsageReadings
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec rpc(binary() | nil, boolean()) :: :ok
   def rpc(provider \\ nil, json \\ false) do
     guarded("usage", fn ->
       result = run(provider, json)
+      exit_marker(result)
+    end)
+  end
+
+  @doc false
+  @spec legacy_accounts(boolean(), String.t() | nil) :: :ok
+  def legacy_accounts(json, harness) do
+    guarded("accounts", fn ->
+      AccountsCLI.accounts(json, harness, &UsageReadings.snapshot("claude", &1))
+      exit_marker(0)
+    end)
+  end
+
+  @doc false
+  @spec legacy_ticket_usage(String.t(), boolean()) :: :ok
+  def legacy_ticket_usage(identifier, json) do
+    guarded("ticket-usage", fn ->
+      result = Aiur.TicketUsageCLI.run(identifier, json: json)
       exit_marker(result)
     end)
   end
