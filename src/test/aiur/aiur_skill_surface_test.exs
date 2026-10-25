@@ -18,7 +18,7 @@ defmodule Aiur.AiurSkillSurfaceTest do
     stub-then-fetch.md
     dictated-input.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-experiment aiur-intro aiur-monitor aiur-run design-import)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-experiment aiur-intro aiur-monitor aiur-run design-import land)
   # Executor-only skills are not installed into issue workers or exposed to Codex.
   @claude_executor_only_skills ~w(aiur-handoff aiur-meta release)
 

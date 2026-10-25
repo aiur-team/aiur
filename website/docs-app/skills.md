@@ -94,7 +94,7 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | [commit](../../.codex/skills/commit/SKILL.md) | Scope-aware commit creation. |
 | [push](../../.codex/skills/push/SKILL.md) | Push and PR creation or update. |
 | [pull](../../.codex/skills/pull/SKILL.md) | Merge-based integration from `origin/main`. |
-| [land](../../.codex/skills/land/SKILL.md) | Conflict, CI, review, and squash-merge handling. |
+| [land](../../.claude/skills/land/SKILL.md) | Conflict, CI, review, and squash-merge handling. |
 | [debug](../../.codex/skills/debug/SKILL.md) | Log-tracing recovery. |
 | [linear](../../.codex/skills/linear/SKILL.md) | Raw Linear GraphQL operations. |
 
