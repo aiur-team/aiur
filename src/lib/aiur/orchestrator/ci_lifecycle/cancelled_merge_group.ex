@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.CiLifecycle.CancelledMergeGroup do
   @moduledoc "Keeps cancelled merge-group runs out of CI lifecycle failure transitions."
 
-  alias Aiur.GitHub.{CIRecovery, MergeQueue, Transport}
+  alias Aiur.GitHub.{Access, CIRecovery, MergeQueue}
   alias Aiur.LandingWatch.{MergeFailureClassifier, MergeGroupRunFetcher, MergeQueueFailureEvidence}
 
   @doc false
@@ -65,8 +65,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.CancelledMergeGroup do
 
   defp cancelled_merge_group_for_pr(number, opts) when is_integer(number) do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
-         {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+         {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, runs} <- MergeGroupRunFetcher.completed_runs(owner, repo, base, token, opts),
          run when is_map(run) <- Enum.find(runs, &(number in MergeQueueFailureEvidence.run_pr_numbers(&1["head_branch"], base))),
          id when is_integer(id) <- run["id"],

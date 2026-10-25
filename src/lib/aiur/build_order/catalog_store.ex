@@ -21,7 +21,7 @@ defmodule Aiur.BuildOrder.CatalogStore do
   """
 
   alias Aiur.BuildOrder.{Catalog, Diagnostic, Lifecycle, Metadata, ProviderHealth, ProviderResult, RootSummary}
-  alias Aiur.GitHub.{Config, ResourceStore}
+  alias Aiur.GitHub.{Access, Config}
   alias Aiur.TrackerIdentity
 
   @root_label "build-order"
@@ -252,7 +252,7 @@ defmodule Aiur.BuildOrder.CatalogStore do
     |> Map.new(fn {parent, subs} -> {parent, Enum.sort(subs)} end)
   end
 
-  defp store_entries({owner, repository}, type), do: ResourceStore.list(type, owner, repository)
+  defp store_entries({owner, repository}, type), do: Access.list(type, owner, repository)
 
   defp issue_number(%{data: %{"number" => number}}) when is_integer(number) and number > 0, do: number
 
