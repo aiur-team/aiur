@@ -66,6 +66,17 @@ defmodule AiurWeb.Build.PayloadTest do
     assert {"counts.bugs", :missing} in errors
   end
 
+  test "epic progress accepts explicitly unknown counts and rejects negative counts" do
+    data = fixture()
+    unknown = %{"closed" => nil, "open" => nil, "total" => nil, "observed_at" => data["now"], "reason" => "labels_incomplete"}
+    data = put_in(data, ["epic_progress", "bugs"], unknown)
+    assert Payload.validate(data) == :ok
+
+    data = put_in(data, ["epic_progress", "bugs", "open"], -1)
+    assert {:error, errors} = Payload.validate(data)
+    assert {"epic_progress.bugs.open", :type} in errors
+  end
+
   test "every source must be present" do
     for key <- ~w(history features queue agents index open_tickets) do
       data = fixture() |> update_in(["sources"], &Map.delete(&1, key))

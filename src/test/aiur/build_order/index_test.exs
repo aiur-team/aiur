@@ -91,6 +91,62 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert index.all["4"].cx == 3 and index.all["4"].pts == 3
   end
 
+  test "epic progress counts every matching label regardless of feature ownership" do
+    ui = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: [" AREA:UI "], hue: 120, icon: "pen"}
+    docs = %Aiur.Config.Schema.GeneralEpic{key: "docs", label: "Docs", labels: ["area:docs"], hue: 240, icon: "docs"}
+    p = parts([row(1, %{labels: [" Area:Ui "], lifecycle: %Lifecycle{state: :open}}), row(2, %{labels: ["area:ui", "area:docs"]}), row(3)])
+    feature = %{slug: "pag", label: "Pagination", hue: 175, epics: [%{key: "f-pag", label: "Page"}], from: now(), to: :none, baseline: :none}
+
+    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [ui, docs])
+
+    p =
+      p
+      |> Map.put(:settings, {:ok, settings})
+      |> put_in([:now, :rows], %{"1" => now_row(1)})
+      |> put_in(
+        [:features],
+        {:ok, %{features: %{"pag" => feature}, owners: %{1 => %{feature: "pag", epic: "f-pag", joined_at: DateTime.from_unix!(now(), :millisecond)}}, also: %{}, health: health()}}
+      )
+
+    older = now() - 3_600_000
+    p = put_in(p, [:not_queued], %{rows: [], state: :ok, reasons: [], observed_at: DateTime.from_unix!(older, :millisecond), truncated?: false})
+
+    assert {:ok, index} = assemble(p)
+    observed_at = older
+    assert index.epic_progress["ui"] == %{closed: 1, open: 1, total: 2, observed_at: observed_at, reason: nil}
+    assert index.epic_progress["docs"] == %{closed: 1, open: 0, total: 1, observed_at: observed_at, reason: nil}
+    assert index.epic_progress_meta == %{unmatched: 1, observed_at: observed_at, reason: nil}
+  end
+
+  test "epic progress leaves figures unknown when ticket labels are incomplete" do
+    epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
+    p = parts([row(1, %{labels: ["area:ui"], labels_complete: false})])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic])
+    p = Map.put(p, :settings, {:ok, settings})
+
+    assert {:ok, index} = assemble(p)
+    assert index.epic_progress["ui"] == %{closed: nil, open: nil, total: nil, observed_at: now(), reason: "labels_incomplete"}
+    assert index.epic_progress_meta == %{unmatched: nil, observed_at: now(), reason: "labels_incomplete"}
+  end
+
+  test "epic progress excludes unpublished planned rows without label records" do
+    epic = %Aiur.Config.Schema.GeneralEpic{key: "ui", label: "UI", labels: ["area:ui"], hue: 120, icon: "pen"}
+    p = parts([row(1, %{labels: ["area:ui"]})])
+    settings = p.settings |> elem(1) |> put_in([:build_order, :general_epics], [epic])
+    p = p |> Map.put(:settings, {:ok, settings}) |> put_in([:planned, :rows], [plan_row(99)])
+
+    assert {:ok, index} = assemble(p)
+    assert index.epic_progress["ui"] == %{closed: 1, open: 0, total: 1, observed_at: now(), reason: nil}
+    assert index.epic_progress_meta == %{unmatched: 0, observed_at: now(), reason: nil}
+  end
+
+  test "epic progress changes are published in live index diffs" do
+    old = %{all: %{}, sources: %{}, epic_progress: %{"ui" => %{closed: 1, open: 2, total: 3}}, epic_progress_meta: %{unmatched: 1}}
+    new = %{old | epic_progress: %{"ui" => %{closed: 1, open: 1, total: 2}}}
+
+    assert Index.diff(old, new).set == %{epic_progress: new.epic_progress}
+  end
+
   test "producer fields win over older history fields" do
     p = parts([row(4, %{labels: ["complexity:2"], lifecycle: %Lifecycle{state: :open}})])
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, title: "Fresher", created: 123, cx: 3, pts: 3}])
@@ -104,6 +160,8 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert {:ok, failed} = assemble(bad)
     assert failed.hist == [] and failed.history_meta == %{total: nil, undated: nil} and failed.counts == nil
     assert failed.sources.history.state == "unavailable" and failed.sources.history.reason == "history_corrupt"
+    assert failed.epic_progress["bugs"] == %{closed: nil, open: nil, total: nil, observed_at: nil, reason: "history:history_corrupt"}
+    assert failed.epic_progress_meta.unmatched == nil
     assert failed.all["2"].sec == "now"
     assert {:ok, page} = Index.earlier(failed, now(), "Etc/UTC", 1)
     assert page.history.from == nil and page.history.total == nil
@@ -114,6 +172,7 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert {:ok, partial} = assemble(%{p | health: incomplete, history: {:ok, %{rows: %{1 => row(1)}, health: incomplete}}})
     assert length(partial.hist) == 1 and partial.counts == nil
     assert partial.sources.history == %{state: "incomplete", reason: "backfill_pending", observed_at: now()}
+    assert partial.epic_progress["bugs"].reason == "history:backfill_pending"
   end
 
   test "catch-up preserves the older observation and open-ticket failures preserve every cause" do

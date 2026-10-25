@@ -66,6 +66,15 @@ In List view, **List shows** switches between Tickets, Features and Epics. The
 selection is kept in the `list` link parameter; `tickets` is the default and
 omitted.
 
+**Epics** groups tickets by every configured general epic whose label matchers
+match, even when a ticket belongs to a feature. A ticket can therefore count in
+more than one epic. Rows sort by remaining tickets, most first, then by name;
+the heading shows the data age and the sort order. Tickets without a matching
+epic are omitted and counted in the footer. Planned pack tickets without area
+labels are not counted. When no general epics are configured or none match,
+the list links to [`build_order.general_epics`](../reference/configuration-build-order.md#general-epics).
+Incomplete history or labels leave figures unknown rather than showing zero.
+
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
 button to open the Dependency tree overlay.

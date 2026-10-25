@@ -64,6 +64,32 @@
   min-width: 0;
 }
 
+.epic-list { max-width: 980px; margin: 0 auto; padding: 1rem; }
+.epic-list > header { display: grid; gap: .35rem; padding: .5rem 0 1rem; }
+.epic-list > header b { font-size: 1rem; }
+.epic-list > header small, .epic-list footer { color: var(--muted); font: .68rem "JetBrains Mono", monospace; }
+.ep-rows { display: grid; gap: .45rem; }
+.ep-row { display: grid; grid-template-columns: 40px minmax(150px, 1fr) minmax(100px, 1.4fr) minmax(110px, auto); align-items: center; gap: 1rem; min-height: 68px; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.ep-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.ep-row:focus-visible { outline: 2px solid var(--accent); }
+.ep-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: oklch(.75 .14 var(--h)); background: color-mix(in oklch, oklch(.65 .13 var(--h)) 13%, var(--surface-2)); }
+.ep-icon svg { width: 20px; height: 20px; }
+.ep-name b, .ep-name small, .ep-count b, .ep-count small { display: block; }
+.ep-name small, .ep-count small { color: var(--muted); font: .66rem "JetBrains Mono", monospace; }
+.ep-count { text-align: right; }
+.ep-count b { font: 700 1.25rem "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+.ep-meter { height: 14px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
+.ep-meter i { display: block; height: 100%; width: var(--pct, 0%); background: var(--good); }
+.ep-list footer { padding: 1rem 0; line-height: 1.6; }
+.bd-ep-empty { max-width: 650px; margin: 3rem auto; padding: 1.5rem; text-align: center; color: var(--muted); }
+.bd-ep-empty a { display: inline-block; margin: .8rem; color: var(--accent); }
+@media (max-width: 520px) {
+  .epic-list { padding: .6rem; }
+  .ep-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: .65rem; }
+  .ep-meter { grid-column: 1 / -1; grid-row: 2; }
+  .ep-count { grid-column: 3; grid-row: 1; }
+}
+
 /* C:742 */ .lr {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr) 150px 170px 120px 150px 64px;
@@ -444,4 +470,3 @@
     grid-template-columns: 1fr !important;
   }
 }
-

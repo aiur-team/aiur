@@ -5,6 +5,8 @@ defmodule AiurWeb.Build.Payload do
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
+  epic_progress (general-epic closed/open/total counts and observation time; incomplete figures are nil with a reason),
+  epic_progress_meta (unmatched-ticket count and observation time; nil when membership is unknown),
   features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).

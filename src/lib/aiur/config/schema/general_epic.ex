@@ -66,7 +66,8 @@ defmodule Aiur.Config.Schema.GeneralEpic do
     end
   end
 
-  defp normalize_labels(labels) do
+  @spec normalize_labels([String.t() | nil]) :: [String.t()]
+  def normalize_labels(labels) when is_list(labels) do
     labels
     |> Enum.map(fn
       nil -> ""
@@ -74,4 +75,6 @@ defmodule Aiur.Config.Schema.GeneralEpic do
     end)
     |> Enum.uniq()
   end
+
+  def normalize_labels(_labels), do: []
 end

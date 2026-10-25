@@ -12,6 +12,7 @@ import { agentState, progress, modelLabel } from './now-state.js';
 import { colKey, match } from './match.js';
 import { H, loadEarlier } from './history.js';
 import { sectionState, headNote, reasonText, ageText } from './states.js';
+import { writeURL } from './url.js';
 import { timed } from './perf.js';
 export const renderList = timed('renderList', renderListImpl);
 
@@ -36,6 +37,36 @@ export function stText(t) {
 const muted = text => '<span class="lr-mu">' + esc(text) + '</span>';
 const number = x => Number.isFinite(x) ? x : '—';
 const hue = (key, value) => Number.isFinite(value) ? ' style="' + key + ':' + value + '"' : '';
+function epicsHTML(D, P, now) {
+  const epics = Object.entries(D.epics).filter(([key, epic]) => key !== 'unsorted' && !epic.feature);
+  const progress = P.epic_progress || {}, meta = P.epic_progress_meta || {};
+  const hasMembers = epics.some(([key]) => {
+    const value = progress[key];
+    return !value || value.total == null || value.total > 0;
+  });
+  if (!epics.length || !hasMembers) {
+    return '<div class="bd-ep-empty"><b>No epics configured. Define build_order.general_epics to group tickets by area</b> <a href="/docs/reference/configuration-build-order#general-epics">Configuration reference</a></div>';
+  }
+  const rows = epics.map(([key, epic]) => {
+    const value = progress[key], unknown = !value || value.open == null || value.total == null || value.closed == null;
+    return { key, epic, value, unknown, open: unknown ? null : value.open };
+  }).sort((a, b) => a.unknown !== b.unknown ? (a.unknown ? 1 : -1) : a.unknown ? a.epic.label.localeCompare(b.epic.label) : b.open - a.open || a.epic.label.localeCompare(b.epic.label));
+  const knownTotal = rows.some(row => row.unknown) ? '—' : rows.reduce((sum, row) => sum + row.open, 0);
+  const content = rows.map(({ key, epic, value, unknown }) => {
+    const pct = unknown ? null : value.total === 0 ? 0 : Math.floor(value.closed * 100 / value.total);
+    const icon = Object.hasOwn(I, epic.icon) ? I[epic.icon] : '';
+    const reason = unknown ? reasonText(value?.reason || 'Progress unavailable') : '';
+    return '<div class="ep-row" role="row" tabindex="0" data-epic="' + esc(key) + '" aria-label="' + esc(epic.label + ', ' + (unknown ? 'progress unknown: ' + reason : value.open + ' remaining')) + '">' +
+      '<span class="ep-icon" role="cell"' + hue('--h', epic.hue) + ' aria-hidden="true">' + icon + '</span>' +
+      '<span class="ep-name" role="cell"><b>' + esc(epic.label) + '</b><small>' + esc(key) + '</small></span>' +
+      '<span class="ep-meter" role="cell" aria-label="' + esc(unknown ? 'Progress unknown: ' + reason : value.closed + ' closed of ' + value.total + ', ' + pct + '%') + '"><i aria-hidden="true"' + (unknown ? '' : ' style="--pct:' + pct + '%"') + '></i></span>' +
+      '<span class="ep-count" role="cell">' + (unknown ? '<b>—</b><small>' + esc(reason) + '</small>' : '<b>' + value.open + '</b><small>' + value.open + ' / ' + value.total + ' · ' + pct + '%</small>') + '</span></div>';
+  }).join('');
+  const age = !Number.isFinite(meta.observed_at) ? 'age unknown' : ageText({ observed_at: meta.observed_at }, now);
+  return '<div class="epic-list"><header><b>' + knownTotal + ' tickets remaining across ' + rows.length + ' epics</b><small>Data as of ' + esc(age) + '</small><small>Sorted by remaining tickets, most first; ties by name</small></header><div class="ep-rows" role="table" aria-label="Epic progress">' + content + '</div><footer>' +
+    'A ticket can count under more than one epic, so column totals can exceed the ticket count. Planned pack tickets without area labels are excluded. ' +
+    (meta.unmatched == null ? '— tickets match no epic (' + esc(reasonText(meta.reason || 'Labels incomplete')) + ')' : meta.unmatched + ' tickets match no epic') + '</footer></div>';
+}
 function progCell(t) {
   if (t.sec === 'now') {
     const p = progress(t.pct);
@@ -111,7 +142,7 @@ function renderListImpl() {
   const offset = anchor ? anchor.getBoundingClientRect().top - top : null, scroll = vp.scrollTop;
   ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
   if (S.list !== 'tickets') {
-    vp.innerHTML = '<div class="bd-list-placeholder">' + (S.list === 'features' ? 'Features' : 'Epics') + ' view is not available yet</div>';
+    vp.innerHTML = S.list === 'epics' ? epicsHTML(ctx.D, ctx.snap, nowMs()) : '<div class="bd-list-placeholder">Features view is not available yet</div>';
     vp.scrollTop = 0; bindOnce(vp); return;
   }
   vp.innerHTML = listHTML(ctx.D, S, H, ctx.snap, nowMs());
@@ -129,12 +160,17 @@ function bindOnce(vp) {
     if (S.view !== 'list') return;
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
+    const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { chooseEpic(epic.dataset.epic); return; }
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
   });
   ctx.life.on(vp, 'keydown', e => {
     if (S.view !== 'list' || e.key !== 'Enter' || e.target.matches('button')) return;
+    const epic = e.target.closest('.ep-row[data-epic]'); if (epic) { e.preventDefault(); chooseEpic(epic.dataset.epic); return; }
     const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
   });
+}
+function chooseEpic(key) {
+  S.f.epic = [key]; S.list = 'tickets'; writeURL(); fx.renderTools(); fx.renderList();
 }
 async function earlier(btn) {
   if (H.state === 'loading') return;
