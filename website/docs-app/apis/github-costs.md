@@ -4,6 +4,8 @@
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
 
+An accepted blocking decision answer is mirrored to its ticket with a stable action marker, so retries do not duplicate comments. If no agent is running, Aiur keeps the answer pending and includes it in the next session's launch prompt.
+
 Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
 
 Setting `PUT /api/v1/<ticket>/spend-cap` resolves that issue once through the existing `issue_by_id` read before it stores a repository-qualified tracker identity. Reading or clearing an existing cap is local and adds no GitHub request.
