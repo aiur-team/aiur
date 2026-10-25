@@ -37,7 +37,7 @@ defmodule AiurWeb.DashboardLiveTest do
   import AiurWeb.DashboardLiveSupport.ControlFixtures
 
   alias AiurWeb.DashboardLiveSupport.OrchestratorStubs.{CountingOrchestrator, GlobalPauseFailureOrchestrator}
-  alias AiurWeb.DashboardLiveSupport.StoreStubs.{AvailabilityStore, CountingDetailStore, StaleCountsStore, RejectingDecisionStore, RejectingRevisionStore}
+  alias AiurWeb.DashboardLiveSupport.StoreStubs.{AvailabilityStore, CountingDetailStore, RejectingDecisionStore, RejectingRevisionStore, StaleCountsStore}
 
   @endpoint AiurWeb.Endpoint
 
