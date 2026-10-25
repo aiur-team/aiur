@@ -8,18 +8,24 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
     groups = Map.get(snapshot, :merge_groups, [])
 
     starvation =
-      case MergeQueue.runner_starvation(groups, DateTime.to_unix(now, :millisecond), stale_minutes) do
+      case MergeQueue.runner_starvation(
+             groups,
+             DateTime.to_unix(now, :millisecond),
+             stale_minutes
+           ) do
         nil -> []
         diagnosis -> [runner_starvation(diagnosis, groups, snapshot, max_age_ms)]
       end
 
     stale_groups =
       groups
-      |> Enum.reject(&settled?(&1, get_in(snapshot, [:github_cache_ages, :merge_group_evidence]), max_age_ms))
+      |> Enum.reject(
+        &settled?(&1, get_in(snapshot, [:github_cache_ages, :merge_group_evidence]), max_age_ms)
+      )
       |> Enum.flat_map(fn group ->
-      age = cache_age(snapshot, value(group, :id, nil))
-      stale_merge_group(group, age, now, stale_minutes, max_age_ms)
-    end)
+        age = cache_age(snapshot, value(group, :id, nil))
+        stale_merge_group(group, age, now, stale_minutes, max_age_ms)
+      end)
 
     starvation ++ stale_groups
   end
@@ -41,7 +47,8 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
       running_runs: running_count,
       status_url: diagnosis.status_url,
       verification: verification,
-      action: "Check GitHub Actions component status and runner availability; #{verification} queue evidence.",
+      action:
+        "Check GitHub Actions component status and runner availability; #{verification} queue evidence.",
       message:
         "GitHub runner starvation: #{queued_count} merge-group runs queued, #{running_count} running; oldest queued #{duration(oldest_age)}. GitHub Actions status: #{diagnosis.status_url} (#{verification})."
     }
@@ -51,19 +58,22 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
   defp settled?(group, %{} = evidence, max_age_ms) do
     run = get_in(evidence, [:runs, value(group, :id, nil)])
 
-    match?(%{status: "completed"}, run) or unlisted?(run, Map.get(evidence, :active_listing_age_ms), max_age_ms) or
+    match?(%{status: "completed"}, run) or
+      unlisted?(run, Map.get(evidence, :active_listing_age_ms), max_age_ms) or
       ref_gone?(value(group, :head_branch, nil), Map.get(evidence, :refs), max_age_ms)
   end
 
   defp settled?(_group, _evidence, _max_age_ms), do: false
 
-  defp unlisted?(run, listing_age, max_age_ms) when is_integer(listing_age) and listing_age <= max_age_ms,
-    do: not (is_map(run) and run.age_ms <= max_age_ms)
+  defp unlisted?(run, listing_age, max_age_ms)
+       when is_integer(listing_age) and listing_age <= max_age_ms,
+       do: not (is_map(run) and run.age_ms <= max_age_ms)
 
   defp unlisted?(_run, _listing_age, _max_age_ms), do: false
 
-  defp ref_gone?(head_branch, %{refs: refs, age_ms: age}, max_age_ms) when is_binary(head_branch) and age <= max_age_ms,
-    do: "refs/heads/#{head_branch}" not in refs
+  defp ref_gone?(head_branch, %{refs: refs, age_ms: age}, max_age_ms)
+       when is_binary(head_branch) and age <= max_age_ms,
+       do: "refs/heads/#{head_branch}" not in refs
 
   defp ref_gone?(_head_branch, _refs, _max_age_ms), do: false
 
@@ -91,7 +101,8 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
       priority: 5,
       age_ms: age,
       action: action,
-      message: "Merge group #{value(group, :name, "?")} is #{group_state(group)} for #{duration(age)}; #{verification} (GitHub cache age: #{cache_age(cache_age_ms)}).",
+      message:
+        "Merge group #{value(group, :name, "?")} is #{group_state(group)} for #{duration(age)}; #{verification} (GitHub cache age: #{cache_age(cache_age_ms)}).",
       merge_group: value(group, :name, nil),
       cache_age_ms: cache_age_ms,
       verification: verification
