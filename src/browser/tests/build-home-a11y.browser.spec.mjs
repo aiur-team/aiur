@@ -24,7 +24,8 @@ async function open(page, dataset = 'live', view = 'graph', mode = 'read_only') 
 test('overlap selectors resolve only to actual card interiors', async ({ page }) => {
   await page.setContent('<svg id="bd-edges"></svg><div class="bd-card" data-id="607">' +
     '<div class="bd-in" title="#607 · Card"><span id="inside">Text</span></div></div>' +
-    '<div title="#608 · Unrelated">Text</div>')
+    '<div title="#608 · Unrelated">Text</div><div id="bd-lanes"><button class="bd-lx">' +
+    '<svg id="lane-icon"></svg></button></div><svg id="unrelated-icon"></svg>')
   const input = { violations: [], incomplete: [{ id: 'color-contrast', nodes: [{ target: ['#inside'],
     any: [{ data: { messageKey: 'imgNode' }, relatedNodes: [
       { target: ['#bd-edges'] }, { target: ['div[title="#607 · Card"]'] }
@@ -37,6 +38,11 @@ test('overlap selectors resolve only to actual card interiors', async ({ page })
   input.incomplete[0].nodes[0].any[0].relatedNodes[1].target = ['div[title="#608 · Unrelated"]']
   const unrelated = await canonicalBoardOverlaps(page, input)
   expect(() => expectAuditClean(boardAudit(unrelated))).toThrow()
+  const check = input.incomplete[0].nodes[0].any[0]
+  check.relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['#lane-icon'] }]
+  expectAuditClean(boardAudit(await canonicalBoardOverlaps(page, input)))
+  check.relatedNodes[1].target = ['#unrelated-icon']
+  expect(() => expectAuditClean(boardAudit(input))).toThrow()
 })
 
 test('cards expose complete names and a single roving button stop', async ({ page }) => {

@@ -121,3 +121,14 @@ test('short-text baseline requires its measured ratio and exact node and cause',
   input.incomplete[0].nodes[0].any[0].data.messageKey = 'unknown-cause'
   assert.throws(() => expectAuditClean(recordContrastBaselines(input, { dataset: 'unknowns' }, measured).audit))
 })
+
+test('lane-icon background overlap requires the exact header-owned SVG', () => {
+  const input = audit('imgNode')
+  const check = input.incomplete[0].nodes[0].any[0]
+  check.relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['#bd-lanes .bd-lx > svg'] }]
+  expectAuditClean(boardAudit(input))
+  for (const target of ['.bd-lx > svg', '#unrelated svg', '#bd-edges + svg']) {
+    check.relatedNodes[1].target = [target]
+    assert.throws(() => expectAuditClean(boardAudit(input)))
+  }
+})

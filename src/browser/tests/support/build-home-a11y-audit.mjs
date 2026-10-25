@@ -14,6 +14,8 @@ function overlapCheck(check) {
   if (key === 'pseudoContent') return related.length > 0 && related.every(target => target === '#bd-now')
   if (!['imgNode', 'shortTextContent'].includes(key)) return false
   const targets = (check.relatedNodes ?? []).map(node => node.target.join(''))
+  if (key === 'imgNode' && targets.includes('#bd-lanes') && targets.includes('#bd-lanes .bd-lx > svg') &&
+    targets.every(target => ['#bd-lanes', '#bd-lanes .bd-lx > svg'].includes(target))) return true
   const card = target => /^div\[data-id="[^"]+"\] > \.bd-in(?: > [\w.#:[\]=" -]+)*$/.test(target)
   return targets.includes('#bd-edges') && targets.every(target => ['#bd-edges', '#bd-lanes'].includes(target) || (key === 'imgNode' && card(target)))
 }
@@ -41,6 +43,7 @@ export async function canonicalBoardOverlaps(page, audit) {
   const mapping = await page.evaluate(selectors => Object.fromEntries(selectors.map(selector => {
     const nodes = document.querySelectorAll(selector)
     const node = nodes.length === 1 ? nodes[0] : null
+    if (node?.matches('#bd-lanes .bd-lx > svg')) return [selector, '#bd-lanes .bd-lx > svg']
     const interior = node?.closest('.bd-in')
     const card = interior?.parentElement
     return [selector, card?.matches('.bd-card[data-id]') ?
