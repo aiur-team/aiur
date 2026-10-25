@@ -134,7 +134,9 @@ defmodule Aiur.Orchestrator.EventTopics do
     opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
       pr_body: Map.get(pr, "body"),
+      commit_messages: Map.get(pr, "commit_messages", []),
       pr_url: Map.get(pr, "html_url"),
+      repository: Map.get(event, :repository) || get_in(pr, ["base", "repo", "full_name"]),
       head_sha: get_in(pr, ["head", "sha"])
     ]
 
