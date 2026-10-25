@@ -232,6 +232,37 @@ defmodule VoiceConverse.TranscriptIndexTest do
     assert {:ok, [%{end_reason: "daemon_restart"}], nil} = TranscriptIndex.list(root, limit: 10)
   end
 
+  test "boot reconciliation skips corrupt transcripts and reports them", %{root: root} do
+    store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
+
+    :ok =
+      TranscriptStore.append(store, %{
+        type: "session_ended",
+        reason: "user_end",
+        at: "2026-10-24T10:02:00Z",
+        duration_s: 120
+      })
+
+    :ok = TranscriptStore.close(store)
+    :ok = File.write(Path.join(root, @second_id <> ".ndjson"), ~s({"type":"user_turn"}\n))
+
+    assert {:ok, %{reconciled: 0, errors: [{@second_id, :missing_session_started}]}} =
+             TranscriptIndex.reconcile(root)
+
+    instance = String.to_atom("VoiceConverseIndex#{System.unique_integer([:positive])}")
+
+    start_supervised!(
+      VoiceConverse.child_spec(
+        name: instance,
+        transcript_root: root,
+        credentials: StaticCredentials,
+        briefing_source: FakeBriefingSource
+      )
+    )
+
+    assert {:ok, [%{conversation_id: @id}], nil} = TranscriptIndex.list(root, limit: 10)
+  end
+
   defp get_all(root, id, cursor, acc) do
     assert {:ok, records, next_cursor} = TranscriptIndex.get(root, id, after: cursor, limit: 137)
     acc = acc ++ records

@@ -10,21 +10,24 @@ defmodule VoiceConverse.TranscriptIndex.Reconciler do
     enqueue = Keyword.get(opts, :enqueue, &ProviderCleanup.enqueue/2)
     warn_if_index_is_torn(root)
 
-    with {:ok, conversations} <- Transcripts.all(root) do
-      {count, errors} =
+    with {:ok, conversations, scan_errors} <- Transcripts.all_with_errors(root) do
+      {count, reconciliation_errors} =
         Enum.reduce(conversations, {0, []}, fn conversation, {count, errors} ->
           if conversation.end_reason do
             {count, errors}
           else
             {result, new_errors} = close_crashed(root, conversation, enqueue)
-            {count + if(result == :ok, do: 1, else: 0), new_errors ++ maybe_error(result, errors)}
+
+            errors = new_errors ++ maybe_error(conversation.conversation_id, result, errors)
+            {count + if(result == :ok, do: 1, else: 0), errors}
           end
         end)
 
+      errors = scan_errors ++ Enum.reverse(reconciliation_errors)
       Enum.each(errors, &Logger.warning("voice transcript reconciliation failed: #{inspect(&1)}"))
 
       case IndexFile.rebuild(root) do
-        :ok -> {:ok, %{reconciled: count, errors: Enum.reverse(errors)}}
+        :ok -> {:ok, %{reconciled: count, errors: errors}}
         {:error, reason} -> {:error, reason}
       end
     end
@@ -61,8 +64,8 @@ defmodule VoiceConverse.TranscriptIndex.Reconciler do
     }
   end
 
-  defp maybe_error(:ok, errors), do: errors
-  defp maybe_error({:error, reason}, errors), do: [reason | errors]
+  defp maybe_error(_conversation_id, :ok, errors), do: errors
+  defp maybe_error(conversation_id, {:error, reason}, errors), do: [{conversation_id, reason} | errors]
 
   defp warn_if_index_is_torn(root) do
     case IndexFile.read(root) do

@@ -6,24 +6,25 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
   @id_regex ~r/\Avc_[A-Za-z0-9_-]{22}\.ndjson\z/
 
   def all(root) do
+    with {:ok, conversations, _errors} <- all_with_errors(root), do: {:ok, conversations}
+  end
+
+  def all_with_errors(root) do
     case File.ls(root) do
       {:ok, entries} ->
         entries
         |> Enum.filter(&Regex.match?(@id_regex, &1))
         |> Enum.map(&String.trim_trailing(&1, ".ndjson"))
-        |> Enum.reduce_while({:ok, []}, fn id, {:ok, conversations} ->
+        |> Enum.reduce({[], []}, fn id, {conversations, errors} ->
           case conversation(root, id) do
-            {:ok, item} -> {:cont, {:ok, [item | conversations]}}
-            {:error, reason} -> {:halt, {:error, reason}}
+            {:ok, item} -> {[item | conversations], errors}
+            {:error, reason} -> {conversations, [{id, reason} | errors]}
           end
         end)
-        |> then(fn
-          {:ok, conversations} -> {:ok, Enum.reverse(conversations)}
-          error -> error
-        end)
+        |> then(fn {conversations, errors} -> {:ok, Enum.reverse(conversations), Enum.reverse(errors)} end)
 
       {:error, :enoent} ->
-        {:ok, []}
+        {:ok, [], []}
 
       {:error, reason} ->
         {:error, reason}
