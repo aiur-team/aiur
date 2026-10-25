@@ -19,9 +19,7 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
 
     stale_groups =
       groups
-      |> Enum.reject(
-        &settled?(&1, get_in(snapshot, [:github_cache_ages, :merge_group_evidence]), max_age_ms)
-      )
+      |> Enum.reject(&settled?(&1, get_in(snapshot, [:github_cache_ages, :merge_group_evidence]), max_age_ms))
       |> Enum.flat_map(fn group ->
         age = cache_age(snapshot, value(group, :id, nil))
         stale_merge_group(group, age, now, stale_minutes, max_age_ms)
@@ -47,8 +45,7 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
       running_runs: running_count,
       status_url: diagnosis.status_url,
       verification: verification,
-      action:
-        "Check GitHub Actions component status and runner availability; #{verification} queue evidence.",
+      action: "Check GitHub Actions component status and runner availability; #{verification} queue evidence.",
       message:
         "GitHub runner starvation: #{queued_count} merge-group runs queued, #{running_count} running; oldest queued #{duration(oldest_age)}. GitHub Actions status: #{diagnosis.status_url} (#{verification})."
     }
@@ -101,8 +98,7 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
       priority: 5,
       age_ms: age,
       action: action,
-      message:
-        "Merge group #{value(group, :name, "?")} is #{group_state(group)} for #{duration(age)}; #{verification} (GitHub cache age: #{cache_age(cache_age_ms)}).",
+      message: "Merge group #{value(group, :name, "?")} is #{group_state(group)} for #{duration(age)}; #{verification} (GitHub cache age: #{cache_age(cache_age_ms)}).",
       merge_group: value(group, :name, nil),
       cache_age_ms: cache_age_ms,
       verification: verification
