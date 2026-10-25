@@ -57,14 +57,19 @@ defmodule AiurEngineCommandsTest do
   test "legacy usage commands print a deprecation line and route to the shared CLI" do
     aliases = [
       {"accounts", "aiur usage", "", "Aiur.Usage.CLI.legacy_accounts(false, nil)"},
-      {"accounts", "aiur usage", "claude --json", "Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!(\"Y2xhdWRl\"))"},
-      {"github-cost", "aiur usage github", "", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), false)"},
-      {"github-usage", "aiur usage github", "--json", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), true)"},
+      {"accounts", "aiur usage", "kimi --json", "Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!(\"a2ltaQ==\"))"},
+      {"github-cost", "aiur usage github", "--budget core --format records", "Aiur.AgentControlCLI.github_cost([budget: \"core\", format: :records])"},
+      {"github-usage", "aiur usage github", "--json", "Aiur.AgentControlCLI.github_usage([json: true])"},
       {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.TicketUsageCLI.rpc(Base.decode64!(\"NTY5Mg==\"), json: true)"}
     ]
 
     for {command, replacement, args, expression} <- aliases do
-      {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\nusage_alias #{command} #{args}|, [])
+      {out, 0} =
+        run_sourced_engine(
+          ~s|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf up; }; run_control_rpc() { echo "RPC:$1"; }\nusage_alias #{command} #{args}|,
+          []
+        )
+
       assert out =~ "deprecated; use '#{replacement}'"
       assert out =~ "RPC:#{expression}"
     end

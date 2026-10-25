@@ -75,6 +75,7 @@ defmodule Aiur.ControlCallTest do
     assert {:ok, %{scope: :write}} = ControlCall.parse("Aiur.AgentControlCLI.executor_wait(timeout_ms: 300000, json: true)")
     assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.executor_roster(json: true)")
     assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.status()")
+    assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.TicketUsageCLI.rpc(\"5692\", [])")
     assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.watch(mode: :full)")
     assert {:ok, %{scope: :write}} = ControlCall.parse("Aiur.AgentControlCLI.watch()")
     assert {:ok, %{scope: :read}} = ControlCall.parse("Aiur.AgentControlCLI.queue([])")
@@ -99,10 +100,7 @@ defmodule Aiur.ControlCallTest do
 
     for expression <- [
           "Aiur.AgentControlCLI.usage()",
-          "Aiur.AgentControlCLI.github_cost()",
-          "Aiur.AgentControlCLI.github_usage()",
-          "Aiur.AgentControlCLI.accounts(true)",
-          "Aiur.TicketUsageCLI.rpc(\"5692\", [])"
+          "Aiur.AgentControlCLI.accounts(true)"
         ] do
       assert {:error, :denied_remote} = ControlCall.parse(expression), expression
     end

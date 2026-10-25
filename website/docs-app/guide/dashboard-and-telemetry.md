@@ -181,7 +181,7 @@ Errors use the `{"error":{"code":…,"message":…}}` shape.
 | `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
 | `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
 
-The compatibility command `aiur ticket-usage <ticket> --json` now reads the aggregate provider snapshot through `aiur usage ticket`; it does not print this per-ticket payload.
+The deprecated `aiur ticket-usage <ticket> --json` command keeps its per-ticket ledger report. `aiur usage ticket` is the aggregate provider snapshot, not a per-ticket report.
 
 ### Ticket progress API
 

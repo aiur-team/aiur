@@ -79,6 +79,24 @@ defmodule AiurEngineControlRpcTest do
     assert missing_marker_output =~ "CODE=1"
   end
 
+  test "accounts falls back to local identity rendering when the daemon is down" do
+    trace = Path.join(tmp_state(), "accounts-init-order.txt")
+    File.mkdir_p!(Path.dirname(trace))
+
+    {out, 0} =
+      run_sourced_engine(
+        ~S|resolve_release() { printf 'resolve_release\n' >> "$AIUR_ACCOUNTS_TRACE"; }; prepare_distribution() { printf 'prepare_distribution\n' >> "$AIUR_ACCOUNTS_TRACE"; }; resolve_control_identity_from_records() { printf 'resolve_control_identity_from_records\n' >> "$AIUR_ACCOUNTS_TRACE"; }; probe_node_liveness() { printf 'probe_node_liveness\n' >> "$AIUR_ACCOUNTS_TRACE"; printf down; }; run_control_rpc() { printf 'RPC:%s\n' "$1"; }; run_local_cli() { printf 'LOCAL:%s\n' "$*"; }; usage_alias accounts --json|,
+        [{"AIUR_ACCOUNTS_TRACE", trace}]
+      )
+
+    assert out =~ "LOCAL:accounts --json"
+
+    assert File.read!(trace) ==
+             "resolve_release\nprepare_distribution\nresolve_control_identity_from_records\nprobe_node_liveness\n"
+
+    refute out =~ "RPC:"
+  end
+
   test "streaming control rpc reports a stopped daemon" do
     rel = fake_release()
     state = tmp_state()

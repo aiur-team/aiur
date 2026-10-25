@@ -176,6 +176,21 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanelTest do
     assert html =~ "usage observed 1200s ago"
   end
 
+  test "the model usage card labels an unknown observation age" do
+    usage = %Aiur.Usage.Provider.Codex{
+      provider: :codex,
+      freshness: :unknown,
+      age_ms: nil,
+      observed_at: nil,
+      source: "provider_meter_projection",
+      fields: %{}
+    }
+
+    html = render([card(:codex, [window("codex:session", "Session", 40, 3_600)], %{usage: usage})])
+
+    assert html =~ "usage age unknown"
+  end
+
   # A cached re-serve under the cutoff is what `aiur accounts` calls
   # `cached`, not `stale`; the panel must not dim it either.
   test "a cached account line under the cutoff is not dimmed" do

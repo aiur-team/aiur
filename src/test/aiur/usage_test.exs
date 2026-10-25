@@ -141,10 +141,32 @@ defmodule Aiur.UsageTest do
     GenServer.stop(alerts)
   end
 
-  defp meter_snapshot(used_percent) do
+  test "stale and unknown snapshots do not trigger usage alerts" do
+    test_pid = self()
+
+    {:ok, alerts} =
+      Alerts.start_link(
+        name: nil,
+        thresholds: %{codex: 10},
+        emit: fn topic, opts ->
+          send(test_pid, {topic, opts[:message]})
+          :ok
+        end
+      )
+
+    for freshness <- [:stale, :unknown] do
+      send(alerts, {:provider_meter_changed, meter_snapshot(99, freshness)})
+      refute_receive {"system.usage.codex.low", _message}, 50
+      refute_receive {"system.usage.codex.resolved", _message}, 50
+    end
+
+    GenServer.stop(alerts)
+  end
+
+  defp meter_snapshot(used_percent, freshness \\ :fresh) do
     %Aiur.ProviderMeterSnapshot{
       provider: :codex,
-      freshness: :fresh,
+      freshness: freshness,
       windows: %{"session" => %{used_percent: used_percent}}
     }
   end

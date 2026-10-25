@@ -32,6 +32,14 @@ usage_alias() {
   esac
   echo "aiur: '$command' is deprecated; use '$replacement'" >&2
 
+  # Keep the established GitHub reports during the deprecation release. They
+  # expose rankings and the budget/format selectors that the shared snapshot
+  # intentionally does not model.
+  case "$command" in
+    github-cost) cmd_github_cost "$@"; return ;;
+    github-usage) cmd_github_usage "$@"; return ;;
+  esac
+
   for arg in "$@"; do
     case "$arg" in
       --json)
@@ -55,11 +63,12 @@ usage_alias() {
 
   if [ "$command" = accounts ]; then
     [ "$all" = false ] || [ -z "$positional" ] || die "accounts cannot combine --all with a harness filter"
-    if [ -n "$positional" ]; then
-      case "$positional" in claude|codex) ;; *) die "accounts accepts a Claude or Codex harness filter" ;; esac
-    fi
-
     # Keep the old account rows and harness filter during the deprecation release.
+    if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
+      resolve_release || return $?
+      prepare_distribution || die "distribution setup failed; cannot contact aiur"
+      resolve_control_identity_from_records
+    fi
     if [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$(probe_node_liveness)" = "down" ]; then
       run_local_cli accounts "$@"
       return

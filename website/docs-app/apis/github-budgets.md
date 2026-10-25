@@ -75,9 +75,59 @@ again.
 ### Where the budget went
 
 `aiur usage github` exposes the daemon's observed quota windows and
-reconciliation fields in the shared usage envelope. The legacy `github-cost`
-command forwards to this provider; caller rankings and budget/format filters
-are no longer part of that CLI output.
+reconciliation fields in the shared usage envelope. The deprecated
+`aiur github-cost` command retains its caller ranking and `--budget` and
+`--format` selectors; `aiur github-usage` retains its per-actor broker report.
+
+`aiur github-cost` says which code path spent it, ranked by points and by points per hour, for one budget at a time.
+
+| Column | What it means |
+| --- | --- |
+| `CALLER` | The code path that issued the call, not the ticket it was issued for. A batch query naming 33 tickets is one poller, so it is one row. |
+| `POINTS` | What the calls cost the budget in the current window. |
+| `POINTS/HR` | The rate the caller is running at, extrapolated from the elapsed part of the window rather than a whole hour. `unknown` when too little of the window has elapsed to extrapolate from. |
+| `SOURCE` | `reported` when GitHub priced the call itself through a `rateLimit { cost }` selection in the query, `estimated` when it did not and the call is counted at one point. GraphQL queries are instrumented automatically; mutations and REST calls are counted per request. |
+
+Below the ranking, one reconciliation line per budget compares the sum of the
+rows against `limit - remaining` on the credential's own window:
+
+| Line | What to do |
+| --- | --- |
+| `reconciles` | The ranking accounts for the window's spend. |
+| `N points unattributed (spend outside this process)` | Expected. Anything else using the same credential — a shell `gh` call, another Aiur instance — is spend this process never saw. It bounds how much of the window the ranking explains. |
+| `DOES NOT reconcile — attributed more than was spent` | A double count in the accounting. Points cannot be spent twice, so this is a defect worth reporting. |
+| `not measurable` | No window has been observed yet. Not the same as zero spend. |
+
+The command reads the meter the daemon already keeps and issues no GitHub
+request of its own, so checking it is free.
+
+### Reading these numbers without fooling yourself
+
+Three traps have each cost a run more than an hour. All three produce a figure
+that looks like a leak and is not.
+
+**A daemon restart invalidates reconciliation for the rest of the window.**
+
+The daemon's attribution window restarts with the process; GitHub's does not.
+Points spent before the restart stay in `limit - remaining` and appear in no row of the ranking.
+
+So the unattributed figure is inflated by exactly that much until the GitHub
+window rolls. Wait for the reset before comparing attribution against the credential's window.
+
+**The unattributed figure is not a leak.**
+
+As the table above says, it is expected. It counts anything sharing the
+credential that this process did not issue: a shell `gh` call, a script minting
+its own installation token, another Aiur instance.
+
+A monitoring loop sampling the API on the same credential *is itself* unattributed spend, so an investigation can widen the gap it is measuring. Baseline with the fleet quiet and your own tooling stopped.
+
+**Agent `gh` calls do not bill the daemon's credential.**
+
+Agents hold the bot PAT; the daemon under App auth holds an installation token.
+Separate budgets, separate windows.
+
+An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and never spends the App pool. Agent activity correlating with App-pool spend means something else scales with the fleet.
 
 GitHub's window is credential-wide, while daemon attribution covers only calls
 observed since that daemon process started. A restart can therefore leave spend

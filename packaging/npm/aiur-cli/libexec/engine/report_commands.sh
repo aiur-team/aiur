@@ -119,6 +119,53 @@ cmd_analytics() {
   run_control_rpc "Aiur.AgentControlCLI.analytics([$opts])"
 }
 
+# `aiur github-cost` — GitHub API spend ranked by the call site that caused it,
+# in points per hour, with reconciliation against the credential's own `used`
+# figure. Read-only; it reads the meter the daemon already keeps.
+cmd_github_cost() {
+  local budget="graphql" format="" json=0 arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --budget) [ "$#" -gt 1 ] || { echo "aiur: github-cost --budget requires a value" >&2; exit 64; }; shift; budget="$1" ;;
+      --budget=*) budget="${arg#--budget=}" ;;
+      --format) [ "$#" -gt 1 ] || { echo "aiur: github-cost --format requires a value" >&2; exit 64; }; shift; format="$1" ;;
+      --format=*) format="${arg#--format=}" ;;
+      --json) json=1 ;;
+      -*) echo "aiur: github-cost received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: github-cost does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  case "$budget" in graphql|core|all) ;; *) echo "aiur: github-cost --budget accepts graphql, core or all" >&2; exit 64 ;; esac
+  case "$format" in ""|auto|table|records) ;; *) echo "aiur: github-cost --format accepts auto, table or records" >&2; exit 64 ;; esac
+
+  local opts="budget: \"$budget\""
+  [ -z "$format" ] || opts="$opts, format: :$format"
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  run_control_rpc "Aiur.AgentControlCLI.github_cost([$opts])"
+}
+
+# `aiur github-usage` — per-actor Core/GraphQL usage from the shared broker.
+cmd_github_usage() {
+  local json=0 arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=1 ;;
+      -*) echo "aiur: github-usage received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: github-usage does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  local opts=""
+  [ "$json" -eq 1 ] && opts="json: true"
+  run_control_rpc "Aiur.AgentControlCLI.github_usage([$opts])"
+}
+
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
