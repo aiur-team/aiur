@@ -90,12 +90,11 @@ The Units Models panel shows provider usage from the shared provider read model.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
 
-When `netlify.enabled` is true, the dashboard shows Netlify estimated credits,
-runway and observation age. The estimate starts from the latest audit balance
-anchor and subtracts estimated production deploy and bandwidth burn; it can
-under-count actual usage. Missing anchors display as unavailable. Read the same
-snapshot with `aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`.
-Set `NETLIFY_AUTH_TOKEN` and `netlify.account_id` to enable polling.
+With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
+The estimate subtracts deploy and bandwidth burn from the latest audit balance
+anchor and can under-count usage. Missing anchors are unavailable. Read it with
+`aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`. Configure
+`NETLIFY_AUTH_TOKEN` and `netlify.account_id` to enable polling.
 
 ### Shared GitHub quota
 

@@ -301,7 +301,7 @@ environment-variable equivalents; the check also stays silent in CI runs.
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
 
-## usage
+## usage and netlify
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
 | --- | --- | --- | --- |
 | `usage.alerts` | map | %{} | Per-provider low-usage alert thresholds; each threshold is remaining percent from 0 to 100. |
