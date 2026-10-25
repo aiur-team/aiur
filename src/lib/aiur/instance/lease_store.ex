@@ -1,6 +1,7 @@
 defmodule Aiur.Instance.LeaseStore do
   @moduledoc "Shared ticket leases and instance heartbeats backed by PostgreSQL."
   use GenServer
+  use Aiur.Instance.LeaseStore.Delegates
 
   require Logger
 
@@ -171,32 +172,6 @@ defmodule Aiur.Instance.LeaseStore do
   @doc "Returns unexpired ticket keys held by the current instance."
   @spec owned_tickets(keyword()) :: {:ok, [String.t()]} | {:error, term()}
   def owned_tickets(opts \\ []), do: request(opts, :owned_tickets)
-  defdelegate claim_leader(repository, opts \\ []), to: RepositoryLease
-  defdelegate renew_leader(repository, opts \\ []), to: RepositoryLease
-  defdelegate leader(repository, opts \\ []), to: RepositoryLease
-  defdelegate leader_owned?(repository, opts \\ []), to: RepositoryLease
-  defdelegate repository_key(repository \\ nil), to: RepositoryLease
-
-  defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points, opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate release_github_budget(lease_id), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate release_github_budget(lease_id, opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate publish_github_budget_hold(credential_key, resource, until_at), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate publish_github_budget_hold(credential_key, resource, until_at, opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate github_budget_hold(credential_key, resource), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate github_budget_hold(credential_key, resource, opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate publish_provider_meter(snapshot), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate publish_provider_meter(snapshot, opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate shared_provider_meter(provider), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate shared_provider_meter(provider, opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate publish_github_quota_snapshot(snapshot), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate publish_github_quota_snapshot(snapshot, opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate github_quota_snapshots(), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate github_quota_snapshots(opts), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate budget_coordination_status(), to: Aiur.Instance.LeaseStore.SharedState
-  defdelegate budget_coordination_status(opts), to: Aiur.Instance.LeaseStore.SharedState
-
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
