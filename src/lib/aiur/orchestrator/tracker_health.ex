@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Config, Signal}
   alias Aiur.GitHub.{Access, Listeners}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -360,7 +360,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   defp emit_github_connectivity_alert(alert) do
     message = Access.connectivity_alert_message(alert, repo: Aiur.GitHub.Config.repo())
 
-    Alerts.emit_custom("system.github.connectivity_lost", message,
+    Signal.agent_alert("system.github.connectivity_lost", message,
       reason: message,
       needs_attention: true,
       severity: "warning"

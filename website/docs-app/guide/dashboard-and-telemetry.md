@@ -232,6 +232,28 @@ Errors use the `{"error":{"code":…,"message":…}}` shape.
 
 The deprecated `aiur ticket-usage <ticket> --json` command keeps its per-ticket ledger report. `aiur usage ticket` is the aggregate provider snapshot, not a per-ticket report.
 
+### Per-ticket spend caps
+
+`PUT /api/v1/<ticket>/spend-cap` with `{"amount":"1.25","currency":"USD"}` sets an exact USD cap for one GitHub issue. `GET` reads it and `DELETE` clears it.
+
+Reads and writes use the repository-qualified tracker identity, so a same-numbered issue in another repository never shares the cap or spend. Writes require dashboard authentication, the normal same-origin `X-Aiur-Request: 1` protection, and a writable dashboard.
+
+The read payload uses `contract: "aiur.ticket_spend_cap"` and `contract_version: 1`. It reports decimal-string `cap_amount`, known `spent_amount`, non-negative `remaining_amount`, pricing coverage and authority, and effect status.
+
+Spend is the known USD API-equivalent amount from the same usage aggregate as the usage API. With partial pricing coverage, enforcement continues against known spend, the read payload reports `coverage.status: "partial"`, and Aiur opens an operator attention.
+
+Unknown cost is never turned into zero, so the cap is not a guaranteed hard ceiling until coverage becomes complete.
+
+If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce the cap again. Aiur does not stop an already-running agent merely because accounting became unavailable.
+
+There is no cap-specific grace timer for that case; the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
+
+When known spend reaches the cap, Aiur persists `state` and `end_state` as `budget_exhausted` before stopping that ticket's agent. It then publishes `ticket.<id>.usage.spend_cap_reached` with contract `aiur.ticket_spend_cap_reached` version 1 and transitions the ticket to terminal state `agent:budget-exhausted`.
+
+The persisted exhaustion fence prevents redispatch while those effects complete or retry. An exhausted cap cannot be raised to restart work, and it cannot be cleared until the terminal tracker transition succeeds. Clearing it later does not reopen the closed ticket.
+
+The TypeScript types, JSON Schemas, and golden fixtures for both payloads live in `@aiur/contracts` as `TicketSpendCap` and `TicketSpendCapReached`.
+
 ### Ticket progress API
 
 `GET /api/v1/<issue_identifier>/progress[?limit=N]` returns one ticket's current

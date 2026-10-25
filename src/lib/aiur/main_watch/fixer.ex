@@ -178,7 +178,7 @@ defmodule Aiur.MainWatch.Fixer do
   @spec alert(String.t(), map(), keyword()) :: :ok
   def alert(topic, payload, opts) do
     Keyword.get(opts, :fixer_alert, fn topic, payload ->
-      Aiur.Alerts.emit_system(topic, message: "Base CI fixer: #{inspect(payload)}", durable: true, needs_attention: true, exchange_payload: payload)
+      Aiur.Signal.alert(topic, message: "Base CI fixer: #{inspect(payload)}", durable: true, needs_attention: true, exchange_payload: payload)
     end).(
       topic,
       payload

@@ -22,7 +22,7 @@ defmodule Aiur.GitHub.Labels do
 
   # Agent lifecycle state suffixes the orchestrator manages. Test-reset cleanup
   # consumes `state_labels/1` directly so this remains the single source.
-  @state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
+  @state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled budget-exhausted)
   @reason_modifier_suffixes ~w(merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent retrying blocked handed-off)
   @runtime_reason_modifiers %{
     usage_limit_exhausted: "paused-usage-limit",
@@ -262,6 +262,7 @@ defmodule Aiur.GitHub.Labels do
   defp state_description("done"), do: "completed"
   defp state_description("error"), do: "agent hit an error"
   defp state_description(state) when state in ~w(cancelled canceled), do: "work cancelled"
+  defp state_description("budget-exhausted"), do: "ticket spend cap exhausted"
   defp state_description(other), do: other
 
   @doc """

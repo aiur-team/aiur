@@ -23,6 +23,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.Orchestrator.WorkspaceCleanup
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
+  alias Aiur.Signal
 
   @non_closing_merge_state "needs-triage"
   @max_closing_refreshes 10
@@ -229,13 +230,13 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   defp emit_merge_alert(name, opts) do
     {message, alert_opts} = Keyword.pop!(opts, :message)
-    Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+    Signal.agent_alert(name, message, Keyword.put(alert_opts, :event_source, :system))
   end
 
   defp emit_merge_terminal_write_failed_alert(identifier, reason) do
     reason = MergeTransition.reason_name(reason)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
       "Merged PR could not transition ticket #{identifier} to done (#{reason}).",
       issue: identifier,
