@@ -1,14 +1,16 @@
 defmodule Aiur.Orchestrator.AgentTeardown do
   @moduledoc """
-  Owns orchestrator AgentTeardown behavior.
-  All functions execute inside the orchestrator GenServer process.
+  Owns orchestrator teardown behavior.
+
+  State-mutating functions execute inside the orchestrator GenServer process.
+  Supervised shell cleanup helpers may be scheduled by an API observer.
   """
 
   require Logger
 
   alias Aiur.AgentPubSub
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TokenAccounting, TrackedSet, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TicketTransition, TokenAccounting, TrackedSet, TrackerTasks, WorkspaceCleanup}
   alias Aiur.ProcessTree
   alias Aiur.Tmux.Socket
 
@@ -22,15 +24,22 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec close_active_chat_streams(String.t(), term()) :: :ok
   def close_active_chat_streams(identifier, reason) when is_binary(identifier) do
-    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
+    active_turn_ids(identifier)
+    |> Enum.each(fn aiur_turn_id ->
       AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
       ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
-    end
+    end)
 
     :ok
   end
 
   def close_active_chat_streams(_identifier, _reason), do: :ok
+
+  defp active_turn_ids(identifier) do
+    ActiveTurns.active_turn_ids(identifier)
+  rescue
+    ArgumentError -> []
+  end
 
   defp terminate_reason(true), do: :terminal
   defp terminate_reason(false), do: :replaced
@@ -38,7 +47,24 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
+    terminate_running_issue(state, issue_id, cleanup_workspace, terminate_reason(cleanup_workspace), :inline)
+  end
+
+  @doc false
+  @spec terminate_running_issue(State.t(), String.t(), boolean(), term()) :: State.t()
+  def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace, stop_reason) do
+    terminate_running_issue(state, issue_id, cleanup_workspace, stop_reason, :inline)
+  end
+
+  @doc false
+  @spec terminate_cancelled_issue(State.t(), String.t()) :: State.t()
+  def terminate_cancelled_issue(%State{} = state, issue_id) do
+    terminate_running_issue(state, issue_id, true, terminate_reason(true), :supervised)
+  end
+
+  defp terminate_running_issue(%State{} = state, issue_id, cleanup_workspace, stop_reason, repl_cleanup) do
     state = CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
+    state = clear_transient_reason_labels(state, issue_id)
 
     case Map.get(state.running, issue_id) do
       nil ->
@@ -51,7 +77,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # `terminate_task/1` brutally kills the runner task, skipping the
         # `after stop_session` cleanup — kill the tracked REPL pane + pid
         # here so neither orphans on abort/terminal-state teardown.
-        kill_repl_session(running_entry)
+        cleanup_repl_session(running_entry, repl_cleanup)
 
         # Close any open chat-completion SSE streams BEFORE killing the
         # task. `terminate_task/1` brutally kills the AgentRunner,
@@ -60,7 +86,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # old `aiur_turn_id` and miss every event the next-dispatched
         # agent emits. The Executor sees an empty chat pane until the
         # 10-minute watchdog fires.
-        close_active_chat_streams(identifier, terminate_reason(cleanup_workspace))
+        close_active_chat_streams(identifier, stop_reason)
 
         if is_pid(pid) do
           terminate_task(pid)
@@ -94,6 +120,35 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     end
   end
 
+  defp cleanup_repl_session(running_entry, :inline), do: kill_repl_session(running_entry)
+
+  defp cleanup_repl_session(running_entry, :supervised),
+    do: schedule_cancelled_shell_cleanup(running_entry)
+
+  @doc false
+  @spec schedule_cancelled_shell_cleanup(map()) :: :ok
+  def schedule_cancelled_shell_cleanup(running_entry) when is_map(running_entry) do
+    cleanup = fn ->
+      _ = reap_orphaned_agent_shell(running_entry)
+      kill_repl_session(running_entry)
+    end
+
+    case start_repl_cleanup(cleanup) do
+      {:ok, _pid} ->
+        :ok
+
+      _unavailable ->
+        _ = Task.start(cleanup)
+        :ok
+    end
+  end
+
+  defp start_repl_cleanup(cleanup) do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, cleanup)
+  catch
+    :exit, _reason -> {:error, :unavailable}
+  end
+
   # Mirrors `terminate_running_issue/3`'s task-teardown half (kill the
   # codex pid, demonitor the ref) but KEEPS the entry in `state.running`
   # with `control.status: :deactivated` and `pid: nil`. The row stays
@@ -106,6 +161,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   # `:deactivated` is not).
   @spec deactivate_running_issue(State.t(), term()) :: State.t()
   def deactivate_running_issue(%State{} = state, issue_id) do
+    state = clear_transient_reason_labels(state, issue_id)
+
     case Map.get(state.running, issue_id) do
       nil ->
         state
@@ -172,6 +229,35 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   end
 
   @doc false
+  @spec clear_transient_reason_labels(State.t(), String.t()) :: State.t()
+  def clear_transient_reason_labels(state, issue_id) do
+    running_entry = Map.get(state.running, issue_id, %{})
+    issue = Map.get(running_entry, :issue, %{})
+    identifier = Map.get(issue, :identifier) || to_string(issue_id)
+
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, identifier},
+      fn ->
+        TicketTransition.clear_transient_reason_modifiers(identifier,
+          writer: :agent_teardown,
+          current_labels: Map.get(issue, :labels, [])
+        )
+      end,
+      fn current, result ->
+        case result do
+          :ok ->
+            current
+
+          {:error, reason} ->
+            Logger.warning("runtime reason label cleanup failed: issue=#{identifier} reason=#{inspect(reason)}")
+            current
+        end
+      end
+    )
+  end
+
+  @doc false
   @spec terminate_task(term()) :: :ok
   def terminate_task(pid) when is_pid(pid) do
     case Task.Supervisor.terminate_child(Aiur.TaskSupervisor, pid) do
@@ -184,6 +270,17 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   end
 
   def terminate_task(_pid), do: :ok
+
+  @doc false
+  @spec request_task_stop(term()) :: :ok | {:error, term()}
+  def request_task_stop(pid) when is_pid(pid) do
+    Process.exit(pid, :kill)
+    :ok
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  def request_task_stop(_pid), do: {:error, :invalid_pid}
 
   defp maybe_preserve_completed_provenance(entry, true) do
     entry

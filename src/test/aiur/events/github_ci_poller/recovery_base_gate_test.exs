@@ -3,6 +3,7 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
 
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.GithubCIPoller.Recovery
+  alias Aiur.GitHub.CIRecoveryStore
   alias Aiur.Issue
 
   @run_url "https://github.com/owner/repo/actions/runs/99/job/1"
@@ -98,6 +99,177 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     assert_received {:rerun, _}
   end
 
+  test "a cancelled required run gets one automatic rerun for the current head", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    assert %{decision: :pending, recovery: "rerun_requested"} = Recovery.recover(ctx.issue, result, opts)
+    assert_received {:rerun, url}
+    assert url =~ "/actions/runs/99/rerun-failed-jobs"
+
+    assert %{decision: :pending, recovery: "rerun_pending"} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "an Aiur-initiated cancellation is skipped", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    assert :ok = CIRecoveryStore.record_cancelled_run("3864", 42, "head", 99, ctx.opts)
+
+    assert %{decision: :pending} = Recovery.recover(ctx.issue, result, ctx.opts)
+    refute_received {:rerun, _}
+  end
+
+  test "a newer run for the same workflow suppresses a stale cancelled run retry", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    parent = self()
+
+    request = fn req ->
+      cond do
+        req.method == :get and String.contains?(req.url, "/actions/runs?head_sha=") ->
+          ok(%{"workflow_runs" => [%{"id" => 100, "head_sha" => "head", "name" => "ci"}]})
+
+        req.method == :get ->
+          ok(%{"id" => 99, "head_sha" => "head", "name" => "ci", "run_attempt" => 1, "status" => "completed", "conclusion" => "cancelled"})
+
+        true ->
+          send(parent, {:rerun, req.url})
+          {:ok, %{status: 202, body: %{}, headers: []}}
+      end
+    end
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        request_fun: request,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    assert %{decision: :pending} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "an approved auto-merge PR is not retried", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "reviewDecision" => "APPROVED", "mergeQueueEntry" => nil, "autoMergeRequest" => %{"enabledAt" => "now"}}
+    opts = Keyword.put(ctx.opts, :ci_recovery_observation, {:ok, observation})
+
+    assert %{decision: :pending} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "a live approved landing with PR-caused failures disables landing and routes named failures", ctx do
+    parent = self()
+    result = Map.merge(ctx.result, %{review_decision: "APPROVED", failures: [%{name: "browser spec", url: @run_url}]})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "autoMergeRequest" => %{"enabledAt" => "now"}, "mergeQueueEntry" => nil}
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: [base("success")],
+        ci_recovery_observation: {:ok, observation},
+        withdraw_landing: fn number ->
+          send(parent, {:withdrawn, number})
+          {:ok, [:auto_merge_disabled]}
+        end
+      )
+
+    assert %{decision: :failed, approved_landing_withdrawn?: true, failures: [%{name: "browser spec", pr_caused?: true}]} =
+             Recovery.recover(ctx.issue, result, opts)
+
+    assert_received {:withdrawn, 42}
+  end
+
+  test "a live approved landing with inherited failures stays held", ctx do
+    parent = self()
+    result = Map.merge(ctx.result, %{review_decision: "APPROVED"})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "mergeQueueEntry" => %{"id" => "queue"}, "autoMergeRequest" => nil}
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: [base("failure")],
+        ci_recovery_observation: {:ok, observation},
+        withdraw_landing: fn _number -> flunk("inherited CI must remain held") end
+      )
+
+    assert %{decision: :pending, recovery: "approved_landing_pr"} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:attention, _}
+
+    opts =
+      Keyword.merge(opts,
+        main_watch_history: [base("success")],
+        withdraw_landing: fn 42 ->
+          send(parent, :withdrawn)
+          {:ok, [:auto_merge_disabled]}
+        end
+      )
+
+    assert %{decision: :failed, recovery: nil, approved_landing_withdrawn?: true} = Recovery.recover(ctx.issue, result, opts)
+    assert_received :withdrawn
+  end
+
+  test "a live check that the approved PR is no longer landing may route a PR-caused failure", ctx do
+    result = Map.merge(ctx.result, %{review_decision: "APPROVED", auto_merge_request: %{"enabledAt" => "stale"}})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "autoMergeRequest" => nil, "mergeQueueEntry" => nil}
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: [base("success")],
+        ci_recovery_observation: {:ok, observation}
+      )
+
+    assert %{decision: :failed, approved_landing_live_not_landing?: true} = Recovery.recover(ctx.issue, result, opts)
+  end
+
+  test "a PR already in the merge queue is not retried", ctx do
+    result = Map.merge(ctx.result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+    observation = %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "reviewDecision" => nil, "mergeQueueEntry" => %{"id" => "MQE_1"}, "autoMergeRequest" => nil}
+    opts = Keyword.put(ctx.opts, :ci_recovery_observation, {:ok, observation})
+
+    assert %{decision: :pending, recovery: "merge_queue"} = Recovery.recover(ctx.issue, result, opts)
+    refute_received {:rerun, _}
+  end
+
+  test "a required startup failure gets one automatic rerun for the current head", ctx do
+    result = Map.put(ctx.result, :failures, [%{name: "test", result: "startup_failure", url: @run_url}])
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    assert %{decision: :pending, recovery: "rerun_requested"} = Recovery.recover(ctx.issue, result, opts)
+    assert_received {:rerun, url}
+    assert url =~ "/actions/runs/99/rerun-failed-jobs"
+  end
+
+  test "supported infrastructure failure signals each get one exact-head rerun", ctx do
+    failures = [
+      %{name: "test", result: "timed_out", url: @run_url},
+      %{name: "test", excerpt: "ECONNRESET", url: @run_url},
+      %{name: "test", excerpt: "runner lost connection", url: @run_url},
+      %{name: "test", excerpt: "artifact upload failed", url: @run_url}
+    ]
+
+    opts =
+      Keyword.merge(ctx.opts,
+        main_watch_history: :disabled,
+        ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head", "isDraft" => false, "mergeQueueEntry" => nil, "autoMergeRequest" => nil}}
+      )
+
+    for {failure, index} <- Enum.with_index(failures) do
+      result = Map.merge(ctx.result, %{pr_number: 100 + index, failures: [failure]})
+
+      assert %{decision: :pending, recovery: "rerun_requested"} = Recovery.recover(ctx.issue, result, opts)
+      assert_received {:rerun, url}
+      assert url =~ "/actions/runs/99/rerun-failed-jobs"
+    end
+  end
+
   test "an approved head whose landing state is unreadable holds", ctx do
     result = Map.merge(ctx.result, %{review_decision: "APPROVED", auto_merge_request: nil, merge_queue_entry: nil})
     opts = Keyword.merge(ctx.opts, main_watch_history: :disabled, ci_recovery_observation: {:ok, %{"state" => "OPEN", "headRefOid" => "head"}})
@@ -121,8 +293,12 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
         send(parent, {:rerun, url})
         {:ok, %{status: post_status, body: %{}, headers: []}}
 
-      %{method: :get} ->
-        ok(%{"head_sha" => "head", "run_attempt" => 1, "status" => "completed", "conclusion" => "failure"})
+      %{method: :get, url: url} ->
+        if String.contains?(url, "/actions/runs?head_sha=") do
+          ok(%{"workflow_runs" => [%{"id" => 99, "head_sha" => "head", "name" => "ci"}]})
+        else
+          ok(%{"id" => 99, "head_sha" => "head", "name" => "ci", "run_attempt" => 1, "status" => "completed", "conclusion" => "failure"})
+        end
     end
   end
 

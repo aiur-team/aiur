@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
   use Phoenix.Component
 
   alias AiurWeb.OperatorControlCenter.TimeFormat
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [remaining_class: 1]
 
   attr(:view, :map, required: true)
   attr(:announcement, :string, default: nil)
@@ -88,19 +89,19 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         <div class="provider-meter-account-usage-header">
           <span class="provider-meter-account-count">×{@card.account_usage.count}</span>
           <span :if={is_number(@card.account_usage.total_percent)}>
-            Weekly · worst of {@card.account_usage.count} accounts: {@card.account_usage.total_percent}%
+            Weekly · least remaining of {@card.account_usage.count} accounts: {@card.account_usage.total_percent}% left
           </span>
-          <span :if={!is_number(@card.account_usage.total_percent)}>Weekly · worst of {@card.account_usage.count} accounts: unknown</span>
+          <span :if={!is_number(@card.account_usage.total_percent)}>Weekly · least remaining of {@card.account_usage.count} accounts: unknown</span>
         </div>
         <div :for={account <- @card.account_usage.accounts} class="provider-meter-account-bar" title={account_usage_title(account)}>
           <b>{account.name}</b>
-          <div class="provider-meter-account-segment" role="progressbar" aria-label={"#{account.name} weekly usage"} aria-valuemin="0" aria-valuemax="100" aria-valuenow={account.percent}>
-            <span :if={is_number(account.percent)} class="provider-meter-account-fill" style={"width: #{account.percent}%"}></span>
+          <div class="provider-meter-account-segment" role="progressbar" aria-label={"#{account.name} weekly remaining"} aria-valuemin="0" aria-valuemax="100" aria-valuenow={account.percent}>
+            <span :if={is_number(account.percent)} class={account_tone(account.percent)} style={"width: #{account.percent}%"}></span>
           </div>
         </div>
         <ul class="provider-meter-account-labels">
           <li :for={account <- @card.account_usage.accounts}>
-            <b>{account.name}</b>: {account_percent(account.percent)} · {account.freshness}
+            <b>{account.name}</b>: {account_percent(account.percent)}% left · {account.freshness}
             <span :if={account.age_seconds}>({account.age_seconds}s old)</span>
           </li>
         </ul>
@@ -163,13 +164,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         aria-valuemin={@window.meter.min}
         aria-valuemax={@window.meter.max}
         aria-valuenow={@window.meter.now}
+        aria-valuetext={"#{@window.meter.now}% left"}
         aria-label={window_meter_aria_label(@window)}
       >
         <span class="provider-meter-track" aria-hidden="true">
-          <span class="provider-meter-fill" style={"width: #{@window.meter.now}%"}></span>
+          <span class={meter_tone(@window.meter.now)} style={"width: #{@window.meter.now}%"}></span>
         </span>
         <span class="provider-meter-value">
-          {@window.meter.now}% used
+          {@window.meter.now}% left
         </span>
       </div>
 
@@ -182,9 +184,9 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
 
       <dl class="provider-meter-window-facts compact">
         <div><dt>Coverage</dt><dd>{@window.coverage_label}</dd></div>
-        <div :if={is_number(@window.remaining_percent)}>
+        <div :if={@window.meter.kind == :exact}>
           <dt>Remaining</dt>
-          <dd class="num">{@window.remaining_percent}%</dd>
+          <dd class="num">{@window.meter.now}%</dd>
         </div>
         <div :if={@window.credits}>
           <dt>Credits</dt>
@@ -207,15 +209,19 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
     """
   end
 
-  defp window_meter_aria_label(%{name: name}), do: "#{name} usage"
+  defp window_meter_aria_label(%{name: name}), do: "#{name} remaining"
+
+  defp meter_tone(remaining), do: ["provider-meter-fill", remaining_class(remaining)]
+
+  defp account_tone(remaining), do: ["provider-meter-account-fill", remaining_class(remaining)]
 
   defp account_usage_title(account) do
     percent = account_percent(account.percent)
     age = if account.age_seconds, do: "#{account.age_seconds}s old", else: "age unknown"
-    "#{account.name}: #{percent}, #{account.freshness}, #{age}"
+    "#{account.name}: #{percent}% left, #{account.freshness}, #{age}"
   end
 
-  defp account_percent(value) when is_number(value), do: "#{value}%"
+  defp account_percent(value) when is_number(value), do: value |> round() |> Integer.to_string()
   defp account_percent(_value), do: "unknown"
 
   defp visible_windows(windows, nil), do: windows

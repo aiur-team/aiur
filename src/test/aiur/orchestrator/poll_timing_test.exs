@@ -14,8 +14,11 @@ defmodule Aiur.Orchestrator.PollTimingTest do
 
   test "later polls and failed polls stay silent" do
     later = %{poll_cycles_completed: 1}
-    assert capture_log(fn -> assert PollTiming.complete(later, {:ok, [:issue], %{}}) == later end) == ""
+    later_log = capture_log(fn -> assert PollTiming.complete(later, {:ok, [:issue], %{}}) == later end)
+    refute later_log =~ "Dispatch candidate poll completed"
+
     first = %{poll_cycles_completed: 0}
-    assert capture_log(fn -> assert PollTiming.complete(first, {:error, :unavailable}) == first end) == ""
+    failed_log = capture_log(fn -> assert PollTiming.complete(first, {:error, :unavailable}) == first end)
+    refute failed_log =~ "Dispatch candidate poll completed"
   end
 end

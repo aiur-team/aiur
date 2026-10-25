@@ -173,6 +173,8 @@ defmodule Aiur.MixProject do
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.1.0"},
       {:req, "~> 0.7"},
+      {:assent, "~> 0.3.1"},
+      {:wax_, "~> 0.7.0"},
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
       {:jose, "~> 1.11"},
@@ -183,6 +185,7 @@ defmodule Aiur.MixProject do
       {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
       {:ecto, "~> 3.13.6"},
+      {:postgrex, "~> 0.22.4"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:voice_converse, path: "../packages/elixir/voice_converse"},
@@ -266,17 +269,18 @@ defmodule Aiur.MixProject do
   """
   def copy_cli_launcher(release) do
     project_root = File.cwd!()
-    wrapper_path = Path.join([project_root, "bin", "aiur"])
+    wrapper_path = System.get_env("AIUR_MIX_CLI_LAUNCHER_PATH") || Path.join([project_root, "bin", "aiur"])
     File.mkdir_p!(Path.join(project_root, "bin"))
-    release_bin = Path.join(release.path, "bin/aiur")
+    release_root = System.get_env("AIUR_MIX_RELEASE_FINAL_DIR") || to_string(release.path)
+    release_bin = Path.join(release_root, "bin/aiur")
 
     contents = """
     #!/usr/bin/env bash
-    # Thin shim around the OTP release at #{release.path}.
+    # Thin shim around the OTP release at #{release_root}.
     # Passes args to Aiur.CLI.main/1 via an argv file so quoting survives.
     # Releases ship priv/ on disk, so exqlite + other NIFs load correctly.
     set -euo pipefail
-    release_root="#{release.path}"
+    release_root="#{release_root}"
     argv_file="$(mktemp "${TMPDIR:-/tmp}/aiur-argv.XXXXXX")"
     trap 'rm -f "$argv_file"' EXIT
     : >"$argv_file"

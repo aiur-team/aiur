@@ -10,7 +10,7 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
 
-  test "hydrates all primary resources from the rate-limit endpoint body" do
+  test "hydrates the core window from the rate-limit endpoint body" do
     quota = start_quota()
 
     body = %{
@@ -24,9 +24,9 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
     Quota.observe(quota, request(:get, "/rate_limit"), {:ok, %{status: 200, headers: [], body: body}})
 
     snapshot = Quota.snapshot(quota)
-    assert Map.keys(snapshot.windows) |> Enum.sort() == ["core", "graphql"]
+    assert Map.keys(snapshot.windows) == ["core"]
     assert snapshot.windows["core"].remaining == 4200
-    assert snapshot.windows["graphql"].remaining == 3900
+    refute Map.has_key?(snapshot.windows, "graphql")
     assert snapshot.attribution == []
   end
 
@@ -149,20 +149,42 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
   # (`~/code/aiur-workspaces`) was never expanded. Either alone matches nothing,
   # so every agent `gh` call went uncounted while the meter still billed it
   # (#1805). This exercises both at once, as production does.
+  @tag home_expansion_child: true
+  @tag timeout: :infinity
   test "finds the agent-shell log through a dot directory under a tilde-form workspace root" do
-    relative = "aiur-quota-test-#{System.unique_integer([:positive])}"
-    root = Path.join(System.user_home!(), relative)
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    if System.get_env("AIUR_HOME_EXPANSION_CHILD") != "1" do
+      home = Aiur.TestSupport.tmp_root!("quota-home")
+      File.mkdir_p!(home)
 
-    quota_dir = Path.join([Layout.issue_workspace_path(root, "1790"), ".aiur-runtime", "github-quota"])
-    File.mkdir_p!(quota_dir)
-    File.write!(Path.join(quota_dir, "agent-requests.tsv"), "#{DateTime.to_unix(@now)}\tticket:1790\tread\tcore\n")
+      {output, status} =
+        System.cmd(System.find_executable("mix"), ["test", __ENV__.file, "--only", "home_expansion_child:true"],
+          env: [{"HOME", home}, {"AIUR_HOME_EXPANSION_CHILD", "1"}],
+          stderr_to_stdout: true
+        )
 
-    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: Path.join("~", relative))
+      Aiur.TestCleanup.rm_rf!(home)
+      assert status == 0, output
+    else
+      home = System.user_home!()
+      relative = Path.basename(Aiur.TestSupport.tmp_root!("aiur-quota-test"))
+      previous_home = System.get_env("HOME")
+      System.put_env("HOME", home)
 
-    quota = start_quota()
+      on_exit(fn ->
+        if previous_home, do: System.put_env("HOME", previous_home), else: System.delete_env("HOME")
+      end)
 
-    assert [%{consumer: "ticket:1790"}] = Quota.snapshot(quota).attribution
+      root = Path.join(home, relative)
+      quota_dir = Path.join([Layout.issue_workspace_path(root, "1790"), ".aiur-runtime", "github-quota"])
+      File.mkdir_p!(quota_dir)
+      File.write!(Path.join(quota_dir, "agent-requests.tsv"), "#{DateTime.to_unix(@now)}\tticket:1790\tread\tcore\n")
+
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: Path.join("~", relative))
+
+      quota = start_quota()
+
+      assert [%{consumer: "ticket:1790"}] = Quota.snapshot(quota).attribution
+    end
   end
 
   # #4791: reading every workspace's log on the Quota call took 2-5 s; a log

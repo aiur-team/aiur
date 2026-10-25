@@ -50,7 +50,7 @@ defmodule Aiur.Claude.TelemetryTest do
     launch = launch(server, issue)
     capability = authorization(launch)
 
-    refute inspect(:sys.get_status(server)) =~ capability
+    Aiur.TestSupport.refute_leak(:sys.get_status(server), capability)
     refute Map.has_key?(Telemetry.health(server), :endpoint)
   end
 

@@ -153,12 +153,29 @@ blocking finding is the only enforcement they have.
 ## The loop
 
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
-`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
-into the PR body; it records the merged `origin/main` SHA and each gate result.
-It never pushes and refuses a dirty checkout. Once a PR exists it rewrites the
-body's `Tested head:` and `Base:` lines; with no PR yet it skips that. So the
-order is: push, `gh pr create`, `aiur pre-pr` again, then hand off;
+`aiurdev pre-pr`) from the branch checkout. It runs only selected or matching
+reader tests locally; CI owns the full coverage partitions. Paste its complete
+result block into the PR body; it records the merged `origin/main` SHA and
+each gate result. It never pushes and refuses a dirty checkout. When a PR is
+open, it rewrites the body's `Tested head:` and `Base:` lines. With no PR yet
+it skips body refresh. So the order is: push, `gh pr create`, `aiur pre-pr`
+again, then hand off;
+
+During a turn, Aiur watches transcript events for prolonged waiting on or
+polling local test/gate commands. If the daemon's recent CI cache says the
+current PR head is green, Aiur steers at the configured threshold to stop the
+local gate, refresh the PR body and mark the PR ready. This cached-CI rule only
+applies to tickets already polled in `ci-wait` or `human-review`; it does not
+expand GitHub polling to `in-progress` or `rework` tickets. The main time saving
+for those tickets comes from `pre-pr` leaving full coverage partitions to CI.
+The rule therefore covers workers waiting locally after handoff while their PR
+already has green required CI. If polling continues to the stop threshold, Aiur
+pauses the worker. Pending, red, stale or unavailable CI never triggers this
+rule. `pre-pr` also omits the architectural guard tests from its local gate;
+CI continues to run them in coverage.
 `aiur_set_ticket_state` refuses `ci-wait`/`human-review` while the body fails `mix pr_body.check` at the PR head.
+If `Tested head` is stale, the refusal names both the body SHA and live PR head;
+rerun the touched tests at the pushed head and update the evidence before handback.
 
 **Resolve validation from the target repository first.** Read [`validation.md`](validation.md).
 The Elixir examples below apply only to Aiur's Elixir core.
@@ -358,10 +375,14 @@ The Elixir examples below apply only to Aiur's Elixir core.
    unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
    request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
    observed branch, expected branch, and repair error if verification fails.
-9. **Own integration safety before review:** during `human-review` or
-   `ci-wait`, integrate only when GitHub reports the exact PR head as
-   `CONFLICTING` or a reviewer asks. File overlap and base movement alone do
-   not require a push; the merge queue tests the PR on current base.
+9. **Own integration safety:** while a PR is open and waiting for CI, review,
+   or the merge queue, do not merge/rebase the integration branch just because
+   it moved, files overlap, a check failed, or a freshness check says the head
+   is behind. The merge queue tests each PR on current base. Integrate only
+   when GitHub reports the exact PR head as `CONFLICTING`, a reviewer asks, or
+   a newer base commit is identified as fixing a failing check (name that
+   commit in the PR comment). File overlap and base movement alone do not
+   require a push.
 10. **Self-review the draft PR with `ce-code-review`** against the diff you just
     pushed. A missing doc that the threshold above required is a review finding —
     fix it here, not in a follow-up ticket.
@@ -372,9 +393,10 @@ The Elixir examples below apply only to Aiur's Elixir core.
     verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
     `headRefOid` equals your local `HEAD`. For a `human-review` or `ci-wait`
     handoff, integrate the configured base only when GitHub reports the exact
-    PR head as `CONFLICTING` or a reviewer asks. File overlap, base movement,
-    ancestry, and local path comparisons do not require a push: the merge queue
-    tests the PR on current base. A non-`CONFLICTING` head permits handoff
+    PR head as `CONFLICTING`, a reviewer asks, or a newer base commit is
+    identified as fixing a failing check (name it in the PR comment). File
+    overlap, base movement, ancestry, and local path comparisons do not require
+    a push: the merge queue tests the PR on current base. A non-`CONFLICTING` head permits handoff
     without a base merge; unavailable or mismatched GitHub evidence remains
     fail-closed in the state writer.
 

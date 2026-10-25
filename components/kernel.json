@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur/boot.ex",
     "src/lib/aiur/bounded.ex",
+    "src/lib/aiur/build_stamp.ex",
     "src/lib/aiur/coordination_tasks.ex",
     "src/lib/aiur/display_sanitizer.ex",
     "src/lib/aiur/fs.ex",
@@ -30,6 +31,7 @@
     "src/lib/aiur/ssh.ex",
     "src/lib/aiur/start_trigger.ex",
     "src/lib/aiur/start_trigger/**",
+    "src/lib/aiur/system_cgroup.ex",
     "src/lib/aiur/system_pressure.ex",
     "src/lib/aiur/test_run_state.ex",
     "src/lib/aiur/tracker_identity.ex",

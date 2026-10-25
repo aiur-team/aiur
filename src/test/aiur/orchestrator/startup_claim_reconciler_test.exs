@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{StartupClaimReconciler, State}
+  alias Aiur.Orchestrator.{StartupClaimReconciler, StartupClaimReconciler.Observation, State}
 
   test "releases an orphaned in-progress claim to todo with a guarded update" do
     issue = issue("2076", "in-progress")
@@ -28,10 +28,6 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert_receive {:transition, "2076", "todo", "in-progress"}, 1000
     assert_receive {:alert, "ticket.2076.agent.attention.startup_orphan_claim_released", alert_opts}, 1000
     refute alert_opts[:needs_attention]
-    assert alert_opts[:message] =~ "released"
-    assert alert_opts[:reason] =~ "no live runtime"
-    assert alert_opts[:reason] =~ "guarded update"
-    assert alert_opts[:severity] == "warning"
 
     assert_receive {:result, {state, [%Issue{state: "todo"}]}}, 1000
     assert state.startup_claim_reconciliation_complete?

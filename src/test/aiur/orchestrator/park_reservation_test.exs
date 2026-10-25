@@ -4,9 +4,11 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
   alias Aiur.Orchestrator.{Parking, PauseResume, Reconciler, Slots, State}
 
   setup do
+    test_pid = self()
     :ok = write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
     Application.put_env(:aiur, :memory_tracker_issues, [])
     Application.put_env(:aiur, :memory_tracker_recipient, self())
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     :ok
   end
 
@@ -90,7 +92,7 @@ defmodule Aiur.Orchestrator.ParkReservationTest do
     entry = running[ci_wait.id]
     assert PauseResume.resume_paused_issue_preflight(state, entry) == {:error, :max_concurrent_agents_reached}
 
-    assert {{:error, :max_concurrent_agents_reached}, ^state} =
+    assert {{:error, {:max_concurrent_agents_reached, %{active: 2, used: 3, paused_holds: 1, limit: 3, max: 3}}}, ^state} =
              PauseResume.ControlRequest.submit_resume_control_request(state, entry, :operator)
 
     # The reserving pause itself still resumes into the slot it holds.

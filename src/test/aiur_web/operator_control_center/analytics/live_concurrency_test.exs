@@ -20,6 +20,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LiveConcurrencyTest do
     assert LiveConcurrency.label(model, false) == "2 at run end"
   end
 
+  test "unknown retained concurrency renders explicitly in session and Build Order subtitles" do
+    model = %{kpis: %{conc_now: nil}}
+
+    assert LiveConcurrency.label(model, false) == "unknown at run end"
+    assert LiveConcurrency.label(model, false, %{kind: :build_order}) == "unknown at run end"
+    assert LiveConcurrency.label(model, true, %{kind: :build_order}) == "unknown now"
+  end
+
   test "presenter renders live adopted agents when telemetry only sees seven" do
     running = Enum.map(1..13, fn n -> %{work_state: :working, adopted_from: if(n <= 11, do: "prior boot")} end)
     t0 = 1_792_219_200_000
@@ -45,7 +53,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LiveConcurrencyTest do
     assert model.kpis.conc_now == 7
     assert model.live_concurrency == 13
     assert model.live_occupied == 14
-    assert LiveConcurrency.label(model, true) == "13 running now (14 slots occupied) (sample 10m old)"
+    assert LiveConcurrency.label(model, true) == "13 running now (14 slots occupied), 4 over cap (sample 10m old)"
   end
 
   test "unavailable snapshots do not make telemetry look current" do

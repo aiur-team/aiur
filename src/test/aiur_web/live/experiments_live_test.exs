@@ -36,6 +36,9 @@ defmodule AiurWeb.ExperimentsLiveTest do
 
   test "empty store names creation paths without chart frames" do
     {:ok, view, html} = live(build_conn(), "/experiments")
+    assert html =~ "Pause new starts"
+    refute html =~ "Pause state unknown"
+    assert has_element?(view, "#ax-pause[aria-checked=false]")
     assert has_element?(view, "[data-empty-reason=no_experiments]")
     assert html =~ "version bump or release"
     assert html =~ "tagged feature epic merge"
@@ -231,6 +234,26 @@ defmodule AiurWeb.ExperimentsLiveTest do
     assert has_element?(view, "#exp-report-stale", "Results changed after this report was written")
     assert has_element?(view, "#exp-report-stale time[datetime='#{written_at}'][title='#{written_at}']")
     assert has_element?(view, "#exp-report-stale time[datetime='#{results_at}'][title='#{results_at}']")
+  end
+
+  test "unknown report time warns that results may be newer" do
+    populated()
+    results_at = report_time(-86_400)
+    report(%{markdown: "Earlier report", author: "Analyst", written_at: "invalid", results_at: results_at})
+    {:ok, view, _html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report-stale", "Results may be newer than this report")
+    assert has_element?(view, "#exp-report-stale", "report time unknown")
+    assert has_element?(view, "#exp-report-stale time[datetime='#{results_at}']")
+  end
+
+  test "report table cell payload is rendered as text" do
+    populated()
+    payload = "<img src=x onerror=alert(1)>"
+    report(%{markdown: "| Value |\n| --- |\n| #{payload} |", author: "Analyst", written_at: report_time(-86_400), results_at: nil})
+    {:ok, view, html} = live(build_conn(), "/experiments/first")
+    assert has_element?(view, "#exp-report table")
+    assert has_element?(view, "#exp-report table td", payload)
+    refute html =~ "<img src=\"x\" onerror"
   end
 
   test "unavailable report content and unknown metadata are explicit" do

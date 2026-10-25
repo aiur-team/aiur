@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
   alias Aiur.GitHub.IssueState
   alias Aiur.GitHub.ResourceStore
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -72,7 +72,16 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
             send(self(), {:state_write_method, :delete})
             {:ok, %{status: 200}}
 
-          {:patch, 4} ->
+          {:get, 4} ->
+            send(self(), {:state_write_method, :get})
+
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:done"}]}
+             }}
+
+          {:patch, 5} ->
             send(self(), {:state_write_method, :patch})
             assert req.body == %{"state" => "closed"}
             {:ok, %{status: 200}}
@@ -85,13 +94,13 @@ defmodule Aiur.GitHub.IssueState.ClosedTransitionsTest do
       assert :ok = IssueState.update_issue_state("42", "Done", request_fun: request_fun)
 
       assert for(
-               _ <- 1..5,
+               _ <- 1..6,
                do:
                  receive do
                    {:state_write_method, method} -> method
                  end
              ) ==
-               [:get, :post, :get, :delete, :patch]
+               [:get, :post, :get, :delete, :get, :patch]
     end
 
     test "closed-issue active-target branch preserves done while removing stale active labels" do

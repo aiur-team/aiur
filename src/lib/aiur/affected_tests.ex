@@ -7,19 +7,19 @@ defmodule Aiur.AffectedTests do
   Paths are repo-relative as `git diff --name-only` emits them (e.g.
   `src/lib/aiur/foo.ex`). A changed `src/lib/**/X.ex` maps to its sibling
   `src/test/**/X_test.exs` and the tests in its module directory. Direct xref
-  callers add tests in their module directories too; oversized selections use
-  full CI.
+  callers add tests in their module directories too. Large selections are kept
+  intact so pre-handoff can run them with its bounded four-case concurrency.
 
   A changed `*_test.exs` maps to itself. Deleted function, option-key, atom,
   and string references can add every test file that still contains one,
-  regardless of its directory depth. Changes that cannot be classified safely
-  — including test support, executable/build files, Gettext `.po` files,
-  `mix.exs`/`mix.lock`, and runtime config — force the full suite.
+  regardless of its directory depth. The Mix task expands test-support changes
+  to their test consumers. Changes that cannot be classified safely — including
+  executable/build files, Gettext `.po` files, `mix.exs`/`mix.lock`, and runtime
+  config — force the full suite.
   """
 
   @type path :: String.t()
   @common_literal_terms MapSet.new(~w(error is_binary ok open per_page state))
-  @max_affected_tests 400
 
   @doc """
   Map changed repo-relative paths to `{:scoped, test_files}` or `{:full, reason}`.
@@ -79,33 +79,19 @@ defmodule Aiur.AffectedTests do
       |> Enum.filter(exists?)
 
     changed_directory_tests = changed_directory_tests(base, changed, exists?) |> Enum.uniq()
-    caller_directory_tests = changed_directory_tests(base, dependent_sources, exists?) |> Enum.uniq()
+
+    caller_directory_tests =
+      changed_directory_tests(base, dependent_sources, exists?) |> Enum.uniq()
+
     tests = Enum.uniq(exact_tests ++ changed_directory_tests ++ caller_directory_tests)
 
     fallback_tests = Enum.uniq(exact_tests ++ changed_directory_tests)
 
     selection =
-      cond do
-        sources != [] and tests == [] ->
-          {:full, "no direct or xref-dependent tests were found for changed library sources"}
-
-        length(tests) > @max_affected_tests ->
-          dropped = caller_directory_tests -- fallback_tests
-
-          # stderr keeps `--json` stdout a single parseable document (#4718).
-          IO.puts(
-            :stderr,
-            "affected tests budget: widened set has #{length(tests)} tests; dropped #{length(dropped)} xref caller-directory tests, leaving #{length(fallback_tests)} fallback candidates"
-          )
-
-          if fallback_tests == [] or length(fallback_tests) > @max_affected_tests do
-            {:full, "affected test fallback exceeds #{@max_affected_tests} files (#{length(fallback_tests)} candidates after dropping caller-directory expansion)"}
-          else
-            {:scoped, fallback_tests}
-          end
-
-        true ->
-          {:scoped, tests}
+      if sources != [] and tests == [] do
+        {:full, "no direct or xref-dependent tests were found for changed library sources"}
+      else
+        {:scoped, tests}
       end
 
     {selection, tests, fallback_tests}
@@ -225,6 +211,7 @@ defmodule Aiur.AffectedTests do
   defp recognized?(path) do
     library_source?(path) or
       (String.starts_with?(path, "src/test/") and String.ends_with?(path, "_test.exs")) or
+      String.starts_with?(path, "src/test/support/") or path == "src/test/test_helper.exs" or
       ignorable?(path) or
       forces_full?(path)
   end
@@ -242,7 +229,6 @@ defmodule Aiur.AffectedTests do
       String.ends_with?(path, "mix.exs") or
       String.ends_with?(path, "mix.lock") or
       String.starts_with?(path, "src/config/") or
-      String.starts_with?(path, "config/") or
-      (String.starts_with?(path, "src/test/") and not String.ends_with?(path, "_test.exs"))
+      String.starts_with?(path, "config/")
   end
 end

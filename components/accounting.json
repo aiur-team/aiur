@@ -18,6 +18,7 @@
     "src/lib/aiur/provider_meters.ex",
     "src/lib/aiur/provider_meters/**",
     "src/lib/aiur/token_usage.ex",
+    "src/lib/aiur/usage.ex",
     "src/lib/aiur/usage/**",
     "src/lib/aiur/usage_aggregate.ex",
     "src/lib/aiur/usage_aggregate/**",
@@ -37,7 +38,11 @@
     "kernel",
     "signal"
   ],
-  "optional": [],
+  "optional": [
+    "github",
+    "github-access",
+    "signal"
+  ],
   "owns": {
     "config": [],
     "env": [

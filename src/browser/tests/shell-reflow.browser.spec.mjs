@@ -4,6 +4,7 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 
 for (const width of [320, 390, 720]) {
   test(`bottom navigation keeps every link reachable without page overflow at 200% text zoom (${width}px)`, async ({ browser }) => {
+    test.setTimeout(10_000)
     const context = await browser.newContext({
       viewport: { width, height: 900 },
       deviceScaleFactor: 2,
@@ -14,11 +15,11 @@ for (const width of [320, 390, 720]) {
 
     try {
       await openFixture(page)
-      await page.goto('/')
+      await page.goto('/route-shell')
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
 
       const navigation = page.locator('.sidenav-nav')
-      await expect(navigation.locator('a.snav')).toHaveCount(6)
+      await expect(navigation.locator('a.snav')).toHaveCount(5)
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
       await expect.poll(() => navigation.evaluate(node => getComputedStyle(node).overflowX)).toBe('auto')
 
@@ -80,6 +81,7 @@ for (const width of [320, 390, 720]) {
   })
 
   test(`Tab keeps each bottom navigation link fully visible at 200% text zoom (${width}px)`, async ({ browser }) => {
+    test.setTimeout(10_000)
     const context = await browser.newContext({
       viewport: { width, height: 900 },
       deviceScaleFactor: 2,
@@ -90,15 +92,20 @@ for (const width of [320, 390, 720]) {
 
     try {
       await openFixture(page)
-      await page.goto('/')
+      await page.goto('/route-shell')
       await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
 
       const navigation = page.locator('.sidenav-nav')
       const links = navigation.locator('a.snav')
-      await expect(links).toHaveCount(6)
-      await page.locator('#ax-cog').focus()
+      await expect(links).toHaveCount(5)
+      // The settings cog is display:none below 961px. Starting keyboard
+      // navigation from it leaves focus on a 0x0 target and Tab can stall at
+      // mobile widths. Start from the visible first nav link instead.
+      const firstLink = links.first()
+      await expect(firstLink).toBeVisible()
+      await firstLink.focus()
 
-      for (let index = 0; index < 6; index += 1) {
+      for (let index = 1; index < 5; index += 1) {
         await page.keyboard.press('Tab')
         const link = links.nth(index)
         await expect(link).toBeFocused()

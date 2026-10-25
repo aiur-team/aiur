@@ -37,10 +37,13 @@ defmodule Aiur.ExperimentsCLITest do
       if previous_packs, do: Application.put_env(:aiur, :experiment_metric_packs, previous_packs), else: Application.delete_env(:aiur, :experiment_metric_packs)
     end)
 
-    root = Path.join(System.tmp_dir!(), "experiments-cli-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("experiments-cli")
     previous = Application.get_env(:aiur, :experiments_dir)
     previous_base = Application.get_env(:aiur, :repo_base_root)
-    Application.put_env(:aiur, :repo_base_root, Path.join(root, "repo"))
+    # Keep repository state in the suite root, which lives until after_suite;
+    # a late writer must not race deletion of a per-test state root.
+    state_root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "experiments-cli-#{System.pid()}-#{System.unique_integer([:positive])}")
+    Application.put_env(:aiur, :repo_base_root, state_root)
     Application.put_env(:aiur, :experiments_dir, root)
 
     on_exit(fn ->
@@ -167,8 +170,17 @@ defmodule Aiur.ExperimentsCLITest do
   end
 
   test "create freezes the baseline and reports its window, count and coverage" do
-    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("frozen")) == 0 end)
-    assert output =~ "froze before window 2026-09-25T00:00:00Z..2026-10-09T00:00:00Z: 1 observations"
+    clock = ~U[2026-10-08 00:00:00Z]
+    stop_supervised(Aiur.Experiments.Store)
+    start_supervised!({Aiur.Experiments.Store, catalog_context: %{clock: fn -> clock end}})
+
+    change_at = DateTime.add(clock, -1, :second)
+    change_at_text = DateTime.to_iso8601(change_at)
+    window_start = change_at |> DateTime.add(-14 * 86_400) |> DateTime.to_iso8601()
+    argv = ["--title", "frozen", "--line", "manual:frozen@#{change_at_text}", "--metric", "delivery/start"]
+
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: argv) == 0 end)
+    assert output =~ "froze before window #{window_start}..#{change_at_text}: 1 observations"
     assert output =~ ~s|coverage delivery/start={"state":"captured"} (n=1)|
     {:ok, [row]} = Experiments.list()
     assert Enum.map(Experiments.journal(row.id), & &1["kind"]) == ["created", "frozen"]

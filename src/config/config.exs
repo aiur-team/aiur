@@ -1,5 +1,15 @@
 import Config
 
+config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
+
+# OTP terminate reports inspect the last message and server state while they
+# are translated into Logger events. Bound inspection here so a malformed or
+# unexpectedly large GenServer state cannot exhaust the daemon during logging.
+config :logger, :translator_inspect_opts,
+  limit: 100,
+  printable_limit: 4_096,
+  width: 120
+
 config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
 
 config :aiur, env: config_env()
@@ -83,6 +93,8 @@ config :aiur, :project_identity_source, Aiur.Tracker
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 # Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :backend_catalog, Aiur.CodingAgent.ConfigCatalog
+
 config :aiur, :config_semantic_checks,
   exclusive: [
     Aiur.Tracker.SemanticCheck.MissingKind,
@@ -91,7 +103,11 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
-  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
+  always: [
+    Aiur.Orchestrator.HostedModeCheck,
+    Aiur.Config.Schema.TurnSandboxPolicyCheck,
+    Aiur.Opencode.Config.SemanticCheck
+  ]
 
 config :phoenix, :json_library, Jason
 
@@ -105,12 +121,16 @@ config :aiur, AiurWeb.Endpoint,
   pubsub_server: Aiur.PubSub,
   live_view: [signing_salt: "aiur-live-view"],
   secret_key_base: String.duplicate("s", 64),
-  check_origin: false,
+  check_origin: ["http://localhost", "http://127.0.0.1", "http://[::1]"],
   server: false
 
 # Composition: orchestration implements the Commands delivery port, so the
 # commands component never references orchestration itself.
 config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
+
+# Composition: the dashboard implements the voice target port, so voice input
+# never references the dashboard or Commands itself.
+config :aiur, :voice_target_resolver, AiurWeb.OperatorControlCenter.VoiceTargetResolver
 
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time
@@ -120,6 +140,12 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  config :aiur, :dashboard_secret_root, Path.join(System.tmp_dir!(), "aiur-dashboard-secret-tests-#{System.unique_integer([:positive])}")
+
+  config :aiur, AiurWeb.Endpoint,
+    url: [host: "www.example.com"],
+    allowed_hosts: ["localhost", "127.0.0.1", "[::1]", "www.example.com"]
+
   # System.tmp_dir!() may be a directory inside an agent checkout. Bound Git's
   # upward discovery there so non-repository test fixtures stay non-repositories.
   # Git still discovers repositories initialized below TMPDIR normally.
@@ -178,6 +204,8 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  # The analytics prewarmer would run Presenter.load against the shared test node at boot.
+  config :aiur, :analytics_prewarm?, false
   config :aiur, :build_order_root_import_enabled?, false
   config :aiur, :build_history_backfill_enabled?, false
 
@@ -223,11 +251,7 @@ if config_env() == :test do
   System.put_env("MISE_OFFLINE", "1")
   System.put_env("npm_config_offline", "true")
 
-  test_log_root =
-    Path.join(
-      System.tmp_dir!(),
-      "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}"
-    )
+  test_log_root = Aiur.TestLogTmp.test_root(System.tmp_dir!(), System.os_time(:millisecond), System.pid())
 
   # mix starts the application before test_helper. Capture HOME before changing
   # it, then isolate environment-based paths (provider credentials

@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.State
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -35,14 +35,39 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    test "does not retain a foreign-prefix ticket as a degenerate repair candidate" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo"]
+      )
+
+      foreign_ticket = %{
+        "number" => 5895,
+        "title" => "Other instance ticket",
+        "body" => nil,
+        "html_url" => "https://github.com/owner/repo/issues/5895",
+        "labels" => [%{"name" => " NUC:todo "}],
+        "assignee" => nil,
+        "created_at" => "2026-10-22T00:00:00Z",
+        "updated_at" => "2026-10-22T00:00:00Z"
+      }
+
+      request_fun = fn %{url: url} ->
+        assert url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+        {:ok, %{status: 200, headers: [], body: [foreign_ticket]}}
+      end
+
+      assert {:ok, [], _cache} = Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+    end
+
     test "complete paginated polls record all labels with no extra requests" do
       alias Aiur.GitHub.OpenIssueSnapshot
       OpenIssueSnapshot.reset()
       on_exit(fn -> OpenIssueSnapshot.reset() end)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "tracker:open_issues")
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "7")
+      Aiur.TestScopeGuard.put_ticket_scope!("7")
       parent = self()
       base_url = "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
       second_url = base_url <> "&page=2"
@@ -94,9 +119,7 @@ defmodule Aiur.GitHub.Issues.CandidatesTest do
     end
 
     test "pinned test scope skips out-of-scope provenance before dispatch authorization" do
-      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
-      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+      Aiur.TestScopeGuard.put_ticket_scope!("99")
 
       # Keep dispatch authorization independent of the shared CODEOWNERS
       # snapshot; this test is about pinned-scope filtering, not trust loading.

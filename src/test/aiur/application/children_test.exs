@@ -81,6 +81,13 @@ defmodule Aiur.Application.ChildrenTest do
       end)
     end
 
+    defp global_service_supervisor?(specs) do
+      Enum.any?(specs, fn
+        {DynamicSupervisor, opts} -> Keyword.get(opts, :name) == Aiur.Instance.GlobalServices
+        _ -> false
+      end)
+    end
+
     test "daemon heartbeat writer is supervised in interactive and headless run shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -88,6 +95,24 @@ defmodule Aiur.Application.ChildrenTest do
           ] do
         assert Aiur.DaemonHeartbeatWriter in modules(AiurApp.child_specs(opts))
       end
+    end
+
+    test "secondary instance delegates repository global services to the lease owner" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Instance.RepositoryLeader in mods
+      assert global_service_supervisor?(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
+      assert Aiur.Orchestrator in mods
+      assert Aiur.PRLifecycle.HealthScanner in mods
+    end
+
+    test "primary instance gives repository global services to the dynamic leader supervisor" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Instance.RepositoryLeader in mods
+      assert global_service_supervisor?(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
     end
 
     test "interactive run starts the full UI stack" do
@@ -101,6 +126,14 @@ defmodule Aiur.Application.ChildrenTest do
 
       for child <- @terminal_only ++ @dashboard, do: refute(child in mods, "lean background should skip #{inspect(child)}")
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
+    end
+
+    test "headless dashboard run starts the HTTP server without terminal pane services" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
+
+      assert Aiur.HttpServer in mods
+      refute Aiur.PaneManager in mods
+      refute Aiur.AgentList.App in mods
     end
 
     test "headless boots measurably fewer children than interactive" do

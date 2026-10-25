@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   @moduledoc false
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Slots, State}
   alias Aiur.Workspace.Ownership
 
   @grace_ms 60_000
@@ -32,16 +32,33 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Observation do
   def dispatch_candidates(state, issues) do
     Enum.reject(
       issues,
-      &(DispatchPolicy.state_slug(&1.state) == "in-progress" and
-          Map.has_key?(state.orphaned_claim_since, &1.identifier))
+      &((DispatchPolicy.state_slug(&1.state) == "ci-wait" and approved_green_unarmed?(state, &1)) or
+          (DispatchPolicy.state_slug(&1.state) == "in-progress" and Map.has_key?(state.orphaned_claim_since, &1.identifier)))
     )
+  end
+
+  defp approved_green_unarmed?(state, issue) do
+    case get_in(state.ci_lifecycle, [:poll_cache, CiLifecycle.ci_target_for_issue(issue)]) do
+      %{decision: :passed, review_decision: "APPROVED", head_sha: head, auto_merge_request: nil, merge_queue_entry: nil}
+      when is_binary(head) ->
+        true
+
+      _ ->
+        false
+    end
   end
 
   defp orphan?(state, issue, opts) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and is_binary(issue.identifier) and
       not Issue.paused?(issue) and not Issue.held?(issue) and
+      not rework_waiting_for_capacity?(state, issue) and
       not tracked?(state, issue) and
       lease_free?(issue, opts)
+  end
+
+  defp rework_waiting_for_capacity?(state, issue) do
+    DispatchPolicy.state_slug(issue.state) == "rework" and
+      Slots.available_slots(state) == 0
   end
 
   defp tracked?(state, issue) do

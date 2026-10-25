@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{CodingAgent, Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycleStore, DispatchPolicy, EnvelopeResume, Lifecycle, OptimisticSlots, PressureAdmission, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -65,7 +65,18 @@ defmodule Aiur.Orchestrator.Slots do
 
   def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
     previous = max_concurrent_agent_limit(state)
-    state = Map.put(state, :session_max_concurrent_agents, next)
+
+    case ControlLifecycleStore.update_checked(&%{&1 | max_agents: next}) do
+      :ok ->
+        state = Map.put(state, :session_max_concurrent_agents, next)
+        apply_session_max_concurrent_agents_after_persist(state, previous, next)
+
+      {:error, reason} ->
+        {:reply, {:error, {:persistence_failed, reason}}, state}
+    end
+  end
+
+  defp apply_session_max_concurrent_agents_after_persist(state, previous, next) do
     # Reschedule only; never run the tracker poll inline in this control call (#2137).
     state = if next > previous, do: Lifecycle.wake_tick(state), else: state
 
@@ -335,8 +346,31 @@ defmodule Aiur.Orchestrator.Slots do
     fleet_slot_available? =
       if is_integer(reservation_limit),
         do: used_slots(state) < min(reservation_limit, max_concurrent_agent_limit(state)),
-        else: available_slots(state) > 0
+        else: available_slots(state) > slot_waiters(state, issue.id)
 
     fleet_slot_available? and DispatchPolicy.state_slots_available?(issue, state)
+  end
+
+  # A usage-limit pause releases its slot, but once it is ready to reroute or
+  # resume it gets the next free one ahead of new work (#5788).
+  defp slot_waiters(state, issue_id) do
+    Enum.count(state.running, fn {id, entry} ->
+      id != issue_id and Map.get(entry, :awaiting_fleet_slot) == true and State.paused_running_entry?(entry) and
+        Map.get(entry, :paused_reason) == :usage_limit_exhausted
+    end)
+  end
+
+  # Names the counter that refused a resume, for the operator-facing reason.
+  @spec fleet_capacity_detail(State.t(), map()) :: map()
+  def fleet_capacity_detail(%State{} = state, running_entry) do
+    others = Map.delete(state.running, get_in(running_entry, [:issue, Access.key(:id)]))
+
+    %{
+      used: used_slots(state, others),
+      active: State.active_running_count(others) + pending_rework_claims(state),
+      paused_holds: State.reserved_paused_running_count(others),
+      limit: effective_concurrent_agent_limit(state),
+      max: max_concurrent_agent_limit(state)
+    }
   end
 end

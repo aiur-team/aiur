@@ -113,14 +113,16 @@ defmodule AiurWeb.Build.UsageLoadTest do
     github = Usage.block({:ok, :context}, inputs, I.now()).apis |> hd()
     [core, graphql] = github.lines
     units_core = quota.windows["core"]
-    assert core.acc == [round(quota.windows["core"].used_percent)]
-    assert graphql.acc == [round(quota.windows["graphql"].used_percent)]
+    assert core.acc == [100 - round(quota.windows["core"].used_percent)]
+    assert graphql.acc == [100 - round(quota.windows["graphql"].used_percent)]
     assert core.reset_at == DateTime.to_unix(quota.windows["core"].reset_at, :millisecond)
     assert graphql.reset_at == DateTime.to_unix(quota.windows["graphql"].reset_at, :millisecond)
-    assert core.tip == [["Requests left", "3,766 of 5,000"]]
-    assert graphql.tip == [["Points left", "4,861 of 5,000"]]
+    assert core.tip == [["Requests left", "3,766 of 5,000 · #{100 - round(quota.windows["core"].used_percent)}% left"]]
+    assert graphql.tip == [["Points left", "4,861 of 5,000 · #{100 - round(quota.windows["graphql"].used_percent)}% left"]]
     assert github.snapshot_observed_at == inputs.github_snapshot_observed_at
-    assert ServiceRows.github_window_meta(units_core, I.now()) == "3766/5000 left · resets in 1h 0m"
+    assert ServiceRows.github_window_meta(units_core, I.now()) == "3766/5000 left · 75.3% left · resets in 1h 0m"
+    stale_core = Map.merge(units_core, %{snapshot_stale?: true, observed_at: DateTime.add(I.now(), -1_200, :second)})
+    assert ServiceRows.github_window_meta(stale_core, I.now()) == "3766/5000 left · 75.3% left · resets in 1h 0m · as of 11:40Z (20m ago)"
   end
 
   test "an expired quota snapshot uses the bounded fallback", %{path: path} do

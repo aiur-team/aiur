@@ -18,24 +18,28 @@ Label read/create failures stop startup before agents start and explain the requ
 | --- | --- | --- |
 | Tracker state | Issue labels, active tickets, blockers, and pull requests | Keeps dispatch and the Units page aligned with GitHub. |
 | Ticket branches | Validated refs and commits; subscribed known-ref changes trigger async compare (`per_page=1`, caller `ticket_branch_rewrite`) | `behind`/`diverged` or 404 emits `ticket.N.branch.force-push` (404: `previous_missing`). Errors/holds log and count `[:aiur, :events, :branch_rewrite, :error]`; new/unsubscribed refs skip compare. |
-| Comments and reviews | Trusted issue comments, PR comments, reviews, unresolved threads, and cached PR approval/merge-queue/ready timestamps | Wakes the correct agent for operator direction or rework; the five-minute Executor sweep reuses these fields and raises durable wakes without its own GitHub request. |
-| CI | Terminal checks and mergeability while a ticket is in `agent:ci-wait` or `agent:human-review` | Required-check configuration (branch rules and protection) is shared through the repository-configuration cache; CI verdicts remain uncached. Returns passed work for human review and failed work for repair. Two consecutive `CONFLICTING` observations on the same PR head move the ticket to rework with instructions to merge `main`; `UNKNOWN` breaks the streak. |
-| Base-branch CI (main watch enabled) | Completed watched workflow runs for up to 20 recent base commits | Detects failures through check webhooks, base pushes and polling; retains state across restarts. Fixer mode is opt-in (`on_red: dispatch_fixer`). Governed callers `main_fixer_open_issues` and `main_fixer_create` list/file tickets; shared comment and PR readers reconcile evidence/recovery. At default 120s, a single-page listing adds at most 30 calls/hr; pagination and comment/PR reads add calls (mechanism budget, not measured savings). [Fixer dispatch](/reference/merge-policy). |
+| Comments and reviews | Trusted issue comments, PR comments, reviews, unresolved threads, and cached PR approval/merge-queue/ready timestamps | Wakes the correct agent for operator direction or rework; the five-minute Executor sweep reuses these fields and raises durable wakes without its own GitHub request. It looks up findings against cached PR bodies or merge-group entries and reports their cache age; entries older than five minutes (or with unknown age) remain visible as `unverified`. Oversized merge-group pages use a compact per-run age index; at the body-byte cap, `ResourceStore.Memory.enforce/2` sheds least-recently-written bodies until they fit. |
+| CI | Terminal checks and mergeability while a ticket is in `agent:ci-wait` or `agent:human-review` | Required-check configuration (branch rules and protection) is shared through the repository-configuration cache; CI verdicts remain uncached. A green current head already marked ready and not reviewed moves directly to human review and publishes the ready wake; a draft or a head that still needs agent work returns to the agent. Approved landing PRs with current-head PR-caused failures have auto-merge disabled or are removed from the queue, then route to rework with failed job names; inherited and unknown failures stay held. Cancelled and infrastructure failures get one bounded rerun before repair routing. Two consecutive `CONFLICTING` observations on the same PR head move the ticket to rework with instructions to merge `main`; `UNKNOWN` breaks the streak. On the primary instance, a PR approved at its current head is left to the landing watcher, which tries `update-branch` first. |
+| Runner queue pressure | Queued `ci` pull-request workflow runs, attributed to the landing watcher's existing open-PR observations | Each landing-watch poll reports queued, approved-at-head, unapproved-at-head, and unattributed run counts, plus oldest queue ages. It does not cancel or rerun workflows. The `system.ci.runner_queue` event reports the census; only the queued-run Actions listing is an additional read. |
+| Base-branch CI (main watch enabled) | Completed watched workflow runs for up to 20 recent base commits, using a successful `merge_group` run for the main SHA when no completed push run exists | Detects failures through check webhooks, base pushes and polling; retains state across restarts. Fixer mode is opt-in (`on_red: dispatch_fixer`). Governed callers `main_fixer_open_issues` and `main_fixer_create` list/file tickets; shared comment and PR readers reconcile evidence/recovery. At default 120s, a single-page listing adds at most 30 calls/hr; pagination and comment/PR reads add calls (mechanism budget, not measured savings). [Fixer dispatch](/reference/merge-policy). |
+| Quarantine expiry | Hourly: up to 20 scheduled main CI runs, plus job details for each run | Determines whether expired test-quarantine entries can be lifted or their fix tickets need a priority escalation. |
 | Experiment release lines | Boot/hourly warm-clone `git ls-remote --tags --refs origin`; eligible tags are fetched and dated locally. | Creates [release experiments](/concepts/experiments#version-and-release-lines) without GitHub API calls. |
-| Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. Merged PR bodies also supply `Post-deploy check:` lines for the Executor checklist. |
+| Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. Merged PR bodies also supply `Post-deploy check:` lines for the Executor checklist. `GithubFirehose.enrich_merged_event/2` and `GithubWebhook.Triples.maybe_enrich_commit_messages/4` share commit-message reads through caller `pull_request_commits`, cached by repository, PR number and immutable head SHA for four hours. `Refs #N`, `issue N`, and similar references remain nonclosing links. |
 | Analytics facts | Terminal and on-demand backfill PR facts; boot/hourly base history and tags | Body-free `pr_facts` and `analytics/repo-timeline.ndjson`; callers `analytics_facts` and `analytics_repo_timeline`. |
 
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
 
 Rows and the resume checkpoint share the history file; a restart resumes unfinished work and skips a completed walk. This is a one-time read, not a poll or a page-view request.
 
-The predicted cost is about 3 points per 100 issues; `rateLimit.cost` and `aiur github-cost` report the actual spend. Blocker overflow is paged; label and timeline overflow is marked incomplete. A page costing more than 5 reported points is saved, then the job stops with `page_cost_exceeded`, including after restart.
+The predicted cost is about 3 points per 100 issues; `rateLimit.cost` and the daemon attribution ledger report the actual spend. The `aiur usage github` snapshot reports quota windows rather than caller rankings.
+
+Blocker overflow is paged; label and timeline overflow is marked incomplete. A page costing more than 5 reported points is saved, then the job stops with `page_cost_exceeded`, including after restart.
 
 Polling remains the webhook fallback. Delivery-speed cost evaluation resolves eligible merged-ticket identities (`issue_by_id`, plus tracker authorization reads). Review census on 2026-10-12: 526 merged PRs in 14 days, potentially 526 identities per evaluation; these lookups are not polling. Accounting is then queried once for the ticket set.
 
 `observability.capture_github_facts` gates both analytics readers. Missing credentials and non-GitHub trackers disable history capture. Budget holds defer queued tickets; three failed PR reads record unavailable coverage. Other timeline failures back off from one minute to one hour.
 
-Measured on aiur-team/aiur on 2026-10-11: facts cost 4 points before bounding branch candidates to five, then 1 point for #3797 (1,610 nodes). Timeline pages cost 1 point; 146 tags require at least two requests per hourly capture. Actual costs appear in `aiur github-cost`; no fleet saving is claimed.
+Measured on aiur-team/aiur on 2026-10-11: facts cost 4 points before bounding branch candidates to five, then 1 point for #3797 (1,610 nodes). Timeline pages cost 1 point; 146 tags require at least two requests per hourly capture. The daemon attribution ledger records actual costs; no fleet saving is claimed.
 
 The development `scripts/aiurdev --test` and `--test3` harnesses read GitHub issues but authorize only pinned tickets. Each scoped run gets private budget and state directories, and remote agents receive no GitHub credential. Ordinary runs keep normal discovery and remote credentials.
 
@@ -43,22 +47,44 @@ CI batches and landing require all ruleset checks on PR heads. Startup readiness
 
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
-User-cancelled CI runs stay pending. Landing watcher classifies failed groups from Actions logs and requeues approved PRs for infra, inherited, or known non-PR failures. Known tests match an open flake issue or base failure in 24h, and are untouched by the PR. Others route to rework with job/run details. It checks attribution and cancels stale groups.
+Canceled runs get one exact-head rerun through the recovery journal. Landing watcher requeues approved PRs for infrastructure, inherited-base, or known non-PR failures. It requeues tests linked to an open flake issue or base failure in 24h; other failures route to rework with job details. It checks attribution and cancels stale groups.
+
+Immediately before first enqueue, the watcher rechecks the approved head and requires GitHub to report `MERGEABLE` with a `CLEAN` or `UNSTABLE` merge state. A conflict is handled by the existing rebase-only rework path; an unavailable or unknown verdict holds for the next poll.
+
+Before rework, the watcher tries GitHub's `update-branch` itself for a conflicting PR. This covers a conflict seen by the poll, by the pre-enqueue read, or after GitHub drops the PR from the queue for `merge_conflict`.
+
+It updates only an approved, non-draft PR outside the merge queue. Its ticket must belong to this instance and sit in `human-review`, `ci-wait` or `merging` with no Executor hold. Other PRs keep the rework path. A queued PR is never updated, because a dequeue resets the merge groups.
+
+The call is `PUT /pulls/{n}/update-branch` with `expected_head_sha`, on the agent credential. Each PR head gets at most one call per base SHA (`baseRefOid`). Each call takes a slot of the shared automatic-requeue cap (four per 15 minutes); a full cap holds the PR.
+
+An accepted update re-arms auto-merge with one GraphQL mutation, so the PR re-enters the queue after CI. A failed arm is retried on later polls, only on a head whose parent is the updated head; after five failures the watcher raises an attention.
+
+A refused update (HTTP 422) routes to rebase-only rework, and the comment says so. It names the conflicting files from a local `git merge-tree` in `~/.aiur/repo/<owner>/<repo>/conflict-files.git`. That is a git fetch with per-PR refs, not a REST read. The update adds no per-poll reads.
+
+GitHub's merge-group checks remain authoritative for the base and queued PRs. A later base or queue change can still make a candidate unmergeable after admission.
+
+An approved, clean PR whose queue head remains `UNMERGEABLE` for 20 minutes, or whose second failed merge-group run is at least 20 minutes old, is considered for one recovery.
+
+The watcher accepts an observed `mergeable: UNKNOWN` while it gathers evidence, but the live queue read must still confirm a clean, mergeable PR and the same `UNMERGEABLE` entry before dequeueing.
+
+Recovery requires evidence that the failure is infrastructure, inherited, or known non-PR; a failure selected by the PR diff is left for rework. Per-head verdicts are cached by workflow run ID: the first classification reads that run's jobs, failed-job logs, and PR changed paths; later polls reuse its stored verdict.
+
+The recovery attention names failing tests and counts completed group rebuild runs for PRs that were behind the stuck head during the observed window.
 
 The landing watcher quarantines a flaky test within 24 hours (caller `landing_watch_flake_gate` for the age check):
 
-- **Qualifies:** a failure in two merge groups whose PRs did not touch the test, or a base-branch failure whose rerun of the same commit then passes. A later green commit is not evidence; it may be the fix of a regression.
-- **Never counts:** a failure where the failing commit or the group's PRs changed the test file or the `src/lib` file it mirrors; any failure while the newest base-branch run fails the test (a regression for the main-watch fixer), including merge-group failures recorded meanwhile.
-- **Actions:** a `priority:2` `agent:todo` flake ticket with the run links; an auto-merging `aiur/quarantine/` PR adding one line to `src/test/quarantine.txt` (ExUnit) or `src/browser/quarantine.txt` (Playwright, a whole spec file, as the shared `aiur-test-failure` reporter names it); a requeue of the approved PRs those failures dropped. No ticket when every failing run is over 12 hours old or a newer base-branch commit changed the test file.
+- **Qualifies:** a failure in two merge groups whose PRs did not touch the test, or one base-branch failure when that commit did not touch the test or its mirrored `src/lib` file.
+- **Never counts:** a failure where the failing commit or the group's PRs changed the test file or the `src/lib` file it mirrors; a merge-group failure while the newest base-branch run fails that test (a regression for the main-watch fixer).
+- **Actions:** each ExUnit row in `src/test/quarantine.txt` has four tab-separated fields: module, full test name, owner fix-ticket number, and ISO expiry date. The ticket owns that test's quarantine and carries its run links. A generated row defaults to a 90-day expiry. An auto-merging `aiur/quarantine/` PR adds the row; browser quarantine entries remain whole Playwright spec files in `src/browser/quarantine.txt`, as the shared `aiur-test-failure` reporter names them. Approved PRs whose merge group was dropped are requeued. No ticket is filed when every failing run is over 12 hours old or a newer base-branch commit changed the test file.
 - **OrchestratorGuard:** the guard names the last test to finish, not the cause, so its failures only add run evidence to one `OrchestratorGuard` flake ticket and skip no test. The intentional-failure browser probes are never annotated.
 - **Retries:** decisions come from the landing journal, so a GitHub error retries without new CI reads. Each step (quarantine PR, requeue, scan of a red base-branch commit) backs off from 1 to 32 minutes and stops after 7 failures in 24 hours with `system.pr.landing.quarantine_gave_up`. A retry reuses a quarantine branch that already holds the entry.
-- **CI:** blocking CI skips listed tests. On main pushes the non-blocking `quarantined tests` job and a step of browser smoke shard 4 run them. Merging the fix ticket's PR opens a PR that lifts the entry; an hourly sweep (caller `quarantine_lift_ticket_state`) also lifts entries whose ticket closed. A local run of a quarantined test or spec skips it (browser runs print `Skipped by quarantine`) unless `AIUR_RUN_QUARANTINED=1` is set.
+- **CI and expiry:** blocking CI skips listed tests. On main pushes the non-blocking `quarantined tests` job and a step of browser smoke shard 4 run them. Merging a fix PR or closing its owner ticket lifts the entry. Expiry decisions use per-test failure annotations from scheduled runs: three green runs lift an expired ExUnit row, while a failing run escalates only that test's owner ticket to `priority:1`. Unexpired rows are left alone. The hourly sweep reads up to 20 scheduled main CI runs and their job details. A local run of a quarantined test or spec skips it (browser runs print `Skipped by quarantine`) unless `AIUR_RUN_QUARANTINED=1` is set.
 
 An approved PR that is not landing acts only when every failed required run has a non-PR cause. Infrastructure failures and known flakes are rerun.
 
 A merge ref older than a base fix, a later merge that changed its workflow or a `.github/` or `scripts/` file its job uses, or a job the base workflow dropped is not rerun. Because a rerun reuses the old merge commit, the watcher updates the branch from the base instead.
 
-On main CI recovery, the watcher checks approved auto-merge PRs for failures started after the first red workflow began and before recovery. It refreshes a branch when a failed run's merge ref predates the fix; otherwise it reruns that workflow. Each rerun uses one of three shared slots per 15 minutes; deferred run IDs stay scoped to recovery.
+On main CI recovery, the watcher checks approved auto-merge and unapproved open PRs for failures in the red window. It refreshes stale merge refs; otherwise it reruns that workflow. Reruns use one of three shared slots per 15 minutes.
 
 If the base changed the PR's own files, that refresh routes to rework instead. Other failures route to rework.
 
@@ -69,6 +95,12 @@ Draft PRs remain pending even with green checks. Mark completed work ready befor
 `ci-wait` and `human-review` hand-offs check drafts against a conditional repo-wide open-PR listing shared per poll cycle. Pull-request webhooks retire it. Pending drafts stay in human review. After `agent.ci_wait_rewake_minutes`, a CI-wait draft raises `ticket.<id>.pr.draft_ci_wait` until ready or outside CI wait. `aiur status` shows `draft_pr`.
 
 Review polling keeps a per-ticket cursor seeded from its first cutoff; issue comments cannot advance it, and disabled or failed reads retain it. Polls in `agent:ci-wait` and `agent:human-review` route trusted `CHANGES_REQUESTED` and blocking `COMMENTED` reviews to `agent:rework`, including body-only reviews.
+
+On `pull_request:synchronize`, Aiur compares an approved PR's old and new contributions. A changed or unreadable diff disarms auto-merge and raises `stale_approved_pr_head`; an identical diff leaves it armed.
+
+Aiur retries a failed approval-state read twice, then raises `landing_withdrawal_failed` so an operator can inspect the PR and disable auto-merge if needed.
+
+Trusted `CHANGES_REQUESTED` reviews also disarm auto-merge.
 
 Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`, `Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or fix requested “before merge”. Clean summaries such as “No blockers; waiting on CI” or “All blockers resolved” do not route to rework.
 

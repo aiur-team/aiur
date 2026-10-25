@@ -49,6 +49,17 @@ defmodule Aiur.CodeHost do
   @spec optimistic_blocker(String.t() | integer(), integer() | nil) :: {:ok, map() | nil} | {:error, term()}
   def optimistic_blocker(value, number), do: optimistic_call(:optimistic_blocker, [value, number])
 
+  @spec optimistic_blocker(String.t() | integer(), integer() | nil, keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def optimistic_blocker(value, number, opts) do
+    adapter = adapter()
+
+    cond do
+      function_exported?(adapter, :optimistic_blocker, 3) -> adapter.optimistic_blocker(value, number, opts)
+      function_exported?(adapter, :optimistic_blocker, 2) -> adapter.optimistic_blocker(value, number)
+      true -> {:error, :code_host_unavailable}
+    end
+  end
+
   @spec park_pull_request(String.t() | integer()) :: :ok | {:error, term()}
   def park_pull_request(value), do: optimistic_call(:park_pull_request, [value])
 
@@ -60,6 +71,9 @@ defmodule Aiur.CodeHost do
 
   @spec pull_request_body_edited_at(integer()) :: {:ok, String.t() | nil} | {:error, term()}
   def pull_request_body_edited_at(number), do: optimistic_call(:pull_request_body_edited_at, [number])
+
+  @spec update_pull_request_body(integer(), String.t()) :: {:ok, map()} | {:error, term()}
+  def update_pull_request_body(number, body), do: optimistic_call(:update_pull_request_body, [number, body])
 
   defp optimistic_call(function, arguments) do
     adapter = adapter()

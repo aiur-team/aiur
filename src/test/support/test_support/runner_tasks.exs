@@ -11,7 +11,11 @@ defmodule Aiur.TestSupport.RunnerTasks do
 
   @doc "Returns the agent runner tasks alive now."
   @spec capture() :: MapSet.t(pid())
-  def capture, do: MapSet.new(runner_tasks())
+  def capture, do: capture(Aiur.TaskSupervisor)
+
+  @doc false
+  @spec capture(GenServer.server()) :: MapSet.t(pid())
+  def capture(supervisor), do: MapSet.new(runner_tasks(supervisor))
 
   @doc "Stops every agent runner task started since `capture/0` returned `before`."
   @spec stop_started_since(MapSet.t(pid())) :: :ok
@@ -22,6 +26,18 @@ defmodule Aiur.TestSupport.RunnerTasks do
     end
 
     :ok
+  catch
+    # The supervisor shut down mid-loop and took the remaining tasks with it.
+    :exit, _reason -> :ok
+  end
+
+  @doc "Fails the suite if a runner task outlives the test support fixture."
+  @spec verify_suite!() :: :ok
+  def verify_suite! do
+    case runner_tasks() do
+      [] -> :ok
+      pids -> raise "test suite found runner tasks still alive after fixture teardown: #{inspect(pids)}"
+    end
   end
 
   @doc "Stops the runner tasks started since `before`, then removes `root`."
@@ -31,12 +47,11 @@ defmodule Aiur.TestSupport.RunnerTasks do
     Aiur.TestCleanup.rm_rf!(root)
   end
 
-  defp runner_tasks do
-    if Process.whereis(Aiur.TaskSupervisor) do
-      Enum.filter(Task.Supervisor.children(Aiur.TaskSupervisor), &runner_task?/1)
-    else
-      []
-    end
+  defp runner_tasks(supervisor \\ Aiur.TaskSupervisor) do
+    Enum.filter(Task.Supervisor.children(supervisor), &runner_task?/1)
+  catch
+    # Absent, or shut down by a :rest_for_one restart while we asked (#5581): its tasks exited with it.
+    :exit, _reason -> []
   end
 
   defp runner_task?(pid) do

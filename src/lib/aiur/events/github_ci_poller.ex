@@ -32,6 +32,8 @@ defmodule Aiur.Events.GithubCIPoller do
   defdelegate attention_hold?(result), to: Recovery
   @spec classify_approval_carry(String.t(), String.t(), integer(), keyword()) :: ApprovalCarry.verdict()
   defdelegate classify_approval_carry(approved_head, head, pr_number, opts), to: ApprovalCarry, as: :classify
+  @spec classify_contribution(String.t(), String.t(), integer(), keyword()) :: :identical | {:changed, map()}
+  defdelegate classify_contribution(approved_head, head, pr_number, opts), to: ApprovalCarry
 
   @spec poll([target()], keyword()) :: {:ok, %{results: [map()], errors: [{String.t(), term()}]}}
   def poll(targets, opts \\ []) when is_list(targets) do
@@ -90,7 +92,11 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   @doc false
-  @spec evaluate_for_test([map()], map()) :: %{decision: decision(), failures: [map()]}
+  @spec evaluate_for_test([map()], map()) :: %{
+          decision: decision(),
+          failures: [map()],
+          check_runs: [map()]
+        }
   def evaluate_for_test(check_runs, commit_status) when is_list(check_runs) and is_map(commit_status) do
     Evaluation.evaluate(check_runs, commit_status)
   end

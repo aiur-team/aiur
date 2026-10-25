@@ -96,6 +96,8 @@ A returning operator wants shape as well as events. On a real cadence — the
 hourly audit is the natural one — or when the shape materially changes, emit
 one compact table instead of prose about overall progress:
 
+Read per-feature progress from Build home at `/?view=list&list=features`.
+
 ```
 #2637  init repo-local config    ████████░░  80%  codex terra   PR #2650 ci
 #2638  .env credential shadow    ██████░░░░  60%  codex sol     rework
@@ -219,13 +221,24 @@ Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
 authority.
 
-Every authorized feature, epic, bug batch, or experiment joins the continuous build.
-Use `agent:queued` in the same creation request; the queue promotes ready members to `agent:todo`.
-Follow [continuous-build intake](references/continuous-build-intake.md): collection, labels, native blockers, queue, read-back.
-“Prioritize” means labels and queue order before the previous next-up; report what it displaced.
-New features create collections, never roots. Only explicit exclusion parks filed work with
-`needs-triage`/`human:todo` and a reason. Preserve finite scope and deferred findings.
-Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.
+Every authorized feature, epic, bug batch, or experiment joins the continuous build. Use `agent:queued` in the same creation request; the queue promotes ready members to `agent:todo`. Follow [continuous-build intake](references/continuous-build-intake.md): collection, labels, native blockers, queue, read-back. “Prioritize” means labels and queue order before the previous next-up; report what it displaced. New features create collections, never roots. Only explicit exclusion parks filed work with `needs-triage`/`human:todo` and a reason. Preserve finite scope and deferred findings. Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.
+
+**Give every new ticket a home-page epic.** Use `aiur epic set <epic> <ids…>` (keys from `aiur epic list`) or `aiur feature add <slug> <ids…>` for feature members; never use epic labels. Follow the [full category and fallback rule](references/executor.md) for label matching, Unsorted, batching and failures.
+
+**Leave the estimate alone unless you have a strong, specific reason for an estimate override.** Planned estimates come from complexity (1, 2, 4, 7, 11 hours for complexities 1–5). For bigger or more uncertain work, fix the complexity label or split the ticket. Override only duration complexity does not capture, such as human review rounds, outside waits, or a long migration: `aiur ticket estimate <id> <hours> --reason "<cause> — from <old>h to <new>h"`. The operator sees the reason word for word on the planned card and in the ticket modal: write one line, at most 500 characters, that they can check. Undo with `aiur ticket estimate <id> --clear --reason "<why>"`. Only the Executor changes estimates; issue workers have no estimate tool.
+
+### Goal text you recommend
+
+Whenever you write goal text for the operator to set (a `/goal`, a suggested
+objective, the goal line in a handoff), include an instruction to use this
+skill, for example: "Operate as the Aiur Executor under the aiur-run skill
+(`.claude/skills/aiur-run/SKILL.md`); re-read it, the latest
+`executor/handoff.md`, and memory after any context compaction or in a new
+session before acting." A goal outlives the context that wrote it: a compacted
+or brand-new session receives only the goal text, and without that line it
+resumes the work without the run rules, merge policy, or authority boundaries
+this skill holds. Keep the operator's own wording intact and add the line; do
+not paraphrase their goal to make room.
 
 ### Build queue
 
@@ -460,7 +473,6 @@ Use the bounded wait as the discovery path:
 
 ```bash
 RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
-export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 wait_seconds="${AIUR_EXECUTOR_WAIT_FLOOR_SECONDS:-30}"
 
 if wake_json="$("$AIUR_CMD" executor-wait --timeout "$wait_seconds" --json)"; then
@@ -694,7 +706,6 @@ durable summary:
 
 ```bash
 RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
-export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 "$RETRO" arm
 "$RETRO" observe action "reviewed-green-pr"
 "$RETRO" observe no-action "ci-still-pending"
@@ -711,14 +722,26 @@ The read-only CLI probe runs alongside it with one control-RPC timeout per
 command, so a normal record may spend up to roughly 30 seconds on terminal
 evidence before the browser capture completes.
 
-The visual check's preconditions fail with distinct, non-zero codes so a
-wrapper can tell which one stopped it: 68 when `AIUR_EXECUTOR_RUN_ID` is
-missing, 67 when the dashboard URL cannot be discovered, 69 when
-`AIUR_DASHBOARD_PASSWORD` is missing. Each failure prints a one-line stderr
-naming the variable to set and writes a "did not run" verdict — a skipped
-check must never exit 0 or read as a healthy capture. `record` forwards that
-precondition line to its own stderr, so a log that redirects stdout+stderr
-still shows why the check did not run.
+The retrospective helper defaults `AIUR_EXECUTOR_RUN_ID` to the live tmux
+session identity (socket plus tmux session ID), which remains stable across
+Executor handoffs and changes when the session is recreated. Outside an Aiur
+tmux session it uses `default`. Set `AIUR_EXECUTOR_RUN_ID` explicitly to use a
+separate retrospective identity. Preconditions fail with distinct,
+non-zero codes so a wrapper can tell which one stopped it: 67 when the
+dashboard URL cannot be discovered, 68 when an explicit run ID is invalid,
+and 69 when `AIUR_DASHBOARD_PASSWORD` is missing. Each failure prints a
+one-line stderr naming the precondition and writes a "did not run" verdict —
+a skipped check must never exit 0 or read as a healthy capture. `record`
+forwards that precondition line to its own stderr, so a log that redirects
+stdout+stderr still shows why the check did not run.
+
+When run outside the daemon's tmux session, the helper searches the live
+`aiur-*` tmux sockets for the dashboard URL Aiur published. A socket matching
+`AIUR_EXECUTOR_RUN_ID` wins; otherwise discovery proceeds only when the live
+dashboard URL is unambiguous. If dashboard credentials are absent from the
+caller environment, it reads them from that daemon's process environment. The
+check prints the URL and credential source labels to stderr without printing
+credential values.
 
 Take the recorded assessment's count language from the atomic
 `summary.count_sentence` that `record` embeds (or the one `summarize` prints in
@@ -825,7 +848,7 @@ Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
 the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
 acting and trust the top state table over the alert list.
 
-Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Unreviewed human-review PRs rank first using `executor.sweep.unreviewed_pr_minutes`; the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
+Run `aiur executor-sweep` on every observation and handle its findings first. It checks decisions, approved PR/CI, merge queue, capacity/order, ticket hygiene, blockers, handbacks, and watcher/dispatcher health. Ready PRs unreviewed at their head rank first using `executor.sweep.unreviewed_pr_minutes`, whatever the ticket state (the finding names it, so a ready PR on an `agent:in-progress` ticket reads as a missed handoff); the daemon repeats every five minutes and wakes on new findings. Continue below for actions it cannot perform:
 
 - act on the `ACTIONABLE` section before routine scheduling;
 - continuously push toward the maximum **useful** concurrency across workers,
@@ -1201,6 +1224,17 @@ rework claim, not the relabels; #4646.) Verify the ticket left
 alert, run `aiur executor-sweep` (#4620) and grep the daemon log for `Rework
 dispatch claim failed` or `writer=comment_wake` before you touch a label.
 
+Before relabeling on a wake, read the issue's current labels and skip the
+relabel if the ticket has already moved on. A
+`ticket.*.agent.handoff.human_review` wake says the agent handed off, not that
+the ticket is still there: when CI is pending the daemon moves it to
+`agent:ci-wait` within minutes. Swapping `agent:human-review` for
+`agent:rework` from that stale wake leaves `agent:rework` + `agent:ci-wait`,
+and dispatch authorization refuses the pair (#5796). When you do relabel, make
+two sequential calls: add the new state label first, then remove the old one.
+`gh issue edit --add-label X --remove-label Y` runs both mutations concurrently
+and is not atomic, so do not combine them.
+
 ### Merge mechanics
 
 Branch protection measures the identity of the **pusher**, not the commit
@@ -1278,14 +1312,39 @@ Always remove secrets and privacy-sensitive context, regardless of debug mode.
   unjoined components, not just the composed string; missing this broke three
   of four coverage shards and the browser harness.
 
+### Fix what you notice
+
+Noticing a problem is the start of the work, not the report. In the same turn:
+
+1. **Stop the bleeding.** If a reversible change within your authority removes
+   the symptom now, make it: an existing config value (back up the config
+   first), a dequeue, a cancel of runs for discarded merge groups, a label
+   repair, an approval on the current head. Verify the effect from the live
+   system (daemon log, queue, runs), not from the edit.
+2. **Question the mechanism.** A symptom that repeats is a design problem. Ask
+   why the mechanism exists before working around it again. On 2026-10-21 the
+   150-minute `agent.max_agent_duration_minutes` cap paused seven progressing
+   agents in one afternoon while the Executor relabelled and restarted them; the
+   no-progress stop and command timeouts already guard against runaway agents,
+   so the cap was set to 0 (the documented "disabled" value).
+3. **File and dispatch.** File the root cause with `agent:todo` and the
+   evidence, so it joins the continuous build now. Do not keep it in a deferred
+   ledger because it is "incidental": the queue orders it against other work.
+4. **Do it by hand once.** The second manual repeat of the same fix is an
+   automation ticket, with the counts as evidence (see `aiur-meta` 3b).
+5. **Disarm before you review.** If a PR with auto-merge on gets a push after
+   your approval, disable auto-merge first, then review the new commits; `main`
+   has no review rule, so an unreviewed commit merges on green CI.
+
+Escalate to the operator only what is theirs: spend, product choices the pack
+does not answer, store releases, deploys they reserve, and irreversible
+actions. Everything else, act and report.
+
 When a reproducible Aiur defect is discovered, diagnose and file it first, then
-decide separately whether to dispatch it *now*. Free capacity is necessary but
-not sufficient: the ticket must also be explicitly authorized/in-boundary or a
-direct P0/P1 acceptance blocker, and dispatching it must not displace ready
-critical-path work. An orphaned/stale-daemon cleanup or another incidental
-reliability fix stays in the deferred ledger even when a capacity audit shows
-idle slots. Base the decision on the measured live state above and record the
-dispatch-or-defer outcome, with its reason, in the Executor decision ledger.
+dispatch it with `agent:todo` unless it would displace ready critical-path work
+that the operator ranked ahead of it. Base the decision on the measured live
+state above and record any deferral, with its reason, in the Executor decision
+ledger.
 
 ## 7. Rebuild, resume, and stop
 

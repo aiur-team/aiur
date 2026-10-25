@@ -7,23 +7,25 @@
     "src/lib/aiur/allowed_contributors.ex",
     "src/lib/aiur/allowed_contributors/**",
     "src/lib/aiur/ci/failure_digest.ex",
+    "src/lib/aiur/ci/transient_network_failure.ex",
     "src/lib/aiur/ci_approval_store.ex",
     "src/lib/aiur/codeowners.ex",
     "src/lib/aiur/codeowners/**",
     "src/lib/aiur/github/**",
     "src/lib/aiur/github_cost_cli.ex",
+    "src/lib/aiur/github_cost_cli/**",
     "src/lib/aiur/github_usage_cli.ex",
     "src/lib/aiur/global_config_startup.ex",
     "src/lib/aiur/open_ticket_source.ex",
     "src/lib/aiur/open_ticket_source/**",
     "src/lib/aiur/pr_merge/queue.ex",
-    "src/lib/aiur/webhooks/delivery_mode.ex",
-    "src/lib/aiur/webhooks/mode_table.ex"
+    "src/lib/aiur/webhooks/delivery_mode.ex"
   ],
   "facades": [
     "Aiur.AllowedContributors",
     "Aiur.AllowedContributors.Candidate",
     "Aiur.CI.FailureDigest",
+    "Aiur.CI.TransientNetworkFailure",
     "Aiur.CIApprovalStore",
     "Aiur.Codeowners",
     "Aiur.Codeowners.Edit",
@@ -46,6 +48,7 @@
     "Aiur.GitHub.IssueState",
     "Aiur.GitHub.Issues",
     "Aiur.GitHub.Labels",
+    "Aiur.GitHub.LandingWithdrawal",
     "Aiur.GitHub.MainFixer",
     "Aiur.GitHub.MergeQueue",
     "Aiur.GitHub.OpenIssueListing",
@@ -61,13 +64,13 @@
     "Aiur.GitHub.ViewStateSweep",
     "Aiur.GitHub.WorkspacePreflight",
     "Aiur.GitHubCostCLI",
+    "Aiur.GitHubCostCLI.Fleet",
     "Aiur.GitHubUsageCLI",
     "Aiur.GlobalConfigStartup",
     "Aiur.OpenTicketSource",
     "Aiur.OpenTicketSource.Snapshot",
     "Aiur.PrMerge.Queue",
-    "Aiur.Webhooks.DeliveryMode",
-    "Aiur.Webhooks.ModeTable"
+    "Aiur.Webhooks.DeliveryMode"
   ],
   "requires": [
     "agent-sandbox",
@@ -83,7 +86,9 @@
     "github-listeners"
   ],
   "owns": {
-    "config": [],
+    "config": [
+      "events.codeowners_refresh_seconds"
+    ],
     "env": [],
     "state": [],
     "capabilities": []

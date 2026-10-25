@@ -50,7 +50,10 @@ for (const kind of ['live', 'dense', 'newrepo', 'noqueue']) {
     for (const key of days.slice(initialDays)) snapshot.sections.hist.push(...pages.get(key));
     const actual = intake(snapshot);
     assert.deepEqual(actual.epics, raw.epics);
-    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to), stats: snapshot.features[key].stats }]));
+    const features = Object.fromEntries(Object.entries(raw.features).map(([key, f]) => {
+      const ends = raw.hist.filter(t => (t.feature === key || t.also.includes(key)) && t.end != null).map(t => t.end);
+      return [key, { ...f, from: f.from == null ? null : Math.trunc(f.from), to: f.to === Infinity ? Infinity : Math.trunc(f.to), oldest: ends.length ? Math.trunc(Math.min(...ends)) : null, stats: snapshot.features[key].stats }];
+    }));
     assert.deepEqual(actual.features, features);
     assert.deepEqual(actual.order, raw.order);
     for (const [key, count] of Object.entries(raw.counts)) assert.equal(actual.counts[key], count);
@@ -92,4 +95,15 @@ test('hostile text stays raw until escaping, including apostrophes', () => {
   const title = intake(snapshot).now[0].title;
   assert.equal(title, `<img src=x onerror="window.__xss=1">'"&`);
   assert.equal(esc(title), '&lt;img src=x onerror=&quot;window.__xss=1&quot;&gt;&#39;&quot;&amp;');
+});
+
+test('intake retains index child links outside the loaded history window', () => {
+  const snapshot = fixture('live'), root = snapshot.sections.hist[0];
+  root.children = ['older-child', 'older-child'];
+  const D = intake(snapshot);
+  assert.equal(D.children[root.id].filter(id => id === 'older-child').length, 1);
+  assert.equal(D.byId['older-child'], undefined);
+  // Loaded dependents still follow their actual deps, without duplicate links.
+  const loaded = D.all.filter(row => row.deps.includes(root.id)).map(row => row.id);
+  assert.deepEqual(D.children[root.id].filter(id => D.byId[id]), loaded);
 });

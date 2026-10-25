@@ -25,11 +25,9 @@ defmodule Aiur.AgentTools.TicketState do
   alias Aiur.AgentTools.Errors
   alias Aiur.AgentTools.Response
 
-  # States an agent may declare for its own ticket. `todo` is the pre-work state
-  # dispatch owns, and `merging`/`cancelled` are Executor dispositions — an agent
-  # claiming either would reverse an operator decision, so they are refused here
-  # rather than silently written.
-  @agent_settable_states ~w(in-progress ci-wait human-review rework error done)
+  # Agents may hand work to a reviewer, but only a merged PR or explicit human
+  # disposition may mark a ticket done. `todo` is also owned by dispatch.
+  @agent_settable_states ~w(in-progress ci-wait human-review rework error)
 
   @description """
   Make `agent:<state>` the ONLY `agent:*` state label on the issue you are
@@ -55,8 +53,9 @@ defmodule Aiur.AgentTools.TicketState do
       "review_findings" => %{
         "type" => "array",
         "description" =>
-          "Rework handback only: one answer per finding in the rework prompt's review findings checklist. " <>
-            "`fixed` names the commit that changes the finding's file; `disputed` gives concrete evidence.",
+          "Required on any `ci-wait`/`human-review` handoff while a request-changes review is open: one answer per numbered finding in that review " <>
+            "(the rework prompt's checklist), even if you moved the ticket to `in-progress`. `fixed` names the commit that changes the finding's file " <>
+            "(a finding with no file may instead be fixed by a PR body edit after the review); `disputed` gives concrete evidence.",
         "items" => %{
           "type" => "object",
           "required" => ["id", "status"],
@@ -95,10 +94,13 @@ defmodule Aiur.AgentTools.TicketState do
     with {:ok, state} <- normalize_state(arguments),
          true <- is_function(setter, 2) || {:error, :ticket_state_setter_unavailable},
          {:ok, result} <- setter.(state, review_findings(arguments)) do
+      result = Response.jsonable(result)
+      applied_state = if is_map(result), do: Map.get(result, "state", state), else: state
+
       Response.build(
         true,
         Jason.encode!(
-          %{"ok" => true, "state" => state, "result" => Response.jsonable(result)},
+          %{"ok" => true, "state" => applied_state, "requested_state" => state, "result" => result},
           pretty: true
         )
       )

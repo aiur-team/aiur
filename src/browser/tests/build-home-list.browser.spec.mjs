@@ -61,6 +61,100 @@ test('B1 list registration renders sections and counts in design order', async (
   for (const sec of ['now', 'plan', 'nq', 'hist']) await expect(page.locator('.lr.' + sec)).toHaveCount(result.expected[sec])
   expect(await page.locator('.lr.hist').evaluateAll(els => els.map(el => el.dataset.id))).toEqual(result.hist)
 })
+test('List shows selection is keyboard accessible, persisted, and scoped to List view', async ({ page }) => {
+  const tabs = page.getByRole('tablist', { name: 'List shows' })
+  await expect(tabs).toBeVisible()
+  await expect(tabs.getByRole('tab', { name: 'Tickets' })).toHaveAttribute('aria-selected', 'true')
+  await tabs.getByRole('tab', { name: 'Tickets' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(tabs.getByRole('tab', { name: 'Features' })).toBeFocused()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/list=epics/)
+  await expect(page.locator('.bd-list-placeholder')).toHaveText('Epics view is not available yet')
+  await expect(tabs.getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await page.reload()
+  const restored = page.getByRole('tablist', { name: 'List shows' })
+  await expect(restored.getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Timeline' }).click()
+  await expect(page.getByRole('tablist', { name: 'List shows' })).toHaveCount(0)
+  await page.getByRole('tab', { name: 'List' }).click()
+  await expect(page.getByRole('tablist', { name: 'List shows' }).getByRole('tab', { name: 'Epics' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Tickets' }).click()
+  await expect(page).not.toHaveURL(/list=/)
+  await expect(page.locator('.bd-list')).toHaveCount(1)
+})
+test('List shows label stays beside options on a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const label = page.locator('.bd-list-label')
+  const options = page.locator('.bd-list-shows')
+  await expect(label).toBeVisible()
+  await expect(options).toBeVisible()
+  const layout = await page.evaluate(() => {
+    const labelRect = document.querySelector('.bd-list-label').getBoundingClientRect()
+    const optionsRect = document.querySelector('.bd-list-shows').getBoundingClientRect()
+    return { labelBottom: labelRect.bottom, optionsTop: optionsRect.top, viewportWidth: innerWidth, pageWidth: document.documentElement.scrollWidth }
+  })
+  expect(layout.labelBottom).toBeGreaterThan(layout.optionsTop)
+  expect(layout.pageWidth).toBeLessThanOrEqual(layout.viewportWidth)
+})
+test('Features list renders counts, proportional segments, unknowns and focus return', async ({ page }) => {
+  const progress = {
+    features: {
+      'f-pag-api': { feature: 'pag', closed: 1, open: 1, ci_wait: 1, unpublished: 1, total: 4, observed_at: Date.now(), wave: '0', summary: 'Pagination work', icon: 'layers', code: 'MP-E8', plan_version: 'v1', extras: 0, reason: null },
+      'f-khala-srv': { feature: 'khala', closed: null, open: 1, ci_wait: null, unpublished: 2, total: null, observed_at: Date.now(), wave: '1', summary: null, icon: null, code: null, plan_version: 'v1', extras: 0, reason: 'states unavailable' }
+    }, observed_at: Date.now(), plan_version: 'v1', extras: 0
+  }
+  await page.getByRole('tab', { name: 'Features' }).click()
+  await page.evaluate(async progress => {
+    const { ctx } = await import('/build-home/state.js')
+    ctx.D.feature_progress = progress
+    ctx.D.order = ['f-pag-api', 'f-khala-srv']
+    ctx.D.epics = { 'f-pag-api': { feature: 'pag', label: 'Pagination · API' }, 'f-khala-srv': { feature: 'khala', label: 'Khala · server' } }
+    ctx.D.features = { pag: { label: 'Events pagination', hue: 272, epics: [], to: Infinity }, khala: { label: 'Khala chat', hue: 150, epics: [], to: Infinity } }
+    ctx.snap.order = ctx.D.order
+    ctx.snap.epics = ctx.D.epics
+    ctx.snap.features = ctx.D.features
+    ctx.snap.feature_progress = progress
+    const { fx } = await import('/build-home/state.js'); fx.renderList()
+  }, progress)
+  await expect(page.locator('.fp-row')).toHaveCount(2)
+  await expect(page.locator('.fp-row').first()).toContainText('1 / 4')
+  await expect(page.locator('.fp-row').first().locator('.fp-closed')).toHaveAttribute('style', /width:25%/)
+  await expect(page.locator('.fp-row').first().locator('.fp-open')).toHaveAttribute('style', /width:50%/)
+  await expect(page.locator('.fp-row').first().locator('.fp-unpublished')).toHaveAttribute('style', /width:25%/)
+  await expect(page.locator('.fp-overall > b')).toHaveText('—')
+  await expect(page.locator('.fp-overall > span')).toContainText('— tickets closed across all features')
+  await expect(page.locator('.fp-wave h2')).toHaveText(['Wave 0 — Pagination · API', 'Wave 1 — Khala · server'])
+  await expect(page.locator('.fp-row').first().locator('.fp-icon')).toHaveAttribute('aria-label', 'Pagination · API')
+  await expect(page.locator('.fp-row').first().locator('.fp-icon svg')).toHaveCount(1)
+  await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    const { applyDiff } = await import('/build-home/store.js')
+    const changed = structuredClone(ctx.snap.feature_progress)
+    changed.features['f-pag-api'].closed = 2
+    changed.features['f-pag-api'].open = 0
+    const set = { feature_progress: changed }
+    const result = applyDiff({ now: Date.now(), generation: ctx.proto.generation + 1, remove: [], upsert: [], set })
+    if (result.error) throw Error(result.error)
+    fx.renderList()
+  })
+  await expect(page.locator('.fp-row').first()).toContainText('2 / 4')
+  await expect(page.locator('.fp-row').first().locator('.fp-closed')).toHaveAttribute('style', /width:50%/)
+  await expect(page.locator('.fp-row').nth(1)).toContainText('—')
+  await expect(page.locator('.fp-row').nth(1)).toContainText('states unavailable')
+  await expect(page.locator('.fp-row').nth(1).locator('.fp-numbers > b')).not.toHaveText('0%')
+  await expect(page.locator('.fp-row').nth(1).locator('.fp-bar')).toHaveClass(/unknown/)
+  await expect(page.locator('.fp-row').nth(1).locator('.fp-icon')).toHaveAttribute('aria-label', 'Khala · server')
+  expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
+  await page.emulateMedia({ colorScheme: 'dark' })
+  expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  await page.locator('.fp-row').first().press('Enter')
+  await expect(page).toHaveURL(/feature=pag/)
+  await expect(page).not.toHaveURL(/list=features/)
+})
 test('B2 delegated Enter opens once across renders and remounts', async ({ page }) => {
   for (let mount = 0; mount < 2; mount++) {
     if (mount) {
@@ -80,6 +174,28 @@ test('B2 delegated Enter opens once across renders and remounts', async ({ page 
     await rows(page).first().click()
     expect(await page.evaluate(() => opened.length)).toBe(2)
   }
+})
+test('Enter opens the real ticket modal and Escape restores the list row', async ({ page }) => {
+  const row = rows(page).first(), id = await row.getAttribute('data-id')
+  const title = await row.locator('.c-tt').textContent()
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js'), push = ctx.push
+    window.keyboardOpens = []
+    ctx.push = (event, params) => {
+      if (event === 'open-ticket') window.keyboardOpens.push(params)
+      return push(event, params)
+    }
+  })
+  await row.focus(); await page.keyboard.press('Enter')
+  await expect(page.locator('#tk-backdrop')).toHaveClass(/\bshow\b/)
+  await expect(page.locator('#bm-title')).toContainText(title)
+  await expect(page.locator('#bm-title')).toBeFocused()
+  await expect(page).toHaveURL(new RegExp('ticket=' + id))
+  expect(await page.evaluate(() => window.keyboardOpens)).toEqual([{ id, loaded: true }])
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#tk-backdrop')).not.toHaveClass(/\bshow\b/)
+  await expect(page).not.toHaveURL(/ticket=/)
+  await expect(row).toBeFocused()
 })
 test('B3 real live diff preserves focus and position; removal and empty filters move focus safely', async ({ page }) => {
   const row = rows(page).nth(4), id = await row.getAttribute('data-id')

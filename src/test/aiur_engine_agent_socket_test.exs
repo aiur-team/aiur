@@ -125,6 +125,7 @@ defmodule AiurEngineAgentSocketTest do
                  aiur_resolve_identity() { :; }
                  resolve_control_identity_from_records() { :; }
                  kill_beams_matching() { :; }
+                 wait_for_node_name_release() { :; }
                  reap_workspace_cwd_from_file() { :; }
                  reap_stale_manual_smoke() { :; }
                  sweep_dead_tmux_sockets() { :; }

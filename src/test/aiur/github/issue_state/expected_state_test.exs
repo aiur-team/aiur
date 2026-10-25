@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
   alias Aiur.GitHub.IssueState
   alias Aiur.GitHub.ResourceStore
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -36,11 +36,27 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
   describe "update_issue_state/3" do
     test "expected_state :none writes todo on a marker-only issue" do
       test_pid = self()
-      body = %{"state" => "open", "labels" => [%{"name" => "sym:watch"}]}
+      {:ok, labels} = Agent.start_link(fn -> ["sym:watch"] end)
 
       request_fun = fn request ->
         send(test_pid, {:request, request})
-        {:ok, %{status: 200, body: body}}
+
+        case request.method do
+          :get ->
+            current_labels = Agent.get(labels, & &1)
+            body = %{"state" => "open", "labels" => Enum.map(current_labels, &%{"name" => &1})}
+            {:ok, %{status: 200, body: body}}
+
+          :post ->
+            assert request.body == %{"labels" => ["sym:todo"]}
+            Agent.update(labels, &Enum.uniq(request.body["labels"] ++ &1))
+            {:ok, %{status: 200}}
+
+          :delete ->
+            label = request.url |> String.split("/") |> List.last() |> URI.decode()
+            Agent.update(labels, &List.delete(&1, label))
+            {:ok, %{status: 200}}
+        end
       end
 
       assert :ok = IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
@@ -95,6 +111,40 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
 
       assert_receive {:request, %{method: :get}}, 1000
       refute_receive {:request, %{method: _method}}, 100
+    end
+
+    test "refuses a merge handoff when an operator park appears before revalidation" do
+      test_pid = self()
+      gets = :ets.new(:park_race_gets, [:set, :private])
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        cond do
+          request.method == :get and String.contains?(request.url, "/pulls?") ->
+            {:ok, %{status: 200, body: [], headers: []}}
+
+          request.method == :get ->
+            count = :ets.update_counter(gets, :count, 1, {:count, 0})
+            labels = if count == 1, do: ["sym:in-progress"], else: ["sym:in-progress", "needs-triage"]
+            {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+
+          true ->
+            flunk("unexpected write: #{inspect(request)}")
+        end
+      end
+
+      assert {:error, {:operator_hold, "needs-triage"}} =
+               IssueState.update_issue_state("42", "human-review",
+                 expected_state: "in-progress",
+                 refuse_labels: ["needs-triage", "human:todo", "sym:paused", "sym:parked"],
+                 request_fun: request_fun
+               )
+
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :get}}
+      refute_received {:request, %{method: :post}}
+      refute_received {:request, %{method: :delete}}
     end
 
     test "expected_state :none refuses existing single or multiple state labels" do
@@ -180,13 +230,27 @@ defmodule Aiur.GitHub.IssueState.ExpectedStateTest do
     # guarded read then got a `304` for the labelless body and saw no state.
     test "a poll 304 cannot vouch for a reconciliation body it never saw" do
       labels = Enum.map(~w(sym:in-progress sym:queued), &%{"name" => &1})
+      {:ok, current_labels} = Agent.start_link(fn -> Enum.map(labels, & &1["name"]) end)
       body = %{"number" => 42, "state" => "open", "updated_at" => "2026-10-18T21:42:13Z", "labels" => labels}
       key = ResourceStore.key(:issue, "owner", "repo", "42")
 
       request_fun = fn
-        %{method: :get, etag: ~s("v1")} -> {:ok, %{status: 304, headers: [{"etag", ~s("v1")}]}}
-        %{method: :get} -> {:ok, %{status: 200, headers: [{"etag", ~s("v1")}], body: body}}
-        %{method: _write} -> {:ok, %{status: 200, body: [%{"name" => "sym:todo"}]}}
+        %{method: :get, etag: ~s("v1")} ->
+          {:ok, %{status: 304, headers: [{"etag", ~s("v1")}]}}
+
+        %{method: :get} ->
+          fresh_body = Map.put(body, "labels", Agent.get(current_labels, & &1) |> Enum.map(&%{"name" => &1}))
+          {:ok, %{status: 200, headers: [{"etag", ~s("v1")}], body: fresh_body}}
+
+        %{method: :post, body: %{"labels" => [label]}} ->
+          Agent.update(current_labels, &Enum.uniq([label | &1]))
+          {:ok, %{status: 200, body: [%{"name" => label}]}}
+
+        %{method: :delete, url: url} ->
+          label = url |> String.split("/") |> List.last() |> URI.decode()
+          Agent.update(current_labels, &List.delete(&1, label))
+          surviving_labels = Agent.get(current_labels, &Enum.map(&1, fn item -> %{"name" => item} end))
+          {:ok, %{status: 200, body: surviving_labels}}
       end
 
       assert {:ok, [%{state: "in-progress"}], cache} = Issues.fetch_issue_states_by_ids_conditional(["42"], %{}, request_fun: request_fun)

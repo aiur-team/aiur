@@ -2,14 +2,13 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @moduledoc """
   Human-review readiness checks for GitHub issues.
 
-  This module blocks a transition to human review while the canonical open
-  pull request has unaddressed review-thread comments or conflicts with its
-  base. Mergeable PRs may wait through base movement; the merge queue tests
-  them against the current base. It composes pull request discovery, bot identity resolution,
-  review-thread classification and mergeability without mutating GitHub state.
+  This gate checks the canonical PR's Local tests evidence and review threads.
+  For human review, it also rejects base conflicts; mergeable PRs may wait
+  through base movement because the merge queue tests them against current base.
   """
 
   alias Aiur.Config
+  alias Aiur.GitHub.HumanReviewEvidence
 
   alias Aiur.GitHub.{
     BotIdentity,
@@ -80,24 +79,50 @@ defmodule Aiur.GitHub.HumanReviewGate do
 
     with {:ok, token} <- Transport.require_token(opts),
          {:ok, {owner, name}} <- Transport.parse_repo(),
-         {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
+         {:ok, body} <-
+           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
+             caller: Keyword.get(opts, :caller, "orphan_claim_approval_state")
+           ),
+         %{"headRefOid" => head, "reviewDecision" => decision, "reviews" => %{"nodes" => nodes}} = pr
+         when is_binary(head) and decision in [nil, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] and is_list(nodes) <-
+           get_in(body, ["data", "repository", "pullRequest"]) do
+      {:ok, {head, approved_commit(pr)}}
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, :invalid_pull_request_approval}
+    end
+  end
+
+  @doc false
+  @spec optimistic_approval_status(integer(), keyword()) :: {:ok, map()} | {:error, term()}
+  def optimistic_approval_status(pr_number, opts \\ []) do
+    query =
+      "query AiurPullRequestApprovalAtHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid mergeable reviewDecision reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
+
+    with {:ok, token} <- Transport.require_token(opts),
+         {:ok, {owner, name}} <- Transport.parse_repo(),
+         {:ok, body} <-
            Transport.github_graphql(
              Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
              token,
              query,
              %{"owner" => owner, "name" => name, "number" => pr_number},
-             caller: Keyword.get(opts, :caller, "orphan_claim_approval_state")
-           ) do
-      case pr do
-        %{"headRefOid" => head, "reviewDecision" => decision, "reviews" => %{"nodes" => nodes}}
-        when is_binary(head) and
-               decision in [nil, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] and
-               is_list(nodes) ->
-          {:ok, {head, approved_commit(pr)}}
+             caller: Keyword.get(opts, :caller, "optimistic_guard_approval")
+           ),
+         %{"data" => %{"repository" => %{"pullRequest" => pr}}} <- body,
+         %{"headRefOid" => head, "mergeable" => mergeable, "reviewDecision" => decision, "reviews" => %{"nodes" => nodes}} = pr,
+         true <-
+           is_binary(head) and mergeable in ["MERGEABLE", "CONFLICTING", "UNKNOWN"] and
+             decision in [nil, "APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] and is_list(nodes) do
+      approved_head = approved_commit(pr)
 
-        _invalid ->
-          {:error, :invalid_pull_request_approval}
-      end
+      {:ok,
+       %{
+         head_sha: head,
+         approved_head_sha: approved_head,
+         approved?: decision == "APPROVED" and approved_head == head,
+         mergeable?: mergeable == "MERGEABLE"
+       }}
     else
       {:error, _reason} = error -> error
       _invalid -> {:error, :invalid_pull_request_approval}
@@ -121,7 +146,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp verify_issue_ready(context, check_base?) do
     case open_pull_request(context) do
       {:ok, %{"number" => pr_number} = pr} when is_integer(pr_number) ->
-        with {:ok, agent_login} <-
+        with :ok <- HumanReviewEvidence.verify(context, pr),
+             {:ok, agent_login} <-
                BotIdentity.bot_account(context.opts, context.request_fun, context.token),
              :ok <- verify_pr_review_threads_clear(context, pr_number, agent_login) do
           verify_base_ancestry(context, pr, check_base?)

@@ -1,3 +1,4 @@
+import { hoverTreeCard, treeTab, treeHoverClear } from './build-home-tree-motion.mjs'
 import { columnSequence, alignColumnPolls } from './build-home-columns-motion.mjs'
 import { spanState } from './build-home-span-state.mjs'
 import { historySequence } from './build-home-history-motion.mjs'
@@ -5,7 +6,7 @@ import { scrollbar } from './build-home-scrollbar-motion.mjs'
 import { alignCardIconToDevicePixel, restoreCardIconAlignment } from './build-home-motion-pixel-align.mjs'
 // Shared records and ownership stay together; feature sequences live beside them.
 // Motion records use the same allowlist as screenshot parity. Design bytes stay untouched.
-import { captureStable } from './design-parity.mjs'
+import { captureStaticGrain } from './build-home-grain-capture.mjs'
 export const motionPathMatches = (pattern, path) => new RegExp(`^${pattern.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`).test(path.replace(/^reduce\.live-toggle\.animation\.tkin(?=\.)/, 'modal.reduce.animation.tkin'))
 const geometry = /(?:scrollTop|top|left|width|height)$/
 
@@ -351,11 +352,8 @@ async function modal(page, ctx, close = false, fromUrl = false) {
 }
 
 async function tree(page, ctx) {
-  await page.clock.runFor(704)
-  const cards = page.locator('.bd-card:not(.now)')
-  if (!await cards.count()) throw new Error('unreachable tree card')
-  await cards.first().evaluate(el => el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })))
-  await click(page, '[data-lt="lock"]')
+  await hoverTreeCard(page)
+  await page.locator('[data-lt="lock"]').click({ force: true })
   if (!await page.locator('.bd-lt.show.locked').count()) throw new Error('unreachable locked tree control')
   const animation = await cssMotion(page, '#bd-tree', ctx, '[data-lt="tree"]')
   if (await page.locator('#bd-tree').evaluate(el => el.hidden)) throw new Error('unreachable open tree overlay')
@@ -453,12 +451,12 @@ async function grain(page, ctx) {
     await ctx.onFrame?.(0, selector)
     // Isolate the actual pseudo-element; live contents are measured separately.
     const target = page.locator(selector).first(), opts = { animations: 'allow', style: `* { visibility: hidden !important } ${selector}::after { visibility: visible !important }` }
-    const before = await captureStable(target, opts, page)
+    const before = await captureStaticGrain(page, target, opts)
     await page.clock.runFor(512)
     await ctx.onFrame?.(.5, selector)
     await page.clock.runFor(496)
     await ctx.onFrame?.(1, selector)
-    const after = await captureStable(target, opts, page)
+    const after = await captureStaticGrain(page, target, opts)
     if (!before.equals(after)) throw new Error(`grain changes over time: ${selector}`)
   }
   return { samples, ...values }
@@ -488,6 +486,7 @@ export const SEQUENCES = {
   'modal.url': (page, ctx) => modal(page, ctx, false, true), 'modal.open': modal, 'modal.close': (page, ctx) => modal(page, ctx, true), 'modal.reduce': modal,
   'minimap.drag': (page, ctx) => minimap(page, ctx, false), 'minimap.jump': (page, ctx) => minimap(page, ctx, true),
   'tree.overlay': tree, 'tree.reduce': tree,
+  'tree.tab': (page, ctx) => treeTab(page, ctx, { cssMotion }), 'tree.hover-clear': treeHoverClear,
   'loading.spin': (page, ctx) => inventory(page, { ...ctx, selector: '.bd-loading' }),
   'grain.static': grain, 'inventory': inventory,
   'reduce.live-toggle': async (page, ctx) => {

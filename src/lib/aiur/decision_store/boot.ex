@@ -4,12 +4,14 @@ defmodule Aiur.DecisionStore.Boot do
   require Logger
 
   alias Aiur.Config
+  alias Aiur.DecisionAnswerComment
   alias Aiur.DecisionDispatch
   alias Aiur.DecisionDispatchTasks
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionProjection
   alias Aiur.DecisionRevisionDispatch
   alias Aiur.DecisionStore
+  alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.FailureAttention
@@ -70,6 +72,7 @@ defmodule Aiur.DecisionStore.Boot do
         follow_up_append_retries: %{},
         held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
+        answer_comment_publisher: Keyword.get(opts, :answer_comment_publisher, &DecisionAnswerComment.ensure/1),
         decision_dispatch_tasks: Keyword.get(opts, :decision_dispatch_tasks, DecisionDispatchTasks),
         decision_dispatch_monitor_pid: nil,
         decision_dispatch_monitor_ref: nil,
@@ -93,7 +96,9 @@ defmodule Aiur.DecisionStore.Boot do
         projecting_revision_follow_ups: MapSet.new(),
         resolving_revision_follow_ups: MapSet.new(),
         append_retry_counts: %{},
-        lifecycle_append_failures: MapSet.new()
+        lifecycle_append_failures: MapSet.new(),
+        failure_attention_reprojection_pending?: false,
+        failure_attention_reprojection_waiters: []
       })
 
     Dispatch.monitor_decision_dispatch_tasks(state)
@@ -101,20 +106,33 @@ defmodule Aiur.DecisionStore.Boot do
 
   @spec handle_continue(term(), term()) :: term()
   def handle_continue(:schedule_reconciliation, state) do
-    if state.writable? and state.health == :writable do
-      Requests.reconcile_requested_executor_notifications(state)
-      Requests.reconcile_deferred_executor_notifications(state)
-      FailureAttention.schedule_failure_attention_reprojection(state)
-      schedule_closed_expired_blocker_mooting(state)
+    state =
+      if state.writable? and state.health == :writable do
+        Requests.reconcile_requested_executor_notifications(state)
+        Requests.reconcile_deferred_executor_notifications(state)
+        schedule_pending_answer_comments(state)
+        state = FailureAttention.schedule_failure_attention_reprojection(state)
+        schedule_closed_expired_blocker_mooting(state)
 
-      Dispatch.schedule_dispatch_work(
-        state,
-        {:reconcile_dispatches, Dispatch.dispatch_fences(state)},
-        state.reconcile_delay_ms
-      )
-    end
+        Dispatch.schedule_dispatch_work(
+          state,
+          {:reconcile_dispatches, Dispatch.dispatch_fences(state)},
+          state.reconcile_delay_ms
+        )
+
+        state
+      else
+        state
+      end
 
     {:noreply, state}
+  end
+
+  defp schedule_pending_answer_comments(state) do
+    state.current
+    |> Map.values()
+    |> Enum.filter(&(&1.ticket_comment_status == :pending and not is_nil(&1.answer)))
+    |> Enum.each(&Answers.schedule_ticket_comment(&1, state.answer_comment_publisher))
   end
 
   # Old expired blocking Commands remain in durable history and visible query
@@ -282,7 +300,9 @@ defmodule Aiur.DecisionStore.Boot do
       pending_notifications: [],
       last_event_id: nil,
       projection_retry: nil,
-      projection: :healthy
+      projection: :healthy,
+      failure_attention_reprojection_pending?: false,
+      failure_attention_reprojection_waiters: []
     }
   end
 end

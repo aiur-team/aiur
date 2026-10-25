@@ -15,10 +15,14 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
       failed_run(502, "pr-43-c-pr-44-d", "https://github.com/test-org/test-repo/actions/runs/502", minutes_ago(10))
     ]
 
-    request = fn %{method: :get, url: url} ->
-      if String.contains?(url, "status=completed"),
-        do: {:ok, %{status: 200, body: %{"workflow_runs" => runs}}},
-        else: {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
+    request = fn
+      %{url: "https://api.github.com/repos/test-org/test-repo/git/matching-refs/heads/gh-readonly-queue/" <> _} ->
+        {:ok, %{status: 200, body: Enum.map(runs, &%{"ref" => "refs/heads/#{&1["head_branch"]}"})}}
+
+      %{method: :get, url: url} ->
+        if String.contains?(url, "status=completed"),
+          do: {:ok, %{status: 200, body: %{"workflow_runs" => runs}}},
+          else: {:ok, %{status: 200, body: %{"workflow_runs" => []}}}
     end
 
     opts = [
@@ -50,7 +54,7 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     assert Enum.map(candidate.observations, & &1.pr) |> Enum.uniq() |> length() == 4
   end
 
-  test "changed PR paths are fetched once per PR for a poll" do
+  test "changed PR paths are fetched once per PR even for a cascade failure" do
     parent = self()
     run = failed_run(511, "pr-51-a-pr-52-b", "https://github.com/test-org/test-repo/actions/runs/511", DateTime.to_iso8601(DateTime.utc_now()))
     journal = Path.join(System.tmp_dir!(), "merge-group-path-cache-#{System.unique_integer([:positive])}.json")
@@ -71,6 +75,10 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
            %{"title" => "aiur-test-failure", "message" => "new-failure :: Aiur.OneTest :: fails", "path" => "test/one_test.exs"},
            %{"title" => "aiur-test-failure", "message" => "new-failure :: Aiur.TwoTest :: fails", "path" => "test/two_test.exs"}
          ]}
+      end,
+      flake_recorder: fn failure, _run, [], _opts ->
+        send(parent, {:cascade_ticket, failure.module, failure.cascade_modules})
+        :ok
       end
     ]
 
@@ -78,6 +86,7 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     assert_received {:changed_paths, 51}
     assert_received {:changed_paths, 52}
     refute_received {:changed_paths, _}
+    assert_received {:cascade_ticket, "Aiur.OneTest", ["Aiur.TwoTest"]}
   end
 
   test "failed runs older than a day are skipped before fetching jobs" do

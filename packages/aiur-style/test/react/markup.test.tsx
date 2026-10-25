@@ -41,6 +41,11 @@ it('SSR shell matches every fixture class and aria-current in both navigations',
     <PageFrame title="Units" icon={raw(doc.querySelector('.aiur-page__icon span')!)}
       banner="Three units running. Two commands need your attention."><p>Follow your units and commands from one place.</p></PageFrame>
   </AiurShell>);
+  const actualPage = actual.querySelector('.aiur-page')!;
+  const expectedPage = expected.querySelector('.aiur-page')!;
+  const actualHeadingId = actualPage.querySelector('h1')!.id;
+  expectedPage.setAttribute('aria-labelledby', actualHeadingId);
+  expectedPage.querySelector('h1')!.id = actualHeadingId;
   expect(contract(actual)).toEqual(contract(expected));
 });
 
@@ -50,6 +55,19 @@ it('PageFrame supports Khala model and preserves its accessible heading ID', () 
   expect(result.querySelector('h1')!.id).toBe('channels-title');
   expect(result.querySelector('.aiur-page__description')!.textContent).toBe('Choose a channel');
   expect(result.querySelector('[role="status"]')!.textContent).toBe('Connected');
+});
+
+it('PageFrame generates a unique accessible heading ID for each frame', () => {
+  const doc = new DOMParser().parseFromString(renderToString(<>
+    <PageFrame title="Channels">First</PageFrame>
+    <PageFrame title="Units">Second</PageFrame>
+  </>), 'text/html');
+  const frames = Array.from(doc.querySelectorAll('.aiur-page'));
+  const ids = frames.map(frame => frame.querySelector('h1')!.id);
+  expect(ids[0]).toBeTruthy();
+  expect(ids[1]).toBeTruthy();
+  expect(ids[0]).not.toBe(ids[1]);
+  frames.forEach((frame, index) => expect(frame.getAttribute('aria-labelledby')).toBe(ids[index]));
 });
 
 it('ThemeToggle SSR matches the theme-toggle fixture classes and accessibility', () => {

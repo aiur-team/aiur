@@ -17,9 +17,11 @@ The optional experiment store registers this check; without it, ordinary authori
 
 ## GitHub App authentication
 
-The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise.
+Local instances use a short-lived GitHub App installation token when App credentials are configured. Otherwise, they use `GITHUB_TOKEN` or the `gh` keyring.
 
-When no App credentials are set, a `GITHUB_TOKEN` env var is preferred, then the `gh` keyring (`gh auth login`). Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
+Hosted instances (`instance.mode: hosted`), environment-only deployments, and deployments declaring persistent state default to App authentication. They reject PAT auth unless `AIUR_GITHUB_ALLOW_PAT=1` explicitly opts into `GITHUB_TOKEN`; when both the App and PAT are configured, the App wins.
+
+Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour. The dashboard's GitHub quota card shows whether the daemon is using a GitHub App, a PAT, or the `gh` keyring.
 
 ### Set up the App
 
@@ -31,10 +33,14 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 | Issues | Read and write |
 | Pull requests | Read and write |
 | Checks | Read (CI failure annotations) |
-| Actions | Read for main-watch workflow attribution; write for canary and automatic failed-job reruns. |
+| Actions | Read for main-watch attribution and queued-run census; write for canary and automatic failed-job reruns. |
 | Administration, Secrets, Workflows | Never |
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
+
+For webhook delivery, subscribe the App to `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, `check_suite`, `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. See [webhook setup](/apis/github-webhooks#optional-webhook) for endpoint details.
+
+A container `aiur init` prints this event list and the permissions above.
 
 ### Configure the daemon
 
@@ -47,11 +53,11 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 | `GITHUB_APP_PRIVATE_KEY_PATH` | Path to the private-key PEM file; preferred. |
 | `GITHUB_APP_PRIVATE_KEY` | Inline PEM alternative; use one or the other. |
 
-`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
+`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value. A container platform may inject the PEM as `GITHUB_APP_PRIVATE_KEY`; Aiur uses that content without requiring a key file. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
 
 A repository whose own `.env` sets a `GITHUB_TOKEN` (or any `GITHUB_APP_*` name) does not inherit the App from `~/.aiur/.env`; see [environment layering](/reference/configuration#environment-variables). Put App credentials in `~/.aiur/.env` for every repository the App is installed on, and in the repository `.env` when only that repository should use it.
 
-The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
+For local instances, the env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`). Hosted/container instances require the App unless `AIUR_GITHUB_ALLOW_PAT=1` is set and `GITHUB_TOKEN` is present; the keyring is not a hosted fallback.
 
 The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls — a locked keyring prompting for a passphrase, a slow host, or a missing GUI credential agent — cannot hang the daemon with no log line.
 
@@ -107,6 +113,8 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 Governed `gh` calls run for at most 120 seconds. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower the cap. On timeout, the supervisor terminates child processes and exits 124; `gh run watch` and `gh pr checks --watch` share the limit. It sources its body from an anonymous pipe, so caller-writable `TMPDIR` cannot replace it.
 
+Before handoff, if the PR body has stale or invalid local-test evidence, the daemon checks `.aiur-runtime/tmp/pr.md` in the agent workspace. A regular file no larger than 1 MB is accepted only when it passes the PR body lint for the current PR head. Aiur applies it with the daemon credential and verifies the stored body before allowing handoff.
+
 Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
 reads.
@@ -152,7 +160,11 @@ A worker's `human-review` handback also reads the PR's approval (one GraphQL rea
 
 The approval carries only when the contribution diff (merge base to head) is identical, context included; hunk positions may shift with base edits above them. Any conflict resolution does not carry. The PR body `Tested head` must name the new head.
 
-A carried approval posts a PR comment and a `ticket.<id>.pr.approval_carried` info alert. Any other verdict raises `stale_approved_pr_head` with the differing hunks. Unreadable or truncated comparisons count as changed.
+A carried approval posts a PR comment and info alert. Other verdicts raise `stale_approved_pr_head`; unreadable comparisons count as changed.
+
+On a synchronize webhook, a changed approved contribution disarms auto-merge before the alert. Approve the new head to re-enable it.
+
+If Aiur cannot read the approval state after two retries, it raises `landing_withdrawal_failed` for operator inspection. Trusted `CHANGES_REQUESTED` reviews also disarm auto-merge.
 
 For the next 10 handoffs after rollout, record the tested PR head, observed base SHA and overlap/conflict verdict. Count unsafe handoffs reaching review separately from harmless stale heads; the earlier 3-of-8 stale-base count is context, not an equivalent baseline for this narrower measure.
 
@@ -176,3 +188,7 @@ The path scope and webhook signature are independent locks:
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
+
+The dashboard Host allowlist exempts only `POST /api/v1/github/webhook`; the receiver verifies GitHub's HMAC signature before accepting a delivery. Other paths remain restricted to `server.public_url`, loopback, and additional `server.allowed_hosts`.
+
+The Cloudflare tunnel may preserve `Host: hooks.aiur.dev` without adding its public hostname to the dashboard allowlist.

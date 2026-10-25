@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   require Logger
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Issue, Signal}
   alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
   alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
@@ -103,8 +103,15 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     {%{state | startup_claim_reconciliation_complete?: not unsettled?}, Enum.reject(issues, &is_nil/1)}
   end
 
+  # Another instance's claim is not an orphan of this daemon (#5803).
   defp reconcile_issue(%State{} = state, %Issue{identifier: identifier} = issue, live_identifiers, opts)
        when is_binary(identifier) do
+    if Aiur.Instance.skip?(identifier, issue.labels, :orphan_claim), do: {:ok, state, issue}, else: reconcile_owned(state, issue, live_identifiers, opts)
+  end
+
+  defp reconcile_issue(state, issue, _live_identifiers, _opts), do: {:ok, state, issue}
+
+  defp reconcile_owned(state, %Issue{identifier: identifier} = issue, live_identifiers, opts) do
     cond do
       approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) ->
         release_orphaned_claim(state, issue, Keyword.put(opts, :forced_target, "ci-wait"))
@@ -133,8 +140,6 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         release_orphaned_claim(state, issue, opts)
     end
   end
-
-  defp reconcile_issue(state, issue, _live_identifiers, _opts), do: {:ok, state, issue}
 
   defp recoverable_claim?(state, issue, identifier) do
     DispatchPolicy.state_slug(issue.state) == "in-progress" and
@@ -188,7 +193,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     case Release.run(issue, opts) do
       {:ok, target} ->
         Logger.warning("Released orphaned startup claim to #{target}; no live runtime owns it #{State.issue_context(issue)}")
-        emit_released_alert(issue, target, opts)
+        if release_changes_state?(issue, target), do: emit_released_alert(issue, target, opts)
         if DispatchPolicy.state_slug(target) == "human-review", do: TransitionAlerts.publish_human_review_handoff(issue, opts)
         state = resolve_release_failure(state, issue, opts)
         state = %{state | claimed: MapSet.delete(state.claimed, issue.id), orphaned_claim_since: Map.delete(state.orphaned_claim_since, issue.identifier)}
@@ -238,7 +243,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     )
 
     if alert_release_failed?(state, issue, reason, attempts, deferred?) do
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
       emit_alert_fun.(
         failure_topic(issue),
@@ -275,8 +280,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp retry_outlook(_reason, attempts, false) when attempts >= @max_release_attempts, do: "no further release attempts will run within this boot."
   defp retry_outlook(_reason, _attempts, false), do: "it will be retried up to #{@max_release_attempts} times within this boot."
 
+  defp release_changes_state?(%Issue{} = issue, target) do
+    DispatchPolicy.state_slug(issue.state) != DispatchPolicy.state_slug(target) and
+      DispatchPolicy.state_slug(target) != "human-review"
+  end
+
   defp emit_released_alert(%Issue{} = issue, target, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_alert_fun.(
       "ticket.#{issue.identifier}.agent.attention.startup_orphan_claim_released",
@@ -301,7 +311,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         %{state | startup_claim_reconciliation_failures: failures}
 
       {_entry, failures} ->
-        emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+        emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
         emit_alert_fun.(
           failure_topic(issue) <> ".resolved",
@@ -351,7 +361,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp alert_persistent(entry, _issue, _opts), do: entry
 
   defp alert_persistent_hold(entry, issue, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
     minutes = div(@hold_persistent_ms, 60_000)
 
     emit_alert_fun.(
@@ -372,7 +382,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   defp alert_persistent_ancestry(%{since: since} = entry, issue, opts) do
     if now_ms(opts) - since >= @ancestry_persistent_ms do
-      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
       emit_alert_fun.(
         failure_topic(issue),

@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.DispatchBudgetStore
   alias Aiur.Events.GithubKeys
@@ -13,6 +12,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.TicketBranch
+  alias Aiur.Signal
 
   @doc false
   @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
@@ -80,7 +80,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         emit_observed_error_transition_alert(state, issue)
 
       current_state == "human-review" ->
-        Alerts.emit_system(
+        Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
           issue: issue,
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
@@ -98,7 +98,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
       true ->
         # Ticket B: label-flip alerts route through the new topic shape so
         # the alerts file can glob-match per state without one entry per state.
-        Alerts.emit_system(
+        Signal.alert(
           "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
           issue: issue,
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
@@ -123,7 +123,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     approved_at_head? = is_binary(head_sha) and review["state"] == "APPROVED" and last_review_sha == head_sha
 
     # The tracker refresh and the CI poll both observe the same flip; one wake per (PR, head).
-    emit_system = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_system = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_system.("ticket.#{issue.identifier}.agent.handoff.human_review",
       issue: issue,
@@ -182,7 +182,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     else
       message = observed_error_alert_message(cause)
 
-      case Alerts.emit_system(topic,
+      case Signal.alert(topic,
              issue: issue,
              worker_host: State.WorkerHost.running_worker_host(state, issue.id),
              reason: message,
@@ -209,7 +209,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         mark_observed_error_alert(state, issue.id, cause)
 
       active? ->
-        case Alerts.emit_system("#{topic}.resolved",
+        case Signal.alert("#{topic}.resolved",
                issue: issue,
                worker_host: State.WorkerHost.running_worker_host(state, issue.id),
                reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
@@ -338,7 +338,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
         emit_tracker_pause_alert(state, issue)
 
       {true, false} ->
-        Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
+        Signal.alert("ticket.#{issue.identifier}.agent.unpaused",
           issue: issue,
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
@@ -361,7 +361,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
     unless active_attention?(state, topic) do
-      Alerts.emit_system(topic,
+      Signal.alert(topic,
         issue: issue,
         worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason:
@@ -380,7 +380,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     topic = "ticket.#{issue.identifier}.agent.paused"
 
     if force? or active_attention?(state, topic) do
-      Alerts.emit_system("#{topic}.resolved",
+      Signal.alert("#{topic}.resolved",
         issue: issue,
         worker_host: State.WorkerHost.running_worker_host(state, issue.id),
         reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
