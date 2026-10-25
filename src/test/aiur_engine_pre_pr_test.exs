@@ -315,8 +315,24 @@ defmodule AiurEnginePrePrTest do
     {output, status} = run_pre_pr(fixture, repo, gate_mode: "pass")
 
     assert status == 0
+    assert output =~ "PASS pinned layout assets"
+    assert File.read!(Path.join(fixture, "npm-command")) =~ "ci --ignore-scripts"
+    assert File.read!(Path.join(fixture, "npm-command")) =~ "run vendor:elk -- --check"
     assert output =~ "Result: PASS (full CI suite not run)"
     assert output =~ "Not run: Credo and specs (make lint), dialyzer, full CI suite"
+  end
+
+  test "missing Node and npm reports an actionable pinned-layout prerequisite" do
+    fixture = fixture("missing-npm")
+    repo = Path.join(fixture, "repo")
+    git!(repo, ["switch", "-c", "feature"])
+    {output, status} = run_pre_pr(fixture, repo, missing_tool: "npm")
+
+    assert status == 1
+    assert output =~ "FAIL pinned layout assets"
+    assert output =~ "Node/npm required"
+    assert output =~ "npm ci --ignore-scripts"
+    assert output =~ "Result: FAIL"
   end
 
   # The dev shim marks pre-pr as a retryable control command; its tests must not inherit that.
