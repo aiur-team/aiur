@@ -27,11 +27,10 @@ choose its cap from this unmeasured record.
 | Additional body and PR-file read population | unknown — export not captured |
 | recommended_tickets_per_run | unknown — completion and context evidence not available |
 
-`src/test/fixtures/history/classification_cost_sample.json` is an explicitly
-unmeasured record: nulls preserve missing evidence. It is **not** a real pilot
-fixture. After the pilot, replace nulls with measured counts, and assert the
-exact projected numbers in a test alongside this table and the PR evidence.
-No titles, bodies, reasons from proposals, or financial data belong in that fixture.
+The measured fixture at `src/test/fixtures/history/classification_cost_sample.json`
+is deferred with the pilot. After the pilot, commit measured counts and assert
+the exact projected numbers in a test alongside this table and the PR evidence.
+No titles, bodies, proposal reasons, or financial data belong in that fixture.
 
 ## Reproduction (Executor, after deployment)
 

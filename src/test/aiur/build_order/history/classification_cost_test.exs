@@ -176,16 +176,6 @@ defmodule Aiur.BuildOrder.History.ClassificationCostTest do
     assert Cost.github_total([hourly(60, 3), unknown], 3_600_000).search == {:unknown, [:broker_unavailable]}
   end
 
-  test "unmeasured fixture cannot supply a projected cost or recommended cap" do
-    record = Path.expand("../../../fixtures/history/classification_cost_sample.json", __DIR__) |> File.read!() |> Jason.decode!()
-    assert record["pilot_ticket"] == nil
-    assert record["population"] == nil
-    assert record["recommended_tickets_per_run"] == nil
-    assert Enum.uniq(Map.values(record["tokens"])) == [nil]
-    assert Enum.uniq(Map.values(record["github"])) == [nil]
-    assert Cost.project(read(), inputs(%{population: record["population"], sample_size: record["sample_size"]})) == {:unknown, [:invalid_population_or_sample_size]}
-  end
-
   test "invalid projection sizes and ceilings cannot produce figures" do
     assert Cost.project(read(), inputs(%{sample_size: 0})) == {:unknown, [:invalid_population_or_sample_size]}
     assert Cost.project(read(), inputs(%{ceilings_per_hour: [0]})) == {:unknown, [:invalid_ceiling]}
