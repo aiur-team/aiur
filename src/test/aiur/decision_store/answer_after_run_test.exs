@@ -39,7 +39,7 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       for _attempt <- 1..count, do: assert_receive({:no_worker, ^decision_id}, 1_000)
     end
 
-    test "an answer recorded a minute later reaches the next worker exactly once", %{dir: dir} do
+    test "an answer with no running agent stays pending for the next session", %{dir: dir} do
       worker = start_worker_flag!()
 
       pid =
@@ -56,32 +56,22 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
 
       payload = %{"idempotency_key" => "resume-1", "expected_version" => 1, "option_id" => "ship"}
       later = DateTime.add(DateTime.utc_now(), 60, :second)
-      assert {:ok, %{action: action}} = answer(pid, id, payload, now: later)
+      assert {:ok, _answer} = answer(pid, id, payload, now: later)
 
       # Recording the answer clears the dispatch hold at once.
       assert {:ok, released} = DecisionStore.blocked_ticket_ids(pid)
       refute MapSet.member?(released, "979")
 
-      # No worker runs the ticket: the first try and the whole retry ladder fail.
-      assert_no_worker_attempts(id, 4)
-      failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
-      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+      # No worker runs the ticket. This is a normal wait for its next session,
+      # not a failed delivery that should spend the retry ladder.
+      assert_no_worker_attempts(id, 1)
+      pending = wait_for_decision(pid, id, & &1.pending_for_session?)
+      assert pending.delivery_status == :pending
       refute_receive {:no_worker, ^id}, 100
 
-      # The next worker for the ticket starts and receives the answer once.
+      # Queue redelivery stays disabled; dispatch carries the answer in its
+      # launch prompt instead.
       start_worker!(worker)
-      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
-      assert_receive {:worker_received, ^id, action_id, attempt_id}, 1_000
-      assert action_id == action.action_id
-      queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
-
-      # A second spawn of the ticket does not send the queued answer again, nor
-      # one that reached the provider.
-      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
-      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
-
-      assert_receive {:worker_queue_item, ^id, item_id}, 1000
-      assert {:ok, :accepted} = DecisionStore.record_delivery(correlated_queue_item(queued, action, attempt_id, item_id), pid)
       assert :ok = DecisionStore.deliver_pending_answers("979", pid)
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
 
@@ -90,20 +80,20 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       refute_receive {:worker_received, _id, _action_id, _attempt_id}, 100
     end
 
-    test "a restart between the answer and the redispatch still delivers exactly once", %{dir: dir} do
+    test "a restart preserves the pending answer without retrying it", %{dir: dir} do
       worker = start_worker_flag!()
       pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
 
       assert {:ok, %{decision: decision}} = request(pid, two_option_request("resume-after-restart"))
       id = decision.decision_id
       payload = %{"idempotency_key" => "restart-1", "expected_version" => 1, "option_id" => "hold"}
-      assert {:ok, %{action: action}} = answer(pid, id, payload)
+      assert {:ok, _answer} = answer(pid, id, payload)
       assert_no_worker_attempts(id, 1)
-      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      _pending = wait_for_decision(pid, id, & &1.pending_for_session?)
 
       GenServer.stop(pid)
 
-      # The boot reconciliation tries once more; still no worker runs the ticket.
+      # Boot does not schedule a retry for an answer awaiting its next session.
       pid2 =
         start_store!(dir,
           dispatcher: worker_dispatcher(self(), worker),
@@ -112,20 +102,17 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
           retry_delays_ms: []
         )
 
-      assert_no_worker_attempts(id, 1)
-      _failed = wait_for_decision(pid2, id, &(length(&1.dispatch_attempts) == 2 and &1.delivery_status == :failed))
+      refute_receive {:no_worker, ^id}, 100
+      _pending = wait_for_decision(pid2, id, & &1.pending_for_session?)
       refute_receive {:no_worker, ^id}, 100
 
       start_worker!(worker)
       assert :ok = DecisionStore.deliver_pending_answers("979", pid2)
       assert :ok = DecisionStore.deliver_pending_answers("979", pid2)
-      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
-      assert action_id == action.action_id
-      _queued = wait_for_decision(pid2, id, &(&1.delivery_status == :queued))
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
     end
 
-    test "only the newest answer is redelivered after a revision replaced the first", %{dir: dir} do
+    test "a revision leaves only its newest answer pending for the next session", %{dir: dir} do
       worker = start_worker_flag!()
       pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
 
@@ -134,7 +121,7 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       payload = %{"idempotency_key" => "revision-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, %{action: first}} = answer(pid, id, payload)
       assert_no_worker_attempts(id, 1)
-      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      _pending = wait_for_decision(pid, id, & &1.pending_for_session?)
 
       assert {:ok, %{action: revision}} =
                DecisionStore.revise(
@@ -151,21 +138,19 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
                  pid
                )
 
-      assert_no_worker_attempts(id, 1)
-
-      _failed =
+      pending =
         wait_for_decision(pid, id, fn current ->
-          current.active_action_id == revision.action_id and current.delivery_status == :failed
+          current.active_action_id == revision.action_id and current.pending_for_session?
         end)
+
+      assert pending.active_action_id == revision.action_id
 
       start_worker!(worker)
       assert :ok = DecisionStore.deliver_pending_answers("979", pid)
-      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
-      assert action_id == revision.action_id
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
     end
 
-    test "several undelivered answers reach the new worker in the order they were given", %{dir: dir} do
+    test "several unanswered deliveries stay pending without retries", %{dir: dir} do
       worker = start_worker_flag!()
       pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
 
@@ -184,19 +169,14 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       for id <- answer_order do
         assert {:ok, _answer} = answer(pid, id, %{"idempotency_key" => "order-#{id}", "expected_version" => 1, "option_id" => "ship"})
         assert_no_worker_attempts(id, 1)
-        _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+        pending = wait_for_decision(pid, id, & &1.pending_for_session?)
+        assert pending.delivery_status == :pending
       end
 
       start_worker!(worker)
       assert :ok = DecisionStore.deliver_pending_answers("979", pid)
-
-      received =
-        for _id <- answer_order do
-          assert_receive {:worker_received, id, _action_id, _attempt_id}, 1_000
-          id
-        end
-
-      assert received == answer_order
+      refute_receive {:worker_received, _id, _action_id, _attempt_id}, 200
+      for id <- answer_order, do: assert(wait_for_decision(pid, id, & &1.pending_for_session?).pending_for_session?)
     end
 
     test "an answer the provider confirmed is not sent again after its turn failed", %{dir: dir} do
@@ -225,7 +205,7 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
     end
 
-    test "a mooted answer is never sent to the next worker", %{dir: dir} do
+    test "a mooted answer is not retried while awaiting its next session", %{dir: dir} do
       worker = start_worker_flag!()
       pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
 
@@ -233,7 +213,7 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       id = decision.decision_id
       assert {:ok, _answer} = answer(pid, id, %{"idempotency_key" => "moot-1", "expected_version" => 1, "option_id" => "ship"})
       assert_no_worker_attempts(id, 1)
-      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      _pending = wait_for_decision(pid, id, & &1.pending_for_session?)
 
       assert {:ok, %{status: :accepted}} =
                DecisionStore.moot(id, %{"reason_class" => "operator_changed_direction"}, [actor: %{kind: :executor, id: "executor"}], pid)
@@ -243,18 +223,18 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
     end
 
-    test "after a supersede only the newest answer reaches the next worker", %{dir: dir} do
+    test "after a supersede only the newest answer remains pending for the next session", %{dir: dir} do
       worker = start_worker_flag!()
       pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
 
       assert {:ok, %{decision: decision}} = request(pid, two_option_request("supersede-before-spawn"))
       id = decision.decision_id
 
-      assert {:ok, %{action: first}} =
+      assert {:ok, %{action: _first}} =
                answer(pid, id, %{"idempotency_key" => "supersede-1", "expected_version" => 1, "option_id" => "ship"})
 
       assert_no_worker_attempts(id, 1)
-      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      _pending = wait_for_decision(pid, id, & &1.pending_for_session?)
 
       assert {:ok, %{action: newest}} =
                DecisionStore.supersede(
@@ -264,14 +244,12 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
                  pid
                )
 
-      assert_no_worker_attempts(id, 1)
-      _failed = wait_for_decision(pid, id, &(&1.active_action_id == newest.action_id and &1.delivery_status == :failed))
+      pending = wait_for_decision(pid, id, &(&1.active_action_id == newest.action_id and &1.pending_for_session?))
+      assert pending.active_action_id == newest.action_id
 
       start_worker!(worker)
       assert :ok = DecisionStore.deliver_pending_answers("979", pid)
-      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
-      assert action_id == newest.action_id
-      refute action_id == first.action_id
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
     end
 
