@@ -54,6 +54,7 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <>|,
       ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <> runner_starvation(state)|,
       ~S|"main=red" <> observation(state, now_ms) <> since <> fixer|,
+      ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> event_source(state) <> observation(state, now_ms)|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)|,
       ~S|def main_state(_state, _now_ms), do: "main=unknown"|
     ]

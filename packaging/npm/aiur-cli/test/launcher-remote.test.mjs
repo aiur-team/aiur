@@ -1,10 +1,7 @@
 import { test, expect } from "bun:test";
-import { spawnSync } from "node:child_process";
 import {
   chmodSync,
-  cpSync,
   existsSync,
-  mkdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -12,158 +9,20 @@ import {
 } from "node:fs";
 import path from "node:path";
 import {
-  HOST_TRIPLE,
   captureFile,
   root,
-  runShim,
-  setupPackage,
-  setupRealLauncher,
   useTempRoot,
 } from "./launcher-support.mjs";
+import {
+  registry,
+  runRemote,
+  runRemoteEngine,
+  setupRemoteLauncher,
+  startServer,
+  successBody,
+} from "./launcher-remote-support.mjs";
 
 useTempRoot();
-
-const sleep = (milliseconds) =>
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-
-function setupRemoteLauncher(registry) {
-  const { fakeBin } = setupPackage({ tmuxVersion: null, withOpencode: false });
-  const { launcher, releaseDir: fixtureReleaseDir } = setupRealLauncher();
-  const releaseDir = path.join(root, "node_modules", `aiur-cli-${HOST_TRIPLE}`, "release");
-  rmSync(releaseDir, { recursive: true, force: true });
-  cpSync(fixtureReleaseDir, releaseDir, { recursive: true });
-  const home = path.join(root, "home");
-  mkdirSync(path.join(home, ".aiur"), { recursive: true });
-  writeFileSync(path.join(home, ".aiur", "remote-instances.yaml"), registry);
-
-  const release = path.join(releaseDir, "bin", "aiur");
-  writeFileSync(
-    release,
-    [
-      "#!/usr/bin/env bash",
-      'if [ "$1" = rpc ]; then',
-      '  printf "LOCAL_EXPR:%s\\n" "$2" >>"$AIUR_TEST_OUT"',
-      '  printf ":ok\\n__AIUR_CONTROL_EXIT__:0\\n"',
-      "fi",
-      "",
-    ].join("\n"),
-  );
-  chmodSync(release, 0o755);
-
-  return { fakeBin, home, launcher, releaseDir };
-}
-
-function runRemote(setup, args, env = {}) {
-  return runShim({
-    args,
-    fakeBin: setup.fakeBin,
-    env: {
-      HOME: setup.home,
-      PATH: `${setup.fakeBin}:${process.env.PATH}`,
-      AIUR_BG_STATE_DIR: path.join(root, "state"),
-      AIUR_TEST_OUT: captureFile,
-      AIUR_TOKEN_T: "remote-secret-token",
-      ...env,
-    },
-  });
-}
-
-function runRemoteEngine(setup, args, env = {}) {
-  return spawnSync(setup.launcher, args, {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      HOME: setup.home,
-      PATH: `${setup.fakeBin}:${process.env.PATH}`,
-      AIUR_JS_RUNTIME: process.execPath,
-      AIUR_BG_STATE_DIR: path.join(root, "state"),
-      AIUR_RELEASE_DIR: setup.releaseDir,
-      AIUR_TEST_OUT: captureFile,
-      AIUR_TOKEN_T: "remote-secret-token",
-      ...env,
-    },
-  });
-}
-
-function startServer({ status = 200, body }) {
-  const serverScript = path.join(root, "remote-server.mjs");
-  const readyFile = path.join(root, "remote-server.port");
-  const requestFile = path.join(root, "remote-requests.ndjson");
-  rmSync(readyFile, { force: true });
-  rmSync(requestFile, { force: true });
-  writeFileSync(
-    serverScript,
-    [
-      'import { appendFileSync, writeFileSync } from "node:fs";',
-      "const response = JSON.parse(process.env.AIUR_TEST_RESPONSE);",
-      "const server = Bun.serve({",
-      "  port: 0,",
-      "  async fetch(request) {",
-      "    const requestBody = await request.text();",
-      "    appendFileSync(process.env.AIUR_TEST_REQUESTS, JSON.stringify({",
-      "      authorization: request.headers.get('authorization'),",
-      "      body: JSON.parse(requestBody),",
-      "    }) + '\\n');",
-      "    return new Response(JSON.stringify(response.body), {",
-      "      status: response.status,",
-      "      headers: { 'content-type': 'application/json' },",
-      "    });",
-      "  },",
-      "});",
-      "writeFileSync(process.env.AIUR_TEST_READY, String(server.port));",
-      "process.on('SIGTERM', () => { server.stop(true); process.exit(0); });",
-      "",
-    ].join("\n"),
-  );
-
-  const server = Bun.spawn([process.execPath, serverScript], {
-    env: {
-      ...process.env,
-      AIUR_TEST_READY: readyFile,
-      AIUR_TEST_REQUESTS: requestFile,
-      AIUR_TEST_RESPONSE: JSON.stringify({ status, body }),
-    },
-    stdout: "ignore",
-    stderr: "pipe",
-  });
-
-  const deadline = Date.now() + 5_000;
-  while (!existsSync(readyFile) && Date.now() < deadline) sleep(10);
-  if (!existsSync(readyFile)) {
-    server.kill();
-    throw new Error("fake remote server did not start");
-  }
-
-  return {
-    url: `http://127.0.0.1:${readFileSync(readyFile, "utf8")}`,
-    requests() {
-      if (!existsSync(requestFile)) return [];
-      return readFileSync(requestFile, "utf8")
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line));
-    },
-    stop() {
-      server.kill();
-    },
-  };
-}
-
-function registry(url, credential = "token_env: AIUR_TOKEN_T") {
-  return `version: 1\ninstances:\n  t:\n    url: ${url}\n    ${credential}\n`;
-}
-
-function successBody(output = "ok\n__AIUR_CONTROL_EXIT__:0\n") {
-  return {
-    contract: "aiur.control.result",
-    contract_version: 1,
-    instance_id: "test/t",
-    build: { version: "0.1.0", commit: "abc1234" },
-    output,
-    elapsed_ms: 1,
-  };
-}
 
 test("named remote status prints output and propagates its marker exit code", () => {
   for (const exitCode of [0, 7]) {
@@ -198,6 +57,21 @@ test("the shared engine accepts --instance before classifying the command", () =
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("ok\n");
     expect(server.requests()).toHaveLength(1);
+  } finally {
+    server.stop();
+  }
+});
+
+test("the shared engine rejects an empty --instance before transport", () => {
+  const server = startServer({ body: successBody("wrong\n__AIUR_CONTROL_EXIT__:0\n") });
+  try {
+    const setup = setupRemoteLauncher(registry(server.url));
+    rmSync(captureFile, { force: true });
+    const result = runRemoteEngine(setup, ["--instance=", "status"]);
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("--instance requires a name");
+    expect(existsSync(captureFile)).toBe(false);
+    expect(server.requests()).toHaveLength(0);
   } finally {
     server.stop();
   }
@@ -244,7 +118,7 @@ test("remote requests carry the exact expression used by local RPC", () => {
       expect(request.body.contract).toBe("aiur.control.call");
       expect(request.body.contract_version).toBe(1);
       expect(request.body.command).toBe(args[0]);
-      expect(request.body.timeout_ms).toBe(10_000);
+      expect(request.body.timeout_ms).toBe(args[0] === "message" ? 70_000 : 10_000);
       expect(request.body.max_scope).toBe("write");
       expect(request.authorization).toBe("Bearer remote-secret-token");
     }

@@ -138,3 +138,32 @@ test('a new build-home spec file joins exactly one shard with no list edit', () 
   assert.deepEqual(suiteArgs('build-home-x'), ['tests/build-home-x.browser.spec.mjs'])
   assert.deepEqual(suiteArgs('build-home-x-parity'), ['tests/build-home-x-parity.browser.spec.mjs', '--config', 'playwright.design-parity.config.mjs'])
 })
+
+test('routine filter parity covers breakpoints and full selection retains every cell', () => {
+  const { AIUR_PARITY_FULL, ...ordinaryEnv } = process.env
+  const expectedFull = [], expectedRoutine = [
+    'filter parity live 1440 dark gruvbox',
+    'filter parity live 1024 light aiur',
+    'filter parity live 390 dark aiur',
+    'filter parity dense 1440 light gruvbox',
+    'filter parity dense 390 dark gruvbox',
+    'selected viewport 1440 dark gruvbox model=claude&tstate=merged,failed&astate=active',
+    'selected viewport 1440 dark gruvbox epic=docs',
+  ]
+  for (const width of [1440, 1024, 390]) for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
+    for (const dataset of ['live', 'dense']) expectedFull.push(`filter parity ${dataset} ${width} ${theme} ${palette}`)
+    for (const query of ['model=claude&tstate=merged,failed&astate=active', 'epic=docs'])
+      expectedFull.push(`selected viewport ${width} ${theme} ${palette} ${query}`)
+  }
+  for (const full of [false, true]) {
+    const result = spawnSync(process.execPath, ['node_modules/@playwright/test/cli.js', 'test',
+      'tests/build-home-filters-parity.browser.spec.mjs', '--config', 'playwright.design-parity.config.mjs', '--list'], {
+      cwd: new URL('../', import.meta.url), encoding: 'utf8',
+      env: { ...ordinaryEnv, AIUR_PARITY_FULL: full ? '1' : '', AIUR_BROWSER_PORT: '49152' } // Listing never starts a server.
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const titles = result.stdout.split('\n').filter(line => line.includes(' › ')).map(line => line.split(' › ').at(-1))
+    assert.deepEqual(titles.sort(), (full ? expectedFull : expectedRoutine).sort())
+    assert.match(result.stdout, new RegExp(`Total: ${full ? 48 : 7} tests in 1 file`))
+  }
+})

@@ -62,7 +62,10 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
          head when is_binary(head) <- ReworkGate.head_sha(pr),
          body when is_binary(body) <- pr["body"],
          {:error, reason} <- evidence_error(body, head, workspace, pr, opts) do
-      {:refused, :stale_pr_body_evidence, evidence_refusal(issue, state, pr, head, reason)}
+      case apply_staged_body(issue, workspace, pr, head, opts) do
+        :ok -> :allow
+        {:error, _fallback_reason} -> {:refused, :stale_pr_body_evidence, evidence_refusal(issue, state, pr, head, reason)}
+      end
     else
       _ -> :allow
     end
@@ -71,7 +74,8 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   def evidence_blockers(_issue, _state, _workspace, _opts), do: :allow
 
   defp evidence_refusal(issue, state, pr, head, {:stale_tested_head, tested_head}) do
-    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body Tested head #{tested_head} does not match PR head #{head}. Rerun the touched tests at the PR head, then update the Tested head and Base evidence before handing off."
+    "Cannot hand ticket #{issue.identifier} to #{state}: PR ##{pr["number"]} body Tested head #{tested_head} does not match PR head #{head}. " <>
+      "Rerun the touched tests at the PR head, then update the body to include this exact line: `Tested head: #{head}`. Refresh Base evidence too before handing off."
   end
 
   defp evidence_refusal(issue, state, pr, head, reason) do
@@ -143,6 +147,35 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
     end
   end
 
+  defp apply_staged_body(issue, workspace, pr, head, opts) when is_binary(workspace) do
+    path = Path.join([workspace, ".aiur-runtime", "tmp", "pr.md"])
+
+    with {:ok, %{type: :regular, size: size}} when size <= 1_000_000 <- File.lstat(path),
+         {:ok, staged_body} <- File.read(path),
+         :ok <- evidence_error(staged_body, head, workspace, pr, opts),
+         number when is_integer(number) and number > 0 <- pr["number"],
+         {:ok, _updated} <- update_body(number, staged_body, opts),
+         {:ok, refreshed} <- refetch_pull_request(issue.identifier, number, opts),
+         ^staged_body <- refreshed["body"],
+         ^head <- get_in(refreshed, ["head", "sha"]) do
+      :ok
+    else
+      _ -> {:error, :staged_body_unavailable_or_unverified}
+    end
+  end
+
+  defp apply_staged_body(_issue, _workspace, _pr, _head, _opts), do: {:error, :workspace_unavailable}
+
+  defp update_body(number, body, opts) do
+    updater = Keyword.get(opts, :pull_request_body_updater, &Aiur.CodeHost.update_pull_request_body/2)
+    updater.(number, body)
+  end
+
+  defp refetch_pull_request(identifier, number, opts) do
+    fetcher = Keyword.get(opts, :pull_request_refetcher, fn _identifier -> default_pull_request(number) end)
+    fetcher.(identifier)
+  end
+
   # A remote worker's checkout is not on this host, so the read fails and only the evidence is checked.
   defp pr_template(workspace) when is_binary(workspace), do: File.read(Path.join(workspace, ".github/pull_request_template.md"))
   defp pr_template(_workspace), do: :error
@@ -170,14 +203,30 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
   @spec findings_blockers(Issue.t(), String.t(), Path.t() | nil, keyword()) :: {:allow, [ReworkFindings.finding()]} | {:refused, atom(), String.t()}
   def findings_blockers(%Issue{state: rework} = issue, state, workspace, opts)
       when state in ["ci-wait", "human-review"] and rework in ["rework", "agent:rework"] do
+    review_blockers(ReworkFindings.fetch(issue.identifier, opts), issue, state, workspace, opts)
+  end
+
+  # #5746: workers move a rework ticket to `in-progress` before handing back, so an open review with findings
+  # is checked in any state. Outside rework an unreadable review, or one with no numbered findings, fails open.
+  def findings_blockers(%Issue{} = issue, state, workspace, opts) when state in ["ci-wait", "human-review"] do
     case ReworkFindings.fetch(issue.identifier, opts) do
+      {:ok, %{review_head: review_head, findings: [_ | _]}} = fetched when is_binary(review_head) -> review_blockers(fetched, issue, state, workspace, opts)
+      _no_open_review -> {:allow, []}
+    end
+  end
+
+  def findings_blockers(_issue, _state, _workspace, _opts), do: {:allow, []}
+
+  defp review_blockers(fetched, issue, state, workspace, opts) do
+    case fetched do
       {:ok, %{number: number, head: head, review_head: nil}} ->
         no_review_comment_blocker(issue, state, workspace, head, number, opts)
 
       {:ok, %{review_head: review_head, head: head, findings: findings} = review} when is_binary(review_head) ->
         {commits, files} = ReworkFindings.branch_changes(workspace, review_head, head)
-        # evidence_blockers already held the body to the current head, so an edit after the review is a body fix (#4944).
-        body_edited? = commits == [] and ReworkFindings.body_edited_since?(review.number, review.review_at, opts)
+        # evidence_blockers already held the body to the current head, so an edit after the review is a body fix (#4944);
+        # a finding with no file may be a body ask, so it is checked even alongside commits (#5746).
+        body_edited? = (commits == [] or Enum.any?(findings, &is_nil(&1.file))) and ReworkFindings.body_edited_since?(review.number, review.review_at, opts)
 
         review_comment_blocker(%{
           issue: issue,
@@ -196,8 +245,6 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuard do
         {:refused, :rework_findings_unaddressed, "Cannot hand ticket #{issue.identifier} back to #{state}: the latest review's findings could not be read (#{inspect(reason)}). Retry the handoff."}
     end
   end
-
-  def findings_blockers(_issue, _state, _workspace, _opts), do: {:allow, []}
 
   defp no_review_comment_blocker(issue, state, workspace, head, number, opts) do
     case ReworkFindings.latest_feedback_comment(number, nil, opts) do

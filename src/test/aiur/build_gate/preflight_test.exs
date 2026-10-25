@@ -308,22 +308,29 @@ defmodule Aiur.BuildGate.PreflightTest do
 
   test "defers below the memory floor and resumes after MemAvailable recovers", context do
     write_meminfo!(context, 1_024)
+    output_path = Path.join(context.gate_dir, "build-output.log")
 
     command =
       Task.async(fn ->
         run_bash(
-          "mix compile",
+          "mix compile > #{output_path} 2>&1",
           Map.merge(context, %{min_free_memory_mb: 2_048, timeout_seconds: 5})
         )
       end)
 
-    assert Task.yield(command, 250) == nil
+    assert :ok =
+             wait_for_file_contents!(
+               output_path,
+               ~r/aiur_perf memory_hold surface=build available_mb=1024 threshold_mb=2048/
+             )
+
     refute File.exists?(context.started_path)
 
     write_meminfo!(context, 3_072)
 
     assert {output, 0} = Task.await(command, 5_000)
-    assert output =~ "aiur_perf memory_hold surface=build available_mb=1024 threshold_mb=2048"
+    assert File.read!(output_path) =~ "aiur_perf memory_hold surface=build available_mb=1024 threshold_mb=2048"
+    assert output == ""
     assert File.read!(context.log_path) == "compile\n"
   end
 

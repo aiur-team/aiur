@@ -1002,8 +1002,7 @@ def run_transaction(db, requests):
             replies.append({"id": request["id"], "status": status, "output": output.getvalue()})
         expired = {request["id"] for request, _args in requests if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms()}
         if expired:
-            # Savepoints cannot remove an earlier command after later commands
-            # have run. Roll back the batch and replay only live requests.
+            # Savepoints cannot remove earlier requests after later commands run; roll back and replay live requests.
             conn.conn.execute("ROLLBACK")
             conn.prepared = False
             conn.batching = False
@@ -1019,14 +1018,13 @@ def run_transaction(db, requests):
         for request, _args in requests:
             request["_sqlite_command_ms"] = transaction_ms - commit_ms
             request["_sqlite_commit_ms"] = commit_ms
-        broker_metrics.schedule_checkpoint(db)
         return broker_metrics.successful_replies(
             replies,
             {request["id"]: request for request, _args in requests},
             sqlite_open_ms,
             lock_wait_ms,
             transaction_ms,
-            checkpoint,
+            broker_metrics.complete_batch(db, conn.conn, checkpoint, requests),
         )
     except Exception as error:
         if conn is not None and conn.in_transaction:
