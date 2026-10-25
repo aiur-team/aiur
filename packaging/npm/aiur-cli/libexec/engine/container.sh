@@ -135,13 +135,13 @@ mark_container_ready() {
 
 container_shutdown() {
   trap - TERM INT HUP
-  local status=0
+  local status=$?
   if [ -n "${child:-}" ]; then
     kill -TERM "$child" 2>/dev/null || true
     wait_container_child_shutdown "$child"
     child=""
   fi
-  session_cleanup
+  session_cleanup || true
   exit "$status"
 }
 
