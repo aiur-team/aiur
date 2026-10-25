@@ -26,7 +26,7 @@
   },
   "scripts": {
     "generate": "node scripts/generate.mjs",
-    "check": "node scripts/generate.mjs --check && node scripts/validate.mjs && node scripts/check-fixture-types.mjs && tsc --noEmit && tsc --noEmit -p tsconfig.examples.json",
+    "check": "node scripts/generate.mjs --check && node scripts/validate.mjs && node scripts/check-fixture-types.mjs && npm run build",
     "build": "tsc && tsc -p tsconfig.examples.json",
     "pack:check": "npm run build && node scripts/check-package.mjs",
     "test": "npm run build && node --test test/*.test.mjs"
