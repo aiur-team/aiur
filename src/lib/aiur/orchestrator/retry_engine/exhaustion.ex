@@ -4,9 +4,8 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   require Logger
 
   alias Aiur.Alerts
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Errors
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.DispatchPolicy
@@ -80,13 +79,13 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   # which treats it as permanent.
   defp transient_exhaustion_reason?(%{__struct__: struct} = reason)
        when struct in [Req.TransportError, Mint.TransportError] do
-    Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
+    Access.retryable_github_error?(Access.classify_error({:error, reason}))
   end
 
   defp transient_exhaustion_reason?({:issue_state_refresh_failed, reason}),
     do: transient_exhaustion_reason?(reason)
 
-  defp transient_exhaustion_reason?(reason), do: Errors.retryable_github_error?(reason)
+  defp transient_exhaustion_reason?(reason), do: Access.retryable_github_error?(reason)
 
   # Exposed (`@doc false`) as a test seam: the distinct `{:error,
   # {:no_state_label_written, _}}` return is the F3 "do not report success for a
@@ -187,9 +186,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   # no fixed task timeout for this reason; LocalHold still bounds each wait and
   # limits repeated holds.
   defp write_after_budget_hold(identifier, state_name, opts) do
-    LocalHold.run(
+    Access.with_transient_retry(
       fn -> TicketTransition.write_state(identifier, state_name, Keyword.put(opts, :writer, :retry_engine)) end,
-      LocalHold.caller_opts(opts) |> Keyword.put(:max_wait_ms, 3_600_000)
+      Access.transient_retry_opts(opts) |> Keyword.put(:max_wait_ms, 3_600_000)
     )
   end
 

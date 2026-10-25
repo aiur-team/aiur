@@ -5,7 +5,7 @@ defmodule Aiur.LandingWatch do
 
   alias Aiur.Alerts
   alias Aiur.Events
-  alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
+  alias Aiur.GitHub.{Access, CiReadiness, CIRecovery, Client, HumanReviewGate}
   alias Aiur.LandingWatch.{Classifier, ConflictRouting, ConflictUpdate, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, QueueAdmission, RunnerQueue}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
@@ -400,8 +400,8 @@ defmodule Aiur.LandingWatch do
 
   defp enqueue_pull_request(observation) do
     api = fn "post", "graphql", %{query: query, variables: variables} ->
-      with {:ok, token} <- Transport.require_token([]),
-           do: Transport.github_graphql(&Transport.default_request_fun/1, token, query, variables, caller: "landing_watch_enqueue")
+      with {:ok, token} <- Access.require_token([]),
+           do: Access.github_graphql(&Access.default_request_fun/1, token, query, variables, caller: "landing_watch_enqueue")
     end
 
     Queue.enqueue(api, %{node_id: observation.node_id, head: observation.head})

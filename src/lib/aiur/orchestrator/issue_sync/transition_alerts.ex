@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   alias Aiur.Config
   alias Aiur.DispatchBudgetStore
   alias Aiur.Events.GithubKeys
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
@@ -144,8 +144,8 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   defp human_review_pull_request(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id})
        when is_binary(id) do
     repo = "#{owner}/#{repository}"
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo, id)
-    {repo, key |> ResourceStore.data() |> human_review_pr_listing()}
+    key = Access.key_for_repo(:branch_pull_request_listing, repo, id)
+    {repo, key |> Access.data() |> human_review_pr_listing()}
   rescue
     _ -> {nil, nil}
   end
