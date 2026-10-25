@@ -38,11 +38,13 @@ probe_control_liveness() { printf down; }
 run_control_rpc() { printf 'handoff adopted'; }
 TEST_EVENTS="$5"
 report_restart_handoff() { printf 'reported:%s\n' "$AIUR_RESTART_HANDOFF_ID" >>"$TEST_EVENTS"; }
+AIUR_RESTART_START_ATTEMPTS=1
+AIUR_RESTART_RETRY_DELAY_SECONDS=0
 dispatch_run() {
   printf '%s|%s|%s\n' "$AIUR_RELEASE_DIR" "$*" "$AIUR_RESTART_HANDOFF_ID" >>"$TEST_EVENTS"
   case "$AIUR_RELEASE_DIR" in
     *aiur-previous-release.*) return 0 ;;
-    *) return 1 ;;
+    *) echo 'new release panic: missing module'; exit 1 ;;
   esac
 }
 cmd_restart --keep-agents
@@ -57,6 +59,9 @@ cmd_restart --keep-agents
     expect(result.stderr).toContain("rolled back to previous-sha: new release failed with new release panic: missing module");
     const starts = readFileSync(events, "utf8").trim().split("\n");
     expect(starts).toHaveLength(3);
+    expect(starts[0]).toContain("handoff-123");
+    expect(starts[0]).toContain("--bg");
+    expect(starts[0]).not.toContain("aiur-previous-release.");
     expect(starts[1]).toContain("handoff-123");
     expect(starts[1]).toContain("--bg");
     expect(starts[1]).toContain("aiur-previous-release.");

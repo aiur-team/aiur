@@ -26,7 +26,7 @@ rollback_restart_release() {
   AIUR_RELEASE_DIR="$aiur_restart_previous_release"
   export AIUR_RELEASE_DIR AIUR_RESTART_HANDOFF_ID
   local rollback_status=0
-  dispatch_run --bg "${run_args[@]+"${run_args[@]}"}" || rollback_status=$?
+  aiur_restart_start_with_retry || rollback_status=$?
   if [ "$rollback_status" -ne 0 ]; then
     AIUR_RELEASE_DIR="$failed_release"
     export AIUR_RELEASE_DIR
