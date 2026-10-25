@@ -12,7 +12,6 @@
     "src/lib/aiur/application/**",
     "src/lib/aiur/cli.ex",
     "src/lib/aiur/cli/**",
-    "src/lib/aiur/client_tokens.ex",
     "src/lib/aiur/control_call.ex",
     "src/lib/aiur/control_call/**",
     "src/lib/aiur/control_cli/**",
