@@ -6,6 +6,7 @@ defmodule Aiur.StatusContractsGoldenTest do
   alias Aiur.ExtensionsTestSupport
   alias Aiur.ExtensionsTestSupport.StaticOrchestrator
   alias Aiur.Handoff.CLI, as: HandoffCLI
+  alias Aiur.Orchestrator.Cancellation
   alias Aiur.TestSupport.GroupedScopes, as: GS
   alias Aiur.TrackerIdentity
   alias AiurWeb.Api.Usage.TicketUsage
@@ -42,6 +43,14 @@ defmodule Aiur.StatusContractsGoldenTest do
       "agents.v1.json" => agents_payload(),
       "status.v1.json" => status,
       "ticket.v1.json" => ticket,
+      "ticket-cancel.v1.json" =>
+        Cancellation.result(
+          "5698",
+          "5698:attempt-1",
+          :exited,
+          :killed,
+          @now
+        ),
       "ticket-usage.v1.json" => usage,
       "ticket-progress.v1.json" => progress
     }
