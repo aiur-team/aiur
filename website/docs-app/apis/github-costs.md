@@ -42,6 +42,8 @@ A rework handback with no commit since the blocking review reads the PR body's G
 
 The read costs one GraphQL point per handback attempt and never runs on a poll. Handbacks with a new commit skip it; a failed read counts as no edit.
 
+When handoff evidence is stale, the daemon may apply a validated workspace-staged PR body through `agent_handoff_body`, then re-reads the PR to confirm the stored body and head before allowing handoff.
+
 Orphan-claim recovery reads mergeability/reviews before guarded add-before-remove state writes. It posts a reason comment and wakes the Executor ([Operating Aiur](/concepts/operating-aiur#pause-and-capacity)). Successful writes retain GitHub's returned state.
 
 The write response supplies this state without another read. Two consequences:

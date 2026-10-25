@@ -133,8 +133,8 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
       assert hd(settled.dispatch_attempts).failure_reason_class == "orchestrator_unavailable"
     end
 
-    # #2558 half one. A recorded answer whose dispatch failed transiently used
-    # to sit at `failed` forever: the
+    # #2558 half one. A recorded answer whose dispatch failed because the
+    # target had reached its concurrency limit used to sit at `failed` forever: the
     # class was not on the answer's retry ladder, and — being non-actionable —
     # it was not raised either, so the answer was dropped with no operator-
     # visible trace. The recorded answer must reach the agent without an
@@ -161,7 +161,7 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
         send(parent, {:target_attempt, attempt, opts[:retry_failed]})
 
         if attempt == 1,
-          do: {:error, :unavailable},
+          do: {:error, {:max_concurrent_agents_reached, %{used: 3, limit: 3, active: 2, paused_holds: 1}}},
           else: {:ok, %{status: :accepted, item: %{id: 89}}}
       end
 
@@ -172,12 +172,12 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
 
       assert_receive {:target_attempt, 1, false}, 1_000
 
-      # A live agent with a transient dispatch failure is retried automatically.
+      # The bounded ladder — not an operator — schedules the second attempt.
       assert_receive {:target_attempt, 2, false}, 1_000
 
       settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
-      assert List.first(settled.dispatch_attempts).failure_reason_class == "orchestrator_unavailable"
+      assert List.first(settled.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
 
       topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
 
