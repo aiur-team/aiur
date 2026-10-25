@@ -90,6 +90,8 @@ defmodule Aiur.GitHub.Access do
     to: Aiur.GitHub.Quota,
     as: :cached_snapshot_at
 
+  defdelegate quota_snapshot(server \\ Aiur.GitHub.Quota), to: Aiur.GitHub.Quota, as: :snapshot
+
   defdelegate dispatch_status(server \\ Aiur.GitHub.Quota), to: Aiur.GitHub.Quota
 
   defdelegate cost_report(server \\ Aiur.GitHub.Quota, timeout \\ 5000),

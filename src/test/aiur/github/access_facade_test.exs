@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.AccessFacadeTest do
   alias Aiur.GitHub.Access
   alias Aiur.GitHub.Access.{Settings, StaticSettings}
   alias Aiur.GitHub.Budget.FleetSnapshot
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{Quota, QuotaTestSupport, ResourceStore}
 
   @moduletag :tmp_dir
 
@@ -63,6 +63,7 @@ defmodule Aiur.GitHub.AccessFacadeTest do
     {:quota_cached_snapshot_at, Aiur.GitHub.Quota, :cached_snapshot_at},
     {:dispatch_status, Aiur.GitHub.Quota, :dispatch_status},
     {:cost_report, Aiur.GitHub.Quota, :snapshot!},
+    {:quota_snapshot, Aiur.GitHub.Quota, :snapshot},
     {:invalidate, Aiur.GitHub.ReadCache, :invalidate},
     {:invalidate_number, Aiur.GitHub.ReadCache, :invalidate_number},
     {:invalidate_repo, Aiur.GitHub.ReadCache, :invalidate_repo},
@@ -206,6 +207,18 @@ defmodule Aiur.GitHub.AccessFacadeTest do
 
     FleetSnapshot.put([])
     if name == :fleet_budget_snapshot, do: [], else: [true]
+  end
+
+  defp fixture_args(:quota_snapshot, ctx) do
+    unknown = Quota.snapshot(:facade_missing_server)
+    assert unknown.state == :unknown
+    assert Access.quota_snapshot(:facade_missing_server) == unknown
+    [server, _timeout] = fixture_args(:cost_report, ctx)
+    reset = DateTime.add(DateTime.utc_now(), 3_600, :second)
+    request = QuotaTestSupport.request(:get, "/repos/facade/test/issues/73")
+    Quota.observe(server, request, QuotaTestSupport.response("core", 5_000, 4_321, reset))
+    assert %{state: :observed, windows: %{"core" => %{remaining: 4_321}}} = Quota.snapshot(server)
+    [server]
   end
 
   defp fixture_args(:cost_report, ctx) do
