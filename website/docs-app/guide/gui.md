@@ -2,7 +2,7 @@
 
 The GUI is Aiur's browser interface for supervising a run. It combines the build history, the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
-High-rate snapshot notifications on Home, Units, Commands, Build Orders, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
+High-rate snapshot notifications on Home, Units, Commands, and Stream Deck arrive in batches spaced at least 500 ms apart. Each subscription group holds one unacknowledged batch while newer notifications coalesce by event type. User actions and chat messages keep their existing delivery path.
 
 ## Open the GUI
 
@@ -28,11 +28,9 @@ Use the browser when you need interactive detail; use the paired command when te
 
 | GUI label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
-| **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
+| **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
 | **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
-| **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail, reachable by URL without a navigation item. | `aiur build-orders` |
-| **Build queue** | `/build-orders` includes the read-only queue panel on the catalog page: item states, waiting prerequisites, start-order ranks, progress, source freshness and observation age, and open or recently resolved attentions. Manage queues with the CLI. | `aiur queue show` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
@@ -43,9 +41,8 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/?v=1&scope=…&conditions=…` | Opens Build with the matching legacy Units filter. |
 | `/commands` and `/commands/:decision_id` | Current Commands inbox and detail URLs. |
 | `/decisions` and `/decisions/:decision_id` | Redirect permanently to the `/commands` equivalents. |
+| `/build-orders` and `/build-orders/:root_number` | Redirect permanently to `/` and `/?feature=bo-<root>`; an invalid root opens `/`, and only `ticket` carries over. |
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
-
-On narrow screens, scroll within the **Build queue** table to see prerequisites, ranks and attentions.
 
 The operator-facing UI and CLI call these records **Commands**.
 
@@ -115,26 +112,6 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
-
-### Read a Build Order program
-
-Normal releases include discovered state-node planning packs on `/build-orders`
-and `/build-orders/:root_number`. Pack members without GitHub issues appear as
-drafts; promoted members use live issue state when available.
-
-Pack workstreams name the epic columns, and pack phases name the rows, including
-phase zero.
-Click an epic heading to collapse or expand its cards; counts remain visible.
-External gates appear in an expandable list above the graph.
-
-A bounded GitHub catalog preview reports how many members were read out of the
-reported total when truncated. The selected GitHub read also remains bounded;
-an installed planning pack supplies its full membership. Missing live membership
-or ticket status remains explicit even when the plan is readable.
-
-Open a draft card to read its local document. Descriptions longer than 4,000
-bytes show a sanitized preview and a **Full document** link to the authenticated
-pack document, or the issue for promoted tickets. Documents are read-only.
 
 ### Read fleet and build pressure
 

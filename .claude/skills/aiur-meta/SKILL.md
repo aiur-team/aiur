@@ -97,7 +97,6 @@ coverage.
 | --- | --- | --- |
 | Units | `/` | every active agent, live state |
 | Commands | `/commands` | real commands awaiting response |
-| Build Order | `/build-orders` | progress that tracks reality |
 | Build | `/build` | an available timeline and ticket cards for queued members |
 | Analytics | `/analytics` | current data, not a frozen window |
 
