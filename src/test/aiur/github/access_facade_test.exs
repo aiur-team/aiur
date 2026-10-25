@@ -258,7 +258,7 @@ defmodule Aiur.GitHub.AccessFacadeTest do
         response_message: [response],
         retryable_github_error?: [{:github, :dns, %{}}],
         transient_github_error?: [{:github, :auth, %{}}],
-        estimate_graphql_cost: [%{body: %{query: "query { viewer { login } }"}}],
+        estimate_graphql_cost: ["query { repository { issues(first: 20) { nodes { id } } } }"],
         graphql_operation_name: ["query Facade { viewer { login } }"],
         reported_graphql_cost: [%{"data" => %{"rateLimit" => %{"cost" => 7}}}],
         host_executable: [[wrapper_dir: ctx.root]],
