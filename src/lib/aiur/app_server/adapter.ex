@@ -231,7 +231,7 @@ defmodule Aiur.AppServer.Adapter do
               # replaced it with Aiur's immutable build-admission hook.
               String.to_charlist(
                 AgentEnvironment.scrub_shell_command(
-                  ProviderAuth.shell_prefix(Keyword.get(opts, :provider_auth_file)) <> command,
+                  ProviderAuth.shell_command(Keyword.get(opts, :provider_auth_file), command),
                   trusted_bash_env: true
                 )
               )

@@ -103,7 +103,7 @@ defmodule Aiur.AppServer.RelayPort do
         System.find_executable("bash"),
         "-c",
         AgentEnvironment.scrub_shell_command(
-          ProviderAuth.shell_prefix(Keyword.get(opts, :provider_auth_file)) <> command,
+          ProviderAuth.shell_command(Keyword.get(opts, :provider_auth_file), command),
           trusted_bash_env: true
         )
       ],
