@@ -65,10 +65,14 @@ defmodule Aiur.Events.GithubFirehoseWindowTest do
       parent = self()
 
       stub = fn req ->
-        page = request_page(req)
-        send(parent, {:events_page_requested, page})
-        body = if page == "1", do: page_1, else: page_2
-        {:ok, %{status: 200, headers: [{"ETag", ~s("startup-etag")}], body: body}}
+        if String.contains?(req.url, "/pulls/812/commits?") do
+          {:ok, %{status: 200, headers: [], body: []}}
+        else
+          page = request_page(req)
+          send(parent, {:events_page_requested, page})
+          body = if page == "1", do: page_1, else: page_2
+          {:ok, %{status: 200, headers: [{"ETag", ~s("startup-etag")}], body: body}}
+        end
       end
 
       persist = fn merge ->
@@ -343,6 +347,7 @@ defmodule Aiur.Events.GithubFirehoseWindowTest do
           "body" => "Bounded summary",
           "html_url" => "https://github.com/owner/repo/pull/#{pr_number}",
           "merged" => true,
+          "commit_messages" => [],
           "merged_at" => Keyword.fetch!(opts, :created_at),
           "merge_commit_sha" => "merge-#{pr_number}",
           "head" => %{"ref" => head_ref, "sha" => head_sha},
