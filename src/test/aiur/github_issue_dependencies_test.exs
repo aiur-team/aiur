@@ -153,6 +153,30 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       assert {:ok, :already_present} = IssueDependencies.declare(7, 80, request_fun: request_fun)
     end
 
+    test "already-declared blocker wins over a stale daemon edge cache before cycle traversal" do
+      key = ResourceStore.key(:issue_blocked_by, "owner", "repo", 7)
+      ResourceStore.put_resource(key, [])
+
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            send(self(), {:native_blocked_by_read, req})
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+        end
+      end
+
+      graph_request_fun = fn _req -> flunk("cycle traversal must not run for an existing native edge") end
+
+      assert {:ok, :already_present} =
+               IssueDependencies.declare(7, 80, request_fun: request_fun, graph_request_fun: graph_request_fun)
+
+      assert_received {:native_blocked_by_read, request}
+      refute Map.has_key?(request, :etag)
+    end
+
     test "transient BFS error returns :cycle_check_inconclusive (does NOT optimistically POST)" do
       request_fun = fn req ->
         cond do

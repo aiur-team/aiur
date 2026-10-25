@@ -174,6 +174,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
     AiurWeb.DashboardAuth.ChallengeStore,
+    AiurWeb.DashboardAuthRateLimit.Store,
     Aiur.BuildOrder.Estimates,
     AiurWeb.Build.IndexSupervisor
   ]
@@ -205,6 +206,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.DashboardAuth.ChallengeStore,
+            AiurWeb.DashboardAuthRateLimit.Store,
             AiurWeb.Build.IndexSupervisor,
             {Aiur.HttpServer, dashboard_pages?: true}
           ])
