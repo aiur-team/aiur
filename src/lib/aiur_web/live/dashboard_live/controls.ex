@@ -8,7 +8,10 @@ defmodule AiurWeb.DashboardLive.Controls do
   alias Aiur.Orchestrator.Slots
   alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.OperatorControlCenter.{PauseState, UnitControls, UnitsControlPolicy, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.PauseState
+  alias AiurWeb.OperatorControlCenter.UnitControls
+  alias AiurWeb.OperatorControlCenter.UnitsControlPolicy
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @doc false
   @spec toggle_global_pause(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()

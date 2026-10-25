@@ -7,7 +7,11 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   alias Aiur.OpenTicketSource
   alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.DashboardLive.Controls
-  alias AiurWeb.OperatorControlCenter.{AddAgentSubmission, AgentRoutingPreview, TicketsPresenter, UnitsPresenter, UnitsURL}
+  alias AiurWeb.OperatorControlCenter.AddAgentSubmission
+  alias AiurWeb.OperatorControlCenter.AgentRoutingPreview
+  alias AiurWeb.OperatorControlCenter.TicketsPresenter
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
+  alias AiurWeb.OperatorControlCenter.UnitsURL
 
   @table_sort_columns %{
     "units" => ~w(id unit ticket latest),

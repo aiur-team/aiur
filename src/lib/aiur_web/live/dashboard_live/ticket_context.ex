@@ -3,17 +3,18 @@ defmodule AiurWeb.DashboardLive.TicketContext do
 
   import Phoenix.Component, only: [assign: 3]
 
+  alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCoordinator
+  alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter
   alias AiurWeb.DashboardLive.Conversation
-  alias AiurWeb.DashboardLive.Session
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.DecisionPath
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
-  # Read the current DASH-032 outcome snapshot on Session.mount/reconnect. On the dead
+  # Read the current DASH-032 outcome snapshot on mount/reconnect. On the dead
   # first render, or when the projection process is unreachable, fall back to the
   # loading view rather than crashing the LiveView.
   defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do

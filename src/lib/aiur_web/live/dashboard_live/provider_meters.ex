@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive.ProviderMeters do
   alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialDataAccess
   alias AiurWeb.OperatorControlCenter.CodexHeadroomPresenter
+  alias AiurWeb.OperatorControlCenter.ProviderMeterSource
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter
 
   @provider_meters_flush_ms 250

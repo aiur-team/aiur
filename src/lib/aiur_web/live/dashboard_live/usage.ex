@@ -6,7 +6,6 @@ defmodule AiurWeb.DashboardLive.Usage do
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
-  alias AiurWeb.DashboardLive.Session
   alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
@@ -19,7 +18,7 @@ defmodule AiurWeb.DashboardLive.Usage do
 
   # --- DASH-031 authenticated usage and cost summary -----------------------
 
-  # On an authorized Session.mount/reconnect, fetch a bounded snapshot and subscribe to
+  # On an authorized mount/reconnect, fetch a bounded snapshot and subscribe to
   # daemon-owned change notifications. A denied connection renders the value-free
   # locked view and never queries, subscribes to, caches, or assigns a protected
   # usage, cost, generation, coverage, tier, or drill-down fact.

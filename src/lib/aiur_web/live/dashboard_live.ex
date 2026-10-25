@@ -4,6 +4,8 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
+  alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.ProviderMeterRefresh
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.Commands
@@ -17,6 +19,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.DashboardLive.Usage
   alias AiurWeb.DashboardLive.Voice
+  alias AiurWeb.FinancialData
   alias AiurWeb.OperatorControlCenter.AgentLogModal
   alias AiurWeb.OperatorControlCenter.DecisionEvents
   alias AiurWeb.OperatorControlCenter.NavState
