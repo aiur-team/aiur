@@ -213,7 +213,11 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
 
     for {_name, url} <- layout_urls do
       conn = get(build_conn(), url)
-      assert response(conn, 200) != "", "advertised layout asset returned an empty response: #{url}"
+
+      assert conn.status == 200,
+             "advertised layout asset #{url} returned #{conn.status}; generate pinned layout assets (scripts/lib/layout-assets.sh)"
+
+      assert response(conn, 200) != ""
       assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/javascript; charset=utf-8"]
       assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
     end
