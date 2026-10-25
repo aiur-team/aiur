@@ -1,19 +1,17 @@
 defmodule Aiur.BuildOrder.Index.FeatureProgress do
   @moduledoc "Aggregates feature progress from indexed rows and local Build Order manifests."
   alias Aiur.BuildOrder.Features.RootImportMapping
-  alias AiurWeb.BuildOrder.PlanningSource.PackLoader
 
-  @spec compute(map(), map(), map(), boolean(), integer(), keyword()) :: map()
-  def compute(parts, all, features, complete?, now, opts \\ []) do
-    {packs, packs_available?} = load_packs(opts)
-    injected? = Keyword.has_key?(opts, :packs)
+  @spec compute(map(), map(), map(), boolean(), integer()) :: map()
+  def compute(parts, all, features, complete?, now) do
+    {packs, packs_available?} = packs(parts[:packs])
     packs = Enum.map(packs, &normalize_pack/1)
 
     values =
       for {slug, feature} <- features, epic <- feature.epics, into: %{} do
         epic_key = epic_key(epic)
         pack_set = Enum.filter(packs, &(&1.feature == slug))
-        context = %{parts: parts, all: all, slug: slug, feature: feature, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?, now: now, injected?: injected?}
+        context = %{parts: parts, all: all, slug: slug, feature: feature, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?, now: now}
         {epic_key, epic_progress(context)}
       end
 
@@ -23,11 +21,11 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   end
 
   defp epic_progress(context) do
-    %{parts: parts, all: all, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?, now: now, injected?: injected?} = context
+    %{parts: parts, all: all, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?, now: now} = context
     key = epic_key(epic)
     lane = epic_lane(key, pack_set)
     {lane_packs, members, rows, workstream} = epic_data(key, lane, pack_set, all)
-    ci_known? = complete? and (injected? or source_ok?(parts[:now]))
+    ci_known? = complete? and source_ok?(parts[:now])
     states = row_counts(rows, complete?, ci_known?)
     plan = plan_counts(members, rows, lane_packs, complete?, packs_available?)
 
@@ -119,19 +117,9 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
 
   defp normalize_pack(pack), do: pack
 
-  defp load_packs(opts) do
-    if Keyword.has_key?(opts, :packs) do
-      {Keyword.fetch!(opts, :packs), true}
-    else
-      reader = Keyword.get(opts, :read_packs, &PackLoader.load_packs/0)
-
-      try do
-        {reader.(), true}
-      rescue
-        _error -> {[], false}
-      end
-    end
-  end
+  defp packs(value) when is_list(value), do: {value, true}
+  defp packs({:ok, value}) when is_list(value), do: {value, true}
+  defp packs(_unavailable), do: {[], false}
 
   defp normalized_pack_fields(pack, manifest, root, workstreams, members) do
     %{

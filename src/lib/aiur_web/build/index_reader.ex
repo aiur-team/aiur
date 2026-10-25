@@ -2,12 +2,15 @@ defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
   alias Aiur.BuildOrder.Index
   alias AiurWeb.Build.{Freshness, NowRows, PlannedRows}
+  alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
   @spec read(MapSet.t() | :all, map(), keyword()) :: map()
   def read(dirty, previous, opts) do
     core = Index.read_core_parts(dirty, opts)
     parts = Map.merge(previous, core)
+    packs = read_part(:packs, dirty, parts, fn -> Index.safe_read(:packs, fn -> load_packs(opts) end) end)
+    parts = Map.put(parts, :packs, packs)
 
     repo =
       case parts[:repository] do
@@ -34,8 +37,10 @@ defmodule AiurWeb.Build.IndexReader do
   end
 
   defp read_part(key, dirty, previous, fun) do
-    if dirty == :all or MapSet.member?(dirty, key), do: Index.safe_read(key, fun), else: previous[key]
+    if dirty == :all or MapSet.member?(dirty, key), do: fun.(), else: previous[key]
   end
+
+  defp load_packs(opts), do: Keyword.get(opts, :pack_loader, &PackLoader.load_packs/0).()
 
   defp read_now(repo, todo_ids, opts) do
     units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)

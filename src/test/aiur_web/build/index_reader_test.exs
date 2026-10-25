@@ -164,6 +164,45 @@ defmodule AiurWeb.Build.IndexReaderTest do
     assert index.sources.agents.state == "unavailable"
   end
 
+  test "pack manifests are read as a safe reader part and retained on unrelated diffs" do
+    parent = self()
+    packs = [%{root_number: 99, tickets: []}]
+
+    read =
+      IndexReader.read(:all, parts(),
+        pack_loader: fn ->
+          send(parent, :packs_loaded)
+          packs
+        end
+      )
+
+    assert_receive :packs_loaded, 100
+    assert read.packs == packs
+
+    cached = IndexReader.read(MapSet.new([:now]), read, pack_loader: fn -> flunk("unrelated diff reread packs") end)
+    assert cached.packs == packs
+  end
+
+  test "pack manifest reader failure is isolated as unavailable" do
+    parent = self()
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        read =
+          IndexReader.read(:all, parts(),
+            pack_loader: fn ->
+              send(parent, :pack_read)
+              raise "unavailable"
+            end
+          )
+
+        assert read.packs == {:error, :read_failed}
+      end)
+
+    assert_receive :pack_read, 100
+    assert log =~ "build_index part=packs read_failed="
+  end
+
   test "cached open and queue facts keep every open id with no duplicate history read" do
     p = parts() |> put_in([:open, Access.key(:tickets)], [open(50, ["agent:todo"]), open(51, ["agent:human-review"]), open(53)])
     read = IndexReader.read(MapSet.new(~w(planned not_queued)a), p, [])

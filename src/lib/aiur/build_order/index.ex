@@ -15,7 +15,7 @@ defmodule Aiur.BuildOrder.Index do
       sources = Sources.build(parts, now)
       complete? = sources.history.state not in ["unavailable", "incomplete"]
       counts = if complete?, do: counts(all, catalogue.order)
-      feature_progress = FeatureProgress.compute(parts, all, catalogue.features, complete?, now, Keyword.get(opts, :feature_progress, []))
+      feature_progress = FeatureProgress.compute(parts, all, catalogue.features, complete?, now)
       hist = all |> Map.values() |> Enum.filter(&(&1.sec == "hist")) |> Enum.sort_by(&{&1.end, &1.id})
       available? = sources.history.state != "unavailable"
 

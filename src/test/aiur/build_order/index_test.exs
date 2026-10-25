@@ -143,7 +143,8 @@ defmodule Aiur.BuildOrder.IndexTest do
       }
     ]
 
-    assert {:ok, index} = Index.assemble(p, now: now(), feature_progress: [packs: packs])
+    p = Map.put(p, :packs, packs)
+    assert {:ok, index} = Index.assemble(p, now: now())
     assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :unpublished, :total]) == %{closed: 1, open: 2, ci_wait: 1, unpublished: 1, total: 5}
     assert index.feature_progress.features["f-bo-99-core"].extras == 1
     assert index.feature_progress.features["f-bo-99-core"].reason == nil
@@ -152,7 +153,7 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert Map.take(index.feature_progress.features["f-bo-99-ui"], [:closed, :open, :ci_wait, :unpublished, :total]) == %{closed: 0, open: 1, ci_wait: 0, unpublished: 0, total: 1}
     assert index.feature_progress.features["f-bo-99-ui"].wave == "0b"
     active = put_in(p, [:now, :rows, "2", :agent, :state], "active")
-    assert {:ok, changed} = Index.assemble(active, now: now(), feature_progress: [packs: packs])
+    assert {:ok, changed} = Index.assemble(Map.put(active, :packs, packs), now: now())
     assert Index.diff(index, changed).set.feature_progress.features["f-bo-99-core"].ci_wait == 0
   end
 
@@ -162,7 +163,7 @@ defmodule Aiur.BuildOrder.IndexTest do
     incomplete = %{health() | complete?: false, failure: :backfill_pending}
     p = %{p | health: incomplete, history: {:ok, %{rows: %{1 => row(1)}, health: incomplete}}}
     packs = [%{root: 99, feature: "pag", complete?: true, status: %{}, version: "v1", manifest: %{"tickets" => []}}]
-    assert {:ok, index} = Index.assemble(p, now: now(), feature_progress: [packs: packs])
+    assert {:ok, index} = Index.assemble(Map.put(p, :packs, packs), now: now())
     assert index.feature_progress.features["f-bo-99-core"].closed == nil
     assert index.feature_progress.features["f-bo-99-core"].reason == "states unavailable · CI state unknown · planned count unavailable"
   end
@@ -170,9 +171,7 @@ defmodule Aiur.BuildOrder.IndexTest do
   test "pack loader failure keeps planned count unavailable" do
     feature = %{slug: "pag", label: "Pagination", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}], from: now(), to: :none, baseline: :none}
     p = put_in(parts([row(1)]), [:features], {:ok, %{features: %{"pag" => feature}, owners: %{}, also: %{}, health: health()}})
-    reader = fn -> raise "pack source unavailable" end
-
-    assert {:ok, index} = Index.assemble(p, now: now(), feature_progress: [read_packs: reader])
+    assert {:ok, index} = Index.assemble(Map.put(p, :packs, {:error, :read_failed}), now: now())
     progress = index.feature_progress.features["f-bo-99-core"]
     assert progress.unpublished == nil
     assert progress.total == nil
