@@ -1,7 +1,7 @@
 defmodule AiurWeb.DashboardLive.Session do
   @moduledoc false
 
-  import Phoenix.Component, only: [assign: 3]
+  import Phoenix.Component, only: [assign: 2, assign: 3]
   import Phoenix.LiveView, only: [connected?: 1]
 
   alias AiurWeb.DashboardLive.CommandHistory
