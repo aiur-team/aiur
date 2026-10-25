@@ -168,22 +168,25 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a dashboard bound beyond loopback without both credentials. A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set.
+Public binds require machine credentials, browser Basic Auth off, and Google sign-in with an email allowlist or an enrolled passkey. Loopback may bind without machine credentials, but refuses dashboard requests until they are set.
 
 To enable Google sign-in, configure an HTTPS `server.public_url`, set the operator email allowlist, and add both OAuth client values to `~/.aiur/.env`:
 
 ```yaml
 server:
-  public_url: https://<host>.ts.net:4001
+  public_url: https://dashboard.example.com
+  trusted_proxies: [10.0.0.0/8]
 dashboard_auth:
   google:
     allowed_emails: [operator@gmail.com]
   passkeys: true
   session_max_age_days: 30
-  browser_basic_auth: true
+  browser_basic_auth: false
 ```
 
-In Google Cloud, create an OAuth consent screen in External / Testing mode, add the operator as a test user, and request `openid email`. Create a Web application OAuth client with redirect URI `https://<host>.ts.net:4001/auth/google/callback`.
+Replace the CIDR with the actual proxy peer range. The `platform` shortcut trusts private IPv4 and IPv6 peers and is safe only when the host platform isolates that network from untrusted workloads. Public deployments must keep browser Basic Auth off; the configured credentials remain available to machine clients.
+
+In Google Cloud, create an OAuth consent screen in External / Testing mode, add the operator as a test user, and request `openid email`. Create a Web application OAuth client with redirect URI `https://dashboard.example.com/auth/google/callback`.
 
 Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, then restart Aiur. Sign in with the allowlisted, verified account and register a passkey while that Google sign-in is fresh; enroll each device (iCloud Keychain can sync Apple devices).
 
