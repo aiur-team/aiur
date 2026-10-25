@@ -36,6 +36,19 @@ defmodule Aiur.PromptBuilder do
       integration_branch_prompt(issue) <> OptimisticPrompt.render(issue.optimistic_start) <> merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
   end
 
+  @doc false
+  @spec answered_decisions_prompt([map()]) :: String.t()
+  def answered_decisions_prompt(decisions) when is_list(decisions) and decisions != [] do
+    entries =
+      Enum.map_join(decisions, "\n\n", fn decision ->
+        "Question: #{decision.question}\nAnswer: #{decision.answer}\nAnswered by: #{decision.actor}\nAnswered at: #{DateTime.to_iso8601(decision.accepted_at)}"
+      end)
+
+    "## Answered decisions\n\nThese durable answers are provided for this session. Apply them as the ticket's recorded decisions.\n\n#{entries}\n"
+  end
+
+  def answered_decisions_prompt(_decisions), do: ""
+
   # SECURITY INVARIANT — issue title and body are attacker-controlled.
   #
   # Aiur runs against public repositories with issues enabled. Anyone can open
