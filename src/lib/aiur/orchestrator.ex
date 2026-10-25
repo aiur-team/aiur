@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator do
   use GenServer
   require Logger
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Issue, Signal}
 
   alias Aiur.Orchestrator.{
     AutoSubscriptions,
@@ -199,13 +199,13 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:emit_system_alert, alert_name, %Issue{} = issue, worker_host}, state)
       when is_binary(alert_name) do
-    Alerts.emit_system(alert_name, issue: issue, worker_host: worker_host)
+    Signal.alert(alert_name, issue: issue, worker_host: worker_host)
     {:noreply, state}
   end
 
   def handle_info({:emit_system_alert, alert_name, issue_identifier, worker_host}, state)
       when is_binary(alert_name) and is_binary(issue_identifier) do
-    Alerts.emit_system(alert_name, issue: issue_identifier, worker_host: worker_host)
+    Signal.alert(alert_name, issue: issue_identifier, worker_host: worker_host)
     {:noreply, state}
   end
 

@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
+  alias Aiur.Signal
 
   @doc false
   @spec sync_fleet_capacity_starved_alert(State.t(), list(), integer()) :: State.t()
@@ -142,7 +142,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
     do: Config.capacity_starvation_alert_after_seconds() * 1_000
 
   defp emit_fleet_capacity_starvation(state, context, since_ms) do
-    case Alerts.emit_system("system.fleet.capacity.starved",
+    case Signal.alert("system.fleet.capacity.starved",
            reason: fleet_capacity_starvation_reason(context),
            needs_attention: true,
            severity: "warning"
@@ -225,7 +225,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
     active? = starvation[:alert_active] or AlertFeed.active_system_attention?("system.fleet.capacity.starved")
 
     if active? do
-      case Alerts.emit_system("system.fleet.capacity.starved.resolved",
+      case Signal.alert("system.fleet.capacity.starved.resolved",
              reason: "Fleet capacity is no longer starved.",
              needs_attention: false,
              severity: "info"
