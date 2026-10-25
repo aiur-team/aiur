@@ -27,7 +27,12 @@ defmodule Aiur.Config.Schema.Errors do
   end
 
   def flatten_errors(errors, prefix) when is_list(errors) and is_binary(prefix) do
-    Enum.map(errors, &(prefix <> " " <> &1))
+    errors
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {message, _index} when is_binary(message) -> [prefix <> " " <> message]
+      {nested, index} when is_map(nested) -> flatten_errors(nested, "#{prefix}.#{index}")
+    end)
   end
 
   @spec translate_error({String.t(), keyword()}) :: String.t()

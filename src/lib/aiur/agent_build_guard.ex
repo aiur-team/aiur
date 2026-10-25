@@ -1,6 +1,6 @@
 defmodule Aiur.AgentBuildGuard do
   @moduledoc """
-  Installs shell-independent `elixir`, `mix`, and `mise` entrypoints for the build gate.
+  Installs shell-independent `elixir`, `mix`, `mise`, and `node` entrypoints for the build gate.
 
   Local coding agents may execute tools through zsh or another shell that does not
   source `BASH_ENV`. The wrappers start Bash explicitly, allowing the existing
@@ -14,7 +14,7 @@ defmodule Aiur.AgentBuildGuard do
   @script_path Path.expand("../../priv/build_gate_command_wrapper.bash", __DIR__)
   @external_resource @script_path
   @script File.read!(@script_path)
-  @commands ~w(elixir mix mise)
+  @commands ~w(elixir mix mise node)
   @relative_bin_dir ".aiur-runtime/build-bin"
 
   @spec bin_dir(Path.t()) :: Path.t()

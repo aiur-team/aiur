@@ -25,7 +25,7 @@ defmodule Aiur.Claude.UsageApiTest do
       Aiur.TestSupport.tmp_root!("usage_api_test_#{prefix}")
 
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     dir
   end
 
@@ -275,6 +275,25 @@ defmodule Aiur.Claude.UsageApiTest do
       assert :counters.get(counter, 1) == 1
     end
 
+    test "account-specific cache keys keep usage readings isolated", %{credentials_path: path} do
+      counter = :counters.new(1, [])
+
+      request_fun = fn _token ->
+        :counters.add(counter, 1, 1)
+        value = :counters.get(counter, 1) + 10
+        {:ok, %{status: 200, body: %{"seven_day" => %{"utilization" => value}}}}
+      end
+
+      base = [credentials_path: path, request_fun: request_fun, ttl_ms: 60_000, now_ms: 1_000]
+      assert {:ok, %{used_percent: 11}} = UsageApi.fetch(Keyword.put(base, :cache_key, {:claude, "one"}))
+      assert {:ok, %{used_percent: 12}} = UsageApi.fetch(Keyword.put(base, :cache_key, {:claude, "two"}))
+      assert {:ok, %{used_percent: 11}} = UsageApi.fetch(Keyword.put(base, :cache_key, {:claude, "one"}))
+      assert :counters.get(counter, 1) == 2
+
+      UsageApi.reset_cache({:claude, "one"})
+      UsageApi.reset_cache({:claude, "two"})
+    end
+
     test "the cache expires after its TTL and re-requests", %{credentials_path: path} do
       counter = :counters.new(1, [])
 
@@ -299,6 +318,35 @@ defmodule Aiur.Claude.UsageApiTest do
                  now_ms: 5_000
                )
 
+      assert :counters.get(counter, 1) == 2
+    end
+
+    # #5747: shortening only the scheduler cadence is ineffective if this
+    # cache keeps the longer configured interval; every early tick would just
+    # re-serve the old observation until it was already stale.
+    test "the configured cache TTL is capped by the reading max age", %{credentials_path: path} do
+      counter = :counters.new(1, [])
+
+      request_fun = fn _token ->
+        :counters.add(counter, 1, 1)
+        {:ok, %{status: 200, body: %{"five_hour" => %{"utilization" => 33}}}}
+      end
+
+      settings =
+        {:ok,
+         %{
+           polling: %{usage_interval_seconds: 3_600},
+           agent: %{headroom_reading_max_age_seconds: 1_800}
+         }}
+
+      now_ms = 1_800_000_000_000
+      opts = [credentials_path: path, request_fun: request_fun, settings: settings, now_ms: now_ms]
+
+      assert {:ok, _} = UsageApi.fetch(opts)
+      assert {:ok, _} = UsageApi.fetch(Keyword.put(opts, :now_ms, now_ms + 1_799_999))
+      assert :counters.get(counter, 1) == 1
+
+      assert {:ok, _} = UsageApi.fetch(Keyword.put(opts, :now_ms, now_ms + 1_800_001))
       assert :counters.get(counter, 1) == 2
     end
 
@@ -353,6 +401,25 @@ defmodule Aiur.Claude.UsageApiTest do
       assert :ok = UsageApi.reset_cache()
       assert {:ok, _} = UsageApi.fetch(opts)
       assert :counters.get(counter, 1) == 2
+    end
+  end
+
+  describe "fetch_with_metadata/1" do
+    @tag :tmp_dir
+    test "distinguishes a cache hit from a new observation", %{tmp_dir: dir} do
+      path = write_credentials(dir, oauth_json(%{"accessToken" => "sk-test"}))
+      key = {:metadata, make_ref()}
+      on_exit(fn -> UsageApi.reset_cache(key) end)
+
+      opts = [
+        credentials_path: path,
+        cache_key: key,
+        request_fun: fn _token -> {:ok, %{status: 200, body: %{"five_hour" => %{"utilization" => 12}}}} end,
+        now_ms: 1_800_000_000_000
+      ]
+
+      assert {:ok, _reading, %{freshness: :fresh}} = UsageApi.fetch_with_metadata(opts)
+      assert {:ok, _reading, %{freshness: :cached, observed_at: %DateTime{}}} = UsageApi.fetch_with_metadata(opts)
     end
   end
 end

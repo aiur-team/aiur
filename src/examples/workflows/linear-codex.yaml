@@ -1,3 +1,13 @@
+instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
+  role: primary                       # primary | secondary; one primary per repository
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
+  # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
+  #   label_prefixes: [nuc]           # its tracker.github.label_prefix
+  #   tickets: []                     # ids handed over mid-flight
+
 tracker:
   kind: linear
   # github:
@@ -19,16 +29,42 @@ tracker:
 linear:
   api_key: $LINEAR_API_KEY
   project_slug: your-project-slug
+# Merge policy defaults; currently validated and shown in status/capabilities.
+# Merge enforcement, worker instructions and main watching ship separately.
+# merge_policy:
+#   ci: wait                       # wait
+#   local_tests: partial           # all | partial | none
+#   full_ci_labels: [main-fix]
+#   full_ci_paths: []               # changed-path globs forcing full CI
+#   premerge_checks: []             # commands on the merge result
+#   attribution_scan: false
+#   main_watch:
+#     enabled: false
+#     workflows: []                 # empty = all base-branch workflows
+#     on_red: alert                 # alert | dispatch_fixer
+#     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
+#     canary_minutes: 45            # 0 disables canary reruns
+#     red_fallback_minutes: 0      # off; 60 waits for CI after main is red for one hour (MP4)
+
 observability:
   # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
   # build_order_funnel_health_check: true
   # Set to false to disable run telemetry recording (Analytics page will be empty).
+  # capture_tags: {variant: B}
+  # capture_label_prefixes: ["experiment:", "cohort:", "feature:"]
   # telemetry_enabled: true
+  # capture_github_facts: true
   # Retain useful cross-session telemetry without splitting an individual boot.
   telemetry_retention_max_bytes: 67108864
   telemetry_retention_max_age_days: 30
 executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
+server:
+  # public_url: https://aiur.example.com
+  # trusted_proxies: [10.0.0.0/8]
+  # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
+  tailscale_funnel: false
+# dashboard_auth: {google: {allowed_emails: [operator@example.com]}, passkeys: false, session_max_age_days: 30, browser_basic_auth: true}
 polling:
   idle_widen_factor: 5.0
   # Per-class cadences override interval_seconds for one class (#2309). The
@@ -50,10 +86,25 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # ci_recovery_enabled: true             # false disables automatic CI reruns
+  # ci_recovery_max_per_poll: 5
+  # ci_recovery_max_per_hour: 20
+  # non_closing_merge_marker: needs-triage # label applied to an own-PR reference without closing keywords
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
+  # build_nice: 10 # CPU nice adjustment for admitted builds (0-19); 0 preserves priority
   priority: [codex]
+  # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
+  # account_selection: balance
   max_concurrent_agents: 10
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
+  # max_repeated_identical_commands: 5
+  # local_gate_wait_steer_minutes: 20
+  # local_gate_wait_stop_minutes: 30
+  # local_gate_ci_max_age_minutes: 15
+  # max_commands_per_turn: 1000
+  # max_input_tokens_per_turn: 20000000
   codex:
     command: codex app-server
     # This is an explicit headless-workflow choice. Unconfigured workflows
@@ -66,3 +117,59 @@ prompt_file: linear-codex.prompt.md
 # Off by default; relays record your quote and relayer and raise an info alert.
 executor:
   relay_operator_answers: false
+
+compaction:
+  # Opt in only when you want synchronous native compaction at handoff.
+  # Codex's app-server API has no threshold trigger; other providers are unsupported.
+  enabled: false
+  backends: [codex]
+  manual_approval: false
+  auto_trigger:
+    enabled: false
+    token_threshold: 50000
+  timeout_ms: 30000
+
+# Build queue is unsupported on Linear; no queue label writes.
+# build_queue:
+#   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch
+#   max_active_sets: null              # unfinished started sets; held sets do not count
+#   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
+#   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
+#   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
+#   enabled: true
+#   reconcile_interval_seconds: 60      # 10..3600 seconds
+#   max_writes_per_minute: 20           # 1..60 writes
+#   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
+#   merged_open_grace_seconds: 600      # 60..86400 seconds
+#   optimistic_failure_grace_seconds: 600 # Replacement grace, 60..86400 seconds
+#   optimistic_churn_attention_threshold: 3 # Conflicts, 0 disables (0..50)
+
+# Experiment specs and audit history are stored under the repo state node.
+# experiments:
+#   analyst:
+#     auto_request: true             # false for CLI-only analyst requests
+#   enabled: true
+#   default_min_samples: 15
+#   default_before_days: 14
+#   pack_dirs: [".aiur/experiments/packs"]
+#   disabled_packs: []
+#   script_timeout_ms: 60000
+#   checkpoint_interval_ms: 3600000
+#   max_snapshot_observations: 50000
+
+#   auto:
+#     enabled: true
+#     version_line: true
+#     release_line: true
+#     release_tag_pattern: "v*"
+#     release_include_prereleases: false
+#     release_min_interval_days: 7
+#     feature_label: "experiment:feature"
+#     feature_live_signal: "auto"
+#     feature_quiet_hours: 6
+#     live_signal_max_wait_hours: 72
+#     before_days: 14
+#     after_days: 14
+#     after_step_days: 7
+#     after_max_days: 42
+#     metric_packs: ["delivery"]

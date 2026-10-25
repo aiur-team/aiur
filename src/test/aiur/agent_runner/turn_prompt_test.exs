@@ -39,6 +39,17 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
   end
 
   describe "build_turn_prompt/4" do
+    test "review and CI handoffs do not receive routine base-merge instructions" do
+      for state <- ["human-review", "ci-wait"] do
+        prompt = TurnPrompt.build_turn_prompt(%Issue{id: "5237", identifier: "5237", title: "Review handoff", state: state}, [], 1, nil)
+
+        normalized = String.replace(prompt, ~r/\s+/, " ")
+        assert normalized =~ "do not merge or rebase `$AIUR_BASE_BRANCH`"
+        assert normalized =~ "only when GitHub reports the PR `CONFLICTING`"
+        assert normalized =~ "In `rework`, follow the reviewer’s request"
+      end
+    end
+
     test "turn one prior_work recycle gets continuation guidance plus the ticket contract" do
       issue = %Issue{id: "1091", identifier: "1091", title: "Fetch graph", state: "in-progress"}
 
@@ -49,6 +60,112 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       # keeps the full operating contract so a cold thread still knows the ticket
       assert prompt =~ issue.title
       refute prompt == PromptBuilder.build_prompt(issue, prior_work: true)
+      refute prompt =~ "previous agent thread was abandoned"
+    end
+
+    test "a fresh session that replaced an abandoned thread says so" do
+      issue = %Issue{id: "4561", identifier: "4561", title: "Big thread", state: "in-progress"}
+
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, abandoned_thread: true], 1, nil)
+
+      assert prompt =~ "do not restart the ticket from scratch"
+      assert prompt =~ "previous agent thread was abandoned after it repeatedly lost its transport"
+    end
+
+    test "dirty prior-work workspace includes status and last agent message" do
+      workspace = temp_git_workspace!("stopped-dirty")
+      File.write!(Path.join(workspace, "unfinished.ex"), "unfinished work\n")
+      File.mkdir_p!(Path.join(workspace, "logs"))
+
+      write_agent_events!(workspace, [
+        %{event: "agent_message", last_message: "Older legacy message."},
+        codex_completed_message("I found the broker race; fixing the retry path.")
+      ])
+
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+      issue = %Issue{id: "5561", identifier: "5561", title: "Resume work", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+
+      assert prompt =~ "## Resuming from a stopped session"
+      assert prompt =~ "continue from this work rather than restarting the ticket"
+      assert prompt =~ "?? unfinished.ex"
+      assert prompt =~ "I found the broker race; fixing the retry path."
+
+      rework_issue = %{issue | state: "rework"}
+      rework_prompt = TurnPrompt.build_turn_prompt(rework_issue, [workspace: workspace], 1, nil)
+      assert rework_prompt =~ "## Resuming from a stopped session"
+      assert rework_prompt =~ "previous run completed normally and left uncommitted changes"
+      refute rework_prompt =~ "stopped before it could finish"
+    end
+
+    test "dirty workspace includes an incomplete Codex message accumulated from deltas" do
+      workspace = temp_git_workspace!("stopped-delta")
+      File.write!(Path.join(workspace, "unfinished.ex"), "unfinished work\n")
+      File.mkdir_p!(Path.join(workspace, "logs"))
+      write_agent_events!(workspace, [codex_delta("partial "), codex_delta("assistant answer")])
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+      issue = %Issue{id: "5561", identifier: "5561", title: "Resume work", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+
+      assert prompt =~ "partial assistant answer"
+    end
+
+    test "dirty workspace includes a legacy agent message and skips already resumed threads" do
+      workspace = temp_git_workspace!("stopped-legacy")
+      File.write!(Path.join(workspace, "unfinished.ex"), "unfinished work\n")
+      File.mkdir_p!(Path.join(workspace, "logs"))
+      write_agent_events!(workspace, [%{event: "agent_message", last_message: "Legacy session was checking the retry path."}])
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+      issue = %Issue{id: "5561", identifier: "5561", title: "Resume work", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+      resumed_prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, resumed: true, workspace: workspace], 1, nil)
+
+      assert prompt =~ "Legacy session was checking the retry path."
+      refute resumed_prompt =~ "## Resuming from a stopped session"
+    end
+
+    test "dirty workspace includes the last Claude transcript message" do
+      workspace = temp_git_workspace!("stopped-claude")
+      File.write!(Path.join(workspace, "unfinished.ex"), "unfinished work\n")
+      File.mkdir_p!(Path.join(workspace, "logs"))
+
+      write_agent_events!(workspace, [
+        %{event: :transcript, transcript_event: %{role: :assistant, body: "Claude was tracing the broker retry."}}
+      ])
+
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+      issue = %Issue{id: "5561", identifier: "5561", title: "Resume work", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+
+      assert prompt =~ "Claude was tracing the broker retry."
+    end
+
+    test "dirty workspace keeps only the tail of a long last agent message" do
+      workspace = temp_git_workspace!("stopped-long")
+      File.write!(Path.join(workspace, "unfinished.ex"), "unfinished work\n")
+      File.mkdir_p!(Path.join(workspace, "logs"))
+      write_agent_events!(workspace, [%{event: "agent_message", last_message: String.duplicate("a", 3_000) <> "END"}])
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+      issue = %Issue{id: "5561", identifier: "5561", title: "Resume work", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+
+      assert prompt =~ "Ticket 5561: " <> String.duplicate("a", 1_997) <> "END"
+      refute prompt =~ String.duplicate("a", 1_998)
+    end
+
+    test "clean prior-work workspace does not include stopped-session guidance" do
+      workspace = temp_git_workspace!("stopped-clean")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+      issue = %Issue{id: "5561", identifier: "5561", title: "Resume work", state: "in-progress"}
+      prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+
+      refute prompt =~ "## Resuming from a stopped session"
     end
 
     test "turn one cold start delegates to PromptBuilder" do
@@ -67,6 +184,41 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       refute prompt =~ issue.title
     end
 
+    test "turn prompts name files left by an aborted before_run base merge" do
+      workspace = Path.join(System.tmp_dir!(), "turn-prompt-conflict-#{System.unique_integer([:positive])}")
+      conflict_note = Path.join([workspace, "logs", "before-run-merge-conflict.md"])
+      File.mkdir_p!(Path.dirname(conflict_note))
+
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+      File.write!(conflict_note, """
+      # Base branch merge conflict
+
+      The preflight merge was aborted.
+
+      ## Conflicting files
+      - src/example.ex
+      - test/example_test.exs
+      """)
+
+      issue = %Issue{id: "3011", identifier: "3011", title: "Resolve base conflict"}
+      resumed_prompt = TurnPrompt.build_turn_prompt(issue, [resumed: true, workspace: workspace], 1, nil)
+      cold_prompt = TurnPrompt.build_turn_prompt(issue, [workspace: workspace], 1, nil)
+      prior_work_prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+      next_turn_prompt = TurnPrompt.build_turn_prompt(issue, [workspace: workspace], 2, nil)
+
+      for prompt <- [resumed_prompt, cold_prompt, prior_work_prompt] do
+        assert prompt =~ "Merge `origin/$AIUR_BASE_BRANCH` and resolve these files"
+        assert prompt =~ "- `src/example.ex`"
+        assert prompt =~ "- `test/example_test.exs`"
+      end
+
+      refute next_turn_prompt =~ "Merge `origin/$AIUR_BASE_BRANCH` and resolve these files"
+      refute next_turn_prompt =~ "src/example.ex"
+
+      refute resumed_prompt =~ workspace
+    end
+
     test "turn one cold rework keeps the ticket contract without restarting discovery" do
       issue = %Issue{
         id: "1091",
@@ -81,11 +233,30 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert prompt =~ "rework"
       assert prompt =~ "Agent Workpad"
       assert prompt =~ "review feedback"
+      assert prompt =~ "latest Executor rework comment on the ticket"
+      assert prompt =~ "failing required checks"
+      assert prompt =~ "even when the PR is approved"
       assert prompt =~ "## Shared Agent Instructions"
       assert prompt =~ issue.title
       assert prompt =~ issue.description
       assert prompt =~ "generic cold-start phase order"
       refute prompt == PromptBuilder.build_prompt(issue, [])
+    end
+
+    test "turn one cold rework lists the latest review's findings as the handback checklist" do
+      issue = %Issue{id: "4654", identifier: "4654", title: "Checklist", state: "rework"}
+      body = "Request changes.\n\n1. lib/a.ex:44 drop the nil key\n2. No location here.\n"
+
+      opts = [
+        open_pr_fetcher: fn "4654" -> {:ok, %{"number" => 7}} end,
+        reviews_fetcher: fn 7 -> {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => body, "submitted_at" => "t", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]} end
+      ]
+
+      prompt = TurnPrompt.build_turn_prompt(issue, opts, 1, nil)
+
+      assert prompt =~ "Review findings checklist"
+      assert prompt =~ "- 1. `lib/a.ex:44` — lib/a.ex:44 drop the nil key"
+      assert prompt =~ "- 2. No location here."
     end
 
     test "turn one resumed rework still uses restart continuation guidance" do
@@ -294,5 +465,34 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
 
       refute FakePlanningHandoffAgent.begin_work?(negated_prompt)
     end
+  end
+
+  defp temp_git_workspace!(prefix) do
+    workspace = Path.join(System.tmp_dir!(), "turn-prompt-#{prefix}-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+
+    {_, 0} = System.cmd("git", ["-C", workspace, "init", "--quiet"])
+    {_, 0} = System.cmd("git", ["-C", workspace, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "initial", "--quiet"])
+
+    workspace
+  end
+
+  defp write_agent_events!(workspace, events) do
+    content = Enum.map_join(events, "\n", &Jason.encode!/1) <> "\n"
+    File.write!(Path.join(workspace, "logs/agent.ndjson"), content)
+  end
+
+  defp codex_completed_message(text) do
+    %{
+      event: "notification",
+      payload: %{method: "item/completed", params: %{item: %{type: "agentMessage", text: text}}}
+    }
+  end
+
+  defp codex_delta(delta) do
+    %{
+      event: "notification",
+      payload: %{method: "item/agentMessage/delta", params: %{itemId: "message-1", delta: delta}}
+    }
   end
 end

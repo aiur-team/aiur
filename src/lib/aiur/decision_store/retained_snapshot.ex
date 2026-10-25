@@ -117,6 +117,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
      }}
   end
 
+  defp readable?({:projection_stale, _since}), do: true
   defp readable?(:writable), do: true
   defp readable?({:corrupt, _line, _reason}), do: true
   defp readable?(_health), do: false

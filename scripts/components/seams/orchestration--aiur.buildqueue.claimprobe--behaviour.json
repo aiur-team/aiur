@@ -1,0 +1,6 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.BuildQueue.ClaimProbe",
+  "kind": "behaviour",
+  "reason": "MP-E1 X-1: orchestration implements the claim-probe port"
+}

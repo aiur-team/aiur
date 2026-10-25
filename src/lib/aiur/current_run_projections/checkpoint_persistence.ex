@@ -3,6 +3,20 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
 
   alias Aiur.CurrentRunProjections.Checkpoint
 
+  @spec content_hash(map()) :: binary()
+  def content_hash(candidate) do
+    candidate
+    |> Checkpoint.dump()
+    |> Map.delete(:checkpoint_generation)
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+  end
+
+  @spec unchanged?(map(), map()) :: boolean()
+  def unchanged?(state, candidate) do
+    state.checkpoint_health == :healthy and state.checkpoint_hash == content_hash(candidate)
+  end
+
   @spec start(map(), map(), keyword(), pid()) :: map()
   def start(state, candidate, opts, owner \\ self()) do
     generation =
@@ -13,11 +27,10 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
 
     candidate = Checkpoint.candidate(candidate, generation)
     timeout_ms = state.checkpoint_timeout_ms
-
-    checkpoint =
-      candidate
-      |> Checkpoint.dump()
-      |> Map.put(:checkpoint_deadline_monotonic_ms, System.monotonic_time(:millisecond) + timeout_ms)
+    now = System.monotonic_time(:millisecond)
+    delay_ms = if state.checkpoint_completed_at, do: max(0, state.checkpoint_completed_at + state.checkpoint_interval_ms - now), else: 0
+    deadline = now + delay_ms + timeout_ms
+    checkpoint = candidate |> Checkpoint.dump() |> Map.put(:checkpoint_deadline_monotonic_ms, deadline)
 
     ref = make_ref()
     writer = state.checkpoint_writer
@@ -25,6 +38,7 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
 
     pid =
       start_task(state.task_supervisor, fn ->
+        Process.sleep(delay_ms)
         result = Checkpoint.write(writer, run_id, checkpoint)
         send(owner, {:current_run_checkpoint_result, ref, generation, result})
       end)
@@ -33,7 +47,7 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
       Process.send_after(
         owner,
         {:current_run_checkpoint_deadline, ref, generation},
-        timeout_ms
+        max(0, deadline - System.monotonic_time(:millisecond))
       )
 
     canonical = restore_canonical(state)
@@ -47,6 +61,7 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
           pid: pid,
           timer: timer,
           candidate: candidate,
+          content_hash: content_hash(candidate),
           changes: Keyword.fetch!(opts, :changes),
           race_signature: Keyword.get(opts, :race_signature),
           force_full?: Keyword.get(opts, :force_full?, false),
@@ -64,7 +79,7 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
         result
       ) do
     _ = Process.cancel_timer(write.timer)
-    {:ok, %{state | checkpoint_write: nil}, write, result}
+    {:ok, %{state | checkpoint_write: nil, checkpoint_completed_at: System.monotonic_time(:millisecond)}, write, result}
   end
 
   def finish(_state, _ref, _generation, _result), do: :stale
@@ -78,7 +93,7 @@ defmodule Aiur.CurrentRunProjections.CheckpointPersistence do
       ) do
     stop_task(write.pid)
 
-    {:ok, %{state | checkpoint_write: nil}, write, {:error, :checkpoint_write_failed}}
+    {:ok, %{state | checkpoint_write: nil, checkpoint_completed_at: System.monotonic_time(:millisecond)}, write, {:error, :checkpoint_write_failed}}
   end
 
   def expire(_state, _ref, _generation), do: :stale

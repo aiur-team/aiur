@@ -1,0 +1,21 @@
+# Module, full ExUnit test name (describe prefix included, as failures print it), owner fix ticket, and YYYY-MM-DD expiry. Tabs delimit four fields.
+Aiur.AgentControlCLIMergePolicyTest	*	#6020	2026-12-31
+Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#5511	2026-12-31
+Aiur.Claude.Repl.HookTurnTest	post_tool_use hook resets the deadline so the loop survives past the original timeout	#6227	2026-12-31
+Aiur.Codex.StartupFailureTest	a process exiting before initialize persists its status and a redacted bounded diagnostic	#6212	2026-12-31
+Aiur.ControlCallTest	*	#6104	2026-12-31
+Aiur.Core.AgentRunnerCheckpointQueueTest	*	#5516	2026-12-31
+Aiur.Core.AgentRunnerPauseTest	agent runner interrupts an active turn and waits for the next operator message before resuming	#6070	2026-12-31
+Aiur.DaemonHeartbeatTest	*	#6054	2026-12-31
+Aiur.ExecutorWakeInboxTest	a wake stream faster than the debounce still reaches a blocked waiter (#2600)	#6006	2026-12-31
+Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no copy of the bodies on the store's heap	#6124	2027-01-22
+Aiur.OpenAICompat.CommandRunnerBudgetTest	a direct system gh API path is intercepted by the workspace guard	#5669	2026-12-31
+Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
+Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
+Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
+Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#5519	2026-12-31
+Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
+Aiur.ProcessTreeTest	future regression guard: tree cleanup kills the root and both background children	#6182	2026-12-31
+Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
+Aiur.StatusContractsGoldenTest	live JSON encoders match the TypeScript package golden fixtures	#6199	2026-11-30
+AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31

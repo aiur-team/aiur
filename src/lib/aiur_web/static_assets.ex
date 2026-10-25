@@ -3,7 +3,11 @@ defmodule AiurWeb.StaticAssets do
 
   alias Aiur.CodingAgent
 
-  @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
+  # Ordered partials (priv/static/css/README.md), relative so a copied warm build globs its own.
+  @dashboard_css_glob Path.relative_to(Path.expand("../../priv/static/css/*.css", __DIR__), File.cwd!(), force: true)
+  @dashboard_css_parts @dashboard_css_glob |> Path.wildcard() |> Enum.sort()
+  @dashboard_fonts_path Path.expand("../../priv/static/aiur-style/fonts.css", __DIR__)
+  @dashboard_palette_path Path.expand("../../priv/static/dashboard-palette.css", __DIR__)
   @dom_svg_layout_adapter_path Path.expand("../../priv/static/aiur-dom-svg-layout-adapter.js", __DIR__)
   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
   @phoenix_js_path Application.app_dir(:phoenix, "priv/static/phoenix.js")
@@ -11,9 +15,11 @@ defmodule AiurWeb.StaticAssets do
   @layout_vendor_path "priv/static/vendor/elk/0.11.1"
 
   @revalidated_static_paths ~w(
+    aiur-style
     aiur-dom-svg-layout
     aiur-dom-svg-layout-adapter.js
     aiur-dom-svg-layout-loader.js
+    build-home
     build-order-grid-hook.js
     conversation-drawer-hook.js
     conversation-voice-controller.js
@@ -21,11 +27,16 @@ defmodule AiurWeb.StaticAssets do
     elevenlabs-symbol.svg
     sortable-table-hook.js
     streamdeck-emulator-hook.js
+    streamdeck-emulator-knob.js
     ticket-context-dialog-hook.js
     time-brush-hook.js
+    voice-capture.js
     voice-capture-worklet.js
+    voice-transport.js
   )
-  @long_lived_static_paths ~w(aiur-logo.png bungee.woff2)
+  @long_lived_static_paths ~w(aiur-logo.png)
+  # Served immutably at /aiur-style/fonts; the rest of /aiur-style revalidates.
+  @aiur_style_font_files ~w(Bungee-Regular.woff2 JetBrainsMono-Variable.woff2 SpaceGrotesk-Variable.woff2)
 
   @layout_asset_definitions %{
     engine: %{name: "engine", revision: "elk-0.11.1", file: "elk-worker.min.js"},
@@ -49,18 +60,22 @@ defmodule AiurWeb.StaticAssets do
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
+    "/streamdeck-emulator-knob.js" => {"application/javascript", "priv/static/streamdeck-emulator-knob.js"},
     "/elevenlabs-symbol.svg" => {"image/svg+xml", "priv/static/elevenlabs-symbol.svg"},
-    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"},
-    "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
+    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"}
   }
 
-  @external_resource @dashboard_css_path
-  @external_resource @dom_svg_layout_adapter_path
+  for part <- @dashboard_css_parts, do: @external_resource(part)
+  @external_resource Path.relative_to(@dashboard_fonts_path, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@dashboard_palette_path, File.cwd!(), force: true)
+  @external_resource Path.relative_to(@dom_svg_layout_adapter_path, File.cwd!(), force: true)
   @external_resource @phoenix_html_js_path
   @external_resource @phoenix_js_path
   @external_resource @phoenix_live_view_js_path
 
-  @dashboard_css File.read!(@dashboard_css_path)
+  # aiur-style's faces, embedded once; their relative URLs must resolve from /dashboard.css.
+  @dashboard_fonts @dashboard_fonts_path |> File.read!() |> String.replace("url('./fonts/", "url('/aiur-style/fonts/")
+  @dashboard_css Enum.join([@dashboard_fonts, Enum.map_join(@dashboard_css_parts, &File.read!/1), File.read!(@dashboard_palette_path)], "\n")
   @dom_svg_layout_adapter File.read!(@dom_svg_layout_adapter_path)
   @phoenix_html_js File.read!(@phoenix_html_js_path)
   @phoenix_js File.read!(@phoenix_js_path)
@@ -74,11 +89,19 @@ defmodule AiurWeb.StaticAssets do
     "/vendor/phoenix_live_view/phoenix_live_view.js" => {"application/javascript", @phoenix_live_view_js}
   }
 
+  # A partial added after compilation is not in the resource list above.
+  @doc false
+  @spec __mix_recompile__?() :: boolean()
+  def __mix_recompile__?, do: @dashboard_css_glob |> Path.wildcard() |> Enum.sort() != @dashboard_css_parts
+
   @spec revalidated_static_paths() :: [String.t()]
   def revalidated_static_paths, do: @revalidated_static_paths
 
   @spec long_lived_static_paths() :: [String.t()]
   def long_lived_static_paths, do: @long_lived_static_paths
+
+  @spec aiur_style_font_files() :: [String.t()]
+  def aiur_style_font_files, do: @aiur_style_font_files
 
   @spec provider_asset_paths() :: [String.t()]
   def provider_asset_paths do

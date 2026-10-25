@@ -1,5 +1,11 @@
 # Running a turn
 
+In every repository, mark completed, self-reviewed work ready **before**
+entering `agent:ci-wait`. Drafts never permit handoff, even with green checks.
+All required checks passing on the current head SHA permit
+`agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
+Aiur PRs run fast checks; the full suite runs in the merge queue or on forced-full PRs.
+
 ## Label lifecycle
 
 GitHub issue state is label-based:
@@ -53,21 +59,27 @@ in the workpad rather than falling back to raw label edits.
    `ce-brainstorm` -> `ce-plan` -> `ce-work` -> `ce-code-review`.
 8. Smaller asks may skip brainstorm, plan, or review when the extra step would
    be overhead, but err on the side of using these skills when in doubt.
-9. Before CI or review handoff, fetch the configured integration base and make
-   its current remote head an ancestor of your exact PR head. Integrate or
-   re-cut and resolve semantic drift yourself; do not leave stale-code updates
-   for the Executor or reviewers.
+9. Before CI or review handoff, assess the exact PR head against the configured
+   base using `dev-loop.md`'s integration checklist. During `human-review` or
+   `ci-wait`, integrate only when GitHub reports the exact PR head as
+   `CONFLICTING` or a reviewer asks. File overlap and base movement alone do
+   not require a push. Record required conflict resolution in the workpad;
+   unavailable assessments block handoff rather than imply safety.
 10. When implementation and draft-PR self-review are complete and only CI
-    remains, move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and end
-    the turn. The daemon owns
-    continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
+    remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
+    draft, then move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and
+    end the turn. The daemon owns continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
     A stub standing where an acceptance criterion should be means the work is
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
-11. On a delivered CI pass, recheck current-base ancestry. If the base moved,
-    update and validate your branch and return to `agent:ci-wait`; otherwise
-    mark the PR ready and move the issue to `agent:human-review`. Use
-    `aiur_set_ticket_state` for that move: the daemon's CI-pass handoff has
+11. On a delivered required-check pass for the current head SHA, verify
+    the PR is ready and assess current-base integration safety. Any head that
+    is not `CONFLICTING` permits `agent:human-review` even if stale or overlapping.
+    If GitHub reports `CONFLICTING` or a reviewer asked for integration, follow
+    `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. Never open a
+    blocking decision for base integration. Use
+    `aiur_set_ticket_state` for that
+    move: the daemon's CI-pass handoff has
     already relabelled the ticket `agent:in-progress`, so a hand-written
     `--remove-label agent:ci-wait` removes nothing and strands the pair.
 12. Move the issue to `Done` only when the issue explicitly says the agent should
@@ -76,6 +88,20 @@ in the workpad rather than falling back to raw label edits.
     current phase, key decisions, validation completed, and remaining next steps.
 
 ## PR review feedback loop
+
+Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` review submissions on an
+open PR route tickets from `agent:human-review` or `agent:ci-wait` to
+`agent:rework`, including body-only reviews with no inline threads. Trust and
+review freshness checks still apply.
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
 
 Most comments do not ask for code. A question, a clarification request, a
 discussion point, or an approval wants a *reply*, not a commit. Differentiate
@@ -87,10 +113,26 @@ change as the comment actually warrants.
 A rework turn with nothing to rework must not push. GitHub never clears
 `reviewDecision` when findings are addressed, so a ticket can be routed to
 `agent:rework` with every finding already fixed. When that happens, record it in
-the workpad, reply on the threads that are already satisfied, and end the turn.
-Do **not** merge the base and push to prove liveness: a push with no substantive
-change is not progress, and under a branch ruleset that dismisses stale
-approvals it destroys the approval that would have released the ticket.
+the workpad, reply on the threads that are already satisfied, and hand the
+ticket back with `aiur_set_ticket_state({ "state": "human-review" })` before
+ending the turn. Do **not** merge the base and push to prove liveness: a push
+with no substantive change is not progress, and under a branch ruleset that
+dismisses stale approvals it destroys the approval that would have released the
+ticket.
+
+Red CI is not a reason to stay in `agent:rework`. Once every blocking finding is
+addressed and pushed, post one PR comment naming the head SHA, each finding and
+the commit that addresses it, and any failing check you believe is inherited
+from the base — with the evidence, such as the same check failing on the base
+head. Then move to `agent:human-review`. Whether inherited red CI blocks the
+merge is the reviewer's call. A failure your own change caused is still yours
+to fix first. Ending turns in `agent:rework` with nothing left to change only
+runs the ticket into the no-op bound (#3971).
+
+After pushing rework commits, the agent hands off by label: use
+`agent:ci-wait` while checks are pending, otherwise `agent:human-review`.
+Do not end in `agent:rework` after the push or rely on an Executor to infer
+that the PR is ready.
 
 When a `pr.review_comment` event or unresolved review thread asks for a real code
 change, treat it as active feedback even if GitHub marks the thread outdated.

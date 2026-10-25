@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
+  alias Aiur.GitHub.{CIPollBatchReadyReview, DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -241,10 +241,11 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp pull_request_fields(_entry) do
     """
-    number state headRefName headRefOid baseRefName
+    number state createdAt headRefName headRefOid baseRefName baseRefOid
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
-    mergeQueueEntry { id }
+    #{CIPollBatchReadyReview.fields()}
+    mergeQueueEntry { id state }
     #{contexts_selection()}
     """
   end
@@ -259,7 +260,7 @@ defmodule Aiur.GitHub.CIPollBatch do
               pageInfo { hasNextPage endCursor }
               nodes {
                 __typename
-                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { id } }
+                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { id app { databaseId } workflowRun { workflow { databaseId } } } }
                 ... on StatusContext { context state targetUrl createdAt description }
               }
             }
@@ -381,9 +382,10 @@ defmodule Aiur.GitHub.CIPollBatch do
           "number" => Map.get(node, "number"),
           "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
           "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
-          "base" => %{"ref" => Map.get(node, "baseRefName")}
+          "base" => %{"ref" => Map.get(node, "baseRefName"), "sha" => Map.get(node, "baseRefOid")}
         }
-        |> put_merge_queue_observation(node),
+        |> put_merge_queue_observation(node)
+        |> Map.put("reopened_at", get_in(node, ["timelineItems", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["createdAt"]))),
       check_runs: Enum.map(check_runs, &normalize_check_run/1),
       commit_status: normalize_commit_status(statuses),
       contexts_overflow: contexts_overflow
@@ -397,8 +399,17 @@ defmodule Aiur.GitHub.CIPollBatch do
   # clearing a recovery signal on partial data.
   defp put_merge_queue_observation(pull_request, node) do
     case MergeQueue.normalize_graphql_pull_request(node) do
-      %{} = observation -> Map.put(pull_request, "merge_queue", observation)
-      {:error, _reason} -> pull_request
+      %{} = observation ->
+        review = CIPollBatchReadyReview.project(node)
+        observation = Map.put(observation, :approved_review_head_sha, review.approved_review_head_sha)
+
+        pull_request
+        |> Map.put("merge_queue", observation)
+        |> Map.put("ready_at_ms", review.ready_at_ms)
+        |> Map.put("reviewed_head?", review.reviewed_head?)
+
+      {:error, _reason} ->
+        pull_request
     end
   end
 
@@ -439,7 +450,10 @@ defmodule Aiur.GitHub.CIPollBatch do
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),
       "started_at" => Map.get(check_run, "startedAt"),
       "completed_at" => Map.get(check_run, "completedAt"),
+      "details_url" => Map.get(check_run, "detailsUrl"),
       "check_suite_id" => get_in(check_run, ["checkSuite", "id"]),
+      "workflow_id" => get_in(check_run, ["checkSuite", "workflowRun", "workflow", "databaseId"]),
+      "app" => %{"id" => get_in(check_run, ["checkSuite", "app", "databaseId"])},
       "output" => Map.get(check_run, "output", %{})
     }
   end
@@ -451,7 +465,8 @@ defmodule Aiur.GitHub.CIPollBatch do
           "context" => Map.get(status, "context"),
           "state" => Map.get(status, "state") |> to_string() |> String.downcase(),
           "created_at" => Map.get(status, "createdAt"),
-          "description" => Map.get(status, "description")
+          "description" => Map.get(status, "description"),
+          "target_url" => Map.get(status, "targetUrl")
         }
       end)
 

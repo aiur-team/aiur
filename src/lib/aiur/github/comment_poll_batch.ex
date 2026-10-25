@@ -22,10 +22,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   What this module still answers, and why each has to stay here:
 
-    * `:open_pull_request` — the number, head/base refs, `reviewDecision` and
-      head commit date. REST has no single call that returns review decision,
-      and branch-to-PR discovery over REST is a `?head=` query plus a paginated
-      scan of every open pull request when the branch is not the legacy one.
+    * `:open_pull_request` — the number, head/base refs, review and merge
+      readiness, ready-for-review time, and head commit date. These facts are
+      stored in the existing branch-PR cache for the Executor sweep. REST has
+      no single call that returns review decision, and branch-to-PR discovery
+      over REST is a `?head=` query plus a paginated scan of every open pull
+      request when the branch is not the legacy one.
     * `:review_thread_comments` — resolution state per inline thread, which the
       REST review-comment endpoints do not expose. Emitted only for a target
       whose threads were actually part of the query; a target discovered
@@ -64,61 +66,15 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, GraphQLCost, PollSnapshots, ResourceStore, ReviewThreads, Transport}
+  alias Aiur.GitHub.CommentPollBatch.Query
+  alias Aiur.GitHub.{DeliveredPullRequest, ExecutorSweepPRCache, GraphQLCost, PollSnapshots, ResourceStore, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
   # headRefName-keyed pullRequests lookups (the generated `aiur/<id>-<slug>`
   # branch and the legacy `aiur/<id>` one), so 33 targets keeps every call at
   # or under 100 aliases without ever scanning the repository's open PR list.
-  #
-  # `@pull_requests_per_branch` is 2 rather than 5 because the branch aliases
-  # are identity only and have exactly one consumer: `branch_pull_request/2`
-  # reads `[node | _rest]` and discards the rest, so the newest is the answer
-  # and the second slot is margin.
-  #
-  # This is correctness-preserving but NOT semantics-preserving. GitHub permits
-  # one open pull request per head/*base* pair, so three open pull requests on
-  # a single head branch is legal. At `first: 5` GraphQL answered; at `first: 2`
-  # `branch_pull_request_from_candidates/2` answers `:unknown` on the overflowed
-  # connection and the poller falls back to complete REST reads — every cycle,
-  # and at a cost rather than a saving. The answer stays correct; the path to it
-  # changes.
-  #
-  # That case is rare enough here to accept, but do not read this as free.
-  #
-  # The thread page is `first: 20`, and that is the measured cost lever. GitHub
-  # prices requested thread-page capacity: over a 33-target batch of this
-  # repository's open pull requests, `reviewThreads(first: 100)` billed **35
-  # points** per call against real `rateLimit { cost }`, and `first: 20` bills
-  # **8** (#2355). The repository's open pull requests currently carry **zero**
-  # review threads (measured via `reviewThreads { totalCount }`), so `first: 20`
-  # keeps twenty times the headroom the busiest pull request needs; a pull
-  # request that genuinely exceeds twenty threads overflows
-  # `review_threads_overflow?/1` and falls back to the complete paginated
-  # per-pull-request read (`ReviewThreads`, `after: $cursor`) — correct, at the
-  # cost of that target taking the 1-point-floor fallback for the cycle.
-  #
-  # The comment page is `comments(last: 1)` because the only consumer of these
-  # threads — `ReviewThreads.unaddressed_thread_comments` — reads the last
-  # comment of unresolved threads and nothing else. Measured against GitHub's
-  # own reported `rateLimit { cost }`, `last: 20` and `last: 1` bill identically
-  # (35 points on the same 33-target batch), so the cut buys payload and
-  # node-limit headroom, not points; it is kept because it is exactly what the
-  # consumer reads.
-  #
-  # A target whose pull request a **webhook delivery already identified**
-  # (`Aiur.GitHub.DeliveredPullRequest`) skips the speculation entirely: it
-  # contributes one `pullRequest(number:)` alias instead of an
-  # `issueOrPullRequest` alias plus up to two `pullRequests(headRefName:)`
-  # connections. Three aliases become one, and because the surviving alias is a
-  # pull request rather than a maybe-issue it carries `reviewThreads` that are
-  # actually used, so the poller's separate per-pull-request
-  # `review_threads_unaddressed` call for that target does not happen at all.
-  # Nothing whose staleness could mislead the daemon is taken from the store —
-  # only the number.
   @targets_per_query 33
-  @pull_requests_per_branch 2
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(targets, opts \\ []) when is_list(targets) do
@@ -230,7 +186,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp fetch_target_chunk(request_fun, token, owner, repo, entries, opts) do
     indexed = Enum.with_index(entries)
-    query = query(indexed)
+    query = Query.build(indexed)
     variables = %{"owner" => owner, "repo" => repo}
 
     case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
@@ -316,82 +272,6 @@ defmodule Aiur.GitHub.CommentPollBatch do
       source: :poll
     )
   end
-
-  defp query(indexed) do
-    aliases = Enum.map_join(indexed, "\n", fn {entry, index} -> target_aliases(entry, index) end)
-
-    """
-    query AiurCommentPollBatch($owner: String!, $repo: String!) {
-      repository(owner: $owner, name: $repo) {
-        #{aliases}
-      }
-    }
-    """
-  end
-
-  # A delivery already named the pull request, so the speculative half of the
-  # document goes away. The `issueOrPullRequest` alias goes with it: it exists to
-  # catch a target that is itself a pull request, and a target the store holds a
-  # `:branch_pull_request` body for is a *ticket* — GitHub numbers issues and
-  # pull requests in one sequence, so the pull request opened for ticket N always
-  # has a number greater than N and can never be N itself.
-  defp target_aliases(%{pull_request_number: number} = entry, index) when is_integer(number) do
-    """
-    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields(entry)} }
-    """
-  end
-
-  defp target_aliases(%{target: target, branches: branches} = entry, index) do
-    branch_aliases =
-      branches
-      |> Enum.with_index()
-      |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, index, candidate) end)
-
-    """
-    target_#{index}: issueOrPullRequest(number: #{target}) {
-      ... on Issue { __typename }
-      ... on PullRequest { #{pull_request_fields(entry)} }
-    }
-    #{branch_aliases}
-    """
-  end
-
-  # Identity only. These candidates are speculative — at most one of up to ten
-  # is the pull request the target actually has — so asking each of them for its
-  # comments and review threads is paying for content that will be discarded.
-  defp branch_alias(branch, index, candidate) do
-    """
-    branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
-      pageInfo { hasNextPage }
-      nodes { #{pull_request_identity_fields()} }
-    }
-    """
-  end
-
-  defp escape_graphql_string(value) do
-    value |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
-  end
-
-  defp pull_request_identity_fields do
-    """
-    number state headRefName headRefOid baseRefName isDraft reviewDecision
-    commits(last: 1) { nodes { commit { committedDate } } }
-    """
-  end
-
-  defp pull_request_fields(%{cached_threads: threads}) when is_list(threads), do: pull_request_identity_fields()
-
-  defp pull_request_fields(_entry) do
-    """
-    #{pull_request_identity_fields()}
-    reviewThreads(first: 20) {
-      pageInfo { hasNextPage endCursor }
-      nodes { id isResolved path line comments(last: 1) { nodes { #{thread_comment_fields()} } } }
-    }
-    """
-  end
-
-  defp thread_comment_fields, do: "databaseId body createdAt updatedAt url author { login }"
 
   defp build_target_batch(indexed, repository, opts) do
     Enum.reduce(indexed, %{}, fn {entry, index}, acc ->
@@ -483,6 +363,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp target_batch(entry, _direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
 
+    if is_map(pull_request), do: ExecutorSweepPRCache.capture(entry.repo_identity, entry.target, pull_request_payload(pull_request))
+
     cond do
       cached_threads_match?(entry, pull_request) ->
         Map.put(batch, :review_thread_comments, ReviewThreads.unaddressed_thread_comments(entry.cached_threads, opts))
@@ -537,34 +419,30 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 
   defp normalize_pull_request(pull_request, threads_included?) do
-    %{
-      :kind => :pull_request,
-      :threads_included? => threads_included?,
-      "number" => Map.get(pull_request, "number"),
-      "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
-      "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
-      "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
-      # The draft flag feeds poll-side draft-to-ready detection (#2707). A
-      # scalar on a node the query already selects adds no rate-limit points.
-      "draft" => Map.get(pull_request, "isDraft"),
-      # Review-staleness context for the rework gate (#1756). `reviewDecision`
-      # is nil until the first review lands; `head_committed_at` is the commit
-      # date of the head commit the reviews are (or are not) talking about.
-      # Both stay on the identity field set, so a branch-discovered pull request
-      # keeps full review-freshness context and the gate never goes inert
-      # because of the comment inversion.
-      "review_decision" => Map.get(pull_request, "reviewDecision"),
-      "head_committed_at" => head_committed_at(pull_request),
-      review_threads: review_thread_nodes(pull_request),
-      review_threads_page_info: review_thread_page_info(pull_request)
-    }
-  end
-
-  defp head_committed_at(pull_request) do
-    case get_in(pull_request, ["commits", "nodes"]) do
-      [_ | _] = nodes -> nodes |> List.last() |> get_in(["commit", "committedDate"])
-      _other -> nil
-    end
+    Map.merge(
+      %{
+        :kind => :pull_request,
+        :threads_included? => threads_included?,
+        "number" => Map.get(pull_request, "number"),
+        "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
+        "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
+        "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
+        # The draft flag feeds poll-side draft-to-ready detection (#2707). A
+        # scalar on a node the query already selects adds no rate-limit points.
+        "draft" => Map.get(pull_request, "isDraft"),
+        # Review-staleness context for the rework gate (#1756). `reviewDecision`
+        # is nil until the first review lands; `head_committed_at` is the commit
+        # date of the head commit the reviews are (or are not) talking about.
+        # Both stay on the identity field set, so a branch-discovered pull request
+        # keeps full review-freshness context and the gate never goes inert
+        # because of the comment inversion.
+        "review_decision" => Map.get(pull_request, "reviewDecision"),
+        "head_committed_at" => ExecutorSweepPRCache.head_committed_at(pull_request),
+        review_threads: review_thread_nodes(pull_request),
+        review_threads_page_info: review_thread_page_info(pull_request)
+      },
+      ExecutorSweepPRCache.normalize(pull_request)
+    )
   end
 
   defp review_thread_nodes(pull_request) do

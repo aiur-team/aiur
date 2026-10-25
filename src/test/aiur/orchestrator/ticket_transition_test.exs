@@ -1,0 +1,238 @@
+defmodule Aiur.Orchestrator.TicketTransitionTest do
+  use Aiur.TestSupport
+  import ExUnit.CaptureLog
+  alias Aiur.GitHub.Labels
+  alias Aiur.{Issue, TicketMarkers, Tracker, Workflow}
+  alias Aiur.LandingWatch.Journal
+  alias Aiur.Orchestrator.{PauseResume, TicketTransition}
+  alias Aiur.PRLifecycle.ReworkRequeue
+
+  defmodule ControlServer do
+    use GenServer
+    def start_link(state), do: GenServer.start_link(__MODULE__, state)
+    def init(state), do: {:ok, state}
+    def handle_call({:reset_dispatch_budget, id}, _from, state), do: {:reply, {:tracker_io, {:reset_budget, id, :fetched}, :fetch_issue_states_by_ids, [[id]]}, state}
+    def handle_call({:tracker_control_result, :reset_budget, _id, :fetched, result}, _from, state), do: {:reply, result, state}
+  end
+
+  defmodule Client do
+    def update_issue_state(id, state, opts) do
+      send(self(), {:adapter_state, id, state, opts})
+      Process.get(:transition_result, :ok)
+    end
+
+    def add_label(id, label), do: marker(:add, id, label)
+    def remove_label(id, label), do: marker(:remove, id, label)
+
+    defp marker(action, id, label) do
+      send(self(), {:adapter_marker, action, id, label})
+      Process.get(:transition_result, :ok)
+    end
+  end
+
+  setup do
+    for key <- [:memory_tracker_issues, :memory_tracker_recipient, :github_client_module] do
+      previous = Application.fetch_env(:aiur, key)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:aiur, key, value)
+          :error -> Application.delete_env(:aiur, key)
+        end
+      end)
+    end
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", identifier: "7", state: "todo", labels: ["agent:paused"]}])
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+    handler = "ticket-transition-#{System.unique_integer([:positive])}"
+    :ok = :telemetry.attach(handler, [:aiur, :ticket_transition], &__MODULE__.handle_event/4, self())
+    on_exit(fn -> :telemetry.detach(handler) end)
+    :ok
+  end
+
+  def handle_event(event, measurements, meta, pid), do: send(pid, {event, measurements, meta})
+
+  test "write_state passes expected_state and records writer" do
+    log =
+      capture_log(fn ->
+        assert :ok = TicketTransition.write_state("7", "in-progress", writer: :retry_engine, expected_state: "todo", identifier: "T-7")
+      end)
+
+    assert {:ok, [%Issue{state: "in-progress"}]} = Tracker.fetch_issue_states_by_ids(["7"])
+    assert_received {:memory_tracker_state_update, "7", "in-progress"}
+    assert_received {[:aiur, :ticket_transition], measurements, meta}
+    assert measurements == %{}
+    assert meta == %{issue_id: "7", identifier: "T-7", action: :state, to: "in-progress", expected: "todo", writer: :retry_engine, outcome: :ok}
+    assert log =~ "writer=retry_engine outcome=:ok"
+    assert log =~ "expected=\"todo\""
+  end
+
+  test "worker writers cannot close a ticket without merge provenance" do
+    for writer <- [:agent_tool, :turn_loop] do
+      assert {:error, :worker_cannot_mark_ticket_done} =
+               TicketTransition.write_state("7", "done", writer: writer, tracker: Client)
+
+      refute_received {:memory_tracker_state_update, "7", "done"}
+      refute_received {:adapter_state, "7", "done", _}
+    end
+  end
+
+  test "write_state adds the CI reason label before removing the previous CI reason" do
+    Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", identifier: "7", state: "todo", labels: ["agent:ci-red", "agent:paused", "agent:blocked"]}])
+
+    assert :ok =
+             TicketTransition.write_state("7", "ci-wait",
+               writer: :ci_lifecycle,
+               reason_modifiers: ["merge-queued"]
+             )
+
+    assert_received {:memory_tracker_state_update, "7", "ci-wait"}
+    assert_received {:memory_tracker_add_label, "7", "agent:merge-queued"}
+    assert_received {:memory_tracker_remove_label, "7", "agent:ci-red"}
+
+    assert {:ok, [%Issue{labels: labels}]} =
+             Tracker.fetch_issue_states_by_ids(["7"])
+
+    # The CI swap leaves reasons owned by other writers alone.
+    refute_received {:memory_tracker_remove_label, "7", "agent:blocked"}
+    assert labels == ["agent:paused", "agent:blocked"]
+  end
+
+  test "write_state with the current labels writes only the CI reason labels that change" do
+    assert :ok =
+             TicketTransition.write_state("7", "ci-wait",
+               writer: :ci_lifecycle,
+               tracker: Client,
+               reason_modifiers: ["merge-queued"],
+               current_labels: ["agent:merge-queued", "agent:human-review"]
+             )
+
+    assert_received {:adapter_state, "7", "ci-wait", []}
+    refute_received {:adapter_marker, _action, "7", _label}
+
+    assert :ok = TicketTransition.write_state("7", "rework", writer: :ci_lifecycle, tracker: Client, reason_modifiers: ["ci-red"], current_labels: ["agent:merge-queued"])
+    assert_received {:adapter_marker, :add, "7", "agent:ci-red"}
+    assert_received {:adapter_marker, :remove, "7", "agent:merge-queued"}
+    refute_received {:adapter_marker, _action, "7", _label}
+  end
+
+  test "clearing transient runtime reasons preserves dependency blocker and stale body marker" do
+    labels = Labels.reason_modifier_labels("agent")
+    Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", identifier: "7", state: "done", labels: labels}])
+
+    assert :ok = TicketTransition.clear_transient_reason_modifiers("7", writer: :agent_teardown)
+
+    assert {:ok, [%Issue{labels: labels}]} = Tracker.fetch_issue_states_by_ids(["7"])
+    assert Enum.sort(labels) == ["agent:blocked", "agent:body-fix"]
+  end
+
+  test "every canonical reason modifier can be added and cleared without changing the workflow state" do
+    modifiers = Labels.reason_modifier_suffixes()
+
+    for suffix <- modifiers do
+      label = "agent:" <> suffix
+      assert :ok = TicketTransition.write_reason_modifier("7", :add, suffix, writer: :issue_sync, tracker: Client)
+      assert_received {:adapter_marker, :add, "7", ^label}
+
+      assert :ok = TicketTransition.write_reason_modifier("7", :remove, suffix, writer: :issue_sync, tracker: Client)
+      assert_received {:adapter_marker, :remove, "7", ^label}
+    end
+  end
+
+  test "none expectation and replay preserve adapter semantics" do
+    Application.put_env(:aiur, :memory_tracker_issues, [%Issue{id: "7", state: ""}])
+    assert :ok = TicketTransition.write_state("7", "todo", writer: :build_queue, expected_state: :none)
+    assert {:error, {:stale_issue_state, :none, "todo"}} = TicketTransition.write_state("7", "todo", writer: :build_queue, expected_state: :none)
+    assert {:ok, [%Issue{state: "todo"}]} = Tracker.fetch_issue_states_by_ids(["7"])
+  end
+
+  test "bound default retains two-arity injection and attributes real writes" do
+    assert {:ok, state} = ReworkRequeue.init(start_paused?: true)
+    assert :ok = state.state_writer.("7", "human-review")
+    assert_received {[:aiur, :ticket_transition], _, %{writer: :rework_requeue, to: "human-review"}}
+    double = fn id, target -> {id, target} end
+    assert {:ok, injected} = ReworkRequeue.init(start_paused?: true, state_writer: double)
+    assert {"7", "human-review"} = injected.state_writer.("7", "human-review")
+  end
+
+  test "error outcome is recorded and returned unchanged without retries" do
+    use_client()
+    Process.put(:transition_result, {:error, :boom})
+
+    log =
+      capture_log(fn ->
+        assert {:error, :boom} = TicketTransition.write_state("7", "todo", writer: :retry_engine, expected_state: :none)
+      end)
+
+    assert_received {:adapter_state, "7", "todo", [expected_state: :none]}
+    refute_received {:adapter_state, _, _, _}
+    assert_received {[:aiur, :ticket_transition], _, %{outcome: {:error, :boom}, writer: :retry_engine}}
+    assert log =~ "outcome={:error, :boom}"
+  end
+
+  test "transport and deadline failures record unknown and return original errors" do
+    use_client()
+
+    for reason <- [{:github, :timeout, %{reason: :closed}}, {:github, :transport, %{reason: :socket_failure}}, :deadline_exceeded] do
+      Process.put(:transition_result, {:error, reason})
+
+      log =
+        capture_log(fn ->
+          assert {:error, ^reason} = TicketTransition.write_state("7", "todo", writer: :ci_lifecycle)
+        end)
+
+      assert_received {[:aiur, :ticket_transition], _, %{outcome: :unknown}}
+      assert log =~ "outcome=:unknown"
+    end
+  end
+
+  test "public marker writes record action and label, including failures" do
+    assert :ok = TicketMarkers.write("7", :add, "agent:paused", writer: :pause_resume)
+    assert_received {:memory_tracker_add_label, "7", "agent:paused"}
+    assert_received {[:aiur, :ticket_transition], _, %{action: :add, to: "agent:paused", writer: :pause_resume, outcome: :ok}}
+    assert :ok = TicketMarkers.write("7", :remove, "agent:paused", writer: :pause_resume)
+    assert {:ok, [%Issue{labels: []}]} = Tracker.fetch_issue_states_by_ids(["7"])
+    assert_received {[:aiur, :ticket_transition], _, %{action: :remove, to: "agent:paused", writer: :pause_resume, outcome: :ok}}
+    use_client()
+    Process.put(:transition_result, {:error, {:github, :timeout, %{reason: :timeout}}})
+    assert {:error, {:github, :timeout, %{reason: :timeout}}} = TicketMarkers.write("7", :add, "agent:paused", writer: :pause_resume)
+    assert_received {[:aiur, :ticket_transition], _, %{action: :add, outcome: :unknown}}
+  end
+
+  test "approval pause writes retain their writer in the landing journal" do
+    path = Path.join(System.tmp_dir!(), "ticket-transition-pause-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(path) end)
+
+    assert :ok =
+             TicketTransition.write_marker("7", :add, "agent:paused",
+               writer: :approval_pause,
+               landing_watch_journal_opts: [journal_path: path]
+             )
+
+    assert {:ok, "approval_pause"} = Journal.pause_writer("7", journal_path: path)
+  end
+
+  test "write_comment attributes the comment to its lifecycle writer" do
+    assert :ok = TicketTransition.write_comment("7", "triage note", writer: :merged_ticket_reconciler, identifier: "T-7")
+    assert_received {:memory_tracker_comment, "7", "triage note"}
+    assert_received {[:aiur, :ticket_transition], %{}, %{issue_id: "7", identifier: "T-7", action: :comment, to: "triage note", writer: :merged_ticket_reconciler, outcome: :ok}}
+  end
+
+  test "writer is required before adapter IO" do
+    assert_raise KeyError, fn -> TicketTransition.write_state("7", "todo", []) end
+    assert_raise MatchError, fn -> TicketTransition.write_marker("7", :add, "agent:paused", writer: "cli") end
+    refute_received {:memory_tracker_state_update, _, _}
+    refute_received {:memory_tracker_add_label, _, _}
+  end
+
+  test "control tracker reads remain available after dynamic dispatch is replaced" do
+    server = start_supervised!({ControlServer, nil})
+    assert {:ok, [%Issue{id: "7", state: "todo"}]} = PauseResume.reset_dispatch_budget(server, "7")
+  end
+
+  defp use_client do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    Application.put_env(:aiur, :github_client_module, Client)
+  end
+end

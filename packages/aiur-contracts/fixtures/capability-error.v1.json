@@ -1,0 +1,11 @@
+{
+  "error": "capability_unavailable",
+  "capability": "commands.answer",
+  "state": "degraded",
+  "reason": "dependency_unavailable",
+  "depends_on": [
+    "orchestration"
+  ],
+  "revision": 7,
+  "boot_id": "fixed-boot-id"
+}

@@ -6,21 +6,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   unit-testable against a fixture; `load/1` resolves the live telemetry file,
   concurrency cap, core count, and host memory before delegating to it.
 
-  The same model serves two scopes. The latest-run view passes
-  `session: :current` and gets absolute timestamps over one daemon boot. It
-  prefers the live boot, then falls back to the newest materialized prior boot
-  when a restart has moved the daemon to a fresh log root. The
-  Build Order view passes the selected member ticket set, `session: :current`,
-  and `timeline: :active`. That keeps its recurring refresh a bounded tail read;
-  cross-session reporting belongs to a materialized summary rather than a live
-  full-stream parse. Both feed the same `Charts`, whose axis already labels ticks
-  as elapsed time.
+  The same model serves latest-run, Build Order, and cross-boot scopes. Current
+  sessions use the live boot when available and otherwise fall back to retained
+  telemetry; Build Order refreshes use a bounded active timeline.
   """
 
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
-  alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
-  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
+  alias Aiur.RunTelemetry.{Dataset, SummaryMerge, Timeline}
+  alias AiurWeb.OperatorControlCenter.Analytics.{ConcurrencyCoverage, LatestRun, LiveConcurrency, Optimistic, ProjectedSeries, TicketRow, WastedCapacity}
 
   @default_buckets 180
   @max_series_actors 8
@@ -29,15 +23,19 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   @type model :: %{
           available?: boolean(),
+          retained_runs: map() | nil,
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
-          cap: non_neg_integer(),
+          cap: non_neg_integer() | nil,
           cap_available?: boolean(),
           configured_cap: non_neg_integer() | nil,
           session_cap: non_neg_integer() | nil,
           cap_binding: String.t() | nil,
           cap_staleness: {:stale | :retained, non_neg_integer()} | nil,
+          live_concurrency: non_neg_integer() | nil,
+          live_occupied: non_neg_integer() | nil,
+          live_concurrency_state: atom() | {atom(), non_neg_integer() | nil} | nil,
           cores: pos_integer(),
           cpu_ceiling: number(),
           host_mem_bytes: number(),
@@ -46,6 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           pressure: map(),
           tickets: [map()],
           complexity_breakdown: [map()],
+          complexity_count_ticks: [non_neg_integer()],
           kpis: map()
         }
 
@@ -65,9 +64,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       (a Build Order's member count) rather than inferring it from telemetry.
 
   Unavailable reasons distinguish an idle fleet from a persistence failure:
-  `:no_telemetry` means nothing analyzable was recorded, while
-  `:retained_unreadable` means retained run summaries exist but could not be
-  decoded, and `:error` is an unexpected analysis failure.
+  `:no_telemetry` means nothing analyzable was recorded, `:retained_scan_limited`
+  means no retained summary fit the cold scan budget, `:retained_unreadable` means
+  retained summaries could not be decoded, and `:error` is an unexpected failure.
   """
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do
@@ -83,7 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           LatestRun.load(file, current_boot_id(), analyzable?, opts)
 
         :cross ->
-          cross_session(file)
+          cross_session(file, opts)
 
         _other ->
           Dataset.build(file, [])
@@ -96,38 +95,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       {:error, {:no_telemetry_files, _paths}} ->
         {:unavailable, :no_telemetry}
 
-      {:error, :retained_unreadable} ->
-        {:unavailable, :retained_unreadable}
+      {:error, reason} when reason in [:retained_unreadable, :retained_scan_limited] ->
+        {:unavailable, reason}
     end
   rescue
     _error -> {:unavailable, :error}
   end
 
-  # Cross-session view: the current boot is read live from raw (bounded tail so
-  # it stays fresh on the 30 s tick); every prior boot is read from its
-  # materialized run summary instead of re-parsing the retained stream. When no
-  # summaries exist yet this falls back to the historical full raw parse so the
-  # Full-log view keeps working before the first materialization.
-  defp cross_session(file) do
-    current = current_boot_id()
-    prior = Summaries.load_prior_datasets(current)
-
-    if prior == [] do
-      Dataset.build(file, [])
-    else
-      case Dataset.build(file, session: :current, boot_id: current) do
-        {:ok, current_dataset} -> {:ok, merge_datasets([current_dataset | prior])}
-        {:error, _reason} -> {:ok, merge_datasets(prior)}
-      end
-    end
-  end
-
-  # `Dataset.merge/1` already unions provenance across the merged boots; only the
-  # producer label differs, so name this path rather than recomputing the union.
-  defp merge_datasets(datasets) do
-    merged = Dataset.merge(datasets)
-    Map.update!(merged, :provenance, &Map.put(&1, :generated_by, "presenter:cross"))
-  end
+  defp cross_session(file, opts), do: SummaryMerge.load(file, current_boot_id(), opts)
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
   # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build
@@ -148,8 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     dataset |> Map.get(:actors, %{}) |> Enum.any?(fn {key, actor} -> actor_kind(key, actor) == :agent end)
   end
 
-  # ---- scope ----
-
+  # Scope handling.
   defp scope(dataset, opts) do
     boot_id = session_boot_id(dataset, Keyword.get(opts, :session, :all))
     tickets = ticket_set(Keyword.get(opts, :tickets))
@@ -204,7 +178,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @spec model(map(), keyword()) :: model()
   def model(dataset, opts \\ []) do
     cap = Keyword.get(opts, :cap, @default_cap)
-    cap_available? = Keyword.get(opts, :cap_available?, true)
+    cap_available? = Keyword.get(opts, :cap_available?, is_integer(cap))
     configured_cap = Keyword.get(opts, :configured_cap, cap)
     session_cap = Keyword.get(opts, :session_cap, cap)
     cap_binding = Keyword.get(opts, :cap_binding)
@@ -243,7 +217,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       |> Map.get(:samples, [])
       |> bucket_pressure(timeline, axis0, bw, buckets)
 
-    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets)
+    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets) |> ConcurrencyCoverage.mark_unknown(bucketed, opts)
 
     kpis =
       compute_kpis(
@@ -254,15 +228,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       )
 
     complexity_breakdown = complexity_breakdown(tickets)
+    complexity_count_ticks = complexity_count_ticks(complexity_breakdown)
 
     rows =
       tickets
-      |> Enum.map(fn {id, t} -> ticket_row(id, t, timeline) end)
+      |> Enum.map(fn {id, t} -> TicketRow.build(id, t, &Timeline.project(timeline, &1)) end)
       |> Enum.reject(&is_nil/1)
       |> Enum.sort_by(& &1.start_ms)
 
     %{
       available?: true,
+      retained_runs: Map.get(dataset, :retained_runs),
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
       source_boot_id: single_boot_id(dataset),
       source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),
@@ -272,6 +248,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       session_cap: session_cap,
       cap_binding: cap_binding,
       cap_staleness: cap_staleness,
+      live_concurrency: Keyword.get(opts, :live_concurrency),
+      live_occupied: Keyword.get(opts, :live_occupied),
+      live_concurrency_state: Keyword.get(opts, :live_concurrency_state),
       cores: cores,
       cpu_ceiling: cores * 100,
       host_mem_bytes: host_mem,
@@ -280,6 +259,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       pressure: pressure_summary(series),
       tickets: rows,
       complexity_breakdown: complexity_breakdown,
+      complexity_count_ticks: complexity_count_ticks,
       kpis: kpis
     }
   end
@@ -395,21 +375,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     end
   end
 
-  # Idle slot-hours are measured against the ceiling that actually existed —
-  # the effective cap — not the configured one, so the figure counts slots the
-  # dispatcher could have filled rather than slots that were never on offer.
-  #
-  # With no known ceiling there is no subtrahend, so there is no figure. `nil`
-  # renders as an em dash: an unknown cap must not produce a precise-looking
-  # hour count derived from a number the page just admitted it does not have.
-  defp wasted_slot_hours(_series, %{cap_available?: false}, _bucket_hours), do: nil
-
-  defp wasted_slot_hours(series, ctx, bucket_hours) do
-    series
-    |> Enum.reduce(0.0, fn s, acc -> acc + max(ctx.cap - s.conc, 0) * bucket_hours end)
-    |> round1()
-  end
-
   # ---- per-actor summary ----
 
   defp actor_summary(key, actor) do
@@ -437,6 +402,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     samples
     |> Enum.reduce(%{}, fn s, acc -> accumulate_sample(acc, s, timeline, axis0, bw, buckets) end)
     |> Map.new(fn {b, {cs, cn, rs, rn}} -> {b, %{cpu: mean(cs, cn), rss: mean(rs, rn)}} end)
+    |> ProjectedSeries.fill(samples, fn ts -> bucket_index(Timeline.project(timeline, ts), axis0, bw, buckets) end)
   end
 
   defp accumulate_sample(acc, sample, timeline, axis0, bw, buckets) do
@@ -614,9 +580,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       peak_active_builds: max_value(series, :build_gate_active),
       peak_queued_builds: max_value(series, :build_gate_queued),
       longest_wait_seconds: max_value(series, :build_queue_oldest_wait_seconds),
-      latest_configured_capacity: latest_value(series, :fleet_agents_configured),
-      latest_max_capacity: latest_value(series, :fleet_agents_max),
-      latest_effective_capacity: latest_value(series, :fleet_agents_effective),
+      latest_configured_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_configured),
+      latest_max_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_max),
+      latest_effective_capacity: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_agents_effective),
       latest_admission_signal: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_admission_signal),
       latest_load: latest_value(series, :fleet_load),
       latest_load_threshold: latest_value(series, :fleet_load_threshold),
@@ -636,15 +602,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp latest_source_value(series, status_key, valid_statuses, value_key) do
-    case Enum.find(Enum.reverse(series), &(Map.get(&1, status_key) in valid_statuses)) do
-      nil -> nil
-      sample -> Map.get(sample, value_key)
-    end
+    sample = Enum.find(Enum.reverse(series), &(Map.get(&1, status_key) != nil))
+    if sample && Map.get(sample, status_key) in valid_statuses, do: Map.get(sample, value_key)
   end
 
-  defp latest_value(series, key) do
-    series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1) |> List.last()
-  end
+  defp latest_value(series, key), do: series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1) |> List.last()
 
   defp max_value(series, key) do
     values = series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1)
@@ -693,12 +655,12 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp compute_kpis(series, tickets, ctx, opts) do
     ceiling = ctx.cores * 100
     concs = Enum.map(series, & &1.conc)
-    peak_conc = Enum.max([0 | concs])
-    conc_now = List.last(concs) || 0
+    peak_conc = Enum.max([0 | Enum.filter(concs, &is_integer/1)])
+    conc_now = if concs == [], do: 0, else: List.last(concs)
     mean_cpu = mean(Enum.sum(Enum.map(series, & &1.total_cpu)), length(series))
     mem_now = (List.last(series) || %{}) |> Map.get(:total_mem, 0)
     bucket_hours = ctx.bw / 1000 / 3600
-    wasted = wasted_slot_hours(series, ctx, bucket_hours)
+    {wasted, wasted_partial?} = WastedCapacity.summarize(series, bucket_hours, ctx.cap_available?)
     merged = Enum.count(tickets, fn {_id, t} -> merged?(t) end)
     # A Build Order knows its own size; telemetry only knows the tickets that ran,
     # so inferring scope from it would report a build complete before it started.
@@ -716,9 +678,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       total: total,
       done_pct: pct(merged, total),
       wasted_slot_hours: wasted,
+      wasted_slot_hours_partial: wasted_partial?,
       sessions: ctx.dataset |> Dataset.boot_ids() |> length(),
       active_ms: round(ctx.bw * length(series)),
-      cpu_hours: round1(cpu_hours(ctx.dataset))
+      cpu_hours: round1(cpu_hours(ctx.dataset)),
+      optimistic: Optimistic.summary(tickets)
     }
   end
 
@@ -731,44 +695,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     |> Enum.map(fn {key, actor} -> actor_summary(key, actor).cpu_seconds end)
     |> Enum.sum()
     |> Kernel./(3600)
-  end
-
-  # ---- ticket lifecycle rows ----
-
-  defp ticket_row(id, ticket, timeline) do
-    intervals = Map.get(ticket, :intervals, [])
-    starts = intervals |> Enum.map(&Map.get(&1, :start_ms)) |> Enum.filter(&is_integer/1)
-
-    if starts == [] do
-      nil
-    else
-      ends = intervals |> Enum.map(fn iv -> Map.get(iv, :end_ms) || Map.get(iv, :start_ms) end) |> Enum.filter(&is_integer/1)
-      start_ms = Enum.min(starts)
-      work_ms = phase_start(intervals, ["implement", "agent_spinup", "build_test"]) || start_ms
-      merged_at = phase_start(intervals, ["pr_merged"])
-      end_ms = merged_at || Enum.max([start_ms | ends])
-      project = &Timeline.project(timeline, &1)
-
-      %{
-        id: id,
-        start_ms: project.(start_ms),
-        work_ms: project.(work_ms),
-        end_ms: project.(end_ms),
-        merged_at: merged_at && project.(merged_at),
-        status: ticket_status(intervals, merged_at)
-      }
-    end
-  end
-
-  defp ticket_status(intervals, merged_at) do
-    phases = intervals |> Enum.map(&Map.get(&1, :phase)) |> MapSet.new()
-
-    cond do
-      merged_at -> :merged
-      MapSet.member?(phases, "rework_start") -> :rework
-      MapSet.member?(phases, "agent_pause") -> :paused
-      true -> :active
-    end
   end
 
   defp merged?(ticket) do
@@ -798,6 +724,27 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     end
   end
 
+  @doc "Integer ticket-count ticks for the complexity breakdown axis."
+  @spec complexity_count_ticks([map()]) :: [non_neg_integer()]
+  def complexity_count_ticks(tiers) do
+    maximum = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 0 end) |> max(1)
+    step = nice_tick_step(div(maximum + 4, 5))
+    axis_max = div(maximum + step - 1, step) * step
+
+    Enum.to_list(0..axis_max//step)
+  end
+
+  defp nice_tick_step(target) do
+    magnitude = Integer.pow(10, length(Integer.digits(target)) - 1)
+
+    cond do
+      target <= magnitude -> magnitude
+      target <= magnitude * 2 -> magnitude * 2
+      target <= magnitude * 5 -> magnitude * 5
+      true -> magnitude * 10
+    end
+  end
+
   defp ticket_wall_clock_ms(ticket) do
     intervals = Map.get(ticket, :intervals, [])
 
@@ -824,16 +771,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp average_integer([]), do: nil
   defp average_integer(values), do: round(Enum.sum(values) / length(values))
-
-  defp phase_start(intervals, phases) do
-    intervals
-    |> Enum.filter(&(Map.get(&1, :phase) in phases and is_integer(Map.get(&1, :start_ms))))
-    |> Enum.map(&Map.get(&1, :start_ms))
-    |> case do
-      [] -> nil
-      list -> Enum.min(list)
-    end
-  end
 
   # ---- window + axis ----
 
@@ -997,25 +934,35 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp runtime_opts(opts) do
     opts
-    |> Keyword.merge(runtime_caps(opts), fn _key, given, _derived -> given end)
+    |> Keyword.merge(runtime_facts(opts), fn _key, given, _derived -> given end)
     |> Keyword.put_new(:cores, System.schedulers_online())
     |> Keyword.put_new(:host_mem_bytes, host_mem_bytes())
     |> Keyword.put_new(:buckets, @default_buckets)
   end
 
-  defp runtime_caps(opts) do
+  defp runtime_facts(opts) do
     if Keyword.has_key?(opts, :cap) do
       []
     else
-      opts |> capacity_reading() |> cap_facts()
+      reading = capacity_reading(opts)
+      caps = cap_facts(reading)
+
+      if Keyword.get(opts, :session, :all) == :current and not Keyword.has_key?(opts, :tickets) do
+        caps ++ LiveConcurrency.snapshot_opts(reading)
+      else
+        caps
+      end
     end
   end
 
   # Every ceiling the daemon reports travels together. Reading only `effective`
   # is what let the page and `aiur status` disagree: the CLI prints the session
   # ceiling, so a page that never mentions it cannot be reconciled with the CLI.
-  defp cap_facts({%{effective: effective} = capacity, polling, staleness})
-       when is_integer(effective) and effective > 0 do
+  defp cap_facts({kind, %{capacity: %{effective: effective} = capacity} = snapshot, freshness})
+       when kind in [:current, :stale] and is_integer(effective) and effective > 0 do
+    staleness = if kind == :stale, do: staleness(freshness), else: nil
+    polling = snapshot_polling(snapshot)
+
     [
       cap: effective,
       cap_available?: true,
@@ -1035,7 +982,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   # `.aiur/config` is a different fact wearing the same name, and reporting it
   # as "configured" would put a confident number under an admitted unknown.
   defp cap_facts(_reading) do
-    [cap: safe_cap(), cap_available?: false, configured_cap: nil, session_cap: nil, cap_binding: nil, cap_staleness: nil]
+    [cap: nil, cap_available?: false, configured_cap: nil, session_cap: nil, cap_binding: nil, cap_staleness: nil]
   end
 
   defp positive_or(value, _fallback) when is_integer(value) and value > 0, do: value
@@ -1048,17 +995,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp capacity_reading(opts) do
     orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
     timeout = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
-
-    case Orchestrator.dashboard_snapshot(orchestrator, timeout) do
-      {:current, %{capacity: %{} = capacity} = snapshot, _freshness} ->
-        {capacity, snapshot_polling(snapshot), nil}
-
-      {:stale, %{capacity: %{} = capacity} = snapshot, freshness} ->
-        {capacity, snapshot_polling(snapshot), staleness(freshness)}
-
-      _other ->
-        :unavailable
-    end
+    snapshot_fun = Keyword.get(opts, :dashboard_snapshot_fun, &Orchestrator.dashboard_snapshot/2)
+    snapshot_fun.(orchestrator, timeout)
   end
 
   defp snapshot_polling(%{polling: %{} = polling}), do: polling
@@ -1074,14 +1012,6 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp freshness_age_ms(%{age_ms: age_ms}) when is_integer(age_ms) and age_ms >= 0, do: age_ms
   defp freshness_age_ms(_freshness), do: 0
-
-  defp safe_cap do
-    Aiur.Config.max_concurrent_agents()
-  rescue
-    _ -> @default_cap
-  catch
-    _, _ -> @default_cap
-  end
 
   defp host_mem_bytes do
     case File.read("/proc/meminfo") do

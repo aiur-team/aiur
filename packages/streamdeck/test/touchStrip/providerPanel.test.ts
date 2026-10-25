@@ -28,6 +28,13 @@ describe("providerRows", () => {
     expect(rows[0].model.session?.usedPercent).toBe(86);
   });
 
+  it("names the summary subject alongside its real reading", () => {
+    const [claude] = providerRows({ claude: { ...meter("claude", 94), summary_label: "worst of 2 accounts" } });
+    expect(claude.label).toBe("claude");
+    expect(claude.summaryLabel).toBe("worst of 2 accounts");
+    expect(claude.model.session?.usedPercent).toBe(94);
+  });
+
   it("orders providers alphabetically, not by the payload's own key order", () => {
     expect(labels(providerRows({ kimi: meter("kimi", 1), claude: meter("claude", 2), deepseek: meter("deepseek", 3) }))).toEqual([
       "claude",

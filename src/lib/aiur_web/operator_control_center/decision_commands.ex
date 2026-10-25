@@ -6,8 +6,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.{DecisionAttention, DecisionStore, ExecutorEvents, Issue}
-  alias AiurWeb.Endpoint
+  alias Aiur.{Commands, ExecutorEvents, Issue}
+  alias AiurWeb.EndpointConfig
+  alias AiurWeb.OperatorControlCenter.DecisionProvider
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -78,6 +79,45 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     end
   end
 
+  @doc """
+  The open Command a ticket's agent waits on: blocking first, then oldest.
+
+  An empty page means "no Command" only when it is complete; a partial or
+  unreadable page is `{:unavailable, reason}`, never `:none`.
+  """
+  @spec ticket_command(String.t()) :: {:open, map()} | :none | {:unavailable, atom()}
+  def ticket_command(identifier) when is_binary(identifier) and identifier != "" do
+    params = %{"ticket" => identifier, "lifecycle" => "open", "limit" => 100}
+
+    case DecisionProvider.list(params, decision_store: decision_store()) do
+      {:ok, %{decisions: [_ | _] = rows}} -> {:open, pick(rows)}
+      {:ok, %{partial_results?: true} = page} -> {:unavailable, page.partial_reason || :partial}
+      {:ok, %{pagination: %{next_cursor: cursor}}} when is_binary(cursor) -> {:unavailable, :page_truncated}
+      {:ok, _complete_empty_page} -> :none
+      {:error, _reason} -> {:unavailable, :invalid_query}
+    end
+  catch
+    :exit, _reason -> {:unavailable, :store_unavailable}
+  end
+
+  @doc "One Command's presented row, open or settled."
+  @spec command_detail(String.t()) :: {:ok, map()} | {:unavailable, atom()}
+  def command_detail(decision_id) when is_binary(decision_id) do
+    case DecisionProvider.detail(decision_id, decision_store: decision_store()) do
+      {:ok, %{decision: row}} -> {:ok, row}
+      {:error, :not_found} -> {:unavailable, :not_found}
+      {:error, {:indeterminate, _}} -> {:unavailable, :indeterminate}
+      {:error, _reason} -> {:unavailable, :store_unavailable}
+    end
+  catch
+    :exit, _reason -> {:unavailable, :store_unavailable}
+  end
+
+  defp pick(rows), do: Enum.min_by(rows, &{if(&1.blocking, do: 0, else: 1), created_key(&1.created_at), &1.decision_id})
+
+  defp created_key(%DateTime{} = at), do: {0, DateTime.to_unix(at, :microsecond)}
+  defp created_key(_unknown), do: {1, 0}
+
   @doc false
   @spec actor() :: %{kind: :operator, id: String.t()}
   def actor, do: %{kind: :operator, id: dashboard_operator_id()}
@@ -107,10 +147,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp selected_open_decision(
-         %{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: status} = decision}},
+         %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
          decision_id
        )
-       when status in [:open, :deferred],
+       when decision.open?,
        do: {:ok, decision}
 
   # Non-selected decisions fall through to the inbox page list, so opening one
@@ -123,13 +163,17 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
          decision_id
        )
        when is_list(decisions) and decision_id != selected_id do
-    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id and answerable?(&1))) do
       nil -> :error
       decision -> {:ok, decision}
     end
   end
 
   defp selected_open_decision(_socket, _decision_id), do: :error
+
+  defp answerable?(%{decision_status: status}) when status in [:open, :deferred, :dismissed], do: true
+  defp answerable?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
+  defp answerable?(_decision), do: false
 
   defp selected_decision(
          %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
@@ -171,13 +215,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp maybe_put_rationale(payload, _rationale), do: payload
 
   defp safe_answer(decision_id, payload) do
-    DecisionStore.answer(decision_id, payload, [actor: actor()], decision_store())
+    Commands.answer(decision_id, payload, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
 
   defp safe_dismiss(decision_id) do
-    DecisionStore.dismiss(decision_id, [actor: actor()], decision_store())
+    Commands.dismiss(decision_id, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -202,7 +246,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   # orchestrator's operator-message path already no-ops on a missing running
   # agent, so a single attempt covers both cases.
   defp notify_dismissed_agent(%{ticket: %{identifier: identifier}}) when is_binary(identifier) do
-    _ = Aiur.Orchestrator.send_operator_message(Endpoint.config(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
+    _ = Aiur.Orchestrator.send_operator_message(EndpointConfig.get(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
     :ok
   end
 
@@ -213,7 +257,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   end
 
   defp safe_defer(decision_id) do
-    DecisionStore.defer(decision_id, [actor: actor()], decision_store())
+    Commands.defer(decision_id, [actor: actor()], decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -244,7 +288,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp resolve_legacy_attention(%{legacy_attention: %{slug: slug}, ticket: ticket}) when is_binary(slug) do
     issue = %Issue{identifier: ticket.identifier, title: ticket.title, url: ticket.url}
-    DecisionAttention.resolve(decision_attention(), issue, slug)
+    Commands.resolve_attention(decision_attention(), issue, slug)
   catch
     :exit, _reason -> {:error, :attention_registry_unavailable}
   end
@@ -252,7 +296,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp resolve_legacy_attention(_decision), do: :ok
 
   defp safe_retry_dispatch(decision_id, action_id) do
-    DecisionStore.retry_dispatch(decision_id, action_id, decision_store())
+    Commands.retry_dispatch(decision_id, action_id, decision_store())
   catch
     :exit, _reason -> {:error, :store_unavailable}
   end
@@ -381,6 +425,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp command_error(:answer_missing), do: "No durable answer is available to retry."
   defp command_error(_reason), do: "The command was rejected. Canonical state was refreshed."
 
-  defp decision_store, do: Endpoint.config(:decision_store) || DecisionStore
-  defp decision_attention, do: Endpoint.config(:decision_attention) || DecisionAttention
+  defp decision_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
+  defp decision_attention, do: EndpointConfig.get(:decision_attention) || Commands.default_attention()
 end

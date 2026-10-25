@@ -13,8 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.DecisionPubSub
-  alias AiurWeb.Endpoint
+  alias Aiur.Commands
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.DecisionProvider
   alias Phoenix.LiveView.Socket
 
@@ -33,11 +33,8 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
   @doc "Subscribes to Command changes (when connected) and assigns the first counts."
   @spec mount(Socket.t(), boolean()) :: Socket.t()
   def mount(socket, connected?) do
-    if connected? do
-      DecisionPubSub.subscribe()
-      schedule_tick()
-    end
-
+    socket = AiurWeb.RefreshRelay.mount(socket, &Commands.subscribe/0, [:decision_changed])
+    if connected?, do: schedule_tick()
     refresh(socket)
   end
 
@@ -63,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
 
     socket
     |> assign(:retained_counts, counts)
-    |> assign(:nav_counts, nav_counts(counts))
+    |> assign(:nav_counts, Map.merge(Map.take(socket.assigns[:nav_counts] || %{}, [:build]), nav_counts(counts)))
   end
 
   @doc "Nav badge counts derived from the same read, and the same field, as the banner."
@@ -85,5 +82,5 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
     :exit, _reason -> @unavailable
   end
 
-  defp decision_store, do: Endpoint.config(:decision_store) || Aiur.DecisionStore
+  defp decision_store, do: EndpointConfig.get(:decision_store) || Commands.default_store()
 end

@@ -82,15 +82,9 @@ defmodule Aiur.GitHub.ViewStateSweep do
 
   alias Aiur.Config
   alias Aiur.GitHub.{ResourceStore, Transport}
-  alias Aiur.Webhooks
 
-  # A source is anything holding view state that GitHub is the origin of. Named
-  # here rather than self-registering, so the set of things that can generate
-  # view-state traffic is readable in one place and a new one cannot be added
-  # without this list changing.
-  @sources [
-    Aiur.BuildOrder.PackStatus
-  ]
+  # Sources are supplied by the application composition root.
+  @sources []
 
   @default_interval_ms :timer.minutes(15)
   # The divergence watermark is a single page of the open listing, so the same
@@ -103,10 +97,6 @@ defmodule Aiur.GitHub.ViewStateSweep do
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
-
-  @doc "The sources this sweep reconciles."
-  @spec sources() :: [module()]
-  def sources, do: @sources
 
   @doc """
   Subscribes the caller to `{:view_state_diverged, repo}` broadcasts.
@@ -287,7 +277,11 @@ defmodule Aiur.GitHub.ViewStateSweep do
   defp record_head_activity(_full_name, nil), do: :ok
 
   defp record_head_activity(full_name, head) do
-    Webhooks.record_activity(full_name, observation: {:issue_head, head})
+    case Application.get_env(:aiur, :github_activity_recorder) do
+      {module, function} -> apply(module, function, [full_name, [observation: {:issue_head, head}]])
+      nil -> :ok
+    end
+
     :ok
   end
 

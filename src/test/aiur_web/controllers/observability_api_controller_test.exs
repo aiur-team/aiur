@@ -4,7 +4,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Aiur.{Claude.HookEvents, DecisionStore, IssueLog}
+  alias Aiur.{Claude.HookEvents, Config, DecisionStore, IssueLog}
   alias Aiur.Orchestrator.SnapshotStore
 
   defmodule ControlOrchestrator do
@@ -202,6 +202,24 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   end
 
   describe "POST /api/v1/:id/pause and /resume" do
+    test "dashboard writes are allowed when dashboard_writable is omitted" do
+      orchestrator = start_control_orchestrator(pause_agent: {:ok, 17}, recipient: self())
+      Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, orchestrator)
+
+      # HttpServer obtains its endpoint value from the config schema. Resolve
+      # that value as startup does so this request exercises the default.
+      assert Config.dashboard_writable?() == true
+      Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, Config.dashboard_writable?())
+
+      assert json_response(call(control_conn("MT-DEFAULT", "pause")), 202) == %{
+               "action" => "pause",
+               "issue_identifier" => "MT-DEFAULT",
+               "result" => 17
+             }
+
+      assert_receive {:control_call, :pause, "MT-DEFAULT"}, 1_000
+    end
+
     test "delegates pause and resume and returns their successful results" do
       orchestrator =
         start_control_orchestrator(
@@ -244,17 +262,19 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     end
 
     test "returns detailed queued-resume refusals as conflicts" do
-      reason =
+      stale =
         {:stale_tracker_state, {:tracker_state_not_resumable, "merging"}, %{cached_state: "todo", tracker_state: "merging", changed_fields: [:state]}}
 
-      orchestrator = start_control_orchestrator(resume_agent: {:error, reason})
+      full = {:max_concurrent_agents_reached, %{used: 3, active: 2, paused_holds: 1, limit: 3, max: 3}}
+      orchestrator = start_control_orchestrator(resume_agent: fn id -> {:error, if(id == "MT-STALE", do: stale, else: full)} end)
       configure_endpoint(orchestrator)
 
-      assert %{"error" => %{"code" => "control_conflict", "message" => message}} =
-               json_response(call(control_conn("MT-STALE", "resume")), 409)
+      for {agent_id, expected} <- [{"MT-STALE", ~w(stale_tracker_state merging)}, {"MT-FULL", ~w(max_concurrent_agents_reached paused_holds)}] do
+        assert %{"error" => %{"code" => "control_conflict", "message" => message}} =
+                 json_response(call(control_conn(agent_id, "resume")), 409)
 
-      assert message =~ "stale_tracker_state"
-      assert message =~ "merging"
+        for fragment <- expected, do: assert(message =~ fragment)
+      end
     end
 
     test "keeps tracker refresh failures transient" do
@@ -328,7 +348,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
     on_exit(fn ->
       if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
-      File.rm_rf!(tmp)
+      Aiur.TestCleanup.rm_rf!(tmp)
     end)
 
     identifier = "events-api"

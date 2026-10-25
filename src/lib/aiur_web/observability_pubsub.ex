@@ -3,25 +3,15 @@ defmodule AiurWeb.ObservabilityPubSub do
   PubSub helpers for observability dashboard updates.
   """
 
-  @pubsub Aiur.PubSub
-  @topic "observability:dashboard"
-
   @spec subscribe() :: :ok | {:error, term()}
+  defdelegate subscribe(), to: Aiur.Signal, as: :subscribe_refresh
+
   @spec subscribe(Phoenix.PubSub.t()) :: :ok | {:error, term()}
-  def subscribe(pubsub \\ @pubsub) do
-    Phoenix.PubSub.subscribe(pubsub, @topic)
-  end
+  defdelegate subscribe(pubsub), to: Aiur.Signal, as: :subscribe_refresh
 
   @spec broadcast_update() :: :ok | {:error, term()}
-  @spec broadcast_update(Phoenix.PubSub.t()) :: :ok | {:error, term()}
-  def broadcast_update(pubsub \\ @pubsub) do
-    case Process.whereis(pubsub) do
-      pid when is_pid(pid) ->
-        event_id = System.unique_integer([:monotonic, :positive])
-        Phoenix.PubSub.broadcast(pubsub, @topic, {:observability_updated, event_id})
+  defdelegate broadcast_update(), to: Aiur.Signal, as: :refresh
 
-      _ ->
-        :ok
-    end
-  end
+  @spec broadcast_update(Phoenix.PubSub.t()) :: :ok | {:error, term()}
+  defdelegate broadcast_update(pubsub), to: Aiur.Signal, as: :refresh
 end

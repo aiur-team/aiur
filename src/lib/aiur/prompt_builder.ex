@@ -5,7 +5,8 @@ defmodule Aiur.PromptBuilder do
 
   require Logger
 
-  alias Aiur.{CodingAgent, Config, ExternalContent, Workflow}
+  alias Aiur.AgentRunner.{MergePolicyPrompt, OptimisticPrompt}
+  alias Aiur.{CodingAgent, Config, ExternalContent, MergePolicy, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
   @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
@@ -32,8 +33,21 @@ defmodule Aiur.PromptBuilder do
       |> ensure_utf8()
 
     shared_prompt_prefix() <>
-      integration_branch_prompt(issue) <> rendered_prompt <> complexity_suffix(issue)
+      integration_branch_prompt(issue) <> OptimisticPrompt.render(issue.optimistic_start) <> merge_policy_prompt() <> rendered_prompt <> complexity_suffix(issue)
   end
+
+  @doc false
+  @spec answered_decisions_prompt([map()]) :: String.t()
+  def answered_decisions_prompt(decisions) when is_list(decisions) and decisions != [] do
+    entries =
+      Enum.map_join(decisions, "\n\n", fn decision ->
+        "Question: #{decision.question}\nAnswer: #{decision.answer}\nAnswered by: #{decision.actor}\nAnswered at: #{DateTime.to_iso8601(decision.accepted_at)}"
+      end)
+
+    "## Answered decisions\n\nThese durable answers are provided for this session. Apply them as the ticket's recorded decisions.\n\n#{entries}\n"
+  end
+
+  def answered_decisions_prompt(_decisions), do: ""
 
   # SECURITY INVARIANT — issue title and body are attacker-controlled.
   #
@@ -80,6 +94,10 @@ defmodule Aiur.PromptBuilder do
     `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI
     handoff.
 
+    Exception: a dependent PR may target the head branch of an open, unmerged direct `blocked_by` blocker's PR.
+    After that blocker PR merges or closes, Aiur repairs the base to `#{base_branch}`. Missing blocker facts also
+    mean repair to the integration branch.
+
     """
   end
 
@@ -105,6 +123,10 @@ defmodule Aiur.PromptBuilder do
     agent run is live. If a long-lived session's `AIUR_BASE_BRANCH` process-environment value differs from this,
     treat this stated value as authoritative: create or retarget pull requests with `--base "#{base_branch}"`, never
     from `origin/HEAD`, and verify an existing pull request's base before CI handoff.
+
+    Exception: a dependent PR may target the head branch of an open, unmerged direct `blocked_by` blocker's PR.
+    After that blocker PR merges or closes, Aiur repairs the base to `#{base_branch}`. Missing blocker facts also
+    mean repair to the integration branch.
 
     """
   end
@@ -133,6 +155,14 @@ defmodule Aiur.PromptBuilder do
 
     """
   end
+
+  @doc "Current local-test policy, rebuilt for cold and continuation turns."
+  @spec merge_policy_prompt() :: String.t()
+  def merge_policy_prompt, do: MergePolicyPrompt.build(MergePolicy.current())
+
+  @doc "Restates the current policy for long-lived agents."
+  @spec merge_policy_restatement() :: String.t()
+  def merge_policy_restatement, do: merge_policy_prompt()
 
   # Appends the dev-configured guidance for the issue's complexity level
   # (agent.complexity_prompts) to the end of the rendered prompt. No label

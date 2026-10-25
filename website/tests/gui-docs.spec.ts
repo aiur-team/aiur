@@ -1,15 +1,18 @@
 import { expect, test } from '@playwright/test'
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { assertSyntheticContent, assertSyntheticMeters } from '../scripts/dashboard-capture-safety.mjs'
+import { checkDocsProse, markdownFiles, proseBeforeTables, sentenceCount } from '../../scripts/check-docs-prose.mjs'
+import { assertSyntheticContent, assertSyntheticMeters, assertSyntheticUsage, expectedUsage } from '../scripts/dashboard-capture-safety.mjs'
 
 // Each surface's screenshot belongs on the page that explains that surface. The
 // GUI guide keeps exactly one, so it stays a short index rather than a
 // duplicate of Concepts.
 const surfacePages = {
+  'build': 'docs-app/concepts/build-history.md',
   'units': 'docs-app/concepts/units.md',
   'commands': 'docs-app/concepts/commands.md',
-  'build-orders': 'docs-app/concepts/build-orders.md',
   'streamdeck': 'docs-app/guide/stream-deck.md'
 } as const
 
@@ -21,6 +24,12 @@ const expectedAssets = surfaces.map((surface) => `${surface}-dark.png`).sort()
 function imagePathsIn(markdown: string): string[] {
   return [...markdown.matchAll(/<img src="(\/images\/dashboard\/[a-z-]+-dark\.png)"/g)].map(
     ([, imagePath]) => imagePath
+  )
+}
+
+function headingSlugs(markdown: string): string[] {
+  return [...markdown.matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)].map(([, heading]) =>
+    heading.replace(/`/g, '').toLowerCase().replace(/[^a-z0-9 -]/g, '').trim().replace(/\s+/g, '-')
   )
 }
 
@@ -49,7 +58,8 @@ test('the GUI guide keeps exactly one screenshot', async () => {
   const imagePaths = imagePathsIn(guide)
 
   expect(guide).toContain('# GUI')
-  expect(imagePaths).toEqual(['/images/dashboard/units-dark.png'])
+  // The guide's one image shows the page operators land on: the Build home `/`.
+  expect(imagePaths).toEqual(['/images/dashboard/build-dark.png'])
 
   const bytes = await readFile(path.join(websiteRoot, 'public', imagePaths[0]))
   expect(bytes.byteLength).toBeGreaterThan(1_000)
@@ -89,11 +99,14 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(quickStart).toContain('[GUI](/guide/gui)')
   expect(config).toContain("{ text: 'GUI', link: '/guide/gui' }")
   expect(config).toContain("{ text: 'Stream Deck', link: '/guide/stream-deck' }")
-  expect(dashboard).toContain('| **Units** | `/`')
+  expect(dashboard).toContain('| **Build** | `/`')
+  expect(dashboard).toContain('[Continuous build history](/concepts/build-history)')
+  expect(dashboard).not.toContain('| **Units** | `/`')
+  expect(dashboard).toContain('| **Units** (rollback) | `/units`')
   expect(dashboard).toContain('| **Commands** | `/commands`')
-  expect(dashboard).toContain('| **Build Order** | `/build-orders`')
+  expect(dashboard).toContain("Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`.")
   expect(dashboard).toContain('| **Analytics** | `/analytics`')
-  expect(dashboard).toContain('| **Streamdeck+** | `/streamdeck`')
+  expect(dashboard).toContain('| **Streamdeck** | `/streamdeck`')
   expect(dashboard).toContain('browser emulator for the physical Stream Deck + sidecar')
   expect(streamDeck).toContain('Mic is press-and-hold, not a click')
   expect(streamDeck).toContain('`alert` → `stuck` → `running` → `paused` → `queued`')
@@ -131,10 +144,14 @@ test('parity guides are linked and contain their operational contracts', async (
 
 test('capture inputs and checked-in assets stay example-only', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
-  const fixture = await readFile(
-    path.join(websiteRoot, '../src/test/manual/executor_control_center_docs_fixture.exs'),
-    'utf8'
-  )
+  // The fixture is split across sibling files; the assertions below cover them all.
+  const fixture = (
+    await Promise.all(
+      ['fixture', 'data', 'fleet', 'provider'].map((part) =>
+        readFile(path.join(websiteRoot, `../src/test/manual/executor_control_center_docs_${part}.exs`), 'utf8')
+      )
+    )
+  ).join('\n')
   const meterFixture = await readFile(
     path.join(websiteRoot, '../src/test/manual/executor_control_center_docs_meter_source.exs'),
     'utf8'
@@ -163,6 +180,13 @@ test('capture inputs and checked-in assets stay example-only', async () => {
   // Build Order and Stream Deck render from fixture data, never a live source.
   expect(fixture).toContain('build_order_planning_pack')
   expect(fixture).toContain('streamdeck_snapshot_fun')
+  // The Build home page renders the frozen design dataset, never the History store.
+  expect(fixture).toContain('build_data_source')
+  expect(fixture).toContain('FixtureSource')
+  // The design data has a "retries" agent state the daemon never emits; the docs image must not show it.
+  expect(fixture).toContain('defp emitted(%{"agent" => %{"state" => "retries"}}')
+  expect(captureScript).toContain('assertSyntheticUsage')
+  expect(captureScript).toContain('readySelector')
 
   expect(captureScript).toContain('allocatePort')
   expect(captureScript).toContain('assertSyntheticContent')
@@ -209,10 +233,45 @@ test('capture safety rejects operator-shaped data', () => {
     '<div class="rs-model"><span class="rs-name">Codex</span><i style="width:61%"></i><i style="width:47%"></i></div>',
     '<div class="rs-model"><span class="rs-name">Claude</span><i style="width:34%"></i><i style="width:58%"></i></div>'
   ]
+  // Build has no "example" text, so it names its own markers; every one must be present.
+  const build = { ...synthetic, html: '<main>Flaky websocket reconnect Rate-limit backoff ceiling</main>', markers: ['Flaky websocket reconnect', 'Rate-limit backoff ceiling'] }
+  expect(() => assertSyntheticContent(build)).not.toThrow()
+  expect(() => assertSyntheticContent({ ...build, html: '<main>Flaky websocket reconnect</main>' })).toThrow('synthetic fixture markers are missing')
+  expect(() => assertSyntheticContent({ ...build, markers: [] })).toThrow('synthetic fixture markers are missing')
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows, required: true })).not.toThrow()
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows: [], required: false })).not.toThrow()
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows: [], required: true })).toThrow('Codex model meter does not match')
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows: [modelRows[0], modelRows[1].replace('58%', '57%')], required: true })).toThrow('Claude model meter does not match')
+})
+
+test('usage-strip safety rejects non-fixture meters', () => {
+  const url = 'http://127.0.0.1:4099/'
+  const usage = {
+    apis: [{ name: 'GitHub', lines: [{ acc: [5] }, { acc: [0] }] }],
+    providers: [
+      { name: 'Claude', session: { acc: [1, 3] }, weekly: { acc: [96, 86] } },
+      { name: 'Codex', session: { acc: [0] }, weekly: { acc: [0] } },
+      { name: 'DeepSeek', credits: { pct: 2 } }
+    ]
+  }
+  // Zero readings prove nothing: a defaulted meter also draws 0%.
+  const expected = expectedUsage(usage)
+  expect(expected).toEqual([
+    { name: 'GitHub', used: [5] },
+    { name: 'Claude', used: [1, 3, 96, 86] },
+    { name: 'DeepSeek', used: [2] }
+  ])
+  const rows = [
+    { name: 'GitHub', widths: ['5%', '0%'] },
+    { name: 'Claude', widths: ['1%', '3%', '96%', '86%'] },
+    { name: 'Codex', widths: ['0%', '0%'] },
+    { name: 'DeepSeek', widths: ['2%'] }
+  ]
+  expect(() => assertSyntheticUsage({ url, rows, expected })).not.toThrow()
+  expect(() => assertSyntheticUsage({ url, rows: [], expected })).toThrow('GitHub usage meter does not match')
+  expect(() => assertSyntheticUsage({ url, rows: rows.filter((row) => row.name !== 'DeepSeek'), expected })).toThrow('DeepSeek usage meter does not match')
+  expect(() => assertSyntheticUsage({ url, rows: rows.map((row) => row.name === 'Claude' ? { ...row, widths: ['1%', '3%', '95%', '86%'] } : row), expected })).toThrow('Claude usage meter does not match')
+  expect(() => assertSyntheticUsage({ url, rows, expected: [] })).toThrow('no non-zero usage readings')
 })
 
 test('docs group operator surfaces and API guidance without dense prose', async () => {
@@ -224,6 +283,12 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   const sidebar = await readFile(path.join(docsRoot, '.vitepress/config.ts'), 'utf8')
   const configuration = byRelativePath.get('reference/configuration.md') ?? ''
   const github = byRelativePath.get('apis/github.md') ?? ''
+  const githubPolling = byRelativePath.get('apis/github-polling.md') ?? ''
+  const githubBudgets = byRelativePath.get('apis/github-budgets.md') ?? ''
+  const githubCosts = byRelativePath.get('apis/github-costs.md') ?? ''
+  const githubWebhooks = byRelativePath.get('apis/github-webhooks.md') ?? ''
+  const githubAuth = byRelativePath.get('apis/github-auth.md') ?? ''
+  const githubAgentCache = byRelativePath.get('apis/github-agent-cache.md') ?? ''
   const elevenLabs = byRelativePath.get('apis/elevenlabs.md') ?? ''
   const streamDeck = byRelativePath.get('guide/stream-deck.md') ?? ''
 
@@ -232,17 +297,49 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   expect(sidebar).toMatch(/text: 'Interfaces'[\s\S]*text: 'TUI'[\s\S]*text: 'CLI'[\s\S]*text: 'GUI'[\s\S]*text: 'Stream Deck'/)
   expect(sidebar).toMatch(/text: 'Concepts'[\s\S]*text: 'Skills'/)
   expect(sidebar).toMatch(/text: 'APIs'[\s\S]*text: 'GitHub'[\s\S]*text: 'ElevenLabs'/)
+  expect(sidebar).toContain("link: '/apis/github-polling'")
+  expect(sidebar).toContain("link: '/apis/github-budgets'")
+  expect(sidebar).toContain("link: '/apis/github-costs'")
+  expect(sidebar).toContain("link: '/apis/github-webhooks'")
+  expect(sidebar).toContain("link: '/apis/github-auth'")
+  expect(sidebar).toContain("link: '/apis/github-agent-cache'")
+  expect(github).toContain('/apis/github-polling')
+  expect(githubPolling).toContain('## Poll cadence')
+  expect(githubBudgets).toContain('### Reading these numbers without fooling yourself')
+  expect(githubCosts).toContain('Actions attempts (`ci_recovery`)')
+  expect(githubWebhooks).toContain('`AIUR_GITHUB_WEBHOOK_SECRET`')
+  expect(githubAuth).toContain('## GitHub App authentication')
+  expect(githubAuth).toContain('## Human-review base checks')
+  expect(githubAgentCache).toContain('## Shared agent reads')
+  expect(headingSlugs(github)).toEqual(expect.arrayContaining([
+    'repository-setup-from-global-defaults',
+    'what-aiur-polls',
+    'build-order-membership-recovery',
+    'credential-pooling',
+    'what-pooling-is-worth',
+    'human-review-base-checks',
+    'experiment-window-evidence'
+  ]))
+  for (const [, contents] of markdown) {
+    for (const [, target, fragment] of contents.matchAll(/\]\(\/(apis\/github-[^)#]+)#([a-z0-9-]+)\)/g)) {
+      const targetMarkdown = byRelativePath.get(`${target}.md`) ?? ''
+      expect(headingSlugs(targetMarkdown), `${target}#${fragment} must target a heading`).toContain(fragment)
+    }
+  }
+  for (const [name, contents] of Object.entries({ github, githubPolling, githubBudgets, githubCosts, githubWebhooks, githubAuth, githubAgentCache })) {
+    expect(contents.split('\n').length, `${name} exceeds the 500-line docs limit`).toBeLessThanOrEqual(500)
+  }
 
   expect(configuration).not.toContain('## GitHub webhook receiver')
   expect(configuration).not.toContain('### Choosing a poll interval')
   expect(configuration).not.toContain('### How widening interacts with polling')
-  expect(github).toContain('`POST /api/v1/github/webhook`')
-  expect(github).toContain('`AIUR_GITHUB_WEBHOOK_SECRET`')
-  expect(github).toContain('`pull_request_review_thread`')
-  expect(github).toContain('scheduled comment sweep remains the loss-recovery')
-  expect(github).toContain('`hooks.aiur.dev`')
-  expect(github).toContain('catch-all `404`')
-  expect(github).toContain('No inbound firewall rule')
+  expect(githubWebhooks).toContain('`POST /api/v1/github/webhook`')
+  expect(githubWebhooks).toContain('`AIUR_GITHUB_WEBHOOK_SECRET`')
+  expect(githubWebhooks).toContain('`pull_request_review_thread`')
+  expect(githubWebhooks).toContain('scheduled comment sweep remains the loss-recovery')
+  expect(githubAuth).toContain('`hooks.aiur.dev`')
+  expect(githubAuth).toContain('catch-all `404`')
+  expect(githubAuth).toContain('No inbound firewall rule')
   expect(elevenLabs).toContain('Speech to Text')
   expect(elevenLabs).toContain('`User`')
   expect(elevenLabs).toContain('Text to Speech')
@@ -251,44 +348,32 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   expect(streamDeck).not.toContain('## Shared key-face contract')
   expect(streamDeck).not.toContain('### Audio path')
 
-  for (const [file, contents] of markdown) {
-    for (const paragraph of proseParagraphs(contents)) {
-      expect(paragraph.length, `${path.relative(docsRoot, file)} has a dense paragraph: ${paragraph}`).toBeLessThanOrEqual(360)
-    }
+  expect(await checkDocsProse(docsRoot)).toEqual([])
 
+  for (const [file, contents] of markdown) {
     for (const paragraph of proseBeforeTables(contents)) {
       expect(sentenceCount(paragraph), `${path.relative(docsRoot, file)} has more than one sentence above a table: ${paragraph}`).toBeLessThanOrEqual(1)
     }
   }
 })
 
-async function markdownFiles(root: string): Promise<string[]> {
-  const entries = await readdir(root, { withFileTypes: true })
-  const nested = await Promise.all(entries.map(async (entry) => {
-    const absolute = path.join(root, entry.name)
-    if (entry.name === 'node_modules') return []
-    if (entry.isDirectory()) return markdownFiles(absolute)
-    return entry.isFile() && entry.name.endsWith('.md') ? [absolute] : []
-  }))
-  return nested.flat()
-}
-
-function proseParagraphs(markdown: string): string[] {
-  return markdown
-    .split(/\n\s*\n/)
-    .map((block) => block.replace(/\n/g, ' ').trim())
-    .filter((block) => block !== '')
-    .filter((block) => !/^(#|\||```|:::|<|[-*+] |\d+\. )/.test(block))
-}
-
-function proseBeforeTables(markdown: string): string[] {
-  const blocks = markdown.split(/\n\s*\n/).map((block) => block.replace(/\n/g, ' ').trim())
-  return blocks.filter((block, index) => proseParagraphs(block).length === 1 && blocks[index + 1]?.startsWith('|'))
-}
-
-function sentenceCount(paragraph: string): number {
-  return paragraph.match(/[.!?](?=\s|$)/g)?.length ?? 0
-}
+test('local docs prose CLI accepts 360 characters and rejects 361 in nested Markdown', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'docs-prose-3229-'))
+  const script = path.resolve(import.meta.dirname, '../../scripts/check-docs-prose.mjs')
+  try {
+    await mkdir(path.join(root, 'guide'))
+    const file = path.join(root, 'guide/planted.md')
+    await writeFile(file, `${'a'.repeat(180)}\n${'b'.repeat(179)}\n`)
+    const passing = spawnSync(process.execPath, [script, root], { encoding: 'utf8' })
+    expect(passing.status, passing.stderr).toBe(0)
+    await writeFile(file, `${'a'.repeat(180)}\n${'b'.repeat(180)}\n`)
+    const failing = spawnSync(process.execPath, [script, root], { encoding: 'utf8' })
+    expect(failing.status).toBe(1)
+    expect(failing.stderr).toContain('guide/planted.md: 361 characters (max 360)')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 function pngDimensions(bytes: Buffer): { width: number, height: number } {
   expect(bytes.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')

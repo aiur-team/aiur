@@ -1,27 +1,40 @@
 defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
+  import AiurWeb.OperatorControlCenter.RunSummaryStrip.Meters, only: [currency_amount: 2]
+
   @moduledoc "Compact, truthful current-run and provider-usage summary."
 
   use Phoenix.Component
 
-  alias Aiur.CodingAgent
-  alias Aiur.ModelAvailability
-  alias AiurWeb.OperatorControlCenter.Money
+  import AiurWeb.OperatorControlCenter.RunSummaryStrip.ServiceRows,
+    only: [
+      api_count_label: 1,
+      elevenlabs_configured?: 1,
+      elevenlabs_meter_percent: 1,
+      elevenlabs_explanation: 0,
+      elevenlabs_meta: 2,
+      elevenlabs_compact_meta: 2,
+      elevenlabs_invoice_due: 1,
+      github_windows: 1,
+      github_backoffs: 1,
+      github_window_label: 1,
+      github_window_explanation: 1,
+      github_window_meta: 2,
+      github_window_compact_meta: 2
+    ]
 
-  # The dispatch-limits ledger's buckets, used to find the governing one when a
-  # provider has no live meter observation this boot.
-  @durable_windows ~w(hourly weekly monthly)
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, remaining_class: 1]
+
+  alias Aiur.CodingAgent
+  alias AiurWeb.Build.UsageFacts
+  alias AiurWeb.OperatorControlCenter.ModelProviders
+  alias AiurWeb.OperatorControlCenter.ModelsPanel
+  alias AiurWeb.OperatorControlCenter.Money
+  alias AiurWeb.RemainingMeter
 
   # The provider card that leads the strip. The run summary moved out of the
   # strip into the compact above-filters section, so the first provider card
   # takes the position the Summary block used to occupy.
   @lead_provider :deepseek
-
-  # GitHub's two primary budgets, in the order they render. They are separate
-  # budgets billed in different units on windows that reset at different times,
-  # so every figure on the card belongs to exactly one of them.
-  @github_resources ~w(core graphql)
-  @seconds_per_day 86_400
-  @seconds_per_hour 3_600
 
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
@@ -29,18 +42,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:elevenlabs_quota, :map, default: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
   attr(:now, :any, required: true)
+  # Provider families the workflow routes work to; nil reads the live config.
+  attr(:configured_providers, :any, default: nil)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
-    assigns =
-      assigns
-      |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
-      |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
+    assigns = assign(assigns, :cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
 
     ~H"""
     <section class="run-summary" aria-label="Provider and API usage">
       <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} now={@now} />
-      <.models_card :if={@cards != []} cards={@cards} usage_ready?={@usage_ready?} now={@now} />
+      <ModelsPanel.models_panel :if={@cards != []} cards={@cards} now={@now} />
     </section>
     """
   end
@@ -57,7 +69,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     assigns =
       assigns
       |> assign(:windows, github_windows(assigns.github_quota))
+      |> assign(:auth_mode, github_auth_mode(assigns.github_quota))
       |> assign(:backoffs, github_backoffs(assigns.github_quota))
+      |> assign(:fleet_budget, Map.get(assigns.github_quota, :fleet_budget, %{state: :unknown}))
       |> assign(:elevenlabs?, elevenlabs_configured?(assigns.elevenlabs_quota))
 
     ~H"""
@@ -66,24 +80,26 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span class="rs-group-title">APIS</span>
         <span class="rs-group-count">{api_count_label(@elevenlabs?)}</span>
       </div>
+      <p class="rs-limit-meta rs-github-budget-scope">{fleet_budget_label(@fleet_budget, @now)}</p>
       <div class="rs-apis-rows">
         <div class="rs-api rs-provider-row">
           <div class="rs-head">
             <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="Github" title="Github - for ticket state" />
+            <span class="rs-auth-mode" aria-label={"GitHub authentication: #{github_auth_label(@auth_mode)}"}>{github_auth_label(@auth_mode)}</span>
           </div>
           <div class="rs-provider-body">
             <div class="rs-limits">
               <div :if={@windows == []} class="rs-limit">
                 <span class="rs-limit-label">Quota</span>
-                <div class="rs-meter"><i style="width:0%"></i></div>
+                <div class="rs-meter is-unknown"></div>
                 <span class="rs-limit-meta rs-limit-meta-wide">Awaiting GitHub response</span>
                 <span class="rs-limit-meta rs-limit-meta-compact">Awaiting response</span>
               </div>
-              <div :for={window <- @windows} class="rs-limit">
-                <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
-                <div class="rs-meter">
-                  <i class={meter_class(window.used_percent, 80, 90)} style={"width:#{window.used_percent}%"}></i>
-                </div>
+          <div :for={window <- @windows} class="rs-limit">
+            <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
+            <div class={["rs-meter", is_nil(github_percent(window)) && "is-unknown"]}>
+              <i :if={is_number(github_percent(window))} class={remaining_class(github_percent(window))} style={"width:#{github_percent(window)}%"}></i>
+            </div>
                 <span class="rs-limit-meta rs-limit-meta-wide">{github_window_meta(window, @now)}</span>
                 <span class="rs-limit-meta rs-limit-meta-compact">{github_window_compact_meta(window, @now)}</span>
               </div>
@@ -102,6 +118,21 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     """
   end
 
+  defp fleet_budget_label(%{state: :observed, resources: resources, observed_instances: count, age_seconds: age}, _now) do
+    "Shared daemon spend: Core #{Map.get(resources, "core", 0)} requests, GraphQL #{Map.get(resources, "graphql", 0)} points across #{count} observed instances (#{age}s old); agent gh calls are counted per host."
+  end
+
+  defp fleet_budget_label(_unknown, _now), do: "Shared daemon budget has no fleet sample yet; agent gh calls are counted per host."
+
+  defp github_auth_mode(%{auth_mode: mode}), do: mode
+  defp github_auth_mode(_quota), do: :unknown
+
+  defp github_auth_label(:github_app), do: "GitHub App"
+  defp github_auth_label(:env), do: "PAT"
+  defp github_auth_label(:keyring), do: "gh keyring"
+  defp github_auth_label(:none), do: "No credential"
+  defp github_auth_label(_mode), do: "Auth unknown"
+
   attr(:quota, :map, required: true)
   attr(:now, :any, required: true)
 
@@ -115,7 +146,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:window, window)
       |> assign(:invoice_due, elevenlabs_invoice_due(window))
-      |> assign(:meter_percent, elevenlabs_meter_percent(window))
+      |> assign(:meter_percent, api_percent(window))
 
     ~H"""
     <div class="rs-api rs-elevenlabs rs-provider-row">
@@ -126,12 +157,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-limits">
           <div class="rs-limit">
             <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
-            <div class="rs-meter">
-              <i
-                class={meter_class(@meter_percent, 80, 90)}
-                style={"width:#{@meter_percent}%"}
-              >
-              </i>
+            <div class={["rs-meter", is_nil(@meter_percent) && "is-unknown"]}>
+              <i :if={is_number(@meter_percent)} class={remaining_class(@meter_percent)} style={"width:#{meter_width(@meter_percent)}%"}></i>
             </div>
             <span class={["rs-limit-meta", "rs-limit-meta-wide", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{elevenlabs_compact_meta(@quota, @now)}</span>
@@ -142,6 +169,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     """
   end
 
+  defp api_percent(window), do: elevenlabs_meter_percent(window)
+
+  defp github_percent(window) do
+    case Map.get(window, :remaining_percent) do
+      percent when is_number(percent) -> RemainingMeter.clamp(percent)
+      _ -> RemainingMeter.percent(Map.get(window, :used_percent))
+    end
+  end
+
+  defp meter_width(percent) do
+    percent = Float.round(percent / 1, 1)
+    if percent == trunc(percent), do: Integer.to_string(trunc(percent)), else: :erlang.float_to_binary(percent, decimals: 1)
+  end
+
   # The compact run summary, rendered above the Units table filters. The
   # Summary block that used to lead the strip lives here now: it only has room
   # to say something real when there are tickets still to work, so the section
@@ -150,6 +191,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
   attr(:now, :any, required: true)
+  attr(:configured_providers, :any, default: nil)
 
   @spec run_summary_compact(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_compact(assigns) do
@@ -163,7 +205,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:remaining, remaining)
       |> assign(:run_percent, run_percent(assigns.run))
       |> assign(:progress_label, progress_label(assigns.run))
-      |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters)))
+      |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters, assigns.configured_providers)))
 
     ~H"""
     <section :if={@remaining && @remaining > 0} class="rs-block rs-summary-compact" aria-label="Run summary">
@@ -203,257 +245,33 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     """
   end
 
-  attr(:cards, :list, required: true)
-  attr(:usage_ready?, :boolean, required: true)
-  attr(:now, :any, required: true)
-
-  defp models_card(assigns) do
-    ~H"""
-    <div class="rs-block rs-models" aria-label="Model providers">
-      <div class="rs-group-head">
-        <span class="rs-group-title">Models</span>
-        <span class="rs-group-count">{model_count_label(length(@cards))}</span>
-      </div>
-      <div class="rs-models-rows">
-        <.model_row :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
-      </div>
-    </div>
-    """
-  end
-
-  attr(:card, :map, required: true)
-  attr(:usage_ready?, :boolean, required: true)
-  attr(:now, :any, required: true)
-
-  defp model_row(assigns) do
-    assigns =
-      assigns
-      |> assign(:usage, provider_usage(assigns.card))
-      |> assign(:windows, meter_windows(assigns.card))
-
-    ~H"""
-    <div class="rs-model rs-provider-row" data-provider={@card.provider}>
-      <div class="rs-head">
-        <%!-- One logo per row, on the far left, so every row starts with the same landmark. Decorative: the name beside it already identifies the provider. --%>
-        <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
-        <span class="rs-name">{@card.provider_label}</span>
-        <span :if={get_in(@card, [:identity, :state]) == :unverified} class="rs-limit-meta">Account unverified</span>
-        <span :if={get_in(@card, [:health, :age_label])} class="rs-limit-meta">{@card.health.age_label}</span>
-      </div>
-      <div class="rs-provider-body">
-        <div class="rs-limits">
-          <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
-            <span class="rs-limit-label">Limits</span>
-            <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)), 80, 90)} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
-            <span class="rs-limit-meta rs-limit-meta-wide">{durable_percent(durable_record(@card))}%</span>
-            <span class="rs-limit-meta rs-limit-meta-compact">{durable_percent(durable_record(@card))}%</span>
-          </div>
-          <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
-            <span class="rs-limit-label">Limits</span>
-            <div class="rs-meter" aria-label="Usage not observed"></div>
-            <span :if={@card.provider == :muse} class="rs-limit-meta">Not observed</span>
-          </div>
-          <div :for={window <- @windows} class="rs-limit">
-            <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <div class="rs-meter"><i class={meter_class(meter_percent(window), 80, 90)} style={"width:#{min(max(meter_percent(window), 0), 100)}%"}></i></div>
-            <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now)}</span>
-            <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now)}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
   # --- helpers -------------------------------------------------------------
 
-  defp model_count_label(1), do: "1 model"
-  defp model_count_label(count), do: "#{count} models"
+  # The MODELS pane shows only real, accessible allocations (#3751): see
+  # `ModelProviders` for the rule. Each card carries its own registry logo and
+  # only the windows the pane draws.
+  defp provider_cards(usage, meters, configured) do
+    configured = configured || ModelProviders.configured_families()
 
-  defp model_window_meta(window, now) do
-    window_meta(window, now)
+    usage
+    |> raw_cards(meters)
+    |> Enum.map(&Map.merge(&1, %{logo: provider_logo(&1.provider), windows: meter_windows(&1)}))
+    |> ModelProviders.visible(configured)
+    |> order_cards()
   end
 
-  defp model_window_compact_meta(window, now) do
-    window
-    |> model_window_meta(now)
-    |> String.replace("resets in ", "")
-    |> String.replace(" used", "")
-  end
-
-  defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
-    cards
-    |> Enum.map(fn card ->
+  defp raw_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
+    Enum.map(cards, fn card ->
       card
       |> Map.put(:usage, get_in(usage, [:providers, card.provider]))
       |> put_durable_observation()
     end)
-    |> keyed_cards()
-    |> order_cards()
   end
 
-  defp provider_cards(_usage, _meters) do
-    CodingAgent.provider_families()
-    |> Enum.map(fn provider ->
+  defp raw_cards(_usage, _meters) do
+    Enum.map(CodingAgent.provider_families(), fn provider ->
       %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
     end)
-    |> keyed_cards()
-    |> order_cards()
-  end
-
-  defp api_count_label(true), do: "2 APIs"
-  defp api_count_label(_elevenlabs?), do: "1 API"
-
-  # An unconfigured account is not an API this deployment has: the row is absent
-  # entirely. Every other standing — awaiting a first answer, observed, or a
-  # failed read against a key that *is* configured — keeps the row, because each
-  # of those is a fact about a real account.
-  defp elevenlabs_configured?(%{state: :unconfigured}), do: false
-  defp elevenlabs_configured?(%{state: state}) when state in [:unknown, :observed, :failed], do: true
-  defp elevenlabs_configured?(_quota), do: false
-
-  defp elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: percent
-  defp elevenlabs_meter_percent(_window), do: 0
-
-  defp elevenlabs_explanation do
-    "ElevenLabs account credit quota (characters). Speech-to-text is billed per minute of audio and is not counted here. The dollar figure is the amount due on the next invoice, not a balance."
-  end
-
-  # The label already says Credits, so the compact line carries only the
-  # remaining count, consumed share, and day-scale reset.
-  defp elevenlabs_meta(%{state: :observed, window: %{} = window}, now) do
-    [
-      "#{compact_number(window.remaining)} left",
-      elevenlabs_percent_text(window),
-      elevenlabs_reset_text(window.reset_at, now)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-  end
-
-  defp elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{elevenlabs_failure_label(failure)}"
-  defp elevenlabs_meta(_quota, _now), do: "Awaiting ElevenLabs response"
-
-  defp elevenlabs_compact_meta(%{state: :observed, window: %{} = window}, now) do
-    [
-      compact_number(window.remaining),
-      elevenlabs_percent_text(window) |> compact_percent_text(),
-      elevenlabs_compact_reset_text(window.reset_at, now)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
-  end
-
-  defp elevenlabs_compact_meta(%{state: :failed}, _now), do: "Unavailable"
-  defp elevenlabs_compact_meta(_quota, _now), do: "Awaiting response"
-
-  defp compact_percent_text(nil), do: nil
-  defp compact_percent_text(text), do: String.replace_suffix(text, " used", "")
-
-  defp elevenlabs_compact_reset_text(reset_at, now) do
-    reset_at
-    |> elevenlabs_reset_text(now)
-    |> String.replace_prefix("resets ", "")
-  end
-
-  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% used"
-  defp elevenlabs_percent_text(_window), do: nil
-
-  defp elevenlabs_invoice_due(%{next_invoice: %{amount_due_cents: cents, currency: currency}})
-       when is_integer(cents) and cents >= 0 and is_binary(currency) do
-    currency_amount(currency, cents_amount(cents))
-  end
-
-  defp elevenlabs_invoice_due(_window), do: nil
-
-  defp cents_amount(cents), do: "#{div(cents, 100)}.#{pad2(rem(cents, 100))}"
-
-  defp pad2(value), do: value |> Integer.to_string() |> String.pad_leading(2, "0")
-
-  defp elevenlabs_reset_text(%DateTime{} = reset, %DateTime{} = now) do
-    seconds = DateTime.diff(reset, now, :second)
-
-    cond do
-      seconds <= 0 -> "reset time passed"
-      seconds >= @seconds_per_day -> "resets #{div(seconds, @seconds_per_day)}d"
-      seconds >= @seconds_per_hour -> "resets #{div(seconds, @seconds_per_hour)}h"
-      true -> "resets #{max(div(seconds, 60), 1)}m"
-    end
-  end
-
-  defp elevenlabs_reset_text(_reset, _now), do: "reset unavailable"
-
-  # Named reasons only, and never the credential: a failure line is one of the
-  # places a secret leaks into a screenshot.
-  defp elevenlabs_failure_label(:authentication), do: "the API key was rejected"
-  defp elevenlabs_failure_label(:rate_limited), do: "rate limited by ElevenLabs"
-  defp elevenlabs_failure_label(:provider_error), do: "ElevenLabs returned an error"
-  defp elevenlabs_failure_label(:transport), do: "ElevenLabs could not be reached"
-  defp elevenlabs_failure_label(:malformed), do: "the response could not be read"
-  defp elevenlabs_failure_label(_failure), do: "the quota could not be read"
-
-  defp github_windows(%{windows: windows}) when is_map(windows) do
-    @github_resources
-    |> Enum.map(&Map.get(windows, &1))
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp github_windows(_quota), do: []
-
-  defp github_backoffs(%{backoffs: backoffs}) when is_list(backoffs), do: backoffs
-  defp github_backoffs(_quota), do: []
-
-  defp github_window_label(%{resource: resource}), do: github_resource_label(resource)
-
-  defp github_resource_label("graphql"), do: "GraphQL"
-  defp github_resource_label(resource), do: String.capitalize(resource)
-
-  # GitHub's two budgets bill in different units; the popover names what each
-  # window actually meters so "Core"/"GraphQL" are never read as the same thing.
-  defp github_window_explanation(%{resource: "core"}), do: "REST request budget"
-  defp github_window_explanation(%{resource: "graphql"}), do: "GraphQL point budget"
-  defp github_window_explanation(_window), do: nil
-
-  defp github_window_meta(window, now) do
-    "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"
-  end
-
-  defp github_window_compact_meta(window, now) do
-    "#{window.remaining}/#{window.limit} · #{compact_reset_text(window.reset_at, now)}"
-  end
-
-  defp compact_reset_text(reset_at, now) do
-    reset_at
-    |> reset_text(now)
-    |> String.replace_prefix("resets in ", "")
-  end
-
-  # A provider card only occupies strip space when the provider is actually
-  # connected. OpenAI-compatible providers gate on their configured credential
-  # env — `api_key_env` / `management_api_key_env` resolving to a non-empty
-  # value, the same "keyed" notion the meter probe uses. App-server providers
-  # (codex, claude) authenticate by session rather than an env key, so they
-  # always show.
-  defp keyed_cards(cards), do: Enum.filter(cards, &provider_keyed?(&1.provider))
-
-  defp provider_keyed?(provider) do
-    case get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat]) do
-      %{} = compat ->
-        case Map.get(compat, :management_api_key_env) || Map.get(compat, :api_key_env) do
-          env when is_binary(env) and env != "" -> env_present?(env)
-          _ -> false
-        end
-
-      _ ->
-        true
-    end
-  end
-
-  defp env_present?(env) do
-    case System.get_env(env) do
-      value when is_binary(value) and value != "" -> true
-      _ -> false
-    end
   end
 
   # DeepSeek leads the strip: it takes the position the Summary block used to
@@ -475,58 +293,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # a probe session on an exhausted quota). Attach that durable record so the
   # card can render a visibly-stale last-known value instead of an empty one.
   defp put_durable_observation(%{state: :unknown} = card) do
-    case durable_observation(card.provider) do
+    case UsageFacts.durable(card.provider) do
       nil -> card
       observation -> Map.put(card, :durable_observation, observation)
     end
   end
 
   defp put_durable_observation(card), do: card
-
-  # The card's attached durable record, when present.
-  defp durable_record(%{durable_observation: observation}), do: observation
-  defp durable_record(_card), do: nil
-
-  # The durable record is keyed by backend family and carries the last used/limit
-  # per window plus an observed timestamp. `ModelAvailability` is a public read
-  # API; the web layer simply never reached it before. The record's windows are
-  # the dispatch buckets (`hourly`/`weekly`/`monthly`); the governing one is the
-  # most-used, which is what limits whether new work may start.
-  defp durable_observation(provider) do
-    with %{"backends" => backends} <- ModelAvailability.load(),
-         %{} = entry when map_size(entry) > 0 <- Map.get(backends, Atom.to_string(provider)),
-         %{percent: percent} <- durable_percent_entry(entry) do
-      %{
-        percent: percent,
-        observed_at: parse_observed_at(Map.get(entry, "observed_at"))
-      }
-    else
-      _ -> nil
-    end
-  end
-
-  defp parse_observed_at(%DateTime{} = value), do: value
-
-  defp parse_observed_at(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _ -> nil
-    end
-  end
-
-  defp parse_observed_at(_value), do: nil
-
-  defp durable_percent_entry(entry) do
-    entry
-    |> Map.take(@durable_windows)
-    |> Enum.map(fn {_window, %{"used" => used, "limit" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->
-      %{percent: min(round(used / limit * 100), 100)}
-    end)
-    |> Enum.max_by(& &1.percent, fn -> nil end)
-  end
-
-  defp provider_usage(%{usage: usage}), do: usage
-  defp provider_usage(_card), do: nil
 
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false
@@ -578,32 +351,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       nil -> true
       limit_id -> limit_id |> to_string() |> String.split(":") |> List.first() == to_string(provider)
     end
-  end
-
-  # The label above a model bar names the window. Most providers publish a
-  # single budget whose name is enough; when two windows share a name (Codex
-  # reports an account-wide "Primary" and a per-model "Primary" that differ only
-  # in scope), the scope is what tells them apart, so it replaces the name.
-  defp window_label(window, windows) do
-    name = Map.get(window, :name, "Limit")
-
-    if Enum.count(windows, &(Map.get(&1, :name) == name)) > 1 do
-      window |> Map.get(:limit_id) |> window_scope() || name
-    else
-      name
-    end
-  end
-
-  # `limit_id` is "<scope>:<name>"; the scope is the part worth showing when the
-  # name cannot tell two windows apart.
-  defp window_scope(nil), do: nil
-
-  defp window_scope(limit_id) do
-    limit_id
-    |> to_string()
-    |> String.split(":")
-    |> List.first()
-    |> String.replace("_", " ")
   end
 
   # Whether the remaining ticket count is a known value at all, as opposed to
@@ -681,95 +428,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp money_list([%{currency: currency, amount: amount}]), do: currency_amount(currency, amount)
   defp money_list([]), do: "N/A"
   defp money_list(amounts), do: Enum.map_join(amounts, " + ", &currency_amount(&1.currency, &1.amount))
-
-  defp currency_amount("USD", amount), do: "$#{amount}"
-  defp currency_amount(currency, amount), do: "#{amount} #{currency}"
-
-  defp compact_number(number) when is_integer(number) and number >= 1_000_000, do: "#{Float.round(number / 1_000_000, 2)}M"
-  defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
-  defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
-
-  # A prepaid-balance window carries its spend percentage as `used_percent`
-  # (the probe attaches it only once a durable baseline exists); the bar renders
-  # that measured value rather than an empty 0%. Measured rate-limit windows
-  # carry the same percentage under `meter.now`. Credit percentages are rounded
-  # to one decimal so a float measurement never renders a noisy bar width.
-  defp meter_percent(%{kind: :credit, used_percent: percent}) when is_number(percent), do: Float.round(percent, 1)
-  defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
-  defp meter_percent(_window), do: 0
-
-  # A bar that is fully consumed reads as critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one. Three stage colours:
-  # caution (yellow) from 80% used, warning (orange) from 90%, critical (red)
-  # at 100% (operator directive). Credit percentages arrive as floats (e.g.
-  # 100.0), so the guards accept any number at/above 100.
-  defp meter_class(percent, caution_threshold \\ nil, warning_threshold \\ nil)
-  defp meter_class(percent, _caution, _warning) when is_number(percent) and percent >= 100, do: "is-critical"
-
-  defp meter_class(percent, _caution, warning)
-       when is_number(percent) and is_number(warning) and percent >= warning,
-       do: "is-warning"
-
-  defp meter_class(percent, caution, _warning)
-       when is_number(percent) and is_number(caution) and percent >= caution,
-       do: "is-caution"
-
-  defp meter_class(_percent, _caution, _warning), do: ""
-
-  # A credit window is a dollar balance. When a durable baseline exists the
-  # window carries a measured `used_percent` and renders a real spend bar
-  # alongside the dollar amount; without a baseline the bar stays empty and the
-  # meta carries the balance, so a prepaid provider never reads as a fabricated
-  # "0% consumed" (issue #1436).
-  defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}}, _now)
-       when is_number(amount) and is_number(used_percent) do
-    "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
-  end
-
-  defp window_meta(%{kind: :credit, credits: %{amount: amount}} = window, now) when is_number(amount) do
-    "#{currency_amount("USD", amount)} · #{reset_text(window.expires_at, now)}"
-  end
-
-  defp window_meta(%{kind: :credit, credits: %{status: status}} = _window, _now) do
-    to_string(status) <> " balance"
-  end
-
-  defp window_meta(%{used_percent: percent, meter: %{kind: :exact}} = window, now) when is_number(percent),
-    do: "#{percent}% · #{reset_text(window.resets_at, now)}"
-
-  defp window_meta(%{meter: %{kind: :exact, now: percent}} = window, now), do: "#{percent}% · #{reset_text(window.resets_at, now)}"
-  defp window_meta(window, now), do: "#{window.coverage_label} · #{reset_text(window.resets_at, now)}"
-
-  defp format_used_percent(percent) when is_number(percent) do
-    percent = percent |> max(0) |> min(100)
-    rounded = Float.round(percent, 1)
-
-    if rounded == trunc(rounded) do
-      Integer.to_string(trunc(rounded))
-    else
-      :erlang.float_to_binary(rounded, decimals: 1)
-    end
-  end
-
-  defp durable_percent(%{percent: percent}), do: percent
-
-  defp reset_text(%DateTime{} = reset, %DateTime{} = now) do
-    seconds = DateTime.diff(reset, now, :second)
-    if seconds > 0, do: "resets in #{duration(seconds)}", else: "reset time passed"
-  end
-
-  defp reset_text(_reset, _now), do: "reset unavailable"
-  # Days once there are any: a weekly window reading "167h 59m" makes the reader
-  # divide to learn it is a week away.
-  defp duration(seconds) when seconds < @seconds_per_hour, do: "#{max(div(seconds, 60), 1)}m"
-
-  defp duration(seconds) when seconds < @seconds_per_day do
-    "#{div(seconds, @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
-  end
-
-  defp duration(seconds) do
-    "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
-  end
 
   # Each card renders its own registry logo. The ticket's "swap the Codex and
   # Claude logos" premise was verified false on review: `codex-color.svg` is the

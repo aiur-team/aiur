@@ -59,6 +59,23 @@ defmodule Aiur.CurrentRunMembership do
     Store.set_terminal_verification_pending(identity, pending?)
   end
 
+  @doc false
+  @spec set_terminal_verification_pending((TrackerIdentity.t(), boolean() -> term()), term(), boolean()) :: :ok | :skipped | :error
+  def set_terminal_verification_pending(marker_fun, identity, pending?) do
+    if TrackerIdentity.joinable?(identity) do
+      case marker_fun.(identity, pending?) do
+        :ok -> :ok
+        _ -> :error
+      end
+    else
+      :skipped
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
+  end
+
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(@pubsub, @topic)
 

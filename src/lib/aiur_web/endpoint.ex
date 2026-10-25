@@ -3,38 +3,48 @@ defmodule AiurWeb.Endpoint do
   Phoenix endpoint for Aiur's optional observability UI and API.
   """
 
+  alias AiurWeb.Sockets.{LiveView, Streamdeck, Voice}
+
   use Phoenix.Endpoint, otp_app: :aiur
 
   @session_options [
     store: :cookie,
     key: "_aiur_key",
-    signing_salt: "aiur-session"
+    signing_salt: "aiur-session",
+    encryption_salt: "aiur-session-encryption",
+    same_site: "Lax",
+    max_age: 31_536_000
   ]
 
-  socket("/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [:user_agent, session: @session_options]],
-    longpoll: false
-  )
+  require LiveView
+  require Streamdeck
+  require Voice
 
-  socket("/streamdeck", AiurWeb.StreamdeckSocket,
-    websocket: true,
-    longpoll: false
-  )
+  @before_compile AiurWeb.EndpointCallGuard
 
-  # Dashboard dictation audio. The browser streams PCM here and the server owns
-  # the ElevenLabs STT session; auth reuses the LiveView session proof.
-  socket("/voice", AiurWeb.VoiceSocket,
-    websocket: [connect_info: [session: @session_options], max_frame_size: 400_000],
-    longpoll: false
-  )
+  LiveView.mount(@session_options)
+  Streamdeck.mount(@session_options)
+  Voice.mount(@session_options)
 
+  plug(AiurWeb.Session, @session_options)
+  plug(:fetch_session)
+  plug(AiurWeb.PublicBindGuard)
   plug(:authenticate_static_asset)
+
+  plug(Plug.Static,
+    at: "/aiur-style/fonts",
+    from: {:aiur, "priv/static/aiur-style/fonts"},
+    gzip: false,
+    only: AiurWeb.StaticAssets.aiur_style_font_files(),
+    cache_control_for_etags: "public, max-age=31536000, immutable",
+    cache_control_for_vsn_requests: "public, max-age=31536000, immutable"
+  )
 
   plug(Plug.Static,
     at: "/",
     from: :aiur,
     gzip: false,
-    only: AiurWeb.StaticAssets.revalidated_static_paths(),
+    only: AiurWeb.StaticAssets.revalidated_static_paths() -- ["dashboard.css"],
     cache_control_for_etags: "private, max-age=0, must-revalidate",
     cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
   )
@@ -73,14 +83,16 @@ defmodule AiurWeb.Endpoint do
 
   plug(Plug.MethodOverride)
   plug(Plug.Head)
-  plug(Plug.Session, @session_options)
   plug(AiurWeb.Router)
 
   @doc false
   @spec authenticate_static_asset(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def authenticate_static_asset(conn, opts) do
-    if AiurWeb.StaticAssets.served_path?(conn.path_info),
-      do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts),
-      else: conn
+    if AiurWeb.StaticAssets.served_path?(conn.path_info) do
+      conn = AiurWeb.FinancialDataAccess.authenticate_request(conn, Keyword.put(opts, :browser?, true))
+      if conn.halted, do: conn, else: AiurWeb.DashboardPagesGate.call(conn, [])
+    else
+      conn
+    end
   end
 end

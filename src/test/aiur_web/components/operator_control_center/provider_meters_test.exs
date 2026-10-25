@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.OperatorControlCenter.ProviderMeters
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter, as: Presenter
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
 
   @reset ~U[2026-07-18 12:00:00Z]
   @observed ~U[2026-07-18 11:30:00Z]
@@ -40,7 +41,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
 
     assert html =~ ~s(id="provider-meter-codex-title")
     assert html =~ ~s(role="progressbar")
-    assert html =~ ~s(aria-valuenow="40")
+    assert html =~ ~s(aria-valuenow="60")
+    assert html =~ ~s(aria-label="Primary remaining")
+    assert html =~ "60% left"
+    assert html =~ ~s(width: 60%)
     assert html =~ ~s(aria-valuemin="0")
     assert html =~ ~s(aria-valuemax="100")
     assert html =~ ~s(<time)
@@ -48,6 +52,36 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "Subscription"
     assert html =~ "<dt>Plan</dt>"
     assert html =~ "<dd>Pro</dd>"
+  end
+
+  test "supported provider meter width, label and tone follow remaining at 0, 50 and 100 used" do
+    Enum.each([{0, 100}, {50, 50}, {100, 0}], fn {used, remaining} ->
+      snapshot = put_in(healthy(:codex).windows["primary"].used_percent, used)
+      snapshot = put_in(snapshot.windows["primary"].remaining_percent, remaining)
+      html = Presenter.present(authorized(), %{codex: snapshot}) |> then(&render(&1, nil))
+
+      assert html =~ ~s(aria-valuenow="#{remaining}")
+      assert html =~ "#{remaining}% left"
+      assert html =~ "width: #{remaining}%"
+
+      if remaining == 0 do
+        assert html =~ "provider-meter-fill is-critical"
+      else
+        refute html =~ "provider-meter-fill is-critical"
+      end
+
+      refute html =~ "is-warning"
+    end)
+  end
+
+  test "supported provider meter keeps an unknown reading without a numeric value or fill" do
+    snapshot = put_in(healthy(:codex).windows["primary"].used_percent, nil)
+    snapshot = put_in(snapshot.windows["primary"].remaining_percent, nil)
+    html = Presenter.present(authorized(), %{codex: snapshot}) |> then(&render(&1, nil))
+
+    refute html =~ "aria-valuenow"
+    refute html =~ "% left"
+    refute html =~ "width: 100%"
   end
 
   test "a retained card renders its last-known values with the observation age" do
@@ -130,7 +164,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     html = render(view, announcement)
     assert html =~ ~r/provider-meter-badge state-stale[^>]*>Stale<\/span>/
     assert html =~ ~r/<dt>Health<\/dt>\s*<dd>Stale<\/dd>/
-    assert html =~ ~s(aria-valuenow="33")
+    assert html =~ ~s(aria-valuenow="67")
     assert html =~ "10 seconds old"
     refute html =~ "Healthy"
   end
@@ -167,6 +201,75 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     view = Presenter.present(authorized(), %{codex: nil, claude: nil})
     html = render(view, Presenter.announcement(view))
     assert html =~ "Loading account meters"
+  end
+
+  test "Claude account usage renders individually labelled bars and the worst summary" do
+    observed_at = DateTime.utc_now()
+
+    readings = %{
+      "work" => %{reading: %{windows: [%{window: "seven_day", used_percent: 33}]}, observed_at: observed_at, freshness: :fresh},
+      "default" => %{reading: %{windows: [%{window: "seven_day", used_percent: 94}]}, observed_at: DateTime.add(observed_at, -30, :second), freshness: :stale}
+    }
+
+    snapshot =
+      healthy(:claude)
+      |> Map.put(:windows, %{
+        "seven_day" => %{kind: :rate_limit, name: "Weekly", used_percent: 20, source: :provider},
+        "five_hour" => %{kind: :rate_limit, name: "Five hour", used_percent: 10, source: :provider}
+      })
+
+    view = Presenter.present(authorized(), %{claude: snapshot}, readings)
+    html = render(view, Presenter.announcement(view))
+
+    card = Enum.find(view.cards, &(&1.provider == :claude))
+    assert card.account_usage.total_percent == 6
+    assert Enum.map(card.account_usage.accounts, &{&1.name, &1.percent}) == [{"default", 6}, {"work", 67}]
+    assert html =~ "×2"
+    assert html =~ "Weekly · least remaining of 2 accounts: 6% left"
+    assert card.account_usage.title =~ "default: 94% used"
+    assert html =~ ~s(width: 6%)
+    assert html =~ ~s(width: 67%)
+    assert html =~ "default: 6% left"
+    assert html =~ "work: 67% left"
+    assert html =~ "stale"
+    assert html =~ "30s old"
+    assert html =~ "role=\"progressbar\""
+    assert html =~ ~s(class="provider-meter-account-bar")
+    assert length(Floki.find(Floki.parse_fragment!(html), ".provider-meter-account-segment[role=progressbar]")) == 2
+    strip = render_component(&RunSummaryStrip.run_summary_strip/1, run: %{state: :loading}, usage: %{state: :locked}, meters: view, now: observed_at)
+    assert strip =~ ~s(data-account="default")
+    assert strip =~ ~s(data-account="work")
+    assert strip =~ ~s(width:6%)
+    assert strip =~ ~s(width:67%)
+    assert length(Regex.scan(~r/class="provider-meter-bar"/, html)) == 1
+    refute html =~ ~s(class="provider-meter-window-name">Weekly<)
+  end
+
+  test "an unavailable Claude account remains unknown and does not become zero in the summary" do
+    readings = %{
+      "known" => %{reading: %{windows: [%{window: "seven_day", used_percent: 94}]}, observed_at: DateTime.utc_now(), freshness: :fresh},
+      "offline" => %{reading: nil, observed_at: DateTime.utc_now(), freshness: :unavailable, reason: :no_credentials}
+    }
+
+    view = Presenter.present(authorized(), %{}, readings)
+    html = render(view, Presenter.announcement(view))
+
+    card = Enum.find(view.cards, &(&1.provider == :claude))
+    assert card.account_usage.total_percent == nil
+    assert Enum.find(card.account_usage.accounts, &(&1.name == "offline")).percent == nil
+    assert html =~ "Weekly · least remaining of 2 accounts: unknown"
+    assert html =~ "offline: unknown"
+    refute html =~ "offline: 0%"
+  end
+
+  test "one configured account renders its name" do
+    reading = %{reading: %{windows: [%{window: "seven_day", used_percent: 94}]}, observed_at: DateTime.utc_now(), freshness: :fresh}
+    view = Presenter.present(authorized(), %{claude: healthy(:claude)}, %{"default" => reading})
+    html = render(view, Presenter.announcement(view))
+
+    assert html =~ "provider-meter-bar"
+    assert html =~ "provider-meter-account-bar"
+    assert html =~ "default"
   end
 
   defp render(view, announcement) do

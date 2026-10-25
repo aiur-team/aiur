@@ -1,0 +1,382 @@
+import { test, expect } from '@playwright/test'
+import { mkdtemp, cp, appendFile, writeFile, rm, symlink, mkdir } from 'node:fs/promises'
+import path from 'node:path'
+import { tmpdir } from 'node:os'
+import { setTimeout as delay } from 'node:timers/promises'
+import { PARITY_VIEWPORTS, DESIGN_ROOT, FIXTURE_META, parityContextOptions, openDesign, openProduct, expectDesignParity, compareParityPixels, assertCellState, waitParityReady, guardNetwork, checkPage, captureStable, loadAllowlist, applyAllowlist, verifyDesignSource } from '../support/design-parity.mjs'
+import { resolveDesignPath, routeDesign } from '../support/design-parity-environment.mjs'
+
+const cell = { ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'gruvbox', dataset: 'live' }
+let contexts
+let scratch
+
+test.beforeEach(async () => { contexts = []; scratch = await mkdtemp(path.join(tmpdir(), 'parity-3110-')) })
+test.afterEach(async () => { for (const context of contexts) await context.close(); await rm(scratch, { recursive: true, force: true }) })
+async function pageFor(browser, selected = cell, overrides = {}) {
+  const context = await browser.newContext({ ...parityContextOptions(selected), ...overrides })
+  contexts.push(context)
+  return context.newPage()
+}
+async function designPair(browser, selected = cell, opts = {}) {
+  const design = await pageFor(browser, selected)
+  const product = await pageFor(browser, selected)
+  await openDesign(design, selected, opts)
+  await openDesign(product, selected, opts)
+  return { design, product, cell: selected, allowlist: [] }
+}
+async function pixelFailure(pair, options, compare = expectDesignParity) {
+  let error
+  try { await compare(pair, options) } catch (e) { error = e }
+  if (error && !/pixels.*different/.test(error.message)) throw error
+  expect(error?.message).toMatch(/pixels.*different/)
+}
+async function allowlistFile(entries) {
+  const file = path.join(scratch, 'allowlist.json')
+  await writeFile(file, JSON.stringify(entries))
+  return file
+}
+const entry = { id: 'demo', kind: 'design-removal', selector: '.bd-exl', reason: 'test difference', approval: { status: 'pending-sign-off', ref: 'test approval' } }
+
+const calibration = PARITY_VIEWPORTS.flatMap(v => ['dark', 'light'].map(theme => ({ ...cell, ...v, theme })))
+calibration.push({ ...cell, palette: 'aiur' }, { ...cell, dataset: 'dense' })
+for (const selected of calibration) {
+  test(`calibration: design equals design ${selected.viewport.width} ${selected.theme} ${selected.palette} ${selected.dataset}`, async ({ browser }) => {
+    await expectDesignParity(await designPair(browser, selected), { name: `calibration-${selected.viewport.width}-${selected.theme}-${selected.palette}-${selected.dataset}` })
+  })
+}
+test('calibration: design equals design loading', async ({ browser }) => {
+  await expectDesignParity(await designPair(browser, cell, { phase: 'loading' }), { name: 'loading' })
+})
+for (const region of [undefined, '.bd-now']) {
+  test(`mutation: ${region ?? '.bd-card'} catches +1px padding`, async ({ browser }) => {
+    const pair = await designPair(browser)
+    const selector = region ? '.bd-now .bd-in' : '.bd-card'
+    const padding = await pair.product.locator(selector).first().evaluate(e => parseFloat(getComputedStyle(e).paddingLeft))
+    await pair.product.addStyleTag({ content: `${selector} { padding-left: ${padding + 1}px !important; }` })
+    await pixelFailure(pair, { name: 'padding', region })
+  })
+}
+for (const size of [1, 10]) {
+  test(`mutation: catches ${size}x${size} red pixels`, async ({ browser }) => {
+    const pair = await designPair(browser)
+    await pair.product.evaluate(size => {
+      const change = document.createElement('div')
+      change.style.cssText = `position:fixed;left:700px;top:450px;width:${size}px;height:${size}px;background:red;z-index:2147483647`
+      document.body.append(change)
+    }, size)
+    await pixelFailure(pair, { name: `red-${size}` })
+  })
+}
+test('mutation: catches changed API count text', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.product.getByText('2 APIs', { exact: true }).evaluate(e => { e.textContent = '3 APIs' })
+  await pixelFailure(pair, { name: 'api-count' })
+})
+test('mutation: parity screenshot style preserves overflowing layout differences', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.design.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; }' })
+  await pair.product.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; } #build-root { width: calc(100% + 1px) !important; }' })
+  await pixelFailure(pair, { name: 'overflow-layout', fullPage: false })
+})
+test('mutation: palette swap fails', async ({ browser }) => {
+  const other = { ...cell, palette: 'aiur' }
+  const pair = { design: await pageFor(browser), product: await pageFor(browser, other), cell, allowlist: [] }
+  await openDesign(pair.design, cell)
+  await openDesign(pair.product, other)
+  // Exercise the pixel comparator independently of the palette guard.
+  await pixelFailure(pair, { name: 'palette' }, compareParityPixels)
+})
+for (const [name, mutate, message] of [
+  ['clock guard', async p => p.clock.setFixedTime(FIXTURE_META.now + 1), /clock not frozen/],
+  ['theme guard', async p => p.evaluate(() => { document.documentElement.dataset.theme = 'light' }), /theme not applied/],
+  ['palette guard', async p => p.evaluate(() => { document.documentElement.dataset.palette = 'aiur' }), /palette not applied/]
+]) {
+  test(name, async ({ browser }) => {
+    const page = await pageFor(browser)
+    await openDesign(page, cell)
+    await mutate(page)
+    await expect(assertCellState(page, cell)).rejects.toThrow(message)
+  })
+}
+test('time zone guard', async ({ browser }) => {
+  const page = await pageFor(browser, cell, { timezoneId: 'UTC' })
+  await expect(openDesign(page, cell)).rejects.toThrow(/time zone UTC, expected America\/Los_Angeles/)
+})
+for (const missing of ['font file', 'stylesheet']) {
+  test(`font guard: missing ${missing}`, async ({ browser }) => {
+    const page = await pageFor(browser)
+    await page.route(missing === 'font file' ? '**/spacegrotesk/**' : 'https://fonts.googleapis.com/**', route => route.fulfill({ status: missing === 'font file' ? 404 : 200, contentType: 'text/css', body: '' }))
+    await expect(openDesign(page, cell)).rejects.toThrow(/font not loaded:/)
+  })
+}
+test('network guard', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await guardNetwork(page, ['http://design.parity.invalid'])
+  await page.setContent('<script src="https://example.com/x.js"></script>')
+  expect(() => checkPage(page)).toThrow(/network request refused: https:\/\/example.com\/x.js/)
+})
+test('product target missing', async ({ browser, baseURL }) => {
+  const page = await pageFor(browser, cell, { baseURL })
+  await expect(openProduct(page, cell, { dataset: '__missing__' })).rejects.toThrow(/product target unavailable: GET \/build-fixture\/__missing__ → 404/)
+})
+test('ready guard', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await openDesign(page, cell, { phase: 'loading' })
+  await expect(waitParityReady(page, 'board', 'product')).rejects.toThrow(/product not ready: .bd-loading still present/)
+})
+for (const marker of ['mounted', 'paging']) {
+  test(`product ready guard: ${marker}`, async ({ browser }) => {
+    const page = await pageFor(browser)
+    await openDesign(page, cell)
+    await page.locator('#build-root').evaluate((e, marker) => {
+      if (marker === 'mounted') e.dataset.bdPaging = 'idle'
+      else { e.dataset.bdMounted = ''; e.dataset.bdPaging = 'busy' }
+    }, marker)
+    await expect(waitParityReady(page, 'board', 'product')).rejects.toThrow(/product not ready:/)
+  })
+}
+test('design WebSocket guard', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await routeDesign(page)
+  await page.goto('http://design.parity.invalid/blank')
+  await page.evaluate(() => { window.paritySocket = new WebSocket('wss://fonts.googleapis.com/parity') })
+  await expect.poll(() => {
+    try { checkPage(page); return '' } catch (error) { return error.message }
+  }).toContain('network request refused: wss://fonts.googleapis.com/parity')
+})
+test('live-stream ticket refused', async ({ browser }) => {
+  const { readFile } = await import('node:fs/promises')
+  const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
+  const ticket = 'AIUR-' + fixture.sections.now.find(t => t.agent.state === 'active').num
+  await expect(openDesign(await pageFor(browser), cell, { ticket })).rejects.toThrow(`ticket ${ticket} runs the design's mock live stream`)
+})
+for (const variant of ['duplicate query', 'empty override']) {
+  test(`live-stream query refused: ${variant}`, async ({ browser }) => {
+    const { readFile } = await import('node:fs/promises')
+    const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
+    const active = 'AIUR-' + fixture.sections.now.find(t => t.agent.state === 'active').num
+    const inactive = 'AIUR-' + fixture.sections.hist[0].num
+    const opts = variant === 'duplicate query' ? { query: `?ticket=${inactive}&ticket=${active}` } : { ticket: '', query: `?ticket=${active}` }
+    await expect(openDesign(await pageFor(browser), cell, opts)).rejects.toThrow(`ticket ${active} runs the design's mock live stream`)
+  })
+}
+test('loading phase holds the skeleton', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await openDesign(page, cell, { phase: 'loading' })
+  await delay(2000)
+  await expect(page.locator('.bd-loading')).toHaveCount(1)
+  const a = await page.screenshot({ animations: 'disabled', scale: 'device' })
+  await delay(1000)
+  expect((await page.screenshot({ animations: 'disabled', scale: 'device' })).equals(a)).toBe(true)
+})
+// Synthetic captures: a real page.screenshot here can hit the same Chromium transient on the retry (#4054).
+test('settle guard survives a transient capture failure', async () => {
+  let n = 0
+  let calls = 0
+  let failed = false
+  const target = { screenshot: async () => {
+    calls++
+    if (n === 3 && !failed) {
+      failed = true
+      throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+    }
+    return Buffer.from([n++])
+  } }
+  await expect(captureStable(target, { scale: 'device' })).rejects.toThrow('design did not settle after 10 captures')
+  expect(n).toBe(10)
+  expect(calls).toBe(11)
+})
+test('stable capture recovers from a transient capture failure', async () => {
+  const opts = { scale: 'device' }
+  const expected = Buffer.from('stable')
+  let calls = 0
+  const target = { screenshot: async options => {
+    expect(options).toMatchObject(opts)
+    expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
+    if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+    return Buffer.from('stable')
+  } }
+  expect((await captureStable(target, opts)).equals(expected)).toBe(true)
+  expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
+})
+test('stable clipped capture includes thumb-hiding style without mutating caller options', async () => {
+  const opts = { scale: 'device' }
+  const expected = Buffer.from('stable')
+  let calls = 0
+  const target = { boundingBox: async () => ({ x: 10, y: 20, width: 30, height: 40 }) }
+  const page = {
+    evaluate: async () => ({ x: 2, y: 3 }),
+    screenshot: async options => {
+      expect(options).toMatchObject(opts)
+      expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
+      expect(options).toMatchObject({ fullPage: true, clip: { x: 12, y: 23, width: 30, height: 40 } })
+      if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+      return Buffer.from('stable')
+    }
+  }
+  expect((await captureStable(target, opts, page)).equals(expected)).toBe(true)
+  expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
+})
+for (const [name, message, attempts] of [
+  ['persistent capture failure', 'page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot', 2],
+  // Future regression guard: unrelated errors already propagated before the retry was added.
+  ['unrelated protocol error', 'page.screenshot: Protocol error (Page.captureScreenshot): Target closed', 1]
+]) {
+  test(`stable capture propagates ${name}`, async () => {
+    const error = new Error(message)
+    let calls = 0
+    const target = { screenshot: async () => { calls++; throw error } }
+    await expect(captureStable(target, {})).rejects.toBe(error)
+    expect(calls).toBe(attempts)
+  })
+}
+test('region guard', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await expect(expectDesignParity(pair, { name: 'missing', region: '.missing' })).rejects.toThrow('region missing on design')
+  await expect(expectDesignParity(pair, { name: 'duplicate', region: '.bd-card' })).rejects.toThrow('region not unique on design')
+  await pair.product.locator('.bd-now').evaluate(e => e.remove())
+  await expect(expectDesignParity(pair, { name: 'product-missing', region: '.bd-now' })).rejects.toThrow('region missing on product')
+})
+const defects = {
+  'no ref': e => { e.approval.ref = '' },
+  'unknown kind': e => { e.kind = 'unknown' },
+  'duplicate id': e => e,
+  'wrong approver': e => { e.approval = { status: 'approved', by: 'Someone', date: '2026-10-08', ref: 'test' } },
+  'missing css': e => { e.kind = 'design-style' },
+  'unexpected css': e => { e.css = 'html {color:red}' },
+  'wrong status spelling': e => { e.approval.status = 'pending-signoff' },
+  'missing property': e => { e.kind = 'property' },
+  'empty spec': e => { e.spec = '' },
+  'wildcard spec': e => { e.spec = '*.browser.spec.mjs' },
+  'missing rule': e => { e.kind = 'axe' },
+  'missing path': e => { e.kind = 'motion' },
+  'approved false': e => { e.approved = false }
+}
+for (const [name, mutate] of Object.entries(defects)) {
+  test(`allowlist validation: ${name}`, async () => {
+    const bad = structuredClone(entry); mutate(bad)
+    await expect(loadAllowlist(await allowlistFile(name === 'duplicate id' ? [bad, bad] : [bad]))).rejects.toThrow('invalid allowlist entry')
+  })
+}
+test('stale allowlist entry', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }])).rejects.toThrow('stale allowlist entry demo')
+})
+test('allowlist scopes capabilities and specs without hiding stale targets', async ({ browser }) => {
+  const pair = await designPair(browser)
+  const conditional = { ...entry, selector: '.missing', productWhen: '.missing' }
+  await expect(applyAllowlist(pair, cell, [conditional])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...conditional, productWhen: 'html' }])).rejects.toThrow('stale allowlist entry demo')
+  const scoped = { ...entry, selector: '.missing', spec: 'build-home-chains-parity.browser.spec.mjs' }
+  await expect(applyAllowlist(pair, cell, [scoped])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...scoped, spec: 'design-parity-harness.browser.spec.mjs' }]))
+    .rejects.toThrow('stale allowlist entry demo')
+  await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }]))
+    .rejects.toThrow('stale allowlist entry demo')
+})
+test('allowlist removal applies', async ({ browser }) => {
+  const pair = await designPair(browser)
+  // The footer is below the viewport; keep its region size fixed after removal.
+  for (const page of [pair.design, pair.product]) await page.addStyleTag({ content: '#bd-status { height: 32px; box-sizing: border-box; }' })
+  const entries = await loadAllowlist()
+  await applyAllowlist(pair, cell, entries)
+  await pixelFailure(pair, { name: 'removed', region: '#bd-status' })
+  await applyAllowlist({ ...pair, design: pair.product }, cell, entries)
+  await expectDesignParity(pair, { name: 'both-removed', region: '#bd-status' })
+})
+test('design-style entry applies', async ({ browser }) => {
+  const pair = await designPair(browser)
+  const entries = await loadAllowlist(await allowlistFile([{ ...entry, kind: 'design-style', selector: 'html', css: ':root { --accent: #ff0000 !important; }' }]))
+  await applyAllowlist(pair, cell, entries)
+  await pixelFailure(pair, { name: 'style', region: '.bd-now' })
+  await applyAllowlist({ ...pair, design: pair.product }, cell, entries)
+  await expectDesignParity(pair, { name: 'both-styled', region: '.bd-now' })
+})
+test('pixel-mask applies on both pages', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.product.locator('#bd-status').evaluate(e => { e.style.background = 'red' })
+  await pixelFailure(pair, { name: 'unmasked', region: '#bd-status' })
+  pair.allowlist = await loadAllowlist(await allowlistFile([{ ...entry, kind: 'pixel-mask', selector: '#bd-status' }]))
+  await expectDesignParity(pair, { name: 'masked', region: '#bd-status' })
+  await pair.product.locator('#bd-status').evaluate(e => e.remove())
+  await expect(applyAllowlist(pair, cell)).rejects.toThrow('stale allowlist entry demo')
+})
+test('design symlinks refused', async () => {
+  const root = path.join(scratch, 'design')
+  await mkdir(root)
+  const outside = path.join(scratch, 'outside.txt')
+  await writeFile(outside, 'outside reference bytes')
+  await symlink(outside, path.join(root, 'logo.svg'))
+  expect(resolveDesignPath('logo.svg', root)).toBeNull()
+  await expect(verifyDesignSource(root, { design_sha256: {} })).rejects.toThrow('design source contains a symlink')
+})
+test('design source hash', async () => {
+  const root = path.join(scratch, 'design')
+  await cp(DESIGN_ROOT, root, { recursive: true })
+  await verifyDesignSource(root)
+  await appendFile(path.join(root, 'assets/aiur-logo.png'), 'drift')
+  await expect(verifyDesignSource(root)).rejects.toThrow('design source changed without re-export')
+})
+test('design route containment', async ({ browser }) => {
+  expect(resolveDesignPath('../../mix.exs')).toBeNull()
+  const page = await pageFor(browser)
+  await routeDesign(page)
+  const response = await page.goto('http://design.parity.invalid/%2e%2e%2fmix.exs')
+  expect(response.status()).toBe(404)
+})
+for (const [designPath, productPath] of [
+  ['/assets/deepseek-logo.png', '/build-home/logos/deepseek-logo.png'],
+  ['/assets/codex-color.svg', '/provider-assets/codex-color.svg']
+]) {
+  test(`design logo route uses served product bytes: ${designPath}`, async ({ browser, request }) => {
+    const page = await pageFor(browser)
+    await routeDesign(page)
+    await page.goto('http://design.parity.invalid/blank')
+    const designBytes = await page.evaluate(async asset => {
+      const response = await fetch(asset)
+      if (!response.ok) throw new Error(`design asset returned ${response.status}`)
+      return [...new Uint8Array(await response.arrayBuffer())]
+    }, designPath)
+    const product = await request.get(productPath)
+    expect(product.ok()).toBe(true)
+    expect(Buffer.from(designBytes).equals(await product.body()), 'design and product logo response bytes match').toBe(true)
+    await verifyDesignSource()
+    checkPage(page)
+  })
+}
+test('page error guard', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await openDesign(page, cell)
+  const seen = page.waitForEvent('pageerror')
+  await page.addScriptTag({ content: 'throw new Error("parity boom")' })
+  await seen
+  expect(() => checkPage(page)).toThrow('page error: parity boom')
+})
+test('pending sign-off entries are reported', async () => {
+  await loadAllowlist()
+  expect(test.info().annotations).toContainEqual({ type: 'pending-sign-off', description: expect.stringContaining('demo-data-select: pending-sign-off') })
+})
+
+test('shell phase and query are available to consumers', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await openDesign(page, cell, { phase: 'shell', query: '?view=list' })
+  expect(new URL(page.url()).searchParams.get('view')).toBe('list')
+  await page.locator('#build-root').evaluate(e => e.remove())
+  await waitParityReady(page, 'shell')
+})
+
+test('visual route seeds the optional palette', async ({ page }) => {
+  const { openVisualRoute } = await import('../support/visual.mjs')
+  await openVisualRoute(page, { theme: 'dark', palette: 'aiur', route: '/analytics' })
+  expect(await page.evaluate(() => localStorage.getItem('aiur-palette'))).toBe('aiur')
+})
+
+// Explicit viewport captures must not scroll an offscreen region into view.
+test('viewport clipping preserves scroll without animation preservation', async ({ browser }) => {
+  const pair = { design: await pageFor(browser), product: await pageFor(browser), cell, allowlist: [] }
+  for (const page of [pair.design, pair.product]) await page.setContent('<style>body{margin:0;height:3000px}#region{position:absolute;top:2000px;left:50px;width:80px;height:80px;background:red}</style><div id="region"></div>')
+  await compareParityPixels(pair, { name: 'viewport-clip-scroll', region: '#region', viewportClip: true })
+  for (const page of [pair.design, pair.product]) expect(await page.evaluate(() => scrollY)).toBe(0)
+})

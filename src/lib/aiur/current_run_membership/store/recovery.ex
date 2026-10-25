@@ -1,7 +1,7 @@
 defmodule Aiur.CurrentRunMembership.Store.Recovery do
   @moduledoc false
 
-  alias Aiur.{Config, DecisionLog, Fs}
+  alias Aiur.{Config, Fs, Journal}
   alias Aiur.CurrentRunMembership.{Event, Event.Codec, Projection}
   alias Aiur.CurrentRunMembership.Store.{Checkpoint, FileOps, Marker, Paths, Runtime, TerminalVerification}
 
@@ -10,7 +10,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
   @spec options(keyword()) :: map()
   def options(opts) do
     %{
-      append_fun: Keyword.get(opts, :append_fun, &DecisionLog.append/2),
+      append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
       checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &FileOps.write_checkpoint/2),
       clear_journal_fun: Keyword.get(opts, :clear_journal_fun, &FileOps.clear_journal/1),
       checkpoint_interval: checkpoint_interval(Keyword.get(opts, :checkpoint_interval, @checkpoint_interval)),
@@ -144,7 +144,7 @@ defmodule Aiur.CurrentRunMembership.Store.Recovery do
       end
     end
 
-    case DecisionLog.replay(path, validator,
+    case Journal.replay(path, validator,
            max_file_bytes: Codec.max_journal_bytes(),
            max_record_bytes: Codec.max_recovery_record_bytes()
          ) do

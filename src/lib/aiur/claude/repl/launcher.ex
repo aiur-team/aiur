@@ -9,10 +9,11 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   alias Aiur.{AgentEnvironment, ProcessReaper, Tmux}
   alias Aiur.Claude.Config
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Claude.Repl.Command
   alias Aiur.Claude.Repl.RcAttach
   alias Aiur.Claude.Repl.Reaper
+  alias Aiur.ProcessTree
+  alias Aiur.Tmux.Socket
 
   @ready_prompt "❯"
   @ready_poll_ms 200
@@ -20,7 +21,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   @spec start_session(Path.t(), keyword()) :: {:ok, Aiur.Claude.ReplAgent.session()} | {:error, term()}
   def start_session(workspace, opts \\ []) when is_binary(workspace) do
-    tmux = Keyword.get(opts, :tmux, Tmux)
+    tmux = Keyword.get(opts, :tmux, Socket.agents())
     expanded = Path.expand(workspace)
     model = Keyword.get(opts, :model) || Config.model()
     effort = Keyword.get(opts, :effort)
@@ -136,7 +137,7 @@ defmodule Aiur.Claude.Repl.Launcher do
       ctx.tmux,
       ctx.window_name,
       command,
-      telemetry_env ++ AgentEnvironment.shell_startup_env()
+      telemetry_env ++ Keyword.get(ctx.opts, :env, []) ++ AgentEnvironment.shell_startup_env()
     )
   end
 
@@ -145,7 +146,7 @@ defmodule Aiur.Claude.Repl.Launcher do
 
     provider =
       if is_integer(os_pid) and os_pid > 0 do
-        %{root_pid: os_pid, descendant_pids: RemoteControl.process_tree(os_pid)}
+        %{root_pid: os_pid, descendant_pids: ProcessTree.process_tree(os_pid)}
         |> maybe_put_process_group(process_group_id)
       else
         %{}
@@ -187,14 +188,14 @@ defmodule Aiur.Claude.Repl.Launcher do
 
   defp process_group(%{opts: opts}, os_pid) do
     opts
-    |> Keyword.get(:process_group_fun, &RemoteControl.process_group_for_pid/1)
+    |> Keyword.get(:process_group_fun, &ProcessTree.process_group_for_pid/1)
     |> then(& &1.(os_pid))
   end
 
   defp process_identity(%{opts: opts}, os_pid) do
     result =
       opts
-      |> Keyword.get(:process_identity_fun, &RemoteControl.process_identity/1)
+      |> Keyword.get(:process_identity_fun, &ProcessTree.process_identity/1)
       |> then(& &1.(os_pid))
 
     case result do
@@ -235,7 +236,7 @@ defmodule Aiur.Claude.Repl.Launcher do
         # The pane runs `exec claude`, so the pane pid IS the REPL; register
         # both so shutdown reaps survive either teardown path going stale.
         actor_meta = [ticket: ctx.identifier, backend: "claude-repl", worker_host: nil, remote: false]
-        ProcessReaper.register(ctx.process_reaper, :agent, {:pane, pane_id}, actor_meta)
+        ProcessReaper.register(ctx.process_reaper, :agent, Socket.pane_ref(ctx.tmux, pane_id), actor_meta)
         ProcessReaper.register(ctx.process_reaper, :agent, {:os_pid, os_pid}, [comm: "claude"] ++ actor_meta)
 
         build_ready_session(ctx, pane_id, os_pid, process_group_id, process_group_identity)
@@ -299,6 +300,8 @@ defmodule Aiur.Claude.Repl.Launcher do
       started_at: ctx.started_at,
       projects_dir: Keyword.get(ctx.opts, :projects_dir),
       model: ctx.model,
+      account_name: Keyword.get(ctx.opts, :account_name),
+      account_selection_reason: Keyword.get(ctx.opts, :account_selection_reason),
       remote_control: ctx.rc?,
       rc_name: ctx.rc_name,
       session_url: session_url,
@@ -311,7 +314,8 @@ defmodule Aiur.Claude.Repl.Launcher do
       # Set only when lifecycle hooks were injected (see maybe_hook_settings/2);
       # its presence is what routes run_turn to hook-driven detection.
       identifier: if(Map.get(ctx, :hooks?, false), do: ctx.identifier, else: nil),
-      tmux: ctx.tmux
+      tmux: ctx.tmux,
+      tmux_socket: Socket.name(ctx.tmux)
     }
   end
 

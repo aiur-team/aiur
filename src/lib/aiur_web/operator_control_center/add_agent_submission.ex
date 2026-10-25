@@ -2,8 +2,8 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmission do
   @moduledoc false
 
   alias Aiur.GitHub.StatePolicy
-  alias Aiur.Tracker
-  alias AiurWeb.Endpoint
+  alias Aiur.{Orchestrator.TicketTransition, Tracker}
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.AgentRoutingPreview
 
   @spec run(map()) :: map()
@@ -53,7 +53,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmission do
     do: "Labels saved. Admission could not be confirmed; Check admission to retry."
 
   defp mutate(identifier, {action, label}, result) do
-    fun = Endpoint.config(:add_agent_fun) || (&apply(Tracker, &3, [&1, &2]))
+    fun = EndpointConfig.get(:add_agent_fun) || (&TicketTransition.write_marker(&1, marker_action(&3), &2, writer: :add_agent_submission))
 
     case safe_call(fn -> call_label(fun, identifier, label, action) end) do
       :ok -> record(result, action, label)
@@ -62,6 +62,9 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmission do
       other -> {:halt, %{result | error: {:unexpected_tracker_response, other}}}
     end
   end
+
+  defp marker_action(:add_label), do: :add
+  defp marker_action(:remove_label), do: :remove
 
   defp record(result, action, label) do
     key = if action == :add_label, do: :added, else: :removed
@@ -82,7 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentSubmission do
   defp observed_state(_issue), do: nil
 
   defp fetch_issue(identifier) do
-    fun = Endpoint.config(:add_agent_verify_fun) || (&Tracker.fetch_issue_states_by_ids/1)
+    fun = EndpointConfig.get(:add_agent_verify_fun) || (&Tracker.fetch_issue_states_by_ids/1)
     safe_call(fn -> fun.([identifier]) end)
   end
 

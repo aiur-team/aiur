@@ -69,7 +69,7 @@ defmodule Aiur.Fs do
 
   @doc """
   Forces a durable directory entry after a first-ever file/directory
-  creation. `atomic_write/3` and `Aiur.DecisionLog.append/2` fsync their
+  creation. `atomic_write/3` and `Aiur.Journal.append/2` fsync their
   own file descriptor, but that never syncs the *parent* directory's
   inode — so the very first file created under a fresh directory can
   still lose its directory entry on a crash before any other write

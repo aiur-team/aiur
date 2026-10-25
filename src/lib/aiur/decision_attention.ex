@@ -11,11 +11,14 @@ defmodule Aiur.DecisionAttention do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, DecisionStore, Issue}
+  alias Aiur.{AlertFeed, DecisionStore, Issue, Signal}
+  alias Aiur.DecisionAttention.Correlation
+  alias Aiur.DecisionAttention.LegacyImport
+  alias Aiur.DecisionAttentionResolution
   alias Aiur.Events.SubscriptionStore
 
   @default_reask_interval_ms :timer.minutes(15)
-  @default_import_limit 100
+  @condition_attention_ttl_ms :timer.minutes(15)
   # The outer registry call must outlast DecisionStore's 60-second write call
   # so the caller cannot time out while the registry later opens the alert.
   @open_timeout 65_000
@@ -26,6 +29,7 @@ defmodule Aiur.DecisionAttention do
           worker_host: String.t() | nil,
           slug: String.t(),
           question: String.t(),
+          opened_at: DateTime.t(),
           timer_ref: reference() | nil
         }
 
@@ -125,9 +129,15 @@ defmodule Aiur.DecisionAttention do
       reask_interval_ms: Keyword.get(opts, :reask_interval_ms, @default_reask_interval_ms),
       alert_emitter: Keyword.get(opts, :alert_emitter, &emit_alert/1),
       resolution_emitter: Keyword.get(opts, :resolution_emitter, &emit_resolution_alert/1),
+      now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
+      condition_attention_ttl_ms: condition_attention_ttl_ms(opts),
       attention_loader: Keyword.get(opts, :attention_loader, &AlertFeed.list_decision_attentions/0),
       decision_projector: Keyword.get(opts, :decision_projector, &DecisionStore.project_attention/2),
-      import_limit: import_limit(opts),
+      decision_store: Keyword.get(opts, :decision_store, DecisionStore),
+      owner_lookup: Keyword.get(opts, :owner_lookup, fn _identifier -> :unknown end),
+      pid_alive?: Keyword.get(opts, :pid_alive?, &DecisionAttentionResolution.pid_alive?/1),
+      attention_acknowledged?: Keyword.get(opts, :attention_acknowledged?, &DecisionAttentionResolution.acknowledged?/1),
+      import_limit: LegacyImport.limit(opts),
       importing?: true,
       resolved_during_import: MapSet.new()
     }
@@ -147,11 +157,14 @@ defmodule Aiur.DecisionAttention do
       worker_host: worker_host,
       slug: slug,
       question: question,
+      opened_at: state.now_fun.(),
       timer_ref: nil
     }
 
     case project_attention(state.decision_projector, attention, opts) do
       {:ok, result} ->
+        attention = Map.put(attention, :decision_id, Correlation.decision_id(result))
+
         next_state =
           if actionable_decision?(result) do
             register_attention(state, identifier, key, attention)
@@ -176,6 +189,7 @@ defmodule Aiur.DecisionAttention do
       worker_host: worker_host,
       slug: slug,
       question: question,
+      opened_at: state.now_fun.(),
       timer_ref: nil
     }
 
@@ -183,34 +197,7 @@ defmodule Aiur.DecisionAttention do
   end
 
   def handle_call({:resolve, issue, slug}, _from, state) do
-    identifier = issue_identifier!(issue)
-    key = {identifier, slug}
-    attention = Map.get(state.attentions, key) || %{}
-    cancel_timer(attention)
-
-    :ok = SubscriptionStore.attach(identifier)
-    :ok = SubscriptionStore.resolve_attention(identifier, slug)
-
-    state.resolution_emitter.(%{
-      issue: issue,
-      workspace: Map.get(attention, :workspace),
-      worker_host: Map.get(attention, :worker_host),
-      slug: slug
-    })
-
-    resolved_during_import =
-      if state.importing? do
-        MapSet.put(state.resolved_during_import, key)
-      else
-        state.resolved_during_import
-      end
-
-    {:reply, :ok,
-     %{
-       state
-       | attentions: Map.delete(state.attentions, key),
-         resolved_during_import: resolved_during_import
-     }}
+    {:reply, :ok, resolve_attention(state, issue, slug)}
   end
 
   @impl true
@@ -220,24 +207,21 @@ defmodule Aiur.DecisionAttention do
         {:noreply, state}
 
       attention ->
-        emit(state.alert_emitter, attention)
-        next_attention = schedule_reask(attention, state.reask_interval_ms)
-        {:noreply, %{state | attentions: Map.put(state.attentions, key, next_attention)}}
+        if DecisionAttentionResolution.resolve?(attention, state) do
+          {:noreply, resolve_attention(state, attention.issue, attention.slug)}
+        else
+          emit(state.alert_emitter, unknown_owner_attention(attention, state))
+          next_attention = schedule_reask(attention, state.reask_interval_ms)
+          {:noreply, %{state | attentions: Map.put(state.attentions, key, next_attention)}}
+        end
     end
   end
 
   def handle_info({:legacy_attentions_loaded, attentions}, state) when is_list(attentions) do
-    {to_import, ignored} = Enum.split(attentions, state.import_limit)
+    attentions
+    |> LegacyImport.messages(state.import_limit)
+    |> Enum.each(&send(self(), &1))
 
-    if ignored != [] do
-      Logger.warning(
-        "decision_attention legacy_import_truncated " <>
-          "limit=#{state.import_limit} ignored_count=#{length(ignored)}"
-      )
-    end
-
-    Enum.each(to_import, &send(self(), {:restore_attention, &1}))
-    send(self(), :legacy_attention_import_complete)
     {:noreply, state}
   end
 
@@ -251,8 +235,18 @@ defmodule Aiur.DecisionAttention do
 
   def handle_info(_message, state), do: {:noreply, state}
 
+  defp unknown_owner_attention(%{slug: "stranded-requeued"} = attention, state) do
+    if DecisionAttentionResolution.owner_status(attention, state) == :unknown do
+      %{attention | question: "Ticket #{issue_identifier!(attention.issue)} has a stranded reminder, but its live-owner status could not be checked."}
+    else
+      attention
+    end
+  end
+
+  defp unknown_owner_attention(attention, _state), do: attention
+
   defp schedule_reask(attention, interval_ms) when is_integer(interval_ms) and interval_ms > 0 do
-    timer_ref = Process.send_after(self(), {:reask, attention_key(attention)}, interval_ms)
+    timer_ref = Process.send_after(self(), {:reask, Correlation.attention_key(attention)}, interval_ms)
     %{attention | timer_ref: timer_ref}
   end
 
@@ -317,29 +311,10 @@ defmodule Aiur.DecisionAttention do
 
     {:ok, _pid} =
       Task.start(fn ->
-        send(owner, {:legacy_attentions_loaded, safely_load_attentions(loader)})
+        send(owner, {:legacy_attentions_loaded, LegacyImport.load(loader)})
       end)
 
     :ok
-  end
-
-  defp safely_load_attentions(loader) do
-    case loader.() do
-      attentions when is_list(attentions) ->
-        attentions
-
-      _other ->
-        Logger.warning("decision_attention legacy_import_failed reason=invalid_loader_result")
-        []
-    end
-  rescue
-    error ->
-      Logger.warning("decision_attention legacy_import_failed reason=#{inspect(Exception.message(error))}")
-      []
-  catch
-    kind, reason ->
-      Logger.warning("decision_attention legacy_import_failed reason=#{inspect({kind, reason})}")
-      []
   end
 
   defp restore_attention(
@@ -369,10 +344,22 @@ defmodule Aiur.DecisionAttention do
       issue: issue,
       workspace: nil,
       worker_host: nil,
+      restored?: true,
       slug: slug,
       question: question,
+      opened_at: source_created_at || state.now_fun.(),
       timer_ref: nil
     }
+
+    if DecisionAttentionResolution.resolve?(attention, state) do
+      resolve_attention(state, issue, slug)
+    else
+      restore_actionable_attention(attention, source_created_at, key, state)
+    end
+  end
+
+  defp restore_actionable_attention(attention, source_created_at, key, state) do
+    identifier = issue_identifier!(attention.issue)
 
     opts = [
       source: %{agent_id: "legacy_attention", session_id: nil, event_id: nil},
@@ -385,19 +372,56 @@ defmodule Aiur.DecisionAttention do
         :ok = SubscriptionStore.attach(identifier)
 
         if actionable_decision?(result) do
-          :ok = SubscriptionStore.add_attention(identifier, slug)
+          :ok = SubscriptionStore.add_attention(identifier, attention.slug)
           next_attention = schedule_reask(attention, state.reask_interval_ms)
           %{state | attentions: Map.put(state.attentions, key, next_attention)}
         else
-          :ok = SubscriptionStore.resolve_attention(identifier, slug)
+          :ok = SubscriptionStore.resolve_attention(identifier, attention.slug)
           state.resolution_emitter.(attention)
           state
         end
 
       {:error, reason} ->
-        Logger.warning("decision_attention legacy_import_rejected issue_identifier=#{identifier} slug=#{slug} reason=#{inspect(reason)}")
+        Logger.warning("decision_attention legacy_import_rejected issue_identifier=#{identifier} slug=#{attention.slug} reason=#{inspect(reason)}")
 
         state
+    end
+  end
+
+  defp resolve_attention(state, issue, slug) do
+    identifier = issue_identifier!(issue)
+    key = {identifier, slug}
+    attention = Map.get(state.attentions, key) || %{}
+    cancel_timer(attention)
+
+    :ok = SubscriptionStore.attach(identifier)
+    :ok = SubscriptionStore.resolve_attention(identifier, slug)
+
+    state.resolution_emitter.(%{
+      issue: issue,
+      workspace: Map.get(attention, :workspace),
+      worker_host: Map.get(attention, :worker_host),
+      slug: slug
+    })
+
+    resolved_during_import =
+      if state.importing? do
+        MapSet.put(state.resolved_during_import, key)
+      else
+        state.resolved_during_import
+      end
+
+    %{
+      state
+      | attentions: Map.delete(state.attentions, key),
+        resolved_during_import: resolved_during_import
+    }
+  end
+
+  defp condition_attention_ttl_ms(opts) do
+    case Keyword.get(opts, :condition_attention_ttl_ms, @condition_attention_ttl_ms) do
+      ttl when is_integer(ttl) and ttl > 0 -> ttl
+      _invalid -> @condition_attention_ttl_ms
     end
   end
 
@@ -433,18 +457,18 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp emit_alert(attention) do
-    Alerts.emit_system(attention_topic(attention),
+    Signal.alert(Correlation.attention_topic(attention),
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,
-      reason: "Executor decision required: #{attention.question}",
+      reason: Correlation.alert_reason(attention),
       needs_attention: true,
       severity: "warning"
     )
   end
 
   defp emit_resolution_alert(attention) do
-    Alerts.emit_custom(resolution_topic(attention), "Executor decision updated",
+    Signal.agent_alert(Correlation.resolution_topic(attention), "Executor decision updated",
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,
@@ -454,19 +478,8 @@ defmodule Aiur.DecisionAttention do
     )
   end
 
-  defp attention_topic(attention), do: "ticket.#{issue_identifier!(attention.issue)}.agent.attention.#{attention.slug}"
-  defp resolution_topic(attention), do: attention_topic(attention) <> ".resolved"
-  defp attention_key(attention), do: {issue_identifier!(attention.issue), attention.slug}
-
   defp issue_identifier!(%Issue{id: id}) when is_binary(id) and id != "", do: id
   defp issue_identifier!(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
-
-  defp import_limit(opts) do
-    case Keyword.get(opts, :import_limit, @default_import_limit) do
-      limit when is_integer(limit) and limit > 0 -> limit
-      _invalid -> @default_import_limit
-    end
-  end
 
   defp cancel_timer(%{timer_ref: timer_ref}) when is_reference(timer_ref) do
     Process.cancel_timer(timer_ref)

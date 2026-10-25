@@ -20,6 +20,7 @@ defmodule Aiur.Events.DebugLog do
   The renderer maps these to 💬 / 📬 / 📄 respectively.
   """
 
+  @behaviour Aiur.Events.Trace
   @topic "aiur:events:debug"
 
   @type kind :: :publish | :receive | :read
@@ -64,6 +65,9 @@ defmodule Aiur.Events.DebugLog do
   @spec unsubscribe(String.t()) :: :ok
   def unsubscribe(identifier) when is_binary(identifier),
     do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, identifier_topic(identifier))
+
+  @impl true
+  def trace(kind, topic, opts), do: broadcast(kind, topic, opts)
 
   @spec broadcast(kind(), String.t(), keyword()) :: :ok
   def broadcast(kind, topic, opts \\ [])

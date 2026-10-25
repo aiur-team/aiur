@@ -10,7 +10,7 @@ defmodule Aiur.TicketActivity do
   use GenServer
 
   alias Aiur.{CurrentRunMembership, ProgressRetention, TicketObservation, TrackerIdentity}
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
   alias Aiur.TicketActivity.Projection
 
   @pubsub Aiur.PubSub
@@ -70,7 +70,7 @@ defmodule Aiur.TicketActivity do
       prune_interval_ms: positive_opt(opts, :prune_interval_ms, @default_prune_interval_ms)
     }
 
-    _ = Keyword.get(opts, :exchange_subscribe_fun, fn -> Exchange.subscribe("ticket.*.#") end).()
+    _ = Keyword.get(opts, :exchange_subscribe_fun, fn -> Events.subscribe("ticket.*.#") end).()
     _ = Keyword.get(opts, :membership_subscribe_fun, &CurrentRunMembership.subscribe/0).()
     schedule_prune(state.prune_interval_ms)
     {:ok, state}

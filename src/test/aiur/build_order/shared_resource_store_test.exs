@@ -11,42 +11,20 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
 
   use Aiur.TestSupport
 
+  import Aiur.BuildOrder.SharedResourceStoreSupport
+
   alias Aiur.BuildOrder.TicketDetail
-  alias Aiur.GitHub.{Issues, ResourceStore}
-  alias Aiur.TrackerIdentity
+  alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.ResourceStore
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @repository {"owner", "repo"}
-
   # The staleness a reader states it can accept. There is no default: a caller
   # that says nothing gets a conditional request rather than an arbitrarily old
   # body, which is the "never a silent guess" half of R7 and is pinned below.
   @tolerance_ms 30_000
 
   setup do
-    prev_token = System.get_env("GITHUB_TOKEN")
-    prev_cached_token = :persistent_term.get(@token_cache_key, :unset)
-    :persistent_term.erase(@token_cache_key)
-    System.put_env("GITHUB_TOKEN", "test-gh-token")
-
-    on_exit(fn ->
-      restore_env("GITHUB_TOKEN", prev_token)
-
-      case prev_cached_token do
-        :unset -> :persistent_term.erase(@token_cache_key)
-        token -> :persistent_term.put(@token_cache_key, token)
-      end
-    end)
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "github",
-      tracker_repo: "owner/repo",
-      tracker_label_prefix: "sym"
-    )
-
-    ResourceStore.reset()
-
-    {:ok, requests: start_recorder()}
+    {:ok, requests: prepare_shared_store()}
   end
 
   describe "criterion 2 — two opens inside the freshness window issue one read" do
@@ -267,133 +245,6 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
     end
   end
 
-  # A read and a webhook delivery race for the same key. The read's round trip is
-  # long, so "I fetched it" is routinely older news than "it just changed", and a
-  # write that ignores that does not merely hold a stale body — it stamps
-  # `fetched_at_ms` with now, so the stale body is described as freshly fetched
-  # and a reader asking for something recent is handed state from before the
-  # change.
-  describe "a newer body is never overwritten by an older read" do
-    test "a full read older than the held version is refused" do
-      key = ResourceStore.key(:issue, "owner", "repo", "7")
-
-      # A delivery lands first, carrying the newer object.
-      newer = Map.put(issue_body(7), "updated_at", "2026-01-09T00:00:00Z")
-      ResourceStore.put_resource(key, newer, source: :webhook, version: "2026-01-09T00:00:00Z")
-
-      # A read that was already in flight returns the older object.
-      recorder = start_recorder()
-      older = Map.put(issue_body(7), "updated_at", "2026-01-02T00:00:00Z")
-
-      request_fun =
-        recording_fun(recorder, fn _request ->
-          {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: older}}
-        end)
-
-      assert {:ok, _body, :fetched} =
-               Issues.fetch_issue_raw_conditional(7,
-                 repository: @repository,
-                 request_fun: request_fun,
-                 revalidate: true
-               )
-
-      # The caller still gets what it fetched — refusing the deposit is not
-      # refusing the read — but the store keeps the newer object.
-      assert {:ok, %{data: held, version: "2026-01-09T00:00:00Z"}} = ResourceStore.fetch(key)
-      assert held == newer
-    end
-
-    # The `304` path is a read-then-write pair, so it has the same hazard with a
-    # narrower window: it re-deposits the body it just read in order to move the
-    # freshness clock. A delivery landing in between must survive.
-    test "refreshing a validated body does not clobber a newer one" do
-      key = ResourceStore.key(:issue, "owner", "repo", "7")
-      older = Map.put(issue_body(7), "updated_at", "2026-01-02T00:00:00Z")
-      newer = Map.put(issue_body(7), "updated_at", "2026-01-09T00:00:00Z")
-
-      recorder = start_recorder()
-
-      request_fun =
-        recording_fun(recorder, fn request ->
-          case Map.get(request, :etag) do
-            nil -> {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: older}}
-            "\"v1\"" -> {:ok, %{status: 304, headers: [{"etag", "\"v1\""}]}}
-          end
-        end)
-
-      base = [repository: @repository, request_fun: request_fun]
-      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, base)
-
-      # The delivery lands between the read and its revalidation, carrying the
-      # validator the held body was fetched under. That is what keeps this case
-      # about the `304` path: a delivery that deposits a *different* body with no
-      # validator of its own discards the held one — a validator may never sit
-      # beside a body it does not describe — and the revalidation would then be an
-      # unconditional read rather than the read-then-write pair under test.
-      ResourceStore.put_resource(key, newer,
-        source: :webhook,
-        version: "2026-01-09T00:00:00Z",
-        etag: "\"v1\""
-      )
-
-      assert {:ok, _body, :not_modified} =
-               Issues.fetch_issue_raw_conditional(7, base ++ [revalidate: true])
-
-      assert {:ok, %{data: held, version: "2026-01-09T00:00:00Z"}} = ResourceStore.fetch(key)
-      assert held == newer
-    end
-
-    # The two tests above can only observe the outcome, not the window: the body a
-    # `304` re-deposits is read microseconds earlier, so a single-threaded test
-    # cannot get between the read and the write. This one does it the only way that
-    # actually proves anything — concurrently, the way the store's own authors
-    # demonstrated that `fetch/1` + `put_resource/3` "regressed the held body
-    # within the first twenty writes".
-    #
-    # The invariant is not "the newest write wins" — that is a race by
-    # construction. It is that the entry is never *incoherent*: the held body's
-    # own `updated_at` must always be the held `version`, and the version must
-    # never go backwards. A clobber breaks exactly that pairing, by stamping one
-    # writer's version onto another writer's body.
-    test "concurrent deliveries and clock refreshes never leave a mismatched entry" do
-      key = ResourceStore.key(:issue, "owner", "repo", "7")
-      versions = Enum.map(1..40, &"2026-01-01T00:00:#{String.pad_leading(to_string(&1), 2, "0")}Z")
-
-      body_for = fn version ->
-        Map.merge(issue_body(7), %{"updated_at" => version, "title" => version})
-      end
-
-      [seed | _rest] = versions
-      ResourceStore.put_resource(key, body_for.(seed), source: :webhook, version: seed, etag: "\"v1\"")
-
-      request_fun = fn _request -> {:ok, %{status: 304, headers: [{"etag", "\"v1\""}]}} end
-      opts = [repository: @repository, request_fun: request_fun, revalidate: true]
-
-      deliveries =
-        for version <- versions do
-          Task.async(fn ->
-            ResourceStore.put_resource(key, body_for.(version), source: :webhook, version: version)
-          end)
-        end
-
-      refreshes = for _ <- 1..40, do: Task.async(fn -> Issues.fetch_issue_raw_conditional(7, opts) end)
-
-      Task.await_many(deliveries ++ refreshes, 10_000)
-
-      assert {:ok, %{data: held, version: version}} = ResourceStore.fetch(key)
-
-      # The body and the version it is filed under must describe the same object.
-      assert held["updated_at"] == version
-      assert held["title"] == version
-
-      # The winner is deliberately not asserted: forty deliveries racing each other
-      # have no defined order, so "the newest wins" would be a flake dressed as a
-      # guarantee. What is guaranteed is that the entry holds *some* object that
-      # was really deposited, whole.
-      assert version in versions
-    end
-  end
-
   describe "criterion 5 — the daemon poll and Build Order share one read" do
     test "a ticket the tracker already fetched is served to Build Order with no request" do
       recorder = start_recorder()
@@ -450,139 +301,4 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       assert issue_count(recorder) == 2
     end
   end
-
-  describe "failing open" do
-    # R11: store unavailable means behave exactly as before the store existed.
-    # The store is genuinely stopped, not merely emptied — `reset/0` leaves the
-    # ETS table and the owning process alive, so it proves a cache miss and says
-    # nothing about a store that is down. Those are different code paths:
-    # `with_table/2`'s `:undefined` branch is only reached when the table is gone.
-    test "with no store running the read is unconditional, exactly as before" do
-      recorder = start_recorder()
-      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
-      opts = [repository: @repository, request_fun: request_fun, freshness_ms: @tolerance_ms]
-
-      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
-
-      # Held now, so a second read inside the window would normally cost nothing.
-      # Everything below is therefore attributable to the store being gone.
-      assert count(recorder) == 1
-
-      stop_store!()
-
-      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
-      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
-
-      # Every read pays, and none of them raises into the caller: degrade, never
-      # fail. A conditional request is impossible too — there is no validator to
-      # send, so this must be the unconditional pre-store shape.
-      assert count(recorder) == 3
-      assert Enum.all?(requests(recorder), &(not Map.has_key?(&1, :etag)))
-    end
-
-    # A cache miss is not a stopped store, and the case above no longer proves
-    # both. This is the miss, kept separately so neither can stand in for the
-    # other.
-    test "an empty store misses and fetches without a validator" do
-      recorder = start_recorder()
-      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
-      opts = [repository: @repository, request_fun: request_fun, freshness_ms: @tolerance_ms]
-
-      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
-
-      ResourceStore.reset()
-
-      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
-      assert count(recorder) == 2
-    end
-  end
-
-  # -- helpers ---------------------------------------------------------------
-
-  # Actually terminates the supervised store and waits for it to be down, so the
-  # ETS table is gone and `ResourceStore.with_table/2` takes its storeless
-  # branch. `reset/0` cannot do this: it empties a table that is still there.
-  defp stop_store! do
-    on_exit(fn ->
-      case Process.whereis(ResourceStore) do
-        nil -> Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
-        _pid -> :ok
-      end
-
-      ResourceStore.reset()
-    end)
-
-    case Process.whereis(ResourceStore) do
-      nil ->
-        :ok
-
-      pid ->
-        ref = Process.monitor(pid)
-        Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
-
-        receive do
-          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-        after
-          5_000 -> flunk("ResourceStore did not stop")
-        end
-    end
-  end
-
-  defp issue_body(number) do
-    %{
-      "number" => number,
-      "title" => "Ticket #{number}",
-      "body" => "description",
-      "html_url" => "https://github.com/owner/repo/issues/#{number}",
-      "labels" => [%{"name" => "sym:todo"}],
-      "assignee" => nil,
-      "created_at" => "2026-01-01T00:00:00Z",
-      "updated_at" => "2026-01-02T00:00:00Z"
-    }
-  end
-
-  defp ok_issue(number) do
-    {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: issue_body(number)}}
-  end
-
-  defp ticket_identity(number, node_id) do
-    {:ok, identity} =
-      TrackerIdentity.from_github(
-        %{"node_id" => node_id, "number" => number},
-        @repository,
-        @repository
-      )
-
-    identity
-  end
-
-  defp start_recorder do
-    {:ok, pid} = Agent.start_link(fn -> [] end)
-    pid
-  end
-
-  defp recording_fun(recorder, fun) do
-    fn request ->
-      Agent.update(recorder, &[request | &1])
-      fun.(request)
-    end
-  end
-
-  defp requests(recorder), do: recorder |> Agent.get(& &1) |> Enum.reverse()
-  defp count(recorder), do: recorder |> requests() |> length()
-
-  # Reads of the issue resource itself, which is what these tests are about.
-  #
-  # The dispatch poll additionally reads `/issues/{n}/timeline` through
-  # `Aiur.GitHub.DispatchAuthorization`. That is a genuinely different resource,
-  # not a duplicate of this one, so counting it here would hide the thing being
-  # measured. It is also still unconditional — named in the PR rather than
-  # folded into a percentage, and out of scope for this change.
-  defp issue_requests(recorder) do
-    recorder
-    |> requests()
-    |> Enum.filter(&String.match?(&1.url, ~r{/issues/\d+$}))
-  end
-
-  defp issue_count(recorder), do: recorder |> issue_requests() |> length()
 end

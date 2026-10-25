@@ -16,11 +16,6 @@ defmodule AiurWeb.StreamdeckLogs do
       messages, tool calls, commands, diffs. They are the detail underneath an
       event, never a key of their own.
 
-  The surface previously fed both roles from the transcript alone and grouped it
-  by `turn_id`. That is what produced a single, endlessly-rewritten event key: a
-  turn is one grouping of dozens of messages, so the whole page collapsed into
-  one "event" whose label was simply the newest thing the agent had typed.
-
   ## Ordering
 
   Everything here is **oldest first**, in both axes, because the surface is read
@@ -46,7 +41,7 @@ defmodule AiurWeb.StreamdeckLogs do
   parallel array, so there is no off-by-one to get wrong when the anchors move.
   """
 
-  alias Aiur.AgentEventFeed
+  alias Aiur.{AgentEventFeed, Conversation.Anchors, Conversation.History}
 
   # LIVE is pinned to the rightmost key, so each page of events shows one fewer
   # event than the physical key count (seven, against eight keys). All paging
@@ -58,12 +53,8 @@ defmodule AiurWeb.StreamdeckLogs do
   # rows fit is a render decision the server cannot make for it.
   @transcript_window_size 2
 
-  # The badge is the only thing the projection emits; the shared key-face
-  # contract owns both the set of directions and the colour each one paints
-  # with, so the emulator and the packaged deck cannot drift apart.
-  @directions Map.keys(AiurWeb.StreamdeckKeyFaceContract.direction_badges())
+  @directions AgentEventFeed.directions()
 
-  @origin_id :origin
   @live_id :live
 
   @type source :: %{optional(:events) => [map()], optional(:transcript) => [map()]}
@@ -80,7 +71,7 @@ defmodule AiurWeb.StreamdeckLogs do
     transcript_entries = source |> Map.get(:transcript, []) |> oldest_first() |> Enum.map(&entry/1)
     bus = source |> Map.get(:events, []) |> Enum.map(&bus_event/1)
 
-    events = bus |> with_origin(transcript_entries) |> assign_entries(transcript_entries) |> Enum.with_index() |> Enum.map(&indexed/1)
+    events = bus |> with_origin(transcript_entries) |> Anchors.at_or_before(transcript_entries) |> Enum.with_index() |> Enum.map(&indexed/1)
     {flat, starts} = flatten(events)
     # Every row is addressable as a reading position — an event header in the
     # last rows still has to be somewhere a key can jump to. The *window* is
@@ -247,18 +238,13 @@ defmodule AiurWeb.StreamdeckLogs do
   end
 
   @spec line(map()) :: String.t()
-  def line(%{kind: :event_header, badge: badge, body: body}), do: "[#{badge}] #{body}"
-  def line(%{kind: :message, role: role, body: body}), do: "[#{role}] #{body}"
-  # An unrolled hunk line keeps its own sign, which is the only thing that says
-  # whether it was added or removed. Without this clause it fell to the
-  # catch-all and every line of every diff read "[INFO]".
-  def line(%{kind: :diff_line, sign: sign, text: text}), do: "#{sign}#{text}"
-
-  def line(%{kind: :diff, path: path, additions: additions, deletions: deletions, line: line}) do
-    "[diff] #{path || "changed file"} +#{additions} -#{deletions}" <> if(is_binary(line) and line != "", do: " #{line}", else: "")
-  end
-
-  def line(_entry), do: "[INFO]"
+  defdelegate line(entry), to: AiurWeb.StreamdeckLogs.Rows
+  @spec row_kind(String.t() | atom()) :: :agent | :command | :user | :logs
+  defdelegate row_kind(role), to: AiurWeb.StreamdeckLogs.Rows
+  @spec glyph(String.t() | atom(), term()) :: String.t() | nil
+  defdelegate glyph(role, body), to: AiurWeb.StreamdeckLogs.Rows
+  @spec tool_display(term()) :: term()
+  defdelegate tool_display(body), to: AiurWeb.StreamdeckLogs.Rows
 
   # ---------------------------------------------------------------------------
   # Events
@@ -266,13 +252,7 @@ defmodule AiurWeb.StreamdeckLogs do
 
   defp bus_event(row) do
     %{
-      # The kind is part of the identity, not decoration. A ticket subscribes to
-      # some of its own topics, so the same event id can be written twice — once
-      # as `[event:emit]` when published and once as `[event:consumed]` when
-      # delivered back. Keying on the id alone made those two rows one identity,
-      # and a refresh silently moved the selection from the row the operator
-      # picked to its twin, dragging the transcript with it.
-      id: {:bus, value(row, :kind, "emit"), value(row, :id)},
+      id: Anchors.event_identity(value(row, :kind, "emit"), value(row, :id)),
       badge: direction(value(row, :badge, "EMIT")),
       label: value(row, :label, "Event"),
       body: summary(value(row, :label, "Event"), value(row, :body, "")),
@@ -280,75 +260,10 @@ defmodule AiurWeb.StreamdeckLogs do
     }
   end
 
-  # The origin exists so the surface always has a beginning. A ticket that has
-  # published nothing still has a transcript, and every entry of it belongs
-  # somewhere; without an anchor those rows would sit above the first header
-  # with no key able to reach them.
   defp with_origin(events, transcript_entries) do
-    origin = %{
-      id: @origin_id,
-      badge: "INFO",
-      label: "Ticket opened",
-      body: "Ticket opened",
-      timestamp: earliest(events, transcript_entries)
-    }
-
-    [origin | events]
+    [origin | rest] = Anchors.with_origin(events, transcript_entries)
+    [Map.merge(origin, %{badge: "INFO", label: "Ticket opened", body: "Ticket opened"}) | rest]
   end
-
-  defp earliest(events, transcript_entries) do
-    (Enum.map(events, & &1.timestamp) ++ Enum.map(transcript_entries, & &1.timestamp))
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(&to_string/1)
-    |> Enum.min(fn -> nil end)
-  end
-
-  # Every transcript entry belongs to the last event at or before it. Entries
-  # with no usable timestamp fall to the origin rather than being dropped: an
-  # unattributable row is still something the agent said.
-  defp assign_entries(events, transcript_entries) do
-    events
-    |> Enum.reverse()
-    |> Enum.map_reduce(transcript_entries, fn event, remaining ->
-      {mine, earlier} = Enum.split_with(remaining, &at_or_after?(&1, event.timestamp))
-      {Map.put(event, :entries, mine), earlier}
-    end)
-    |> then(fn {assigned, leftover} -> attach_leftover(Enum.reverse(assigned), leftover) end)
-  end
-
-  defp attach_leftover([origin | rest], leftover), do: [Map.update!(origin, :entries, &(leftover ++ &1)) | rest]
-  defp attach_leftover([], _leftover), do: []
-
-  # An event with no usable timestamp claims nothing rather than everything.
-  # The walk runs newest-first and uses `split_with`, so a boundary that matched
-  # every entry would hand one malformed event the whole transcript and leave
-  # every older key — including the origin — empty. Unmatched entries still
-  # reach the origin through `attach_leftover/2`, which is where they belong.
-  defp at_or_after?(_entry, nil), do: false
-  defp at_or_after?(%{timestamp: nil}, _boundary), do: false
-
-  defp at_or_after?(%{timestamp: timestamp}, boundary) do
-    case {instant(timestamp), instant(boundary)} do
-      {%DateTime{} = at, %DateTime{} = edge} -> DateTime.compare(at, edge) != :lt
-      # Neither side parses as an instant: a lexical comparison is the only
-      # ordering left, and it is right for the same-shape UTC strings both
-      # producers actually emit.
-      _ -> to_string(timestamp) >= to_string(boundary)
-    end
-  end
-
-  # Parsed rather than compared as strings: ISO 8601 is only lexically ordered
-  # when both sides share a precision and an offset. "10:00:00Z" against
-  # "10:00:00.5Z" compares "Z" to ".", which sorts the later instant first.
-  defp instant(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, at, _offset} -> at
-      _ -> nil
-    end
-  end
-
-  defp instant(%DateTime{} = value), do: value
-  defp instant(_value), do: nil
 
   defp indexed({event, index}), do: Map.put(event, :index, index)
 
@@ -563,60 +478,6 @@ defmodule AiurWeb.StreamdeckLogs do
 
   defp body(entry), do: value(entry, :body, "") |> to_string() |> String.replace(~r/\R/u, " ") |> String.trim()
 
-  # Row kind drives the per-kind colour on both the emulator and the device.
-  # Commands and tool rows are one class (the agent acting on an external
-  # surface); agent prose is another; system/reasoning/alert are the "logs"
-  # class. The third distinct colour (tan) belongs to logs.
-  @doc false
-  @spec row_kind(String.t() | atom()) :: :agent | :command | :user | :logs
-  def row_kind(role) when role in ["assistant", :assistant], do: :agent
-  def row_kind(role) when role in ["command", :command, "tool", :tool], do: :command
-  def row_kind(role) when role in ["user", :user], do: :user
-  def row_kind(_role), do: :logs
-
-  # The opencode-style glyph gutter (#1934): `$` commands, `→` read, `←`
-  # edit/write, `⚙` generic tools. The verb is detected from the RAW body
-  # (before the prefix is stripped).
-  @doc false
-  @spec glyph(String.t() | atom(), term()) :: String.t() | nil
-  def glyph(role, body) when role in ["tool", :tool] and is_binary(body) do
-    case tool_verb(body) do
-      :read -> "→"
-      :write -> "←"
-      :edit -> "←"
-      nil -> "⚙"
-    end
-  end
-
-  def glyph(role, _body) when role in ["command", :command], do: "$"
-  def glyph(_role, _body), do: nil
-
-  @doc false
-  @spec tool_display(term()) :: term()
-  def tool_display(body) when is_binary(body) do
-    case tool_verb(body) do
-      verb when verb in [:read, :write, :edit] ->
-        case String.split(body, " ", parts: 2) do
-          [_verb, rest] -> rest
-          _ -> body
-        end
-
-      nil ->
-        body
-    end
-  end
-
-  def tool_display(body), do: body
-
-  defp tool_verb(body) when is_binary(body) do
-    cond do
-      String.starts_with?(body, "read ") -> :read
-      String.starts_with?(body, "write ") -> :write
-      String.starts_with?(body, "edit ") -> :edit
-      true -> nil
-    end
-  end
-
   defp value(map, key, default \\ nil) do
     Map.get(map, key, Map.get(map, Atom.to_string(key), default))
   end
@@ -627,11 +488,11 @@ defmodule AiurWeb.StreamdeckLogs do
   @spec load(String.t()) :: map()
   def load(identifier) when is_binary(identifier) do
     transcript =
-      case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+      case History.transcript(identifier, %{"limit" => 50}) do
         {:ok, %{events: events}} -> events
         _ -> []
       end
 
-    project(%{events: AgentEventFeed.bus_events(identifier), transcript: transcript})
+    project(%{events: History.bus_events(identifier), transcript: transcript})
   end
 end

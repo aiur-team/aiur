@@ -48,8 +48,10 @@ defmodule Aiur.GitHub.TrackerTest do
     :ok
   end
 
-  test "implements Tracker behaviour" do
-    assert {:ok, _issues} = GitHubTracker.fetch_candidate_issues()
+  test "implements issue tracker and code host behaviours" do
+    behaviours = Keyword.get_values(GitHubTracker.module_info(:attributes), :behaviour) |> List.flatten()
+    assert Aiur.Tracker.IssueTracker in behaviours
+    assert Aiur.Tracker.CodeHost in behaviours
   end
 
   test "fetch_issues_by_states delegates to client" do
@@ -79,6 +81,11 @@ defmodule Aiur.GitHub.TrackerTest do
   test "hydrate_blocked_by delegates to client" do
     issue = %Issue{id: "42", identifier: "42", state: "todo"}
     assert {:ok, ^issue} = GitHubTracker.hydrate_blocked_by(issue)
+  end
+
+  test "Tracker cached_blocked_by does not fetch when the cache has no dependency fact" do
+    issue = %Issue{id: "42", identifier: "42", state: "todo"}
+    assert {:error, :cache_miss} = Aiur.Tracker.cached_blocked_by(issue)
   end
 
   test "fetch_issue_states_by_ids_conditional delegates with the persistent cache" do

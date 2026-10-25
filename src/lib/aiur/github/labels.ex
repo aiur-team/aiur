@@ -16,6 +16,7 @@ defmodule Aiur.GitHub.Labels do
   """
 
   alias Aiur.CodingAgent
+  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.Transport
 
   @base_url "https://api.github.com"
@@ -23,16 +24,40 @@ defmodule Aiur.GitHub.Labels do
   # Agent lifecycle state suffixes the orchestrator manages. Test-reset cleanup
   # consumes `state_labels/1` directly so this remains the single source.
   @state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)
+  @reason_modifier_suffixes ~w(merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent retrying blocked handed-off)
+  @runtime_reason_modifiers %{
+    usage_limit_exhausted: "paused-usage-limit",
+    provider_limited: "paused-usage-limit",
+    input_required: "paused-decision",
+    waiting_for_human: "paused-decision",
+    agent_pause_request: "paused-agent",
+    blocker_dependency: "blocked",
+    waiting_for_dependency: "blocked",
+    backing_off: "retrying",
+    merge_queue: "merge-queued",
+    ci_red: "ci-red",
+    body_fix: "body-fix",
+    handed_off: "handed-off",
+    workspace_ownership_waiting: "handed-off",
+    workspace_retained: "handed-off"
+  }
 
-  # Marker labels. NOT lifecycle states — the orchestrator never treats these as
-  # dispatch states. Kept out of `@state_suffixes` so they never enter the state
-  # machine, but created by `label_set/2` so `aiur init` seeds them and the
-  # Executor can apply them.
+  # Static marker labels. NOT lifecycle states — the orchestrator never treats
+  # these as dispatch states. Owner-valued Executor labels are dynamic and are
+  # ensured by `aiur take` when one is written.
   @watch_suffix "watch"
   @paused_suffix "paused"
   @parked_suffix "parked"
+  @executor_suffix "executor"
+  @queued_suffix "queued"
   @rate_limit_fallback_suffix "rate-limit-fallback"
-  @marker_suffixes [@watch_suffix, @paused_suffix, @parked_suffix, @rate_limit_fallback_suffix]
+  @marker_suffixes [
+    @watch_suffix,
+    @paused_suffix,
+    @parked_suffix,
+    @queued_suffix,
+    @rate_limit_fallback_suffix
+  ]
 
   @type request :: %{
           method: :post,
@@ -46,7 +71,9 @@ defmodule Aiur.GitHub.Labels do
   @doc "Full label set to create for a repo, given the label prefix and chosen backends."
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
-    state_labels(prefix) ++
+    ["flake"] ++
+      state_labels(prefix) ++
+      reason_modifier_labels(prefix) ++
       required_rate_limit_fallback_labels(prefix) ++
       (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
       model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
@@ -54,6 +81,53 @@ defmodule Aiur.GitHub.Labels do
 
   @spec state_labels(String.t()) :: [String.t()]
   def state_labels(prefix), do: Enum.map(@state_suffixes, &"#{prefix}:#{&1}")
+
+  @doc "The complete set of workflow state suffixes accepted by the GitHub tracker."
+  @spec state_suffixes() :: [String.t()]
+  def state_suffixes, do: @state_suffixes
+
+  @doc "Reason labels that may accompany one workflow state label."
+  @spec reason_modifier_suffixes() :: [String.t()]
+  def reason_modifier_suffixes, do: @reason_modifier_suffixes
+
+  @spec reason_modifier_labels(String.t()) :: [String.t()]
+  def reason_modifier_labels(prefix), do: Enum.map(@reason_modifier_suffixes, &"#{prefix}:#{&1}")
+
+  @doc "Returns present state and reason labels in the canonical vocabulary order."
+  @spec present_runtime_labels(term(), String.t()) :: [String.t()]
+  def present_runtime_labels(labels, prefix) when is_list(labels) do
+    present = MapSet.new(Enum.map(labels, &(String.downcase(to_string(&1)) |> String.trim())))
+
+    (state_labels(prefix) ++ reason_modifier_labels(prefix) ++ Enum.map(~w(paused parked queued rate-limit-fallback), &"#{prefix}:#{&1}"))
+    |> Enum.filter(&MapSet.member?(present, String.downcase(&1)))
+  end
+
+  def present_runtime_labels(_labels, _prefix), do: []
+
+  @doc """
+  The tracker's runtime labels plus the reason label for each live runtime
+  cause (pause or waiting reason), in vocabulary order. Every surface renders
+  this list verbatim, so a cause the tracker has not caught up with yet still
+  shows its own label rather than a local word.
+  """
+  @spec runtime_labels(term(), [term()], String.t()) :: [String.t()]
+  def runtime_labels(labels, causes, prefix) do
+    inferred = causes |> Enum.map(&runtime_reason_modifier/1) |> Enum.reject(&is_nil/1) |> Enum.map(&"#{prefix}:#{&1}")
+    present_runtime_labels(List.wrap(labels) ++ inferred, prefix)
+  end
+
+  @doc "`runtime_labels/3` without the workflow state label."
+  @spec runtime_reason_labels(term(), [term()], String.t()) :: [String.t()]
+  def runtime_reason_labels(labels, causes, prefix), do: runtime_labels(labels, causes, prefix) -- state_labels(prefix)
+
+  @doc "Whether a bare suffix names a known orthogonal runtime reason."
+  @spec reason_modifier_suffix?(term()) :: boolean()
+  def reason_modifier_suffix?(suffix) when is_binary(suffix), do: String.downcase(String.trim(suffix)) in @reason_modifier_suffixes
+  def reason_modifier_suffix?(_suffix), do: false
+
+  @doc "Maps a runtime cause to its canonical reason-label suffix."
+  @spec runtime_reason_modifier(term()) :: String.t() | nil
+  def runtime_reason_modifier(reason), do: Map.get(@runtime_reason_modifiers, reason)
 
   @doc "The opt-in PR-watch marker label, given the prefix (e.g. `agent:watch`)."
   @spec watch_labels(String.t()) :: [String.t()]
@@ -67,6 +141,14 @@ defmodule Aiur.GitHub.Labels do
   @spec parked_labels(String.t()) :: [String.t()]
   def parked_labels(prefix), do: ["#{prefix}:#{@parked_suffix}"]
 
+  @doc "Prefix for the owner-valued Executor hold marker."
+  @spec executor_label_prefix(String.t()) :: String.t()
+  def executor_label_prefix(prefix), do: "#{prefix}:#{@executor_suffix}:"
+
+  @doc "The build-queue marker label, given the prefix (e.g. `agent:queued`)."
+  @spec queued_labels(String.t()) :: [String.t()]
+  def queued_labels(prefix), do: ["#{prefix}:#{@queued_suffix}"]
+
   @doc "The marker that records ownership of an automatic usage-limit fallback."
   @spec rate_limit_fallback_marker_labels(String.t()) :: [String.t()]
   def rate_limit_fallback_marker_labels(prefix), do: ["#{prefix}:#{@rate_limit_fallback_suffix}"]
@@ -77,9 +159,16 @@ defmodule Aiur.GitHub.Labels do
   @doc "Labels required for the configured rate-limit fallback pair."
   @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
   def required_rate_limit_fallback_labels(prefix),
-    do: required_rate_limit_fallback_labels(prefix, CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback())
+    do:
+      required_rate_limit_fallback_labels(
+        prefix,
+        CodingAgent.default_backend(),
+        CodingAgent.default_rate_limit_fallback()
+      )
 
-  @spec required_rate_limit_fallback_labels(String.t(), String.t(), String.t() | nil) :: [String.t()]
+  @spec required_rate_limit_fallback_labels(String.t(), String.t(), String.t() | nil) :: [
+          String.t()
+        ]
   def required_rate_limit_fallback_labels(prefix, _primary, fallback) do
     rate_limit_fallback_marker_labels(prefix) ++
       case fallback do
@@ -91,12 +180,17 @@ defmodule Aiur.GitHub.Labels do
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()
   def marker_suffix?(suffix) when is_binary(suffix),
-    do: String.downcase(String.trim(suffix)) in @marker_suffixes
+    do: marker_name?(String.downcase(String.trim(suffix))) or reason_modifier_suffix?(suffix)
 
   def marker_suffix?(_suffix), do: false
 
+  defp marker_name?("executor:" <> _owner), do: true
+  defp marker_name?("executor"), do: true
+  defp marker_name?(suffix), do: suffix in @marker_suffixes
+
   @spec model_labels([String.t()], (String.t() -> [String.t()])) :: [String.t()]
-  def model_labels(backends, ids_for \\ &CodingAgent.models/1), do: CodingAgent.override_labels(backends, ids_for)
+  def model_labels(backends, ids_for \\ &CodingAgent.models/1),
+    do: CodingAgent.override_labels(backends, ids_for)
 
   # The `model:remote` flag (force remote-control on at launch) only
   # makes sense when the claude backend is chosen; it pairs with a
@@ -120,6 +214,7 @@ defmodule Aiur.GitHub.Labels do
 
   @doc "A short human description for any label in `label_set/2`."
   @spec describe(String.t()) :: String.t()
+  def describe("flake"), do: "known intermittent test failure"
   def describe("complexity:" <> n), do: "story-point complexity #{n}"
   def describe("model:remote"), do: "Supports claude remote-control"
 
@@ -130,16 +225,35 @@ defmodule Aiur.GitHub.Labels do
   end
 
   def describe(label) do
-    case String.split(label, ":", parts: 2) do
-      [_prefix, suffix] -> state_description(suffix)
-      _ -> ""
+    case String.split(label, ":") do
+      [_prefix, "executor", owner] when owner != "" ->
+        "Executor-owned by #{owner}: no dispatch, no fleet slot"
+
+      [_prefix, "executor"] ->
+        "Executor-owned by unknown owner: no dispatch, no fleet slot"
+
+      [_prefix, suffix] ->
+        state_description(suffix)
+
+      _ ->
+        ""
     end
   end
 
   defp state_description("watch"), do: "aiur watches this PR for comments"
   defp state_description("paused"), do: "suppress aiur work while preserving state"
   defp state_description("parked"), do: "operator-held: no dispatch, no comment-driven rework"
+  defp state_description("queued"), do: "in the build queue; not yet ready"
   defp state_description("rate-limit-fallback"), do: "tracks automatic usage-limit fallback"
+  defp state_description("merge-queued"), do: "approved pull request is waiting in the merge queue"
+  defp state_description("ci-red"), do: "required CI checks failed"
+  defp state_description("body-fix"), do: "pull request body needs a documentation or evidence fix"
+  defp state_description("paused-usage-limit"), do: "paused because the provider usage limit is exhausted"
+  defp state_description("paused-decision"), do: "paused while waiting for an operator decision"
+  defp state_description("paused-agent"), do: "paused at the agent's request"
+  defp state_description("retrying"), do: "waiting for the retry back-off"
+  defp state_description("blocked"), do: "blocked by an open dependency"
+  defp state_description("handed-off"), do: "work handed to another Aiur instance"
   defp state_description("todo"), do: "ready to be worked"
   defp state_description("in-progress"), do: "agent is working it"
   defp state_description("ci-wait"), do: "awaiting CI before human review"
@@ -179,11 +293,18 @@ defmodule Aiur.GitHub.Labels do
           do: :ok,
           else: {:error, {:github_api_status, 422, label}}
 
-      {:ok, %{status: status}} ->
-        {:error, {:github_api_status, status, label}}
+      {:ok, %{status: status} = response} ->
+        label_error(response, {:github_api_status, status, label})
 
-      {:error, reason} ->
-        {:error, {:github_api_request, reason}}
+      {:error, reason} = error ->
+        label_error(error, {:github_api_request, reason})
+    end
+  end
+
+  defp label_error(response, fallback) do
+    case Errors.classify_error(response) do
+      {:github, kind, _} = reason when kind in [:rate_limited, :local_hold] -> {:error, reason}
+      _ -> {:error, fallback}
     end
   end
 

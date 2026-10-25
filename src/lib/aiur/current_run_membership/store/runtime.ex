@@ -9,6 +9,15 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   @max_snapshot_limit 1_000
 
+  @spec cache_members(map()) :: map()
+  def cache_members(%{projection: %{generation: generation}, member_cache: %{generation: generation}} = state), do: state
+
+  def cache_members(state) do
+    members = Projection.members(state.projection)
+    last_observed_at = members |> Enum.map(& &1.last_observed_at) |> Enum.max_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
+    Map.put(state, :member_cache, %{generation: state.projection.generation, members: members, last_observed_at: last_observed_at})
+  end
+
   @spec handle_observation(Event.t(), map()) :: {:reply, term(), map()}
   def handle_observation(event, state) do
     case Projection.apply(state.projection, event) do
@@ -22,7 +31,8 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   @spec snapshot(map(), term()) :: map()
   def snapshot(state, limit) do
-    members = Projection.members(state.projection)
+    state = cache_members(state)
+    members = state.member_cache.members
     visible_members = Enum.take(members, snapshot_limit(limit))
 
     %{
@@ -76,15 +86,11 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   @spec freshness(map()) :: map()
   def freshness(state) do
-    last_observed_at =
-      state.projection
-      |> Projection.members()
-      |> Enum.map(& &1.last_observed_at)
-      |> Enum.max_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
+    state = cache_members(state)
 
     %{
       status: state.reconciliation.status,
-      last_observed_at: last_observed_at,
+      last_observed_at: state.member_cache.last_observed_at,
       recovered_at: state.recovered_at,
       reconciled_at: state.reconciliation.reconciled_at,
       terminal_verification_pending?: state.terminal_verification_pending?

@@ -18,16 +18,37 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
 
   # These files define or populate the RootSummary progress contract itself
   # rather than presenting it, so they name the resolution fields by necessity.
+  # `progress_observer.ex` is a producer: it copies each catalog root's contract
+  # fields unchanged into a BuildProgress fact, which validates them itself. It
+  # must not go through ProgressRenderer, whose fail-closed display projection
+  # would turn a partial or unknown reading into a different fact. The queue
+  # CLI and the dashboard queue copy map a queue's progress into the contract
+  # shape and then render it through ProgressRenderer. The Build Now-band rows
+  # do the same with a Units row's progress reading, and feature statistics
+  # with each running member's reading. The ticket progress API does the same
+  # with a ticket's TicketActivity or retained reading.
   @contract_boundary_files [
+    "aiur/build_queue_cli.ex",
+    "aiur/build_queue/read_model.ex",
+    "aiur/build_queue/sources/build_order.ex",
     "aiur/build_order/catalog_store.ex",
+    "aiur/build_order/feature_stats.ex",
     "aiur/build_order/github_graph/normalizer.ex",
+    "aiur/build_order/progress_observer.ex",
     "aiur/build_order/progress_renderer.ex",
     "aiur/build_order/root_summary.ex",
+    "aiur_web/api/usage_progress.ex",
     "aiur_web/build_order/planning_source.ex",
+    "aiur_web/build/now_rows.ex",
     "aiur_web/components/operator_control_center/build_order_grid_model.ex"
   ]
 
   @renderer_calls %{
+    "aiur/build_queue_cli.ex" => ["ProgressRenderer.terminal("],
+    "aiur/build_queue/sources/build_order.ex" => ["ProgressRenderer.json("],
+    "aiur/build_order/feature_stats.ex" => ["ProgressRenderer.json("],
+    "aiur_web/api/usage_progress.ex" => ["ProgressRenderer.json("],
+    "aiur_web/build/now_rows.ex" => ["ProgressRenderer.json("],
     "aiur/build_orders_cli.ex" => [
       "ProgressRenderer.terminal(",
       "ProgressRenderer.terminal(",
@@ -37,8 +58,6 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       "ProgressRenderer.json(",
       "ProgressRenderer.json("
     ],
-    "aiur_web/components/operator_control_center/build_order_breakdown.ex" => ["ProgressRenderer.html("],
-    "aiur_web/components/operator_control_center/build_order_catalog.ex" => ["ProgressRenderer.html("],
     "aiur_web/components/operator_control_center/build_order_graph.ex" => ["ProgressRenderer.html("]
   }
 
@@ -58,25 +77,29 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/agent_list/activity_intake.ex",
     "aiur/build_order/member.ex",
     "aiur/build_order/ticket_history_provider.ex",
+    "aiur/build_order/ticket_history_store.ex",
     "aiur/current_run_projections/finalizer.ex",
     "aiur/current_run_projections/source_adapter.ex",
     "aiur/current_run_summary/facts.ex",
     "aiur/current_run_summary/progress.ex",
     "aiur/current_run_summary/projection.ex",
     "aiur/current_run_summary/status.ex",
-    "aiur/orchestrator/status_report.ex",
+    "aiur/orchestrator/status_report/progress.ex",
     "aiur/progress_retention.ex",
+    "aiur/progress_retention/checkpoint.ex",
     "aiur/ticket_activity.ex",
     "aiur/ticket_activity/projection.ex",
+    "aiur/ticket_activity/projection/snapshot.ex",
     "aiur/units_cli.ex",
     "aiur_web/build_order/ticket_context_presenter.ex",
+    "aiur_web/build_order/ticket_context_presenter/normalize.ex",
     "aiur_web/build_order_presenter.ex",
-    "aiur_web/components/operator_control_center/build_order_breakdown.ex",
+    "aiur_web/build_order_presenter/activity.ex",
     "aiur_web/components/operator_control_center/run_summary.ex",
     "aiur_web/components/operator_control_center/run_summary_strip.ex",
     "aiur_web/components/operator_control_center/ticket_context.ex",
     "aiur_web/components/operator_control_center/units_table.ex",
-    "aiur_web/live/streamdeck_live.ex",
+    "aiur_web/live/streamdeck_live/components.ex",
     "aiur_web/operator_control_center/run_summary_presenter.ex",
     "aiur_web/operator_control_center/units_presentation.ex",
     "aiur_web/streamdeck_key_face_contract.ex"
@@ -171,9 +194,15 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   defp raw_progress_offenders(path) do
     relative = Path.relative_to(path, @lib_root)
 
-    if relative in @contract_boundary_files or relative in @raw_progress_exempt_files,
-      do: [],
-      else: ProgressRendererCensus.offenders(relative, File.read!(path))
+    if relative in @contract_boundary_files or relative in @raw_progress_exempt_files do
+      []
+    else
+      source = File.read!(path)
+
+      if String.contains?(source, ["progress", "completion_state", "completion_known"]),
+        do: ProgressRendererCensus.offenders(relative, source),
+        else: []
+    end
   end
 
   defp count_occurrences(source, needle), do: source |> :binary.matches(needle) |> length()

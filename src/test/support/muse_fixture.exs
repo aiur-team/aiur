@@ -2,7 +2,7 @@ defmodule Aiur.TestSupport.MuseFixture do
   @moduledoc false
   alias Aiur.Muse.{Session, Turn}
 
-  def run_fixture(dir, mode, turn_timeout_ms \\ 30_000) do
+  def run_fixture(dir, mode, turn_timeout_ms \\ 30_000, opts \\ []) do
     test_owner = self()
 
     Task.async(fn ->
@@ -21,6 +21,7 @@ defmodule Aiur.TestSupport.MuseFixture do
               0 -> :noop
             end
           end,
+          tool_call_ledger: Keyword.get(opts, :tool_call_ledger, Aiur.AppServer.ToolCallLedger),
           tool_executor: fn name, args ->
             send(test_owner, {:tool, self(), name, args})
             %{"success" => true, "output" => "from runner"}
@@ -73,6 +74,9 @@ defmodule Aiur.TestSupport.MuseFixture do
             result = {'session': {'sessionId': 'native-session'}, 'viewCursor': 'view-0'}
         elif method == 'turn/start':
             result = {'commandId': frame['params']['commandId'], 'status': 'accepted', 'disposition': 'started', 'startedNewTurn': True, 'turnId': 'turn-1'}
+            if mode == 'receipt_only_delayed':
+                import time
+                time.sleep(0.3)
             emit({'jsonrpc': '2.0', 'id': frame['id'], 'result': result})
             if mode == 'complete':
                 emit({'jsonrpc': '2.0', 'method': 'item/started', 'params': {'sessionId': 'native-session', 'viewCursor': 'view-1', 'item': {'itemId': 'item-1', 'kind': 'agentMessage', 'revision': 1}}})
@@ -90,14 +94,24 @@ defmodule Aiur.TestSupport.MuseFixture do
                 emit({'jsonrpc': '2.0', 'id': 'input-1', 'method': 'userInput/request', 'params': {'sessionId': session, 'turnId': 'turn-1'}})
                 if mode == 'user_input_foreign':
                     terminal('completed')
+            elif mode == 'closed_stdin':
+                import os, time
+                os.close(0)
+                emit({'jsonrpc': '2.0', 'method': 'item/started', 'params': {'sessionId': 'native-session', 'viewCursor': 'stdin-closed', 'item': {'itemId': 'item-1', 'kind': 'agentMessage', 'revision': 1}}})
+                time.sleep(30)
             elif mode == 'bad_terminal':
                 terminal('unknown')
-            elif mode == 'mcp':
+            elif mode in ['mcp', 'mcp_ledger_unavailable']:
                 body = json.dumps({'jsonrpc': '2.0', 'id': 8, 'method': 'tools/call', 'params': {'name': 'aiur_test', 'arguments': {'value': 42}}}).encode()
                 req = urllib.request.Request(mcp['url'], body, headers={'Authorization': mcp['headers']['Authorization'], 'Content-Type': 'application/json'})
                 with urllib.request.urlopen(req, timeout=30) as response:
                     reply = json.load(response)
-                assert reply['result']['content'][0]['text'] == 'from runner'
+                if mode == 'mcp':
+                    assert reply['result']['content'][0]['text'] == 'from runner'
+                    assert reply['result']['isError'] is False
+                else:
+                    assert reply['result']['content'][0]['text'] == 'tool_call_ledger_unavailable'
+                    assert reply['result']['isError'] is True
                 terminal('completed')
             continue
         elif method == 'approval/decide':

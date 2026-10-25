@@ -37,6 +37,7 @@ defmodule Aiur.Codex.StartupFailure do
     with :ok <- File.mkdir_p(Path.dirname(path)),
          :ok <- File.touch(path),
          :ok <- File.chmod(path, 0o600),
+         :ok <- prune_records(path),
          :ok <- writer.(path, Jason.encode!(record) <> "\n") do
       :ok
     else
@@ -48,10 +49,26 @@ defmodule Aiur.Codex.StartupFailure do
 
   def record_with_writer(_identifier, _attempt_id, _status, _output, _writer), do: :ok
 
+  defp prune_records(path) do
+    # ponytail: rewrite these small records; use streaming if the 50-record limit grows.
+    with {:ok, body} <- File.read(path),
+         records = String.split(body, "\n", trim: true),
+         true <- length(records) >= 50,
+         :ok <- Aiur.Fs.atomic_write(path, records |> Enum.take(-49) |> Enum.map(&(&1 <> "\n")), mode: 0o600, fsync: true) do
+      :ok
+    else
+      false -> :ok
+      {:error, reason} -> Logger.warning("Could not prune startup failures: #{inspect(reason)}")
+    end
+
+    :ok
+  end
+
   @doc false
   @spec safe_excerpt(String.t()) :: String.t()
   def safe_excerpt(output) when is_binary(output) do
     output
+    |> String.replace(~r/\e\[[0-?]*[ -\/]*[@-~]/, "")
     |> String.split("\n")
     |> Enum.reject(&protocol_frame?/1)
     |> Enum.map(&redact_line/1)
@@ -64,12 +81,7 @@ defmodule Aiur.Codex.StartupFailure do
   end
 
   defp protocol_frame?(line) do
-    trimmed =
-      line
-      |> String.trim_leading()
-      |> String.replace(~r/\A(?:\e\[[0-9;]*m\s*)+/, "")
-
-    String.starts_with?(trimmed, ["{", "["])
+    String.starts_with?(String.trim_leading(line), ["{", "["])
   end
 
   defp redact_line(line) do

@@ -1,16 +1,18 @@
 defmodule Aiur.Orchestrator.AgentTeardown do
   @moduledoc """
-  Owns orchestrator AgentTeardown behavior.
-  All functions execute inside the orchestrator GenServer process.
+  Owns orchestrator teardown behavior.
+
+  State-mutating functions execute inside the orchestrator GenServer process.
+  Supervised shell cleanup helpers may be scheduled by an API observer.
   """
 
   require Logger
 
   alias Aiur.AgentPubSub
-  alias Aiur.Claude.RemoteControl
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{RetryEngine, State, TokenAccounting, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CiLifecycle, DockerCleanup, LifecycleFenceExpiry, RetryEngine, State, TicketTransition, TokenAccounting, TrackedSet, TrackerTasks, WorkspaceCleanup}
+  alias Aiur.ProcessTree
+  alias Aiur.Tmux.Socket
 
   # Broadcast `aiur_turn_done` for every currently-active aiur turn on
   # `identifier`. The opencode bridge's chat-completion SSE handlers
@@ -22,15 +24,22 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec close_active_chat_streams(String.t(), term()) :: :ok
   def close_active_chat_streams(identifier, reason) when is_binary(identifier) do
-    for aiur_turn_id <- ActiveTurns.active_turn_ids(identifier) do
+    active_turn_ids(identifier)
+    |> Enum.each(fn aiur_turn_id ->
       AgentPubSub.broadcast_aiur_turn_done(identifier, aiur_turn_id, reason)
       ActiveTurns.mark_closed(identifier, aiur_turn_id, reason)
-    end
+    end)
 
     :ok
   end
 
   def close_active_chat_streams(_identifier, _reason), do: :ok
+
+  defp active_turn_ids(identifier) do
+    ActiveTurns.active_turn_ids(identifier)
+  rescue
+    ArgumentError -> []
+  end
 
   defp terminate_reason(true), do: :terminal
   defp terminate_reason(false), do: :replaced
@@ -38,7 +47,18 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
-    state = Orchestrator.cancel_ci_wait_rewake(state, issue_id)
+    terminate_running_issue(state, issue_id, cleanup_workspace, :inline)
+  end
+
+  @doc false
+  @spec terminate_cancelled_issue(State.t(), String.t()) :: State.t()
+  def terminate_cancelled_issue(%State{} = state, issue_id) do
+    terminate_running_issue(state, issue_id, true, :supervised)
+  end
+
+  defp terminate_running_issue(%State{} = state, issue_id, cleanup_workspace, repl_cleanup) do
+    state = CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
+    state = clear_transient_reason_labels(state, issue_id)
 
     case Map.get(state.running, issue_id) do
       nil ->
@@ -51,7 +71,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # `terminate_task/1` brutally kills the runner task, skipping the
         # `after stop_session` cleanup — kill the tracked REPL pane + pid
         # here so neither orphans on abort/terminal-state teardown.
-        kill_repl_session(running_entry)
+        cleanup_repl_session(running_entry, repl_cleanup)
 
         # Close any open chat-completion SSE streams BEFORE killing the
         # task. `terminate_task/1` brutally kills the AgentRunner,
@@ -73,9 +93,14 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # Save and delete the workspace only after the runner is gone, so the
         # agent no longer writes to it while it is saved (#2743). The work runs
         # in a task; see `WorkspaceCleanup.start_terminal_workspace_cleanups/1`.
+        # Terminal artifact cleanup also reaps the ticket's Docker containers.
         if cleanup_workspace do
           WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
+        else
+          DockerCleanup.start_ticket_cleanup(identifier)
         end
+
+        state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
 
         %{
           state
@@ -87,6 +112,35 @@ defmodule Aiur.Orchestrator.AgentTeardown do
       _ ->
         RetryEngine.release_issue_claim(state, issue_id)
     end
+  end
+
+  defp cleanup_repl_session(running_entry, :inline), do: kill_repl_session(running_entry)
+
+  defp cleanup_repl_session(running_entry, :supervised),
+    do: schedule_cancelled_shell_cleanup(running_entry)
+
+  @doc false
+  @spec schedule_cancelled_shell_cleanup(map()) :: :ok
+  def schedule_cancelled_shell_cleanup(running_entry) when is_map(running_entry) do
+    cleanup = fn ->
+      _ = reap_orphaned_agent_shell(running_entry)
+      kill_repl_session(running_entry)
+    end
+
+    case start_repl_cleanup(cleanup) do
+      {:ok, _pid} ->
+        :ok
+
+      _unavailable ->
+        _ = Task.start(cleanup)
+        :ok
+    end
+  end
+
+  defp start_repl_cleanup(cleanup) do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, cleanup)
+  catch
+    :exit, _reason -> {:error, :unavailable}
   end
 
   # Mirrors `terminate_running_issue/3`'s task-teardown half (kill the
@@ -101,6 +155,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   # `:deactivated` is not).
   @spec deactivate_running_issue(State.t(), term()) :: State.t()
   def deactivate_running_issue(%State{} = state, issue_id) do
+    state = clear_transient_reason_labels(state, issue_id)
+
     case Map.get(state.running, issue_id) do
       nil ->
         state
@@ -136,10 +192,14 @@ defmodule Aiur.Orchestrator.AgentTeardown do
           terminate_task(pid)
         end
 
+        DockerCleanup.start_ticket_cleanup(identifier)
+
         if is_reference(ref) do
           Process.demonitor(ref, [:flush])
         end
 
+        state = LifecycleFenceExpiry.recover_terminated_input(state, running_entry)
+        running_entry = Map.delete(running_entry, :expired_lifecycle_item_ids)
         existing_control = Map.get(running_entry, :control, %{})
 
         new_entry =
@@ -158,8 +218,37 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # Drop the id from the publisher's tracked set so in-flight events
         # from the just-killed codex task don't pass the gate and overwrite
         # the synthetic 100 bar sample U4 seeds.
-        Orchestrator.refresh_tracked_set(new_state)
+        TrackedSet.refresh(new_state)
     end
+  end
+
+  @doc false
+  @spec clear_transient_reason_labels(State.t(), String.t()) :: State.t()
+  def clear_transient_reason_labels(state, issue_id) do
+    running_entry = Map.get(state.running, issue_id, %{})
+    issue = Map.get(running_entry, :issue, %{})
+    identifier = Map.get(issue, :identifier) || to_string(issue_id)
+
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, identifier},
+      fn ->
+        TicketTransition.clear_transient_reason_modifiers(identifier,
+          writer: :agent_teardown,
+          current_labels: Map.get(issue, :labels, [])
+        )
+      end,
+      fn current, result ->
+        case result do
+          :ok ->
+            current
+
+          {:error, reason} ->
+            Logger.warning("runtime reason label cleanup failed: issue=#{identifier} reason=#{inspect(reason)}")
+            current
+        end
+      end
+    )
   end
 
   @doc false
@@ -175,6 +264,17 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   end
 
   def terminate_task(_pid), do: :ok
+
+  @doc false
+  @spec request_task_stop(term()) :: :ok | {:error, term()}
+  def request_task_stop(pid) when is_pid(pid) do
+    Process.exit(pid, :kill)
+    :ok
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  def request_task_stop(_pid), do: {:error, :invalid_pid}
 
   defp maybe_preserve_completed_provenance(entry, true) do
     entry
@@ -194,15 +294,15 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     pane_id = Map.get(running_entry, :repl_pane_id)
     os_pid = Map.get(running_entry, :repl_os_pid)
 
-    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(pane_id)
+    if is_binary(pane_id), do: Aiur.Tmux.kill_pane(Socket.agents(), pane_id)
 
     # The REPL pane's `exec claude` can spawn tool/MCP children that would
     # orphan and keep working on a single-pid kill, so reap the subtree.
-    RemoteControl.graceful_kill_tree(os_pid)
+    ProcessTree.graceful_kill_tree(os_pid)
 
     # The headless fallback has no pane; its `bash -c` wrapper leaves
     # claude/node grandchildren that reparent to init, so reap the subtree.
-    RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
+    ProcessTree.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
 
     :ok
   end
@@ -213,8 +313,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     process_group_id = Map.get(running_entry, :headless_process_group_id)
     root_pid = Map.get(running_entry, :headless_os_pid) || Map.get(running_entry, :repl_os_pid)
 
-    if RemoteControl.process_group_alive?(process_group_id) do
-      case RemoteControl.graceful_kill_process_group(process_group_id) do
+    if ProcessTree.process_group_alive?(process_group_id) do
+      case ProcessTree.graceful_kill_process_group(process_group_id) do
         {:ok, :reaped} -> :reaped
         _other -> reap_orphaned_root(root_pid)
       end
@@ -226,8 +326,8 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   def reap_orphaned_agent_shell(_running_entry), do: :gone
 
   defp reap_orphaned_root(root_pid) do
-    if RemoteControl.process_alive?(root_pid) do
-      RemoteControl.graceful_kill_tree(root_pid)
+    if ProcessTree.process_alive?(root_pid) do
+      ProcessTree.graceful_kill_tree(root_pid)
       :reaped
     else
       :gone

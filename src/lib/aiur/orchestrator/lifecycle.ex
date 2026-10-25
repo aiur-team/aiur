@@ -5,15 +5,17 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
-  alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, Events, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
+  alias Aiur.GitHub.Listeners
+  alias Aiur.Handoff.Adopter
+  alias Aiur.Handoff.Protection
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
-    CommentPolling,
     CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
+    EnvelopeResume,
     GlobalPauseStore,
     OrphanedWorkers,
     PauseResume,
@@ -24,6 +26,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     StatusReport,
     TrackedSet,
     TrackerHealth,
+    TrackerTasks,
     WorkspaceCleanup
   }
 
@@ -33,12 +36,20 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.pr.review_comment",
     "ticket.*.issue.commented",
     "ticket.*.pr.merged",
+    "ticket.*.pr.closed_unmerged",
+    "ticket.*.pr.reopened",
+    "ticket.*.pr.opened",
     "ticket.*.ci.failed",
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
+    "ticket.*.agent.progress",
+    "ticket.*.agent.progress.checkin",
+    "ticket.*.agent.progress.phase",
     "ticket.*.agent.unblocked",
+    "ticket.*.optimistic.integrated",
     "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
+    "ticket.*.branch.force-push",
     "system.*.branch.push"
   ]
   @empty_agent_totals %{
@@ -80,10 +91,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     :ok = TestTicketScope.validate!()
+    :ok = Protection.reset()
+    if Process.whereis(Listeners), do: Listeners.reset()
+    :ok = ProcessReaper.handoff([])
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
-
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
@@ -96,6 +109,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     snapshot_key = Keyword.get(opts, :name) || self()
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
+    Application.put_env(:aiur, :instance_globally_paused, global_pause.globally_paused)
 
     # The dispatch tick's base is the `:dispatch` poll class, not the raw
     # `interval_seconds` scalar: since #2309 an operator can give the tracker
@@ -118,12 +132,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # `--max-agents N` at launch: seed the session override (highest
       # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
       # holds without editing `.aiur/config`.
-      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override(),
+      session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override() || control_lifecycle.max_agents,
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.
       globally_paused: global_pause.globally_paused,
       global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
+      load_envelope_state: EnvelopeResume.boot(config.agent),
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
       poll_frozen: false,
@@ -133,6 +148,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       ci_lifecycle:
         CIApprovalStore.load()
         |> Map.put(:poll_cache, %{})
+        |> Map.put(:ci_observed_at_ms, %{})
         |> Map.put(:rewakes, %{})
         # `nil` (not an empty set) marks the parked-ready ledger as unseeded, so
         # the first CI poll after boot reloads still-active alerts from the
@@ -153,13 +169,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # Runner tasks survive an Orchestrator-only restart, but this generation
     # cannot track them. Stop them before startup cleanup or the first poll, so
     # the ticket is redispatched instead of refused as a live session (#2705).
-    state = OrphanedWorkers.stop_untracked_runners(state)
-    state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
-    state = WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
+    state = state |> Adopter.adopt() |> OrphanedWorkers.stop_untracked_runners()
+    state = WorkspaceCleanup.start_startup_workspace_cleanup(state, wake?: Keyword.get(opts, :initial_poll?, true))
     RemoteControlMode.cleanup_stray_remote_control_servers()
-    TrackedSet.reset([])
+    TrackedSet.reset(Enum.map(state.running, fn {_id, entry} -> entry.identifier end))
     install_event_tracked_fn(tracked_issue?)
-    subscribe_to_orchestrator_topics()
+    subscribe_to_orchestrator_topics(opts)
     subscribe_to_prewarm(opts)
     _ = LiveConversation.subscribe_restarts()
 
@@ -199,11 +214,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
   def terminate(_reason, %State{running: running} = state) when is_map(running) do
-    # The comment poll owns linked target tasks whose guarded request workers
-    # may still hold GitHub sockets. Reap that tree before this owner exits so
-    # an orderly stop never overlaps it with a successor's first poll.
-    _ = CommentPolling.terminate_poll(state.github_comment_poll)
-
+    _ = TrackerTasks.stop(state)
     # Comment-rework retries reschedule themselves for up to a minute with
     # escalating delays. Cancel them here so a stopping orchestrator never leaves
     # a timer firing — and logging — into whatever runs after it (#1747).
@@ -214,7 +225,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # crash-restart, and latching the app-lifetime reaper into draining
     # there would kill every agent the restarted orchestrator spawns.
     _ = ProcessReaper.reap([:agent], drain: false)
-    Enum.each(running, fn {_issue_id, entry} -> AgentTeardown.kill_repl_session(entry) end)
+    Enum.each(running, fn {id, entry} -> unless Protection.protected?(id), do: AgentTeardown.kill_repl_session(entry) end)
     discard_unnamed_snapshot(state)
     :ok
   end
@@ -289,7 +300,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
       |> Enum.reject(&(&1 == ""))
       |> Enum.reduce(state.queued_demand_hints, &Map.put(&2, &1, until_cycle))
 
-    request_refresh(%{state | queued_demand_hints: hints})
+    {:reply, receipt, refreshed} = request_refresh(%{state | queued_demand_hints: hints})
+    {:reply, Map.put(receipt, :latest_dispatch_hold, refreshed.dispatch_selection_hold), refreshed}
   end
 
   @doc false
@@ -395,8 +407,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   defp install_event_tracked_fn(tracked_issue?) do
-    if Process.whereis(Publisher) do
-      Publisher.set_tracked_fn(tracked_issue?)
+    if Events.publisher_available?() do
+      Events.set_tracked_fn(tracked_issue?)
     end
 
     :ok
@@ -405,12 +417,21 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # Subscribe to the topics the orchestrator routes itself. These subscriptions
   # must be installed after startup cleanup and tracked-set initialization but
   # before the first tick is seeded.
-  defp subscribe_to_orchestrator_topics do
-    if Process.whereis(Exchange) do
-      Enum.each(@orchestrator_topics, &Exchange.subscribe/1)
+  defp subscribe_to_orchestrator_topics(opts) do
+    if Process.whereis(Events.exchange_server()) do
+      Enum.each(@orchestrator_topics -- skipped_comment_topics(opts), &Events.subscribe/1)
     end
 
     :ok
+  end
+
+  # The test env keeps the supervised live orchestrator off comment topics:
+  # webhook tests publish comments it cannot resolve without a tracker (#4845).
+  defp skipped_comment_topics(opts) do
+    if Keyword.get(opts, :name) == Aiur.Orchestrator and
+         not Application.get_env(:aiur, :live_orchestrator_comment_topics?, true),
+       do: ["ticket.*.pr.review_comment", "ticket.*.issue.commented"],
+       else: []
   end
 
   defp subscribe_to_prewarm(opts) do

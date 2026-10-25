@@ -1,0 +1,9 @@
+{
+  "from": "agent-runner",
+  "to_module": "Aiur.FeatureCLI",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/agent_runner/feature_writer.ex"
+  ],
+  "reason": "#3131 bound feature commands delegate to the optional registry facade; unavailable registry returns an explicit error"
+}

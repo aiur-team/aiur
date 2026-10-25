@@ -11,6 +11,7 @@ defmodule Aiur.CodingAgent.Providers.Muse do
       adapter: Aiur.Muse.CodingAgent,
       transcript: Aiur.Muse.Transcript,
       family: "muse",
+      accounts: %{kind: :unsupported, multi: :unsupported, supported: false, reason: "Muse uses one native login and does not expose isolated profiles."},
       configurable: true,
       config_validator: &MuseBackend.validate/1,
       init_order: 5,
@@ -23,6 +24,9 @@ defmodule Aiur.CodingAgent.Providers.Muse do
       models: ["muse-spark-1.3-contributor"],
       model_aliases: :native,
       efforts: ["minimal", "low", "medium", "high", "xhigh"],
+      # MSP stdio queues busy input (CodingAgent); Session binds the aiur MCP server.
+      delivery: %{transport: :msp_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
+      hosted_execution: %{permission_boundary: :unknown, network_boundary: :unknown, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [],
       control_application_confirmation: :confirmed,

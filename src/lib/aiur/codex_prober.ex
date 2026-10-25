@@ -9,6 +9,7 @@ defmodule Aiur.CodexProber do
 
   require Logger
 
+  alias Aiur.AppServer.Transport
   alias Aiur.Codex.{AppServerPort, Handshake}
   alias Aiur.{Config, ModelAvailability, Workspace}
 
@@ -23,6 +24,18 @@ defmodule Aiur.CodexProber do
   """
   @spec probe_async(String.t(), keyword()) :: :ok
   def probe_async(backend, opts \\ []) when is_binary(backend) do
+    if probe_async_enabled?(opts) do
+      do_probe_async(backend, opts)
+    else
+      :ok
+    end
+  end
+
+  defp probe_async_enabled?(opts) do
+    Keyword.get(opts, :enabled?, Application.get_env(:aiur, :codex_usage_probe_async?, true))
+  end
+
+  defp do_probe_async(backend, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     path = Keyword.get(opts, :path, ModelAvailability.path())
 
@@ -85,20 +98,45 @@ defmodule Aiur.CodexProber do
   end
 
   defp probe_codex_limits_from_app_server(opts) do
-    with {:ok, workspace} <- probe_workspace(opts),
-         {:ok, port} <- start_probe_port(workspace, opts) do
-      try_probe_port(port, workspace, opts)
+    with {:ok, workspace} <- probe_workspace(opts) do
+      trapping_exits? = Process.flag(:trap_exit, true)
+
+      try do
+        with {:ok, port} <- start_probe_port(workspace, opts) do
+          try_probe_port(port, opts)
+        end
+      after
+        File.rm_rf(workspace)
+        Process.flag(:trap_exit, trapping_exits?)
+      end
     end
   end
 
-  defp try_probe_port(port, workspace, opts) do
-    with :ok <- initialize_probe_port(port, opts),
-         {:ok, limits} <- read_probe_limits(port, opts) do
-      normalize_codex_limits(limits)
+  defp try_probe_port(port, opts) do
+    os_pid =
+      case (is_port(port) or is_pid(port)) && Transport.os_pid(port) do
+        {:os_pid, pid} -> pid
+        _ -> nil
+      end
+
+    try do
+      with :ok <- initialize_probe_port(port, opts),
+           {:ok, limits} <- read_probe_limits(port, opts) do
+        normalize_codex_limits(limits)
+      end
+    after
+      stop_probe_port(port, os_pid, opts)
+      flush_probe_exit(port)
     end
-  after
-    stop_probe_port(port, opts)
-    File.rm_rf(workspace)
+  end
+
+  defp flush_probe_exit(port) do
+    receive do
+      {:EXIT, ^port, _reason} -> :ok
+      {:DOWN, _ref, :port, ^port, _reason} -> :ok
+    after
+      0 -> :ok
+    end
   end
 
   @doc false
@@ -120,8 +158,19 @@ defmodule Aiur.CodexProber do
     _kind, _reason -> {:error, :no_workspace_root}
   end
 
-  defp start_probe_port(workspace, opts),
-    do: Keyword.get(opts, :start_port_fun, &AppServerPort.start_port/4).(workspace, nil, nil, nil)
+  defp start_probe_port(workspace, opts) do
+    env =
+      case Keyword.get(opts, :codex_home) do
+        home when is_binary(home) -> [{"CODEX_HOME", home}]
+        _ -> []
+      end
+
+    case Keyword.get(opts, :start_port_fun) do
+      fun when is_function(fun, 4) -> fun.(workspace, nil, nil, nil)
+      fun when is_function(fun, 5) -> fun.(workspace, nil, nil, nil, env)
+      _ -> AppServerPort.start_port(workspace, nil, nil, nil, fn _pid -> :ok end, env)
+    end
+  end
 
   defp initialize_probe_port(port, opts),
     do: Keyword.get(opts, :initialize_fun, &Handshake.send_initialize/1).(port)
@@ -129,8 +178,8 @@ defmodule Aiur.CodexProber do
   defp read_probe_limits(port, opts),
     do: Keyword.get(opts, :read_rate_limits_fun, &Handshake.read_rate_limits/1).(port)
 
-  defp stop_probe_port(port, opts),
-    do: Keyword.get(opts, :stop_port_fun, &AppServerPort.stop_port/1).(port)
+  defp stop_probe_port(port, os_pid, opts),
+    do: Keyword.get(opts, :stop_port_fun, &AppServerPort.stop_port(&1, os_pid)).(port)
 
   @doc false
   @spec normalize_codex_limits(map()) :: {:ok, map()} | {:error, term()}

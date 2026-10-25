@@ -20,7 +20,7 @@ defmodule Aiur.EventPublicationLog do
   """
 
   alias Aiur.Config.Paths
-  alias Aiur.DecisionLog
+  alias Aiur.Journal
   alias Aiur.JSONSafe
 
   @filename "event-publications.ndjson"
@@ -49,8 +49,8 @@ defmodule Aiur.EventPublicationLog do
   def write(_workspace, record, opts) when is_map(record) and is_list(opts) do
     path = Keyword.get(opts, :path, publication_file())
 
-    with :ok <- DecisionLog.prepare(Path.dirname(path), path) do
-      DecisionLog.append(path, JSONSafe.normalize(record))
+    with :ok <- Journal.prepare(Path.dirname(path), path) do
+      Journal.append(path, JSONSafe.normalize(record))
     end
   rescue
     error -> {:error, {:publication_log_exception, Exception.message(error)}}

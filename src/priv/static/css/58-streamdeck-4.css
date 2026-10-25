@@ -1,0 +1,355 @@
+/* Mode-view visibility. The hook sets data-mode on .sd-device; each panel
+   carries data-mode-view matching one mode name. Hidden panels get
+   display:none so they take no space and are skipped by assistive tech. */
+.sd-logs-view {
+  display: none;
+}
+
+/* Only logs mode hides the key grid: since #1607 the cmd controls render as
+   `.sd-keys` themselves, so a cmd-mode clause here would blank them.
+   `:not(.sd-log-keys)` rather than relying on source order: the logs key grid
+   is also a `.sd-keys`, and an equal-specificity un-hiding rule below would
+   lose to a future reorder and blank the eight keys. */
+.sd-device[data-mode="logs"] .sd-keys:not(.sd-log-keys) {
+  display: none;
+}
+
+.sd-device[data-mode="logs"] .sd-logs-view {
+  display: block;
+}
+
+/* The settings pane is prose, not a key grid: there is nothing to pick here
+   because microphone enumeration happens on the sidecar host. */
+.sd-settings-view {
+  display: grid;
+  gap: 0.6rem;
+  align-content: center;
+  min-height: 8rem;
+  padding: 0.9rem 1rem;
+}
+
+.sd-settings-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.sd-mode-label {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sd-cmd-keys {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sd-cmd-key {
+  --sd-accent: #9fd0ff;
+  --sd-glow: rgba(159, 208, 255, 0.24);
+}
+
+.sd-cmd-key:has([data-streamdeck-command="pause"]) {
+  --sd-accent: #ffcf87;
+  --sd-glow: rgba(255, 207, 135, 0.25);
+}
+
+.sd-cmd-key:has([data-streamdeck-command="mic"]) {
+  --sd-accent: #7fe0a0;
+  --sd-glow: rgba(127, 224, 160, 0.25);
+}
+
+.sd-cmd-key .sd-key-face {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  grid-template-rows: 1fr auto auto;
+  place-items: center;
+  text-align: center;
+}
+
+.sd-cmd-key .sd-key-face:focus-visible {
+  outline: 2px solid var(--sd-accent);
+  outline-offset: -4px;
+}
+
+.sd-mic-key.mic-live .sd-key-face {
+  background: linear-gradient(145deg, rgba(127, 224, 160, 0.3), #0f151c 68%);
+  box-shadow: inset 0 0 22px rgba(127, 224, 160, 0.48);
+  animation: sd-mic-pulse 1s ease-in-out infinite;
+}
+
+.sd-cmd-key .sd-key-face.is-flashing {
+  animation: sd-flash 0.45s ease-out;
+}
+
+.sd-cmd {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  grid-template-rows: 1fr auto auto;
+}
+
+.sd-cmd-ic {
+  color: var(--sd-accent);
+}
+
+/* Stroke and fill stay on the icon markup: the design's icon set mixes filled
+   glyphs (pause, play) with stroked line art at two different widths, so a
+   blanket stroke rule here would override the per-icon presentation. */
+.sd-cmd-ic svg {
+  width: 38px;
+  height: 38px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sd-cmd-label {
+  color: var(--fg);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.sd-cmd-sub {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.sd-log-body {
+  display: none;
+}
+
+.sd-device[data-mode="logs"] .sd-log-keys {
+  display: grid;
+  margin: 0 0 0.65rem;
+}
+
+.sd-log-key {
+  cursor: pointer;
+}
+
+.sd-log-key.is-selected {
+  border-color: #9fd0ff;
+  box-shadow: 0 0 16px rgba(159, 208, 255, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-log-key-face {
+  grid-template-rows: auto 1fr auto;
+}
+
+.sd-log-dir,
+.sd-log-time {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+.sd-log-text {
+  display: -webkit-box;
+  overflow: hidden;
+  align-self: center;
+  color: var(--fg);
+  font-size: clamp(0.56rem, 1.3vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sd-log-time {
+  justify-self: end;
+  color: var(--muted);
+}
+
+/* The LIVE key is the design's one green key (streamdeck.design.css:128-139).
+   Its inks are scoped to the key rather than themed :root tokens: the Stream
+   Deck chassis is painted dark in both themes, so these greens are correct
+   against the near-black key face and must not flip with the light palette. */
+.sd-live-key {
+  --sd-live: #4ade80;
+  --sd-live-ink: #8fe0a8;
+  --sd-live-sel-ink: #eafff3;
+  background: linear-gradient(180deg, #227a4d, #17583a);
+}
+
+.sd-live-key .sd-key-face {
+  background: linear-gradient(180deg, #132420, #0d1713);
+}
+
+.sd-live-key.is-selected {
+  border-color: #37d97e;
+  background: linear-gradient(180deg, #37d97e, #1f9c56);
+  box-shadow: 0 0 16px rgba(55, 217, 126, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-live-key-face {
+  place-content: center;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.sd-live-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--sd-live);
+  box-shadow: 0 0 0.65rem var(--sd-live);
+  animation: sd-pulse 1.25s ease-in-out infinite;
+}
+
+.sd-live-key.is-selected .sd-live-dot {
+  background: var(--sd-live-sel-ink);
+  box-shadow: 0 0 0.65rem rgba(255, 255, 255, 0.85);
+}
+
+.sd-live-label {
+  color: var(--sd-live-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.sd-live-key.is-selected .sd-live-label {
+  color: var(--sd-live-sel-ink);
+}
+
+/* Read-only mode. The button also carries the `disabled` attribute, so this is
+   presentation only — it must never be the sole thing stopping a press. */
+.sd-cmd-key.is-disabled .sd-key-face {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Control feedback (a requested or failed control call) is rendered in a banner
+   outside the device, so the emulated deck's key/dial layout never shifts when a
+   status line appears or clears. */
+.streamdeck-status {
+  width: 100%;
+  max-width: 620px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--attention-line);
+  border-radius: 10px;
+  background: var(--attention-soft);
+  color: var(--attention-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.sd-cmd-label {
+  display: block;
+}
+
+.sd-cmd-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+/* Mic is press-and-hold: the key is held down rather than clicked, so it needs
+   a held-state affordance the click keys do not. */
+.sd-cmd-item.sd-mic-key {
+  touch-action: none;
+  user-select: none;
+}
+
+.sd-cmd-item.sd-mic-key.is-live {
+  border-color: var(--super);
+  box-shadow: 0 0 0.5rem var(--super);
+}
+
+.sd-cmd-item.sd-mic-key.is-live .sd-cmd-label {
+  color: var(--super);
+}
+
+.sd-device[data-mode="logs"] .sd-log-keys {
+  display: grid;
+  margin: 0 0 0.65rem;
+}
+
+.sd-log-key {
+  cursor: pointer;
+}
+
+.sd-log-key.is-selected {
+  border-color: #9fd0ff;
+  box-shadow: 0 0 16px rgba(159, 208, 255, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-log-key-face {
+  grid-template-rows: auto 1fr auto;
+}
+
+.sd-log-dir,
+.sd-log-time {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+/* The five directions from #1576 take their colour from the shared key-face
+   contract (#1726) via the `--sd-log-badge` custom property `.sd-log-badge`
+   reads, so the packaged deck and the emulator cannot drift. `data-dir` stays
+   as a selector hook only — it carries no colour. */
+
+.sd-log-text {
+  display: -webkit-box;
+  overflow: hidden;
+  align-self: center;
+  color: var(--fg);
+  font-size: clamp(0.56rem, 1.3vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sd-log-time {
+  justify-self: end;
+  color: var(--muted);
+}
+
+.sd-live-key-face {
+  place-content: center;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.sd-live-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--ack);
+  box-shadow: 0 0 0.65rem var(--ack);
+  animation: sd-pulse 1.25s ease-in-out infinite;
+}
+
+.sd-live-label {
+  color: var(--ack);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.sd-log-badge {
+  color: var(--sd-log-badge);
+  font-weight: 800;
+}
+

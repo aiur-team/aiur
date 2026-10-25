@@ -86,6 +86,7 @@ defmodule Aiur.ProviderMeters.CLI do
 
   defp provider_label(provider), do: provider |> to_string() |> String.pad_trailing(6)
 
+  defp scope_suffix(%{summary_label: label}) when is_binary(label), do: " [#{label}]"
   defp scope_suffix(%{identity_scope: :host_unverified}), do: " [current host; account unverified]"
   defp scope_suffix(_view), do: ""
 end

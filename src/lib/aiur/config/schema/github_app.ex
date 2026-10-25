@@ -29,6 +29,9 @@ defmodule Aiur.Config.Schema.GithubApp do
 
   @primary_key false
   embedded_schema do
+    # @config-reference config-configuration-01 tracker.github.github_app.account
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail tracker.github.github_app.account | string | nil | Optional. The GitHub App bot login (`<app-slug>[bot]`) the **daemon** writes as when App credentials are configured (see [GitHub](/apis/github-auth#github-app-authentication)). Set it only when the daemon's identity differs from the agents': an App installation token can never write as `tracker.github.bot_account`, so one key naming both would make every agent-authorship check demand a login no agent holds. Leave it unset for a single-identity install — self-loop suppression, PR command handling and the CODEOWNERS self-include then fall back to `tracker.github.bot_account` exactly as before. Only the login lives here; the App credentials stay in `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `GITHUB_APP_PRIVATE_KEY_PATH`. |
     field(:account, :string)
   end
 

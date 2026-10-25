@@ -118,6 +118,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     assert payload.source == :system
     assert payload.ref == ref_a
     assert payload.sha == "sha2"
+    assert payload.previous_sha == "sha1"
     assert payload.repo == "owner/aiur"
     assert opts[:issue_number] == "99"
     refute Keyword.has_key?(opts, :dedup_key)
@@ -151,7 +152,8 @@ defmodule Aiur.Events.LsRemoteTickerTest do
     tick(pid)
     assert_receive :polled, 2_000
 
-    assert_receive {:published, "ticket.101.branch.push", _, _}, 2_000
+    assert_receive {:published, "ticket.101.branch.push", payload, _}, 2_000
+    assert Map.fetch!(payload, :previous_sha) == nil
   end
 
   test "readable aiur/<id>-<slug> branches route to ticket.<id>.branch.push",

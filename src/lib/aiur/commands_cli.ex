@@ -1,7 +1,8 @@
 defmodule Aiur.CommandsCLI do
+  alias Aiur.Commands
   @moduledoc false
 
-  alias Aiur.{DecisionHistory, JSONSafe}
+  alias Aiur.JSONSafe
   alias AiurWeb.OperatorControlCenter.DecisionProvider
 
   @filters ~w(all open blocking resolved)a
@@ -132,7 +133,7 @@ defmodule Aiur.CommandsCLI do
   end
 
   defp history(opts) do
-    history_fun = Keyword.get(opts, :history_fun, fn -> DecisionHistory.list(server: Keyword.get(opts, :decision_store, Aiur.DecisionStore), limit: 50) end)
+    history_fun = Keyword.get(opts, :history_fun, fn -> Commands.history(server: Keyword.get(opts, :decision_store, Commands.default_store()), limit: 50) end)
     {history_fun.(), source(%{status: :available, partial?: false, reason: nil})}
   rescue
     _error -> {[], unavailable_source(:history_unavailable)}
@@ -141,7 +142,7 @@ defmodule Aiur.CommandsCLI do
   end
 
   defp provider_opts(opts) do
-    [decision_store: Keyword.get(opts, :decision_store, Aiur.DecisionStore), decision_metrics: Keyword.get(opts, :decision_metrics, Aiur.DecisionMetrics)]
+    [decision_store: Keyword.get(opts, :decision_store, Commands.default_store()), decision_metrics: Keyword.get(opts, :decision_metrics, Commands.default_metrics())]
   end
 
   defp source(health) do

@@ -18,8 +18,8 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
     {:ok, _} = Ledger.start_link(name: ledger, state_dir: ledger_root, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
-      File.rm_rf(ledger_root)
-      File.rm_rf(comp_root)
+      Aiur.TestCleanup.rm_rf!(ledger_root)
+      Aiur.TestCleanup.rm_rf!(comp_root)
     end)
 
     %{ledger: ledger, ledger_root: ledger_root, comp_root: comp_root}
@@ -166,7 +166,7 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
     append_n(context.ledger, 3)
     agg_root = Aiur.TestSupport.tmp_root!("aiur-cc-agg")
     File.mkdir_p!(agg_root)
-    on_exit(fn -> File.rm_rf(agg_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(agg_root) end)
     agg = :"cc_agg_#{System.unique_integer([:positive])}"
 
     {:ok, _} =
@@ -174,6 +174,7 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
         name: agg,
         state_dir: agg_root,
         ledger_scan_fun: fn opts -> GenServer.call(context.ledger, {:scan, opts}) end,
+        ledger_server: context.ledger,
         ledger_subscribe_fun: fn pid -> GenServer.call(context.ledger, {:subscribe, pid}) end,
         ledger_generation_fun: fn -> GenServer.call(context.ledger, :generation) end,
         ledger_coverage_fun: fn -> GenServer.call(context.ledger, :coverage) end,

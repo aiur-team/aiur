@@ -1,18 +1,20 @@
 defmodule Aiur.Orchestrator.WaitingReason do
   @moduledoc """
-  Derives one explicit fleet-row waiting reason for OCC-5. Every branch names
-  a concrete cause or `:active` — never a generic "blocked".
-
-  Pure and orchestrator-state-free by design: callers (`StatusReport`,
-  `Presenter`) extract the handful of fields each classification needs from
-  live state so this module stays trivially unit-testable.
+  Fleet waiting reasons and their owners, from held evidence without tracker I/O.
   """
 
-  alias Aiur.Orchestrator.DispatchPolicy
+  require Logger
+
+  alias Aiur.BuildQueue.Hints
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots}
+  alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
           :waiting_for_human
           | :waiting_for_supervisor
+          | :queue_set_order
+          | :optimistic_share
           | :waiting_for_dependency
           | :waiting_for_ci
           | :waiting_for_review
@@ -29,8 +31,204 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :claim_released
           | :orphaned_claim
           | :stale_claim
+          | :workspace_retained
           | :workspace_ownership_waiting
           | :active
+
+  # JSON-safe names identify the part that can clear the wait.
+  @owners %{
+    waiting_for_human: "Executor",
+    waiting_for_supervisor: "Executor",
+    waiting_for_dependency: "DispatchPolicy",
+    queue_set_order: "DispatchPolicy",
+    optimistic_share: "DispatchPolicy",
+    waiting_for_ci: "CiLifecycle",
+    waiting_for_review: "Executor",
+    paused: "PauseResume",
+    run_paused: "PauseResume",
+    awaiting_dispatch: "Dispatcher",
+    paused_operator: "PauseResume",
+    paused_transient: "AutoResume",
+    provider_limited: "RateLimitFallback",
+    latched_lifetime: "Dispatcher",
+    tracker_unavailable: "Dispatcher",
+    backing_off: "RetryEngine",
+    unresponsive: "RuntimeWatchdog",
+    claim_released: "AutoResume",
+    orphaned_claim: "StartupClaimReconciler",
+    stale_claim: "Reconciler",
+    workspace_ownership_waiting: "Workspace.Ownership",
+    workspace_retained: "Workspace.Ownership",
+    active: "AgentRunner"
+  }
+
+  @spec describe(t(), map()) :: map()
+  def describe(reason, facts) do
+    {cause, since} = evidence(reason, facts)
+    owner = if reason == :backing_off and facts[:capacity_hold_active?], do: "Dispatcher", else: Map.fetch!(@owners, reason)
+    %{reason: reason, owner: owner, cause: cause || :unknown, since: since} |> dependency_details(reason, facts)
+  end
+
+  defp dependency_details(waiting, :waiting_for_dependency, facts) do
+    issue = %Issue{id: facts[:issue_id], blocked_by: facts[:blocked_by]}
+    Map.merge(waiting, %{trigger: Hints.trigger_for(issue.id), description: DispatchPolicy.describe_dependency_hold(issue, DispatchPolicy.terminal_state_set())})
+  end
+
+  defp dependency_details(waiting, _reason, _facts), do: waiting
+
+  defp evidence(:backing_off, %{capacity_hold_active?: true} = facts), do: {facts[:hold_cause], facts[:hold_since]}
+  defp evidence(:backing_off, facts), do: {facts[:error], facts[:last_failure_at]}
+
+  defp evidence(:paused_transient, %{auto_resume_cause: cause} = facts) when not is_nil(cause),
+    do: {cause, facts[:auto_resume_since]}
+
+  defp evidence(reason, facts) when reason in [:paused, :paused_operator, :paused_transient, :provider_limited],
+    do: {facts[:pause_reason], facts[:paused_at]}
+
+  defp evidence(:run_paused, facts), do: {facts[:global_pause][:source] || facts[:pause_reason], facts[:global_pause][:paused_at]}
+
+  defp evidence(:waiting_for_human, %{open_decision_count: count} = facts) when is_integer(count) and count > 0,
+    do: {%{open_decision_count: count}, facts[:human_wait_since]}
+
+  defp evidence(:waiting_for_human, facts), do: {facts[:pause_reason], facts[:human_wait_since] || facts[:paused_at]}
+
+  # No recorded start exists for these two waits: a normalized blocker edge
+  # carries no creation time, and the lifetime latch persists only a dispatch
+  # count. They report `since: nil` ("since unknown"), never another clock.
+  defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
+  defp evidence(:queue_set_order, facts), do: {facts[:queue_set_wait], nil}
+  defp evidence(:optimistic_share, _facts), do: {:optimistic_share, nil}
+  defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
+
+  defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
+  defp evidence(:workspace_retained, facts), do: {facts[:workspace_retention][:cause], facts[:workspace_retention][:since]}
+  defp evidence(:workspace_ownership_waiting, facts), do: {facts[:workspace_wait][:cause] || facts[:workspace_wait][:owner], facts[:workspace_wait][:since]}
+  defp evidence(:unresponsive, facts), do: {:activity_timeout, facts[:last_codex_timestamp] || facts[:started_at]}
+  defp evidence(:tracker_unavailable, facts), do: {facts[:dispatch_hold_reason], facts[:hold_since]}
+  defp evidence(:awaiting_dispatch, facts), do: {facts[:work_state], facts[:started_at]}
+  defp evidence(:active, facts), do: {:active, facts[:started_at]}
+
+  # Collapsed cause: these waits have no cause evidence on the row, so they
+  # name the collapse instead of guessing a specific cause.
+  defp evidence(_reason, _facts), do: {:unknown, nil}
+
+  @doc false
+  @spec attach(map(), map(), map()) :: map()
+  def attach(row, state, entry \\ %{}) do
+    now = DateTime.utc_now()
+    facts = Map.merge(entry, row) |> Map.merge(wait_facts(row, state, now))
+    waiting = row.waiting_reason |> describe(facts) |> fence_wait(entry)
+    waiting = Map.put(waiting, :age_ms, age_ms(waiting.since, now))
+    Map.put(row, :waiting, waiting)
+  end
+
+  defp wait_facts(row, state, now) do
+    release = Map.get(state.released_claims, row.issue_id) || %{}
+    resume = Map.get(state.auto_resume, row.issue_id) || %{}
+    hold = if(row[:capacity_hold_active?], do: state.capacity_hold, else: state.dispatch_hold) || %{}
+
+    %{
+      queue_set_wait: if(row.waiting_reason == :queue_set_order, do: QueueSetSlots.waiting(row.issue_id, state)),
+      global_pause: state.global_pause,
+      auto_resume_cause: resume[:cause],
+      auto_resume_since: monotonic_since(resume[:scheduled_at_ms], now),
+      human_wait_since: get_in(state.waiting_for_human_episodes, [row.identifier, :since]),
+      released_at: monotonic_since(release[:released_at_ms], now),
+      hold_since: monotonic_since(hold[:held_since_ms], now),
+      hold_cause: hold[:detail] || hold[:signal],
+      workspace_retention: retained(row.identifier),
+      workspace_wait: workspace_wait(state, row.issue_id, row.identifier)
+    }
+  end
+
+  # A pending fence names who holds the row and since when; the reason atom
+  # stays the row's own classification.
+  defp fence_wait(waiting, %{lifecycle_fence: %{pending_item_ids: ids, opened_at: since}} = entry) do
+    if Map.get(entry[:control] || %{}, :status) != :deactivated and MapSet.size(ids) > 0 and waiting.reason in [:active, :awaiting_dispatch] do
+      Map.merge(waiting, %{owner: "LifecycleFence", cause: :provider_delivery_pending, since: since, pending_item_ids: Enum.sort(ids)})
+    else
+      waiting
+    end
+  end
+
+  defp fence_wait(waiting, _entry), do: waiting
+
+  defp monotonic_since(nil, _now), do: nil
+  defp monotonic_since(since_ms, now), do: DateTime.add(now, -elapsed(System.monotonic_time(:millisecond) - since_ms), :millisecond)
+
+  defp age_ms(%DateTime{} = since, now), do: elapsed(DateTime.diff(now, since, :millisecond))
+
+  defp age_ms(since, now) when is_binary(since) do
+    case DateTime.from_iso8601(since) do
+      {:ok, at, _offset} -> age_ms(at, now)
+      _invalid -> nil
+    end
+  end
+
+  defp age_ms(_since, _now), do: nil
+
+  defp elapsed(ms) when ms < 0 do
+    Logger.warning("Waiting reason timestamp is in the future; clamping age #{ms}ms")
+    0
+  end
+
+  defp elapsed(ms), do: ms
+
+  @spec render_wait(map()) :: String.t()
+  def render_wait(%{waiting: %{reason: :active, owner: "AgentRunner"}}), do: ""
+
+  def render_wait(%{waiting: %{reason: reason, owner: owner, age_ms: age} = waiting}),
+    do: " · #{render(reason)} · #{owner} · #{render_age(age)}" <> render_dependency(waiting) <> render_pending_ids(waiting)
+
+  def render_wait(_row), do: ""
+
+  defp render_dependency(%{reason: :waiting_for_dependency, description: description}), do: " · #{description}"
+  defp render_dependency(%{reason: :queue_set_order, cause: cause}) when is_binary(cause), do: " · #{cause}"
+  defp render_dependency(_waiting), do: ""
+
+  defp render_pending_ids(%{pending_item_ids: ids}), do: " · pending_item_ids=#{inspect(ids)}"
+  defp render_pending_ids(_waiting), do: ""
+
+  defp render_age(nil), do: "since unknown"
+  defp render_age(ms), do: "#{div(ms, 1_000)}s"
+
+  @spec public_wait(map()) :: map() | nil
+  def public_wait(%{waiting: waiting}) do
+    Map.update!(waiting, :cause, fn cause ->
+      if match?({:ok, _}, Jason.encode(cause)), do: cause, else: inspect(cause)
+    end)
+  end
+
+  def public_wait(_row), do: nil
+
+  defp retained(nil), do: nil
+  defp retained(identifier), do: Retention.for_ticket(identifier)
+
+  @doc false
+  @spec workspace_recovery?(map(), term(), term()) :: boolean()
+  def workspace_recovery?(state, issue_id, identifier), do: not is_nil(workspace_wait(state, issue_id, identifier))
+
+  defp workspace_wait(state, issue_id, identifier) do
+    ownership = state.dispatch_recovery.workspace_ownership
+
+    Enum.find_value([ownership.waits, ownership.ready], &find_workspace_wait(&1, issue_id, identifier))
+  end
+
+  defp find_workspace_wait(envelopes, issue_id, identifier) when is_map(envelopes) do
+    Enum.find_value(envelopes, fn {key, envelope} ->
+      if key == issue_id or (not is_nil(identifier) and key == identifier) or
+           (is_map(envelope) and (matches?(envelope, :issue_id, issue_id) or matches?(envelope, :identifier, identifier))),
+         do: workspace_envelope(envelope)
+    end)
+  end
+
+  defp find_workspace_wait(_envelopes, _issue_id, _identifier), do: nil
+
+  defp workspace_envelope(envelope) when is_map(envelope), do: envelope
+  defp workspace_envelope(_envelope), do: %{}
+
+  defp matches?(_envelope, _key, nil), do: false
+  defp matches?(envelope, key, value), do: Map.get(envelope, key) == value
 
   @doc """
   Classifies a row backed by a live running process.
@@ -40,7 +238,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     * `:pause_reason` — the running entry's `paused_reason` atom, if any
     * `:work_state` — the running entry's `control.status` (`:working` /
       `:paused` / `:sleeping` / `:deactivated`)
-    * `:open_decision_count` — unresolved ticket attentions requiring input
+    * `:open_decision_count` — open blocking ticket Commands
     * `:stale_for_seconds` — seconds since last observed agent activity
     * `:stall_timeout_seconds` — `Config.agent_stall_timeout_ms/0` in seconds
   """
@@ -50,7 +248,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
     cond do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
-      Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
+      Map.get(attrs, :workspace_retained?) -> :workspace_retained
+      # A completed runner parked in a tracker wait is not owed another dispatch (#4174).
+      Map.get(attrs, :work_state) == :completed -> if tracker_reason == :active, do: :awaiting_dispatch, else: tracker_reason
       unresponsive?(attrs) -> :unresponsive
       # A duration-capped pause is one consistent state, never re-labelled by
       # whatever the tracker state happens to be. #2310 and #2311 paused for
@@ -86,6 +286,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @spec render(t()) :: String.t()
   def render(:waiting_for_human), do: "waiting_for_human"
   def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
+  def render(:queue_set_order), do: "queue_set_order"
+  def render(:optimistic_share), do: "optimistic_share"
   def render(:waiting_for_dependency), do: "waiting_for_dependency"
   def render(:waiting_for_ci), do: "waiting_for_ci"
   def render(:waiting_for_review), do: "waiting_for_review"
@@ -109,8 +311,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @doc """
   Classifies a tracker-active row with no live running process.
   An open decision takes precedence, followed by `blocked_by_open?`, which is
-  only ever true for a `todo` issue with an unresolved dependency (see
-  `DispatchPolicy.todo_issue_blocked_by_non_terminal?/2`).
+  only ever true for a `todo` or `rework` issue with an unresolved dependency (see
+  `DispatchPolicy.issue_held_by_dependency?/2`).
 
   The fourth argument is a keyword list of idle-reason evidence so #1457 can
   render *why* a row is idle rather than a bare "idle":
@@ -173,17 +375,26 @@ defmodule Aiur.Orchestrator.WaitingReason do
       # envelope. Release may require provider-exit proof, so it is not always
       # self-clearing. It outranks the tracker-state classifications below,
       # which would misreport the row as an orphaned or stale claim (#2810).
+      Keyword.get(opts, :workspace_retained?, false) ->
+        :workspace_retained
+
       Keyword.get(opts, :workspace_recovery?, false) ->
         :workspace_ownership_waiting
 
       Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight ->
         dispatch_hold_or_tracker_state(tracker_state, opts)
 
-      Keyword.get(opts, :capacity_hold_active?, false) ->
-        capacity_or_tracker_state(tracker_state, opts)
-
       true ->
-        idle_by_tracker_state(tracker_state, opts)
+        capacity_classification(tracker_state, opts)
+    end
+  end
+
+  defp capacity_classification(tracker_state, opts) do
+    cond do
+      Keyword.get(opts, :queue_set_order?, false) -> :queue_set_order
+      Keyword.get(opts, :optimistic_share?, false) -> :optimistic_share
+      Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state, opts)
+      true -> idle_by_tracker_state(tracker_state, opts)
     end
   end
 
@@ -203,20 +414,19 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
-  # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
-  # actual exemption set: only `:paused` and `:deactivated` entries are
-  # skipped by the stall-restart check there, so a `:sleeping` entry is just
-  # as eligible for a stall-triggered kill+retry as a `:working` one — this
-  # must classify it the same way, or the dashboard would keep calling it
-  # merely "paused" right up to the restart.
-  defp unresponsive?(%{
-         work_state: work_state,
-         stale_for_seconds: stale,
-         stall_timeout_seconds: timeout
-       })
+  # Mirrors `RuntimeWatchdog.restart_stalled_issue/5`'s exemption set (ci-wait
+  # tickets, `:paused`, `:deactivated`): a `:sleeping` entry is as eligible for
+  # a stall kill+retry as a `:working` one, so it must classify the same way.
+  defp unresponsive?(
+         %{
+           work_state: work_state,
+           stale_for_seconds: stale,
+           stall_timeout_seconds: timeout
+         } = attrs
+       )
        when work_state in [:working, :sleeping] and is_integer(stale) and is_integer(timeout) and
               timeout > 0,
-       do: stale >= timeout
+       do: stale >= timeout and not CiLifecycle.ci_wait_state?(Map.get(attrs, :tracker_state))
 
   defp unresponsive?(_attrs), do: false
 
@@ -235,7 +445,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
-  defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
+  defp agent_requested_human?(reason), do: reason == :input_required
 
   defp provider_limited?(%{pause_reason: :usage_limit_exhausted, work_state: :paused}), do: true
   defp provider_limited?(_attrs), do: false

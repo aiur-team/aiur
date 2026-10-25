@@ -1,0 +1,345 @@
+defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
+  @moduledoc """
+  The MODELS pane of the Units provider strip, drawn to the Claude design
+  (`ax-usage` / `ax-ln`): one row per provider, a logo column, then one line per
+  meter with a full-width bar beneath its label, percentage and reset.
+
+  Every line is a fixed grid, so a tag, percentage and reset cannot overlap and
+  every bar uses the same full content width. A provider with several accounts keeps one
+  named line per account (operator directive, #3751) instead of the design's
+  split bar. Every bar and percentage shows remaining quota. Reset times show
+  the recycle icon and the time; window age, freshness and scope live in the
+  line's tooltip, not in repeated text.
+  """
+
+  use Phoenix.Component
+
+  alias Aiur.Accounts.UsageReadings
+  alias AiurWeb.RemainingMeter
+
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [remaining_class: 1]
+
+  @seconds_per_day 86_400
+  @seconds_per_hour 3_600
+  # Tags wider than this truncate with an ellipsis rather than squeeze the bar.
+  @max_tag_chars 12
+
+  attr(:cards, :list, required: true)
+  attr(:now, :any, required: true)
+
+  @spec models_panel(map()) :: Phoenix.LiveView.Rendered.t()
+  def models_panel(assigns) do
+    ~H"""
+    <div class="rs-block rs-models" aria-label="Model providers">
+      <div class="rs-group-head">
+        <span class="rs-group-title">Models</span>
+        <span class="rs-group-count">{model_count_label(length(@cards))}</span>
+      </div>
+      <div class="rs-models-rows">
+        <.model_row :for={card <- @cards} card={card} now={@now} />
+      </div>
+    </div>
+    """
+  end
+
+  attr(:card, :map, required: true)
+  attr(:now, :any, required: true)
+
+  defp model_row(assigns) do
+    lines = lines(assigns.card, assigns.now)
+
+    assigns =
+      assigns
+      |> assign(:lines, lines)
+      |> assign(:accounts, accounts(assigns.card))
+      |> assign(:tag_width, tag_width(lines))
+
+    ~H"""
+    <div class="rs-model" data-provider={@card.provider} title={who_title(@card)}>
+      <div class="rs-head">
+        <img class="rs-logo" src={@card.logo} alt="" aria-hidden="true" />
+        <span class="rs-name">{@card.provider_label}</span>
+        <span :if={@accounts != []} class="rs-x" title={"#{length(@accounts)} accounts"}>×{length(@accounts)}</span>
+      </div>
+      <div class="rs-lines" style={@tag_width && "--rs-tag-width: #{@tag_width}ch"}>
+        <div
+          :for={line <- @lines}
+          class={classes(["rs-ln", line.tag && "has-tag", line.stale? && "is-stale"])}
+          data-account={line.account}
+          title={line.title}
+        >
+          <span :if={line.tag} class="rs-tg">{line.tag}</span>
+          <span :if={line.stale?} class="rs-stale" aria-label="stale usage">stale</span>
+          <span class={classes(["rs-pc", tone(line.percent)])}>{percent_text(line.percent)}</span>
+          <span class="rs-rs">
+            <span :if={line.reset}>{line.reset}<em :if={line.window}>/{line.window}</em></span>
+            <svg :if={line.reset} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 11a8 8 0 0 0-14.8-3.5M4 13a8 8 0 0 0 14.8 3.5" /><path d="M4 3.5V8h4.5M20 20.5V16h-4.5" />
+            </svg>
+            <b :if={line.amount} class="rs-usd">{line.amount}</b>
+            <span :if={line.note} class="rs-no">{line.note}</span>
+          </span>
+          <span
+            class={classes(["rs-meter", is_nil(line.percent) && "is-unknown"])}
+            role="progressbar"
+            aria-label={line.aria_label}
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={line.percent}
+          >
+            <i :if={is_number(line.percent) and line.percent > 0} class={remaining_class(line.percent)} style={"width:#{bar_width(line.percent)}%"}></i>
+          </span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # --- lines ---------------------------------------------------------------
+
+  # A provider with named accounts gives each account its own weekly line, so
+  # the provider-wide weekly windows would only repeat the worst account. Its
+  # remaining windows (the session) take a short tag so every line in the row
+  # shares one tag column.
+  defp lines(card, now) do
+    accounts = accounts(card)
+    windows = windows(card, accounts)
+    tagged? = accounts != []
+    usage = Map.get(card, :usage)
+    usage_age = if is_map(usage), do: Map.get(usage, :age_ms), else: :unavailable
+    usage_freshness = if is_map(usage), do: Map.get(usage, :freshness)
+
+    account_lines = Enum.map(accounts, &account_line(&1, now))
+    window_lines = Enum.map(windows, &window_line(&1, tagged?, now, usage_age, usage_freshness))
+    headroom_lines = if card.provider == :codex and Map.has_key?(card, :headroom), do: [headroom_line(card.headroom)], else: []
+
+    case account_lines ++ window_lines ++ headroom_lines do
+      [] -> [fallback_line(card)]
+      lines -> lines
+    end
+  end
+
+  defp accounts(card), do: get_in(card, [:account_usage, :accounts]) || []
+
+  defp windows(card, []), do: Map.get(card, :windows, [])
+
+  defp windows(card, _accounts) do
+    card
+    |> Map.get(:windows, [])
+    |> Enum.reject(&weekly_window?/1)
+  end
+
+  defp weekly_window?(window) do
+    window |> Map.get(:limit_id, "") |> to_string() |> String.split(":") |> List.last() |> String.starts_with?("seven_day")
+  end
+
+  defp account_line(account, now) do
+    percent = account.percent
+    reset = percent && reset_label(Map.get(account, :resets_at), now)
+    age = if is_integer(account.age_seconds), do: "#{account.age_seconds}s old", else: "age unknown"
+
+    line(%{
+      tag: account.name,
+      account: account.name,
+      percent: percent,
+      reset: reset,
+      window: reset && "7d",
+      note: if(is_nil(percent), do: "unknown"),
+      stale?: account.freshness in [:stale, "stale"],
+      aria_label: "#{account.name} weekly remaining",
+      title:
+        "#{account.name} · weekly #{if is_number(percent), do: "#{format_percent(100 - percent)}% used (#{format_percent(percent)}% left)", else: "usage unknown"} · #{account.freshness}, #{age}#{title_error(Map.get(account, :last_error))}#{title_reset(reset)}"
+    })
+  end
+
+  defp headroom_line(%{status: :observed, remaining_percent: remaining} = headroom) do
+    age = age_text(Map.get(headroom, :age_seconds))
+
+    line(%{
+      tag: "headroom",
+      account: "codex-headroom",
+      percent: remaining,
+      note: "#{remaining}% left · #{age} old",
+      aria_label: "Codex headroom",
+      title: "Codex headroom · #{remaining}% remaining · observed #{age} ago"
+    })
+  end
+
+  defp headroom_line(%{status: status} = headroom) do
+    reason = Map.get(headroom, :reason, "Headroom unavailable")
+    age = age_text(Map.get(headroom, :age_seconds))
+
+    line(%{
+      tag: "headroom",
+      account: "codex-headroom",
+      note: "#{reason} · #{age} old",
+      stale?: status == :stale,
+      aria_label: "Codex headroom",
+      title: "Codex headroom · #{reason} · #{age} old"
+    })
+  end
+
+  defp age_text(age) when is_integer(age), do: "#{age}s"
+  defp age_text(_unknown), do: "age unknown"
+  defp usage_age_label(age_ms) when is_integer(age_ms), do: " · usage observed #{age_text(div(age_ms, 1_000))} ago"
+  defp usage_age_label(:unavailable), do: ""
+  defp usage_age_label(_unknown), do: " · usage age unknown"
+
+  defp window_line(%{kind: :credit} = window, tagged?, _now, usage_age, usage_freshness) do
+    percent = credit_percent(window)
+    amount = credit_amount(window)
+
+    line(%{
+      tag: if(tagged?, do: "credits"),
+      percent: percent,
+      amount: amount,
+      note: if(is_nil(amount), do: credit_status(window)),
+      stale?: usage_freshness in [:stale, "stale"],
+      aria_label: "#{Map.get(window, :name, "Credits")} remaining",
+      title: "Prepaid credits · #{amount || credit_status(window)}#{if percent, do: " · #{format_percent(percent)}% left"}#{usage_age_label(usage_age)}"
+    })
+  end
+
+  defp window_line(window, tagged?, now, usage_age, usage_freshness) do
+    percent = window_percent(window)
+    reset = percent && reset_label(Map.get(window, :resets_at), now)
+    name = Map.get(window, :name, "Limit")
+
+    line(%{
+      tag: if(tagged?, do: short_name(name)),
+      percent: percent,
+      reset: reset,
+      window: reset && window_span(window),
+      note: if(is_nil(percent), do: "unknown"),
+      # Same cutoff as the account lines and `aiur accounts`: an unmarked old
+      # number reads as current (#5747).
+      stale?: usage_freshness in [:stale, "stale"] or UsageReadings.stale?(Map.get(window, :observed_at), now),
+      aria_label: "#{name} remaining",
+      title: "#{name} · #{title_percent(percent)}#{if is_number(percent), do: " (#{format_percent(100 - percent)}% used)"}#{title_reset(reset)}#{usage_age_label(usage_age)}"
+    })
+  end
+
+  # A real provider with nothing observed yet keeps one compact line: an
+  # explicitly unknown bar (unknown is not zero), or its durable last-known
+  # standing when the dispatch-limits ledger holds one.
+  defp fallback_line(%{durable_observation: %{percent: percent}}) do
+    remaining = RemainingMeter.percent(percent)
+    line(%{percent: remaining, aria_label: "Last known remaining", title: "Last known usage · #{remaining}% left"})
+  end
+
+  defp fallback_line(card) do
+    line(%{note: "unknown", aria_label: "#{card.provider_label} usage", title: "#{card.provider_label} · usage unknown"})
+  end
+
+  defp line(fields) do
+    Map.merge(%{tag: nil, account: nil, percent: nil, reset: nil, window: nil, amount: nil, note: nil, stale?: false}, fields)
+  end
+
+  # --- formatting ----------------------------------------------------------
+
+  defp model_count_label(1), do: "1 model"
+  defp model_count_label(count), do: "#{count} models"
+
+  defp who_title(card) do
+    [card.provider_label, get_in(card, [:health, :age_label]), unverified(card)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp unverified(card), do: if(get_in(card, [:identity, :state]) == :unverified, do: "Account unverified")
+
+  defp tag_width(lines) do
+    case lines |> Enum.map(& &1.tag) |> Enum.reject(&is_nil/1) do
+      [] -> nil
+      tags -> tags |> Enum.map(&String.length/1) |> Enum.max() |> min(@max_tag_chars) |> max(3)
+    end
+  end
+
+  defp short_name(name) do
+    name |> to_string() |> String.split([" ", "("], trim: true) |> List.first("limit") |> String.downcase()
+  end
+
+  defp window_percent(%{remaining_percent: percent}) when is_number(percent), do: RemainingMeter.clamp(percent)
+  defp window_percent(%{meter: %{kind: :exact, now: percent}}) when is_number(percent), do: RemainingMeter.clamp(percent)
+  defp window_percent(%{used_percent: percent}) when is_number(percent), do: RemainingMeter.percent(percent)
+  defp window_percent(_window), do: nil
+
+  defp credit_percent(%{remaining_percent: percent}) when is_number(percent), do: RemainingMeter.clamp(percent)
+  defp credit_percent(%{used_percent: percent}) when is_number(percent), do: RemainingMeter.percent(percent)
+  defp credit_percent(_window), do: nil
+
+  defp credit_amount(%{credits: %{amount: amount}}) when is_number(amount), do: "$" <> :erlang.float_to_binary(amount / 1, decimals: 2)
+  defp credit_amount(_window), do: nil
+
+  defp credit_status(%{credits: %{status: status}}) when not is_nil(status), do: "#{status} balance"
+  defp credit_status(_window), do: "balance unknown"
+
+  # The design prints whole percentages. A window that is nearly but not fully
+  # spent never rounds up to a full-looking 100%.
+  defp percent_text(nil), do: ""
+  defp percent_text(percent) when percent >= 99.5, do: "100% left"
+  defp percent_text(percent) when percent > 99, do: "99% left"
+  defp percent_text(percent) when percent > 0 and percent < 1, do: "<1% left"
+  defp percent_text(percent), do: "#{round(percent)}% left"
+
+  defp title_error(nil), do: ""
+  defp title_error(reason), do: " · last error #{reason}"
+
+  defp title_percent(nil), do: "usage unknown"
+  defp title_percent(percent), do: "#{format_percent(percent)}% left"
+
+  defp title_reset(nil), do: ""
+  defp title_reset(reset), do: " · next reset #{reset}"
+
+  defp format_percent(percent) do
+    rounded = Float.round(percent / 1, 1)
+    if rounded == trunc(rounded), do: Integer.to_string(trunc(rounded)), else: :erlang.float_to_binary(rounded, decimals: 1)
+  end
+
+  defp classes(names), do: names |> Enum.filter(&is_binary/1) |> Enum.join(" ")
+
+  defp tone(percent) when is_number(percent) do
+    case remaining_class(percent) do
+      "" -> nil
+      class -> class
+    end
+  end
+
+  defp tone(_unknown), do: nil
+
+  defp bar_width(percent), do: percent |> max(0) |> min(100)
+
+  defp reset_label(%DateTime{} = reset, %DateTime{} = now) do
+    case DateTime.diff(reset, now, :second) do
+      seconds when seconds <= 0 -> "now"
+      seconds -> duration(seconds)
+    end
+  end
+
+  defp reset_label(_reset, _now), do: nil
+
+  # Two units at most, as the design prints them: "6d 15h", "4h 2m", "58m".
+  defp duration(seconds) when seconds < @seconds_per_hour, do: "#{max(div(seconds, 60), 1)}m"
+  defp duration(seconds) when seconds < @seconds_per_day, do: "#{div(seconds, @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
+  defp duration(seconds), do: "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h"
+
+  # The window length after the reset ("/5h", "/7d"), from the reported
+  # duration or, failing that, the limit id Claude names its windows by.
+  defp window_span(%{duration_minutes: minutes}) when is_integer(minutes) and minutes > 0 do
+    cond do
+      rem(minutes, 1_440) == 0 -> "#{div(minutes, 1_440)}d"
+      rem(minutes, 60) == 0 -> "#{div(minutes, 60)}h"
+      true -> "#{minutes}m"
+    end
+  end
+
+  defp window_span(window) do
+    limit_id = window |> Map.get(:limit_id, "") |> to_string()
+
+    cond do
+      String.contains?(limit_id, "five_hour") -> "5h"
+      String.contains?(limit_id, "seven_day") -> "7d"
+      true -> nil
+    end
+  end
+end

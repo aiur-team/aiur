@@ -32,6 +32,26 @@ function fail(message) {
   process.exit(1);
 }
 
+function usageError(message) {
+  process.stderr.write(`aiur: ${message}\n`);
+  process.exit(64);
+}
+
+function remoteTarget(argv) {
+  const args = [...argv];
+  let instance;
+  if (args[0] === "--instance") {
+    if (!args[1]) usageError("--instance requires a name");
+    instance = args[1];
+    args.splice(0, 2);
+  } else if (args[0]?.startsWith("--instance=")) {
+    instance = args[0].slice("--instance=".length);
+    if (!instance) usageError("--instance requires a name");
+    args.shift();
+  }
+  return { args, instance };
+}
+
 function resolveReleaseDir() {
   // A pre-set AIUR_RELEASE_DIR (the dev shim, or local `npm pack` install
   // verification) wins over platform-package resolution.
@@ -224,12 +244,12 @@ function requiresInteractiveTools(argv) {
   if (["", "run", "restart", "--bg"].includes(command)) return true;
   const nonLaunchCommands = new Set([
     "__identity", "help", "-h", "-help", "--h", "--help", "--version", "--todo", "--only",
-    "init", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
-    "build-orders", "analytics", "github-cost", "github-usage", "alerts", "watch", "set",
-    "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
-    "executor-answer", "executor-escalate", "executor-moot", "executor-listen", "executor-wait",
+    "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
+    "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
+    "upgrade", "pause", "resume", "park", "reset-budget", "message", "cleanup-stale", "stop",
+    "executor-answer", "executor-escalate", "executor-reclassify", "executor-moot", "executor-listen", "executor-wait",
     "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
-    "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
+    "executor-roster", "executor-session", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
   ]);
   if (nonLaunchCommands.has(command)) return false;
   return command.startsWith("-") || fs.existsSync(command);
@@ -237,22 +257,55 @@ function requiresInteractiveTools(argv) {
 
 function main() {
   const releaseDir = resolveReleaseDir();
+  const target = remoteTarget(process.argv.slice(2));
+  const containerMode = target.args.includes("--container");
 
-  if (requiresInteractiveTools(process.argv.slice(2))) {
+  if (!containerMode && requiresInteractiveTools(target.args)) {
     ensureTmux();
     ensureOpencode();
   }
 
   const pkgRoot = path.resolve(__dirname, "..");
   const launcher = path.join(pkgRoot, "libexec", "aiur-engine.sh");
+  const env = {
+    ...process.env,
+    AIUR_JS_RUNTIME: process.execPath,
+    AIUR_RELEASE_DIR: releaseDir,
+    AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
+  };
 
-  const result = spawnSync(launcher, process.argv.slice(2), {
+  delete env.AIUR_REMOTE_INSTANCE;
+  const engineArgs = target.instance
+    ? ["--instance", target.instance, ...target.args]
+    : target.args;
+
+  if (containerMode) {
+    const child = spawn(launcher, engineArgs, { stdio: "inherit", env });
+    let forwardedSignal = false;
+    const signalHandlers = new Map();
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+      const handler = () => {
+        forwardedSignal = true;
+        child.kill(signal);
+      };
+      signalHandlers.set(signal, handler);
+      process.on(signal, handler);
+    }
+    child.on("error", (error) => fail(`failed to launch ${launcher}: ${error.message}`));
+    child.on("exit", (code, signal) => {
+      if (signal && !forwardedSignal) {
+        for (const [name, handler] of signalHandlers) process.removeListener(name, handler);
+        process.kill(process.pid, signal);
+        return;
+      }
+      process.exit(code === null ? 1 : code);
+    });
+    return;
+  }
+
+  const result = spawnSync(launcher, engineArgs, {
     stdio: "inherit",
-    env: {
-      ...process.env,
-      AIUR_RELEASE_DIR: releaseDir,
-      AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
-    },
+    env,
   });
 
   if (result.error) {

@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DependenciesApiTest do
 
   alias Aiur.GitHub.{DependenciesApi, ResourceStore}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @dependencies_api_version "2026-03-10"
 
   setup do
@@ -29,6 +29,20 @@ defmodule Aiur.GitHub.DependenciesApiTest do
     ResourceStore.reset()
     on_exit(&ResourceStore.reset/0)
     :ok
+  end
+
+  test "a stale blocked-by read cannot roll back a newer webhook edge list" do
+    key = ResourceStore.key(:issue_blocked_by, "owner", "repo", 5)
+    newer = [%{"id" => 80_001, "number" => 80, "updated_at" => "2026-10-07T11:00:00Z"}]
+    older = [%{"id" => 90_001, "number" => 90, "updated_at" => "2026-10-07T10:00:00Z"}]
+
+    request = fn _ ->
+      ResourceStore.put_resource(key, newer, version: "2026-10-07T11:00:00Z", etag: "new", source: :webhook)
+      {:ok, %{status: 200, body: older, headers: [{"etag", "old"}]}}
+    end
+
+    assert {:ok, ^older} = DependenciesApi.fetch_blocked_by(5, request_fun: request)
+    assert {:ok, %{data: ^newer, version: "2026-10-07T11:00:00Z", etag: "new"}} = ResourceStore.fetch(key)
   end
 
   describe "fetch_blocked_by/2" do

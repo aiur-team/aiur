@@ -1,0 +1,9 @@
+@layer aiur.components {
+  .aiur-theme-toggle {
+    --aiur-button-bg: var(--aiur-color-pill-bg); --aiur-button-fg: var(--aiur-color-fg); --aiur-button-border: var(--aiur-color-pill-bd);
+    --aiur-button-pressed: var(--aiur-button-bg); --aiur-button-hover: color-mix(in srgb, var(--aiur-color-fg) 8%, var(--aiur-color-pill-bg));
+    width: 38px; height: 38px; padding: 0; border-radius: 50%; }
+  .aiur-theme-toggle svg { width: 18px; height: 18px; display: block; }
+  .aiur-theme-toggle .aiur-theme-toggle__sun, .aiur-theme-toggle[aria-pressed="true"] .aiur-theme-toggle__moon { display: none; }
+  .aiur-theme-toggle[aria-pressed="true"] .aiur-theme-toggle__sun { display: block; }
+}

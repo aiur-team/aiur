@@ -19,16 +19,27 @@ defmodule Aiur.Opencode.ChatCompletions.Caller do
   @doc false
   @spec authorize(Plug.Conn.t()) :: {:ok, Plug.Conn.t()} | {:error, :unauthorized}
   def authorize(conn) do
-    # Token validity is independent of identifier; the identifier comes
-    # from the request body's `model` field via `identifier_from_model/1`
-    # and routes the request, while the bearer just authorizes "this is
-    # a live aiur workspace."
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
          true <- TokenRegistry.valid?(token) do
       {:ok, conn}
     else
       _ -> {:error, :unauthorized}
     end
+  end
+
+  @doc false
+  @spec authorize(Plug.Conn.t(), String.t()) :: {:ok, Plug.Conn.t()} | {:error, :unauthorized | :forbidden}
+  def authorize(conn, identifier) do
+    with {:ok, conn} <- authorize(conn) do
+      ["Bearer " <> token] = Plug.Conn.get_req_header(conn, "authorization")
+      if TokenRegistry.valid?(token, identifier), do: {:ok, conn}, else: {:error, :forbidden}
+    end
+  end
+
+  @doc false
+  @spec forbidden_body() :: map()
+  def forbidden_body do
+    %{error: "forbidden", message: "Bridge token does not authorize the requested ticket identifier."}
   end
 
   @doc false

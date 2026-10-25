@@ -39,7 +39,7 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
   end
 
   defp start_orchestrator(name) do
-    {:ok, pid} = Orchestrator.start_link(name: name)
+    {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
     pid
   end
@@ -229,7 +229,8 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
       send(pid, {:DOWN, ref, :process, self(), :response_timeout})
       assert %{attempt: 1, retry_token: token} = :sys.get_state(pid).retry_attempts["d10"]
       send(pid, {:retry_issue, "d10", token})
-      assert %{attempt: 1, retry_poll_failures: 1} = :sys.get_state(pid).retry_attempts["d10"]
+      state = await_orchestrator_state(pid, &(get_in(&1.retry_attempts, ["d10", :retry_poll_failures]) == 1))
+      assert %{attempt: 1, retry_poll_failures: 1} = state.retry_attempts["d10"]
     end
 
     test "a rate-limited retry-poll exhaustion releases the claim, alerts, and schedules automatic re-claim" do
@@ -253,7 +254,7 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
       log =
         capture_log(fn ->
           send(pid, {:retry_issue, "d11", token})
-          _ = :sys.get_state(pid)
+          await_orchestrator_state(pid, &Map.has_key?(&1.auto_resume, "d11"))
         end)
 
       state = :sys.get_state(pid)
@@ -301,7 +302,7 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
       log =
         capture_log(fn ->
           send(pid, {:retry_issue, "d11c", token})
-          _ = :sys.get_state(pid)
+          await_orchestrator_state(pid, &Map.has_key?(&1.auto_resume, "d11c"))
         end)
 
       expected_fingerprint =

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Read-only by default; --repair is explicit operator consent to run reshim.
+set -euo pipefail
+mode=${1:---check}
+[[ $# -le 1 && ( $mode == --check || $mode == --repair ) ]] || {
+  echo 'usage: aiur doctor [--repair]' >&2
+  exit 64
+}
+shim_dir=${MISE_SHIMS_DIR:-${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims}
+script_dir=$(cd -P "$(dirname "$0")" && pwd)
+proc_net_dir=${AIUR_TEST_PROC_NET_DIR:-/proc/net}
+engine_dir=${AIUR_TEST_ENGINE_DIR:-$script_dir}
+
+distribution_status() {
+  local port="${ERL_EPMD_PORT:-4369}" port_hex interface="not verified" line source address ipv4 ipv6 loopback=1 index word bytes
+  local endpoint_regex='(\*|([0-9]{1,3}\.){3}[0-9]{1,3}|\[[[:xdigit:]:]+\]):([0-9]+)'
+  local listeners=() addresses=()
+
+  if [[ -f $engine_dir/engine/identity.sh ]] && grep -Fq 'inet_dist_use_interface {127,0,0,1}' "$engine_dir/engine/identity.sh"; then
+    interface='127.0.0.1 (engine config)'
+  fi
+
+  if [[ ! $port =~ ^[0-9]+$ ]] || ((10#$port < 1 || 10#$port > 65535)); then
+    printf 'distribution: epmd listener not verified (invalid ERL_EPMD_PORT); inet_dist_use_interface=%s\n' "$interface"
+    return
+  fi
+  port=$((10#$port))
+  port_hex=$(printf '%04X' "$port")
+
+  if [[ -r $proc_net_dir/tcp && -r $proc_net_dir/tcp6 ]]; then
+    mapfile -t listeners < <(awk -v port="$port_hex" 'NR > 1 && toupper($4) == "0A" { split($2, local, ":"); if (toupper(local[2]) == port) print FILENAME, local[1] }' "$proc_net_dir/tcp" "$proc_net_dir/tcp6")
+    for line in "${listeners[@]}"; do
+      read -r source address <<<"$line"
+      if [[ $source == */tcp ]]; then
+        ipv4="$((16#${address:6:2})).$((16#${address:4:2})).$((16#${address:2:2})).$((16#${address:0:2}))"
+        addresses+=("$ipv4:$port")
+        [[ $ipv4 == 127.* ]] || loopback=0
+      else
+        ipv6=
+        for ((index = 0; index < 4; index++)); do
+          word=${address:index*8:8}
+          bytes="${word:6:2}${word:4:2}${word:2:2}${word:0:2}"
+          ipv6+="${ipv6:+:}${bytes:0:4}:${bytes:4:4}"
+        done
+        addresses+=("[$ipv6]:$port")
+        [[ $ipv6 == 0000:0000:0000:0000:0000:0000:0000:0001 ]] || loopback=0
+      fi
+    done
+  else
+    local lsof_bin output endpoint
+    lsof_bin=${AIUR_TEST_LSOF_BIN:-$(command -v lsof || true)}
+    if [[ -n $lsof_bin ]]; then
+      output=$("$lsof_bin" -nP "-iTCP:$port" -sTCP:LISTEN 2>&1 || true)
+      while IFS= read -r line; do
+        if [[ $line =~ $endpoint_regex ]]; then
+          endpoint=${BASH_REMATCH[0]}
+          [[ ${endpoint##*:} == "$port" ]] || continue
+          address=${endpoint%:*}
+          if [[ $address == \[*\] ]]; then
+            address=${address:1:${#address}-2}
+            addresses+=("[$address]:$port")
+            [[ $address == ::1 ]] || loopback=0
+          else
+            addresses+=("$address:$port")
+            [[ $address == 127.* ]] || loopback=0
+          fi
+        fi
+      done <<<"$output"
+    else
+      printf 'distribution: epmd listener not verified (/proc/net unavailable and lsof missing); inet_dist_use_interface=%s\n' "$interface"
+      return
+    fi
+  fi
+
+  if [[ ${#addresses[@]} -eq 0 ]]; then
+    printf 'distribution: epmd listener not found on port %s; inet_dist_use_interface=%s\n' "$port" "$interface"
+  elif [[ $loopback -eq 1 ]]; then
+    printf 'distribution: epmd listeners %s; inet_dist_use_interface=%s\n' "$(IFS=,; echo "${addresses[*]}")" "$interface"
+  else
+    printf 'distribution: epmd listeners not loopback (%s); inet_dist_use_interface=%s\n' "$(IFS=,; echo "${addresses[*]}")" "$interface"
+  fi
+}
+
+if [[ $# -eq 0 || $mode == --repair ]]; then
+  distribution_status
+fi
+bad=0
+for shim in "$shim_dir"/*; do
+  [[ -L $shim ]] || continue
+  target=$shim
+  # Follow relative and chained links, including dangling workspace links.
+  for ((depth=0; depth<40; depth++)); do
+    [[ -L $target ]] || break
+    link=$(readlink "$target")
+    if [[ $link == /* ]]; then target=$link; else target=${target%/*}/$link; fi
+  done
+  if [[ $target == */.aiur-runtime/build-bin/* ]]; then
+    printf 'aiur: unsafe mise shim %s -> %s\n' "$shim" "$target" >&2
+    bad=1
+  fi
+done
+((bad)) || exit 0
+if [[ $mode != --repair ]]; then
+  echo 'aiur: run aiur doctor --repair to consent to regenerating mise shims' >&2
+  exit 1
+fi
+# Never trust a workspace wrapper (or its inherited self identity) for repair.
+IFS=: read -r -a entries <<< "$PATH"
+real_mise=
+clean_path=
+for entry in "${entries[@]}"; do
+  entry=${entry:-.}
+  candidate=$entry/mise
+  if [[ -r $candidate ]] && head -c 4096 "$candidate" | grep -q 'aiur-build-gate-command-wrapper-marker'; then
+    continue
+  fi
+  clean_path=${clean_path:+$clean_path:}$entry
+  [[ -n $real_mise || ! -x $candidate ]] || real_mise=$candidate
+done
+[[ -n $real_mise ]] || { echo 'aiur: cannot repair: real mise unavailable on PATH' >&2; exit 127; }
+real_mise=$(cd -P "${real_mise%/*}" && printf '%s/%s' "$PWD" "${real_mise##*/}")
+# Run outside any project config; preserve the operator's mise data directories.
+(cd /; PATH=$clean_path MISE_BIN=$real_mise __MISE_BIN=$real_mise __MISE_EXE=$real_mise "$real_mise" reshim)
+bash "$0" --check

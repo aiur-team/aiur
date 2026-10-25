@@ -1,6 +1,8 @@
+# Cohesion: this module composes first-turn and continuation prompts from shared guidance helpers.
 defmodule Aiur.AgentRunner.TurnPrompt do
   @moduledoc false
 
+  alias Aiur.AgentRunner.{OptimisticPrompt, ReworkFindings, StoppedSessionPrompt}
   alias Aiur.{Issue, PromptBuilder}
 
   defp turn_of(nil), do: ""
@@ -9,15 +11,23 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   @doc false
   @spec build_turn_prompt(Issue.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
   def build_turn_prompt(issue, opts, 1, _max_turns) do
-    case first_turn_mode(issue, opts) do
-      :resumed -> resumed_turn_prompt()
-      :continuation -> continuation_turn_prompt(issue, opts, continuation_reason(issue))
-      :cold -> PromptBuilder.build_prompt(issue, opts)
-    end
+    workspace = Keyword.get(opts, :workspace)
+    prompt_opts = Keyword.delete(opts, :workspace)
+
+    prompt =
+      case first_turn_mode(issue, prompt_opts) do
+        :resumed -> resumed_turn_prompt() <> OptimisticPrompt.render(issue.optimistic_start)
+        :continuation -> continuation_turn_prompt(issue, prompt_opts, continuation_reason(issue))
+        :cold -> PromptBuilder.build_prompt(issue, prompt_opts)
+      end
+
+    prompt <>
+      PromptBuilder.answered_decisions_prompt(Keyword.get(prompt_opts, :answered_decisions, [])) <>
+      conflict_guidance(workspace) <> stopped_session_guidance(issue, prompt_opts, workspace)
   end
 
-  def build_turn_prompt(_issue, opts, turn_number, max_turns) do
-    """
+  def build_turn_prompt(issue, opts, turn_number, max_turns) do
+    prompt = """
     Continuation guidance:
 
     - The previous turn completed normally, but the issue is still in an active state.
@@ -29,8 +39,57 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Focus on the remaining ticket work and do not end the turn while the issue stays active unless you are truly blocked.
     #{PromptBuilder.integration_branch_restatement()}
+    #{PromptBuilder.merge_policy_restatement()}
     #{PromptBuilder.rename_test_audit_restatement()}
     """
+
+    prompt <> OptimisticPrompt.render(issue.optimistic_start)
+  end
+
+  defp conflict_guidance(workspace) when is_binary(workspace) do
+    workspace
+    |> Path.join("logs/before-run-merge-conflict.md")
+    |> File.read()
+    |> case do
+      {:ok, note} -> render_conflict_guidance(note)
+      {:error, _missing_or_unreadable_note} -> ""
+    end
+  end
+
+  defp conflict_guidance(_workspace), do: ""
+
+  defp stopped_session_guidance(issue, opts, workspace) do
+    if (Keyword.get(opts, :prior_work, false) or rework_state?(issue.state)) and not Keyword.get(opts, :resumed, false) do
+      StoppedSessionPrompt.render(workspace, issue.identifier, issue.state)
+    else
+      ""
+    end
+  end
+
+  defp render_conflict_guidance(note) do
+    case String.split(note, "## Conflicting files\n", parts: 2) do
+      [_heading, file_section] ->
+        files =
+          file_section
+          |> String.split("\n")
+          |> Enum.map(&String.trim/1)
+          |> Enum.filter(&String.starts_with?(&1, "- "))
+          |> Enum.map(&String.trim_leading(&1, "- "))
+
+        if files == [] do
+          ""
+        else
+          """
+
+          Base merge conflict from preflight:
+          Merge `origin/$AIUR_BASE_BRANCH` and resolve these files before continuing:
+          #{Enum.map_join(files, "\n", &"- `#{String.replace(&1, "`", "\\`")}`")}
+          """
+        end
+
+      [_missing_or_legacy_heading] ->
+        ""
+    end
   end
 
   # #2806: on a no-op run the old prompt pushed the agent HARDER to find work
@@ -43,7 +102,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   # `Aiur.AgentRunner.TurnProgress.prompt_digest/1` strips it (it matches on the
   # "- Aiur observed that the last N turn" opening). Keep that opening intact if
   # this wording changes, or the no-op counter can never reach its cap.
-  defp noop_run_bullet(opts) when is_list(opts) do
+  defp noop_run_bullet(opts) do
     case Keyword.get(opts, :turn_progress) do
       %{consecutive_noops: noops} when is_integer(noops) and noops > 0 ->
         "\n    - Aiur observed that the last #{noops} turn(s) changed nothing it can see: no commit, no push, " <>
@@ -56,8 +115,6 @@ defmodule Aiur.AgentRunner.TurnPrompt do
         ""
     end
   end
-
-  defp noop_run_bullet(_opts), do: ""
 
   @doc """
   Which first-turn prompt a dispatch gets.
@@ -100,6 +157,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     - If manual `scripts/aiurdev --test` / `--test3` is blocked inside this agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or another clone.
     - Do not end the turn while the issue stays active unless you are truly blocked.
     #{PromptBuilder.integration_branch_restatement()}
+    #{PromptBuilder.merge_policy_restatement()}
     #{PromptBuilder.rename_test_audit_restatement()}
     """
   end
@@ -115,7 +173,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     continuation = """
     Continuation guidance (#{continuation_headline(reason)}):
 
-    - #{continuation_why(reason)} Do NOT re-run ce-brainstorm or ce-plan and do not restart the ticket from scratch.
+    - #{continuation_why(reason)}#{abandoned_thread_note(opts)} Do NOT re-run ce-brainstorm or ce-plan and do not restart the ticket from scratch.
     - If you complete `ce-plan` while the ticket is still active, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message, and interactive CE phase menus do not end an autonomous ticket turn unless a real operator decision is required.
     - #{continuation_orientation(reason)}
     - Reconcile against the current workspace and workpad state before acting; a few things may have changed since the prior run.
@@ -125,8 +183,26 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     """
 
     continuation <>
+      review_findings_section(issue, opts, reason) <>
       "\nTicket operating contract and context follow. Use them for identity, lifecycle, and repository rules; the continuation guidance above supersedes their generic cold-start phase order.\n\n" <>
       PromptBuilder.build_prompt(issue, opts)
+  end
+
+  # #4654: the findings the handback gate checks, so the worker answers the same ids. Unreadable reviews add nothing.
+  defp review_findings_section(issue, opts, :rework) do
+    case ReworkFindings.fetch(issue.identifier, opts) do
+      {:ok, %{findings: findings}} -> ReworkFindings.prompt_section(findings)
+      {:error, _reason} -> ""
+    end
+  end
+
+  defp review_findings_section(_issue, _opts, :prior_work), do: ""
+
+  # #4561: the resumed thread kept losing its transport at turn start, so Aiur dropped it.
+  defp abandoned_thread_note(opts) do
+    if Keyword.get(opts, :abandoned_thread, false),
+      do: " The previous agent thread was abandoned after it repeatedly lost its transport at resume; this is a fresh session without that thread's history.",
+      else: ""
   end
 
   defp continuation_headline(:rework), do: "this issue is in rework"
@@ -140,7 +216,8 @@ defmodule Aiur.AgentRunner.TurnPrompt do
 
   defp continuation_orientation(:rework),
     do:
-      "Read the existing `## Agent Workpad` and the unresolved PR review feedback, then make the specific changes the review asks for. " <>
+      "Read the existing `## Agent Workpad`, the latest Executor rework comment on the ticket, and the failing required checks on the PR's current head, then make the requested changes. " <>
+        "Treat the ticket comment and failing checks as rework instructions even when the PR is approved and has no open review threads. " <>
         "If every finding is already addressed, there is nothing to rework: say so in the workpad, reply on the threads that are already satisfied, and end the turn. " <>
         "Do NOT push a commit to prove liveness — a merge of the base with no substantive change is not progress, and on a branch ruleset that dismisses stale approvals the push destroys the very approval that would have released the ticket (#1756)."
 

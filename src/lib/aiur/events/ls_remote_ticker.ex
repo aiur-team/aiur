@@ -29,7 +29,8 @@ defmodule Aiur.Events.LsRemoteTicker do
 
   require Logger
 
-  alias Aiur.Events.{BranchRefStore, GithubKeys, Publisher}
+  alias Aiur.Events
+  alias Aiur.Events.{BranchRefStore, BranchRewriteClassifier, GithubKeys}
   alias Aiur.Git
   alias Aiur.GitHub.Connectivity
 
@@ -47,6 +48,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       for tests that want to bypass `git`.
     * `:publisher` — `(topic, payload, opts) -> term` for tests that
       want to capture publishes instead of going through Exchange.
+    * `:request_fun`, `:token`, `:task_supervisor` — compare transport and supervision overrides for tests.
     * `:repo` — `"owner/repo"` used for the dedup key. When `nil` (the
       production default), the ticker resolves it via
       `Aiur.Tracker.project_identity/0` on every tick so config edits
@@ -68,6 +70,7 @@ defmodule Aiur.Events.LsRemoteTicker do
       ref_pattern: Keyword.get(opts, :ref_pattern, @default_ref_pattern),
       ls_remote_fun: Keyword.get(opts, :ls_remote_fun, &default_ls_remote/2),
       publisher: Keyword.get(opts, :publisher),
+      compare_opts: Keyword.take(opts, [:request_fun, :token, :task_supervisor]),
       repo: Keyword.get(opts, :repo),
       refs: %{},
       bootstrapped?: false,
@@ -82,7 +85,7 @@ defmodule Aiur.Events.LsRemoteTicker do
     {:ok, Aiur.PeriodicWorker.schedule_first_tick(state)}
   end
 
-  # The shell-out and Publisher.publish are wrapped to keep the
+  # The shell-out and Events.publish are wrapped to keep the
   # GenServer alive across transport hiccups and rare upstream raises.
   # Error paths intentionally leave `bootstrapped?` untouched: until a
   # successful poll records a real ref baseline, the ticker stays in
@@ -175,12 +178,14 @@ defmodule Aiur.Events.LsRemoteTicker do
           source: :system,
           ref: ref,
           sha: sha,
+          previous_sha: Map.get(state.refs, ref),
           actor: nil,
           commits: [],
           repo: repo
         }
 
         do_publish(state, topic, payload, issue_number: id)
+        BranchRewriteClassifier.maybe_publish(id, payload, &do_publish(state, &1, &2, &3), state.compare_opts)
 
       {:system, topic} ->
         Logger.info("aiur_perf ls_remote_ticker phase=publish_push ref=#{ref} sha=#{sha} topic=#{topic}")
@@ -189,6 +194,7 @@ defmodule Aiur.Events.LsRemoteTicker do
           source: :system,
           ref: ref,
           sha: sha,
+          previous_sha: Map.get(state.refs, ref),
           actor: nil,
           commits: [],
           repo: repo
@@ -202,7 +208,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   end
 
   defp do_publish(%{publisher: nil}, topic, payload, opts) do
-    Publisher.publish(topic, payload, opts)
+    Events.publish(topic, payload, opts)
   end
 
   defp do_publish(%{publisher: fun}, topic, payload, opts) when is_function(fun, 3) do

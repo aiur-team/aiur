@@ -1,6 +1,8 @@
 defmodule Aiur.ExecutorListenerTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.Executor.StatePaths
@@ -11,6 +13,27 @@ defmodule Aiur.ExecutorListenerTest do
   alias Aiur.JsonStore
 
   @listener_name Aiur.ExecutorListener.Test
+  @inbox_name Aiur.ExecutorWakeInbox.ListenerTest
+
+  # Holds the listener inside each Command alert until the test releases it, so
+  # a test controls how long delivery takes instead of racing it (#4633).
+  defmodule GatedAlertSink do
+    @moduledoc false
+    def emit_system(topic, opts), do: Aiur.Alerts.emit_system(topic, opts)
+
+    # A released alert skips the real alert I/O: the test asserts wakes, not alerts.
+    def emit_custom("executor.command." <> _kind = topic, _message, _opts) do
+      send(Aiur.ExecutorListenerTest, {:alert_gate, self(), topic})
+
+      receive do
+        :release -> :ok
+      after
+        10_000 -> raise "GatedAlertSink was never released for #{topic}"
+      end
+    end
+
+    def emit_custom(topic, message, opts), do: Aiur.Alerts.emit_custom(topic, message, opts)
+  end
 
   setup do
     # The listener reads/writes its durable watermark under the per-test log
@@ -199,26 +222,27 @@ defmodule Aiur.ExecutorListenerTest do
   end
 
   test "non-executor events become wakes without advancing the command watermark" do
-    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_listener()
-
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
     id = System.unique_integer([:positive])
+    ticket = Integer.to_string(System.unique_integer([:positive]))
+    topic = "ticket.#{ticket}.pr.opened"
+    start_listener(inbox: @inbox_name, patterns: [topic], reconcile?: false)
 
-    Exchange.publish("ticket.42.pr.opened", %{
+    Exchange.publish(topic, %{
       id: id,
-      topic: "ticket.42.pr.opened",
+      topic: topic,
       action: "opened",
       pr: %{"number" => 2030, "draft" => false, "head" => %{"sha" => String.duplicate("a", 40)}}
     })
 
-    assert {:ok, wakes} = ExecutorWakeInbox.wait(500)
-    assert Enum.any?(wakes, &(&1["ticket"] == "42" and &1["pr_number"] == 2030))
+    assert {:ok, wakes} = ExecutorWakeInbox.wait(500, @inbox_name)
+    assert Enum.any?(wakes, &(&1["ticket"] == ticket and &1["pr_number"] == 2030))
     assert watermark() == nil
   end
 
   test "system dispatch transitions become identifier-only wakes" do
-    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
-    start_listener()
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+    start_listener(inbox: @inbox_name, patterns: ["system.dispatch.capacity_starved"], reconcile?: false)
 
     Exchange.publish("system.dispatch.capacity_starved", %{
       id: System.unique_integer([:positive]),
@@ -235,7 +259,7 @@ defmodule Aiur.ExecutorListenerTest do
                 "ticket" => nil,
                 "needs_attention" => true
               }
-            ]} = ExecutorWakeInbox.wait(500)
+            ]} = ExecutorWakeInbox.wait(500, @inbox_name)
 
     assert watermark() == nil
   end
@@ -303,6 +327,130 @@ defmodule Aiur.ExecutorListenerTest do
     assert replayed_message =~ "dec-restart-second"
     refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
     assert eventually(fn -> is_integer(watermark()) and watermark() >= second_id end)
+  end
+
+  # #4567: dec_2043ed93d73bbe63 on #3141 came from a codex agent through
+  # DecisionStore.request, which journals only `executor.decision.requested`.
+  # That path wrote no wake, so the Executor never heard of the Decision.
+  test "a blocking Decision requested through DecisionStore wakes the Executor exactly once" do
+    :ok = Aiur.TestSupport.ensure_id_generator_running()
+    dir = Aiur.TestSupport.tmp_root!("aiur-decision-wake")
+
+    Process.register(self(), __MODULE__)
+    signal = Application.get_env(:aiur, :signal)
+    on_exit(fn -> Application.put_env(:aiur, :signal, signal) end)
+    Application.put_env(:aiur, :signal, Keyword.put(signal, :alert_sink, GatedAlertSink))
+
+    suffix = System.unique_integer([:positive])
+    ticket_identifier = "listener-wake-#{suffix}"
+
+    start_supervised!({ExecutorWakeInbox, name: @inbox_name, debounce_ms: 10})
+
+    listener =
+      start_listener(
+        inbox: @inbox_name,
+        patterns: ["executor.#"],
+        reconcile?: false,
+        resubscribe_interval_ms: :infinity,
+        escalation_interval_ms: :infinity
+      )
+
+    store =
+      start_supervised!({Aiur.DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, executor_request_publisher: &Aiur.ExecutorEvents.publish_requested/1})
+
+    context = [ticket: %{identifier: ticket_identifier, title: "Renderer", url: nil}, source: %{agent_id: "codex", session_id: "s-1", event_id: nil}]
+
+    request = fn source_id, blocking ->
+      payload = %{"question" => "Defer composed mobile pixels?", "blocking" => blocking, "authority" => "human_required", "source_id" => source_id}
+      assert {:ok, %{status: :accepted, decision: decision}} = Aiur.DecisionStoreCase.request(store, payload, context)
+      decision
+    end
+
+    _nonblocking = request.("parity-note-#{suffix}", false)
+    decision = request.("parity-#{suffix}", true)
+
+    # Both events are already in the listener's mailbox: the request publishes
+    # them before it returns. The listener raises a Command alert for each one
+    # before it reaches the blocking Decision's wake, so a wall-clock wait here
+    # races that alert work. Under CI load the alerts outlasted the wait (#4633).
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    assert :timeout = ExecutorWakeInbox.wait(0, @inbox_name)
+    send(gate, :release)
+    assert_receive {:alert_gate, gate, "executor.command.requested"}, 5_000
+    send(gate, :release)
+
+    # Once this barrier returns, the listener has consumed both events and
+    # enqueued every wake they produce; the wait only covers the inbox flush.
+    assert "executor.#" in Exchange.bindings_for(listener)
+    assert is_map(:sys.get_state(listener))
+    assert {:ok, [wake]} = ExecutorWakeInbox.wait(1_000, @inbox_name)
+    wake_topic = "ticket.#{ticket_identifier}.agent.attention.operator-decision"
+
+    assert %{
+             "topic" => ^wake_topic,
+             "ticket" => ^ticket_identifier,
+             "needs_attention" => true,
+             "escalation" => "created",
+             "question" => "Defer composed mobile pixels?",
+             "count" => 1
+           } = wake
+
+    assert wake["decision_id"] == decision.decision_id
+    assert [_only] = ExecutorWakeInbox.pending(@inbox_name)
+  end
+
+  # #4575 review: a ladder fault must not crash the process that holds the Executor bindings.
+  describe "decision escalation faults" do
+    test "a raising decision store leaves the listener alive and bound" do
+      assert_survives(decisions_fun: fn -> raise "decision store exploded" end)
+    end
+
+    test "an exiting gate count leaves the listener alive and bound" do
+      {:ok, decision} =
+        Aiur.DecisionValidation.normalize(
+          %{
+            "question" => "Defer composed pixels?",
+            "blocking" => true,
+            "authority" => "human_required",
+            "context" => %{"authority_basis" => "security"},
+            "source_id" => "aged"
+          },
+          ticket: %{identifier: "3141", title: "Renderer", url: nil},
+          source: %{agent_id: "codex", session_id: "s-1", event_id: nil},
+          now: DateTime.add(DateTime.utc_now(), -20 * 60, :second)
+        )
+
+      assert_survives(
+        decisions_fun: fn -> {:ok, [decision]} end,
+        gates_fun: fn _ticket -> exit(:hints_down) end,
+        condition_states_fun: fn topics -> Map.new(topics, &{&1, :unknown}) end
+      )
+    end
+
+    test "the escalation timer re-arms after each pass" do
+      test_pid = self()
+      decisions_fun = fn -> send(test_pid, :escalation_pass) && {:ok, []} end
+      start_listener(escalation_interval_ms: 10, escalation: [decisions_fun: decisions_fun])
+
+      assert_receive :escalation_pass, 1_000
+      assert_receive :escalation_pass, 1_000
+    end
+  end
+
+  defp assert_survives(escalation) do
+    pid = start_listener(escalation_interval_ms: :infinity, escalation: escalation)
+    bindings = ExecutorListener.bindings(@listener_name)
+    assert "executor.#" in bindings
+
+    log =
+      capture_log(fn ->
+        send(pid, :escalate)
+        assert ExecutorListener.backstop(@listener_name) == :ok
+      end)
+
+    assert log =~ "Decision escalation failed"
+    assert Process.alive?(pid)
+    assert ExecutorListener.bindings(@listener_name) == bindings
   end
 
   defp eventually(fun, attempts \\ 100)

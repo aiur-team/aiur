@@ -29,7 +29,15 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_DIR = REPO_ROOT / "src/lib/aiur/config/schema"
 ROOT_SCHEMA = REPO_ROOT / "src/lib/aiur/config/schema.ex"
-REFERENCE = REPO_ROOT / "website/docs-app/reference/configuration.md"
+REFERENCE_DIR = REPO_ROOT / "website/docs-app/reference"
+# A key may be documented on any of these pages, exactly one of which is needed.
+REFERENCES = [
+    REFERENCE_DIR / "configuration.md",
+    REFERENCE_DIR / "configuration-agent.md",
+    REFERENCE_DIR / "configuration-build-order.md",
+    REFERENCE_DIR / "configuration-voice.md",
+    REFERENCE_DIR / "merge-policy.md",
+]
 
 ROOT_MODULE = "Aiur.Config.Schema"
 
@@ -83,14 +91,16 @@ def module_name(short: str) -> str:
     return f"{ROOT_MODULE}.{short}"
 
 
-def load_modules() -> dict[str, str]:
+def load_modules(root: Path | None = None) -> dict[str, str]:
     """Map fully-qualified module name -> that module's source slice.
 
     A single file may define several schema modules (`agent.ex` defines the
     Agent section alongside Claude and Codex), so slice the file at each
     top-level `defmodule` rather than assuming one module per file.
     """
-    paths = [ROOT_SCHEMA, *sorted(SCHEMA_DIR.glob("*.ex"))]
+    root_schema = root / "src/lib/aiur/config/schema.ex" if root else ROOT_SCHEMA
+    schema_dir = root_schema.with_suffix("")
+    paths = [root_schema, *sorted(schema_dir.glob("*.ex"))]
     modules: dict[str, str] = {}
 
     for path in paths:
@@ -128,8 +138,9 @@ def collect(modules: dict[str, str], module: str, prefix: str, seen: set[str], k
 
 
 def main() -> int:
-    if not REFERENCE.exists():
-        die(f"expected path is missing: {REFERENCE}\ncheck-config-docs: update this script if the layout moved.")
+    for page in REFERENCES:
+        if not page.exists():
+            die(f"expected path is missing: {page}\ncheck-config-docs: update this script if the layout moved.")
 
     modules = load_modules()
     if ROOT_MODULE not in modules:
@@ -141,7 +152,7 @@ def main() -> int:
     if not keys:
         die("found no config keys; that is a broken matcher, not an empty schema")
 
-    reference = REFERENCE.read_text(encoding="utf-8")
+    reference = "\n".join(page.read_text(encoding="utf-8") for page in REFERENCES)
     documented = set(INLINE_CODE_RE.findall(reference))
     missing = sorted(key for key in keys if key not in EXEMPT and key not in documented)
 
@@ -152,7 +163,7 @@ def main() -> int:
         print(
             "\nDocumentation ships in the same PR as the change (AGENTS.md, \"Docs ship\n"
             "with the change\"). Add a row for each key to\n"
-            "website/docs-app/reference/configuration.md under its section, giving the\n"
+            "website/docs-app/reference/configuration*.md under its section, giving the\n"
             "type, the default, and what an operator changes it for. Keep it to one\n"
             "line; a wrong entry is worse than a missing one.\n\n"
             "If a key is genuinely internal and no operator would ever set it, add it\n"

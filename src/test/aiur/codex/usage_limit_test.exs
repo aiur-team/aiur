@@ -33,7 +33,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     File.mkdir_p!(workspace)
     File.write!(binary, fake_app_server(Path.join(root, "codex.trace")))
     File.chmod!(binary, 0o755)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "codex",
@@ -120,7 +120,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     }
 
     state = %Orchestrator.State{running: %{issue.id => entry}, max_concurrent_agents: 6}
-    assert waiting_reason(entry) == :waiting_for_human
+    assert waiting_reason(entry) == :paused
     assert {:noreply, working} = Orchestrator.handle_info({:worker_control_state, issue.id, :working}, state)
     refute Map.has_key?(working.running[issue.id], :paused_reason)
     assert waiting_reason(working.running[issue.id]) == :active
@@ -138,9 +138,12 @@ defmodule Aiur.Codex.UsageLimitTest do
     {:ok, reset, 0} = DateTime.from_iso8601(@reset_at)
     opts = [primary_backend: "codex", fallback_backend: nil, current_backend: "codex", marker_label: "agent:rate-limit-fallback", state: %{"backends" => %{}}]
 
-    # A configured fallback takes the ticket; without one it holds until the reset.
-    assert RateLimitFallback.decide(paused_entry, issue, Keyword.merge(opts, fallback_backend: "claude", now: DateTime.add(reset, -1))) ==
-             :engage
+    # A configured fallback takes the ticket after the bounded wait; without
+    # one the ticket holds until the recorded provider reset.
+    paused_entry = Map.put(paused_entry, :paused_at, @observed_at)
+    fallback_opts = Keyword.merge(opts, fallback_backend: "claude")
+    assert RateLimitFallback.decide(paused_entry, issue, Keyword.put(fallback_opts, :now, DateTime.add(@observed_at, 599))) == :noop
+    assert RateLimitFallback.decide(paused_entry, issue, Keyword.put(fallback_opts, :now, DateTime.add(@observed_at, 600))) == :engage
 
     assert RateLimitFallback.reconcile(paused, Keyword.put(opts, :now, DateTime.add(reset, -1))) == paused
     refute_received {:resume_agent, _request_id}

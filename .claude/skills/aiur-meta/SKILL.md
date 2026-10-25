@@ -11,7 +11,7 @@ a durable log. Run hourly during a run, on the timer `aiur-run` sets up.
 ## This check is a backstop, not the discovery path
 
 **The meta-check is the quiet-state safety floor.** Work is discovered on the
-event stream — the Executor listener's 27 bindings, drained by `executor-wait` or
+event stream — the Executor listener's 28 bindings, drained by `executor-wait` or
 a persistent wake monitor, which `aiur-run` requires as a launch step. This check
 catches what the stream missed; it is not how you find out that a PR is ready.
 
@@ -76,7 +76,8 @@ elsewhere. Prefer the source that would still be right if every local assumption
 were wrong.
 
 **Before auditing a GitHub-facing surface, read
-[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md).**
+[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md)
+and its topic pages in `website/docs-app/apis/`.**
 It is the source of truth for how Aiur talks to GitHub — poll cadence, API
 budgets, credential pooling, the read cache, webhook delivery states, and the
 Cloudflare tunnel boundary. In the incident above it already documented the
@@ -88,7 +89,7 @@ is one copy to keep true.
 
 ### Dashboard pages
 
-Capture all four at a desktop viewport, full page, with console errors collected.
+Capture all five at a desktop viewport, full page, with console errors collected.
 Stream Deck is excluded: it is a control surface, not a report, and has its own
 coverage.
 
@@ -96,8 +97,13 @@ coverage.
 | --- | --- | --- |
 | Units | `/` | every active agent, live state |
 | Commands | `/commands` | real commands awaiting response |
-| Build Order | `/build-orders` | progress that tracks reality |
+| Build | `/build` | an available timeline and ticket cards for queued members |
+| Build home Features | `/?view=list&list=features` | per-feature progress |
 | Analytics | `/analytics` | current data, not a frozen window |
+
+The `/build` capture reports an unavailable timeline banner, skeleton cards
+that remain after the LiveView settle, and a visible non-empty planned queue
+with no rendered ticket cards.
 
 Playwright is already vendored at `src/browser/`. Two details that cost time if
 rediscovered each run:
@@ -172,6 +178,15 @@ and have no place in a routine health check.
 
 ### The host
 
+Inspect Aiur-owned Docker containers for work whose ticket has no live agent.
+A container is stale once it is older than 2 hours. List them with
+`docker ps -a --filter label=aiur.workspace`; the label holds the issue
+workspace path, whose last segment is the ticket. Compare that ticket with the
+live agent identifiers from `aiur agents`, and report stale containers with no
+matching agent as findings. Capture ID, workspace label, creation time, running state and
+image from Docker's system of record; the issue workspace can be deleted by
+the time the host is audited, so do not infer ownership from mount paths.
+
 ```
 nproc; cat /proc/loadavg; free -g
 ```
@@ -204,6 +219,30 @@ Distinguish three things that present identically as "the fleet is idle":
 
 Resolve a bottleneck when it can be done without adding much complexity. Do not
 invent work.
+
+When a feature looks starved, inspect the focus feature's GitHub `blocked_by`
+critical path and its open blocking decisions before changing queue ranks or
+holds. A downstream ticket waiting on a real prerequisite is not a queue-rank
+problem.
+
+### 2a. Measure feature work, and find one way to raise it
+
+The run exists to ship features. A busy fleet can still deliver none when its
+merges are test, flake and CI fixes. Measure the feature-work share for the last
+24 hours and the last hour on each pass:
+
+```bash
+bash .claude/skills/aiur-meta/scripts/feature-share.sh 24
+bash .claude/skills/aiur-meta/scripts/feature-share.sh 1
+```
+
+The script pages through merged pull requests until it reaches the window start.
+Its `inspected` and `unclassified` counts make incomplete coverage visible.
+Record both shares, their trend against the previous log, and one concrete
+change that would raise the share. Look at quarantine-first handling, flake
+tickets ahead of features, innocent merge-queue ejections, capacity, and
+body-only rework. Act within the current mandate; if no change is possible,
+name what blocks it.
 
 **When the bottleneck is review, the remedy is parallel review, not fewer
 agents.** A queue that is growing with nothing approved is the Executor's own
@@ -254,6 +293,35 @@ now, and advance it. States that repeatedly sit unnoticed here:
 of ten tickets recovered this way already had one; a blanket re-dispatch would
 have duplicated all nine.
 
+### 3a. Run the Executor sweep every pass
+
+Run `aiur executor-sweep` on every pass and act on every finding before routine
+scheduling. It covers stale blocking decisions, approved PRs not landing or red,
+merge-queue health, held queues and idle capacity, feature ordering, ticket state
+hygiene, repeated unchanged-PR handbacks, and service health. Its first-priority
+finding is an open, non-draft PR whose ticket is in `agent:human-review` without
+a review at the current head; check the reported age and review that PR first.
+The command reads local daemon state and cached GitHub resources. Do not replace
+it with a per-poll GitHub query loop. Continue the manual attribution check below
+for PRs you are about to enqueue.
+
+Any blocking decision at least 15 minutes old is a finding: answer or escalate
+it within the mandate, and record its age. Surface newly opened decisions in the
+same pass; use the `aiur-run` [decision sweep](../aiur-run/references/decision-sweep.md)
+for the command's JSON fields and age calculation.
+
+### 3b. Every manual step is a finding
+
+The goal is that the operator never has to point out what fell through the cracks.
+So ask, every pass, **"what did I do by hand since the last pass?"** — each
+re-run, re-label, re-queue, dequeue, cancel, decision answer, or message that the
+daemon could have done itself. Any action you repeated, or any wait that a rule
+could have shortened, gets an automation ticket in the same pass, with the counts
+as evidence (how many PRs, how long they waited, how often you intervened). Do not
+wait to be asked: a gap you work around silently is a gap the operator finds later.
+Name the time it costs a ticket (minutes from approval to merge, from merge-group
+start to merge, from handback to review) and say which automation would cut it.
+
 ## 4. File what is broken
 
 Every finding becomes a ticket, linked to the run's meta epic. Not a note, not a
@@ -267,6 +335,8 @@ workflow); deliberately parked findings carry `needs-triage` or `human:todo`
 with the reason in the body. The meta epic is an explicitly named container and
 remains undispatched.
 
+**Give every new ticket a home-page epic.** Use `aiur epic set <epic> <ids…>` (keys from `aiur epic list`) or `aiur feature add <slug> <ids…>` for feature members; meta findings usually fit `infra` or `bugs`; never use epic labels. Follow the [full category and fallback rule](../aiur-run/references/executor.md) for label matching, Unsorted, batching and failures.
+
 Include the evidence that would let someone else confirm it without repeating the
 investigation: the command, its output, file:line, the screenshot.
 
@@ -279,6 +349,8 @@ Write to `~/.aiur/repo/<owner>/<repo>/meta/<UTC timestamp>-<slug>.md`:
 
 - verdict per surface
 - the named bottleneck and what would shrink it
+- the feature-work share (24 h and last hour) with its trend, and the one change
+  made or proposed to raise it (section 2a)
 - what changed since the last log — resolved as well as new
 - what needs the operator, and why the Executor cannot do it
 
@@ -302,6 +374,7 @@ of prose nobody reads. `aiur-run`'s communication contract governs it:
   terminal does not need a copy.
 - The periodic progress table belongs here rather than on every wake, since this
   check already runs on the right cadence.
+- Read per-feature progress from Build home at `/?view=list&list=features`.
 - A finding that blocks the run still escalates in full, with a push
   notification. Terseness never applies to something waiting on the operator.
 

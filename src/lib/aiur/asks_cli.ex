@@ -1,7 +1,7 @@
 defmodule Aiur.AsksCLI do
   @moduledoc false
 
-  alias Aiur.Asks
+  alias Aiur.Commands
   alias Aiur.GitHub.Config, as: GitHubConfig
 
   @type command ::
@@ -18,7 +18,7 @@ defmodule Aiur.AsksCLI do
   end
 
   defp run_for_repo({:create, attrs}, repo, puts) do
-    case Asks.create(repo, attrs) do
+    case Commands.create_ask(repo, attrs) do
       {:ok, ask} ->
         puts.(["Created ", ask["id"], if(ask["blocking"], do: " (BLOCKING)", else: ""), "."])
         0
@@ -29,7 +29,7 @@ defmodule Aiur.AsksCLI do
   end
 
   defp run_for_repo({:done, %{id: id, note: note}}, repo, puts) do
-    case Asks.resolve(repo, id, note) do
+    case Commands.resolve_ask(repo, id, note) do
       {:ok, _ask} ->
         puts.(["Resolved ", id, "."])
         0
@@ -40,7 +40,7 @@ defmodule Aiur.AsksCLI do
   end
 
   defp run_for_repo({:list, %{status: status, json: json}}, repo, puts) do
-    reader = if status == :open, do: &Asks.open/1, else: &Asks.all/1
+    reader = if status == :open, do: &Commands.open_asks/1, else: &Commands.all_asks/1
 
     case reader.(repo) do
       {:ok, asks} when json ->

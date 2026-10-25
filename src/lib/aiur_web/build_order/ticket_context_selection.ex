@@ -8,7 +8,7 @@ defmodule AiurWeb.BuildOrder.TicketContextSelection do
   fresh opaque request epoch for every LiveView mount.
   """
 
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Bounded
   alias Aiur.OpaqueIdentifier
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderViewModel

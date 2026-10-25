@@ -2,6 +2,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
   @moduledoc false
 
   alias Aiur.AgentRunner.{CheckpointDelivery, MessageHandler, SessionLifecycle}
+  alias Aiur.Commands
   alias Aiur.Issue
 
   @type callbacks :: %{
@@ -27,6 +28,9 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
     lifecycle_opts =
       live_opts
       |> Keyword.put_new(:attempt_id, Keyword.get(opts, :telemetry_attempt_id))
+      |> Keyword.put(:repeated_command_steerer, fn body ->
+        Aiur.Orchestrator.send_operator_message(orchestrator, issue.identifier, %{kind: :text, body: body})
+      end)
 
     on_message =
       MessageHandler.build(
@@ -46,7 +50,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
           issue,
           orchestrator,
           backend,
-          Aiur.DecisionStore,
+          Commands.default_store(),
           live_opts
         ),
       on_operator_response: CheckpointDelivery.operator_response_handler(issue, orchestrator, live_opts),
@@ -54,7 +58,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
         CheckpointDelivery.operator_immediate_handler(
           issue,
           orchestrator,
-          Aiur.DecisionStore,
+          Commands.default_store(),
           live_opts
         ),
       live_opts: live_opts

@@ -4,13 +4,13 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
   # tail-called itself on nothing but the ticket's state label: no no-op
   # counter, no backoff, no dedupe, and `agent.max_turns` nil by default.
   #
-  # These tests drive the real `run_turns/10` recursion with a provider stub
-  # that changes nothing, and assert the loop stops itself and leaves a durable
-  # record — and, in the mirror-image test, that a run of genuinely productive
-  # turns is never bounded by this path.
+  # Drive the real `run_turns/10` recursion to prove no-op runs hand off and
+  # productive runs remain unbounded.
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.TurnLoop
+  alias Aiur.Memory.Tracker
+  alias Aiur.Orchestrator.{RetryEngine, State}
   alias Aiur.Workspace.Provisioner
 
   defmodule FakeOrchestrator do
@@ -20,9 +20,9 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
     @impl true
     def init(report), do: {:ok, report}
-
     @impl true
     def handle_call({:claim_next_queue_item, _identifier}, _from, report), do: {:reply, :empty, report}
+    def handle_call({:control_capabilities, _identifier}, _from, report), do: {:reply, {:ok, %{queue_depth: 0}}, report}
 
     def handle_call({:consume_delivered_queue_items, _identifier}, _from, report), do: {:reply, :ok, report}
     def handle_call({:restore_delivered_queue_items, _identifier}, _from, report), do: {:reply, :ok, report}
@@ -50,13 +50,328 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
     {:ok, orchestrator} = FakeOrchestrator.start_link(self())
 
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     %{test_root: test_root, workspace: workspace, issue: issue, orchestrator: orchestrator}
   end
 
   describe "a run of consecutive no-op turns" do
+    test "hands a first-run in-progress ticket with an open PR to human review", ctx do
+      use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-first-pr"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "new-head"}}} end,
+                 commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
+      assert identifier == ctx.issue.identifier
+    end
+
+    test "hands an unchanged existing PR to human review with a reason", ctx do
+      use_memory_tracker!(self())
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(ctx,
+                 run_turn: fn _s, _p, _i, _o ->
+                   :ok = Tracker.update_issue_state("614309", "rework")
+                   {:ok, %{session_id: "noop-existing-pr"}}
+                 end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: "existing-head",
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "existing-head"}}} end
+               )
+
+      assert_received {:memory_tracker_state_update, "614309", "rework"}
+      identifier = ctx.issue.identifier
+      assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 1000
+      assert_receive {:memory_tracker_comment, ^identifier, comment}, 1000
+      assert comment =~ "without making progress"
+    end
+
+    test "recognizes waiting, requested, and pending check runs", ctx do
+      for status <- ["waiting", "requested", "pending"] do
+        use_memory_tracker!(self())
+        issue = %{ctx.issue | identifier: "#{ctx.issue.identifier}-#{status}"}
+
+        assert {:completed, %{state: "ci-wait"}} =
+                 run_loop(%{ctx | issue: issue},
+                   run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-#{status}"}} end,
+                   max_turns: nil,
+                   workspace_probe: unchanging_probe(),
+                   max_consecutive_noop_turns: 3,
+                   noop_backoff_ms: 0,
+                   open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "new-head"}}} end,
+                   commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [%{"status" => status}], commit_status: %{}}} end
+                 )
+
+        identifier = issue.identifier
+        assert_receive {:memory_tracker_state_update, ^identifier, "ci-wait"}, 1000
+      end
+    end
+
+    test "hands a no-PR active ticket to human review with a reason", ctx do
+      use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-no-pr"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 open_pr_fetcher: fn _ -> {:ok, nil} end
+               )
+
+      assert_receive {:memory_tracker_comment, identifier, comment}, 1000
+      assert identifier == issue.identifier
+      assert comment =~ "without making progress"
+      assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 1000
+    end
+
+    test "hands off a pushed rework PR after three no-op turns", ctx do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      Aiur.WorkflowStore.force_reload()
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      issue = %{ctx.issue | title: "Retry push handoff", state: "rework", labels: ["agent:rework"]}
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-rework"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: "before-push",
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "after-push"}}} end,
+                 commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
+      assert identifier == issue.identifier
+    end
+
+    test "keeps the pre-push head across retry dispatch until the no-op handoff", ctx do
+      use_memory_tracker!(self())
+      issue = %{ctx.issue | title: "Retry push handoff", state: "rework", labels: ["agent:rework"]}
+      parent = self()
+
+      assert {:noreply, _retry_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+                 issue.id,
+                 2,
+                 %{worker_host: nil, prior_work: true, rework_head_sha: "before-push"},
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn state, _issue, _attempt, _worker_host, dispatch_opts ->
+                   send(parent, {:retry_dispatch_opts, dispatch_opts})
+                   put_in(state.running[issue.id], %{pid: parent})
+                 end
+               )
+
+      assert_receive {:retry_dispatch_opts, dispatch_opts}, 1000
+      assert dispatch_opts[:rework_head_sha] == "before-push"
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "retry-after-push"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: dispatch_opts[:rework_head_sha],
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "after-push"}}} end,
+                 commit_ci_status_fetcher: fn _ ->
+                   {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}}
+                 end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
+      assert identifier == issue.identifier
+    end
+
+    test "uses ci-wait when checks are pending after the push", ctx do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      Aiur.WorkflowStore.force_reload()
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      issue = %{ctx.issue | state: "rework", labels: ["agent:rework"]}
+
+      assert {:completed, %{state: "ci-wait"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-rework-pending"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: "before-push",
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "after-push"}}} end,
+                 commit_ci_status_fetcher: fn _ ->
+                   {:ok, %{check_runs: [%{"status" => "queued"}], commit_status: %{"state" => "pending"}}}
+                 end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "ci-wait"}, 1000
+      assert identifier == issue.identifier
+    end
+
+    test "hands off for review when the PR head lookup fails", ctx do
+      use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "rework", labels: ["agent:rework"]}
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-pr-read-failed"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: "before-push",
+                 open_pr_fetcher: fn _ -> {:error, :rate_limited} end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
+      assert identifier == issue.identifier
+    end
+
+    test "keeps the ticket in ci-wait when CI status cannot be read", ctx do
+      use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "rework", labels: ["agent:rework"]}
+
+      assert {:completed, %{state: "ci-wait"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-ci-read-failed"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: "before-push",
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "after-push"}}} end,
+                 commit_ci_status_fetcher: fn _ -> {:error, :rate_limited} end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "ci-wait"}, 1000
+      assert identifier == issue.identifier
+    end
+
+    test "hands uncertain rework to review when the initial head lookup failed", ctx do
+      use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "rework", labels: ["agent:rework"]}
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-baseline-unknown"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: :lookup_failed,
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "same-head"}}} end,
+                 commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
+      assert identifier == issue.identifier
+    end
+
+    test "marks a rework with no pushed head as error after three no-op turns", ctx do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      Aiur.WorkflowStore.force_reload()
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      issue = %{ctx.issue | state: "rework"}
+
+      assert {:completed, %{state: "error"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-rework-no-push"}} end,
+                 max_turns: nil,
+                 workspace_probe: unchanging_probe(),
+                 max_consecutive_noop_turns: 3,
+                 noop_backoff_ms: 0,
+                 rework_head_sha: "same-head",
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "same-head"}}} end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "error"}, 1000
+      assert identifier == issue.identifier
+    end
+
+    # #3971: the fixes were pushed by an earlier run, so the head never moves in this one.
+    test "hands a rework whose head is newer than its blocking review to review despite red CI", ctx do
+      use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "rework", labels: ["agent:rework"]}
+      review = %{"state" => "CHANGES_REQUESTED", "commit_id" => "reviewed-head", "user" => %{"login" => "r"}, authoritative: true}
+
+      run = fn head ->
+        run_loop(%{ctx | issue: issue},
+          run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-rework-fixes-pushed"}} end,
+          max_turns: nil,
+          workspace_probe: unchanging_probe(),
+          max_consecutive_noop_turns: 3,
+          noop_backoff_ms: 0,
+          rework_head_sha: head,
+          open_pr_fetcher: fn _ -> {:ok, %{"number" => 42, "head" => %{"sha" => head}}} end,
+          reviews_fetcher: fn 42 -> {:ok, [review]} end,
+          commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [%{"status" => "completed", "conclusion" => "failure"}], commit_status: %{"state" => "failure"}}} end
+        )
+      end
+
+      assert {:completed, %{state: "human-review"}} = run.("fixed-head")
+      assert_receive {:memory_tracker_state_update, _identifier, "human-review"}, 1000
+      # The review names this very head: nothing was pushed for it, so the run still fails.
+      assert {:completed, %{state: "error"}} = run.("reviewed-head")
+    end
+
+    test "hands off a pushed rework PR when the normal turn limit stops the run", ctx do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      Aiur.WorkflowStore.force_reload()
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      issue = %{ctx.issue | state: "rework", labels: ["agent:rework"]}
+
+      assert {:completed, %{state: "human-review"}} =
+               run_loop(%{ctx | issue: issue},
+                 run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "rework-at-turn-limit"}} end,
+                 max_turns: 1,
+                 workspace_probe: unchanging_probe(),
+                 rework_head_sha: "before-push",
+                 open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "after-push"}}} end,
+                 commit_ci_status_fetcher: fn _ ->
+                   {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}}
+                 end
+               )
+
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
+      assert identifier == issue.identifier
+    end
+
     test "stops itself instead of re-prompting forever", ctx do
+      use_memory_tracker!(self())
       {:ok, calls} = Agent.start_link(fn -> [] end)
 
       run_turn = fn _session, prompt, _issue, _opts ->
@@ -88,8 +403,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert Enum.at(prompts, 3) =~ "Aiur observed that the last"
     end
 
-    test "leaves a durable needs-attention record naming the ticket", ctx do
-      assert {:completed, _issue} =
+    test "hands a no-PR no-op run to human review with a reason", ctx do
+      use_memory_tracker!(self())
+
+      assert {:completed, %{state: "human-review"}} =
                run_loop(ctx,
                  run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-turn"}} end,
                  max_turns: nil,
@@ -103,9 +420,11 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert log =~ "ticket.#{ctx.issue.identifier}.agent.noop_turns_bounded"
       assert log =~ "\"needs_attention\":true"
       assert log =~ "consecutive turn(s) that changed nothing"
+      assert log =~ "No new PR head was detected."
+      refute log =~ "because this run had no pushed PR head"
       # The record says what to do about it, so the stop is actionable rather
       # than just observable.
-      assert log =~ "Check the state label"
+      assert log =~ "Review the agent's result before redispatching"
     end
   end
 
@@ -145,12 +464,24 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
   defp unchanging_probe, do: fn _workspace, _worker_host -> {:ok, "unchanged-workspace"} end
 
+  defp use_memory_tracker!(recipient) do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      tracker_active_states: ["todo", "in-progress", "rework"]
+    )
+
+    Aiur.WorkflowStore.force_reload()
+    Application.put_env(:aiur, :memory_tracker_recipient, recipient)
+  end
+
   defp run_loop(ctx, opts) do
     {max_turns, opts} = Keyword.pop!(opts, :max_turns)
     # `resumed: true` keeps turn 1 on the inline resumed prompt instead of
     # rebuilding the full cold-start prompt, exactly as the sibling
     # `turn_loop_agent_support_test` does.
     opts = Keyword.put(opts, :resumed, true)
+    # U4-T02: every no-op turn parks; queued wakes let the outer bound be reached.
+    for _ <- 1..10, do: send(self(), {:resume_agent, 1})
 
     TurnLoop.run_turns(
       %{backend: "claude", workspace: ctx.workspace, worker_host: nil},

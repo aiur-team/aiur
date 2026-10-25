@@ -24,6 +24,7 @@ the one that matches what you're doing; you don't need every reference each turn
 | Know which event names are allowed and what they mean | `event-taxonomy.md` |
 | Emit an event or subscribe to a topic pattern | `emit-and-subscribe.md` |
 | Open / close an Executor attention | `attention-and-resolve.md` |
+| Follow an Optimistic start prompt block | [Optimistic start](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker) |
 | Unblock yourself temporarily with a stub | `stub-then-fetch.md` |
 | Interpret a voice-originated ticket or operator message | `dictated-input.md` |
 
@@ -32,11 +33,13 @@ shared [dictated-input note](dictated-input.md).
 
 ## The shortest version
 
+- For an **Optimistic start** prompt block, follow [the canonical loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker) before the normal ready/CI handoff.
 - Move the issue to `agent:in-progress` and keep one `## Agent Workpad` comment
-  current. When implementation and draft-PR self-review are complete, move to
-  `agent:ci-wait` and end the turn; after the delivered pass result, mark the PR
-  ready and flip to `agent:human-review`. Do **not** self-merge — always await
-  human review.
+  current. When implementation and draft-PR self-review are complete, mark the
+  PR ready before moving to `agent:ci-wait` and ending the turn. Drafts never
+  permit handoff. Only after all required checks pass on
+  the current head SHA, flip to `agent:human-review`. Do **not** self-merge — always await
+  human review. Aiur PRs run fast checks; the merge queue runs the full suite.
 - **Every state move is `aiur_set_ticket_state({ "state": "<state>" })`, never
   `gh issue edit --add-label` / `--remove-label`.** The daemon relabels your
   ticket too, so a label you name for removal may already be gone — the removal
@@ -54,13 +57,17 @@ shared [dictated-input note](dictated-input.md).
   has the page map.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
-- Branch freshness is your responsibility. Before handing the PR to CI or
-  human review, and again after rework, fetch its configured base and ensure
-  the current remote base head is an ancestor of your exact PR head. Integrate
-  or re-cut and resolve semantic drift yourself; the Executor and reviewers do
-  not update stale code for you.
+- Integration safety is your responsibility. During `human-review` or
+  `ci-wait`, integrate the configured base only when GitHub reports the exact
+  PR head as `CONFLICTING` or a reviewer asks. File overlap and base movement
+  alone do not require a push; the merge queue tests the PR on current base.
+  Never open a blocking decision for base integration. Record any required
+  conflict resolution in `dev-loop.md`.
+  A PR already in the merge queue is left alone: never dequeue it, or ask the
+  Executor to, in order to update its branch.
 - **Events:** `emit_event(name, message, payload?)` publishes to
-  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
+  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`;
+  `optimistic.integrated` uses `ticket.<id>.optimistic.integrated`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
   `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
   readiness signals. A manual `aiur_subscribe` pattern must begin with
@@ -73,9 +80,15 @@ shared [dictated-input note](dictated-input.md).
 - **Write a Command for a cold reader:** assume the operator has zero ticket
   context. Lead with the question, explain each option's consequence, name every
   referent, and state what happens without an answer.
+- **Non-blocking questions keep work moving.** Set `blocking: false` when an
+  answer is optional, record the question and raise its attention, then keep
+  working. Never emit `pause.request` or stop your turn for that question.
+  Bare coordination pauses (such as waiting for an upstream PR to merge) and
+  explicit `operator_decision` pauses remain valid, including the legacy
+  `attention.operator-decision` path. Expired or moot
+  Commands cannot hold the worker waiting for human input.
 
 ## What stays in the per-turn prompt (not here)
-
 Two protocols live in the per-turn shared prompt instead of this skill because
 they fire between turns or must always be visible:
 

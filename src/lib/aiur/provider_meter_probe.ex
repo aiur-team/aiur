@@ -25,6 +25,10 @@ defmodule Aiur.ProviderMeterProbe do
   displaying with its true age, and the outcome names why.
   """
 
+  require Logger
+
+  alias Aiur.Accounts
+  alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
   alias Aiur.Claude.UsageApi
   alias Aiur.{CodingAgent, Config}
   alias Aiur.ProviderMeterProjection
@@ -39,6 +43,7 @@ defmodule Aiur.ProviderMeterProbe do
   @probe_identifier "usage-probe"
   @backend :app_server
   @batch_timeout_ms 35_000
+  @failure_warning_threshold 3
 
   @type target :: :all | atom()
   @type outcome :: %{provider: atom(), observed?: boolean(), reason: atom() | nil}
@@ -190,6 +195,18 @@ defmodule Aiur.ProviderMeterProbe do
   @doc false
   @spec probe_usage_api(atom(), String.t(), keyword()) :: outcome()
   def probe_usage_api(provider, _backend, opts) do
+    if provider == :claude do
+      probe_claude_accounts(provider, opts)
+    else
+      probe_single_usage_account(provider, opts)
+    end
+  rescue
+    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
+  catch
+    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
+  end
+
+  defp probe_single_usage_account(provider, opts) do
     case Keyword.get(opts, :usage_api, UsageApi).fetch(usage_api_opts(opts)) do
       {:ok, reading} ->
         publish_usage_api_reading(provider, reading, opts)
@@ -198,10 +215,109 @@ defmodule Aiur.ProviderMeterProbe do
       {:error, reason} ->
         outcome(provider, false, reason)
     end
+  end
+
+  defp probe_claude_accounts(provider, opts) do
+    observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
+    names = configured_claude_accounts(opts)
+    api = Keyword.get(opts, :usage_api, UsageApi)
+
+    results =
+      Enum.map(names, fn name ->
+        result =
+          case account_credentials_path(name, opts) do
+            {:ok, credentials, cache_key} ->
+              account_usage_result(api, Keyword.merge(usage_api_opts(opts), credentials_path: credentials, cache_key: cache_key), observed_at)
+
+            :error ->
+              {{:error, :unknown_account}, observed_at, :unavailable}
+          end
+
+        {usage_result, account_observed_at, freshness} = result
+        Accounts.UsageReadings.record("claude", name, usage_result, account_observed_at, freshness)
+        warn_if_failing(name)
+        {name, usage_result}
+      end)
+
+    successful = Enum.filter(results, fn {_name, result} -> match?({:ok, _}, result) end)
+
+    case Enum.max_by(successful, fn {_name, {:ok, reading}} -> account_used_percent(reading) end, fn -> nil end) do
+      {name, {:ok, reading}} ->
+        label = if length(successful) == length(names), do: "worst of #{length(names)} accounts · #{name}", else: "#{name} · #{length(successful)}/#{length(names)} accounts observed"
+        entry = Accounts.UsageReadings.snapshot("claude", [name])[name]
+        publish_usage_api_reading(provider, reading, Keyword.merge(opts, observed_at: entry.observed_at, ingested_at: observed_at, summary_label: label))
+
+      nil ->
+        :ok
+    end
+
+    case Enum.find(results, fn {_name, result} -> match?({:ok, _}, result) end) do
+      {_name, {:ok, _reading}} ->
+        outcome(provider, true, nil)
+
+      nil ->
+        {_name, {:error, reason}} = List.first(results)
+        outcome(provider, false, reason)
+    end
+  end
+
+  # One refused probe is routine against a rate-limited endpoint; a streak
+  # means the reading has stopped moving, which nothing else would announce.
+  # Warned once per streak; `aiur accounts` keeps showing the error after.
+  defp warn_if_failing(name) do
+    case Accounts.UsageReadings.snapshot("claude", [name]) do
+      %{^name => %{consecutive_failures: failures, reason: reason} = entry} when failures == @failure_warning_threshold ->
+        Logger.warning("claude usage probe failing account=#{name} failures=#{failures} reason=#{inspect(reason)} last_observed_at=#{inspect(entry[:last_observed_at])}")
+
+      _ok ->
+        :ok
+    end
+  end
+
+  defp account_used_percent(%{windows: windows}) when is_list(windows) do
+    case Enum.find(windows, &(&1.window == "seven_day")) do
+      %{used_percent: percent} when is_number(percent) -> percent
+      _ -> windows |> Enum.map(& &1.used_percent) |> Enum.filter(&is_number/1) |> Enum.max(fn -> -1 end)
+    end
+  end
+
+  defp account_used_percent(reading), do: Map.get(reading, :used_percent, -1)
+
+  defp account_usage_result(api, api_opts, observed_at) do
+    if Code.ensure_loaded?(api) and function_exported?(api, :fetch_with_metadata, 1) do
+      case api.fetch_with_metadata(api_opts) do
+        {:ok, reading, metadata} -> {{:ok, reading}, metadata.observed_at, metadata.freshness}
+        {:error, reason} -> {{:error, reason}, observed_at, :unavailable}
+      end
+    else
+      {api.fetch(api_opts), observed_at, :fresh}
+    end
+  end
+
+  defp account_credentials_path("default", _opts),
+    do: {:ok, UsageApi.default_credentials_path(), ClaudeAccounts.usage_cache_key(nil)}
+
+  defp account_credentials_path(name, opts) do
+    case Map.get(Keyword.get(opts, :claude_profiles, %{}), name) do
+      dir when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), ClaudeAccounts.usage_cache_key(dir)}
+      _unset -> registered_account_credentials_path(name)
+    end
+  end
+
+  defp registered_account_credentials_path(name) do
+    case Enum.find(Accounts.list("claude"), &(&1.name == name)) do
+      %{profile_dir: dir} when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), ClaudeAccounts.usage_cache_key(dir)}
+      _unknown -> :error
+    end
+  end
+
+  defp configured_claude_accounts(opts) do
+    case Keyword.get(opts, :claude_accounts, Accounts.configured_names()) do
+      [] -> ["default"]
+      names -> names
+    end
   rescue
-    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
-  catch
-    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
+    _error -> ["default"]
   end
 
   # Published on the same fan-out the store broadcasts on, so the projection
@@ -216,9 +332,10 @@ defmodule Aiur.ProviderMeterProbe do
       backend: @backend,
       provider_account_generation: nil,
       observed_at: observed_at,
-      ingested_at: observed_at,
+      ingested_at: Keyword.get(opts, :ingested_at, observed_at),
       auth_mode: :subscription,
       source: :usage_api,
+      summary_label: Keyword.get(opts, :summary_label),
       update_kind: :snapshot,
       freshness: :fresh,
       health: %{

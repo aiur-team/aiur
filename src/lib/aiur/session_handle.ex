@@ -64,7 +64,10 @@ defmodule Aiur.SessionHandle do
       "updated_at" => timestamp()
     }
 
-    JsonStore.write!(path_for(identifier, opts), payload)
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      existing = read_payload(identifier, opts)
+      JsonStore.write!(path_for(identifier, opts), Map.merge(existing, payload))
+    end)
   end
 
   @doc """
@@ -87,6 +90,95 @@ defmodule Aiur.SessionHandle do
       {:error, reason} ->
         Logger.warning("SessionHandle(#{identifier}) unreadable handle, treating as clean start: #{inspect(reason)}")
         :none
+    end
+  end
+
+  @doc "Read the durable hook spool cursor, including its rotation generation."
+  @spec hook_cursor(String.t(), keyword()) :: map()
+  def hook_cursor(identifier, opts \\ []) do
+    case read_payload(identifier, opts)["hook_cursor"] do
+      %{"offset" => offset, "generation" => generation, "seen" => seen} = cursor
+      when is_integer(offset) and offset >= 0 and (is_binary(generation) or is_nil(generation)) and is_list(seen) ->
+        if Enum.all?(seen, &is_binary/1), do: cursor, else: empty_hook_cursor()
+
+      _ ->
+        empty_hook_cursor()
+    end
+  end
+
+  defp empty_hook_cursor, do: %{"offset" => 0, "generation" => nil, "seen" => []}
+
+  @doc "Persist the processed hook cursor without replacing the resumable thread."
+  @spec save_hook_cursor(String.t(), map(), keyword()) :: :ok
+  def save_hook_cursor(identifier, cursor, opts \\ []) do
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      payload = Map.put(read_payload(identifier, opts), "hook_cursor", cursor)
+      JsonStore.write!(path_for(identifier, opts), payload)
+    end)
+  end
+
+  @doc """
+  Count one more consecutive resume failure for `thread_id` and return the
+  count. A failure against a different thread restarts the count at 1.
+  """
+  @spec record_resume_failure(String.t(), String.t(), keyword()) :: pos_integer()
+  def record_resume_failure(identifier, thread_id, opts \\ []) when is_binary(thread_id) do
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      payload = read_payload(identifier, opts)
+
+      count =
+        case payload["resume_failures"] do
+          %{"thread_id" => ^thread_id, "count" => count} when is_integer(count) -> count + 1
+          _ -> 1
+        end
+
+      JsonStore.write!(path_for(identifier, opts), Map.put(payload, "resume_failures", %{"thread_id" => thread_id, "count" => count}))
+      count
+    end)
+  end
+
+  @doc "Clear the consecutive resume-failure count, if any."
+  @spec reset_resume_failures(String.t(), keyword()) :: :ok
+  def reset_resume_failures(identifier, opts \\ []) do
+    update_payload(identifier, opts, &Map.delete(&1, "resume_failures"))
+  end
+
+  @doc "Clear the abandoned-thread marker after a fresh session completes a turn."
+  @spec clear_abandoned_thread(String.t(), keyword()) :: :ok
+  def clear_abandoned_thread(identifier, opts \\ []) do
+    update_payload(identifier, opts, &Map.delete(&1, "abandoned_thread"))
+  end
+
+  @doc """
+  Forget the resumable thread so the next start is clean, and remember that it
+  was abandoned so that start continues the prior work. Other state is kept.
+  """
+  @spec drop_thread(String.t(), keyword()) :: :ok
+  def drop_thread(identifier, opts \\ []) do
+    update_payload(identifier, opts, fn payload ->
+      payload
+      |> Map.drop(["thread_id", "resume_failures"])
+      |> Map.put("abandoned_thread", payload["thread_id"])
+    end)
+  end
+
+  @doc "Whether a prior thread for `identifier` was abandoned by `drop_thread/2`."
+  @spec abandoned_thread?(String.t(), keyword()) :: boolean()
+  def abandoned_thread?(identifier, opts \\ []), do: Map.has_key?(read_payload(identifier, opts), "abandoned_thread")
+
+  defp update_payload(identifier, opts, fun) do
+    :global.trans({{__MODULE__, identifier}, self()}, fn ->
+      payload = read_payload(identifier, opts)
+      updated = fun.(payload)
+      if updated != payload, do: JsonStore.write!(path_for(identifier, opts), updated)
+      :ok
+    end)
+  end
+
+  defp read_payload(identifier, opts) do
+    case JsonStore.read(path_for(identifier, opts)) do
+      {:ok, payload} when is_map(payload) -> payload
+      _ -> %{}
     end
   end
 

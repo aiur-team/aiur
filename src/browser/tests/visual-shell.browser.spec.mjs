@@ -9,7 +9,7 @@ const VIEWPORTS = [
   { width: 1024, height: 768 },
   { width: 390, height: 844 }
 ]
-const ROUTES = ['/', '/build-orders', '/analytics']
+const ROUTES = ['/route-shell', '/analytics']
 
 for (const theme of THEMES) {
   for (const viewport of VIEWPORTS) {
@@ -22,29 +22,29 @@ for (const theme of THEMES) {
         for (const state of states) {
           test(`shell ${route} ${state}`, async ({ page }) => {
             await openVisualRoute(page, { theme, route, collapsed: state === 'collapsed' })
-            const prefix = `${theme}-${size}-${route === '/' ? 'units' : route.slice(1)}-${state}`
+            const prefix = `${theme}-${size}-${route === '/route-shell' ? 'units' : route.slice(1)}-${state}`
             const mask = getMaskConfig(page)
             await expect(page).toHaveScreenshot(`${prefix}-shell.png`, { mask })
             for (const [name, selector] of [
-              ['header', 'header.topbar'],
-              ['nav', state === 'mobile' ? '.shell-nav-mobile' : state === 'collapsed' ? '#nav-toggle' : 'aside.shell-sidebar'],
-              ['context', '.route-context']
+              ['header', 'header.ax-top'],
+              ['nav', 'aside.sidenav'],
+              ['context', '#ax-title']
             ]) {
               const element = page.locator(selector)
               await expect(element).toBeVisible()
               await expect(element).toHaveScreenshot(`${prefix}-${name}.png`, { mask })
             }
             if (state === 'collapsed') {
-              await expect(page.locator('.shell-nav-sidebar')).not.toBeVisible()
-              await expect(page.locator('#nav-toggle')).toBeVisible()
+              expect(await page.locator('.snav-label').first().evaluate(node => getComputedStyle(node).clipPath)).toBe('inset(50%)')
+              await expect(page.locator('#ax-drag')).toBeVisible()
             }
           })
         }
       }
 
       test('button elements', async ({ page }) => {
-        await openVisualRoute(page, { theme, route: '/', mode: 'writable' })
-        await page.goto('/units')
+        await openVisualRoute(page, { theme, route: '/route-shell', mode: 'writable' })
+        await page.goto('/units-fixture')
         await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
         // Units exposes the primary and ghost controls together in the real
@@ -68,8 +68,8 @@ for (const theme of THEMES) {
   }
   test(`keyboard focus ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    await openVisualRoute(page, { theme, route: '/' })
-    const item = page.locator('.shell-nav-sidebar .shell-nav-item').first()
+    await openVisualRoute(page, { theme, route: '/route-shell' })
+    const item = page.locator('.sidenav .snav').first()
     // Traverse the actual tab order so :focus-visible is exercised.
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await page.keyboard.press('Tab')
@@ -77,6 +77,17 @@ for (const theme of THEMES) {
     }
     await expect(item).toBeFocused()
     expect(await item.evaluate((node) => node.matches(':focus-visible'))).toBe(true)
+    await expect(item).toHaveCSS('outline-width', '2px')
+    await expect(item).toHaveCSS('outline-offset', '3px')
+    const focusColor = await item.evaluate(node => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--aiur-color-focus)'
+      node.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    })
+    await expect(item).toHaveCSS('outline-color', focusColor)
     const bounds = await item.boundingBox()
     // Locator screenshots clip outside outlines. Include the surrounding gap
     // so the keyboard focus ring itself is constrained by the baseline.
@@ -88,13 +99,15 @@ for (const theme of THEMES) {
 
 test('CSS nav padding mutation fails sidebar screenshot comparison', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await openVisualRoute(page, { theme: 'light', route: '/build-orders' })
-  const sidebar = page.locator('aside.shell-sidebar')
-  const navItem = sidebar.locator('.shell-nav-item').first()
+  await openVisualRoute(page, { theme: 'light', route: '/analytics' })
+  const sidebar = page.locator('aside.sidenav')
+  const navItem = sidebar.locator('.snav').first()
   await expect(sidebar).toBeVisible()
   await expect(sidebar).toHaveScreenshot('proof-sidebar.png', { maxDiffPixels: 0, maxDiffPixelRatio: 0 })
+  // Refresh only the unmodified baseline; otherwise update mode records the intentional mutation.
+  if (test.info().config.updateSnapshots !== 'none') return
   const before = await navItem.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))
-  await page.addStyleTag({ content: '.shell-nav-item{padding-left:calc(0.72rem + 2px)!important}' })
+  await page.addStyleTag({ content: `.sidenav .snav{padding-left:${before + 2}px!important}` })
   const after = await navItem.evaluate((node) => parseFloat(getComputedStyle(node).paddingLeft))
   expect(after - before).toBeCloseTo(2, 1)
   let mismatch

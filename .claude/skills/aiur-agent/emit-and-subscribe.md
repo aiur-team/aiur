@@ -104,13 +104,24 @@ directly and the requesting agent resumes without an operator:
 Because omission now defaults to Executor-answerable, the burden is inverted:
 a Command that is genuinely irreversible, involves spend or external
 publication, or changes product direction **must** explicitly declare
-`authority: human_required` (and the matching `reversibility`), or it will be
-within the Executor floor.
+`authority: human_required` (and the matching `reversibility`) and include
+`context.authority_basis` with one of `product`, `spend`,
+`external_publication`, or `security`. Requests without that explicit basis are
+rejected. Keep `context.short_summary` or `context.long_context_markdown` clear
+about the specific boundary; the category alone is not a rationale. Legacy
+attention projections remain human-required without this worker-supplied field.
+
+An Executor may reclassify an open historical Command only when it has no
+human-only basis. Product, spend, publication, or security decisions and legacy
+attentions remain human-only. Reclassification increments the version; answer
+with that version. Both mutations are Executor actions, not human answers.
 
 Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
 classification warning. The store does not silently override the declared
 authority: correct it with a newer request version. The Executor floor remains
 unchanged and still refuses human-required or non-reversible Commands.
+When the ticket's acceptance criteria settle a purely engineering question, keep
+it within the Executor floor; reserve human authority for an explicit boundary.
 
 If the question has two to five bounded alternatives, you **must** encode them
 as `options` before emitting an `attention.*` or `pause.request` event. If you
@@ -322,14 +333,21 @@ directions of the dependency, idempotently:
 | You (blocked) watch the blocker | `ticket.N.branch.push`, `.branch.force-push`, `.pr.opened`, `.pr.merged`, `.agent.decision.*`, `.agent.blocked`, `.agent.unblocked`, `.agent.attention.*`, `.issue.commented` |
 | Blocker watches you | `ticket.<self>.agent.blocked`, `.agent.unblocked` |
 
+Dispatch also creates these `blocker:auto` bindings for known blockers; do not
+declare an existing edge again just to subscribe. For an **Optimistic start**
+prompt block, `branch.push` is an integration signal: follow [the canonical
+loop](stub-then-fetch.md#optimistic-start-started-on-an-unmerged-blocker).
+
 Removing the dependency edge removes those automatic bindings; a manually-added
 binding on the same topic survives because removal is scoped by the reason it
 was created with.
 
-> Note: `ticket.N.branch.force-push` is auto-bound and mid-turn-drain-eligible,
-> but no publisher currently emits it — a force-push surfaces as a normal
-> `branch.push` (the ref SHA changes). Wait on `branch.push`, never on
-> `branch.force-push`.
+> `ticket.N.branch.force-push` is auto-bound and mid-turn-drain-eligible.
+> After `branch.push`, subscribed rewrites detected by GitHub compare emit it
+> with `ref`, `sha`, `previous_sha`, and `compare_status`; a 404 sets
+> `previous_missing: true`. Compare errors or budget holds emit nothing:
+> always check ancestry locally. A delayed verdict carries `superseded: true`
+> if a newer SHA was observed. Neither branch event signals readiness.
 
 For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
 resumes a parked consumer through the mid-turn checkpoint drain, and

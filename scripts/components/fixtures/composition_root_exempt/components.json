@@ -1,0 +1,49 @@
+{
+  "manifest_version": 1,
+  "components": [
+    {
+      "id": "a",
+      "name": "a",
+      "layer": 0,
+      "kind": "required",
+      "paths": [
+        "src/lib/aiur.ex"
+      ],
+      "facades": [
+        "A"
+      ],
+      "facade_pending": null,
+      "requires": [],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    },
+    {
+      "id": "b",
+      "name": "b",
+      "layer": 0,
+      "kind": "required",
+      "paths": [
+        "src/lib/b.ex"
+      ],
+      "facades": [
+        "B"
+      ],
+      "facade_pending": null,
+      "requires": [],
+      "optional": [],
+      "owns": {
+        "config": [],
+        "env": [],
+        "state": [],
+        "capabilities": []
+      },
+      "prior": []
+    }
+  ]
+}

@@ -75,7 +75,8 @@ The `payload.slug` **must match** the slug from the original `attention.<slug>`.
 
 - **Don't let attentions accumulate.** If you've opened more than 2, you're either using attentions for things they're not for, or you've forgotten to close ones the Executor already answered.
 - **Resolve before unrelated work.** If an attention is open, prefer to close it before starting unrelated work — the Executor is waiting.
-- **The Executor does NOT clear attentions for you.** Opening the pane, reading the chip, replying — none of that clears the ❗. Only your `attention.resolved` clears it.
+- **Generic attentions do not expire automatically.** The Executor does not clear them for you; emit a matching `attention.resolved` when the question is resolved.
+- **Configured-base CI attentions are condition snapshots.** Slugs `<base>-red`, `<base>-ci-red`, and `<base>-ci-red-<detail>` expire at the first re-ask after 15 minutes without a fresh assertion. This applies to live attentions and restored attentions after restart. If the branch is still red, emit the same `attention.<slug>` again; each assertion restarts the 15-minute window. Expiry emits the matching `.resolved` event.
 
 ## Executor’s view
 

@@ -2,7 +2,6 @@ defmodule Aiur do
   @moduledoc """
   Entry point for the Aiur orchestrator.
   """
-
   @doc """
   Start the orchestrator in the current BEAM node.
   """
@@ -22,10 +21,10 @@ defmodule Aiur.Application do
   require Logger
 
   alias Aiur.{AgentGitHubGuard, GitHub.Budget}
-  alias Aiur.CodingAgent.RouteCredentials
-  alias Aiur.Config, as: AiurConfig
-  alias Aiur.Config.RoutingValue
+  alias Aiur.Application.StartupChecks
   alias Aiur.GitHub.Config
+  alias Aiur.Identity.Machine
+  alias Aiur.Instance
 
   @impl true
   def start(_type, _args) do
@@ -38,16 +37,18 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
     settings = Aiur.Config.settings_uncached()
+    :ok = StartupChecks.validate_hosted_mode!(settings)
     telemetry? = Aiur.Config.telemetry_enabled?(settings)
     Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
-    :ok = log_base_branch(settings)
-    :ok = log_route_credentials(settings)
+    :ok = StartupChecks.log_base_branch(settings)
+    :ok = StartupChecks.log_route_credentials(settings)
     # Durable daemon-lifecycle journal: record this boot's start (and its
     # invoking process) before any child can fail, so an incident's journal
     # always names the instance that started. Best-effort — a journal write
     # failure must never crash boot.
     record_daemon_start()
+    _ = Machine.ensure()
     # Write the initial heartbeat file so the Executor can detect daemon downtime.
     # Best-effort: heartbeat write failure must not crash boot.
     Aiur.DaemonHeartbeat.write!()
@@ -63,6 +64,7 @@ defmodule Aiur.Application do
     _ = AgentGitHubGuard.ensure_agent_token_file()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
     Budget.warn_metering_unavailable()
+    Aiur.RtkStartupCheck.run()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -74,11 +76,20 @@ defmodule Aiur.Application do
       # path wins rather than booting a half-built interactive tree.
       interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
 
+      instance_role = Aiur.Config.instance_role()
+      {:ok, %{instance: %{mode: instance_mode}}} = settings
+      _ = Instance.Identity.configure()
+      Application.put_env(:aiur, :booted_instance_role, instance_role)
+      Application.put_env(:aiur, :booted_instance_mode, instance_mode)
+      Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
+
       children =
         child_specs(
+          instance_role: instance_role,
           interactive_cli?: interactive_cli?,
           headless?: headless?,
           dashboard?: not no_dashboard?,
+          tailscale_funnel?: configured_tailscale_funnel?(settings),
           telemetry?: telemetry?
         )
 
@@ -86,8 +97,8 @@ defmodule Aiur.Application do
       # dependency order, and several of them genuinely depend on the ones
       # before them. `Aiur.PubSub` leads the dependent block because 17 lib
       # modules subscribe to it; six application children hold a live link to it
-      # at boot. Only `Aiur.Webhooks.ModeTable` precedes it — a dependency-free
-      # ETS owner that must not be restarted by anyone else's crash (#2531).
+      # at boot. Only the dependency-free webhook and capability ETS owners precede it;
+      # neither must be restarted by anyone else's crash (#2531).
       #
       # Elixir's `Registry` links every registered process to its partition, and
       # `Phoenix.PubSub.subscribe/2` registers — so each subscribing sibling is
@@ -110,8 +121,9 @@ defmodule Aiur.Application do
       )
       |> tap(fn
         {:ok, _supervisor} ->
+          Machine.announce_degraded()
           start_upgrade_check()
-          start_build_order_funnel_check(not no_dashboard? and Aiur.Config.build_order_funnel_health_check_enabled?(settings))
+          start_build_order_funnel_check(build_order_funnel_health_check_startup?(settings, no_dashboard?))
 
         _error ->
           :ok
@@ -157,373 +169,32 @@ defmodule Aiur.Application do
   defp start_build_order_funnel_check(false), do: :ok
 
   @doc false
-  @spec maybe_validate_environment() :: :ok
-  def maybe_validate_environment do
-    if Application.get_env(:aiur, :env) == :test do
-      :ok
-    else
-      settings = Aiur.Config.settings_uncached()
-      Aiur.Env.validate_startup!(System.get_env(), require_github_credential: github_tracker?(settings))
-      Aiur.Env.warn_disabled_integrations()
-      Aiur.Env.warn_precedence_conflicts()
-    end
+  @spec build_order_funnel_health_check_startup?(term(), boolean()) :: boolean()
+  def build_order_funnel_health_check_startup?(settings, no_dashboard?) do
+    not no_dashboard? and
+      Aiur.Config.build_order_funnel_health_check_enabled?(settings) and
+      not match?({:ok, %{server: %{tailscale_funnel: true}}}, settings)
   end
 
-  # The GitHub credential boot requirement only applies when the active tracker
-  # is GitHub; a Linear or memory tracker has no GitHub credential to satisfy.
-  defp github_tracker?(settings) do
-    case settings do
-      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
-      _ -> true
-    end
-  end
+  defdelegate maybe_validate_environment(), to: Aiur.Application.StartupChecks
 
-  @doc false
-  @spec log_base_branch() :: :ok
-  @spec log_base_branch(term()) :: :ok
-  def log_base_branch(settings \\ AiurConfig.settings_uncached()) do
-    Logger.info("aiur_boot phase=config base_branch=#{inspect(AiurConfig.base_branch(settings))}")
-    :ok
-  end
+  defdelegate validate_dashboard_compatibility(no_dashboard?),
+    to: Aiur.Application.StartupChecks
 
-  @doc """
-  Announces, once per boot, every `agent.priority` route that will be skipped
-  because its API key is not set.
+  defdelegate validate_dashboard_compatibility(no_dashboard?, opts),
+    to: Aiur.Application.StartupChecks
 
-  A missing key stops being a hard error at dispatch and becomes a silent
-  selection-time skip (#1923) — that is the whole point of writing
-  `[claude, "openrouter:anthropic/claude-sonnet-5"]` while holding only the
-  OpenRouter key. But a behaviour change from "crashes loudly" to "quietly not
-  chosen" must not happen invisibly, so it is stated at boot rather than
-  per claim, where it would become noise the operator learns to skip.
-  """
-  @spec log_route_credentials(term()) :: :ok
-  def log_route_credentials(settings \\ AiurConfig.settings_uncached()) do
-    settings |> priority_routes() |> RouteCredentials.log_startup_survey()
-  end
+  defdelegate validate_hosted_mode(settings, opts \\ []), to: Aiur.Application.StartupChecks
+  defdelegate validate_hosted_mode!(settings, opts \\ []), to: Aiur.Application.StartupChecks
 
-  # `settings_uncached/0` yields `{:ok, schema}` on success and an error tuple
-  # when the config is unreadable. Boot must survive the latter: a startup
-  # notice is never worth crashing the node over.
-  defp priority_routes({:ok, settings}), do: priority_routes(settings)
-  defp priority_routes(%{agent: %{priority: routes}}) when is_list(routes), do: routes
-  defp priority_routes(_settings), do: []
+  defdelegate child_specs(opts), to: Aiur.Application.Children
 
-  @doc """
-  Reject a no-dashboard launch when configured Remote Control sessions would
-  lose the HTTP lifecycle-hook endpoint they require.
-
-  The optional inputs keep this check pure in tests; production resolves both
-  values from the active workflow config.
-  """
-  @spec validate_dashboard_compatibility(boolean(), keyword()) :: :ok | {:error, String.t()}
-  def validate_dashboard_compatibility(no_dashboard?, opts \\ [])
-
-  def validate_dashboard_compatibility(false, _opts), do: :ok
-
-  def validate_dashboard_compatibility(true, opts) do
-    remote_control? = Keyword.get_lazy(opts, :remote_control?, &AiurConfig.agent_remote_control?/0)
-    routing = Keyword.get_lazy(opts, :routing, &AiurConfig.agent_routing/0)
-
-    sources =
-      []
-      |> maybe_add_remote_control_source(remote_control?, "agent.remote_control")
-      |> maybe_add_remote_control_source(remote_routing?(routing), "agent.routing +remote")
-
-    case sources do
-      [] ->
-        :ok
-
-      configured_sources ->
-        {:error,
-         "--no-dashboard cannot be used with Claude Remote Control configured by " <>
-           "#{Enum.join(configured_sources, " and ")}; Remote Control lifecycle hooks require " <>
-           "Aiur.HttpServer. Remove --no-dashboard or disable the Remote Control setting."}
-    end
-  end
-
-  @doc """
-  Build the supervision children for the given run shape.
-
-  `--bg`/headless runs (`headless?: true`) skip terminal-only work — the
-  opencode chat-pane machinery and the whole interactive CLI block (tmux,
-  pane manager, opencode pre-warm, agent-list panes). Dashboard supervision
-  is independent and remains enabled unless `--no-dashboard` is supplied.
-  The agent **backends** that
-  actually run agents (session writers, the opencode bridge, token
-  registry) are kept so a headless node still does real work; an Executor
-  drives it over the control RPC (`status` / `agents` / `message` /
-  `pause` / `set max-agents`) instead of attaching to panes.
-
-  Pure so the gating is unit-testable without booting the application —
-  pass the resolved booleans and assert which children appear.
-  """
-  @spec child_specs(keyword()) :: [Supervisor.child_spec() | {module(), term()} | module()]
-  def child_specs(opts) do
-    interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
-    headless? = Keyword.fetch!(opts, :headless?)
-    dashboard? = Keyword.fetch!(opts, :dashboard?)
-    telemetry? = Keyword.get(opts, :telemetry?, true)
-    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
-    ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
-
-    # Always true for a real run. The unit-test singleton turns it off so the
-    # shared app process does not hold a VM-wide inbox and listener that every
-    # case would then contend on; cases that exercise recording supervise their
-    # own pair against their own isolated state directory.
-    recording? = Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
-
-    recording_children = recording_children(recording?)
-
-    cli_children =
-      if interactive_cli? do
-        [
-          {Aiur.Tmux, name: Aiur.Tmux},
-          {Aiur.PaneManager, name: Aiur.PaneManager},
-          Aiur.Opencode.PrewarmSupervisor,
-          Aiur.AgentList.App,
-          Aiur.AgentList.Input,
-          Aiur.LauncherWatchdog
-        ]
-      else
-        []
-      end
-
-    [
-      # First, ahead of `Aiur.PubSub` itself. `ModeTable` reads no config,
-      # subscribes to nothing and calls no sibling — its `init/1` creates one
-      # named ETS table and stops — so under `:rest_for_one` every child placed
-      # ahead of it declares a dependency it does not have, and pays for it: an
-      # ETS table dies with the process that created it, so a crash anywhere in
-      # front of `ModeTable` restarted it and silently emptied the entire
-      # delivery-mode view (#2531).
-      #
-      # That is not a bounded cost. Nothing republishes a proven mode on
-      # `ModeTable`'s boot — `ModeRegistry` restarts in the same cascade and
-      # rebuilds `state.repos` from config as configured-*unproven* — so every
-      # webhook-backed repo silently fell back to the 30-second polling TTL and
-      # stayed there until a fresh delivery re-proved it. Ordered first, no
-      # sibling's crash can reach it.
-      #
-      # Going first also means a `ModeTable` crash would now restart the whole
-      # tree behind it, which is only acceptable because it has no way to crash:
-      # `put/2`, `transport/1` and `delete/1` all run in the *caller's* process
-      # against a `:public` table, so the server itself exposes no `handle_call`
-      # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
-      # Give it a failing callback and this ordering stops being free.
-      Aiur.Webhooks.ModeTable,
-      # `Aiur.PubSub.Boot` is `{Phoenix.PubSub, name: Aiur.PubSub}` with one
-      # thing added: it waits for a previous incarnation's registry names to be
-      # released before starting. Without that wait a PubSub crash restarts
-      # into its own still-registered partitions, fails three times inside a
-      # millisecond, and takes this whole supervisor down with it (#2557).
-      {Aiur.PubSub.Boot, name: Aiur.PubSub},
-      {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
-      {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
-      {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
-      {Registry, keys: :unique, name: Aiur.Opencode.SlotRegistry.Registry},
-      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.IssueLog.Supervisor},
-      # Before Task.Supervisor: children stop in reverse order, so the
-      # reaper outlives the runner tasks/ports whose OS processes it must
-      # sweep in its terminate/2 backstop.
-      Aiur.ProcessReaper,
-      Aiur.PauseContainment,
-      Aiur.AgentResourceGuard,
-      Aiur.AgentProcessLog,
-      Aiur.SaturationSentinel,
-      Aiur.BuildGateHoldMonitor,
-      Aiur.AppServer.ToolCallLedger,
-      Aiur.Workspace.Ownership.Store,
-      {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
-      Aiur.Workspace.Ownership.Reconciler,
-      {Task.Supervisor, name: Aiur.TaskSupervisor},
-      Aiur.AlertFeed.Backfill,
-      Aiur.CoordinationTasks,
-      Aiur.DecisionDispatchTasks,
-      Aiur.WorkflowStore,
-      Aiur.RepoBase,
-      Aiur.GitHub.AppTokenRefresher,
-      # The next three are passive tables a GitHub request consults, started in
-      # the order a request touches them: choose a credential, then look for a
-      # cached answer, then price and admit what is left. Neither of the first
-      # two depends on the other — `ReadCache` is keyed on the request's shape
-      # and never asks who is authenticating, and `CredentialHeadroom` is filled
-      # from response headers and never asks what was cached — so the order is
-      # chosen to be explicable rather than because either would fail otherwise.
-      #
-      # Owns the per-credential rate-limit table the selector reads. First of the
-      # three because selection happens in `default_request_fun`, outside the
-      # cache: a request has picked its credential before a lookup is attempted.
-      Aiur.GitHub.CredentialHeadroom,
-      # The daemon's read-through cache, owning the tables `Aiur.GitHub.Transport`
-      # consults on every request. It starts before `Quota` and before anything
-      # that polls, because a request issued while its tables do not exist is a
-      # request that pays: the lookup degrades to a miss rather than failing, and
-      # a miss is the full price. Reads never call this process.
-      Aiur.GitHub.ReadCache,
-      Aiur.GitHub.Quota,
-      # Turns the budget-broker-timeout retry rate into a signal (#2464): a
-      # queryable retry event per backoff plus one dwelled degraded alert. The
-      # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
-      # owns the sliding-window rate and alert latch.
-      Aiur.GitHub.BrokerTimeout,
-      Aiur.GitHub.BudgetBroker,
-      # The ElevenLabs account credit quota, read on its own schedule. Absent an
-      # API key it observes nothing at all, so an unconfigured account costs a
-      # boot-time config read and never a request.
-      Aiur.ElevenLabs.Quota,
-      {Aiur.BuildOrder.TicketDetailCoordinator, runtime_config?: true},
-      {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
-      Aiur.Events.IdGenerator,
-      {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
-      Aiur.Events.BranchRefStore,
-      # Restart-durable GitHub state keyed by resource identity. Starts before
-      # the Publisher and before anything that polls or receives, so the first
-      # delivery of the boot already has somewhere to record that it handled a
-      # comment — and so the first poll sweep already has last run's ETags.
-      # Owns the open-issue listing the dispatch gate reads as its close signal
-      # (#2714). A table owned by a poll writer would die with it.
-      Aiur.GitHub.OpenIssueSnapshot,
-      Aiur.GitHub.ResourceStore,
-      # Carries store changes into the agents' `gh` answer store, so a fact
-      # learned for free retires the paid reads of the same resource. Starts
-      # after the store because it subscribes to it.
-      Aiur.GitHub.AgentCacheBridge,
-      if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
-      Aiur.Events.Publisher,
-      # Per-repo delivery mode. Starts before anything that polls or receives
-      # so a repo always has a mode to read; with no configured repos every
-      # lookup answers "polling", which is exactly the pre-webhook behavior.
-      #
-      # The ETS view it publishes into (`Aiur.Webhooks.ModeTable`) is the first
-      # child of the whole tree, so the registry always has somewhere to publish
-      # and the table outlives every restart the registry can take part in. The
-      # reverse is not guaranteed: if the registry crashes, its `state.repos`
-      # rebuilds as configured-unproven while the table keeps its old `:webhook`
-      # records, so a repo can hold the long TTL until the next sweep
-      # republishes. Bounded (the TTL is a backstop, never a freshness claim)
-      # and corrected automatically, so it is a note, not a fix.
-      Aiur.Webhooks.ModeRegistry,
-      Aiur.ProviderAccountGeneration,
-      Aiur.ProviderMeters.Store,
-      # Reads the store's observations and serves them to consumer surfaces
-      # without a binding. Starts after the store so no accepted observation
-      # is broadcast before there is anything retaining it.
-      Aiur.ProviderMeters.HostObservations,
-      Aiur.ProviderMeterProjection,
-      # Decides when usage is observed: one baseline after boot, then only
-      # while agents are running. Starts after the projection so a baseline
-      # observation always has somewhere to land.
-      Aiur.ProviderMeterRefresh,
-      Aiur.UsageLedger,
-      # Owns the one destructive storage seam: retention/compaction of retired
-      # raw usage. Starts after the raw ledger it reads but before the aggregate,
-      # so its boot reconciliation resolves any in-flight destructive phase into
-      # a consistent ledger + compacted-floor state before the aggregate rebuilds
-      # over it.
-      Aiur.UsageCompaction.Coordinator,
-      Aiur.UsageAggregate.Store,
-      {Aiur.DecisionStore, name: Aiur.DecisionStore},
-      {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
-      Aiur.DecisionMetrics,
-      Aiur.RecentMergeStore,
-      # Webhook deduplication state must be replayed before any receiver can
-      # admit a delivery.
-      Aiur.Webhooks.DeliveryLog,
-      Aiur.GitHub.CodeOwners,
-      {Registry, keys: :unique, name: Aiur.Events.SubscriptionStoreRegistry},
-      Aiur.Events.SubscriptionStoreSupervisor,
-      Aiur.DecisionAttention,
-      Aiur.OperatorWaitLog,
-      Aiur.Orchestrator.TrackedSet,
-      Aiur.Orchestrator.SnapshotStore,
-      Aiur.Orchestrator.SnapshotPublisher,
-      Aiur.CurrentRunMembership.Store,
-      # LiveConversation is projection-only: it never replays workspace logs
-      # after restart, so a missing key truthfully reports :restart_unknown.
-      Aiur.LiveConversation,
-      # Durable last-known progress retention. Starts before TicketActivity so
-      # the projection can seed from it at boot and cast retains into it.
-      Aiur.ProgressRetention,
-      Aiur.TicketActivity,
-      # Claude telemetry owns an independent loopback listener and must be
-      # available before the Orchestrator starts owned Claude workers.
-      Aiur.Claude.Telemetry,
-      {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
-      {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
-      {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
-      {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
-      # The single view-state cadence, now reconciling only the pack-status
-      # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
-      # timer). Starts after its sources so its first tick never races their
-      # boot fill.
-      Aiur.GitHub.ViewStateSweep,
-      {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
-      Aiur.DecisionExpiry,
-      Aiur.CurrentRunMembership.Reconciler,
-      Aiur.CurrentRunProjections,
-      maybe_ls_remote_ticker(ls_remote_ticker?),
-      Aiur.Orchestrator.PRHealthScanner,
-      Aiur.Orchestrator.ReworkRequeue,
-      Aiur.ProgressCheckin.Worker,
-      Aiur.Executor.TakeoverAlert.Store,
-      Aiur.Executor.TakeoverAlert.Monitor,
-      Aiur.DaemonHeartbeatWriter,
-      Aiur.Logs.Retention,
-      # The daemon-resident Executor recording path is armed on EVERY run, with
-      # or without `--executor`. Recording is the only part that cannot be added
-      # after the fact: a run that did not record leaves an agent arriving later
-      # with nothing to replay, and that cost is invisible when it is incurred.
-      # `--executor` now governs authority (and Command alerting), not whether
-      # anything is written down. These come after the Exchange and the
-      # Publisher they subscribe to, so they sit at the end of the always-on
-      # block. `Claims` starts first: it arbitrates who may advance the shared
-      # cursor the inbox owns.
-      recording_children,
-      executor_principal_child(recording?, executor_mode?),
-      # Dashboard supervision is independent of terminal attachment/headless
-      # mode. Aiur.HttpServer retains its own bind and credential guards.
-      if(dashboard?, do: AiurWeb.ControlCenterCache),
-      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
-      if(dashboard?, do: Aiur.HttpServer),
-      Aiur.Opencode.TokenRegistry,
-      Aiur.Opencode.ActiveTurns,
-      # Chat-pane machinery — UI-only, never read by a headless run.
-      unless(headless?, do: Aiur.Opencode.PaneSupervisor),
-      Aiur.Opencode.SessionSupervisor,
-      Aiur.Opencode.BridgeSupervisor,
-      # Allowed-contributor intake (#2957) feeds the Executor wake path armed
-      # above, so it runs whenever recording does. It is last in this
-      # `:rest_for_one` list so a restart of it can never cascade into the
-      # dashboard, the Principal, or the opencode supervisors.
-      if(recording?, do: Aiur.AllowedContributors)
-    ]
-    |> List.flatten()
-    |> Enum.reject(&is_nil/1)
-    |> Kernel.++(cli_children)
-  end
+  defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled
+  defp configured_tailscale_funnel?(_settings), do: false
 
   defp supervision_health_child(children) do
     {Aiur.SupervisionHealth, supervisor: Aiur.Supervisor, expected_children: children}
   end
-
-  defp remote_routing?(routing) when is_map(routing) do
-    Enum.any?(routing, fn {_level, value} -> RoutingValue.routing_remote_flag?(value) end)
-  end
-
-  defp remote_routing?(_routing), do: false
-
-  defp maybe_add_remote_control_source(sources, true, source), do: sources ++ [source]
-  defp maybe_add_remote_control_source(sources, false, _source), do: sources
-
-  defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil
-  defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
-
-  defp recording_children(true), do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
-  defp recording_children(false), do: []
-
-  defp executor_principal_child(true, true), do: Aiur.Executor.Principal
-  defp executor_principal_child(_recording?, _executor_mode?), do: nil
 
   @impl true
   def prep_stop(state) do
@@ -574,7 +245,7 @@ defmodule Aiur.Application do
         Logger.info("Distribution active as #{inspect(distribution_module.node_name())}")
 
       {:error, reason} ->
-        Logger.debug("Distribution not active: #{inspect(reason)}; pane subcommand will not connect")
+        raise "unsafe distributed daemon startup: #{inspect(reason)}"
     end
 
     :ok

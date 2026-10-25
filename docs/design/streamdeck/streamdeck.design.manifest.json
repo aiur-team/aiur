@@ -1,0 +1,9 @@
+{
+  "source": "Aiur Dashboard.html lines 3645-4307 (design project 5e62b9a9-39c1-4ca2-9a76-6dff123a088c)",
+  "sha256": "0d79442c0d42b8414d398d3223549d418197ce48eb04ec98ed512afc2ed9f1e6",
+  "parts": [
+    {"file": "streamdeck.design.1-grid.js", "mock_lines": "3645-3818"},
+    {"file": "streamdeck.design.2-cmd-logs.js", "mock_lines": "3819-4113"},
+    {"file": "streamdeck.design.3-init.js", "mock_lines": "4114-4307"}
+  ]
+}

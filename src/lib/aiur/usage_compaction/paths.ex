@@ -7,7 +7,7 @@ defmodule Aiur.UsageCompaction.Paths do
   # from the covered range, so preparing a block path is pure and a crash never
   # leaves an ambiguously-named block.
 
-  alias Aiur.DecisionLog
+  alias Aiur.Journal
 
   @manifest_name "manifest.json"
   @blocks_dir "blocks"
@@ -16,8 +16,8 @@ defmodule Aiur.UsageCompaction.Paths do
   def prepare(root, sync_fun) when is_binary(root) and is_function(sync_fun, 0) do
     blocks_dir = Path.join(root, @blocks_dir)
 
-    with :ok <- DecisionLog.ensure_directory(root),
-         :ok <- DecisionLog.ensure_directory(blocks_dir),
+    with :ok <- Journal.ensure_directory(root),
+         :ok <- Journal.ensure_directory(blocks_dir),
          :ok <- sync_fun.() do
       {:ok,
        %{

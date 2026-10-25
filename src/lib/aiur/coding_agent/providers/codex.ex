@@ -12,6 +12,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       adapter: Aiur.Codex.CodingAgent,
       transcript: Aiur.Codex.Transcript,
       family: "codex",
+      accounts: %{kind: :profile, multi: :available, usage: :codex_probe, supported: true},
       default: true,
       rate_limit_fallback: "claude",
       rate_limit_fallback_target: false,
@@ -20,6 +21,9 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       init_order: 1,
       default_command: "codex app-server",
       model_catalog: &ModelCatalog.extract_codex/1,
+      # app-server stdio; OperatorDelivery serializes turns; Frames exposes dynamic tools.
+      delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
+      hosted_execution: %{permission_boundary: :codex_sandbox, network_boundary: :codex_sandbox, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [:notification, :tool_result],
       control_application_confirmation: :confirmed,

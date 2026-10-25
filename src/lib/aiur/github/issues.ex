@@ -4,34 +4,33 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.AllowedContributors
-  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
+  alias Aiur.{Bounded, Config, GitHub, GitHub.IssueExecutorOwner, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
     BoundedBlockedBy,
     CycleFetchCache,
     DependenciesApi,
-    DispatchAuthorization,
     Errors,
     Labels,
-    OpenIssueSnapshot,
+    OpenIssueListing,
     ResourceStore,
+    StateLabels,
     StatePolicy,
     Transport
   }
 
+  alias Aiur.GitHub.Issues.DispatchAuthorization
   alias Aiur.Orchestrator.DispatchPolicy
-
-  @max_issue_response_bytes 65_536
+  # Worst-case JSON escaping is 6 bytes per character: 65,536 × 6 + 128 KiB metadata.
+  @max_issue_response_bytes 524_288
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
   # assignees, and bodies measured ~390 KiB (#2140), and a backlog whose ticket
   # bodies are full specifications measured 2.9 MiB across 45 issues (#2533).
   # The bound is sized to the endpoint's real ceiling rather than an observed
   # backlog: GitHub caps a page at 100 issues and a body at 64 KiB, so one page
-  # of maximal bodies plus metadata stays under 16 MiB. A response that still
-  # exceeds it is reported as `:response_too_large` by `conditional_get/4`
-  # instead of the self-contradictory `{:github, :http, %{status: 200}}`.
+  # of maximal bodies plus metadata stays under 16 MiB. A response that still exceeds it
+  # is reported as `:response_too_large` by `conditional_get/4` instead of the self-contradictory `{:github, :http, %{status: 200}}`.
   @max_issue_list_response_bytes 16_777_216
 
   @spec max_issue_response_bytes() :: pos_integer()
@@ -170,7 +169,7 @@ defmodule Aiur.GitHub.Issues do
   # asking to be *sure*, and the conditional request that answers that is free
   # when nothing changed.
   defp stored_issue(key, opts) do
-    if Keyword.get(opts, :revalidate, false) do
+    if Keyword.get(opts, :revalidate, false) or Keyword.get(opts, :unconditional, false) do
       nil
     else
       servable_within(ResourceStore.fetch(key), Keyword.get(opts, :freshness_ms))
@@ -192,9 +191,9 @@ defmodule Aiur.GitHub.Issues do
   defp revalidate_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
-    etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
+    etag = if retried_without_validator? or Keyword.get(opts, :unconditional, false), do: nil, else: ResourceStore.etag(key)
 
-    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: "issue_raw_conditional"}
+    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: Keyword.get(opts, :caller, "issue_raw_conditional")}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     context = %{
@@ -230,16 +229,7 @@ defmodule Aiur.GitHub.Issues do
   defp handle_raw_issue_response({:ok, %{status: 200}}, _context), do: {:error, :invalid_github_issue_response}
 
   defp handle_raw_issue_response({:ok, %{status: 304} = response}, context) do
-    serve_not_modified_raw_issue(
-      context.issue_number,
-      context.owner,
-      context.repo,
-      context.token,
-      context.key,
-      context.opts,
-      context.retried_without_validator?,
-      Transport.header(Map.get(response, :headers, []), "etag") || context.etag
-    )
+    serve_not_modified_raw_issue(context, Transport.header(Map.get(response, :headers, []), "etag") || context.etag)
   end
 
   defp handle_raw_issue_response({:ok, %{status: _status} = response}, _context) do
@@ -257,21 +247,32 @@ defmodule Aiur.GitHub.Issues do
   # `304` is answered from the held body regardless of the caller's freshness
   # window: GitHub has just certified that the body is current, so its age is no
   # longer evidence of anything.
-  defp serve_not_modified_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?, retained_etag) do
-    case ResourceStore.data(key) do
+  #
+  # It certifies only the body the sent validator sat beside. A body deposited
+  # while the request was in flight — a Build Order reconciliation files one with
+  # `"labels" => []` — is re-read rather than served as GitHub's (#5180).
+  defp serve_not_modified_raw_issue(context, retained_etag) do
+    case confirmed_body(context.key, context.etag) do
       body when is_map(body) ->
         # A `304` may rotate the validator, and the new one is what the next
         # conditional request has to send. Retaining it is the only write this
-        # path makes — see `retain_validator/2` for why the body is left alone.
-        retain_validator(key, retained_etag)
+        # path makes — see `retain_validator/3` for why the body is left alone.
+        retain_validator(context.key, context.etag, retained_etag)
         {:ok, body, :not_modified}
 
-      _missing when not retried_without_validator? ->
-        ResourceStore.drop_data(key)
-        revalidate_raw_issue(issue_number, owner, repo, token, key, opts, true)
+      _missing when not context.retried_without_validator? ->
+        if ResourceStore.data(context.key) == nil, do: ResourceStore.drop_data(context.key)
+        revalidate_raw_issue(context.issue_number, context.owner, context.repo, context.token, context.key, context.opts, true)
 
       _missing ->
         {:error, :github_issue_not_modified_without_cached_value}
+    end
+  end
+
+  defp confirmed_body(key, sent_etag) do
+    case ResourceStore.fetch(key) do
+      {:ok, %{data: body, etag: ^sent_etag}} when is_map(body) and is_binary(sent_etag) -> body
+      _unconfirmed -> nil
     end
   end
 
@@ -295,32 +296,7 @@ defmodule Aiur.GitHub.Issues do
   # as having acted on it, and marking it handled here would suppress the wake
   # that the resource's genuine change is supposed to cause.
   defp put_issue_resource(key, body, etag, source) do
-    version = issue_version(body)
-
-    if regression?(key, version) do
-      # A webhook delivery carrying a newer object beat this read. Writing anyway
-      # would not merely hold an older body: `put_resource/3` stamps
-      # `fetched_at_ms` with now, so the older body would be described as freshly
-      # fetched and a reader asking for something no older than a window would be
-      # handed state from before the change.
-      :ok
-    else
-      ResourceStore.put_resource(key, body, source: source, version: version, etag: etag)
-    end
-  end
-
-  # Refuses a strictly older version, and writes on equal or missing ones.
-  #
-  # Both markers are GitHub's own ISO-8601 timestamps, which sort lexically.
-  # Equal versions still write because a body can legitimately differ under an
-  # unchanged marker, and a missing marker on either side is not evidence that
-  # anything went backwards. Same rule and same reasoning as
-  # `Aiur.Events.GithubWebhook.Deposit.regression?/2` — the two must not drift.
-  defp regression?(key, version) do
-    case ResourceStore.fetch(key) do
-      {:ok, %{version: held}} when is_binary(held) and is_binary(version) -> version < held
-      _other -> false
-    end
+    ResourceStore.deposit_unless_older(key, body, source: source, version: issue_version(body), etag: etag)
   end
 
   # What a `304` is allowed to write back, and — more importantly — what it is not.
@@ -338,12 +314,17 @@ defmodule Aiur.GitHub.Issues do
   # never belonged to the body it is attached to.
   #
   # So the clock does not move, and the only thing written back is the validator,
-  # through the store's own narrow `put_etag/2`. What that costs is one extra
+  # through the store's own narrow `put_etag/3`. What that costs is one extra
   # conditional request the next time a reader's window has passed — and a
   # conditional request that answers `304` costs **no primary rate limit**, which
   # is the whole reason this path exists. The optimisation was saving a free
   # request at the price of a corruptible entry.
-  defp retain_validator(key, etag), do: ResourceStore.put_etag(key, etag)
+  #
+  # The validator is written only while the store still holds the one that was
+  # sent. The poll sends its own cached ETag, so its `304` vouches for the poll's
+  # body, not for whatever the store holds now; stamping it onto a labelless
+  # reconciliation body made every later guarded read see no state (#5180).
+  defp retain_validator(key, sent_etag, etag), do: ResourceStore.put_etag(key, etag, sent_etag)
 
   # Both call sites have already matched `body` as a map, so there is deliberately
   # no non-map clause: dialyzer proves it unreachable.
@@ -379,6 +360,8 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp do_fetch_candidate_issues(opts) do
+    listed_from = DateTime.utc_now()
+
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
       prefix = GitHub.Config.label_prefix()
@@ -387,13 +370,28 @@ defmodule Aiur.GitHub.Issues do
       active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
       with {:ok, issues} <- fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
-        record_open_issues(owner, repo, issues)
+        record_open_issues(owner, repo, issues, listed_from)
         {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
       end
     end
   end
 
+  @doc "Conditionally lists and records every open issue without selecting or authorizing dispatch candidates."
+  @spec refresh_open_issues(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def refresh_open_issues(cache, opts \\ []) when is_map(cache) do
+    with {:ok, _issues, _ctx, updated_cache} <- list_open_issues_conditional(cache, [caller: "build_queue_open_issue_list"] ++ opts), do: {:ok, updated_cache}
+  end
+
   defp do_fetch_candidate_issues_conditional(cache, opts) do
+    with {:ok, issues, ctx, updated_cache} <- list_open_issues_conditional(cache, opts) do
+      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
+      {:ok, filter_and_authorize_candidates_with_degenerate(issues, active_states, ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix, cache), updated_cache}
+    end
+  end
+
+  defp list_open_issues_conditional(cache, opts) do
+    listed_from = DateTime.utc_now()
+
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
       ctx = %{
@@ -402,43 +400,19 @@ defmodule Aiur.GitHub.Issues do
         owner: owner,
         repo: repo,
         prefix: GitHub.Config.label_prefix(),
-        caller: "open_issue_list_conditional"
+        caller: Keyword.get(opts, :caller, "open_issue_list_conditional")
       }
 
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
-      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
-      case fetch_label_issue_pages_conditional(ctx, url, cache) do
-        {:ok, issues, updated_cache} ->
-          record_open_issues(ctx.owner, ctx.repo, issues)
-
-          candidates =
-            filter_and_authorize_candidates_with_degenerate(
-              issues,
-              active_states,
-              ctx.request_fun,
-              ctx.token,
-              ctx.owner,
-              ctx.repo,
-              ctx.prefix
-            )
-
-          {:ok, candidates, updated_cache}
-
-        {:error, _reason} = error ->
-          error
+      with {:ok, issues, updated_cache} <- fetch_label_issue_pages_conditional(ctx, url, cache) do
+        record_open_issues(owner, repo, issues, listed_from)
+        {:ok, issues, ctx, updated_cache}
       end
     end
   end
 
-  # Both listings are unfiltered and fully paginated, and they answer `{:ok, _}`
-  # only when every page was read, so `issues` names every open issue. That is
-  # the close signal the dispatch gate's blocker states use (#2714).
-  defp record_open_issues(owner, repo, issues) do
-    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id))
-    # Second producer for allowed-contributor intake (#2957).
-    AllowedContributors.offer_open_issues(issues)
-  end
+  defp record_open_issues(owner, repo, issues, listed_from), do: OpenIssueListing.record(owner, repo, issues, listed_from)
 
   # GitHub reports `performed_via_github_app` (null when not App-created) on
   # every issue. An absent key is unknown provenance, which allowed-contributor
@@ -459,27 +433,24 @@ defmodule Aiur.GitHub.Issues do
     authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
   end
 
-  # The orchestrator's conditional open-issue poll (`?state=open&per_page=100`
-  # is unfiltered, so this sees every open issue) partitions rather than
-  # discards: zero- and multi-`agent:*`-label tickets are returned alongside
-  # the authorized dispatch candidates so the orchestrator's repair pass can
-  # heal them. Every other non-dispatchable open ticket (terminal/error
-  # labels) is dropped exactly as before (#2420).
-  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
+  # Keep fresh non-dispatchable workflow states as evidence for next-poll label repair.
+  # Only dispatchable candidates go through authorization; terminal tickets remain excluded.
+  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix, cache) do
     {dispatchable, rest} =
       Enum.split_with(issues, fn issue ->
         is_binary(issue.state) and
           MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
       end)
 
-    authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
-    healable = rest |> Enum.filter(&degenerate_state_labels?/1) |> TestTicketScope.filter_issues()
+    authorized = GitHub.CandidateAuthorization.authorize(dispatchable, cache, &authorize_dispatches(&1, request_fun, token, owner, repo, prefix))
+
+    healable =
+      rest
+      |> StateLabels.filter_candidate_repair_labels(prefix, active_states)
+      |> TestTicketScope.filter_issues()
+
     authorized ++ healable
   end
-
-  defp degenerate_state_labels?(%Issue{state_labels: []}), do: true
-  defp degenerate_state_labels?(%Issue{state_labels: [_, _ | _]}), do: true
-  defp degenerate_state_labels?(_issue), do: false
 
   @spec fetch_issues_for_each_label(
           [String.t()],
@@ -666,6 +637,7 @@ defmodule Aiur.GitHub.Issues do
         owner: owner,
         repo: repo,
         prefix: GitHub.Config.label_prefix(),
+        authorization_opts: Keyword.take(opts, [:allowed_users]),
         caller: "issue_by_id_conditional"
       }
 
@@ -804,21 +776,20 @@ defmodule Aiur.GitHub.Issues do
         issue =
           body
           |> normalize_issue(ctx.owner, ctx.repo, ctx.prefix, retained_etag)
-          |> authorize_issue(ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix)
+          |> DispatchAuthorization.authorize(
+            ctx.request_fun,
+            ctx.token,
+            ctx.owner,
+            ctx.repo,
+            ctx.prefix,
+            ctx.authorization_opts
+          )
 
         entry = %{etag: retained_etag, issue: issue}
         {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
 
       {:not_modified, retained_etag} ->
-        materialize_not_modified_issue(
-          ctx,
-          issue_id,
-          issues,
-          cache,
-          cached_entry,
-          retained_etag,
-          retried_without_cache?
-        )
+        materialize_not_modified_issue(ctx, issue_id, issues, cache, cached_entry, etag, retained_etag, retried_without_cache?)
 
       {:http_error, %{status: 404}} ->
         {:cont, {:ok, issues, Map.delete(cache, issue_id)}}
@@ -834,30 +805,23 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp materialize_not_modified_issue(
-         ctx,
-         issue_id,
-         issues,
-         cache,
-         cached_entry,
-         retained_etag,
-         retried_without_cache?
-       ) do
+  defp materialize_not_modified_issue(ctx, issue_id, issues, cache, cached_entry, sent_etag, retained_etag, retried_without_cache?) do
     # Same reasoning as the detail path's `304`: the shared entry's freshness clock
     # has to move when GitHub says the body is still current, or the next reader
     # pays for bytes that were just proved unchanged.
-    refresh_stored_issue(ctx, issue_id, retained_etag)
+    refresh_stored_issue(ctx, issue_id, sent_etag, retained_etag)
 
-    case materialized_issue(ctx, issue_id, cached_entry, retained_etag) do
+    case materialized_issue(ctx, issue_id, cached_entry, sent_etag, retained_etag) do
       %Issue{} = issue ->
         issue =
-          authorize_issue(
+          DispatchAuthorization.authorize(
             issue,
             ctx.request_fun,
             ctx.token,
             ctx.owner,
             ctx.repo,
-            ctx.prefix
+            ctx.prefix,
+            ctx.authorization_opts
           )
 
         entry = %{etag: retained_etag, issue: issue}
@@ -871,10 +835,10 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp refresh_stored_issue(ctx, issue_id, retained_etag) do
+  defp refresh_stored_issue(ctx, issue_id, sent_etag, retained_etag) do
     ctx.owner
     |> then(&ResourceStore.key(:issue, &1, ctx.repo, issue_id))
-    |> retain_validator(retained_etag)
+    |> retain_validator(sent_etag, retained_etag)
   end
 
   # Only reached when the poll's own cache had no validator, so borrowing the
@@ -887,7 +851,7 @@ defmodule Aiur.GitHub.Issues do
   # poll would fall through to a second, unconditional request for bytes the
   # store was already holding — the trap where sharing a validator without the
   # body makes things worse rather than better.
-  defp materialized_issue(ctx, issue_id, cached_entry, retained_etag) do
+  defp materialized_issue(ctx, issue_id, cached_entry, sent_etag, retained_etag) do
     case Map.get(cached_entry, :issue) do
       %Issue{} = issue ->
         issue
@@ -895,7 +859,7 @@ defmodule Aiur.GitHub.Issues do
       _missing ->
         store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
 
-        case ResourceStore.data(store_key) do
+        case confirmed_body(store_key, sent_etag) do
           body when is_map(body) -> normalize_issue(body, ctx.owner, ctx.repo, ctx.prefix, retained_etag)
           _missing -> nil
         end
@@ -945,24 +909,6 @@ defmodule Aiur.GitHub.Issues do
   # keep routing it to the generic status path rather than raising here.
   defp conditional_ok_response(response, _etag, _max_response_bytes), do: {:http_error, response}
 
-  defp authorize_issue(%Issue{} = issue, request_fun, token, owner, repo, prefix) do
-    # Dispatch-time revalidation can observe a ticket that closed after the
-    # open-candidate snapshot. Reject that terminal state before provenance
-    # authorization buys a timeline read and raises an ambiguity alert.
-    if DispatchPolicy.terminal_issue_state?(issue.state, DispatchPolicy.terminal_state_set()) do
-      issue
-    else
-      DispatchAuthorization.authorize(
-        issue,
-        owner,
-        repo,
-        prefix,
-        request_fun: request_fun,
-        token: token
-      )
-    end
-  end
-
   # GitHub's issues collection includes pull requests in the shared number
   # space. Drop them while the raw discriminator is still available so they
   # cannot become zero-label tickets eligible for state-label repair.
@@ -1010,6 +956,8 @@ defmodule Aiur.GitHub.Issues do
       dispatch_authorization: :deferred,
       paused: paused_label?(label_names, prefix),
       parked: parked_label?(label_names, prefix),
+      executor_owner: IssueExecutorOwner.from_labels(label_names, prefix),
+      queued: queued_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
       created_at: parse_datetime(gh_issue["created_at"]),
@@ -1059,7 +1007,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case CycleFetchCache.fetch({:blocked_by, id}, fn -> fetch_blocked_by(id, opts) end) do
+    case CycleFetchCache.fetch({:blocked_by, id, opts[:record_max_age_ms]}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 
@@ -1075,22 +1023,20 @@ defmodule Aiur.GitHub.Issues do
 
   defp fetch_blocked_by(id, opts) do
     case Keyword.get(opts, :revalidate) do
-      :bounded -> BoundedBlockedBy.fetch(id, Keyword.delete(opts, :revalidate))
+      mode when mode in [:bounded, :cached] -> BoundedBlockedBy.fetch(id, opts |> Keyword.delete(:revalidate) |> Keyword.put(:cache_only, mode == :cached))
       _other -> DependenciesApi.fetch_blocked_by(id, opts)
     end
   end
 
   # Reduces GitHub's native dependency issue objects to the same `blocked_by`
   # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)
-  # so the dispatch gate (`DispatchPolicy.todo_issue_blocked_by_non_terminal?`)
+  # so the dispatch gate (`DispatchPolicy.issue_held_by_dependency?`)
   # and the blocker event machinery consume them unchanged. Blocker state comes
   # from the same source as the issue itself: `agent:*` labels, with a raw
   # `state: "closed"` resolving to the terminal "Closed". A blocker with no
   # derivable state keeps `state: nil`, which the gate treats as non-terminal
   # (blocking) — fail-closed on incomplete payloads.
-  defp normalize_blockers(blockers, prefix) when is_list(blockers) do
-    Enum.map(blockers, &normalize_blocker(&1, prefix))
-  end
+  defp normalize_blockers(blockers, prefix) when is_list(blockers), do: Enum.map(blockers, &normalize_blocker(&1, prefix))
 
   defp normalize_blocker(blocker, prefix) when is_map(blocker) do
     number = Map.get(blocker, "number")
@@ -1101,7 +1047,8 @@ defmodule Aiur.GitHub.Issues do
       id: to_string(number),
       identifier: to_string(number),
       state: extract_state(blocker, label_names, prefix),
-      url: Map.get(blocker, "html_url")
+      url: Map.get(blocker, "html_url"),
+      observed_at_ms: System.system_time(:millisecond)
     }
   end
 
@@ -1202,6 +1149,14 @@ defmodule Aiur.GitHub.Issues do
     end)
   end
 
+  defp queued_label?(label_names, prefix) when is_list(label_names) do
+    queued_label = normalize_label_name("#{prefix}:queued")
+
+    Enum.any?(label_names, fn name ->
+      normalize_label_name(name) == queued_label
+    end)
+  end
+
   defp normalize_label_name(label) when is_binary(label),
     do: String.downcase(String.trim(label))
 
@@ -1233,7 +1188,7 @@ defmodule Aiur.GitHub.Issues do
     issues
     |> TestTicketScope.filter_issues()
     |> Enum.map(fn issue ->
-      authorize_issue(issue, request_fun, token, owner, repo, prefix)
+      DispatchAuthorization.authorize(issue, request_fun, token, owner, repo, prefix)
     end)
   end
 

@@ -208,12 +208,17 @@ defmodule Aiur.AgentRunner.EventsDigest do
   # legacy `aiur/<id>` ref from the stable topic key.
   defp branch_push_ref(event) do
     with topic when is_binary(topic) <- event_field(event, :topic),
-         true <- String.ends_with?(topic, ".branch.push"),
+         true <- String.ends_with?(topic, [".branch.push", ".branch.force-push"]),
          ref when is_binary(ref) and ref != "" <- event_field(event, :ref) do
-      ref
+      if String.ends_with?(topic, ".branch.force-push"), do: force_push_summary(event, ref), else: ref
     else
       _ -> nil
     end
+  end
+
+  defp force_push_summary(event, ref) do
+    metadata = Enum.map_join([:previous_sha, :sha, :compare_status, :previous_missing, :superseded], " ", fn key -> "#{key}=#{inspect(Map.get(event, key, Map.get(event, Atom.to_string(key))))}" end)
+    "force-pushed #{ref} #{metadata}"
   end
 
   # Defense-in-depth wrapper around GitHub-sourced user content in the

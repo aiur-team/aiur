@@ -6,7 +6,7 @@ defmodule Aiur.Events.AgentSubscriptionPolicy do
   agent-created binding must name one literal ticket so a single binding cannot
   observe the Executor control plane or the whole fleet.
   """
-
+  # aiur:event-bus-boundary-member
   @spec validate(term()) :: :ok | {:error, :agent_subscription_scope_forbidden}
   def validate(pattern) when is_binary(pattern) do
     if syntactically_valid?(pattern) do

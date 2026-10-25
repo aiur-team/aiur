@@ -20,9 +20,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   `empty_supported`), standing, freshness, and reset distinct.
   """
 
+  alias AiurWeb.OperatorControlCenter.AccountUsagePresenter
+
   alias Aiur.CodingAgent
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialDataAccess
+  alias AiurWeb.RemainingMeter
 
   @real_failures [:authentication, :malformed, :timeout, :transport]
 
@@ -58,17 +61,22 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   content-free locked view.
   """
   @spec present(map(), snapshots()) :: view()
-  def present(capability, snapshots \\ %{})
+  def present(capability, snapshots \\ %{}), do: present(capability, snapshots, %{})
 
-  def present(%{state: :authorized}, snapshots) when is_map(snapshots) do
+  @spec present(map(), snapshots(), map()) :: view()
+  def present(%{state: :authorized}, snapshots, account_readings)
+      when is_map(snapshots) and is_map(account_readings) do
     %{
       state: :authorized,
       locked: nil,
-      cards: Enum.map(CodingAgent.provider_families(), &card(&1, Map.get(snapshots, &1)))
+      cards:
+        Enum.map(CodingAgent.provider_families(), fn provider ->
+          card(provider, Map.get(snapshots, provider), if(provider == :claude, do: account_readings, else: %{}))
+        end)
     }
   end
 
-  def present(capability, _snapshots) do
+  def present(capability, _snapshots, _account_readings) do
     %{state: :locked, locked: locked(capability), cards: []}
   end
 
@@ -104,11 +112,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- per-provider card ---------------------------------------------------
 
-  defp card(provider, snapshot) do
+  defp card(provider, snapshot, account_readings) do
     state = card_state(snapshot)
     known? = known_identity?(state)
 
-    %{
+    card = %{
       provider: provider,
       provider_label: provider_label(provider),
       backend_label: backend_label(snapshot),
@@ -121,8 +129,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       freshness: freshness(snapshot),
       observed_at: observed_at(snapshot),
       ingested_at: ingested_at(snapshot),
-      windows: windows(snapshot, known?)
+      windows: windows(snapshot, known?),
+      summary_label: if(snapshot, do: snapshot.summary_label),
+      account_usage: AccountUsagePresenter.present(account_readings)
     }
+
+    case Aiur.Usage.dashboard_card(card) do
+      {:ok, usage} -> Map.put(card, :usage, usage)
+      :error -> card
+    end
   end
 
   # A card names quota/tier facts only for identities with an exact known
@@ -268,7 +283,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       standing: standing,
       standing_label: standing_label(standing),
       used_percent: used_percent,
-      remaining_percent: Map.get(window, :remaining_percent),
+      remaining_percent: Map.get(window, :remaining_percent) || RemainingMeter.percent(used_percent),
       used: Map.get(window, :used),
       limit: Map.get(window, :limit),
       remaining: Map.get(window, :remaining),
@@ -301,14 +316,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   # numeric usage percentage; unsupported and empty-supported windows carry no
   # implied value. Zero is a real exact value, distinct from unknown.
   defp meter(:supported, used_percent) when is_number(used_percent) do
-    %{kind: :exact, now: round(clamp_percent(used_percent)), min: 0, max: 100}
+    %{kind: :exact, now: used_percent |> RemainingMeter.percent() |> round(), min: 0, max: 100}
   end
 
   defp meter(_coverage, _used_percent), do: %{kind: :none}
-
-  defp clamp_percent(percent) when percent < 0, do: 0
-  defp clamp_percent(percent) when percent > 100, do: 100
-  defp clamp_percent(percent), do: percent
 
   defp credits(%{status: status} = credits) do
     %{status: status, label: credit_status_label(status), amount: Map.get(credits, :amount)}

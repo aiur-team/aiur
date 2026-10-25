@@ -18,6 +18,11 @@ defmodule Aiur.SystemLoadTest do
       assert SystemLoad.avg1() == 24.0
     end
 
+    test "parses sysctl load on hosts without Linux PSI" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "{ 24.00 12.00 8.00 }\n"} end)
+      assert SystemLoad.avg1() == 24.0
+    end
+
     test "parses a low load line without a trailing newline" do
       Application.put_env(:aiur, :loadavg_source_override, fn ->
         {:ok, "0.89 0.49 0.37 2/1939 1"}
@@ -37,6 +42,34 @@ defmodule Aiur.SystemLoadTest do
 
       assert SystemLoad.avg1() == :unavailable
     end
+  end
+
+  test "sample reads outside the caller and timestamps the measurement" do
+    caller = self()
+    sample = SystemLoad.sample(fn -> %{load: 0.5, cpu_snapshot: :unavailable, reader: self()} end)
+    assert sample.reader != caller
+    assert sample.load == 0.5
+    assert sample.sampled_at_ms <= System.monotonic_time(:millisecond)
+  end
+
+  test "a blocked probe times out and its worker is terminated" do
+    parent = self()
+
+    sample =
+      SystemLoad.sample(
+        fn ->
+          send(parent, {:reader, self()})
+
+          receive do
+            :never_sent -> %{load: 0.5}
+          end
+        end,
+        1_000
+      )
+
+    assert_received {:reader, reader}
+    refute Process.alive?(reader)
+    assert sample == %{load: :unavailable, cpu_snapshot: :unavailable, sampled_at_ms: nil, sample_id: nil}
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)

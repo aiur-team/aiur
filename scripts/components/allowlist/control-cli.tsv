@@ -1,0 +1,44 @@
+# rule	target_module	reason
+R-optional	Aiur.Accounting.CLI	MP-R1-C9-T14 facade delegates existing usage and accounts verbs to their accounting owner
+R-optional	Aiur.Accounts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Accounts.Shims.Claude	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Accounts.Shims.Codex	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.AlertLedger	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.BuildOrder.EstimateCLI	MP-E8-C7-T03 guarded CLI entry invokes the optional build-order estimate command, matching build-orders and epic controls
+R-optional	Aiur.BuildOrder.History.Export	#3179 history export CLI prints the page the classification agent tool reads, so both callers share one record shape
+R-optional	Aiur.BuildOrdersCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.BuildQueueCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.DaemonHeartbeatChecker	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.EpicCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Events.Sanitizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Executor.StatePaths	MP-R2-C2-T07: full-product app boot supplies the existing Executor journal floor; reusable bus has no such dependency
+R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs
+R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.ExecutorSweep.CLI	#5211 routes the optional sweep CLI through the shared control-protocol guard
+R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.HostCommand	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.OpencodeTheme	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.ProviderMeterProjection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.ProviderMeters.CLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.RunTelemetry.Dashboard	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.RunTelemetry.Summaries	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Usage.GroupedScopes	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Usage.GroupedScopes.Scope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Usage.PriceTable.Data	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Usage.PriceTable.Window	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.UsageAggregate.Checkpoint	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.UsageAggregate.Projection	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.UsageEnvelope	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.Api.Usage.TicketUsage	#5692 ticket-usage CLI prints the HTTP usage payload so both transports share one versioned wire shape
+R-optional	AiurWeb.OperatorControlCenter.Analytics.Charts	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.OperatorControlCenter.Analytics.Presenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.OperatorControlCenter.Analytics.ScopeResolver	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.OperatorControlCenter.DecisionProvider	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.OperatorControlCenter.PayloadLoader	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.OperatorControlCenter.UnitsPresentation	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	AiurWeb.OperatorControlCenter.UnitsPresenter	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
+R-private	Aiur.Claude.Repl.Reaper	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut

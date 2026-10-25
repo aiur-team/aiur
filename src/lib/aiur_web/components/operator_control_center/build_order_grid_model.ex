@@ -12,6 +12,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   """
 
   alias Aiur.BuildOrder.{Metadata, RootSummary}
+  alias Aiur.GitHub.{Config, Labels}
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
 
@@ -35,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           key: term(),
           identity: term() | nil,
           lane: String.t(),
-          phase: pos_integer() | :unphased,
+          phase: non_neg_integer() | :unphased,
           complexity: pos_integer() | nil,
           title: String.t(),
           completion: completion(),
@@ -120,8 +121,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   @doc """
   Complexity-weighted completion over cards carrying `completion` and
   `complexity`: a resolved card contributes its progress fraction at its
-  complexity weight (1 when unknown); unresolved cards reduce coverage, so the
-  aggregate becomes `:partial` instead of silently counting them as 0%.
+  complexity weight (1 when unknown). All cards contribute denominator weight;
+  unresolved cards reduce coverage and make the result a partial lower bound.
   """
   @spec aggregate([%{completion: completion(), complexity: pos_integer() | nil}]) :: completion()
   def aggregate(cards) when is_list(cards), do: aggregate_completion(cards)
@@ -257,8 +258,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # Complexity-weighted completion per wave, over CORE cards only. A merged card
   # contributes its full weight; an in-flight card contributes its progress
-  # fraction. Unknown cards reduce coverage, so the aggregate becomes partial
-  # instead of discarding the progress that did resolve.
+  # fraction. Unknown cards keep their denominator weight and reduce coverage, so the
+  # aggregate reports a partial lower bound on the entire wave.
   # Weight is the card's complexity (points), defaulting to 1 when complexity is
   # unknown.
   defp wave_completion(core_cards) do
@@ -274,11 +275,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp aggregate_completion(cards) do
     {member_count, resolved_count, weight, done} =
       Enum.reduce(cards, {0, 0, 0, 0.0}, fn card, {member_count, resolved_count, weight, done} ->
+        card_weight = card.complexity || 1
+
         if get_in(card, [:completion, :progress_resolution]) == :resolved do
-          card_weight = card.complexity || 1
           {member_count + 1, resolved_count + 1, weight + card_weight, done + card_weight * completion_fraction(card)}
         else
-          {member_count + 1, resolved_count, weight, done}
+          {member_count + 1, resolved_count, weight + card_weight, done}
         end
       end)
 
@@ -364,12 +366,24 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_state(_key), do: :plain
 
   defp core_status_word(:status_completed, _execution, _text), do: "merged"
-  defp core_status_word(:status_working, _execution, _text), do: "agent live"
-  defp core_status_word(:status_ready, _execution, _text), do: "dependency-ready"
-  defp core_status_word(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
-  defp core_status_word(:status_waiting, %{waiting_reason: :waiting_for_ci}, _text), do: "CI waiting"
-  defp core_status_word(_key, _execution, text) when is_binary(text) and text != "", do: text
-  defp core_status_word(_key, _execution, _text), do: "status unavailable"
+
+  defp core_status_word(key, execution, text) do
+    runtime_reason_word(execution) || core_status_fallback(key, execution, text)
+  end
+
+  defp runtime_reason_word(execution) do
+    case Labels.runtime_labels(Map.get(execution, :labels), [Map.get(execution, :pause_reason), Map.get(execution, :waiting_reason)], Config.label_prefix()) do
+      [] -> nil
+      labels -> Enum.join(labels, ",")
+    end
+  end
+
+  defp core_status_fallback(:status_working, _execution, _text), do: "agent live"
+  defp core_status_fallback(:status_ready, _execution, _text), do: "dependency-ready"
+  defp core_status_fallback(:status_paused, %{pause_reason: :ci_wait}, _text), do: "CI waiting"
+  defp core_status_fallback(:status_waiting, %{waiting_reason: :waiting_for_ci}, _text), do: "CI waiting"
+  defp core_status_fallback(_key, _execution, text) when is_binary(text) and text != "", do: text
+  defp core_status_fallback(_key, _execution, _text), do: "status unavailable"
 
   defp adhoc_status_word(:merged), do: "merged"
   defp adhoc_status_word(:working), do: "agent live"
@@ -424,7 +438,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp lane(lane) when is_binary(lane) and lane != "", do: lane
   defp lane(_lane), do: "unassigned"
 
-  defp phase(phase) when is_integer(phase) and phase > 0, do: phase
+  defp phase(phase) when is_integer(phase) and phase >= 0, do: phase
   defp phase(_phase), do: :unphased
 
   defp identifier(%{identifier: identifier}) when is_binary(identifier) and identifier != "",

@@ -16,7 +16,7 @@ defmodule Aiur.ModelDiscoveryTest do
   setup context do
     dir = Aiur.TestSupport.tmp_root!("aiur-model-discovery-#{:erlang.phash2(context.test)}")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     {:ok, cache: Path.join(dir, "model-catalog.json")}
   end
 

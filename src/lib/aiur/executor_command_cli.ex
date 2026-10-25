@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorCommandCLI do
   @moduledoc false
 
-  alias Aiur.{DecisionStore, ExecutorCommandAttention}
+  alias Aiur.{Commands, ExecutorCommandAttention}
 
   @default_executor_id "aiur-cli"
 
@@ -43,6 +43,33 @@ defmodule Aiur.ExecutorCommandCLI do
   end
 
   def escalate(_params, deps), do: usage_error("escalate expects command options", deps)
+
+  @spec reclassify(keyword(), keyword()) :: 0 | 1 | 64
+  def reclassify(params, deps \\ [])
+
+  def reclassify(params, deps) when is_list(params) and is_list(deps) do
+    with {:ok, decision_id} <- present(params, :decision_id),
+         {:ok, expected_version} <- positive_integer(params, :expected_version),
+         {:ok, rationale} <- present(params, :rationale),
+         {:ok, executor_id} <- optional_present(params, :executor_id, @default_executor_id),
+         {:ok, result} <- call_reclassification(decision_id, expected_version, rationale, executor_id, deps) do
+      IO.puts("aiur: Executor #{executor_id} reclassified Command #{decision_id} as supervisor_allowed (#{Map.get(result, :status, :accepted)})")
+      0
+    else
+      {:usage, message} -> usage_error(message, deps)
+      {:error, reason} -> command_error("reclassify", reason, deps)
+    end
+  end
+
+  def reclassify(_params, deps), do: usage_error("reclassify expects command options", deps)
+
+  defp call_reclassification(decision_id, expected_version, rationale, executor_id, deps) do
+    payload = %{expected_version: expected_version, rationale: rationale, executor_id: executor_id}
+    fun = Keyword.get(deps, :reclassify_fun, fn id, body, store -> Commands.reclassify_authority(id, body, store) end)
+    fun.(decision_id, payload, Keyword.get(deps, :decision_store, Commands.default_store()))
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
 
   @doc false
   @spec moot(keyword(), keyword()) :: 0 | 1 | 64
@@ -147,15 +174,15 @@ defmodule Aiur.ExecutorCommandCLI do
     answer_fun =
       if normalized.supersede do
         Keyword.get(deps, :supersede_fun, fn decision_id, answer_payload, opts, store ->
-          DecisionStore.supersede(decision_id, answer_payload, opts, store)
+          Commands.supersede(decision_id, answer_payload, opts, store)
         end)
       else
         Keyword.get(deps, :answer_fun, fn decision_id, answer_payload, opts, store ->
-          DecisionStore.answer(decision_id, answer_payload, opts, store)
+          Commands.answer(decision_id, answer_payload, opts, store)
         end)
       end
 
-    store = Keyword.get(deps, :decision_store, DecisionStore)
+    store = Keyword.get(deps, :decision_store, Commands.default_store())
     answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}], store)
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
@@ -170,13 +197,13 @@ defmodule Aiur.ExecutorCommandCLI do
 
     escalate_fun =
       Keyword.get(deps, :escalate_fun, fn decision_id, escalation_payload, store ->
-        DecisionStore.escalate_executor_command(decision_id, escalation_payload, store)
+        Commands.escalate_executor_command(decision_id, escalation_payload, store)
       end)
 
     escalate_fun.(
       normalized.decision_id,
       payload,
-      Keyword.get(deps, :decision_store, DecisionStore)
+      Keyword.get(deps, :decision_store, Commands.default_store())
     )
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
@@ -191,14 +218,14 @@ defmodule Aiur.ExecutorCommandCLI do
 
     moot_fun =
       Keyword.get(deps, :moot_fun, fn decision_id, moot_payload, opts, store ->
-        DecisionStore.moot(decision_id, moot_payload, opts, store)
+        Commands.moot(decision_id, moot_payload, opts, store)
       end)
 
     moot_fun.(
       normalized.decision_id,
       payload,
       [actor: %{kind: :executor, id: normalized.executor_id}],
-      Keyword.get(deps, :decision_store, DecisionStore)
+      Keyword.get(deps, :decision_store, Commands.default_store())
     )
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}

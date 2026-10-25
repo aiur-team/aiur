@@ -6,7 +6,7 @@ defmodule Aiur.CurrentRunProjections.State do
   alias Aiur.CurrentRunProjections.{Checkpoint, UnitsBuilder}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.SnapshotStore
-  alias AiurWeb.OperatorControlCenter.UnitsRow
+  alias Aiur.Projections.UnitsRow
 
   @cached_status_timeout_ms 5_000
 
@@ -31,6 +31,16 @@ defmodule Aiur.CurrentRunProjections.State do
       checkpoint_health: :healthy,
       checkpoint_generation: 0,
       checkpoint_write: nil,
+      checkpoint_hash: nil,
+      checkpoint_completed_at: nil,
+      checkpoint_interval_ms: positive_integer(opts, :checkpoint_interval_ms, 1_000),
+      subscribe_funs: Keyword.get(opts, :subscribe_funs, default_subscribe_funs()),
+      membership_subscribe_fun: Keyword.get(opts, :membership_subscribe_fun, &CurrentRunMembership.subscribe/0),
+      idle_without_subscribers?: Keyword.get(opts, :idle_without_subscribers?, false),
+      active?: not Keyword.get(opts, :idle_without_subscribers?, false),
+      subscribers: %{},
+      clock_timer_ref: nil,
+      reconcile_timer_ref: nil,
       restore_fence_pending?: false,
       sources: sources,
       availability: Map.new(Map.keys(sources), &{&1, false}),
@@ -43,6 +53,7 @@ defmodule Aiur.CurrentRunProjections.State do
       membership_signature: nil,
       membership_generation: nil,
       membership_index: nil,
+      input_fingerprint: nil,
       summary_generation: 0,
       outcome_generation: 0,
       summary_snapshot: initial_summary(units),
@@ -57,6 +68,15 @@ defmodule Aiur.CurrentRunProjections.State do
     }
 
     Checkpoint.restore(state, Checkpoint.read(state.checkpoint_reader))
+  end
+
+  defp default_subscribe_funs do
+    [
+      &Aiur.TicketActivity.subscribe/0,
+      &Aiur.AgentPubSub.subscribe_running/0,
+      &Aiur.AgentPubSub.subscribe_status/0,
+      &Aiur.Signal.subscribe_refresh/0
+    ]
   end
 
   @spec empty_sources() :: map()

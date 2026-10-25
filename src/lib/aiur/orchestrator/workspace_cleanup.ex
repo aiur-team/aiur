@@ -8,8 +8,8 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   `start_terminal_workspace_cleanups/1` runs it in one task under
   `Aiur.TaskSupervisor`, one workspace after the other, and sends
   `{:workspace_cleanup_finished, workspace_identifier, result}` to the caller
-  after each. The startup todo cleanup stays in the Orchestrator because it
-  must finish before the first dispatch; it runs one `git status` with a short
+  after each. Startup cleanup runs in a task and dispatch waits for it; it
+  runs one `git status` with a short
   time limit per workspace and keeps a dirty workspace for the dispatch-time
   recreate, which saves the work in the runner process.
 
@@ -29,8 +29,9 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   require Logger
 
+  alias Aiur.Alerts.ClosedTicket
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
-  alias Aiur.Orchestrator.{DispatchPolicy, RetryEngine, State, TrackerHealth}
+  alias Aiur.Orchestrator.{ClosedTicketTranscriptArchive, DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
   @type terminal_cleanup :: {ticket :: String.t(), workspace_identifier :: String.t(), worker_host :: String.t() | nil}
@@ -47,6 +48,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil)
 
   def cleanup_terminal_issue_artifacts(identifier, worker_host) when is_binary(identifier) do
+    DockerCleanup.start_ticket_cleanup(identifier)
     start_terminal_workspace_cleanups([{identifier, identifier, worker_host}])
     clear_session_handle(identifier)
   end
@@ -66,7 +68,11 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
     # lease can still be reaping; any other lease found before the delete
     # belongs to a new run.
     cleanups = Enum.map(cleanups, fn {ticket, _workspace_identifier, _worker_host} = entry -> {entry, lease_generation(ticket)} end)
-    run = fn -> Enum.each(cleanups, &run_terminal_workspace_cleanup_entry(&1, notify)) end
+
+    run = fn ->
+      resolve_closed_ticket_attentions(cleanups)
+      Enum.each(cleanups, &run_terminal_workspace_cleanup_entry(&1, notify))
+    end
 
     case Process.whereis(Aiur.TaskSupervisor) && Task.Supervisor.start_child(Aiur.TaskSupervisor, run) do
       {:ok, _pid} ->
@@ -76,6 +82,13 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
         Logger.warning("Running terminal workspace cleanup inline; task supervisor unavailable: #{inspect(other)}")
         run.()
     end
+  end
+
+  # A failure here must not stop the workspace save and delete.
+  defp resolve_closed_ticket_attentions(cleanups) do
+    cleanups |> Enum.map(fn {{ticket, _, _}, _} -> ticket end) |> ClosedTicket.resolve()
+  rescue
+    error -> Logger.warning("Closed-ticket attention resolution failed: #{Exception.message(error)}")
   end
 
   defp run_terminal_workspace_cleanup_entry({{ticket, workspace_identifier, _worker_host}, _known_generation} = entry, notify) do
@@ -93,15 +106,39 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
     guard = fn -> new_run_lease_guard(ticket, known_generation) end
     opts = [ticket: ticket, terminal?: true, destroy_guard: guard]
 
+    case guard.() do
+      :ok ->
+        archive_and_remove_workspace(ticket, workspace_identifier, worker_host, opts)
+
+      skipped ->
+        skipped
+    end
+  end
+
+  defp archive_and_remove_workspace(ticket, workspace_identifier, worker_host, opts) do
+    case archive_workspace_logs(workspace_identifier, worker_host) do
+      :ok ->
+        remove_workspace(ticket, workspace_identifier, worker_host, opts)
+
+      {:error, reason} ->
+        Logger.warning("Kept closed ticket's workspace because transcript archive failed ticket=#{ticket} workspace=#{workspace_identifier} reason=#{inspect(reason)}")
+        {:error, {:transcript_archive_failed, reason}}
+    end
+  end
+
+  defp remove_workspace(ticket, workspace_identifier, worker_host, opts) do
     case Workspace.remove_issue_workspaces(workspace_identifier, worker_host, opts) do
       {:skipped, :live_lease} = skipped ->
         Logger.warning("Kept closed ticket's workspace: a new run claimed it during the cleanup; the save and its notices are kept ticket=#{ticket} workspace=#{workspace_identifier}")
-
         skipped
 
       _removed ->
         WipPreservation.expire_notices(Layout.safe_identifier(workspace_identifier))
     end
+  end
+
+  defp archive_workspace_logs(identifier, worker_host) do
+    ClosedTicketTranscriptArchive.archive(identifier, worker_host)
   end
 
   @doc false
@@ -145,6 +182,26 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   end
 
   def clear_session_handle(_identifier), do: :ok
+
+  @doc false
+  @spec start_startup_workspace_cleanup(State.t(), keyword()) :: State.t()
+  def start_startup_workspace_cleanup(%State{} = state, opts \\ []) do
+    terminal_cleanup = Keyword.get(opts, :terminal_cleanup_fun, &run_terminal_workspace_cleanup/1)
+    todo_cleanup = Keyword.get(opts, :todo_cleanup_fun, &run_startup_todo_workspace_cleanup/1)
+
+    TrackerTasks.start(
+      state,
+      :startup_workspace_cleanup,
+      fn ->
+        state |> terminal_cleanup.() |> todo_cleanup.()
+        :ok
+      end,
+      fn current, result ->
+        if result != :ok, do: Logger.warning("Startup workspace cleanup task failed: #{inspect(result)}; normal workspace lease guards remain active")
+        if Keyword.get(opts, :wake?, true), do: Lifecycle.wake_tick(current), else: current
+      end
+    )
+  end
 
   @spec run_startup_todo_workspace_cleanup(State.t()) :: State.t()
   def run_startup_todo_workspace_cleanup(%State{} = state) do

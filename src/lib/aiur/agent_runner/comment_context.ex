@@ -2,23 +2,26 @@ defmodule Aiur.AgentRunner.CommentContext do
   @moduledoc """
   Fetches and normalises GitHub comment context for agent bootstrap.
 
-  Collects issue comments after the `## Agent Workpad` cutoff, PR review
-  comments, formal changes-requested reviews, and unaddressed review threads after the latest workpad cutoff,
-  then converts them to event maps suitable for the bootstrap digest. The
+  Collects issue comments after the `## Agent Workpad` cutoff, plus PR
+  conversation comments, review comments, formal reviews and unaddressed review
+  threads. The workpad is on the issue, so it must not hide later PR feedback.
+  Results become event maps suitable for the bootstrap digest. The
   `Sanitizer.scrub` pass is applied before events enter the digest.
   """
 
   require Logger
 
   alias Aiur.AgentRunner.BootstrapDigest
-  alias Aiur.Events.{IdGenerator, Sanitizer}
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.Events
+  alias Aiur.Events.Sanitizer
+  alias Aiur.{ExternalContent, Issue, Tracker}
 
   @doc """
   Return comment-context events for `issue`.
 
-  Fetches issue and PR comments, applying the workpad cutoff to every comment
-  source including unaddressed review threads. Results are deduped by
+  Fetches issue and PR comments, applying the workpad cutoff to ticket comments
+  and review threads. PR conversation comments remain visible independently of
+  issue workpad edits. Results are deduped by
   `(topic, comment_id)`.
   """
   @spec events(Issue.t(), map()) :: [map()]
@@ -26,12 +29,7 @@ defmodule Aiur.AgentRunner.CommentContext do
 
   def events(%Issue{identifier: identifier}, fetchers)
       when is_binary(identifier) do
-    {issue_comments, cutoff} = issue_comment_context(identifier, fetchers)
-
-    issue_events =
-      issue_comments
-      |> comments_after_workpad(cutoff)
-      |> comments_to_events("ticket.#{identifier}.issue.commented")
+    {issue_events, cutoff} = issue_comment_context(identifier, fetchers)
 
     pr_events = pr_comment_context_events(identifier, fetchers, cutoff)
 
@@ -43,11 +41,13 @@ defmodule Aiur.AgentRunner.CommentContext do
   defp issue_comment_context(identifier, fetchers) do
     case fetchers.issue_comments.(identifier) do
       {:ok, comments} when is_list(comments) ->
-        {comments, latest_workpad_comment_datetime(comments)}
+        cutoff = latest_workpad_comment_datetime(comments)
+        events = comments |> comments_after_workpad(cutoff) |> comments_to_events("ticket.#{identifier}.issue.commented")
+        {events, cutoff}
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=ticket.#{identifier}.issue.commented reason=#{inspect(reason)}")
-        {[], nil}
+        {[incomplete_comment_context("ticket.#{identifier}.issue.commented", reason)], nil}
     end
   end
 
@@ -65,7 +65,7 @@ defmodule Aiur.AgentRunner.CommentContext do
     fetch_comment_events(
       "ticket.#{identifier}.issue.commented",
       fn -> fetchers.issue_comments.(pr_number) end,
-      cutoff
+      nil
     ) ++
       fetch_comment_events(
         "ticket.#{identifier}.pr.review_comment",
@@ -94,10 +94,10 @@ defmodule Aiur.AgentRunner.CommentContext do
   defp comment_context_fetchers do
     %{
       issue_comments: &Tracker.fetch_classified_issue_comments/1,
-      open_pr: &Tracker.fetch_open_pull_request_for_branch/1,
-      pr_review_comments: &Tracker.fetch_classified_pr_review_comments/1,
-      unaddressed_pr_review_thread_comments: &Tracker.fetch_unaddressed_pr_review_thread_comments/1,
-      pr_reviews: &Tracker.fetch_classified_pr_reviews/1
+      open_pr: &Aiur.CodeHost.fetch_open_pull_request_for_branch/1,
+      pr_review_comments: &Aiur.CodeHost.fetch_classified_pr_review_comments/1,
+      unaddressed_pr_review_thread_comments: &Aiur.CodeHost.fetch_unaddressed_pr_review_thread_comments/1,
+      pr_reviews: &Aiur.CodeHost.fetch_classified_pr_reviews/1
     }
   end
 
@@ -110,8 +110,13 @@ defmodule Aiur.AgentRunner.CommentContext do
 
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} reason=#{inspect(reason)}")
-        []
+        [incomplete_comment_context(topic, reason)]
     end
+  end
+
+  defp incomplete_comment_context(topic, reason) do
+    message = "comment context incomplete: " <> ExternalContent.wrap(inspect(reason), :comment_body, nil)
+    %{id: Events.next_id(), topic: topic, source: :system, message: message}
   end
 
   defp fetch_unaddressed_review_thread_events(_topic, nil, _pr_number, _cutoff), do: []
@@ -291,7 +296,7 @@ defmodule Aiur.AgentRunner.CommentContext do
   defp comment_event_id(comment) when is_map(comment) do
     case Map.get(comment, "id") || Map.get(comment, :id) do
       id when is_integer(id) -> id
-      _ -> IdGenerator.next_id()
+      _ -> Events.next_id()
     end
   end
 

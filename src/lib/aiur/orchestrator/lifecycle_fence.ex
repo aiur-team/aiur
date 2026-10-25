@@ -9,13 +9,11 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   """
 
   require Logger
-
   alias Aiur.AgentQueueItem
   alias Aiur.Config
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, ReviewFreshness, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, Reconciler, ReviewFreshness, State, TicketTransition, TrackerTasks}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
-  alias Aiur.Tracker
 
   @pr_anchored_state "pr-watch"
 
@@ -106,7 +104,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   defp reconcile_fenced_observation(%State{} = state, %Issue{} = issue, terminal_states) do
     case running_fence(state, issue) do
       {issue_id, %{authoritative_state: nil}} ->
-        adopt_first_observation(state, issue_id, issue, terminal_states)
+        adopt_first_observation(state, issue_id, issue)
 
       {issue_id, fence = %{authoritative_state: authoritative_state}}
       when is_binary(authoritative_state) ->
@@ -189,7 +187,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
       generation: next_generation(existing_fence),
       authoritative_state: derive_authoritative_state(existing_fence, entry, comment_rework?),
       pending_item_ids: put_pending_item(existing_fence, item.id),
-      opened_at: DateTime.utc_now()
+      opened_at: if(existing_fence, do: existing_fence.opened_at, else: DateTime.utc_now())
     }
 
     updated_entry =
@@ -296,10 +294,8 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     state
   end
 
-  # First observation for a fence opened without an authoritative state. An
-  # already-terminal observation keeps the fence's original `opened_at`, so
-  # teardown is not pushed out by an extra full grace window.
-  defp adopt_first_observation(state, issue_id, issue, terminal_states) do
+  # Tracker observations do not extend the oldest pending delivery's deadline.
+  defp adopt_first_observation(state, issue_id, issue) do
     case normalize_state(issue.state) do
       observed_state when is_binary(observed_state) ->
         {:fenced,
@@ -307,8 +303,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
            state,
            issue_id,
            issue,
-           observed_state,
-           DispatchPolicy.terminal_issue_state?(observed_state, terminal_states)
+           observed_state
          )}
 
       _ ->
@@ -316,7 +311,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     end
   end
 
-  defp adopt_observed_state(state, issue_id, issue, observed_state, keep_opened_at? \\ false) do
+  defp adopt_observed_state(state, issue_id, issue, observed_state) do
     entry = Map.fetch!(state.running, issue_id)
     fence = Map.fetch!(entry, :lifecycle_fence)
 
@@ -324,7 +319,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
       fence
       | authoritative_state: observed_state,
         generation: fence.generation + 1,
-        opened_at: if(keep_opened_at?, do: fence.opened_at, else: DateTime.utc_now())
+        opened_at: fence.opened_at
     }
 
     cached_issue =
@@ -353,8 +348,26 @@ defmodule Aiur.Orchestrator.LifecycleFence do
          authoritative_state
        ) do
     issue_key = to_string(issue.id || issue.identifier)
+    input = Reconciler.issue_input(state, issue.id)
 
-    case Tracker.update_issue_state(issue_key, authoritative_state, expected_state: actual_state) do
+    TrackerTasks.run(
+      state,
+      {:lifecycle_restore, issue.id},
+      fn ->
+        TicketTransition.write_state(issue_key, authoritative_state, writer: :lifecycle_fence, expected_state: actual_state)
+      end,
+      fn current, result ->
+        if Reconciler.issue_input(current, issue.id) == input do
+          apply_authoritative_restore(current, issue, actual_state, authoritative_state, result)
+        else
+          current
+        end
+      end
+    )
+  end
+
+  defp apply_authoritative_restore(state, issue, actual_state, authoritative_state, result) do
+    case result do
       :ok ->
         Logger.info(
           "Stale lifecycle handoff restored while authoritative input is undelivered: " <>

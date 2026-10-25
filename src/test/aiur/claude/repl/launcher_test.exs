@@ -148,6 +148,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
           model: "claude-sonnet-5",
           base_branch: "integration",
           window_name: "aiur-repl-test",
+          env: [{"CLAUDE_CONFIG_DIR", "/profiles/max"}],
           projects_dir: "/nonexistent"
         )
       end)
@@ -155,6 +156,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
     receive_barrier({:tmux_mock_out, cmd})
     assert String.starts_with?(cmd, "new-window")
     assert String.contains?(cmd, "exec claude")
+    assert String.contains?(cmd, "-e CLAUDE_CONFIG_DIR=/profiles/max")
     assert String.contains?(cmd, "AIUR_BASE_BRANCH='integration'")
     refute String.contains?(cmd, "--remote-control")
     respond(tmux, "%20\n")

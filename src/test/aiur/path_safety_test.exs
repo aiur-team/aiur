@@ -29,7 +29,7 @@ defmodule Aiur.PathSafetyTest do
     test "a symlink that resolves outside root is rejected", %{tmp_dir: tmp_dir} do
       outside_dir = Aiur.TestSupport.tmp_root!("path-safety-outside")
       File.mkdir_p!(outside_dir)
-      on_exit(fn -> File.rm_rf!(outside_dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(outside_dir) end)
 
       link = Path.join(tmp_dir, "escape_link")
       File.ln_s!(outside_dir, link)

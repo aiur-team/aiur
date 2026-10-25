@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.OpenIssueSnapshot do
   @moduledoc """
-  The set of open issue numbers from the latest complete open-issue listing.
+  The open issue numbers, labels and update times from the latest complete listing.
 
   The candidate poll lists `issues?state=open` unfiltered on every tick, so each
   successful, fully paginated listing names every open issue in the tracker
@@ -9,6 +9,10 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   its close signal, so a blocker closed by any route (a PR closing several
   tickets, a manual close, a lost webhook) releases its dependents on the next
   pass instead of when its `:issue` record ages out (#2714).
+
+  Number snapshots retain their completion time. Label observations retain the
+  listing start time so an in-flight listing cannot close a ticket created later.
+  Without a known listing start, label observations are unavailable.
 
   Only a complete listing is recorded. A failed or partial read records nothing,
   and the previous snapshot stays until it ages out. A missing snapshot only
@@ -34,11 +38,15 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
     {:ok, nil}
   end
 
-  @doc "Records a complete listing of open issue numbers for `owner/repo`."
-  @spec put(String.t(), String.t(), [String.t() | integer()]) :: :ok
-  def put(owner, repo, numbers) when is_binary(owner) and is_binary(repo) and is_list(numbers) do
+  @doc "Records open issue numbers and label observations from a complete listing for `owner/repo`."
+  @spec put(String.t(), String.t(), [String.t() | integer()], Aiur.Tracker.open_issue_label_map(), DateTime.t() | nil) :: :ok
+  def put(owner, repo, numbers, labels_by_id \\ %{}, listed_from \\ nil) when is_binary(owner) and is_binary(repo) and is_list(numbers) and is_map(labels_by_id) do
     set = MapSet.new(numbers, &to_string/1)
-    :ets.insert(@table, {repo_key(owner, repo), set, now_ms()})
+    key = repo_key(owner, repo)
+    taken_at_ms = now_ms()
+    listed_from_ms = if match?(%DateTime{}, listed_from), do: DateTime.to_unix(listed_from, :millisecond)
+    :ets.insert(@table, [{key, set, taken_at_ms}, {{:labels, key}, labels_by_id, listed_from_ms}])
+    broadcast(taken_at_ms)
     :ok
   rescue
     # No table: the owner is not running. Dropping the snapshot only removes
@@ -52,9 +60,43 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   """
   @spec fetch(String.t(), String.t(), pos_integer()) :: {:ok, MapSet.t(String.t()), integer()} | :none
   def fetch(owner, repo, max_age_ms) when is_binary(owner) and is_binary(repo) do
-    case lookup(repo_key(owner, repo)) do
-      {set, taken_at_ms} -> if now_ms() - taken_at_ms <= max_age_ms, do: {:ok, set, taken_at_ms}, else: :none
-      nil -> :none
+    fetch_snapshot(repo_key(owner, repo), max_age_ms)
+  end
+
+  @doc "Returns labels with the pre-request listing time, or `:none` if absent, stale or missing that provenance."
+  @spec fetch_labels(String.t(), String.t(), pos_integer()) :: {:ok, Aiur.Tracker.open_issue_label_map(), integer()} | :none
+  def fetch_labels(owner, repo, max_age_ms) when is_binary(owner) and is_binary(repo) do
+    fetch_snapshot({:labels, repo_key(owner, repo)}, max_age_ms)
+  end
+
+  @doc "The build queue refresh's conditional page cache for `owner/repo`; empty when none is held."
+  @spec refresh_cache(String.t(), String.t()) :: map()
+  def refresh_cache(owner, repo) do
+    case lookup({:refresh_cache, repo_key(owner, repo)}) do
+      {cache, _} -> cache
+      nil -> %{}
+    end
+  end
+
+  @doc "Retains the build queue refresh's conditional page cache; dropped when the table is absent."
+  @spec put_refresh_cache(String.t(), String.t(), map()) :: :ok
+  def put_refresh_cache(owner, repo, cache) when is_map(cache) do
+    :ets.insert(@table, {{:refresh_cache, repo_key(owner, repo)}, cache, 0})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp fetch_snapshot(key, max_age_ms) do
+    case lookup(key) do
+      {snapshot, taken_at_ms} when is_integer(taken_at_ms) -> if now_ms() - taken_at_ms <= max_age_ms, do: {:ok, snapshot, taken_at_ms}, else: :none
+      _unavailable -> :none
+    end
+  end
+
+  defp broadcast(taken_at_ms) do
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, "tracker:open_issues", {:open_issues_recorded, taken_at_ms})
     end
   end
 

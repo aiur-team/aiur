@@ -1,0 +1,79 @@
+{
+  "age_ms": 840,
+  "boot_id": "fixed-boot-id",
+  "capabilities": {
+    "build_queue": {
+      "reason": "writes_paused",
+      "state": "degraded"
+    },
+    "build_queue.build_order_source": {
+      "reason": "store_unavailable",
+      "state": "unavailable"
+    },
+    "commands.answer": {
+      "depends_on": [
+        "orchestration"
+      ],
+      "reason": "dependency_unavailable",
+      "state": "unavailable",
+      "version": 1
+    },
+    "executor.conversation": {
+      "reason": "executor_not_managed",
+      "route": "/executor",
+      "state": "unavailable"
+    },
+    "harness.codex.native_question": {
+      "mode": "in_band_hold",
+      "state": "available"
+    },
+    "identity": {
+      "reason": null,
+      "state": "available"
+    },
+    "listener_modes": {
+      "reason": "spec_invalid",
+      "state": "unavailable"
+    },
+    "orchestration": {
+      "observed_at": "2026-10-09T12:00:00Z",
+      "reason": "snapshot_stale",
+      "state": "degraded"
+    }
+  },
+  "contract": "aiur.capabilities",
+  "contract_version": 1,
+  "executor": {
+    "consumer_id": "fixture-executor",
+    "harness": null,
+    "session_ref": null,
+    "state": "active"
+  },
+  "freshness": "current",
+  "instance": {
+    "aiur_version": "0.0.9",
+    "instance_id": "abcdefghijklmnopqrstuvwxyz/3f9a1c0b2e",
+    "run_shape": {
+      "dashboard": true,
+      "dashboard_pages": true,
+      "executor_mode": true,
+      "headless": false,
+      "http_listener": true,
+      "interactive_cli": true
+    }
+  },
+  "machine": {
+    "label": "workstation",
+    "machine_id": "abcdefghijklmnopqrstuvwxyz"
+  },
+  "min_client_versions": {
+    "phone": "1.0.0"
+  },
+  "observed_at": "2026-10-09T12:00:00Z",
+  "repository": {
+    "kind": "github",
+    "name": "aiur",
+    "owner": "aiur-team"
+  },
+  "revision": 7
+}

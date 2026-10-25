@@ -11,7 +11,8 @@ defmodule AiurWeb.StreamdeckControlAgreementTest do
 
   alias Aiur.{Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{DispatchPolicy, PauseResume, PriorityControl, State, StatusReport}
-  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsPresenter}
+  alias Aiur.Projections.UnitsPolicy
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
   alias AiurWeb.StreamDeckGrid
 
   test "a running agent reads as running on the key, in Units, and in aiurdev status" do

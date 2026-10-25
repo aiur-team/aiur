@@ -5,6 +5,7 @@ async function openMeterRow(page, query = '') {
   await page.goto('/auth/read_only')
   await page.goto(`/meter-row${query}`)
   await expect(page.locator('[data-meter-row-fixture="true"]')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
 }
 
 const closeEnough = (left, right) => Math.abs(left - right) <= 0.25
@@ -43,22 +44,19 @@ function expectStandardLimit(row, identityHeight, width) {
 async function providerGeometry(page) {
   return page.locator('.rs-model').evaluateAll((rows) => rows.map((row) => {
     const identity = row.querySelector('.rs-head').getBoundingClientRect()
-    const meter = row.querySelector('.rs-limit').getBoundingClientRect()
+    const lines = row.querySelector('.rs-lines').getBoundingClientRect()
     const track = row.querySelector('.rs-meter').getBoundingClientRect()
-    const body = row.querySelector('.rs-provider-body').getBoundingClientRect()
-    const meta = Array.from(row.querySelectorAll('.rs-limit-meta')).find((element) => element.getBoundingClientRect().height > 0)
+    const reset = row.querySelector('.rs-rs').getBoundingClientRect()
 
     return {
       name: row.querySelector('.rs-name').textContent.trim(),
       identityLeft: identity.left,
-      nameLeft: row.querySelector('.rs-name').getBoundingClientRect().left,
-      identityHeight: identity.height,
-      meterLeft: meter.left,
-      meterHeight: meter.height,
+      logoLeft: row.querySelector('.rs-logo').getBoundingClientRect().left,
+      rowHeight: row.getBoundingClientRect().height,
+      linesLeft: lines.left,
+      linesRight: lines.right,
       trackWidth: track.width,
-      trackRight: track.right,
-      bodyRight: body.right,
-      metaHeight: meta?.getBoundingClientRect().height ?? null
+      resetRight: reset.right
     }
   }))
 }
@@ -83,8 +81,8 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       await expect(page.locator('.rs-block.rs-models')).toHaveCount(1)
 
       const elevenlabs = page.locator('.rs-elevenlabs')
-      await expect(elevenlabs).toContainText('75.0K left · 25% used · resets 3d')
-      await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:25\.0%/)
+      await expect(elevenlabs).toContainText('75.0K left · 75% left · resets 3d')
+      await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:75%/)
       await expect(elevenlabs.locator('img')).toHaveAttribute('src', '/elevenlabs-symbol.svg')
       await expect(elevenlabs.locator('img')).toHaveAttribute('alt', 'ElevenLabs')
       await expect.poll(() => elevenlabs.locator('img').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0)
@@ -102,45 +100,27 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       const models = page.locator('.rs-models .rs-model')
       await expect(models).toHaveCount(4)
 
+      // Model rows follow the Claude design's usage lines: one logo column,
+      // then lines whose percentage, bar and reset share one grid, so logos,
+      // lines, bars and the reset column all align down the pane.
       const geometry = await providerGeometry(page)
       expect(new Set(geometry.map(({ identityLeft }) => identityLeft)).size).toBe(1)
-      expect(new Set(geometry.map(({ nameLeft }) => nameLeft)).size).toBe(1)
-      expect(new Set(geometry.map(({ meterLeft }) => meterLeft)).size).toBe(1)
+      expect(new Set(geometry.map(({ logoLeft }) => logoLeft)).size).toBe(1)
+      expect(new Set(geometry.map(({ linesLeft }) => linesLeft)).size).toBe(1)
       expect(new Set(geometry.map(({ trackWidth }) => trackWidth)).size).toBe(1)
-
-      // Every model limit keeps the fixed row height and restores the standard
-      // bar with its label directly above it.
-      const modelLimits = await page.locator('.rs-model .rs-limit').evaluateAll((limits) => limits.map((limit) => {
-        const box = limit.getBoundingClientRect()
-        const track = limit.querySelector('.rs-meter').getBoundingClientRect()
-        const label = limit.querySelector('.rs-limit-label').getBoundingClientRect()
-        const meta = Array.from(limit.querySelectorAll('.rs-limit-meta')).find((element) => element.getBoundingClientRect().height > 0)
-
-        return {
-          rowTop: box.top,
-          rowBottom: box.bottom,
-          rowHeight: box.height,
-          barTop: track.top,
-          barBottom: track.bottom,
-          barHeight: track.height,
-          labelTop: label.top,
-          labelBottom: label.bottom,
-          labelHeight: label.height,
-          metaHeight: meta?.getBoundingClientRect().height ?? 0
-        }
-      }))
-      const identityHeight = geometry[0].identityHeight
-      for (const limit of modelLimits) {
-        expectStandardLimit(limit, identityHeight, width)
-      }
-
       for (const row of geometry) {
-        expect(closeEnough(row.identityHeight, row.meterHeight), `${row.name} meter row must equal its logo-height identity at ${width}px`).toBe(true)
-        if (row.metaHeight !== null) expect(row.metaHeight, `${row.name} percentage/reset meta must render at ${width}px`).toBeGreaterThan(0)
-        // Bars run edge to edge: no right-hand stat/token column remains, so the
-        // track must reach the same right edge as the provider body.
-        expect(closeEnough(row.trackRight, row.bodyRight), `${row.name} bar must reach the right edge at ${width}px`).toBe(true)
+        expect(closeEnough(row.resetRight, row.linesRight), `${row.name} reset column must end at the pane edge at ${width}px`).toBe(true)
       }
+
+      const modelLines = await page.locator('.rs-model .rs-ln').evaluateAll((lines) => lines.map((line) => ({
+        height: line.getBoundingClientRect().height,
+        barHeight: line.querySelector('.rs-meter').getBoundingClientRect().height
+      })))
+      for (const line of modelLines) {
+        expect(line.height, `model line must fit its label and full-width bar at ${width}px`).toBeCloseTo(17, 0)
+        expect(line.barHeight, `model bar must be the design's 5px bar at ${width}px`).toBeCloseTo(5, 0)
+      }
+      const identityHeight = await page.locator('.rs-api .rs-head').first().evaluate((identity) => identity.getBoundingClientRect().height)
 
       // API limits use the same standard bar + label-above geometry and keep
       // the same row height; the bars are present again in the API pane.
@@ -198,23 +178,21 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       // model's name, so every row is just the logo + bars.
       await expect(page.locator('.rs-token-ic, .rs-token-na')).toHaveCount(0)
 
-      // Every freshness state stays distinguishable on the meter's own meta
-      // line, now that the head-row chip is gone.
+      // Every reading keeps its percentage; a provider that reported nothing
+      // reads unknown over an inert bar, never a measured 0%.
       await expect(page.locator('.rs-state')).toHaveCount(0)
-      const modelMetaVariant = width <= 720 ? 'compact' : 'wide'
-      await expectVisibleMetadata(page.locator('.rs-model').filter({ hasText: 'Claude' }), modelMetaVariant, '62%')
-      await expectVisibleMetadata(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }), modelMetaVariant, '0%')
+      await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-pc')).toHaveText('62% left')
+      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-pc')).toHaveText('0% left')
       await expectVisibleMetadata(elevenlabs, 'compact', '75.0K')
-      // Kimi reported nothing, so its row is just the "Limits" label over an
-      // empty bar — the status meta was deleted (operator directive).
-      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-limit-meta')).toHaveCount(0)
+      const kimi = page.locator('.rs-model').filter({ hasText: 'Kimi' })
+      await expect(kimi.locator('.rs-pc')).toHaveText('')
+      await expect(kimi.locator('.rs-meter.is-unknown')).toHaveCount(1)
+      await expect(kimi.locator('.rs-no')).toHaveText('unknown')
       // No staleness wording remains on the strip.
       await expect(page.locator('.run-summary')).not.toContainText(/stale/i)
 
-      // The #2085 label removal is reverted: a label now sits above every model
-      // bar, and the SPEND label is deleted from the model rows.
-      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-limit-label')).toHaveText('Session')
-      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-limit-label')).toHaveText('Limits')
+      // Model lines carry no window label and no SPEND label (Claude design).
+      await expect(page.locator('.rs-models .rs-limit-label')).toHaveCount(0)
       await expect(page.locator('.rs-models')).not.toContainText(/Spend/i)
 
       // Neither the row nor the page body scrolls horizontally.
@@ -254,6 +232,6 @@ test('a hypothetical fifth provider adds one row without moving the existing gri
 
   const added = after.at(-1)
   const rowGap = await page.locator('.rs-models-rows').evaluate((rows) => Number.parseFloat(getComputedStyle(rows).rowGap))
-  expect(closeEnough(afterPanel - beforePanel, added.meterHeight + rowGap)).toBe(true)
+  expect(closeEnough(afterPanel - beforePanel, added.rowHeight + rowGap)).toBe(true)
   await assertNoDocumentOverflow(page)
 })

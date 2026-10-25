@@ -8,7 +8,7 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
   to apply the normal trust and benign-review rules and are never returned.
   """
 
-  alias Aiur.GitHub.{CodeOwners, Config, Transport}
+  alias Aiur.GitHub.{CodeOwners, Transport}
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.TicketBranch
@@ -26,7 +26,11 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       ticket_set = tickets |> Enum.map(&to_string/1) |> MapSet.new()
-      trusted_author_fun = Keyword.get(opts, :trusted_author_fun, &default_trusted_author?(&1, owner))
+
+      trusted_author_fun =
+        Keyword.get(opts, :trusted_author_fun, fn author ->
+          default_trusted_author?(author, Keyword.get(opts, :trust_server, :registered))
+        end)
 
       case fetch_all(pulls_url(owner, name), request_fun, token, opts) do
         {:ok, pulls} ->
@@ -288,26 +292,30 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
 
   defp author_allowed?(_trusted_author_fun, _author), do: false
 
-  defp default_trusted_author?(nil, _owner), do: false
+  defp default_trusted_author?(nil, _trust_server), do: false
 
-  defp default_trusted_author?(author, owner) when is_binary(author) do
-    if Process.whereis(CodeOwners) do
-      CodeOwners.allowed?(author)
-    else
-      author_down = String.downcase(author)
+  defp default_trusted_author?(author, trust_server) when is_binary(author) do
+    case trust_server do
+      :registered ->
+        if Process.whereis(CodeOwners) do
+          CodeOwners.allowed?(author)
+        else
+          configured_author?(author)
+        end
 
-      # Mirrors `Aiur.GitHub.CodeOwners`'s allowlist, which is what this branch
-      # stands in for when that process is not running — so it carries both Aiur
-      # logins for the same reason: a comment from either is Aiur's own.
-      [owner, Config.daemon_account(), Config.bot_account() | Config.trusted_accounts()]
-      |> Enum.filter(&is_binary/1)
-      |> Enum.any?(&(String.downcase(&1) == author_down))
+      nil ->
+        configured_author?(author)
+
+      server ->
+        CodeOwners.allowed?(author, server)
     end
   rescue
-    _error -> String.downcase(author) == String.downcase(owner)
+    _error -> false
   catch
-    :exit, _reason -> String.downcase(author) == String.downcase(owner)
+    :exit, _reason -> false
   end
+
+  defp configured_author?(author), do: MapSet.member?(CodeOwners.configured_set(), String.downcase(author))
 
   defp normalize_events(events) do
     events

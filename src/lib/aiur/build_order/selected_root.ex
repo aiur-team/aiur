@@ -10,10 +10,11 @@ defmodule Aiur.BuildOrder.SelectedRoot do
           members: [Member.t()],
           provider: ProviderHealth.t(),
           diagnostics: [Diagnostic.t()],
-          planning?: boolean()
+          planning?: boolean(),
+          pack_metadata: map()
         }
 
-  defstruct [:root, members: [], provider: %ProviderHealth{}, diagnostics: [], planning?: false]
+  defstruct [:root, members: [], provider: %ProviderHealth{}, diagnostics: [], planning?: false, pack_metadata: %{}]
 
   @spec new(term(), term(), term(), keyword()) :: t()
   def new(root, members, provider, opts \\ [])
@@ -30,7 +31,8 @@ defmodule Aiur.BuildOrder.SelectedRoot do
       members: members,
       provider: provider_health(provider),
       diagnostics: diagnostics,
-      planning?: Keyword.get(opts, :planning?, false)
+      planning?: Keyword.get(opts, :planning?, false),
+      pack_metadata: Keyword.get(opts, :pack_metadata, %{})
     }
   end
 
@@ -39,7 +41,8 @@ defmodule Aiur.BuildOrder.SelectedRoot do
       root: root_summary(root),
       provider: provider_health(provider),
       diagnostics: [Diagnostic.new(:invalid_member)],
-      planning?: Keyword.get(opts, :planning?, false)
+      planning?: Keyword.get(opts, :planning?, false),
+      pack_metadata: Keyword.get(opts, :pack_metadata, %{})
     }
 
   @spec structurally_valid?(term()) :: boolean()

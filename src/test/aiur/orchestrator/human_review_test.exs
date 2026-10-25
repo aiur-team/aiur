@@ -6,8 +6,33 @@ defmodule Aiur.Orchestrator.HumanReviewTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Issue
-  alias Aiur.Orchestrator.{HumanReview, State}
+  alias Aiur.{AgentQueueStore, Issue}
+  alias Aiur.Orchestrator.{HumanReview, LifecycleFence, OperatorMessages, State, TrackerTasks}
+
+  test "a message queued during ready verification preserves its running provider" do
+    owner = self()
+
+    setup_verifier(fn _ ->
+      send(owner, {:verification_started, self()})
+      receive do: (:release -> :ok)
+    end)
+
+    issue = human_review_issue()
+    runner = spawn(fn -> receive do: (:stop -> :ok) end)
+    on_exit(fn -> send(runner, :stop) end)
+    entry = %{issue: issue, identifier: issue.identifier, pid: runner, ref: make_ref(), control: %{status: :working, generation: 1}}
+    state = %State{snapshot_key: self(), running: %{issue.id => entry}, queue_store: AgentQueueStore.new()}
+    pending = HumanReview.maybe_deactivate_human_review_issue(state, issue)
+    receive_barrier({:verification_started, worker})
+    {:reply, {:ok, message_id}, current} = OperatorMessages.send_operator_message_call(pending, issue.identifier, %{kind: :text, body: "continue working"})
+    assert LifecycleFence.handoff_blocked?(current, issue)
+    send(worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(current, ref, result)
+    assert next.running[issue.id] == current.running[issue.id]
+    assert Process.alive?(runner)
+    assert AgentQueueStore.get(next.queue_store, message_id).status == :pending
+  end
 
   test "recognizes the human review state" do
     assert HumanReview.human_review_state?("human-review")
@@ -80,6 +105,22 @@ defmodule Aiur.Orchestrator.HumanReviewTest do
 
     assert log =~ "reverting to rework"
     refute log =~ "reverting to todo"
+  end
+
+  test "stale PR body evidence on a human-review transition reverts to rework" do
+    setup_verifier(fn _issue_id ->
+      {:error, {:stale_pr_body_evidence, %{pr_number: 42, head_sha: String.duplicate("b", 40), tested_head: String.duplicate("a", 40), reason: "Local tests Tested head does not match PR head"}}}
+    end)
+
+    issue = human_review_issue()
+
+    log =
+      capture_log(fn ->
+        HumanReview.maybe_deactivate_human_review_issue(%State{}, issue, rework_opts: [open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => String.duplicate("b", 40)}}} end])
+      end)
+
+    assert log =~ "reverting to rework"
+    refute log =~ "verification deferred"
   end
 
   # #2422: the human-review revert is the second rework writer, so it carries

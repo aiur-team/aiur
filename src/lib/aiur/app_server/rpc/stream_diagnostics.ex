@@ -23,8 +23,8 @@ defmodule Aiur.AppServer.Rpc.StreamDiagnostics do
   @max_lines 20
   @max_line_length 1_000
 
-  @spec record(port(), binary()) :: :ok
-  def record(port, line) when is_port(port) and is_binary(line) do
+  @spec record(port() | pid(), binary()) :: :ok
+  def record(port, line) when (is_port(port) or is_pid(port)) and is_binary(line) do
     case normalize(line) do
       "" -> :ok
       text -> put_lines(port, Enum.take(lines(port) ++ [text], -@max_lines))
@@ -37,12 +37,12 @@ defmodule Aiur.AppServer.Rpc.StreamDiagnostics do
   The retained lines for `port`, oldest first, joined by newlines. Returns `""`
   when nothing non-JSON has been seen.
   """
-  @spec recent_text(port()) :: String.t()
-  def recent_text(port) when is_port(port), do: port |> lines() |> Enum.join("\n")
+  @spec recent_text(port() | pid()) :: String.t()
+  def recent_text(port) when is_port(port) or is_pid(port), do: port |> lines() |> Enum.join("\n")
   def recent_text(_port), do: ""
 
-  @spec clear(port()) :: :ok
-  def clear(port) when is_port(port) do
+  @spec clear(port() | pid()) :: :ok
+  def clear(port) when is_port(port) or is_pid(port) do
     Process.delete({@key, port})
     :ok
   end

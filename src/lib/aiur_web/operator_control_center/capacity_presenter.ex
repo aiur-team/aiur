@@ -8,6 +8,8 @@ defmodule AiurWeb.OperatorControlCenter.CapacityPresenter do
   `1`; zero never means a global pause.
   """
 
+  alias Aiur.Protocol.ObservationAge
+
   @min 1
 
   @type fact :: pos_integer() | non_neg_integer() | nil
@@ -49,7 +51,7 @@ defmodule AiurWeb.OperatorControlCenter.CapacityPresenter do
       max_label: number_label(max),
       source_label: source_label(session_override?, configured),
       state_label: state_label(draining?, max),
-      summary: summary(active, max, draining?, session_override?)
+      summary: summary(active, max, draining?, session_override?) <> " " <> ObservationAge.label(capacity)
     }
   end
 

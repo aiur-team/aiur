@@ -3,9 +3,32 @@ defmodule Aiur.Memory.Tracker do
   In-memory tracker adapter used for tests and local development.
   """
 
-  @behaviour Aiur.Tracker
+  @behaviour Aiur.Tracker.IssueTracker
+
+  @spec config_module() :: module()
+  def config_module, do: Aiur.Memory.Config
 
   alias Aiur.Issue
+
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    case Enum.find(issue_entries(), &matching_issue?(&1, issue_id)) do
+      nil -> {:error, :issue_not_found}
+      issue -> {:ok, Enum.map(issue.blocked_by, & &1.id)}
+    end
+  end
+
+  @spec ticket_pull_request(String.t()) :: Aiur.Tracker.ticket_pull_request_result()
+  def ticket_pull_request(_issue_id), do: {:ok, nil}
+
+  @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
+  def open_issue_labels(_max_age_ms) do
+    labels = Map.new(issue_entries(), &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
+    {:ok, labels, System.system_time(:millisecond)}
+  end
+
+  @spec issue_closure(String.t(), pos_integer()) :: Aiur.Tracker.issue_closure_result()
+  def issue_closure(_issue_id, _max_age_ms), do: {:error, :unsupported}
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: "memory"
@@ -69,21 +92,6 @@ defmodule Aiur.Memory.Tracker do
   @spec fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]}
   def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
 
-  @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_classified_pr_review_comments(_pr_number), do: {:ok, []}
-
-  @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_classified_pr_reviews(_pr_number), do: {:ok, []}
-
-  @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) :: {:ok, [map()]}
-  def fetch_unaddressed_pr_review_thread_comments(_pr_number), do: {:ok, []}
-
-  @spec fetch_open_pull_request_for_branch(String.t() | integer()) :: {:ok, nil}
-  def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
-
-  @spec fetch_open_pull_requests_for_branch(String.t() | integer()) :: {:ok, []}
-  def fetch_open_pull_requests_for_branch(_issue_id), do: {:ok, []}
-
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     send_event({:memory_tracker_state_update, issue_id, state_name})
@@ -97,12 +105,18 @@ defmodule Aiur.Memory.Tracker do
       :error ->
         update_issue_state(issue_id, state_name)
 
-      {:ok, expected_state} when is_binary(expected_state) ->
+      {:ok, expected_state} when is_binary(expected_state) or expected_state == :none ->
         update_issue_state_if_current(issue_id, state_name, expected_state)
 
       {:ok, _invalid} ->
         {:error, :invalid_expected_state}
     end
+  end
+
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(labels) do
+    send_event({:memory_tracker_ensure_labels, labels})
+    :ok
   end
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
@@ -137,11 +151,19 @@ defmodule Aiur.Memory.Tracker do
 
       index ->
         %Issue{state: current_state} = Enum.at(issues, index)
-        expected = normalize_state_slug(expected_state)
+
+        expected =
+          if expected_state == :none, do: :none, else: normalize_state_slug(expected_state)
+
         actual = normalize_state_slug(current_state)
 
-        if actual == expected do
-          Application.put_env(:aiur, :memory_tracker_issues, List.update_at(issues, index, &%{&1 | state: state_name}))
+        if actual == expected or (expected == :none and actual == "") do
+          Application.put_env(
+            :aiur,
+            :memory_tracker_issues,
+            List.update_at(issues, index, &%{&1 | state: state_name})
+          )
+
           send_event({:memory_tracker_state_update, issue_id, state_name})
           :ok
         else

@@ -1,0 +1,84 @@
+{"scenario":"completed_tool","dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"aiur-orchestrator","title":"Aiur Orchestrator","version":"<client-version>"}}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","result":{"server":{"name":"aiur-claude","version":"1.1.0"},"capabilities":{"threads":["start","resume","fork"],"turns":["start","steer","interrupt"],"models":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"skills":["Read","Write","Edit","Bash","Glob","Grep","WebFetch","WebSearch","Task"],"dynamicTools":true}},"id":1}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","method":"initialized","params":{"server":"aiur-claude"}}}
+{"scenario":"completed_tool","dir":"out","msg":{"jsonrpc":"2.0","method":"initialized","params":{}}}
+{"scenario":"completed_tool","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"permissionMode":"bypassPermissions","cwd":"<workspace>","dynamicTools":"<dynamic-tools>"}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","result":{"thread":{"id":"<thread>","created_at":"<timestamp>"}},"id":2}}
+{"scenario":"completed_tool","dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Protocol fixture prompt"}],"cwd":"<workspace>","title":"fixture: Protocol fixture"}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn>"}},"id":3}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn>","thread_id":"<thread>"}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","id":"<tool-request>","method":"item/tool/call","params":{"name":"emit_alert","arguments":{"name":"milestone.test","message":"hi","reason":"r","needs_attention":false},"callId":"<tool-call>"}}}
+{"scenario":"completed_tool","dir":"out","msg":{"jsonrpc":"2.0","id":"<tool-request>","result":{"success":true,"output":"alert emitted"}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","method":"rate_limit/update","params":{"turn_id":"<turn>","thread_id":"<thread>","rate_limit":{"status":"allowed","account_type":"subscription","source_version":"9.9.9-test (fake-claude)"}}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","method":"item/progress","params":{"turn_id":"<turn>","delta":{"type":"text","text":"Done."}}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","method":"item/created","params":{"turn_id":"<turn>","item":{"id":"<item>","created_at":"<timestamp>","type":"text","text":"Done."}}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/permission_denied","params":{"turn_id":"<turn>","thread_id":"<thread>","denials":[{"tool_name":"Bash","tool_use_id":"fixture-denial","tool_input":{"command":"denied"}}]}}}
+{"scenario":"completed_tool","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/completed","params":{"turn_id":"<turn>","thread_id":"<thread>","status":"completed","items_count":1,"completed_at":"<timestamp>","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}}}
+{"scenario":"operator","dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"aiur-orchestrator","title":"Aiur Orchestrator","version":"<client-version>"}}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","result":{"server":{"name":"aiur-claude","version":"1.1.0"},"capabilities":{"threads":["start","resume","fork"],"turns":["start","steer","interrupt"],"models":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"skills":["Read","Write","Edit","Bash","Glob","Grep","WebFetch","WebSearch","Task"],"dynamicTools":true}},"id":1}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"initialized","params":{"server":"aiur-claude"}}}
+{"scenario":"operator","dir":"out","msg":{"jsonrpc":"2.0","method":"initialized","params":{}}}
+{"scenario":"operator","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"permissionMode":"bypassPermissions","cwd":"<workspace>","dynamicTools":"<dynamic-tools>"}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","result":{"thread":{"id":"<thread>","created_at":"<timestamp>"}},"id":2}}
+{"scenario":"operator","dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Protocol fixture prompt"}],"cwd":"<workspace>","title":"fixture: Protocol fixture"}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn>"}},"id":3}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn>","thread_id":"<thread>"}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"item/progress","params":{"turn_id":"<turn>","delta":{"type":"text","text":"Done."}}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"item/created","params":{"turn_id":"<turn>","item":{"id":"<item>","created_at":"<timestamp>","type":"text","text":"Done."}}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/completed","params":{"turn_id":"<turn>","thread_id":"<thread>","status":"completed","items_count":1,"completed_at":"<timestamp>","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}}}
+{"scenario":"operator","dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Operator follow-up"}],"cwd":"<workspace>"}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn-2>"}},"id":4}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn-2>","thread_id":"<thread>"}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"item/progress","params":{"turn_id":"<turn-2>","delta":{"type":"text","text":"Done."}}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"item/created","params":{"turn_id":"<turn-2>","item":{"id":"<item>","created_at":"<timestamp>","type":"text","text":"Done."}}}}
+{"scenario":"operator","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/completed","params":{"turn_id":"<turn-2>","thread_id":"<thread>","status":"completed","items_count":1,"completed_at":"<timestamp>","usage":{"input_tokens":3,"output_tokens":4,"total_tokens":7}}}}
+{"scenario":"interrupt","dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"aiur-orchestrator","title":"Aiur Orchestrator","version":"<client-version>"}}}}
+{"scenario":"interrupt","dir":"in","msg":{"jsonrpc":"2.0","result":{"server":{"name":"aiur-claude","version":"1.1.0"},"capabilities":{"threads":["start","resume","fork"],"turns":["start","steer","interrupt"],"models":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"skills":["Read","Write","Edit","Bash","Glob","Grep","WebFetch","WebSearch","Task"],"dynamicTools":true}},"id":1}}
+{"scenario":"interrupt","dir":"in","msg":{"jsonrpc":"2.0","method":"initialized","params":{"server":"aiur-claude"}}}
+{"scenario":"interrupt","dir":"out","msg":{"jsonrpc":"2.0","method":"initialized","params":{}}}
+{"scenario":"interrupt","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"permissionMode":"bypassPermissions","cwd":"<workspace>","dynamicTools":"<dynamic-tools>"}}}
+{"scenario":"interrupt","dir":"in","msg":{"jsonrpc":"2.0","result":{"thread":{"id":"<thread>","created_at":"<timestamp>"}},"id":2}}
+{"scenario":"interrupt","dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Protocol fixture prompt"}],"cwd":"<workspace>","title":"fixture: Protocol fixture"}}}
+{"scenario":"interrupt","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn>"}},"id":3}}
+{"scenario":"interrupt","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn>","thread_id":"<thread>"}}}
+{"scenario":"interrupt","dir":"out","msg":{"jsonrpc":"2.0","id":5,"method":"turn/interrupt","params":{"threadId":"<thread>","turnId":"<turn>"}}}
+{"scenario":"interrupt","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn_id":"<turn>","status":"interrupted"},"id":5}}
+{"scenario":"interrupt","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/completed","params":{"turn_id":"<turn>","thread_id":"<thread>","status":"interrupted","items_count":0,"completed_at":"<timestamp>"}}}
+{"scenario":"failure_legacy","dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"aiur-orchestrator","title":"Aiur Orchestrator","version":"<client-version>"}}}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","result":{"server":{"name":"aiur-claude","version":"1.1.0"},"capabilities":{"threads":["start","resume","fork"],"turns":["start","steer","interrupt"],"models":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"skills":["Read","Write","Edit","Bash","Glob","Grep","WebFetch","WebSearch","Task"],"dynamicTools":true}},"id":1}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","method":"initialized","params":{"server":"aiur-claude"}}}
+{"scenario":"failure_legacy","dir":"out","msg":{"jsonrpc":"2.0","method":"initialized","params":{}}}
+{"scenario":"failure_legacy","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"permissionMode":"bypassPermissions","cwd":"<workspace>","dynamicTools":"<dynamic-tools>"}}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","result":{"thread":{"id":"<thread>","created_at":"<timestamp>"}},"id":2}}
+{"scenario":"failure_legacy","dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Protocol fixture prompt"}],"cwd":"<workspace>","title":"fixture: Protocol fixture"}}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn>"}},"id":3}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn>","thread_id":"<thread>"}}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","method":"item/progress","params":{"turn_id":"<turn>","delta":{"type":"text","text":"You have hit your session limit"}}}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","method":"item/created","params":{"turn_id":"<turn>","item":{"id":"<item>","created_at":"<timestamp>","type":"text","text":"You have hit your session limit"}}}}
+{"scenario":"failure_legacy","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/failed","params":{"turn_id":"<turn>","error":"Error: claude exited with code 1"}}}
+{"scenario":"failure_provenance","dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"aiur-orchestrator","title":"Aiur Orchestrator","version":"<client-version>"}}}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","result":{"server":{"name":"aiur-claude","version":"1.1.0"},"capabilities":{"threads":["start","resume","fork"],"turns":["start","steer","interrupt"],"models":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"skills":["Read","Write","Edit","Bash","Glob","Grep","WebFetch","WebSearch","Task"],"dynamicTools":true}},"id":1}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","method":"initialized","params":{"server":"aiur-claude"}}}
+{"scenario":"failure_provenance","dir":"out","msg":{"jsonrpc":"2.0","method":"initialized","params":{}}}
+{"scenario":"failure_provenance","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"permissionMode":"bypassPermissions","cwd":"<workspace>","dynamicTools":"<dynamic-tools>"}}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","result":{"thread":{"id":"<thread>","created_at":"<timestamp>"}},"id":2}}
+{"scenario":"failure_provenance","dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Protocol fixture prompt"}],"cwd":"<workspace>","title":"fixture: Protocol fixture"}}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn>"}},"id":3}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn>","thread_id":"<thread>"}}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","method":"item/progress","params":{"turn_id":"<turn>","delta":{"type":"text","text":"You have hit your session limit"}}}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","method":"item/created","params":{"turn_id":"<turn>","item":{"id":"<item>","created_at":"<timestamp>","type":"text","text":"You have hit your session limit","provider_error":"rate_limit"}}}}
+{"scenario":"failure_provenance","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/failed","params":{"turn_id":"<turn>","error":"Error: claude exited with code 1","provider_error":{"error":"rate_limit","api_error_status":429,"message":"You have hit your session limit"}}}}
+{"scenario":"busy","dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"aiur-orchestrator","title":"Aiur Orchestrator","version":"<client-version>"}}}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","result":{"server":{"name":"aiur-claude","version":"1.1.0"},"capabilities":{"threads":["start","resume","fork"],"turns":["start","steer","interrupt"],"models":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"skills":["Read","Write","Edit","Bash","Glob","Grep","WebFetch","WebSearch","Task"],"dynamicTools":true}},"id":1}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","method":"initialized","params":{"server":"aiur-claude"}}}
+{"scenario":"busy","dir":"out","msg":{"jsonrpc":"2.0","method":"initialized","params":{}}}
+{"scenario":"busy","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/start","params":{"permissionMode":"bypassPermissions","cwd":"<workspace>","dynamicTools":"<dynamic-tools>"}}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","result":{"thread":{"id":"<thread>","created_at":"<timestamp>"}},"id":2}}
+{"scenario":"busy","dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Protocol fixture prompt"}],"cwd":"<workspace>","title":"fixture: Protocol fixture"}}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn":{"id":"<turn>"}},"id":3}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/started","params":{"turn_id":"<turn>","thread_id":"<thread>"}}}
+{"scenario":"busy","dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"turn/start","params":{"threadId":"<thread>","input":[{"type":"text","text":"Operator follow-up"}],"cwd":"<workspace>"}}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","error":{"code":-32003,"message":"Thread already has an active turn. Interrupt it first."},"id":4}}
+{"scenario":"busy","dir":"out","msg":{"jsonrpc":"2.0","id":5,"method":"turn/interrupt","params":{"threadId":"<thread>","turnId":"<turn>"}}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","result":{"turn_id":"<turn>","status":"interrupted"},"id":5}}
+{"scenario":"busy","dir":"in","msg":{"jsonrpc":"2.0","method":"turn/completed","params":{"turn_id":"<turn>","thread_id":"<thread>","status":"interrupted","items_count":0,"completed_at":"<timestamp>"}}}

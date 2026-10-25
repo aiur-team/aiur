@@ -1,0 +1,38 @@
+{
+  "schema_version": "preregistration.v1",
+  "experiment_id": "report-example",
+  "registered_at": "2026-10-09T18:00:00Z",
+  "registered_by": {
+    "role": "analyst",
+    "agent": "codex",
+    "model": "fixture",
+    "ticket": 3801
+  },
+  "hypothesis": "Latency decreases by 20 percent.",
+  "primary_metrics": [
+    {
+      "id": "delivery/start",
+      "expected": "decrease"
+    }
+  ],
+  "secondary_metrics": [],
+  "guardrail_metrics": [],
+  "alpha": 0.05,
+  "secondary_correction": "benjamini-hochberg",
+  "fdr_q": 0.1,
+  "mde": {
+    "metric": "delivery/start",
+    "relative": -0.2
+  },
+  "power_target": 0.8,
+  "planned_n_per_cohort": 40,
+  "projected_ready_at": "2026-10-23",
+  "stratify_by": [
+    "complexity"
+  ],
+  "exclusions": [],
+  "stopping_rule": "One confirmatory analysis at planned n.",
+  "baseline_snapshot_hash": "baseline-fixture",
+  "post_hoc": false,
+  "amendments": []
+}

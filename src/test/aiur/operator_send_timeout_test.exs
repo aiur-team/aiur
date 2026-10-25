@@ -34,7 +34,7 @@ defmodule Aiur.OperatorSendTimeoutTest do
     on_exit(fn ->
       restore_env(:decision_state_dir, original_dir)
       restore_env(:operator_message_call_timeout_ms, original_timeout)
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
     end)
 
     %{dir: dir}

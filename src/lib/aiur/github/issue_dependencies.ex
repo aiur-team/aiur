@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   ## Why a separate module
 
-  `Aiur.Codex.DynamicTool` stays thin: the `aiur_declare_blocker` and
+  `Aiur.AgentTools.Dispatch` stays thin: the `aiur_declare_blocker` and
   `aiur_unblock` tools become 5-line shims that delegate here, the same
   way `execute_linear_graphql/2` delegates to `Aiur.Linear.Client.graphql/3`.
 
@@ -117,7 +117,10 @@ defmodule Aiur.GitHub.IssueDependencies do
   end
 
   defp check_not_already_present(current_number, blocker_id, client_opts) do
-    case Client.fetch_blocked_by(current_number, client_opts) do
+    # A dependency pause can arrive after the declaration was made through a
+    # different path. The daemon's held blocked_by list may predate that write,
+    # so use GitHub's native edge list before starting cycle traversal.
+    case Client.fetch_blocked_by(current_number, Keyword.put(client_opts, :revalidate, true)) do
       {:ok, existing} -> presence_for(existing, blocker_id)
       {:error, reason} -> {:error, reason}
     end

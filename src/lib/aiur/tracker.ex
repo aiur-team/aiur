@@ -5,35 +5,122 @@ defmodule Aiur.Tracker do
 
   alias Aiur.{Config, TestTicketScope}
 
-  @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
-  @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
-  @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
-  @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
-  @callback fetch_issue_states_by_ids_conditional([String.t()], map()) ::
-              {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
-  @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
-  @callback fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
-  @callback fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
-  @callback fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
-  @callback fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
-              {:ok, [map()]} | {:error, term()}
-  @callback fetch_open_pull_request_for_branch(String.t() | integer()) ::
-              {:ok, map() | nil} | {:error, term()}
-  @callback fetch_open_pull_requests_for_branch(String.t() | integer()) ::
-              {:ok, [map()]} | {:error, term()}
-  @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
-  @callback update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
-  @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
-  @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
+  @spec with_poll_cycle((-> term())) :: term()
+  def with_poll_cycle(fun) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :with_poll_cycle, 1), do: tracker.with_poll_cycle(fun), else: fun.()
+  end
 
-  @optional_callbacks fetch_issue_states_by_ids_conditional: 2,
-                      update_issue_state: 3,
-                      add_label: 2,
-                      remove_label: 2
+  @spec format_preflight_error(term()) :: String.t()
+  def format_preflight_error(reason) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :format_preflight_error, 1), do: tracker.format_preflight_error(reason), else: inspect(reason)
+  end
+
+  @type open_issue_label_map :: %{String.t() => %{labels: [String.t()], updated_at: DateTime.t() | nil}}
+  @type open_issue_labels_result :: {:ok, open_issue_label_map(), integer()} | :none | {:error, :unsupported}
+  @type ticket_pull_request_result ::
+          {:ok,
+           nil
+           | %{
+               required(:state) => :open | :closed,
+               required(:merged?) => boolean(),
+               optional(:number) => pos_integer(),
+               optional(:version) => String.t() | nil,
+               optional(:head_ref) => String.t() | nil,
+               optional(:head_sha) => String.t() | nil,
+               optional(:base_ref) => String.t() | nil,
+               optional(:merge_commit_sha) => String.t() | nil
+             }}
+          | {:error, term()}
+  @type issue_closure_result :: {:ok, %{open?: boolean(), state_reason: String.t() | nil}} | {:error, term()}
+
+  @doc "Reads native prerequisite IDs, failing closed on unsupported trackers."
+  @spec blocked_by(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def blocked_by(issue_id) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :blocked_by, 1), do: dispatch_blocked_by(tracker, issue_id), else: {:error, :unsupported}
+  end
+
+  @doc "Reads native prerequisites from the tracker's cache without revalidation."
+  @spec cached_blocked_by(Aiur.Issue.t()) :: {:ok, Aiur.Issue.t()} | {:error, term()}
+  def cached_blocked_by(%Aiur.Issue{} = issue) do
+    tracker = adapter()
+
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :cached_blocked_by, 1),
+      do: tracker.cached_blocked_by(issue),
+      else: {:error, :unsupported}
+  end
+
+  defp dispatch_blocked_by(tracker, issue_id), do: tracker.blocked_by(issue_id)
+
+  @doc "Reads closure evidence, failing closed when the tracker does not support it."
+  @spec issue_closure(String.t(), pos_integer()) :: issue_closure_result()
+  def issue_closure(issue_id, max_age_ms) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :issue_closure, 2), do: tracker.issue_closure(issue_id, max_age_ms), else: {:error, :unsupported}
+  end
+
+  @doc "Reads open-issue labels already observed by the tracker, without a remote request."
+  @spec open_issue_labels(pos_integer()) :: open_issue_labels_result()
+  def open_issue_labels(max_age_ms) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :open_issue_labels, 1) do
+      tracker_adapter.open_issue_labels(max_age_ms)
+    else
+      {:error, :unsupported}
+    end
+  end
+
+  @doc "Lists open issues remotely to renew `open_issue_labels/1`; it selects no dispatch candidates."
+  @spec refresh_open_issue_labels() :: :ok | {:error, term()}
+  def refresh_open_issue_labels do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :refresh_open_issue_labels, 0), do: tracker.refresh_open_issue_labels(), else: {:error, :unsupported}
+  end
+
+  @doc "Reads a ticket's delivered PR evidence without a remote request; unsupported adapters return nil."
+  @spec ticket_pull_request(String.t()) :: ticket_pull_request_result()
+  def ticket_pull_request(issue_id) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ticket_pull_request, 1), do: tracker.ticket_pull_request(issue_id), else: {:ok, nil}
+  end
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
     adapter().fetch_candidate_issues() |> TestTicketScope.filter_result()
+  end
+
+  @doc "Fetches candidates with adapter-owned filtering and cache validation, or preserves the caller's cache."
+  @spec fetch_candidate_issues_conditional(map()) :: {:ok, [term()], map()} | {:error, term()}
+  def fetch_candidate_issues_conditional(cache) do
+    tracker = adapter()
+
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :fetch_candidate_issues_conditional, 1) do
+      tracker.fetch_candidate_issues_conditional(cache)
+    else
+      with {:ok, issues} <- fetch_candidate_issues(), do: {:ok, issues, cache}
+    end
+  end
+
+  @doc "Hydrates dispatch prerequisites; missing config and adapters without hydration preserve the issue."
+  @spec hydrate_blocked_by(Aiur.Issue.t()) :: {:ok, Aiur.Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(issue) do
+    with {:ok, %{tracker: %{kind: kind}}} <- Config.settings(),
+         tracker = Aiur.Tracker.Registry.adapter_for(kind),
+         true <- Code.ensure_loaded?(tracker) and function_exported?(tracker, :hydrate_blocked_by, 1) do
+      tracker.hydrate_blocked_by(issue)
+    else
+      _ -> {:ok, issue}
+    end
+  end
+
+  @doc "Runs an operation under the adapter's transient retry policy when provided."
+  @spec with_transient_retry((-> term()), keyword()) :: term()
+  def with_transient_retry(fun, opts) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :with_transient_retry, 2), do: tracker.with_transient_retry(fun, opts), else: fun.()
   end
 
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
@@ -49,6 +136,16 @@ defmodule Aiur.Tracker do
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids) do
     adapter().fetch_issue_states_by_ids(issue_ids) |> TestTicketScope.filter_result()
+  end
+
+  @doc "Returns whether labels contain a state owned by another tracker lane."
+  @spec foreign_state_label?([String.t()]) :: boolean()
+  def foreign_state_label?(labels) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :foreign_state_label?, 1),
+      do: tracker_adapter.foreign_state_label?(labels),
+      else: false
   end
 
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
@@ -77,12 +174,33 @@ defmodule Aiur.Tracker do
     adapter().create_comment(issue_id, body)
   end
 
+  @doc "Creates an issue with its initial labels in the same write."
+  @spec create_issue(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def create_issue(attrs, opts \\ []) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :create_issue, 2), do: tracker.create_issue(attrs, opts), else: {:error, :unsupported}
+  end
+
+  @doc "Reconciles an uncertain issue creation against an exact body marker."
+  @spec find_issue(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def find_issue(marker, opts \\ []) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :find_issue, 2), do: tracker.find_issue(marker, opts), else: {:error, :unsupported}
+  end
+
+  @doc "Reopens a closed issue; trackers that never auto-close an issue have nothing to undo."
+  @spec reopen_issue(String.t()) :: :ok | {:error, term()}
+  def reopen_issue(issue_id) do
+    tracker_adapter = adapter()
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, :reopen_issue, 1), do: tracker_adapter.reopen_issue(issue_id), else: :ok
+  end
+
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name) do
     adapter().update_issue_state(issue_id, state_name)
   end
 
-  @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  @spec update_issue_state(String.t(), String.t(), expected_state: String.t() | :none) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name, opts)
       when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
     tracker_adapter = adapter()
@@ -106,6 +224,12 @@ defmodule Aiur.Tracker do
     tracker_adapter.update_issue_state(issue_id, state_name, opts)
   end
 
+  @spec ensure_labels([String.t()]) :: :ok | {:error, term()}
+  def ensure_labels(labels) do
+    tracker = adapter()
+    if Code.ensure_loaded?(tracker) and function_exported?(tracker, :ensure_labels, 1), do: tracker.ensure_labels(labels), else: {:error, :unsupported}
+  end
+
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}
   def add_label(issue_id, label) do
     adapter().add_label(issue_id, label)
@@ -122,32 +246,27 @@ defmodule Aiur.Tracker do
   end
 
   @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
-  def fetch_classified_pr_review_comments(pr_number) do
-    adapter().fetch_classified_pr_review_comments(pr_number)
-  end
+  @deprecated "Use Aiur.CodeHost.fetch_classified_pr_review_comments/1"
+  def fetch_classified_pr_review_comments(pr_number), do: Aiur.CodeHost.fetch_classified_pr_review_comments(pr_number)
 
   @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
-  def fetch_classified_pr_reviews(pr_number) do
-    adapter().fetch_classified_pr_reviews(pr_number)
-  end
+  @deprecated "Use Aiur.CodeHost.fetch_classified_pr_reviews/1"
+  def fetch_classified_pr_reviews(pr_number), do: Aiur.CodeHost.fetch_classified_pr_reviews(pr_number)
 
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_unaddressed_pr_review_thread_comments(pr_number) do
-    adapter().fetch_unaddressed_pr_review_thread_comments(pr_number)
-  end
+  @deprecated "Use Aiur.CodeHost.fetch_unaddressed_pr_review_thread_comments/1"
+  def fetch_unaddressed_pr_review_thread_comments(pr_number), do: Aiur.CodeHost.fetch_unaddressed_pr_review_thread_comments(pr_number)
 
   @spec fetch_open_pull_request_for_branch(String.t() | integer()) ::
           {:ok, map() | nil} | {:error, term()}
-  def fetch_open_pull_request_for_branch(issue_id) do
-    adapter().fetch_open_pull_request_for_branch(issue_id)
-  end
+  @deprecated "Use Aiur.CodeHost.fetch_open_pull_request_for_branch/1"
+  def fetch_open_pull_request_for_branch(issue_id), do: Aiur.CodeHost.fetch_open_pull_request_for_branch(issue_id)
 
   @spec fetch_open_pull_requests_for_branch(String.t() | integer()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_open_pull_requests_for_branch(issue_id) do
-    adapter().fetch_open_pull_requests_for_branch(issue_id)
-  end
+  @deprecated "Use Aiur.CodeHost.fetch_open_pull_requests_for_branch/1"
+  def fetch_open_pull_requests_for_branch(issue_id), do: Aiur.CodeHost.fetch_open_pull_requests_for_branch(issue_id)
 
   @spec project_identity() :: String.t() | nil
   def project_identity do
@@ -158,12 +277,19 @@ defmodule Aiur.Tracker do
     end
   end
 
+  @spec clone_url() :: String.t() | nil
+  def clone_url, do: optional_workspace_callback(:clone_url)
+
+  @spec workspace_repo_segment() :: String.t() | nil
+  def workspace_repo_segment, do: optional_workspace_callback(:workspace_repo_segment)
+
+  defp optional_workspace_callback(callback) do
+    tracker_adapter = adapter()
+    if Code.ensure_loaded?(tracker_adapter) and function_exported?(tracker_adapter, callback, 0), do: apply(tracker_adapter, callback, [])
+  end
+
   @spec adapter() :: module()
   def adapter do
-    case Config.settings!().tracker.kind do
-      "github" -> Aiur.GitHub.Tracker
-      "memory" -> Aiur.Memory.Tracker
-      _ -> Aiur.Linear.Tracker
-    end
+    Aiur.Tracker.Registry.adapter_for(Config.settings!().tracker.kind)
   end
 end

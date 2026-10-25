@@ -15,52 +15,13 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   actually sends through a recording `request_fun`, which is what A6 is about.
   """
 
-  use Aiur.TestSupport
+  use Aiur.TestSupport.DepositCase
 
-  alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubWebhook, Publisher}
-  alias Aiur.GitHub.{DependenciesApi, PollSnapshots, ResourceFetch, ResourceStore}
-  alias Aiur.Workflow
+  alias Aiur.Events.GithubWebhook
+  alias Aiur.ExecutorSweep.{Checks, SnapshotCache}
+  alias Aiur.GitHub.{PollSnapshots, ResourceFetch, ResourceStore}
 
   @repo "owner/repo"
-  @dedup_table Aiur.Events.Publisher.Dedup
-  @bot "its-applekid"
-  @human "its-everdred"
-  @topic "ticket.42.issue.commented"
-
-  setup do
-    prev_token = System.get_env("GITHUB_TOKEN")
-    System.put_env("GITHUB_TOKEN", "test-gh-token")
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "github",
-      tracker_repo: @repo,
-      tracker_label_prefix: "aiur",
-      tracker_bot_account: @bot
-    )
-
-    Publisher.set_tracked_fn(fn _ -> true end)
-    clear_dedup()
-    ResourceStore.reset()
-
-    on_exit(fn ->
-      restore_env("GITHUB_TOKEN", prev_token)
-      Publisher.set_tracked_fn(fn _ -> true end)
-      clear_dedup()
-      Application.delete_env(:aiur, :github_resource_store_path)
-
-      if is_nil(Process.whereis(ResourceStore)) do
-        Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
-      end
-
-      ResourceStore.reset()
-
-      for pattern <- Exchange.bindings_for(self()) do
-        Exchange.unsubscribe(pattern)
-      end
-    end)
-
-    :ok
-  end
 
   describe "A3 — a delivered resource is served from the store with zero upstream calls" do
     test "an issue comment is served with a request count of exactly zero" do
@@ -78,13 +39,15 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
 
     test "the issue the comment hangs off is served with a request count of exactly zero" do
+      number = ticket_number()
+
       assert %{status: :published} =
                GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9102), repo: @repo)
 
-      {calls, issue} = read_through(ResourceStore.key_for_repo(:issue, @repo, 42))
+      {calls, issue} = read_through(ResourceStore.key_for_repo(:issue, @repo, number))
 
       assert calls == 0
-      assert %{"number" => 42} = issue
+      assert %{"number" => ^number} = issue
     end
 
     # Non-vacuousness, asserted rather than claimed: the same consumer against a
@@ -107,8 +70,9 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # is the property asserted: call count and the conditional header.
   describe "a strict read of a webhook-deposited resource revalidates" do
     test "sends If-None-Match and a 304 costs nothing" do
+      number = ticket_number()
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
-      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, number)
 
       validator = ResourceStore.etag(key)
       assert is_binary(validator) and validator != "", "the deposit must leave a validator beside the body"
@@ -132,9 +96,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
 
     test "a delivered body holds a validator the store will offer" do
+      number = ticket_number()
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
 
-      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, number)
       assert {:ok, %{data: %{"number" => 77}, etag: etag}} = ResourceStore.fetch(key)
       assert is_binary(etag) and etag != ""
     end
@@ -144,7 +109,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     # earns the free `304`, so knocking it out would turn a free read back into a
     # full-price one.
     test "an unchanged re-delivery keeps a held validator" do
-      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+      number = ticket_number()
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, number)
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
 
       # A conditional reader fetches, recording GitHub's real ETag for the body.
@@ -160,7 +126,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     # The derived validator is content-based, so a changed body cannot keep a
     # validator that describes the previous one (the stale-validator hazard).
     test "a changed body re-derives a validator that describes it" do
-      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+      number = ticket_number()
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, number)
       GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
       {:ok, %{etag: before}} = ResourceStore.fetch(key)
 
@@ -210,7 +177,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       issue:
         {:read_by, "Aiur.GitHub.Issues.fetch_issue_raw_conditional/2 (issues.ex:179)",
          [
-           ResourceStore.key(:issue, "owner", "repo", 42),
+           ResourceStore.key(:issue, "owner", "repo", ticket_number()),
            # The sub_issues delivery also carries the sub-issue, which shares the
            # `:issue` reader's generic addressing.
            ResourceStore.key(:issue, "owner", "repo", 41)
@@ -225,17 +192,19 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
            "Reconciliation re-deposits each root's label set during the rare " <>
            "catalog reconciliation (reconciliation.ex:143)",
          [
-           ResourceStore.key(:issue_labels, "owner", "repo", 42),
+           ResourceStore.key(:issue_labels, "owner", "repo", ticket_number()),
            # The sub_issues delivery also carries the sub-issue's labels, which
            # share the same label reader's generic addressing.
            ResourceStore.key(:issue_labels, "owner", "repo", 41)
          ]},
       pull_request: {:read_by, "Aiur.GitHub.Client.fetch_open_pull_request/2 (client.ex), the #2352 row-5 conditional read", [ResourceStore.key_for_repo(:pull_request, @repo, 77)]},
-      branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)]},
-      issue_blocked_by: {:read_by, "Aiur.GitHub.DependenciesApi.dependency_get/3 (dependencies_api.ex)", [ResourceStore.key(:issue_blocked_by, "owner", "repo", 42)]},
-      sub_issue: {:read_by, "Aiur.BuildOrder.CatalogStore rebuilds each root's membership from the held edges (catalog_store.ex)", [ResourceStore.key(:sub_issue, "owner", "repo", "42:41")]},
+      branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, ticket_number())]},
+      issue_blocked_by: {:read_by, "Aiur.GitHub.DependenciesApi.dependency_get/3 (dependencies_api.ex)", [ResourceStore.key(:issue_blocked_by, "owner", "repo", ticket_number())]},
+      sub_issue:
+        {:read_by, "Aiur.BuildOrder.CatalogStore rebuilds each root's membership from the held edges (catalog_store.ex)", [ResourceStore.key(:sub_issue, "owner", "repo", "#{ticket_id()}:41")]},
       issue_dependency:
-        {:read_by, "Aiur.BuildOrder.CatalogStore rebuilds each root's dependency set from the held edges (catalog_store.ex)", [ResourceStore.key(:issue_dependency, "owner", "repo", "42:80")]}
+        {:read_by, "Aiur.BuildOrder.CatalogStore rebuilds each root's dependency set from the held edges (catalog_store.ex)",
+         [ResourceStore.key(:issue_dependency, "owner", "repo", "#{ticket_id()}:80")]}
     }
 
   describe "every deposit is addressable by whoever wants it" do
@@ -276,863 +245,6 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
   end
 
-  describe "delivery types that deposit bodies" do
-    test "issue_comment deposits the comment in the poller's shape" do
-      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9201), repo: @repo)
-
-      assert {:ok, %{data: data, source: :webhook, version: "2026-06-24T12:00:00Z"}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9201))
-
-      # The poller's projection, key for key: a consumer must not be able to
-      # tell a delivered comment from a polled one.
-      assert Map.keys(data) |> Enum.sort() ==
-               ["body", "created_at", "html_url", "id", "updated_at", "user"]
-
-      assert data["user"] == %{"login" => @human}
-    end
-
-    test "issue_comment deposits the issue and its label set" do
-      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9202), repo: @repo)
-
-      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
-
-      assert {:ok, %{data: [%{"name" => "agent:in-progress"}]}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
-    end
-
-    test "pull_request_review_comment deposits the comment and the pull request" do
-      assert :ok =
-               PollSnapshots.put_review_threads(@repo, 77, [
-                 %{"id" => "PRRT_old", "isResolved" => false, "comments" => %{"nodes" => []}}
-               ])
-
-      GithubWebhook.handle_delivery("pull_request_review_comment", review_comment_delivery(9203), repo: @repo)
-
-      assert {:ok, %{data: %{"id" => 9203}, source: :webhook}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_comment, @repo, 9203))
-
-      assert {:ok, %{data: %{"number" => 77}}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
-
-      assert :miss = ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 77))
-    end
-
-    test "pull_request_review deposits the review with the poller's state casing" do
-      GithubWebhook.handle_delivery("pull_request_review", review_delivery(9204), repo: @repo)
-
-      assert {:ok, %{data: %{"state" => "CHANGES_REQUESTED"}, version: "2026-06-24T12:30:00Z"}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review, @repo, 9204))
-    end
-
-    test "pull_request_review_thread deposits its resolution generation" do
-      payload = %{
-        "action" => "unresolved",
-        "repository" => %{"full_name" => @repo},
-        "thread" => %{"id" => 88_001, "node_id" => "PRRT_kwDOabc", "comments" => 1},
-        "updated_at" => "2026-08-21T12:00:00Z",
-        "pull_request" => %{
-          "number" => 77,
-          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
-        }
-      }
-
-      assert %{status: :reconciled} =
-               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
-                 repo: @repo,
-                 reconcile_fun: fn _hint -> :ok end
-               )
-
-      assert {:ok,
-              %{
-                data: %{
-                  "webhook_action" => "unresolved",
-                  "generation" => "2026-08-21T12:00:00Z",
-                  "latest_unresolved_generation" => "2026-08-21T12:00:00Z",
-                  "updated_at" => "2026-08-21T12:00:00Z"
-                }
-              }} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
-
-      # The transition keeps its own clock in the marker data, never the entry's
-      # version slot (which the comment pipe also writes on this same key).
-      assert {:ok, %{version: nil}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
-    end
-
-    test "a null review-thread timestamp uses the admitted delivery id as its generation" do
-      payload = %{
-        "action" => "unresolved",
-        "repository" => %{"full_name" => @repo},
-        "thread" => %{"id" => 88_002, "node_id" => "PRRT_kwDOnull", "comments" => 1},
-        "updated_at" => nil,
-        "pull_request" => %{
-          "number" => 77,
-          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
-        }
-      }
-
-      assert %{status: :reconciled, hint: %{generation: "delivery-fallback"}} =
-               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
-                 repo: @repo,
-                 delivery_id: "delivery-fallback",
-                 reconcile_fun: fn _hint -> :ok end
-               )
-
-      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
-
-      assert %{status: :reconciled, hint: %{generation: "manual-redelivery"}} =
-               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
-                 repo: @repo,
-                 delivery_id: "manual-redelivery",
-                 reconcile_fun: fn _hint -> :ok end
-               )
-
-      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
-    end
-
-    test "pull_request deposits the pull request even when the event only reconciles" do
-      # `synchronize` normalizes to a CI reconcile and publishes nothing, so a
-      # deposit driven off the publish outcome would miss it entirely.
-      assert %{status: :reconciled} =
-               GithubWebhook.handle_delivery(
-                 "pull_request",
-                 %{pull_request_delivery() | "action" => "synchronize"},
-                 repo: @repo,
-                 reconcile_fun: fn _hint -> :ok end
-               )
-
-      assert {:ok, %{data: %{"number" => 77}, source: :webhook}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
-    end
-
-    # Acceptance #2126-1: `:pull_request` deposits and `:branch_pull_request`
-    # reads resolve to the same key. Asserted by running the real delivery and
-    # reading back the keys it wrote, with the ticket id derived from the PR's
-    # own head branch — never from a number the test happened to choose.
-    test ":pull_request deposits and :branch_pull_request reads resolve to the same key" do
-      pr = pull_request()
-      ticket_id = Aiur.TicketBranch.ticket_id(get_in(pr, ["head", "ref"]))
-      assert ticket_id == "42", "fixture's head branch must carry a parseable ticket id"
-
-      deposit_keys = GithubWebhook.Deposit.deposit("pull_request", pull_request_delivery(), @repo)
-
-      pr_key = ResourceStore.key_for_repo(:pull_request, @repo, pr["number"])
-      branch_key = ResourceStore.key_for_repo(:branch_pull_request, @repo, ticket_id)
-
-      assert pr_key in deposit_keys
-      assert branch_key in deposit_keys
-
-      # The key the human-review gate builds to read it (`context.issue_number`
-      # is the ticket number, `human_review_gate.ex:106`).
-      read_key = ResourceStore.key_for_repo(:branch_pull_request, @repo, ticket_id)
-      assert branch_key == read_key
-    end
-
-    # Acceptance #2126-1 second half, in the other direction: a pull request
-    # delivery deposits the open PR under the ticket whose branch it belongs to,
-    # and that body is the same object the `:pull_request` key holds.
-    test "a pull_request delivery also deposits the open pull request under its ticket" do
-      GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
-
-      assert {:ok, %{data: %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}}}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:branch_pull_request, @repo, 42))
-    end
-
-    # A head branch that is not an Aiur ticket branch has no ticket key the gate
-    # could read, so depositing one would be exactly the write-to-nowhere this
-    # table exists to catch.
-    test "a PR on a non-ticket branch is deposited only under its own number" do
-      non_ticket = %{pull_request_delivery() | "pull_request" => %{pull_request() | "head" => %{"ref" => "main"}}}
-
-      keys = GithubWebhook.Deposit.deposit("pull_request", non_ticket, @repo)
-
-      assert ResourceStore.key_for_repo(:pull_request, @repo, 77) in keys
-      refute ResourceStore.key_for_repo(:branch_pull_request, @repo, 42) in keys
-      assert ResourceStore.fetch(ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)) == :miss
-    end
-
-    test "a check_run delivery advances an existing complete CI-context snapshot" do
-      assert :ok =
-               PollSnapshots.put_ci_contexts(
-                 @repo,
-                 42,
-                 "deadbeef",
-                 [
-                   %{
-                     "id" => 5501,
-                     "name" => "test",
-                     "status" => "queued",
-                     "conclusion" => nil,
-                     "started_at" => "2026-06-24T12:00:00Z",
-                     "completed_at" => nil,
-                     "output" => %{}
-                   }
-                 ],
-                 %{"state" => "pending", "statuses" => []}
-               )
-
-      delivery = %{
-        "action" => "completed",
-        "check_run" => %{
-          "id" => 5501,
-          "name" => "test",
-          "status" => "completed",
-          "conclusion" => "success",
-          "head_sha" => "deadbeef",
-          "started_at" => "2026-06-24T12:00:00Z",
-          "completed_at" => "2026-06-24T12:01:00Z",
-          "output" => %{},
-          "pull_requests" => [%{"head" => %{"ref" => "aiur/42-a-ticket"}}]
-        }
-      }
-
-      assert [PollSnapshots.ci_contexts_key(@repo, 42)] == GithubWebhook.Deposit.deposit("check_run", delivery, @repo)
-
-      assert {:ok, %{"check_runs" => [%{"id" => 5501, "status" => "completed"}]}} =
-               PollSnapshots.ci_contexts(@repo, 42)
-    end
-
-    test "a resolved review-thread delivery advances an existing complete thread collection" do
-      assert :ok =
-               PollSnapshots.put_review_threads(@repo, 77, [
-                 %{
-                   "id" => "PRRT_5502",
-                   "isResolved" => false,
-                   "updatedAt" => "2026-06-24T12:00:00Z",
-                   "path" => "src/lib/example.ex",
-                   "line" => 7,
-                   "comments" => %{"nodes" => [%{"databaseId" => 1, "body" => "fix"}]}
-                 }
-               ])
-
-      delivery = %{
-        "action" => "resolved",
-        "pull_request" => %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}},
-        "thread" => %{
-          "node_id" => "PRRT_5502",
-          "is_resolved" => true,
-          "updated_at" => "2026-06-24T12:01:00Z",
-          "path" => "src/lib/example.ex",
-          "line" => 7
-        }
-      }
-
-      # A thread delivery also deposits the full PR it carries — the half that
-      # feeds `DeliveredPullRequest` (#2326) — alongside the snapshot merge and
-      # the transition marker (#2279) that records the resolve/unresolve
-      # generation.
-      assert [
-               ResourceStore.key_for_repo(:pull_request, @repo, 77),
-               ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
-               PollSnapshots.review_threads_key(@repo, 77),
-               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5502")
-             ] ==
-               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
-
-      assert {:ok,
-              [
-                %{
-                  "id" => "PRRT_5502",
-                  "isResolved" => true,
-                  "comments" => %{"nodes" => [%{"databaseId" => 1}]}
-                }
-              ]} = PollSnapshots.review_threads(@repo, 77)
-    end
-
-    test "a resolved delivery for an unknown thread does not bless an incomplete collection" do
-      assert :ok = PollSnapshots.put_review_threads(@repo, 77, [])
-
-      delivery = %{
-        "action" => "resolved",
-        "pull_request" => %{"number" => 77},
-        "thread" => %{"node_id" => "PRRT_unknown", "updated_at" => "2026-06-24T12:01:00Z"}
-      }
-
-      # The unknown thread is not merged into the empty snapshot, but the PR the
-      # delivery carries is still deposited (#2326) and the transition marker is
-      # still recorded (#2279).
-      assert [
-               ResourceStore.key_for_repo(:pull_request, @repo, 77),
-               PollSnapshots.review_threads_key(@repo, 77),
-               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_unknown")
-             ] ==
-               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
-
-      assert :miss = PollSnapshots.review_threads(@repo, 77)
-    end
-
-    test "an unresolved delivery drops a snapshot that says the thread is resolved" do
-      assert :ok =
-               PollSnapshots.put_review_threads(@repo, 77, [
-                 %{"id" => "PRRT_5504", "isResolved" => false, "updatedAt" => "2026-06-24T12:00:00Z"}
-               ])
-
-      resolved = %{
-        "action" => "resolved",
-        "pull_request" => %{"number" => 77},
-        "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => true, "updated_at" => "2026-06-24T12:01:00Z"}
-      }
-
-      assert [
-               ResourceStore.key_for_repo(:pull_request, @repo, 77),
-               PollSnapshots.review_threads_key(@repo, 77),
-               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5504")
-             ] ==
-               GithubWebhook.Deposit.deposit("pull_request_review_thread", resolved, @repo)
-
-      assert {:ok, [%{"isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
-
-      # The reviewer un-resolves it seconds later. Serving the resolved snapshot
-      # for the rest of the window filters the thread out of the unaddressed set
-      # and drops the re-raised objection silently.
-      unresolved = %{
-        "action" => "unresolved",
-        "pull_request" => %{"number" => 77},
-        "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => false, "updated_at" => "2026-06-24T12:02:00Z"}
-      }
-
-      # An invalidation writes no body, so it reports no thread key — but the
-      # delivery's PR half is still deposited (#2326) and the transition marker
-      # still advances (#2279).
-      assert [
-               ResourceStore.key_for_repo(:pull_request, @repo, 77),
-               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5504")
-             ] ==
-               GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
-
-      assert :miss = PollSnapshots.review_threads(@repo, 77)
-    end
-
-    test "a delivered thread collection survives a store restart and is still delivery-fresh" do
-      path = Aiur.TestSupport.tmp_root!("aiur-resource-store") <> ".json"
-      on_exit(fn -> File.rm_rf!(path) end)
-
-      # Run against a real checkpoint file before depositing: an in-memory store
-      # would let the restart pass without ever writing the round trip.
-      :ok = restart_store!(path)
-
-      assert :ok =
-               PollSnapshots.put_review_threads(@repo, 77, [
-                 %{
-                   "id" => "PRRT_5503",
-                   "isResolved" => false,
-                   "updatedAt" => "2026-06-24T12:00:00Z",
-                   "path" => "src/lib/example.ex",
-                   "line" => 7,
-                   "comments" => %{"nodes" => [%{"databaseId" => 1, "body" => "fix"}]}
-                 }
-               ])
-
-      delivery = %{
-        "action" => "resolved",
-        "pull_request" => %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}},
-        "thread" => %{
-          "node_id" => "PRRT_5503",
-          "is_resolved" => true,
-          "updated_at" => "2026-06-24T12:01:00Z",
-          "path" => "src/lib/example.ex",
-          "line" => 7
-        }
-      }
-
-      # A thread delivery also deposits the full PR it carries — including its
-      # `:branch_pull_request` sibling when the head branch is a ticket — which
-      # is what keeps `DeliveredPullRequest` from falling into the per-PR
-      # `review_threads_unaddressed` fallback (#2326), plus the transition
-      # marker (#2279).
-      assert [
-               ResourceStore.key_for_repo(:pull_request, @repo, 77),
-               ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
-               PollSnapshots.review_threads_key(@repo, 77),
-               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5503")
-             ] ==
-               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
-
-      :ok = ResourceStore.flush()
-      :ok = restart_store!(path)
-
-      # The collection came back complete, still carrying the delivery's advance
-      # and still attributed to the webhook — so a poller that consults it after
-      # a daemon restart still stands down rather than paying to re-ask.
-      assert {:ok, [%{"id" => "PRRT_5503", "isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
-    end
-
-    test "issues deposits the issue and label set even though the event only reconciles" do
-      assert %{status: :reconciled} =
-               GithubWebhook.handle_delivery("issues", issues_delivery("labeled"), repo: @repo, reconcile_fun: fn _ -> :ok end)
-
-      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
-      assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
-    end
-
-    # Acceptance #2313: a `sub_issues` delivery carries one parent↔sub-issue
-    # edge, and the Build Order catalog rebuilds each root's membership from the
-    # store rather than polling GitHub. The edge is deposited keyed by the
-    # `"parent:sub"` number pair, with `present` holding the operation and the
-    # delivery's arrival time as its ordering version.
-    test "sub_issues sub_issue_added deposits the edge keyed parent:sub" do
-      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
-
-      key = ResourceStore.key_for_repo(:sub_issue, @repo, "42:21")
-      assert {:ok, %{data: data, source: :webhook}} = ResourceStore.fetch(key)
-      assert data["present"] == true
-      assert data["parent_issue_number"] == 42
-      assert data["sub_issue_number"] == 21
-    end
-
-    test "sub_issues sub_issue_removed tombstones the edge" do
-      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
-      key = ResourceStore.key_for_repo(:sub_issue, @repo, "42:21")
-      assert {:ok, %{data: %{"present" => true}}} = ResourceStore.fetch(key)
-
-      GithubWebhook.handle_delivery("sub_issues", sub_issue_removed_delivery(), repo: @repo)
-      assert {:ok, %{data: %{"present" => false}}} = ResourceStore.fetch(key)
-    end
-
-    # Acceptance #2313: a blocked-by relationship added outside Aiur is likewise
-    # reflected. The `issue_dependencies` delivery carries the edge facts and
-    # the deposit writes the canonical `"blocked:blocker"` edge the catalog
-    # reads, tombstoned by a `*_removed` action.
-    test "issue_dependencies blocked_by_added deposits the edge keyed blocked:blocker" do
-      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
-
-      key = ResourceStore.key_for_repo(:issue_dependency, @repo, "42:99")
-      assert {:ok, %{data: data, source: :webhook}} = ResourceStore.fetch(key)
-      assert data["present"] == true
-      assert data["blocked_issue_number"] == 42
-      assert data["blocking_issue_number"] == 99
-    end
-
-    test "issue_dependencies blocked_by_removed tombstones the edge" do
-      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
-      key = ResourceStore.key_for_repo(:issue_dependency, @repo, "42:99")
-      assert {:ok, %{data: %{"present" => true}}} = ResourceStore.fetch(key)
-
-      GithubWebhook.handle_delivery("issue_dependencies", dependency_removed_delivery(), repo: @repo)
-      assert {:ok, %{data: %{"present" => false}}} = ResourceStore.fetch(key)
-    end
-
-    test "pull_request_review_thread deposits the pull request under both keys" do
-      keys = GithubWebhook.Deposit.deposit("pull_request_review_thread", pull_request_review_thread_delivery(), @repo)
-
-      assert ResourceStore.key_for_repo(:pull_request, @repo, 77) in keys
-      assert ResourceStore.key_for_repo(:branch_pull_request, @repo, 42) in keys
-
-      assert {:ok, %{data: %{"number" => 77}, source: :webhook}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
-    end
-
-    test "sub_issues deposits the sub-issue and the parent issue" do
-      GithubWebhook.handle_delivery("sub_issues", sub_issues_delivery(), repo: @repo)
-
-      assert {:ok, %{data: %{"number" => 41}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 41))
-      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
-      assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 41))
-    end
-
-    test "issue_dependencies deposits the issue; a lone blocked_by_added invents no blocker list" do
-      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
-
-      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
-
-      # The delivery names one edge, which is not a complete answer: the store
-      # must not fabricate a `:issue_blocked_by` list from it (review #2332), so
-      # a cold entry stays absent and the reader pays for the full list.
-      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42))
-    end
-
-    test "blocked_by_added merges into an existing blocker list rather than replacing it" do
-      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
-
-      # The baseline a full `GET blocked_by` 200 writes: a complete list the
-      # reader already holds, which is the only shape a merge may grow.
-      ResourceStore.put_resource(key, [%{"id" => 90_001, "number" => 90}], source: :fetch, etag: ~s("base"))
-
-      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
-
-      assert {:ok, %{data: blockers}} = ResourceStore.fetch(key)
-      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
-    end
-
-    test "a second issue_dependencies edge merges into the held blocker list rather than replacing it" do
-      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
-      ResourceStore.put_resource(key, [], source: :fetch, etag: ~s("base"))
-
-      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
-      second = %{issue_dependencies_delivery() | "blocked_by_issue" => %{"id" => 90_001, "number" => 90}}
-
-      GithubWebhook.handle_delivery("issue_dependencies", second, repo: @repo)
-
-      assert {:ok, %{data: blockers}} = ResourceStore.fetch(key)
-      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
-    end
-
-    test "blocked_by_removed drops the held blocker list rather than merging the edge in" do
-      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
-      ResourceStore.put_resource(key, [%{"id" => 80_001, "number" => 80}], source: :fetch, etag: ~s("base"))
-
-      removal = %{issue_dependencies_delivery() | "action" => "blocked_by_removed"}
-
-      GithubWebhook.handle_delivery("issue_dependencies", removal, repo: @repo)
-
-      # The death of the edge invalidates the whole held list: the next
-      # `fetch_blocked_by` pays for the truth instead of serving a stale answer.
-      assert :miss = ResourceStore.fetch(key)
-    end
-
-    test "a lone blocked_by_removed on a cold entry fabricates nothing" do
-      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
-      removal = %{issue_dependencies_delivery() | "action" => "blocked_by_removed"}
-
-      GithubWebhook.handle_delivery("issue_dependencies", removal, repo: @repo)
-
-      # The old code merged the delivery's edge in regardless of action, so a
-      # removal announced the death of an edge and then re-added it (review
-      # #2332, Probe B). A removal must never write.
-      assert :miss = ResourceStore.fetch(key)
-    end
-
-    # The deposit→read link the reachability table only proves by key equality:
-    # a webhook `blocked_by_added` onto a held list is served by the next
-    # `fetch_blocked_by` with zero upstream calls (review #2332, structural gap).
-    test "a webhook blocked_by_added onto a held list is served by the next fetch_blocked_by" do
-      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
-      ResourceStore.put_resource(key, [%{"id" => 90_001, "number" => 90}], source: :fetch, etag: ~s("base"))
-
-      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
-
-      assert {:ok, blockers} =
-               DependenciesApi.fetch_blocked_by(42,
-                 request_fun: fn _request -> flunk("the merged list must be served, not fetched") end
-               )
-
-      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
-    end
-
-    test "a delivery for an untracked repository deposits nothing" do
-      GithubWebhook.handle_delivery(
-        "issue_comment",
-        %{issue_comment_delivery(9205) | "repository" => %{"full_name" => "someone/else"}},
-        repo: @repo
-      )
-
-      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, "someone/else", 9205))
-      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9205))
-    end
-
-    test "a deleted comment drops the held body rather than serving a stale one" do
-      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9206), repo: @repo)
-      key = ResourceStore.key_for_repo(:issue_comment, @repo, 9206)
-      assert {:ok, _entry} = ResourceStore.fetch(key)
-
-      GithubWebhook.handle_delivery(
-        "issue_comment",
-        %{issue_comment_delivery(9206) | "action" => "deleted"},
-        repo: @repo
-      )
-
-      assert :miss = ResourceStore.fetch(key)
-    end
-
-    test "deleting a comment keeps the issue the same delivery carried" do
-      # The action belongs to the comment. Letting it reach the issue would throw
-      # away a cached issue body using a delivery that is holding a current one.
-      GithubWebhook.handle_delivery(
-        "issue_comment",
-        %{issue_comment_delivery(9207) | "action" => "deleted"},
-        repo: @repo
-      )
-
-      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9207))
-      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
-      assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
-    end
-
-    test "a deleted issue takes its label set with it" do
-      GithubWebhook.handle_delivery("issues", issues_delivery("labeled"), repo: @repo, reconcile_fun: fn _ -> :ok end)
-      assert {:ok, _entry} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
-
-      GithubWebhook.handle_delivery("issues", issues_delivery("deleted"), repo: @repo, reconcile_fun: fn _ -> :ok end)
-
-      # An issue body nothing holds beside a label set something does would be an
-      # entry that contradicts itself.
-      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
-      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
-    end
-
-    test "a dismissed review is deposited without claiming an unchanged version" do
-      GithubWebhook.handle_delivery("pull_request_review", review_delivery(9208), repo: @repo)
-
-      dismissed =
-        9208
-        |> review_delivery()
-        |> Map.put("action", "dismissed")
-        |> put_in(["review", "state"], "dismissed")
-
-      GithubWebhook.handle_delivery("pull_request_review", dismissed, repo: @repo)
-
-      # `submitted_at` does not move on a dismissal and a REST review has no
-      # `updated_at`, so filing the changed body under the submission marker
-      # would tell the next reader nothing had changed.
-      assert {:ok, %{data: %{"state" => "DISMISSED"}, version: nil}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review, @repo, 9208))
-    end
-
-    test "a body the store cannot hold is a miss, not a half-stored resource" do
-      # The store refuses a body past its size cap. A delivery is the one writer
-      # that cannot be retried, so the refusal must leave a clean miss the reader
-      # can act on rather than a truncated body it cannot detect.
-      huge = String.duplicate("x", 300 * 1024)
-
-      GithubWebhook.handle_delivery(
-        "issue_comment",
-        put_in(issue_comment_delivery(9209), ["comment", "body"], huge),
-        repo: @repo
-      )
-
-      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9209))
-      # The issue rode along on the same delivery and is well within the cap.
-      assert {:ok, _entry} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
-    end
-
-    test "a malformed or unsupported delivery deposits nothing and does not raise" do
-      assert %{status: :dropped} =
-               GithubWebhook.handle_delivery("issue_comment", %{"repository" => %{"full_name" => @repo}}, repo: @repo)
-
-      assert %{status: :error} =
-               GithubWebhook.handle_delivery(
-                 "issue_comment",
-                 %{"repository" => %{"full_name" => @repo}, "action" => "created"},
-                 repo: @repo
-               )
-
-      assert %{status: :dropped} =
-               GithubWebhook.handle_delivery("deployment_status", %{"repository" => %{"full_name" => @repo}}, repo: @repo)
-
-      assert ResourceStore.size() == 0
-    end
-  end
-
-  describe "ordering — a delayed delivery cannot walk a resource backwards" do
-    test "an older snapshot of the same issue is refused" do
-      # Two deliveries carry the issue: a label change, then a comment delivery
-      # that was delayed and is still holding the pre-change label set.
-      GithubWebhook.handle_delivery(
-        "issues",
-        put_in(issues_delivery("labeled"), ["issue", "updated_at"], "2026-06-24T13:00:00Z"),
-        repo: @repo,
-        reconcile_fun: fn _ -> :ok end
-      )
-
-      stale =
-        9801
-        |> issue_comment_delivery()
-        |> put_in(["issue", "updated_at"], "2026-06-24T09:00:00Z")
-        |> put_in(["issue", "labels"], [%{"name" => "agent:ci-wait"}])
-
-      GithubWebhook.handle_delivery("issue_comment", stale, repo: @repo)
-
-      # The newer state stands, and is still described by its own version.
-      assert {:ok, %{data: [%{"name" => "agent:in-progress"}], version: "2026-06-24T13:00:00Z"}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
-
-      # The comment the delayed delivery was actually about is still deposited:
-      # nothing older was held for it.
-      assert {:ok, %{data: %{"id" => 9801}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9801))
-    end
-
-    test "an equal version still writes, because the body may have changed under it" do
-      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9802, "first"), repo: @repo)
-
-      same_version =
-        9802
-        |> issue_comment_delivery("second")
-        |> Map.put("action", "edited")
-
-      GithubWebhook.handle_delivery("issue_comment", same_version, repo: @repo)
-
-      assert {:ok, %{data: %{"body" => "second"}}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9802))
-    end
-  end
-
-  describe "R5 — the deposit publishes the change" do
-    test "a subscribed view is woken by the delivery's deposit with no read of its own" do
-      key = ResourceStore.key_for_repo(:issue_comment, @repo, 9301)
-      :ok = ResourceStore.subscribe(key)
-
-      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9301), repo: @repo)
-
-      assert_receive {:github_resource_changed, %{key: ^key}}, 1_000
-    end
-
-    test "a whole-type subscriber is woken for the issue the delivery carried" do
-      :ok = ResourceStore.subscribe_type(:issue)
-
-      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9302), repo: @repo)
-
-      assert_receive {:github_resource_changed, %{key: {:issue, "owner", "repo", "42"}}}, 1_000
-    end
-  end
-
-  describe "KTD5 — a deposit never advances a suppression mark" do
-    test "the deposited body is held without marking the resource processed" do
-      key = ResourceStore.key_for_repo(:issue_comment, @repo, 9401)
-
-      # The publish is stubbed out so only the deposit runs. This is the
-      # delivery of a comment nothing has handled yet.
-      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9401),
-        repo: @repo,
-        publish_fun: fn _topic, _payload, _opts -> :filtered end
-      )
-
-      # The body is held...
-      assert {:ok, %{data: %{"id" => 9401}}} = ResourceStore.fetch(key)
-      # ...and the resource is still unprocessed, at its own version and at any
-      # other. A mark here would let the sweep skip a comment nothing handled.
-      refute ResourceStore.processed?(key, "2026-06-24T12:00:00Z")
-      refute ResourceStore.processed?(key, nil)
-    end
-
-    test "an older sibling stays recoverable after a newer one was delivered" do
-      # The hazard a timestamp watermark has and identity-plus-version does not:
-      # 9403 was delivered, 9402 was lost, and the sweep must still find 9402.
-      :ok = Exchange.subscribe(@topic)
-
-      assert %{status: :published} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9403, "newer"), repo: @repo)
-
-      assert %{comment: %{"id" => 9403}} = await_event(@topic)
-
-      {_calls, result} =
-        sweep([
-          comment(9402, "older, lost", "2026-06-24T11:30:00Z"),
-          comment(9403, "newer", "2026-06-24T12:00:00Z")
-        ])
-
-      assert {:ok, %{count: 1}} = result
-      assert %{comment: %{"id" => 9402}} = await_event(@topic)
-    end
-  end
-
-  describe "A8 — an edited resource is not suppressed" do
-    test "an edit replaces the body and republishes at the new version" do
-      :ok = Exchange.subscribe(@topic)
-      key = ResourceStore.key_for_repo(:issue_comment, @repo, 9501)
-
-      assert %{status: :published} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9501, "first"), repo: @repo)
-
-      assert %{comment: %{"body" => "first"}} = await_event(@topic)
-      assert ResourceStore.processed?(key, "2026-06-24T12:00:00Z")
-
-      edited =
-        9501
-        |> issue_comment_delivery("corrected")
-        |> Map.put("action", "edited")
-        |> put_in(["comment", "updated_at"], "2026-06-24T14:00:00Z")
-
-      # Only the durable store is under test here. The in-memory replay window
-      # keys on the comment id alone, so it would suppress the edit whatever the
-      # store said — and it empties on every daemon restart, which is the state
-      # this asserts against.
-      clear_dedup()
-
-      assert %{status: :published} = GithubWebhook.handle_delivery("issue_comment", edited, repo: @repo)
-
-      # The event fired again — the changed `updated_at` invalidated the mark.
-      assert %{comment: %{"body" => "corrected"}} = await_event(@topic)
-      # And the store now serves the edited body, at the edited version.
-      assert {:ok, %{data: %{"body" => "corrected"}, version: "2026-06-24T14:00:00Z"}} = ResourceStore.fetch(key)
-    end
-  end
-
-  # KTD4, guarded rather than introduced here: the sweep this exercises is the
-  # existing comment poller, and these cases assert the deposit did not change
-  # what it recovers. They would pass against an implementation that deposited
-  # nothing, which is the point — that is the behavior the deposit must preserve.
-  describe "A6 — a lost delivery is still recovered by the sweep" do
-    test "a comment whose delivery never arrived is published by the sweep, which still reads" do
-      :ok = Exchange.subscribe(@topic)
-
-      {calls, result} = sweep([comment(9601, "the 502'd one")])
-
-      # KTD4: the store is a cache with reconciliation. The sweep is not
-      # conditional on webhook transport, so a lost delivery costs a read and
-      # loses nothing.
-      assert length(calls) == 1
-      assert {:ok, %{count: 1}} = result
-      assert %{comment: %{"id" => 9601}} = await_event(@topic)
-    end
-
-    test "a delivery-populated entry does not stop the sweep from reading" do
-      :ok = Exchange.subscribe(@topic)
-
-      assert %{status: :published} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9602), repo: @repo)
-
-      assert %{comment: %{"id" => 9602}} = await_event(@topic)
-
-      {calls, result} = sweep([comment(9602, "review this"), comment(9603, "lost sibling")])
-
-      # The read still happens — that is what makes recovery possible at all —
-      # the delivered comment is not published twice, and the sibling nobody
-      # delivered is recovered.
-      assert length(calls) == 1
-      assert {:ok, %{count: 1}} = result
-      assert %{comment: %{"id" => 9603}} = await_event(@topic)
-      refute_event(@topic)
-    end
-  end
-
-  describe "the bot self-loop stays suppressed" do
-    test "a delivery for Aiur's own comment caches the body and wakes nobody" do
-      :ok = Exchange.subscribe(@topic)
-      key = ResourceStore.key_for_repo(:issue_comment, @repo, 9701)
-
-      delivery = issue_comment_delivery(9701, "posted by the fleet", @bot)
-
-      # No publish: the actor is the configured `bot_account`.
-      assert %{status: :published, published: []} = GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
-
-      refute_event(@topic)
-
-      # The body is cached, because a change Aiur made is exactly the change it
-      # should never have to read back...
-      assert {:ok, %{data: %{"body" => "posted by the fleet"}}} = ResourceStore.fetch(key)
-
-      # ...and the deposit did not mark it processed, so the filter — not the
-      # store — is still what suppresses the self-loop.
-      refute ResourceStore.processed?(key, "2026-06-24T12:00:00Z")
-    end
-
-    # Guards the surrounding filter, not the deposit: a deposit that started
-    # marking resources processed would still leave this passing, which is why
-    # the `refute processed?` assertion above is the one that pins the invariant.
-    test "the self-loop stays filtered on redelivery of the same comment" do
-      :ok = Exchange.subscribe(@topic)
-      delivery = issue_comment_delivery(9702, "posted by the fleet", @bot)
-
-      assert %{status: :published, published: []} = GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
-      assert %{status: :published, published: []} = GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
-
-      refute_event(@topic)
-    end
-  end
-
-  # -- helpers ---------------------------------------------------------------
-
-  # The read-through a consumer performs: consult the store, and call the fetcher
-  # only on a miss. The fetcher stands in for the upstream read — every
-  # invocation of it is one request the consumer had to pay for — so the count it
-  # returns is the number of upstream calls serving this resource cost.
-  # Goes through the real read-before-spend path rather than a `case` the test
-  # wrote for itself. That distinction is the whole assertion: counting a
-  # test-local closure only ever proves `ResourceStore.fetch/1` did not miss,
-  # whereas `ResourceFetch.need/3`'s fetcher is the one seam an upstream request
-  # would actually leave through — so a zero here is a zero on the rate limit.
   # Derived by driving real deliveries through `Deposit.deposit/3` and reading
   # back the keys it reports writing, rather than by restating a list. A list
   # would agree with the table by construction and prove nothing.
@@ -1192,7 +304,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # 200 writes. Seed that baseline so the fixture's merge lands and the table
   # keeps proving the two pipes share a key.
   defp seed_for_fixture(:issue_dependencies_delivery) do
-    key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
+    number = ticket_number()
+    key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, number)
     ResourceStore.put_resource(key, [], source: :fetch, etag: ~s("baseline"))
     :ok
   end
@@ -1203,7 +316,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # every construction site outside the writers. Scanning the source is the only
   # way to assert the absence of a reader: a runtime check can only see the
   # readers that happen to run.
-  @writer_files ~w(deposit.ex write_through.ex normalizer.ex resource_store.ex resource_events.ex)
+  @writer_files ~w(deposit.ex store_write.ex triples.ex write_through.ex normalizer.ex resource_store.ex resource_events.ex)
   @lib_root Path.expand("../../../../lib", __DIR__)
 
   defp reader_sites(type) do
@@ -1218,313 +331,30 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     |> Enum.sort()
   end
 
-  defp read_through(key) do
-    {:ok, counter} = Agent.start_link(fn -> 0 end)
+  test "a webhook replacement retains same-head queued PR facts from the sweep poll" do
+    pr = pull_request()
 
-    fetcher = fn _opts ->
-      Agent.update(counter, &(&1 + 1))
-      {:ok, :fetched_from_github}
-    end
+    assert :ok =
+             PollSnapshots.put_executor_sweep_pr(@repo, ticket_number(), %{
+               "number" => pr["number"],
+               "state" => "open",
+               "head" => pr["head"],
+               "review_decision" => "APPROVED",
+               "approved_head_sha" => pr["head"]["sha"],
+               "mergeQueueEntry" => %{"id" => "queued-entry"},
+               "autoMergeRequest" => nil,
+               "updated_at" => pr["updated_at"]
+             })
 
-    {:ok, body, meta} = ResourceFetch.need(key, fetcher, freshness: :any)
+    assert %{status: :published} = GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
 
-    calls = Agent.get(counter, & &1)
-    Agent.stop(counter)
+    key = ResourceStore.key_for_repo(:branch_pull_request, @repo, ticket_number())
+    assert {:ok, %{data: cached}} = ResourceStore.fetch(key)
+    assert cached["mergeQueueEntry"] == %{"id" => "queued-entry"}
+    assert cached["autoMergeRequest"] == nil
 
-    # `spent?` and the call count are two independent witnesses of the same
-    # fact; they must never disagree.
-    assert meta.spent? == calls > 0
-
-    {calls, body}
-  end
-
-  # One comment-poll cycle against a recording request stub, returning
-  # {requests, result} exactly as the reconciliation suite does, so a request
-  # count here means the same thing it means there.
-  defp sweep(comments) do
-    {:ok, recorder} = Agent.start_link(fn -> [] end)
-
-    request_fun = fn request ->
-      Agent.update(recorder, &(&1 ++ [request]))
-      {:ok, %{status: 200, body: comments, headers: [{"etag", ~s("v1")}]}}
-    end
-
-    result =
-      GithubCommentsPoller.poll(["42"],
-        since: "2026-06-24T11:00:00Z",
-        repo: @repo,
-        request_fun: request_fun,
-        comment_batch: %{"42" => %{open_pull_request: nil}}
-      )
-
-    calls = Agent.get(recorder, & &1)
-    Agent.stop(recorder)
-
-    {calls, result}
-  end
-
-  defp issue_comment_delivery(id, body \\ "review this", author \\ @human) do
-    %{
-      "action" => "created",
-      "repository" => %{"full_name" => @repo},
-      "issue" => issue(),
-      "comment" => comment(id, body, "2026-06-24T12:00:00Z", author),
-      "sender" => %{"login" => author}
-    }
-  end
-
-  defp issues_delivery(action) do
-    %{
-      "action" => action,
-      "repository" => %{"full_name" => @repo},
-      "issue" => issue(),
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp review_comment_delivery(id) do
-    %{
-      "action" => "created",
-      "repository" => %{"full_name" => @repo},
-      "pull_request" => pull_request(),
-      "comment" => comment(id, "inline note", "2026-06-24T12:00:00Z", @human),
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp review_delivery(id) do
-    %{
-      "action" => "submitted",
-      "repository" => %{"full_name" => @repo},
-      "pull_request" => pull_request(),
-      "review" => %{
-        "id" => id,
-        "state" => "changes_requested",
-        "body" => "needs work",
-        "submitted_at" => "2026-06-24T12:30:00Z",
-        "user" => %{"login" => @human}
-      },
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp pull_request_delivery do
-    %{
-      "action" => "opened",
-      "repository" => %{"full_name" => @repo},
-      "pull_request" => pull_request(),
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp sub_issue_added_delivery do
-    %{
-      "action" => "sub_issue_added",
-      "repository" => %{"full_name" => @repo},
-      "parent_issue_id" => "IS_parent",
-      "sub_issue_id" => "IS_sub_1",
-      "parent_issue_number" => 42,
-      "parent_issue_repo" => @repo,
-      "sub_issue_number" => 21,
-      "sub_issue_repo" => @repo,
-      "sub_issue" => %{
-        "node_id" => "IS_sub_1",
-        "number" => 21,
-        "title" => "a sub-issue",
-        "state" => "open",
-        "updated_at" => "2026-06-24T13:00:00Z"
-      },
-      "parent_issue" => %{
-        "node_id" => "IS_parent",
-        "number" => 42,
-        "title" => "a build order root",
-        "state" => "open",
-        "updated_at" => "2026-06-24T12:00:00Z"
-      },
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  # GitHub's `pull_request_review_thread` delivery (resolved/unresolved) carries
-  # the thread and a full pull request; only the PR half is deposited.
-  defp pull_request_review_thread_delivery do
-    %{
-      "action" => "resolved",
-      "repository" => %{"full_name" => @repo},
-      "thread" => %{"id" => "PRRT_kwDOTHREAD1"},
-      "pull_request" => pull_request(),
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp sub_issue_removed_delivery do
-    %{
-      "action" => "sub_issue_removed",
-      "repository" => %{"full_name" => @repo},
-      "parent_issue_id" => "IS_parent",
-      "sub_issue_id" => "IS_sub_1",
-      "parent_issue_number" => 42,
-      "parent_issue_repo" => @repo,
-      "sub_issue_number" => 21,
-      "sub_issue_repo" => @repo,
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp dependency_created_delivery do
-    %{
-      "action" => "blocked_by_added",
-      "repository" => %{"full_name" => @repo},
-      "blocked_issue_number" => 42,
-      "blocked_issue_repo" => @repo,
-      "blocking_issue_number" => 99,
-      "blocking_issue_repo" => @repo,
-      "dependency" => %{
-        "dependency_id" => "DI_1",
-        "dependant_id" => "IS_parent",
-        "dependency" => %{
-          "node_id" => "IS_99",
-          "number" => 99,
-          "title" => "a blocker",
-          "state" => "open",
-          "updated_at" => "2026-06-24T13:30:00Z"
-        },
-        "dependant" => %{
-          "node_id" => "IS_parent",
-          "number" => 42,
-          "title" => "a build order root",
-          "state" => "open",
-          "updated_at" => "2026-06-24T12:00:00Z"
-        }
-      },
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  # GitHub's `sub_issues` delivery carries the full sub-issue and parent issue,
-  # plus the top-level edge facts (`parent_issue_number`/`sub_issue_number`)
-  # the #2313 edge deposit keys the `:sub_issue` entry by.
-  defp sub_issues_delivery do
-    %{
-      "action" => "created",
-      "repository" => %{"full_name" => @repo},
-      "sub_issue" => %{issue() | "number" => 41, "updated_at" => "2026-06-24T10:30:00Z"},
-      "parent_issue" => issue(),
-      "parent_issue_id" => "DI_parent_42",
-      "parent_issue_number" => 42,
-      "parent_issue_repo" => @repo,
-      "sub_issue_id" => "DI_sub_41",
-      "sub_issue_number" => 41,
-      "sub_issue_repo" => @repo,
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp dependency_removed_delivery do
-    %{
-      "action" => "blocked_by_removed",
-      "repository" => %{"full_name" => @repo},
-      "blocked_issue_number" => 42,
-      "blocked_issue_repo" => @repo,
-      "blocking_issue_number" => 99,
-      "blocking_issue_repo" => @repo,
-      "dependency" => %{"dependency_id" => "DI_1"},
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  # GitHub's `issue_dependencies` delivery carries the issue whose dependency
-  # edge changed, plus the blocker edge, and the action tells the direction. The
-  # top-level `blocked_issue_number`/`blocking_issue_number` edge facts are what
-  # the #2313 edge deposit keys the `:issue_dependency` entry by.
-  defp issue_dependencies_delivery do
-    %{
-      "action" => "blocked_by_added",
-      "repository" => %{"full_name" => @repo},
-      "issue" => issue(),
-      "blocked_by_issue" => %{"id" => 80_001, "number" => 80, "updated_at" => "2026-06-24T10:00:00Z"},
-      "blocked_issue_id" => "DI_blocked_42",
-      "blocked_issue_number" => 42,
-      "blocked_issue_repo" => @repo,
-      "blocking_issue_id" => "DI_blocker_80",
-      "blocking_issue_number" => 80,
-      "blocking_issue_repo" => @repo,
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp issue do
-    %{
-      "number" => 42,
-      "title" => "a ticket",
-      "body" => "the ask",
-      "state" => "open",
-      "updated_at" => "2026-06-24T11:00:00Z",
-      "labels" => [%{"name" => "agent:in-progress"}]
-    }
-  end
-
-  defp pull_request do
-    %{
-      "number" => 77,
-      "state" => "open",
-      "updated_at" => "2026-06-24T11:30:00Z",
-      "head" => %{"ref" => "aiur/42-a-ticket", "sha" => "abc123"}
-    }
-  end
-
-  defp comment(id, body, updated_at \\ "2026-06-24T12:00:00Z", author \\ @human) do
-    %{
-      "id" => id,
-      "body" => body,
-      "created_at" => updated_at,
-      "updated_at" => updated_at,
-      "html_url" => "https://example.test/comments/#{id}",
-      "user" => %{"login" => author}
-    }
-  end
-
-  defp await_event(topic) do
-    receive do
-      {:event, %{topic: ^topic} = event} -> event
-    after
-      1_000 -> flunk("no event published on #{topic}")
-    end
-  end
-
-  defp refute_event(topic) do
-    receive do
-      {:event, %{topic: ^topic} = event} -> flunk("unexpected publish on #{topic}: #{inspect(event)}")
-    after
-      200 -> :ok
-    end
-  end
-
-  # Restarts the store against a real checkpoint file: with no resolvable state
-  # directory it runs in memory, which would make a restart trivially pass
-  # nothing rather than prove the round trip.
-  defp restart_store!(path) do
-    pid = Process.whereis(ResourceStore)
-    ref = Process.monitor(pid)
-    Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
-
-    receive do
-      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-    after
-      5_000 -> flunk("ResourceStore did not stop")
-    end
-
-    Application.put_env(:aiur, :github_resource_store_path, path)
-    {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
-    :ok
-  end
-
-  defp clear_dedup do
-    case :ets.whereis(@dedup_table) do
-      :undefined -> :ok
-      _table -> :ets.delete_all_objects(@dedup_table)
-    end
-
-    :ok
+    snapshot = SnapshotCache.build([], [], [], %{}, %{}, [{ticket_number(), cached}])
+    assert [%{landing_state_known?: true, in_merge_queue: true, auto_merge: false}] = snapshot.pull_requests
+    refute Enum.any?(Checks.all(snapshot, ~U[2026-10-18 14:00:00Z]), &(&1.kind == "approved_pr_not_landing"))
   end
 end

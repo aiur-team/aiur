@@ -8,7 +8,7 @@ defmodule Aiur.CIApprovalStoreTest do
   alias Aiur.JsonStore
 
   setup do
-    root = Path.join(System.tmp_dir!(), "ci-approval-store-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ci-approval-store")
     keys = [:log_file, :decision_state_dir, :ci_approval_store_path]
     previous = Map.new(keys, &{&1, Application.fetch_env(:aiur, &1)})
 
@@ -21,7 +21,7 @@ defmodule Aiur.CIApprovalStoreTest do
         {key, :error} -> Application.delete_env(:aiur, key)
       end)
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     %{logs_parent: Path.join(root, "logs"), state_dir: Path.join(root, "state")}
@@ -53,7 +53,7 @@ defmodule Aiur.CIApprovalStoreTest do
        %{logs_parent: logs_parent, state_dir: state_dir} do
     launch(logs_parent, "20260917T160044Z-1")
 
-    assert :ok = CIApprovalStore.save(%{"101" => "approved-sha"}, %{"102" => "flaky-sha"})
+    assert :ok = CIApprovalStore.save(%{"101" => "approved-sha"}, %{"102" => "flaky-sha"}, %{}, %{"101" => "approved-sha"})
 
     assert :ok =
              CIApprovalStore.journal_base_repair("103", %{
@@ -68,6 +68,7 @@ defmodule Aiur.CIApprovalStoreTest do
 
     assert %{
              approved_heads: %{"101" => "approved-sha"},
+             passed_heads: %{"101" => "approved-sha"},
              test_failure_heads: %{"102" => "flaky-sha"},
              base_repair_invalidations: %{
                "103" => %{head_sha: "repair-sha", repaired_at: 1_700_000_000, repair_state: :repairing}

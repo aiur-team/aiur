@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.TicketDetail.DestinationNormalizer do
   @moduledoc false
 
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Bounded
   alias Aiur.BuildOrder.TicketDetail.{Destinations, Failure, IssueDestination, PullRequestDestination}
   alias Aiur.TrackerIdentity
 

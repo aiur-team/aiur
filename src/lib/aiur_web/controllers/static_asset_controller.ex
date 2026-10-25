@@ -26,6 +26,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec streamdeck_emulator_hook(Conn.t(), map()) :: Conn.t()
   def streamdeck_emulator_hook(conn, _params), do: serve(conn, "/streamdeck-emulator-hook.js", revalidate?: true)
 
+  @spec streamdeck_emulator_knob(Conn.t(), map()) :: Conn.t()
+  def streamdeck_emulator_knob(conn, _params), do: serve(conn, "/streamdeck-emulator-knob.js", revalidate?: true)
+
   @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
   def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)
 
@@ -47,9 +50,6 @@ defmodule AiurWeb.StaticAssetController do
 
   def provider_asset(conn, %{"provider_asset" => asset}) when is_binary(asset),
     do: serve(conn, "/provider-assets/" <> asset, revalidate?: true)
-
-  @spec bungee_font(Conn.t(), map()) :: Conn.t()
-  def bungee_font(conn, _params), do: serve(conn, "/bungee.woff2")
 
   @spec phoenix_html_js(Conn.t(), map()) :: Conn.t()
   def phoenix_html_js(conn, _params), do: serve(conn, "/vendor/phoenix_html/phoenix_html.js")

@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
 
   use Phoenix.Component
 
+  alias Aiur.Conversation.History
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
@@ -24,10 +25,10 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             <h2 id="agent-log-title">{@modal.issue_identifier}</h2>
           </div>
           <div class="modal-actions">
-            <button type="button" class="tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn live-button" data-agent-log-live data-live="true" aria-pressed="true">
               <span class="status-badge-dot"></span>Live
             </button>
-            <button type="button" class="tool-btn" phx-click="close-agent-log">Close</button>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click="close-agent-log">Close</button>
           </div>
         </header>
 
@@ -51,8 +52,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
             enterkeyhint="send"
           >{@drafts[@modal.target_key] || ""}</textarea>
           <div class="agent-chat-actions">
-            <button class="btn danger" type="button" phx-click="pause-agent">Pause</button>
-            <button class="btn" type="submit">Send</button>
+            <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="button" phx-click="pause-agent">Pause</button>
+            <button class="aiur-button aiur-button--dashboard btn" type="submit">Send</button>
           </div>
         </form>
 
@@ -96,16 +97,18 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   end
 
   def build(entry, payload) do
-    %{path: path, messages: messages} = read_agent_log(entry)
+    Map.merge(composer(entry, payload), read_agent_log(entry))
+  end
+
+  @spec composer(map(), map() | nil) :: map()
+  def composer(entry, payload) do
     identity = Map.get(entry, :tracker_identity)
 
     %{
       issue_identifier: entry.issue_identifier,
       tracker_identity: identity,
       target_key: target_key(identity, entry.issue_identifier),
-      writable_target?: unique_identifier?(payload, entry.issue_identifier),
-      path: path,
-      messages: messages
+      writable_target?: unique_running_target?(payload, entry.issue_identifier)
     }
   end
 
@@ -141,25 +144,26 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   def format_error({:not_queued, :timeout}), do: "Send timed out and was not queued."
   def format_error(:unavailable), do: "Orchestrator unavailable."
   def format_error(:ambiguous_identifier), do: "Agent actions require a unique typed target."
-  def format_error(:globally_paused), do: "Aiur is globally paused; per-ticket control has no effect. Resume Aiur globally first."
+  def format_error(:globally_paused), do: "New starts are paused; per-ticket resume is unavailable until new starts resume. You can still pause a running agent for containment."
+  def format_error(:max_concurrent_agents_reached), do: "No free agent slot, so the agent stays paused. Try again when a slot frees."
   def format_error(reason), do: inspect(reason)
 
   defp refresh_from_path(%{path: path} = modal) when is_binary(path) do
-    %{modal | messages: path |> Aiur.AgentLog.read() |> Aiur.AgentLog.parse()}
+    %{modal | messages: path |> History.read_log() |> History.parse_log()}
   end
 
   defp refresh_from_path(modal), do: modal
 
   defp read_agent_log(%{workspace_path: workspace_path}) when is_binary(workspace_path) do
-    Aiur.AgentLog.read_workspace(workspace_path)
+    History.workspace_log(workspace_path)
   end
 
   defp read_agent_log(entry) do
     path = agent_log_path(entry)
-    %{path: path, messages: path |> Aiur.AgentLog.read() |> Aiur.AgentLog.parse()}
+    %{path: path, messages: path |> History.read_log() |> History.parse_log()}
   end
 
-  defp agent_log_path(%{workspace_path: workspace_path}), do: Aiur.AgentLog.workspace_log_path(workspace_path)
+  defp agent_log_path(%{workspace_path: workspace_path}), do: History.workspace_log_path(workspace_path)
   defp agent_log_path(_entry), do: nil
   defp writable_target?(%{writable_target?: true}), do: true
   defp writable_target?(_modal), do: false
@@ -170,12 +174,19 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
 
   defp target_key(_identity, issue_identifier), do: to_string(issue_identifier)
 
-  defp unique_identifier?(nil, _identifier), do: true
+  @doc """
+  True when exactly one running entry carries `identifier`, so a typed or
+  dictated message cannot reach the wrong agent. A `nil` payload is the
+  composer's not-yet-loaded state and stays writable.
+  """
+  @spec unique_running_target?(map() | nil, term()) :: boolean()
+  def unique_running_target?(nil, _identifier), do: true
 
-  defp unique_identifier?(%{fleet: %{running: running}}, identifier) when is_list(running) do
+  def unique_running_target?(%{fleet: %{running: running}}, identifier) when is_list(running) do
     Enum.count(running, &(to_string(Map.get(&1, :issue_identifier)) == to_string(identifier))) == 1
   end
 
-  defp unique_identifier?(_payload, _identifier), do: false
+  def unique_running_target?(_payload, _identifier), do: false
+
   defp log_message_class(%{role: role}), do: "log-message log-message-#{role}"
 end

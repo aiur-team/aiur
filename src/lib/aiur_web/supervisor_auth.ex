@@ -12,7 +12,7 @@ defmodule AiurWeb.SupervisorAuth do
 
   import Plug.Conn
 
-  alias Aiur.SupervisorToken
+  alias Aiur.Commands
 
   @token_env "AIUR_SUPERVISOR_TOKEN"
   @actor %{kind: :supervisor, id: "supervising-agent"}
@@ -26,7 +26,7 @@ defmodule AiurWeb.SupervisorAuth do
 
   @impl Plug
   def call(conn, _opts) do
-    case SupervisorToken.classify(System.get_env(@token_env)) do
+    case Commands.classify_supervisor_token(System.get_env(@token_env)) do
       {:ok, configured_token} -> authenticate(conn, configured_token)
       :missing -> unauthorized(conn, @unconfigured_body)
       :invalid -> unauthorized(conn, @unconfigured_body)
@@ -69,7 +69,7 @@ defmodule AiurWeb.SupervisorAuth do
   end
 
   defp normalize_token(token) do
-    case SupervisorToken.classify(token) do
+    case Commands.classify_supervisor_token(token) do
       {:ok, valid_token} -> {:ok, valid_token}
       _missing_or_invalid -> :error
     end

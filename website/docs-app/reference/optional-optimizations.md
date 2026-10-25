@@ -10,7 +10,7 @@ Everything below this section is optional. A local run needs only:
 
 | Requirement | How you satisfy it |
 | --- | --- |
-| A GitHub credential | `gh auth login` once. The boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
+| Local GitHub daemon auth | `gh auth login` once. The local boot gate can use the `gh` keyring when App credentials and `GITHUB_TOKEN` are absent. Hosted/container daemon auth requires a GitHub App unless `AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. |
 | tmux | The launcher runs each daemon in its own detached tmux session. |
 | A tracker repository | The repo you point `aiur init` at, with issues carrying `agent:todo`. |
 
@@ -24,11 +24,11 @@ A personal access token shares the operator account's rate-limit budget and make
 
 ### When you want it
 
-You run a long-lived daemon, poll heavily enough to feel PAT rate limits, or want the daemon's API writes attributed to a bot (`<app-slug>[bot]`) instead of your personal account. Budget and credential-pooling details are in [API budgets](/apis/github#api-budgets).
+You run a long-lived daemon, poll heavily enough to feel PAT rate limits, or want the daemon's API writes attributed to a bot (`<app-slug>[bot]`) instead of your personal account. Budget and credential-pooling details are in [API budgets](/apis/github-budgets#api-budgets).
 
 ### Configuration
 
-Set three environment variables and one config key; the full setup (permissions, token lifecycle) is in [GitHub App authentication](/apis/github#github-app-authentication).
+Set three environment variables and one config key; the full setup (permissions, token lifecycle) is in [GitHub App authentication](/apis/github-auth#github-app-authentication).
 
 | Variable | Purpose |
 | --- | --- |
@@ -55,7 +55,7 @@ Poll latency. By default the daemon reconciles GitHub state on a poll cadence, s
 
 You want events to arrive immediately and to save the poll spend that would buy them. Base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s.
 
-The daemon read-cache TTL rises from 30s to one hour on a proven repo for comment and issue reads; repository-configuration reads (`:repo_config`) rise from five minutes to one hour — see [Optional webhook](/apis/github#optional-webhook).
+The daemon read-cache TTL rises from 30s to one hour on a proven repo for comment and issue reads; repository-configuration reads (`:repo_config`) rise from five minutes to one hour — see [Optional webhook](/apis/github-webhooks#optional-webhook).
 
 ### Configuration
 
@@ -74,11 +74,11 @@ The daemon read-cache TTL rises from 30s to one hour on a proven repo for commen
        - owner/repo
    ```
 
-3. Pin `server.port` to a fixed value, then point the tunnel at whatever address the daemon actually bound — `127.0.0.1` on that port by default, or the `server.host` address if you pinned one. The default `server.port: 0` binds a fresh OS port every boot, so a tunnel aimed at a guessed port finds nothing; and an origin the daemon is not listening on (loopback or otherwise) returns `502`. Serve only `/api/v1/github/webhook` and finish the ingress list with a catch-all `404`; the same origin serves the operator dashboard, and a host-wide tunnel would expose it. See [Cloudflare tunnel boundary](/apis/github#cloudflare-tunnel-boundary).
+3. Pin `server.port` to a fixed value, then point the tunnel at whatever address the daemon actually bound — `127.0.0.1` on that port by default, or the `server.host` address if you pinned one. The default `server.port: 0` binds a fresh OS port every boot, so a tunnel aimed at a guessed port finds nothing; and an origin the daemon is not listening on (loopback or otherwise) returns `502`. Serve only `/api/v1/github/webhook` and finish the ingress list with a catch-all `404`; the same origin serves the operator dashboard, and a host-wide tunnel would expose it. See [Cloudflare tunnel boundary](/apis/github-auth#cloudflare-tunnel-boundary).
 
 4. Give the tunnel a public hostname you control and set GitHub's webhook payload URL to `https://<your-host>/api/v1/github/webhook` (`hooks.aiur.dev` is one operator's choice, not a requirement). Without a domain, `cloudflared tunnel --url` (quick tunnels) exposes the daemon on a temporary public URL — fine for a single session, gone when the process exits.
 
-Without public ingress, polling is the default mode and degrades cleanly: a repo that is configured but never delivers keeps polling at the full interval, and a repo that goes silent returns to full polling and raises an attention. Delivery states are in [Optional webhook](/apis/github#optional-webhook).
+Without public ingress, polling is the default mode and degrades cleanly: a repo that is configured but never delivers keeps polling at the full interval, and a repo that goes silent returns to full polling and raises an attention. Delivery states are in [Optional webhook](/apis/github-webhooks#optional-webhook).
 
 ## Tailscale
 
@@ -101,6 +101,14 @@ server:
 
 The dashboard must also have credentials before it is usable — see the next section. See [server](/reference/configuration#server) for the full key.
 
+### What it does not do
+
+Tailscale decides who can *reach* the dashboard and encrypts the path.
+
+It never decides who is *allowed in*: every route still requires dashboard credentials, the supervisor token, or a webhook signature, whatever address the dashboard binds.
+
+Beyond loopback, without a tailnet, Basic Auth crosses the network in cleartext.
+
 ## Dashboard authentication
 
 ### Bottleneck it solves
@@ -109,11 +117,15 @@ Not an optimization but a gate, and it belongs here because omitting it silently
 
 ### The symptom
 
-With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback listener binds but no dashboard page is usable — a writable dashboard (the default) challenges every request with basic auth, a read-only one refuses with `503` naming both variables. Beyond loopback the listener refuses to start at all.
+With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback listener binds but no dashboard page is usable — a writable dashboard (the default) challenges every request with basic auth, a read-only one refuses with `503` naming both variables.
+
+Beyond loopback the dashboard listener is disabled; agents keep running.
 
 ### The `observability.dashboard_writable` interaction
 
-`dashboard_writable` (default `true`) authorizes the dashboard's write controls; it is not authentication. Either way, the two credentials are required to view the dashboard: a loopback listener binds without them but fails closed; beyond loopback it refuses to start. See [observability](/reference/configuration#observability).
+`dashboard_writable` defaults to `true` and authorizes the dashboard's write controls; set it to `false` to disable them. It is not authentication.
+
+Both credentials are still required to view the dashboard. A loopback listener binds without them but fails closed; beyond loopback the dashboard listener is disabled and agents keep running. See [observability](/reference/configuration#observability).
 
 ### Configuration
 
@@ -123,6 +135,12 @@ export AIUR_DASHBOARD_PASSWORD=<secret>
 ```
 
 With both set, the dashboard requires Basic Auth on every request, writable or not.
+
+### Transport
+
+Aiur serves the dashboard over plain HTTP and never terminates TLS. Off the machine, encryption is the network's job — a tailnet encrypts the path; a LAN does not.
+
+Browsers allow the microphone only on HTTPS or `localhost`, so dashboard dictation is disabled on a plain-HTTP address beyond loopback.
 
 ## Stream Deck
 
@@ -154,7 +172,7 @@ The "codex → claude" pairing is the automatic rate-limit reroute, not the defa
 
 ### Configuration
 
-Set `agent.priority` in `.aiur/config` and provide the matching provider keys via `agent.backend_configs.<backend>.api_key_env`. See [agent](/reference/configuration#agent) for the full key.
+Set `agent.priority` in `.aiur/config` and provide the matching provider keys via `agent.backend_configs.<backend>.api_key_env`. See [agent](/reference/configuration-agent#agent) for the full key.
 
 ## What you lose by skipping everything
 
@@ -164,7 +182,7 @@ Set `agent.priority` in `.aiur/config` and provide the matching provider keys vi
 | Webhook ingress and tunnel | Up to 120s event latency | Polling is the default fallback |
 | Custom webhook hostname / domain | A quick tunnel, or polling at the full interval | Webhooks with any hostname you control; polling fallback |
 | Budget broker (`python3`) | GitHub requests run unmetered, with no shared admission budget | All dispatch, GitHub requests, polling |
-| Tailscale | Dashboard reachable only on the machine | Local dashboard, CLI, TUI |
+| Tailscale | No tailnet path or encryption | Local dashboard, CLI, TUI; explicit dashboard binds on other networks |
 | Dashboard credentials | No usable dashboard (every request refused) | CLI and TUI |
 | Stream Deck | Browser emulator instead of physical keys | Dashboard controls |
 | Model routing and provider keys | codex default (codex → claude rate-limit reroute) | Agent dispatch |

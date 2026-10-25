@@ -20,7 +20,7 @@ defmodule Aiur.CurrentRunProjections.Checkpoint do
     :outcome_lkg,
     :weight_facts
   ]
-  @canonical_fields [:membership_index, :restore_fence_pending? | @fields]
+  @canonical_fields [:input_fingerprint, :membership_index, :restore_fence_pending? | @fields]
   @max_fallback_entries 1_000
 
   @spec restore(map(), term()) :: map()
