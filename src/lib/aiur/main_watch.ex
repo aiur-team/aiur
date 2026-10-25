@@ -4,7 +4,7 @@ defmodule Aiur.MainWatch do
   require Logger
   alias Aiur.Config
   alias Aiur.Events
-  alias Aiur.GitHub.{Budget, ResourceStore, Transport}
+  alias Aiur.GitHub.{Budget, MergeQueue, ResourceStore, Transport}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
@@ -62,6 +62,7 @@ defmodule Aiur.MainWatch do
       |> Map.put(:watcher, watcher)
       |> Map.put(:last_error, Map.get(server.data, :last_error))
       |> Map.put(:merge_groups, Map.get(server.data, :merge_groups, []))
+      |> Map.put(:runner_starvation, runner_starvation(server.data.merge_groups, now_ms(server)))
 
     {:reply, state, server}
   end
@@ -71,6 +72,19 @@ defmodule Aiur.MainWatch do
     state = State.record_history(server.data.state, %{checks: [], completed_at: nil}, now)
     {:reply, State.inherited?(state, check, base, server.data.commits), server}
   end
+
+  defp runner_starvation(groups, now_ms) when is_list(groups) do
+    groups
+    |> MergeQueue.runner_starvation(now_ms)
+    |> case do
+      nil -> nil
+      diagnosis -> Map.take(diagnosis, [:queued_runs, :running_runs, :status_url])
+    end
+  end
+
+  defp runner_starvation(_groups, _now_ms), do: nil
+
+  defp now_ms(server), do: Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
 
   @impl true
   def handle_cast(:reconcile, server), do: {:noreply, schedule_reconcile(server)}
