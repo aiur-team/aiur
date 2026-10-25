@@ -25,7 +25,7 @@ sweep_stale_tmp_artifacts() { :; }
 cleanup_test_launch_private_state() { :; }
 release_aiur_launch_lock() { :; }
 aiur_instance_record_path() { printf /nonexistent/aiur-cleanup-test-record; }
-trap 'session_cleanup; exit "$?"' EXIT
+install_session_exit_trap
 exit 7
 `;
   const result = spawnSync("/bin/bash", ["-c", script, "session-cleanup-test", sessionModule], {

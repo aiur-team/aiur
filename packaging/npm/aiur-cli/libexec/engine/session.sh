@@ -201,8 +201,11 @@ session_cleanup() {
   _session_launch_lock=""
   return $code
 }
-install_foreground_traps() {
+install_session_exit_trap() {
   trap 'session_cleanup; exit "$?"' EXIT
+}
+install_foreground_traps() {
+  install_session_exit_trap
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 130' INT
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 143' TERM
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 129' HUP
