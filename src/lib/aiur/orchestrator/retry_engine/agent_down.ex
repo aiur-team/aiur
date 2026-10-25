@@ -21,7 +21,13 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
   alias Aiur.Orchestrator.TokenAccounting
 
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
-  def handle_agent_down(%State{running: running} = state, ref, reason) do
+  def handle_agent_down(state, ref, reason),
+    do: handle_agent_down(state, ref, reason, [])
+
+  @doc false
+  @spec handle_agent_down(State.t(), reference(), term(), keyword()) ::
+          {:noreply, State.t()}
+  def handle_agent_down(%State{running: running} = state, ref, reason, opts) do
     case State.find_issue_id_for_ref(running, ref) do
       nil ->
         {:noreply, state}
@@ -30,7 +36,12 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
         running_entry = running |> Map.fetch!(issue_id) |> clear_completed_fallback_replacement()
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
-        state = state |> maybe_reap_orphaned_agent_shell(running_entry) |> LifecycleFenceExpiry.recover_terminated_input(running_entry)
+
+        state =
+          state
+          |> maybe_reap_orphaned_agent_shell(running_entry, opts)
+          |> LifecycleFenceExpiry.recover_terminated_input(running_entry)
+
         session_id = State.running_entry_session_id(running_entry)
         state = handle_running_agent_down(state, issue_id, running_entry, reason, session_id)
 
@@ -39,6 +50,21 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
         StatusReport.notify_dashboard(state)
         {:noreply, state}
     end
+  end
+
+  defp handle_running_agent_down(
+         state,
+         issue_id,
+         %{cancel_requested: true},
+         reason,
+         session_id
+       ) do
+    Logger.info(
+      "Cancelled agent task exited for issue_id=#{issue_id} session_id=#{session_id} " <>
+        "reason=#{inspect(reason)}; completing terminal teardown"
+    )
+
+    AgentTeardown.terminate_cancelled_issue(state, issue_id)
   end
 
   defp handle_running_agent_down(
@@ -227,32 +253,40 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
     %{state | released_claims: Map.put(state.released_claims, issue_id, release)}
   end
 
-  defp maybe_reap_orphaned_agent_shell(state, running_entry) do
+  defp maybe_reap_orphaned_agent_shell(state, running_entry, opts) do
     if State.completed_running_entry?(running_entry) do
       state
     else
-      case AgentTeardown.reap_orphaned_agent_shell(running_entry) do
+      reap_fun = Keyword.get(opts, :reap_fun, &AgentTeardown.reap_orphaned_agent_shell/1)
+
+      case reap_fun.(running_entry) do
         :reaped ->
-          count = Map.get(state, :orphaned_agent_reap_count, 0) + 1
-          identifier = Map.get(running_entry, :identifier)
-
-          _ =
-            Alerts.emit_custom(
-              "ticket.#{identifier}.agent.orphan_reaped",
-              "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
-              issue: Map.get(running_entry, :issue),
-              workspace: Map.get(running_entry, :workspace_path),
-              worker_host: Map.get(running_entry, :worker_host),
-              reason: "agent runner exited while its tracked shell process tree remained live",
-              needs_attention: true
-            )
-
-          %{state | orphaned_agent_reap_count: count}
+          record_orphan_reap(state, running_entry)
 
         :gone ->
           state
       end
     end
+  end
+
+  defp record_orphan_reap(state, %{cancel_requested: true}), do: state
+
+  defp record_orphan_reap(state, running_entry) do
+    count = Map.get(state, :orphaned_agent_reap_count, 0) + 1
+    identifier = Map.get(running_entry, :identifier)
+
+    _ =
+      Alerts.emit_custom(
+        "ticket.#{identifier}.agent.orphan_reaped",
+        "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
+        issue: Map.get(running_entry, :issue),
+        workspace: Map.get(running_entry, :workspace_path),
+        worker_host: Map.get(running_entry, :worker_host),
+        reason: "agent runner exited while its tracked shell process tree remained live",
+        needs_attention: true
+      )
+
+    %{state | orphaned_agent_reap_count: count}
   end
 
   defp expire_pending_control(state, running_entry, issue_id) do

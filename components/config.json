@@ -31,7 +31,8 @@
       "executor",
       "instance",
       "merge_policy",
-      "prompt_file"
+      "prompt_file",
+      "usage"
     ],
     "env": [
       "AIUR_CI_CHANGED_PATHS_B64",
@@ -61,7 +62,8 @@
     "reference/configuration.md"
   ],
   "config": [
-    "executor"
+    "executor",
+    "usage"
   ],
   "env": [
     "AIUR_SECRETS_FROM_ENV",

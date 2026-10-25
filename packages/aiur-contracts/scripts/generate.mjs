@@ -16,6 +16,7 @@ const outputs = [
       'agents.v1.schema.json',
       'status.v1.schema.json',
       'ticket.v1.schema.json',
+      'ticket-cancel.v1.schema.json',
       'ticket-usage.v1.schema.json',
       'ticket-progress.v1.schema.json',
     ],
