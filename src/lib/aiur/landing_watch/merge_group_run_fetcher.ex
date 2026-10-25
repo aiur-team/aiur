@@ -51,7 +51,10 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
 
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_merge_group_refs"}) do
       {:ok, %{status: 200, body: refs}} when is_list(refs) ->
-        {:ok, MapSet.new(refs, &get_in(&1, ["ref"]))}
+        refs = MapSet.new(refs, &get_in(&1, ["ref"]))
+        # The Executor sweep drops a stale merge-group finding whose queue ref is gone (#5738).
+        ResourceStore.put_resource(ResourceStore.key(:landing_merge_group_runs, owner, repo, "#{base}:refs"), Enum.sort(refs), source: :fetch)
+        {:ok, refs}
 
       {:ok, %{status: 200}} ->
         {:error, :invalid_merge_group_refs}
