@@ -50,6 +50,7 @@
     "workspace"
   ],
   "optional": [
+    "accounting",
     "build-queue",
     "executor-attention",
     "github",

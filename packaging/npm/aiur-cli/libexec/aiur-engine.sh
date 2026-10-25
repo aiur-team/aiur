@@ -85,6 +85,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -149,7 +150,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur doctor [--repair]         check distribution and mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
-       aiur pre-pr           merge origin/main locally and run cheap PR gates
+       aiur pre-pr           snapshot the base and run cheap PR gates without merging it
        aiur --version
 Bare aiur: start or attach to this directory's interactive session.
 EOF
@@ -273,6 +274,11 @@ aiur_engine_main() {
     commands)
       shift
       cmd_commands "$@"
+      ;;
+    # @cli-reference aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1
+    operator-relay-answer)
+      shift
+      cmd_operator_relay_answer "$@"
       ;;
     executor-answer)
       shift
