@@ -199,6 +199,16 @@ agent:
       approval_mode: onRequest
 prompt_file: github-muse.prompt.md
 
+# Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when enabled).
+# events:
+#   export:
+#     enabled: false
+#     webhook_url: https://consumer.example.com/webhooks/aiur
+#     subject_id: "5695"             # optional exact ticket or job ID
+#     max_pending_events: 10000
+#     retry_ms: 5000
+#     request_timeout_ms: 15000
+
 # Build queue (GitHub only; defaults shown except opt-in set ordering).
 # build_queue:
 #   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch

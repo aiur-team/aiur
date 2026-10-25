@@ -299,7 +299,17 @@ alerts:
 # server: { tailscale_funnel: true }     # reconcile an operator-enabled Funnel on HTTPS 443 to this dashboard's current bound port
 # observability: { build_order_funnel_health_check: true }
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
-# events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
+# events:
+#   block_state_debounce_seconds: 10
+#   custom_events_per_turn_max: 5
+#   codeowners_refresh_seconds: 3600
+#   export:
+#     enabled: false
+#     webhook_url: https://consumer.example.com/webhooks/aiur
+#     subject_id: "5695"             # optional exact ticket or job ID
+#     max_pending_events: 10000
+#     retry_ms: 5000
+#     request_timeout_ms: 15000
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
 
 # Build queue (GitHub only; defaults shown except opt-in set ordering).

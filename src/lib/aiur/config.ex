@@ -199,6 +199,8 @@ defmodule Aiur.Config do
   defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings

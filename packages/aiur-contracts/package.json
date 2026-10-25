@@ -1,23 +1,41 @@
 {
   "name": "@aiur/contracts",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "files": [
+    "dist",
+    "dist-examples",
+    "examples",
+    "schemas",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./webhook-receiver": {
+      "types": "./dist-examples/webhook-receiver.d.ts",
+      "default": "./dist-examples/webhook-receiver.js"
     },
     "./schemas/*": "./schemas/*"
   },
   "scripts": {
     "generate": "node scripts/generate.mjs",
-    "check": "node scripts/generate.mjs --check && node scripts/validate.mjs && node scripts/check-fixture-types.mjs && tsc --noEmit",
-    "build": "tsc",
+    "check": "node scripts/generate.mjs --check && node scripts/validate.mjs && node scripts/check-fixture-types.mjs && tsc --noEmit && tsc --noEmit -p tsconfig.examples.json",
+    "build": "tsc && tsc -p tsconfig.examples.json",
+    "pack:check": "npm run build && node scripts/check-package.mjs",
     "test": "npm run build && node --test test/*.test.mjs"
   },
+  "dependencies": {
+    "standardwebhooks": "1.1.1"
+  },
   "devDependencies": {
+    "@types/node": "24.10.0",
     "ajv": "8.20.0",
     "json-schema-to-typescript": "16.0.0",
     "typescript": "5.7.2"

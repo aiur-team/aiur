@@ -172,6 +172,7 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   defp finish_journal_append(event, projection, state) do
     state = %{state | projection: projection}
+    publish_event(state, event)
     notify(state, event)
     {:reply, {:ok, %{status: :accepted, generation: projection.generation}}, state}
   end
@@ -197,6 +198,7 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
     case state.clear_journal_fun.(state.journal_path) do
       :ok ->
         state = %{state | journal_event_count: 0}
+        publish_event(state, event)
         notify(state, event)
         {:reply, {:ok, %{status: :accepted, generation: state.projection.generation}}, state}
 
@@ -207,6 +209,7 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
             writable?: false
         }
 
+        publish_event(state, event)
         notify(state, event)
         {:reply, {:ok, %{status: :accepted, generation: state.projection.generation}}, state}
     end
@@ -309,6 +312,15 @@ defmodule Aiur.CurrentRunMembership.Store.Runtime do
 
   defp persistence_reason(_), do: :persistence_failure
   defp persistence_failure_reason({:degraded, reason}), do: reason
+
+  defp publish_event(state, %Event{} = event) do
+    _ = state.event_publish_fun.(event, state.projection.generation)
+    :ok
+  rescue
+    error -> Logger.warning("aiur_current_run_membership phase=event_publish_failed error=#{Exception.message(error)}")
+  catch
+    _kind, _reason -> Logger.warning("aiur_current_run_membership phase=event_publish_failed error=publication_failed")
+  end
 
   @spec notify(map(), Event.t() | nil) :: :ok
   def notify(state, event) do

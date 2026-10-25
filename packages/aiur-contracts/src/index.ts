@@ -1,5 +1,6 @@
 export type * from "./generated.js";
 export type * from "./status.generated.js";
+export type * from "./events.generated.js";
 
 export const KNOWN_CAPABILITY_IDS = [
   "identity",

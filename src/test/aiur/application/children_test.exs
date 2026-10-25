@@ -132,6 +132,55 @@ defmodule Aiur.Application.ChildrenTest do
       assert length(headless) < length(interactive)
     end
 
+    test "outbound event children start only when export is enabled" do
+      disabled =
+        modules(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            outbound_events?: false
+          )
+        )
+
+      enabled =
+        modules(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            outbound_events?: true
+          )
+        )
+
+      for child <- [Aiur.Events.Outbound.ExportJournal, Aiur.Events.Outbound.Delivery] do
+        refute child in disabled
+        assert child in enabled
+      end
+
+      {Aiur.Events.Outbound.ExportJournal, journal_opts} =
+        Enum.find(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            outbound_events?: true
+          ),
+          &match?({Aiur.Events.Outbound.ExportJournal, _opts}, &1)
+        )
+
+      assert Keyword.fetch!(journal_opts, :alert_fun) == (&Aiur.Alerts.emit_system/2)
+
+      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Exchange)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.ExportJournal))
+
+      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.ExportJournal)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.Delivery))
+
+      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.Delivery)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Publisher))
+    end
+
     test "Tailscale Funnel reconciliation is opt-in and starts after the dashboard" do
       default = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
       refute Aiur.TailscaleFunnel in modules(default)

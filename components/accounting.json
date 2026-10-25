@@ -33,6 +33,7 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "config",
+    "event-bus",
     "identity",
     "kernel",
     "signal"

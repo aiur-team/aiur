@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-lifecycle-event.v1.schema.json",
+  "title": "TicketLifecycleChangedEvent",
+  "allOf": [
+    { "$ref": "outbound-event-envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "contract": { "const": "aiur.ticket_lifecycle_event" },
+        "event_type": { "const": "ticket.lifecycle.changed" },
+        "data": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "lifecycle": {
+              "enum": ["queued", "retrying", "allocated", "running", "paused", "waiting", "replaced", "completed", "cancelled"]
+            },
+            "source": { "enum": ["status_report", "tracker"] },
+            "observed_at": { "type": "string", "format": "date-time" }
+          },
+          "required": ["lifecycle", "source", "observed_at"]
+        }
+      },
+      "required": ["contract", "event_type", "data"]
+    }
+  ]
+}

@@ -6,7 +6,7 @@ defmodule Aiur.UsageLedger.Store do
   @behaviour Aiur.UsageLedger
 
   alias Aiur.{Config, Fs, Journal, UsageEnvelope}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery, RetiredFloor}
+  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, OutboundEvents, Record, Recovery, RetiredFloor}
 
   @max_scan_limit 10_000
 
@@ -76,6 +76,7 @@ defmodule Aiur.UsageLedger.Store do
        checkpoint_fun: Keyword.get(opts, :checkpoint_fun, &Checkpoint.overwrite_encoded/2),
        checkpoint_encode_fun: Keyword.get(opts, :checkpoint_encode_fun, &Checkpoint.encode/2),
        publish_fun: Keyword.get(opts, :publish_fun, fn _acknowledgement -> :ok end),
+       event_publish_fun: Keyword.get(opts, :event_publish_fun, &OutboundEvents.publish/2),
        retired_floor_write_fun: Keyword.get(opts, :retired_floor_write_fun, &RetiredFloor.write/3),
        retire_sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Fs.sync_filesystem/0),
        retired_through: Map.get(state, :retired_through, 0),
@@ -210,7 +211,7 @@ defmodule Aiur.UsageLedger.Store do
       }
 
       acknowledgement = %{position: position, generation: generation, delta: record.delta}
-      publish(next_state, acknowledgement)
+      publish(next_state, envelope, acknowledgement)
       {:reply, {:ok, acknowledgement}, next_state}
     else
       {:error, :capacity_exhausted} ->
@@ -273,12 +274,20 @@ defmodule Aiur.UsageLedger.Store do
     }
   end
 
-  defp publish(state, acknowledgement) do
+  defp publish(state, envelope, acknowledgement) do
     Enum.each(state.subscribers, fn {pid, _reference} -> send(pid, {:usage_ledger_delta, acknowledgement}) end)
-    _ = state.publish_fun.(acknowledgement)
+    safe_publish(fn -> state.publish_fun.(acknowledgement) end)
+    safe_publish(fn -> state.event_publish_fun.(envelope, acknowledgement) end)
+    :ok
+  end
+
+  defp safe_publish(fun) do
+    _ = fun.()
     :ok
   rescue
     _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp scan_limit(value) when is_integer(value) and value > 0, do: min(value, @max_scan_limit)

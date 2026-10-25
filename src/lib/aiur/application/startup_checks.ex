@@ -19,6 +19,7 @@ defmodule Aiur.Application.StartupChecks do
     else
       settings = Aiur.Config.settings_uncached()
 
+      validate_outbound_export!(settings, System.get_env())
       validate_secrets!(settings, System.get_env())
 
       Aiur.Env.validate_startup!(System.get_env(), require_github_credential: github_tracker?(settings))
@@ -52,6 +53,33 @@ defmodule Aiur.Application.StartupChecks do
 
   def validate_secrets(_settings, _env), do: :ok
 
+  @doc "Validates the Standard Webhooks signing secret required by outbound export."
+  @spec validate_outbound_export(term(), map()) :: :ok | {:error, [String.t()]}
+  def validate_outbound_export({:ok, settings}, env), do: validate_outbound_export(settings, env)
+
+  def validate_outbound_export(%{events: %{export: %{enabled: true}}}, env) when is_map(env) do
+    case env["AIUR_OUTBOUND_WEBHOOK_SECRET"] do
+      secret when is_binary(secret) ->
+        if valid_outbound_secret?(secret),
+          do: :ok,
+          else: {:error, ["AIUR_OUTBOUND_WEBHOOK_SECRET must be a whsec_ prefixed base64 encoding of exactly 32 bytes"]}
+
+      _missing ->
+        {:error, ["AIUR_OUTBOUND_WEBHOOK_SECRET is required when events.export.enabled is true"]}
+    end
+  end
+
+  def validate_outbound_export(_settings, _env), do: :ok
+
+  @doc "Raises an actionable outbound export secret error without exposing the value."
+  @spec validate_outbound_export!(term(), map()) :: :ok
+  def validate_outbound_export!(settings, env) do
+    case validate_outbound_export(settings, env) do
+      :ok -> :ok
+      {:error, [message]} -> raise ArgumentError, message: message
+    end
+  end
+
   @doc "Raises one safe error listing every missing hosted secret."
   @spec validate_secrets!(term(), map()) :: :ok
   def validate_secrets!(settings, env) do
@@ -65,8 +93,17 @@ defmodule Aiur.Application.StartupChecks do
   @spec validate_hosted_secrets() :: :ok | {:error, [String.t()]}
   def validate_hosted_secrets do
     if Aiur.Secrets.secrets_from_env?() do
-      result = validate_secrets(Aiur.Config.settings_uncached(), System.get_env())
-      if result == :ok, do: :ok, else: result
+      settings = Aiur.Config.settings_uncached()
+      env = System.get_env()
+
+      errors =
+        [validate_secrets(settings, env), validate_outbound_export(settings, env)]
+        |> Enum.flat_map(fn
+          :ok -> []
+          {:error, messages} -> messages
+        end)
+
+      if errors == [], do: :ok, else: {:error, errors}
     else
       :ok
     end
@@ -76,6 +113,15 @@ defmodule Aiur.Application.StartupChecks do
   defp maybe_missing(acc, _condition, _names, _env), do: acc
 
   defp present_env?(name, env), do: is_binary(env[name]) and String.trim(env[name]) != ""
+
+  defp valid_outbound_secret?("whsec_" <> encoded) do
+    case Base.decode64(encoded) do
+      {:ok, decoded} -> byte_size(decoded) == 32
+      :error -> false
+    end
+  end
+
+  defp valid_outbound_secret?(_secret), do: false
 
   defp github_secret_names(env) do
     if present_env?("GITHUB_APP_ID", env) or present_env?("GITHUB_APP_INSTALLATION_ID", env) or

@@ -19,6 +19,7 @@
     "src/lib/aiur/events/id_generator.ex",
     "src/lib/aiur/events/journal.ex",
     "src/lib/aiur/events/journaled_publish.ex",
+    "src/lib/aiur/events/outbound/**",
     "src/lib/aiur/events/publisher.ex",
     "src/lib/aiur/events/source_policy.ex",
     "src/lib/aiur/events/source_policy/null.ex",
@@ -43,6 +44,7 @@
     "Aiur.Events.IdGenerator",
     "Aiur.Events.Journal",
     "Aiur.Events.JournaledPublish",
+    "Aiur.Events.Outbound.Producer",
     "Aiur.Events.SourcePolicy",
     "Aiur.Events.SubscriptionStore",
     "Aiur.Events.Topic",
@@ -61,10 +63,13 @@
     "config": [
       "events"
     ],
-    "env": [],
+    "env": [
+      "AIUR_OUTBOUND_WEBHOOK_SECRET"
+    ],
     "state": [
       "file: <runtime_state_dir>/event-id.json",
-      "file: <runtime_state_dir>/subscriptions/*.json"
+      "file: <runtime_state_dir>/subscriptions/*.json",
+      "outbound_events_state_dir"
     ],
     "capabilities": []
   },
@@ -78,11 +83,14 @@
     "type": "included"
   },
   "docs": [
-    "concepts/message-bus.md"
+    "concepts/message-bus.md",
+    "guide/outbound-events.md"
   ],
   "config": [
     "events"
   ],
-  "env": [],
+  "env": [
+    "AIUR_OUTBOUND_WEBHOOK_SECRET"
+  ],
   "capabilities": []
 }

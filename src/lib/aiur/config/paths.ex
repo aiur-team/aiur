@@ -96,6 +96,20 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @doc "Resolves the daemon-private outbound event delivery queue directory."
+  @spec outbound_events_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def outbound_events_state_dir do
+    case Application.get_env(:aiur, :outbound_events_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "outbound-events")}
+        end
+    end
+  end
+
   @doc """
   Resolves the daemon-private retained-progress state directory.
 

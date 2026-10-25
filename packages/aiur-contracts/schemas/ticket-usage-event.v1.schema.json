@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-usage-event.v1.schema.json",
+  "title": "TicketUsageChangedEvent",
+  "allOf": [
+    { "$ref": "outbound-event-envelope.v1.schema.json" },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "contract": { "const": "aiur.ticket_usage_event" },
+        "event_type": { "const": "ticket.usage.changed" },
+        "data": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "position": { "type": "integer", "minimum": 1 },
+            "generation": { "type": "integer", "minimum": 1 },
+            "delta": { "$ref": "#/$defs/delta" }
+          },
+          "required": ["position", "generation", "delta"]
+        }
+      },
+      "required": ["contract", "event_type", "data"]
+    }
+  ],
+  "$defs": {
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": ["integer", "null"], "minimum": 0 },
+        "cached_input": { "type": ["integer", "null"], "minimum": 0 },
+        "cache_creation_input": { "type": ["integer", "null"], "minimum": 0 },
+        "output": { "type": ["integer", "null"], "minimum": 0 },
+        "reasoning_output": { "type": ["integer", "null"], "minimum": 0 },
+        "provider_reported_total": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "required": ["input", "cached_input", "cache_creation_input", "output", "reasoning_output", "provider_reported_total"]
+    },
+    "money": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "amount": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$" },
+        "currency": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string", "minLength": 1 },
+        "measurement_kind": { "enum": ["absolute", "delta"] },
+        "counter_scope": { "enum": ["request", "turn", "thread", "session"] },
+        "source": { "type": "string", "minLength": 1 },
+        "source_version": { "type": "string", "minLength": 1 }
+      },
+      "required": ["amount", "currency", "unit", "measurement_kind", "counter_scope", "source", "source_version"]
+    },
+    "delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tokens": { "$ref": "#/$defs/tokens" },
+        "cost": { "$ref": "#/$defs/money" },
+        "source_version": { "type": "string", "minLength": 1 },
+        "relationship_revision": { "type": "string", "minLength": 1 },
+        "coverage_reasons": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "required": ["tokens", "cost", "source_version", "relationship_revision", "coverage_reasons"]
+    }
+  }
+}

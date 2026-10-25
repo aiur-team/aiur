@@ -128,6 +128,18 @@ defmodule Aiur.Config.TrackerSettings do
     Aiur.Config.settings!().events.codeowners_refresh_seconds
   end
 
+  @spec events_export() :: Aiur.Config.Schema.EventsExport.t()
+  def events_export do
+    Aiur.Config.settings!().events
+    |> Map.get(:export)
+    |> then(&(&1 || %Aiur.Config.Schema.EventsExport{}))
+  end
+
+  @spec events_export_enabled?() :: boolean()
+  def events_export_enabled? do
+    events_export().enabled
+  end
+
   @spec workspace_root() :: Path.t()
   def workspace_root do
     Aiur.Config.settings!().workspace.root

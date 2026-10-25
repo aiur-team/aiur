@@ -38,6 +38,7 @@ defmodule Aiur.Application.Children do
     primary_instance? = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0) == "primary"
     github_tracker? = Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
     main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
+    outbound_events? = Keyword.get_lazy(opts, :outbound_events?, &AiurConfig.events_export_enabled?/0)
 
     # Always true for a real run. The unit-test singleton turns it off so the
     # shared app process does not hold a VM-wide inbox and listener that every
@@ -149,6 +150,9 @@ defmodule Aiur.Application.Children do
       BuildOrders.child_specs(:early, opts),
       {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      # Export admission precedes Publisher so a queue crash restarts and pauses
+      # every producer behind it under the application's :rest_for_one strategy.
+      outbound_event_children(outbound_events?),
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
       Aiur.PostDeployChecklist,
@@ -294,6 +298,15 @@ defmodule Aiur.Application.Children do
     List.wrap(if(dashboard?, do: AiurWeb.DashboardAuth.ChallengeStore)) ++
       BuildOrders.child_specs(:estimates, opts) ++ List.wrap(if(build_index?, do: AiurWeb.Build.IndexSupervisor))
   end
+
+  defp outbound_event_children(true) do
+    [
+      {Aiur.Events.Outbound.ExportJournal, alert_fun: &Aiur.Alerts.emit_system/2},
+      Aiur.Events.Outbound.Delivery
+    ]
+  end
+
+  defp outbound_event_children(false), do: []
 
   defp dashboard_cache_children(dashboard?) do
     List.wrap(if(dashboard?, do: [Aiur.RunTelemetry.RetainedCache, {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: Application.get_env(:aiur, :analytics_prewarm?, true)}]))

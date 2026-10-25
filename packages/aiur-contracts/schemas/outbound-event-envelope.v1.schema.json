@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/outbound-event-envelope.v1.schema.json",
+  "title": "OutboundEventEnvelope",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "type": "string", "minLength": 1 },
+    "contract_version": { "const": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": { "type": "string", "minLength": 1 },
+    "emitted_at": { "type": "string", "format": "date-time" },
+    "ticket_id": { "type": "string", "minLength": 1 },
+    "job_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["contract", "contract_version", "event_id", "event_type", "emitted_at"],
+  "anyOf": [
+    { "required": ["ticket_id"] },
+    { "required": ["job_id"] }
+  ]
+}

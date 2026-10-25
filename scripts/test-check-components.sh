@@ -131,8 +131,8 @@ if with_node:
         if any(file.startswith('src/lib/') for file in files):
             components.append(component('daemon', ['src/lib/**']))
         check(name, components, files, code, messages, rules='all', links=links)
-
     imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('self_reference_passes', 'import "a";')
     imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
             ('R-client', 'src/lib/foo.js'))
     imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),

@@ -117,6 +117,16 @@ compaction:
     token_threshold: 50000
   timeout_ms: 30000
 
+# Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when enabled).
+# events:
+#   export:
+#     enabled: false
+#     webhook_url: https://consumer.example.com/webhooks/aiur
+#     subject_id: "ENG-5695"         # optional exact ticket or job ID
+#     max_pending_events: 10000
+#     retry_ms: 5000
+#     request_timeout_ms: 15000
+
 # Build queue is unsupported on Linear; no queue label writes.
 # build_queue:
 #   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch

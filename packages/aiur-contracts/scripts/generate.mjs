@@ -20,6 +20,15 @@ const outputs = [
       'ticket-progress.v1.schema.json',
     ],
   },
+  {
+    name: 'OutboundEvent',
+    target: new URL('../src/events.generated.ts', import.meta.url),
+    refs: [
+      'ticket-lifecycle-event.v1.schema.json',
+      'ticket-progress-event.v1.schema.json',
+      'ticket-usage-event.v1.schema.json',
+    ],
+  },
 ];
 
 for (const output of outputs) {

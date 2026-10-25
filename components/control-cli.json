@@ -55,6 +55,7 @@
     "config",
     "docs-site",
     "event-bus",
+    "executor-attention",
     "harness-adapters",
     "identity",
     "init",
