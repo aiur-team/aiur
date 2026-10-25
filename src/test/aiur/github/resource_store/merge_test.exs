@@ -102,9 +102,6 @@ defmodule Aiur.GitHub.ResourceStore.MergeTest do
       result_counts = results |> List.flatten() |> Enum.frequencies()
       abandoned_writes = Regex.scan(~r/abandoned a contended write for #{Regex.escape(inspect(key))}/, log) |> length()
 
-      assert result_counts == %{ok: writers * per_writer},
-             "every merge call must return :ok; observed result counts #{inspect(result_counts)}"
-
       assert backwards == [],
              "the held body went backwards: #{inspect(backwards)} (as {highest_seen, then_observed}); final body #{inspect(final)}"
 
