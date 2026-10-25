@@ -7,10 +7,11 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     script = "sleep 300 & child=$!; group=$(ps -o pgid= -p $$ | tr -d ' '); printf '%s %s %s\\n' $$ $group $child; wait"
 
     provider = start_sleeping_group(shell)
-    relay = start_sleeping_group(shell)
+    relay = start_daemonized_relay()
+    IO.puts("daemonized relay fixture: pid=#{elem(relay, 1)} pgid=#{elem(relay, 2)}")
     runtime_root = Aiur.TestSupport.tmp_root!("handoff-timeout-provider")
     File.mkdir_p!(runtime_root)
-    File.write!(Path.join(runtime_root, "provider-process-groups"), "#{elem(provider, 1)}\n#{elem(relay, 1)}\n")
+    write_process_metadata(runtime_root, elem(provider, 1), elem(relay, 1), elem(relay, 2))
 
     try do
       {:timeout, output, pid} =
@@ -23,16 +24,17 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
       refute process_running?(shell_pid)
       refute process_running?(child_pid)
 
-      for {_port, group_pid, child_pid} <- [provider, relay] do
-        refute process_running?(group_pid)
-        refute process_running?(child_pid)
-      end
+      refute process_running?(elem(provider, 1))
+      refute process_running?(elem(provider, 2))
+      refute process_running?(elem(relay, 1))
+      refute process_running?(elem(relay, 3))
+      refute process_group_running?(elem(relay, 2))
     after
-      for {port, group_pid, child_pid} <- [provider, relay] do
-        kill_process_group(group_pid)
-        Enum.each([group_pid, child_pid], &System.cmd("kill", ["-KILL", to_string(&1)], stderr_to_stdout: true))
-        close_port(port)
-      end
+      kill_recorded_provider_groups(runtime_root)
+      kill_process_group(elem(provider, 1))
+      Enum.each([elem(provider, 1), elem(provider, 2)], &kill_process(&1))
+      close_port(elem(provider, 0))
+      close_port(elem(relay, 0))
 
       Aiur.TestCleanup.rm_rf!(runtime_root)
     end
@@ -74,9 +76,11 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
       {:ok, _lease} = Aiur.Workspace.Ownership.activate(lease)
       {:ok, port} = Aiur.AppServer.Adapter.start_port(workspace, "python3 " <> provider <> " " <> fifo)
       metadata = Aiur.AppServer.Transport.metadata(port)
+      {relay_group, 0} = System.cmd("ps", ["-o", "pgid=", "-p", to_string(metadata.relay_pid)])
+      relay_group = relay_group |> String.trim() |> String.to_integer()
       File.write!(
         Path.join(root, "provider-process-groups"),
-        "#{metadata.pgid}\n#{metadata.relay_pid}\n"
+        "provider_group=#{metadata.pgid}\nrelay_pid=#{metadata.relay_pid}\nrelay_group=#{relay_group}\n"
       )
       :ok = Aiur.Workspace.Ownership.track_provider(lease, %{root_pid: metadata.provider_pid, process_group_id: metadata.pgid})
       session = %{backend: "codex", port: port, thread_id: "restart-thread", workspace: workspace,
@@ -234,14 +238,50 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     end
   end
 
-  defp kill_process_group(pid), do: System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
+  defp kill_process_group(pid) do
+    case System.cmd("kill", ["-KILL", "--", "-#{pid}"], stderr_to_stdout: true) do
+      {_, 0} ->
+        :ok
+
+      {output, 1} ->
+        if String.contains?(output, "No such process"),
+          do: :ok,
+          else: flunk("could not kill process group #{pid}: #{inspect({output, 1})}")
+
+      result ->
+        flunk("could not kill process group #{pid}: #{inspect(result)}")
+    end
+  end
+
+  defp kill_process(pid) do
+    case System.cmd("kill", ["-KILL", "--", to_string(pid)], stderr_to_stdout: true) do
+      {_, 0} ->
+        :ok
+
+      {output, 1} ->
+        if String.contains?(output, "No such process"),
+          do: :ok,
+          else: flunk("could not kill process #{pid}: #{inspect({output, 1})}")
+
+      result ->
+        flunk("could not kill process #{pid}: #{inspect(result)}")
+    end
+  end
 
   defp kill_recorded_provider_groups(runtime_root) do
     case File.read(Path.join(runtime_root, "provider-process-groups")) do
-      {:ok, groups} ->
-        groups
-        |> String.split("\n", trim: true)
-        |> Enum.each(&(String.to_integer(&1) |> kill_process_group()))
+      {:ok, metadata} ->
+        values =
+          metadata
+          |> String.split("\n", trim: true)
+          |> Map.new(fn line ->
+            [key, value] = String.split(line, "=", parts: 2)
+            {key, String.to_integer(value)}
+          end)
+
+        kill_process_group(Map.fetch!(values, "provider_group"))
+        kill_process_group(Map.fetch!(values, "relay_group"))
+        kill_process(Map.fetch!(values, "relay_pid"))
 
       {:error, :enoent} ->
         :ok
@@ -268,10 +308,61 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     {port, pid, child_pid}
   end
 
+  defp start_daemonized_relay do
+    python = System.find_executable("python3")
+
+    script = """
+    import os, time
+    if os.fork(): os._exit(0)
+    os.setsid()
+    if os.fork(): os._exit(0)
+    child = os.fork()
+    if child == 0: time.sleep(300)
+    print(os.getpid(), os.getpgid(0), child, flush=True)
+    time.sleep(300)
+    """
+
+    port = Port.open({:spawn_executable, String.to_charlist(python)}, [:binary, :exit_status, args: [~c"-c", String.to_charlist(script)]])
+
+    {relay_pid, group_id, child_pid} =
+      receive do
+        {^port, {:data, output}} ->
+          [relay_pid, group_id, child_pid] = output |> String.trim() |> String.split() |> Enum.map(&String.to_integer/1)
+          {relay_pid, group_id, child_pid}
+      after
+        5_000 -> flunk("daemonized relay fixture did not start")
+      end
+
+    refute relay_pid == group_id
+    {port, relay_pid, group_id, child_pid}
+  end
+
+  defp write_process_metadata(runtime_root, provider_group, relay_pid, relay_group) do
+    File.write!(
+      Path.join(runtime_root, "provider-process-groups"),
+      "provider_group=#{provider_group}\nrelay_pid=#{relay_pid}\nrelay_group=#{relay_group}\n"
+    )
+  end
+
   defp process_running?(pid) do
     case System.cmd("ps", ["-o", "stat=", "-p", to_string(pid)], stderr_to_stdout: true) do
       {state, 0} -> not String.starts_with?(String.trim(state), "Z")
       _ -> false
+    end
+  end
+
+  defp process_group_running?(pgid) do
+    case System.cmd("kill", ["-0", "--", "-#{pgid}"], stderr_to_stdout: true) do
+      {_, 0} ->
+        true
+
+      {output, 1} ->
+        if String.contains?(output, "No such process"),
+          do: false,
+          else: flunk("could not inspect process group #{pgid}: #{inspect({output, 1})}")
+
+      result ->
+        flunk("could not inspect process group #{pgid}: #{inspect(result)}")
     end
   end
 
