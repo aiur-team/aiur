@@ -86,8 +86,21 @@ defmodule Aiur.GitHub.Budget.Shared do
     :ok
   end
 
-  @spec fallback_limits(tuple(), map()) :: tuple()
-  def fallback_limits(limits, coordination),
+  @spec fallback_limits(tuple(), map() | keyword()) :: tuple()
+  def fallback_limits(limits, opts) when is_list(opts) do
+    status_fun = Keyword.get(opts, :coordination_status_fun, &LeaseStore.budget_coordination_status/0)
+    configured_fun = Keyword.get(opts, :coordination_configured_fun, &LeaseStore.configured?/0)
+    coordination = status_fun.()
+
+    coordination =
+      if Keyword.get(opts, :fallback_only?, false),
+        do: %{coordination | available?: false},
+        else: coordination
+
+    fallback_limits(limits, coordination, configured_fun.())
+  end
+
+  def fallback_limits(limits, coordination) when is_map(coordination),
     do: fallback_limits(limits, coordination, LeaseStore.configured?())
 
   @spec fallback_limits(tuple(), map(), boolean()) :: tuple()

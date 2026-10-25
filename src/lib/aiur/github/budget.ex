@@ -9,7 +9,6 @@ defmodule Aiur.GitHub.Budget do
 
   alias Aiur.GitHub.Budget.{BrokerPort, ResponseLimits, Settings, Shared, StateDir}
   alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy}
-  alias Aiur.Instance.LeaseStore
   alias Aiur.Signal
 
   require Logger
@@ -384,17 +383,8 @@ defmodule Aiur.GitHub.Budget do
     settings = Settings.settings(opts)
     {core_limit, graphql_limit, search_limit} = actor_limits(Settings.consumer_identity(opts), settings)
 
-    status_fun = Keyword.get(opts, :coordination_status_fun, &LeaseStore.budget_coordination_status/0)
-    configured_fun = Keyword.get(opts, :coordination_configured_fun, &LeaseStore.configured?/0)
-    coordination = status_fun.()
-
-    coordination =
-      if Keyword.get(opts, :fallback_only?, false),
-        do: %{coordination | available?: false},
-        else: coordination
-
     {core_limit, graphql_limit, search_limit} =
-      Shared.fallback_limits({core_limit, graphql_limit, search_limit}, coordination, configured_fun.())
+      Shared.fallback_limits({core_limit, graphql_limit, search_limit}, opts)
 
     family = endpoint_family(request)
 
