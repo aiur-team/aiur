@@ -7,9 +7,9 @@ defmodule Aiur.GitHub.Budget do
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
 
+  alias Aiur.GitHub.Access.Settings, as: AccessSettings
   alias Aiur.GitHub.Budget.{BrokerPort, ResponseLimits, Settings, Shared, StateDir}
   alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy}
-  alias Aiur.Signal
 
   require Logger
 
@@ -154,8 +154,10 @@ defmodule Aiur.GitHub.Budget do
   defp publish_release(lease_id, token_key, budget_ms, result) do
     event = %{lease_id: lease_id, token_key: token_key, budget_ms: budget_ms, outcome: release_outcome(result)}
 
-    if Process.whereis(Aiur.PubSub) do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, @release_topic, {:github_budget_lease_released, event})
+    pubsub = AccessSettings.current().pubsub
+
+    if pubsub && Process.whereis(pubsub) do
+      Phoenix.PubSub.broadcast(pubsub, @release_topic, {:github_budget_lease_released, event})
     end
 
     :ok
@@ -343,7 +345,7 @@ defmodule Aiur.GitHub.Budget do
 
     with %{} = window <- CredentialHeadroom.window(key, resource),
          %{} = local <- local_usage(key, resource, opts) do
-      CredentialHeadroom.reconcile_budget_meter(key, resource, local, window, alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2))
+      CredentialHeadroom.reconcile_budget_meter(key, resource, local, window, alert_fun: Keyword.get_lazy(opts, :alert_fun, fn -> AccessSettings.current().alert_sink end))
     else
       _unavailable -> :ok
     end
@@ -357,7 +359,7 @@ defmodule Aiur.GitHub.Budget do
 
     case CredentialHeadroom.window(key, resource) do
       %{} = window ->
-        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2))
+        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get_lazy(opts, :alert_fun, fn -> AccessSettings.current().alert_sink end))
 
       _unavailable ->
         :ok

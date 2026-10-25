@@ -33,7 +33,7 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
-  alias Aiur.GitHub.Access.Token
+  alias Aiur.GitHub.Access.{Settings, Token}
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Budget.FleetSnapshot
   alias Aiur.GitHub.Credential
@@ -42,7 +42,6 @@ defmodule Aiur.GitHub.Quota do
 
   alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, SnapshotCache, Windows}
   alias Aiur.Instance.LeaseStore
-  alias Aiur.Signal
 
   @empty_coverage %{resources: %{}, estimated?: false}
   @unknown_snapshot %{
@@ -179,7 +178,7 @@ defmodule Aiur.GitHub.Quota do
       # start without also moving the clock that prices everything else.
       started_at: Keyword.get_lazy(opts, :started_at, fn -> Keyword.get(opts, :clock, &DateTime.utc_now/0).() end),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-      emit_fun: Keyword.get(opts, :emit_fun, &Signal.alert/2),
+      emit_fun: Keyword.get_lazy(opts, :emit_fun, fn -> Settings.current().alert_sink end),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &ShellObservations.default_shell_log_path/0),
       stale_broker_path: Keyword.get_lazy(opts, :stale_broker_path, &ShellObservations.default_stale_broker_path/0),
       stale_broker_alerts: MapSet.new(),
@@ -420,7 +419,7 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp notify_orchestrator_recovery do
-    case GenServer.whereis(Application.get_env(:aiur, :github_quota_recovery_target)) do
+    case GenServer.whereis(Settings.current().recovery_target) do
       pid when is_pid(pid) -> send(pid, :github_quota_recovered)
       nil -> :ok
     end
