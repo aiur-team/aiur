@@ -1,5 +1,6 @@
 defmodule Aiur.AgentControlCLIMergePolicyTest do
   use Aiur.TestSupport
+
   import ExUnit.CaptureIO
   alias Aiur.MainWatch.Persistence
 
@@ -42,26 +43,7 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
   end
 
   test "status reports the landing watcher as running" do
-    parent = self()
-    journal_path = Path.join(Aiur.TestSupport.tmp_root!("landing-watch-cli"), "journal.json")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(journal_path)) end)
-
-    watcher =
-      start_supervised!(
-        {Aiur.LandingWatch,
-         name: nil,
-         interval_ms: 60_000,
-         subscribe: false,
-         send_after_fun: fn _pid, _message, _delay -> :ok end,
-         observe_fun: fn _opts ->
-           send(parent, :landing_watch_observed)
-           {:ok, []}
-         end,
-         runner_queue_fun: fn _observations, _opts -> :ok end,
-         journal_path: journal_path}
-      )
-
-    assert_receive :landing_watch_observed, 100
+    watcher = start_landing_watcher(:running)
     assert %{watcher: :running} = Aiur.LandingWatch.state(watcher)
 
     output = capture_io(fn -> Aiur.MergePolicyCLI.print(watcher) end)
@@ -114,8 +96,52 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
     assert status_output() =~ "role=secondary repo_global_off=[landing_watch,quarantine_lifter,merge_queue_watchdog,main_watch]"
   end
 
+  defp start_landing_watcher(expected_state) do
+    parent = self()
+    journal_path = Path.join(Aiur.TestSupport.tmp_root!("landing-watch-cli"), "journal.json")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(journal_path)) end)
+
+    watcher =
+      start_supervised!(
+        {Aiur.LandingWatch,
+         name: nil,
+         interval_ms: 60_000,
+         subscribe: false,
+         send_after_fun: fn _pid, _message, _delay -> :ok end,
+         observe_fun: fn _opts ->
+           send(parent, :landing_watch_observed)
+           if expected_state == :running, do: {:ok, []}, else: {:error, :denied}
+         end,
+         runner_queue_fun: fn _observations, _opts -> :ok end,
+         journal_path: journal_path}
+      )
+
+    assert_receive :landing_watch_observed, 100
+    assert_landing_watch_state!(watcher, expected_state)
+    watcher
+  end
+
+  defp assert_landing_watch_state!(watcher, expected_state, attempts \\ 100)
+  defp assert_landing_watch_state!(_watcher, _expected_state, 0), do: flunk("LandingWatch did not reach its expected test-owned state")
+
+  defp assert_landing_watch_state!(watcher, expected_state, attempts) do
+    if Aiur.LandingWatch.state(watcher).watcher == expected_state do
+      :ok
+    else
+      Process.sleep(1)
+      assert_landing_watch_state!(watcher, expected_state, attempts - 1)
+    end
+  end
+
   defp status_output do
+    landing_watch_server = start_landing_watcher(:unavailable)
     snapshot = %{statuses: [], global_pause: %{globally_paused: false, paused_at: nil, source: nil}}
-    capture_io(fn -> Aiur.AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}}) end)
+
+    capture_io(fn ->
+      Aiur.AgentControlCLI.status(
+        fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}},
+        landing_watch_server: landing_watch_server
+      )
+    end)
   end
 end
