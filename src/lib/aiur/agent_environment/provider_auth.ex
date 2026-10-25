@@ -33,7 +33,15 @@ defmodule Aiur.AgentEnvironment.ProviderAuth do
 
   def shell_prefix(path) when is_binary(path) do
     escaped = Shell.escape(path)
-    ". #{escaped}; auth_load_status=$?; rm -f #{escaped}; [ \"$auth_load_status\" -eq 0 ] && "
+    ". #{escaped}; auth_load_status=$?; rm -f #{escaped}; [ \"$auth_load_status\" -eq 0 ]"
+  end
+
+  @spec shell_command(Path.t() | nil, String.t()) :: String.t()
+  def shell_command(path, command) when is_binary(command) do
+    case shell_prefix(path) do
+      "" -> command
+      prefix -> prefix <> " && " <> command
+    end
   end
 
   @spec cleanup(Path.t() | nil) :: :ok
