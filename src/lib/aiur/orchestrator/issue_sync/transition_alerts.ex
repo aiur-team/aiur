@@ -11,8 +11,8 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
-  alias Aiur.TicketBranch
   alias Aiur.Signal
+  alias Aiur.TicketBranch
 
   @doc false
   @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
