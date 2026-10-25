@@ -10,7 +10,7 @@ Everything below this section is optional. A local run needs only:
 
 | Requirement | How you satisfy it |
 | --- | --- |
-| A GitHub credential | `gh auth login` once. The boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
+| Local GitHub daemon auth | `gh auth login` once. The local boot gate can use the `gh` keyring when App credentials and `GITHUB_TOKEN` are absent. Hosted/container daemon auth requires a GitHub App unless `AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. |
 | tmux | The launcher runs each daemon in its own detached tmux session. |
 | A tracker repository | The repo you point `aiur init` at, with issues carrying `agent:todo`. |
 

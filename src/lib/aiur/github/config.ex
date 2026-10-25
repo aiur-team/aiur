@@ -4,9 +4,9 @@ defmodule Aiur.GitHub.Config do
   """
   @behaviour Aiur.TrackerConfig
   @impl Aiur.TrackerConfig
-  def validate_settings(_settings), do: validate!()
+  def validate_settings(settings), do: validate!(settings: settings)
   require Logger
-  alias Aiur.GitHub.{AppCredentials, CodeOwners}
+  alias Aiur.GitHub.{AuthPolicy, CodeOwners}
 
   @default_label_prefix "agent"
 
@@ -449,20 +449,13 @@ defmodule Aiur.GitHub.Config do
   end
 
   @impl Aiur.TrackerConfig
-  def validate! do
-    cond do
-      AppCredentials.configured?() and !is_binary(token()) ->
-        {:error, "GitHub App installation token unavailable — check GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and the App private key"}
-
-      !AppCredentials.configured?() and !is_binary(token()) ->
-        {:error, "GitHub token missing — set GITHUB_TOKEN env var"}
-
-      !is_binary(repo()) ->
-        {:error, "GitHub repo missing — set github.repo in .aiur/config"}
-
-      true ->
-        :ok
-    end
+  def validate!(opts \\ []) do
+    AuthPolicy.validate_tracker(
+      Keyword.get_lazy(opts, :settings, &Aiur.Config.settings!/0),
+      Keyword.get(opts, :env, System.get_env()),
+      &token/0,
+      &repo/0
+    )
   end
 
   defp section_value(key) do
