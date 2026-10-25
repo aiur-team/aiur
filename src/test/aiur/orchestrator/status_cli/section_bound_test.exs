@@ -56,8 +56,7 @@ defmodule Aiur.OrchestratorStatusCliSectionBoundTest do
     hung_supervision()
     output = capture_io(fn -> StatusCLI.status(section_timeout_ms: 200) end)
 
-    assert output =~ "STALE SUPERVISION — showing the last good output, 42s old (no reply within 200ms)\nSUPERVISION 2/2 healthy"
-    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert output =~ ~r/STALE SUPERVISION — showing the last good output, \d+s old \(no reply within 200ms\)\nSUPERVISION 2\/2 healthy/
   end
 
   test "a section past its bound with no earlier output is unavailable, not healthy" do

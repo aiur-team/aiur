@@ -6,7 +6,8 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{Access, CiReadiness, CIRecovery, Client, HumanReviewGate}
-  alias Aiur.LandingWatch.{Classifier, ConflictRouting, ConflictUpdate, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, QueueAdmission, RunnerQueue}
+  alias Aiur.LandingWatch.{Classifier, ConflictRouting, ConflictUpdate, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun}
+  alias Aiur.LandingWatch.{QueueAdmission, RunnerQueue, UnapprovedRecovery}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -176,7 +177,13 @@ defmodule Aiur.LandingWatch do
   @spec process(map(), keyword()) :: :ok | {:error, term()}
   def process(%{number: number, head: head} = observation, opts) when is_integer(number) and is_binary(head) do
     # A merge head the watcher made has no approval, so its auto-merge retry runs before the approval gate (#6088).
-    with :ok <- Keyword.get(opts, :retry_arm_fun, &ConflictUpdate.retry_arm/2).(observation, opts), do: process_approved(observation, opts)
+    with :ok <- Keyword.get(opts, :retry_arm_fun, &ConflictUpdate.retry_arm/2).(observation, opts) do
+      if Classifier.approved_at_head?(Map.get(observation, :raw, %{})) do
+        process_approved(observation, opts)
+      else
+        UnapprovedRecovery.process(observation, opts)
+      end
+    end
   end
 
   def process(_observation, _opts), do: :ok
@@ -218,7 +225,9 @@ defmodule Aiur.LandingWatch do
     if Keyword.get(opts, :hold_rework, false), do: :ok, else: route_rework(observation, failures, opts)
   end
 
-  defp hydrate_failed_jobs(runs, opts) do
+  @doc false
+  @spec hydrate_failed_jobs([map()], keyword()) :: {:ok, [map()]} | {:error, term()}
+  def hydrate_failed_jobs(runs, opts) do
     runs
     |> Enum.reduce_while({:ok, []}, fn run, {:ok, acc} ->
       case hydrate_run(run, opts) do

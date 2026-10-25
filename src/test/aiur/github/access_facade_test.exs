@@ -26,6 +26,8 @@ defmodule Aiur.GitHub.AccessFacadeTest do
     {:token_key, Aiur.GitHub.Budget, :token_key},
     {:usage, Aiur.GitHub.Budget, :usage},
     {:warn_metering_unavailable, Aiur.GitHub.Budget, :warn_metering_unavailable},
+    {:fleet_budget_snapshot, Aiur.GitHub.Budget.FleetSnapshot, :read},
+    {:fleet_budget_status_line, Aiur.GitHub.Budget.FleetSnapshot, :status_line},
     {:ledger_window_ms, Aiur.GitHub.BudgetLedger, :window_ms},
     {:connectivity_alert_message, Aiur.GitHub.Connectivity, :alert_message},
     {:connectivity_backoff_ms, Aiur.GitHub.Connectivity, :backoff_ms},
@@ -192,6 +194,18 @@ defmodule Aiur.GitHub.AccessFacadeTest do
        do: [[]]
 
   defp fixture_args(:app_jwt, _ctx), do: [JOSE.JWK.generate_key({:rsa, 2048}), "facade", DateTime.utc_now()]
+
+  defp fixture_args(name, _ctx) when name in [:fleet_budget_snapshot, :fleet_budget_status_line] do
+    key = {Aiur.GitHub.Budget.FleetSnapshot, :latest}
+    previous = :persistent_term.get(key, :missing)
+
+    on_exit(fn ->
+      if previous == :missing, do: :persistent_term.erase(key), else: :persistent_term.put(key, previous)
+    end)
+
+    Aiur.GitHub.Budget.FleetSnapshot.put([])
+    if name == :fleet_budget_snapshot, do: [], else: [true]
+  end
 
   defp fixture_args(:cost_report, ctx) do
     now = DateTime.utc_now()

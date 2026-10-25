@@ -6,7 +6,7 @@ defmodule AiurWeb.DashboardLive.GitHubQuotaSnapshot do
 
   @spec read() :: map()
   def read do
-    quota =
+    snapshot =
       case Access.quota_cached_snapshot(Access.quota_server(), 24 * 60 * 60_000) do
         {:ok, snapshot, age_ms, observed_at_ms} ->
           stale(snapshot, age_ms, observed_at_ms)
@@ -19,7 +19,9 @@ defmodule AiurWeb.DashboardLive.GitHubQuotaSnapshot do
           end
       end
 
-    Map.put(quota, :auth_mode, GitHubConfig.token_source())
+    snapshot
+    |> Map.put(:fleet_budget, Access.fleet_budget_snapshot())
+    |> Map.put(:auth_mode, GitHubConfig.token_source())
   end
 
   defp stale(snapshot, age_ms, observed_at_ms) do

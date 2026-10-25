@@ -47,6 +47,7 @@
     "Aiur.GitHub.Access.*"
   ],
   "requires": [
+    "config",
     "kernel",
     "signal"
   ],

@@ -29,6 +29,7 @@
     "src/lib/aiur/orchestrator/merge_transition.ex",
     "src/lib/aiur/orchestrator/merged_ticket_reconciler/stranded_work.ex",
     "src/lib/aiur/orchestrator/retry_engine/exhaustion.ex",
+    "src/lib/aiur/orchestrator/status_cli.ex",
     "src/lib/aiur/orchestrator/todo_dispatch_claim.ex",
     "src/lib/aiur/orchestrator/tracker_health.ex"
   ]

@@ -25,6 +25,8 @@ defmodule Aiur.GitHub.Access do
   defdelegate token_key(token), to: Aiur.GitHub.Budget
   defdelegate usage(opts \\ []), to: Aiur.GitHub.Budget
   defdelegate warn_metering_unavailable(opts \\ []), to: Aiur.GitHub.Budget
+  defdelegate fleet_budget_snapshot(), to: Aiur.GitHub.Budget.FleetSnapshot, as: :read
+  defdelegate fleet_budget_status_line(configured?), to: Aiur.GitHub.Budget.FleetSnapshot, as: :status_line
   defdelegate ledger_window_ms(), to: Aiur.GitHub.BudgetLedger, as: :window_ms
 
   defdelegate connectivity_alert_message(arg1, opts \\ []),

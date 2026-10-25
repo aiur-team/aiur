@@ -2,7 +2,9 @@
 
 ## API budgets
 
-Aiur's resident Python broker reuses one SQLite connection and batches commands per process. Shell `gh` guards share its database, so daemons using one credential share quota ledgers.
+With `AIUR_LEASE_DATABASE_URL`, daemons share admissions, holds, quota snapshots and account-scoped provider readings. During outages, each divides ceilings by the persisted last roster; if unknown, it reserves at least half. Agent `gh` ledgers stay host-local; agents never receive the URL.
+
+`aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls are per-host and excluded. Without `AIUR_LEASE_DATABASE_URL`, sharing is off.
 
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
@@ -89,7 +91,7 @@ rows against `limit - remaining` on the credential's own window:
 | Line | What to do |
 | --- | --- |
 | `reconciles` | The ranking accounts for the window's spend. |
-| `N points unattributed (spend outside this process)` | Expected. Anything else using the same credential — a shell `gh` call, another Aiur instance — is spend this process never saw. It bounds how much of the window the ranking explains. |
+| `N points unattributed (spend outside this process)` | Expected. Anything else using the same credential — a shell `gh` call or external script — is spend this process never saw. It bounds how much of the window the ranking explains. |
 | `DOES NOT reconcile — attributed more than was spent` | A double count in the accounting. Points cannot be spent twice, so this is a defect worth reporting. |
 | `not measurable` | No window has been observed yet. Not the same as zero spend. |
 
@@ -113,7 +115,9 @@ window rolls. Wait for the reset before comparing attribution against the creden
 
 As the table above says, it is expected. It counts anything sharing the
 credential that this process did not issue: a shell `gh` call, a script minting
-its own installation token, another Aiur instance.
+its own installation token. Another Aiur daemon's admissions and holds are
+shared when both use the coordination store, although point attribution remains
+local to each daemon.
 
 A monitoring loop sampling the API on the same credential *is itself* unattributed spend, so an investigation can widen the gap it is measuring. Baseline with the fleet quiet and your own tooling stopped.
 
