@@ -33,6 +33,7 @@
     "Aiur.GitHub.BlockerProgress",
     "Aiur.GitHub.BotIdentity",
     "Aiur.GitHub.CIPollBatch",
+    "Aiur.GitHub.CIPollBatchTerminal",
     "Aiur.GitHub.CIRecovery",
     "Aiur.GitHub.CIRecoveryStore",
     "Aiur.GitHub.CiReadiness",

@@ -43,7 +43,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait", [expected_state: "human-review"]}}
-
       assert_received {:recorded, _position, {:pause_agent, request_id, _generation}}
       assert is_integer(request_id)
 
@@ -61,46 +60,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(token)
       assert is_reference(timer_ref)
-    end
-
-    test "a merged PR on a ci-wait ticket routes remaining work to rework" do
-      identifier = unique_identifier("merged-pr-rework")
-      recorder = start_recorder()
-      issue = issue(identifier, "ci-wait")
-      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
-
-      next =
-        poll_ci(state, issue, %{
-          decision: :pending,
-          pull_request: %{"number" => 91, "state" => "merged"}
-        })
-
-      sync_recorder(recorder)
-
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-
-      assert next.running[identifier].issue.state == "rework"
-    end
-
-    test "a closed unmerged PR reports pr_closed_unmerged and routes to rework" do
-      identifier = unique_identifier("closed-pr-rework")
-      recorder = start_recorder()
-      issue = issue(identifier, "ci-wait")
-      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
-
-      next =
-        poll_ci(state, issue, %{
-          decision: :pending,
-          pull_request: %{"number" => 92, "state" => "closed"}
-        })
-
-      sync_recorder(recorder)
-
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-
-      assert_received {:recorded, 2, {:tracker_comment, ^identifier, body}}
-      assert body =~ "pr_closed_unmerged"
-      assert next.running[identifier].issue.state == "rework"
     end
 
     test "a failed tracker transition publishes nothing and leaves the runner untouched" do
@@ -127,7 +86,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-
       refute_received {:recorded, 2, _message}
 
       # The OCC-5 CI/PR projection still caches even when the tracker write
@@ -152,22 +110,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
 
-      assert Map.drop(next.ci_lifecycle, [
-               :poll_cache,
-               :ci_observed_at_ms,
-               :parked_ready_alerts,
-               :draft_stall_alerts,
-               :ci_wait_draft_alerts,
-               :ci_wait_draft_since
-             ]) ==
-               Map.drop(state.ci_lifecycle, [
-                 :poll_cache,
-                 :ci_observed_at_ms,
-                 :parked_ready_alerts,
-                 :draft_stall_alerts,
-                 :ci_wait_draft_alerts,
-                 :ci_wait_draft_since
-               ])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
 
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -201,7 +145,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       # (`rework`) for the `expected_state` guard instead of passing `nil`
       # (which used to fail validation and skip the swap entirely).
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "rework"]}}
-
       assert next.running[identifier].issue.state == "rework"
     end
 
@@ -230,9 +173,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       # the shared state owner reasserts review and clears ci-wait, leaving
       # exactly one state label (#2366).
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
-
       assert_received {:recorded, _position, {:tracker_update, ^identifier, "human-review", [expected_state: "human-review"]}}
-
       assert next.running[identifier].issue.state == "human-review"
     end
 
@@ -314,9 +255,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       assert CIApprovalStore.load().approved_heads == %{identifier => "approved-head"}
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
 
-      assert [%{body: %{events: [event]}}] =
-               AgentQueueStore.list_pending(next.queue_store, identifier)
-
+      assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
       assert event.topic == topic
       assert event.message == "CI passed for the current PR head"
     end
@@ -346,11 +285,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
         })
 
       sync_recorder(recorder)
-
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "human-review", [expected_state: "ci-wait"]}}
-
       assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review"}}}
-
       assert next.running[identifier].issue.state == "human-review"
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
     end
@@ -390,7 +326,6 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
         })
 
       sync_recorder(recorder)
-
       assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review"}}}
     end
 
@@ -401,47 +336,16 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       recorder = start_recorder(topic)
       issue = issue(identifier, "human-review")
 
-      first =
-        poll_ci(running_state(issue, recorder, :working, []), issue, %{
-          decision: :passed,
-          head_sha: "draft-head",
-          pr_number: 941,
-          draft?: true
-        })
-
+      first = poll_ci(running_state(issue, recorder, :working, []), issue, %{decision: :passed, head_sha: "draft-head", pr_number: 941, draft?: true})
       sync_recorder(recorder)
       refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
 
-      next =
-        poll_ci(first, issue, %{
-          decision: :passed,
-          head_sha: "ready-head",
-          pr_number: 941,
-          draft?: false
-        })
-
+      next = poll_ci(first, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
       sync_recorder(recorder)
 
-      assert_received {:recorded, _position,
-                       {:event,
-                        %{
-                          topic: ^topic,
-                          action: "ready_for_review",
-                          pr: %{
-                            "number" => 941,
-                            "draft" => false,
-                            "head" => %{"sha" => "ready-head"}
-                          }
-                        }}}
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 941, "draft" => false, "head" => %{"sha" => "ready-head"}}}}}
 
-      _unchanged =
-        poll_ci(next, issue, %{
-          decision: :passed,
-          head_sha: "ready-head",
-          pr_number: 941,
-          draft?: false
-        })
-
+      _unchanged = poll_ci(next, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
       sync_recorder(recorder)
       refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
     end
@@ -458,13 +362,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       ci_wait_issue = issue(identifier, "ci-wait")
       review_issue = issue(identifier, "human-review")
 
-      state =
-        poll_ci(running_state(ci_wait_issue, recorder, :working, []), ci_wait_issue, %{
-          decision: :pending,
-          head_sha: "draft-head",
-          pr_number: 942,
-          draft?: true
-        })
+      state = poll_ci(running_state(ci_wait_issue, recorder, :working, []), ci_wait_issue, %{decision: :pending, head_sha: "draft-head", pr_number: 942, draft?: true})
 
       state =
         CiLifecycle.poll_github_ci(state,
@@ -478,34 +376,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       sync_recorder(recorder)
       refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
 
-      state =
-        poll_ci(state, review_issue, %{
-          decision: :passed,
-          head_sha: "draft-head",
-          pr_number: 942,
-          draft?: false
-        })
-
+      state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
       sync_recorder(recorder)
 
-      assert_received {:recorded, _position,
-                       {:event,
-                        %{
-                          topic: ^topic,
-                          action: "ready_for_review",
-                          pr: %{"number" => 942, "head" => %{"sha" => "draft-head"}}
-                        }}}
-
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 942, "head" => %{"sha" => "draft-head"}}}}}
       refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
 
-      _state =
-        poll_ci(state, review_issue, %{
-          decision: :passed,
-          head_sha: "draft-head",
-          pr_number: 942,
-          draft?: false
-        })
-
+      _state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
       sync_recorder(recorder)
       refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
     end
@@ -616,10 +493,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
     Application.put_env(:aiur, :pr_ready_ledger_path, path)
 
     on_exit(fn ->
-      if is_nil(previous),
-        do: Application.delete_env(:aiur, :pr_ready_ledger_path),
-        else: Application.put_env(:aiur, :pr_ready_ledger_path, previous)
-
+      if is_nil(previous), do: Application.delete_env(:aiur, :pr_ready_ledger_path), else: Application.put_env(:aiur, :pr_ready_ledger_path, previous)
       Aiur.TestCleanup.rm_rf!(path)
     end)
   end
