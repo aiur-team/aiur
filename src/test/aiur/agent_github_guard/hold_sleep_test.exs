@@ -94,7 +94,7 @@ defmodule Aiur.AgentGitHubGuard.HoldSleepTest do
     assert {_, 1} = System.cmd("kill", ["-0", sleep_pid], stderr_to_stdout: true)
   end
 
-  defp assert_token_wait(context, delay_ms) do
+  defp assert_token_wait(context, _delay_ms) do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
@@ -104,8 +104,7 @@ defmodule Aiur.AgentGitHubGuard.HoldSleepTest do
         AIUR_GITHUB_BUDGET_ROOT: budget_root,
         AIUR_GITHUB_BUDGET_KEY: key,
         AIUR_GITHUB_BUDGET_BROKER: broker,
-        HOLD_PROXY_RESPONSE: "wait 0",
-        HOLD_PROXY_RECORDED_WAIT: "wait #{delay_ms}"
+        HOLD_PROXY_RESPONSE: "wait 0"
       )
 
     assert recorded_wait == "wait 0"
