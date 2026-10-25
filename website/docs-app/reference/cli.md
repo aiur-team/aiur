@@ -35,16 +35,14 @@ See [global launch options](/reference/cli-options) for parser flags and launche
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
 | `aiur login <harness> <name> [--dir <path>]` | Creates or adopts an isolated profile for Claude or Codex and starts its interactive login. API-key harnesses (`kimi`, `deepseek`, `openrouter`) require the named `*_API_KEY__<NAME>` entry in `~/.aiur/.env`; the secret is never stored in the account registry. | `aiur login codex work` |
 | `aiur logout <harness> <name> [--purge]` | Removes an account from the machine registry. Its profile remains unless `--purge` is specified; `default` is protected. | `aiur logout codex work` |
-| `aiur run` | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
+| `aiur run [--bg] [--container]` | Foreground by default; `--bg` starts a detached headless session. `--container` runs headlessly without tmux, streams logs to stdout/stderr, and rejects `--bg`, `--interactive`, and `--no-dashboard`. It requires a cookie of at least 16 letters, digits, underscores, or hyphens via `AIUR_ERLANG_COOKIE` or an existing `AIUR_COOKIE_FILE`; it never reads `releases/COOKIE`. Pass the same `AIUR_ERLANG_COOKIE` to `docker exec aiur status` and other control commands, or mount the same `AIUR_COOKIE_FILE`. `AIUR_CONTAINER_STOP_GRACE_TICKS` sets the SIGTERM wait in 0.1-second ticks (default 300); Docker Compose should set `stop_grace_period: 65s` for shutdown and agent cleanup. | `aiur run --container` |
 | `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=<n> aiur --todo …` | `--todo` sizes its deadline by the request, rather than using the shared 10-second control-RPC deadline. Queue add/remove also use 15s plus 3s per ID and honor this override; their timeout leaves the outcome unknown. Its default window is 15s, plus 3s per requested ID, plus 90s when `--only` is given. The daemon self-limits 10 seconds inside that window: a run it cannot finish stops itself, names the tickets it never reached, and exits nonzero, so the outcome is always definite rather than "unknown". This variable overrides the whole window when set to a positive integer; a zero or malformed value is ignored in favor of the sizing above. | `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=300 aiur --todo 142 --only` |
 
-Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`. `--debug` additionally enables debug-level messages. The default background root is `~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
+Background and container runs persist Logger output at `<logs-root>/log/aiur.log`; `--debug` enables debug messages. By default, `<logs-root>` is `~/.aiur/logs/<launch-id>/`; stdout/stderr is saved to `log/boot.out.log`, and container mode streams it to the platform collector.
 
-`aiur status` shows `optimistic n/cap` and prints `MERGE POLICY`, watcher state (`running`, `unavailable`, `not_running`), CI SHA/age and red start date. Unavailable retains last-known CI.
+`aiur status` shows `optimistic n/cap`, `MERGE POLICY`, watcher state (`running`, `unavailable`, `not_running`), CI SHA/age/red start date, degraded CODEOWNERS trust, empty-cycle causes/ages, and prewarm holds. Daemon-read sections share a 1.5s bound: slow sections show last good output with `STALE` age, or `unavailable` and exit 1 without a saved result.
 
 `CI WAIT` lists tickets, PRs, recovery state (including `draft_pr`) and failing checks, including tickets without workers. `aiur capabilities` shows `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
-
-`aiur status` shows degraded CODEOWNERS trust, empty-cycle causes and ages, and prewarm holds. Its daemon-read sections run concurrently under one 1.5s bound. A slow section prints its last good output with a `STALE` age; without a saved result it prints `unavailable` and exits 1.
 
 The `POLL` line reports the age and freshness of the last dispatch poll attempt. A daemon that has not started a dispatch poll says so; unavailable age is never rendered as zero.
 
@@ -60,6 +58,7 @@ Launch mode determines which interfaces remain available:
 | --- | --- |
 | Foreground | Shows the terminal board and chat panes. A later bare `aiur` from the same repository reattaches to that session. |
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
+| `--container` | Runs headlessly in the foreground without tmux, keeps the dashboard, streams logs to stdout/stderr, and forwards SIGTERM for graceful shutdown. Suitable as a container's main process. |
 | Host precedence | `--host` wins over `server.host`, which wins over `AIUR_DEFAULT_DASHBOARD_HOST` or the `127.0.0.1` default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
 
