@@ -1,7 +1,6 @@
 # Module, full ExUnit test name (describe prefix included, as failures print it), owner fix ticket, and YYYY-MM-DD expiry. Tabs delimit four fields.
 Aiur.AgentControlCLIMergePolicyTest	*	#6020	2026-12-31
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#5511	2026-12-31
-Aiur.Claude.CodingAgentRefusalTest	provider stderr session-limit refusal pauses without retries and resumes at the parsed reset	#6184	2026-12-31
 Aiur.Claude.Repl.HookTurnTest	post_tool_use hook resets the deadline so the loop survives past the original timeout	#6227	2026-12-31
 Aiur.Codex.StartupFailureTest	a process exiting before initialize persists its status and a redacted bounded diagnostic	#6212	2026-12-31
 Aiur.Core.AgentRunnerCheckpointQueueTest	*	#5516	2026-12-31
