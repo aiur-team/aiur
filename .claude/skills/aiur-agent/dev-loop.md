@@ -379,10 +379,10 @@ The Elixir examples below apply only to Aiur's Elixir core.
    or the merge queue, do not merge/rebase the integration branch just because
    it moved, files overlap, a check failed, or a freshness check says the head
    is behind. The merge queue tests each PR on current base. Integrate only
-   when GitHub reports the exact PR head as `CONFLICTING`, a reviewer asks, or
-   a newer base commit is identified as fixing a failing check (name that
-   commit in the PR comment). File overlap and base movement alone do not
-   require a push.
+   when GitHub reports the exact PR head as `CONFLICTING` or a newer base
+   commit fixes a failing required check (name that commit and check in the PR
+   comment). A reviewer request alone does not authorize integration. File
+   overlap and base movement alone do not require a push.
 10. **Self-review the draft PR with `ce-code-review`** against the diff you just
     pushed. A missing doc that the threshold above required is a review finding —
     fix it here, not in a follow-up ticket.
@@ -393,27 +393,29 @@ The Elixir examples below apply only to Aiur's Elixir core.
     verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
     `headRefOid` equals your local `HEAD`. For a `human-review` or `ci-wait`
     handoff, integrate the configured base only when GitHub reports the exact
-    PR head as `CONFLICTING`, a reviewer asks, or a newer base commit is
-    identified as fixing a failing check (name it in the PR comment). File
+    PR head as `CONFLICTING` or a newer base commit fixes a failing required
+    check (name that commit and check in the PR comment). A reviewer request
+    alone does not authorize integration. File
     overlap, base movement, ancestry, and local path comparisons do not require
     a push: the merge queue tests the PR on current base. A non-`CONFLICTING` head permits handoff
     without a base merge; unavailable or mismatched GitHub evidence remains
     fail-closed in the state writer.
 
-    If GitHub reports `CONFLICTING` or a reviewer asks for integration, record
-    the pre-merge head and rescue ref first. Preserve feature scope and push the
+    If GitHub reports `CONFLICTING` or a newer base commit fixes a failing
+    required check, record the pre-merge head and rescue ref first. Preserve
+    feature scope and push the
     rescue ref before resolving nontrivial conflicts. After integration, run
     relevant local tests and the format, size, components gates; resolve drift,
     validate and push. Keep the PR ready before returning to `ci-wait` for
-    new-head CI. Record observed SHAs and the conflict or reviewer request in
-    the workpad across restarts. Never open a blocking decision for base
+    new-head CI. Record observed SHAs and the conflict or check fix, including
+    the check name, in the workpad across restarts. Never open a blocking decision for base
     integration.
 
     The agent `git` guard refuses pushes to ticket branches in `agent:ci-wait`
     or `agent:human-review`, including detached-HEAD pushes named by their
     destination ref; `gh pr update-branch` is refused in those states too.
-    Review rework is allowed. When GitHub reports the PR `CONFLICTING` or a
-    reviewer asked for integration, first move the ticket to `agent:in-progress`
+    Review rework is allowed. When GitHub reports the PR `CONFLICTING` or a newer base commit fixes a
+    failing required check, first move the ticket to `agent:in-progress`
     with `aiur_set_ticket_state`, then integrate and push.
 14. If you still believe the work is complete and correct and only CI remains,
     mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
@@ -432,7 +434,8 @@ The Elixir examples below apply only to Aiur's Elixir core.
       swapped `agent:ci-wait` for `agent:in-progress` before it woke you, so the
       removal is a no-op and the ticket ends up carrying both state labels —
       undispatchable, and healed by a guess (#2805). Harmless base movement
-      needs no merge or CI rerun. For a `CONFLICTING` head or reviewer request,
+      needs no merge or CI rerun. For a `CONFLICTING` head or a newer base
+      commit fixing a required check,
       follow step 13 and await fresh exact-head CI. Never open a blocking
       decision for base integration.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move

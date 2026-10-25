@@ -150,7 +150,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur doctor [--repair]         check distribution and mise shims; repair only with consent
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
-       aiur pre-pr           merge origin/main locally and run cheap PR gates
+       aiur pre-pr           snapshot the base and run cheap PR gates without merging it
        aiur --version
 Bare aiur: start or attach to this directory's interactive session.
 EOF
