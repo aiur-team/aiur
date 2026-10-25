@@ -10,6 +10,7 @@ defmodule AiurWeb.DashboardLive.Session do
   alias AiurWeb.DashboardLive.Conversation
   alias AiurWeb.DashboardLive.GitHubQuotaSnapshot
   alias AiurWeb.DashboardLive.ProviderMeters
+  alias AiurWeb.DashboardLive.RepositoryLeaderBanner
   alias AiurWeb.DashboardLive.Summaries
   alias AiurWeb.DashboardLive.TicketContext
   alias AiurWeb.DashboardLive.UnitsPanel
@@ -41,8 +42,7 @@ defmodule AiurWeb.DashboardLive.Session do
 
     socket =
       socket
-      |> assign(:payload, payload)
-      |> assign(:now, DateTime.utc_now())
+      |> assign(%{payload: payload, now: DateTime.utc_now(), repository_leader: RepositoryLeaderBanner.initial_status()})
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
       |> Voice.assign_voice()

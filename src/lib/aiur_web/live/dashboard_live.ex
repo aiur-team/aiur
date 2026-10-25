@@ -13,6 +13,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.DashboardLive.Conversation
   alias AiurWeb.DashboardLive.Page
   alias AiurWeb.DashboardLive.ProviderMeters
+  alias AiurWeb.DashboardLive.RepositoryLeaderBanner
   alias AiurWeb.DashboardLive.Session
   alias AiurWeb.DashboardLive.Summaries
   alias AiurWeb.DashboardLive.TicketContext
@@ -40,7 +41,7 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_info(:runtime_tick, socket) do
     Session.schedule_runtime_tick()
-    {:noreply, assign(socket, :now, DateTime.utc_now())}
+    {:noreply, RepositoryLeaderBanner.refresh(socket)}
   end
 
   def handle_info(:github_quota_tick, socket) do
@@ -158,10 +159,9 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, Controls.apply_control_lifecycle(socket, payload)}
   end
 
-  # A unit's agent topic also carries transcript, alert, turn, and aiur-turn
-  # traffic that this view subscribes for the control lifecycle but does not
-  # otherwise consume. Ignore that noise — and any future message added to a
-  # topic this view does not own — rather than crashing every open dashboard.
+  # A unit's agent topic carries transcript, alert, turn, and aiur-turn traffic
+  # this view subscribes to but does not consume. Ignore it rather than crashing
+  # on any message this view does not own.
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true

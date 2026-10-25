@@ -101,6 +101,7 @@ defmodule AiurWeb.DashboardLive.Page do
       writable={@writable}
     >
       <:banner>
+        <AiurWeb.DashboardLive.RepositoryLeaderBanner.banner status={Map.get(assigns, :repository_leader)} />
         <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
