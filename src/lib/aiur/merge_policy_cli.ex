@@ -18,7 +18,7 @@ defmodule Aiur.MergePolicyCLI do
         role != "primary" ->
           %{watcher: :not_running}
 
-        landing_watch_server == Aiur.LandingWatch and not Process.whereis(Aiur.LandingWatch) ->
+        landing_watch_server == Aiur.LandingWatch and is_nil(Process.whereis(Aiur.LandingWatch)) ->
           %{watcher: :not_running}
 
         true ->

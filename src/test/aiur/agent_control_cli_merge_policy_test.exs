@@ -50,6 +50,13 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
     assert output =~ "landing_watcher=running"
   end
 
+  test "default merge policy status safely reports the application watcher" do
+    output = capture_io(fn -> Aiur.MergePolicyCLI.print() end)
+
+    assert output =~ ~r/landing_watcher=(?:running|not_running|unavailable)/
+    assert output =~ "REPOSITORY LEADER holder="
+  end
+
   test "status shows the watcher's unavailable observation" do
     parent = self()
 
