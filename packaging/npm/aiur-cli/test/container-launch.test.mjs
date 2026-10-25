@@ -16,8 +16,7 @@ import { root, setupRealLauncher, useTempRoot } from "./launcher-support.mjs";
 
 useTempRoot();
 
-// Quarantined (#6214): the crash exit code reaches the caller as 1 on main CI.
-test.skip("container launch runs without tmux and exits cleanly on SIGTERM", async () => {
+test("container launch runs without tmux and exits cleanly on SIGTERM", async () => {
   const { launcher, releaseDir } = setupRealLauncher();
   const shim = path.join(root, "bin", "aiur.js");
   mkdirSync(path.dirname(shim), { recursive: true });
