@@ -61,8 +61,8 @@ defmodule AiurWeb.PublicBindAuthTest do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
-    System.delete_env("AIUR_DASHBOARD_USERNAME")
-    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
     endpoint_config = previous_endpoint_config || []
     Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.put(endpoint_config, :dashboard_auth_required, false))
 

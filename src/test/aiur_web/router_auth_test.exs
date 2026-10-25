@@ -91,7 +91,8 @@ defmodule AiurWeb.RouterAuthTest do
     path = Path.join(System.tmp_dir!(), "aiur-router-token-#{System.unique_integer([:positive])}.json")
     previous = Application.get_env(:aiur, :client_tokens_path)
     Application.put_env(:aiur, :client_tokens_path, path)
-    assert {:ok, token} = Aiur.ClientTokens.create("read-only", "read")
+    assert {:ok, read_token} = Aiur.ClientTokens.create("read-only", "read")
+    assert {:ok, write_token} = Aiur.ClientTokens.create("write-enabled", "write")
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
@@ -101,7 +102,7 @@ defmodule AiurWeb.RouterAuthTest do
     read =
       :get
       |> dashboard_conn("/api/v1/state", nil)
-      |> put_req_header("authorization", "Bearer #{token}")
+      |> put_req_header("authorization", "Bearer #{read_token}")
       |> Router.call(Router.init([]))
 
     assert read.status == 200
@@ -111,17 +112,29 @@ defmodule AiurWeb.RouterAuthTest do
     write =
       :post
       |> dashboard_conn("/api/v1/pane/hide", nil)
-      |> put_req_header("authorization", "Bearer #{token}")
+      |> put_req_header("authorization", "Bearer #{read_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
       |> Router.call(Router.init([]))
 
     assert write.status == 403
+
+    write_with_write_token =
+      :post
+      |> dashboard_conn("/api/v1/pane/hide", nil)
+      |> put_req_header("authorization", "Bearer #{write_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert write_with_write_token.status == 422
 
     assert :ok = Aiur.ClientTokens.revoke("read-only")
 
     revoked =
       :get
       |> dashboard_conn("/api/v1/state", nil)
-      |> put_req_header("authorization", "Bearer #{token}")
+      |> put_req_header("authorization", "Bearer #{read_token}")
       |> Router.call(Router.init([]))
 
     assert revoked.status == 401
