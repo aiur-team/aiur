@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
-  alias Aiur.Orchestrator.{BuildQueueClaimProbe, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, StatusReport}
+  alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
@@ -24,6 +24,9 @@ defmodule Aiur.Orchestrator.Calls do
     do: StatusReport.list_running_active_identifiers(state)
 
   def handle_call({:has_live_owner, identifier}, _from, state), do: StatusReport.has_live_owner(state, identifier)
+
+  def handle_call({:spend_cap_exhausted, %Aiur.TrackerIdentity{} = identity}, _from, state),
+    do: SpendCap.Stop.handle_call(state, identity)
 
   def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
     {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}
@@ -52,6 +55,19 @@ defmodule Aiur.Orchestrator.Calls do
 
   def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state),
     do: OM.send_correlated_operator_message_call(state, issue_identifier, payload)
+
+  def handle_call({:cancel_agent, issue_identifier}, _from, state)
+      when is_binary(issue_identifier) and issue_identifier != "",
+      do: Cancellation.cancel_agent_call(state, issue_identifier)
+
+  def handle_call({:cancel_agent, _issue_identifier}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
+
+  def handle_call({:cancel_tracker_result, identifier, stage, result}, _from, state),
+    do: Cancellation.cancel_tracker_call(state, identifier, stage, result)
+
+  def handle_call({:cancel_observation_result, stage, outcome}, _from, state),
+    do: Cancellation.cancel_observation_call(state, stage, outcome)
 
   def handle_call({:control_capabilities, issue_identifier}, _from, state)
       when is_binary(issue_identifier),

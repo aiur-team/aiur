@@ -54,6 +54,18 @@
     "Aiur.TicketObservation"
   ],
   "facade_pending": null,
+  "boundary_reference_allowlist": [
+    "Aiur.Config",
+    "Aiur.Config.*",
+    "Aiur.Events",
+    "Aiur.Events.SubscriptionStoreRegistry",
+    "Aiur.JSONSafe",
+    "Aiur.Journal",
+    "Aiur.JsonStore",
+    "Aiur.JsonStore.*",
+    "Aiur.OpaqueIdentifier",
+    "Aiur.TrackerIdentity"
+  ],
   "requires": [
     "config",
     "kernel"

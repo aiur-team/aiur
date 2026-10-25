@@ -9,6 +9,7 @@ defmodule Aiur.Application.StartupChecks do
   alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
+  alias Aiur.GitHub.AuthPolicy
   alias Aiur.Orchestrator.HostedModeCheck
 
   @doc false
@@ -18,14 +19,36 @@ defmodule Aiur.Application.StartupChecks do
       :ok
     else
       settings = Aiur.Config.settings_uncached()
+      env = System.get_env()
 
-      validate_outbound_export!(settings, System.get_env())
-      validate_secrets!(settings, System.get_env())
+      validate_auth_before_secrets!(settings, env)
+      validate_outbound_export!(settings, env)
 
-      Aiur.Env.validate_startup!(System.get_env(), require_github_credential: github_tracker?(settings))
+      Aiur.Env.validate_startup!(env, require_github_credential: github_tracker?(settings))
       Aiur.Env.warn_disabled_integrations()
       Aiur.Env.warn_precedence_conflicts()
     end
+  end
+
+  @doc false
+  @spec validate_github_auth(term(), map()) :: :ok | {:error, String.t()}
+  def validate_github_auth({:ok, settings}, env), do: validate_github_auth(settings, env)
+
+  def validate_github_auth(%{tracker: %{kind: "github"}} = settings, env) do
+    AuthPolicy.auth_policy_error(settings, env)
+  end
+
+  def validate_github_auth(_settings, _env), do: :ok
+
+  @doc false
+  @spec validate_auth_before_secrets!(term(), map()) :: :ok
+  def validate_auth_before_secrets!(settings, env) do
+    case validate_github_auth(settings, env) do
+      :ok -> :ok
+      {:error, message} -> raise ArgumentError, message: message
+    end
+
+    validate_secrets!(settings, env)
   end
 
   @doc "Validates the secrets required by the active hosted configuration."

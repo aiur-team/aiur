@@ -258,25 +258,50 @@ function requiresInteractiveTools(argv) {
 function main() {
   const releaseDir = resolveReleaseDir();
   const target = remoteTarget(process.argv.slice(2));
+  const containerMode = target.args.includes("--container");
 
-  if (requiresInteractiveTools(target.args)) {
+  if (!containerMode && requiresInteractiveTools(target.args)) {
     ensureTmux();
     ensureOpencode();
   }
 
   const pkgRoot = path.resolve(__dirname, "..");
   const launcher = path.join(pkgRoot, "libexec", "aiur-engine.sh");
-
   const env = {
     ...process.env,
     AIUR_JS_RUNTIME: process.execPath,
     AIUR_RELEASE_DIR: releaseDir,
     AIUR_TMUX_CONF: path.join(pkgRoot, "share", "aiur.tmux.conf"),
   };
+
   delete env.AIUR_REMOTE_INSTANCE;
   const engineArgs = target.instance
     ? ["--instance", target.instance, ...target.args]
     : target.args;
+
+  if (containerMode) {
+    const child = spawn(launcher, engineArgs, { stdio: "inherit", env });
+    let forwardedSignal = false;
+    const signalHandlers = new Map();
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+      const handler = () => {
+        forwardedSignal = true;
+        child.kill(signal);
+      };
+      signalHandlers.set(signal, handler);
+      process.on(signal, handler);
+    }
+    child.on("error", (error) => fail(`failed to launch ${launcher}: ${error.message}`));
+    child.on("exit", (code, signal) => {
+      if (signal && !forwardedSignal) {
+        for (const [name, handler] of signalHandlers) process.removeListener(name, handler);
+        process.kill(process.pid, signal);
+        return;
+      }
+      process.exit(code === null ? 1 : code);
+    });
+    return;
+  }
 
   const result = spawnSync(launcher, engineArgs, {
     stdio: "inherit",

@@ -28,7 +28,7 @@ defmodule Aiur.AgentEnvironment do
   # own.
   @restart_build_env_names ~w(AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_RECEIPT AIUR_RESTART_BUILD_VERIFIES)
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
-  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE AIUR_LEASE_DATABASE_URL)
+  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE AIUR_LEASE_DATABASE_URL AIUR_CONTAINER)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY(?:__[A-Z0-9_-]+)?\z/
   # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
@@ -302,7 +302,8 @@ defmodule Aiur.AgentEnvironment do
         __MODULE__.GitIdentity.port_env(opts) ++
         Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
-        port_startup_env
+        port_startup_env ++
+        Aiur.AgentShellHook.port_env(build_gate_env)
 
     contributions = Contributor.port_env(workspace, opts)
 
@@ -339,9 +340,7 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  # Build admission is the sole permitted BASH_ENV hook in an agent workspace:
-  # it is an Aiur-owned absolute path, replaces (rather than inherits) the
-  # operator value, and is only present when admission is enabled.
+  # AgentShellHook replaces operator BASH_ENV, repairs PATH after profiles, then sources this hook.
   defp replace_bash_env(startup_env, build_gate_env) do
     case List.keyfind(build_gate_env, "BASH_ENV", 0) do
       {"BASH_ENV", _hook_path} ->

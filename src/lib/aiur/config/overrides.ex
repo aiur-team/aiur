@@ -24,7 +24,9 @@ defmodule Aiur.Config.Overrides do
     "agent.priority" => %{path: ["agent", "priority"], applies: "live"},
     "agent.routing" => %{path: ["agent", "routing"], applies: "live"},
     "build_queue.max_active_sets" => %{path: ["build_queue", "max_active_sets"], applies: "live"},
-    "instance.ignore.tickets" => %{path: ["instance", "ignore", "tickets"], applies: "live"}
+    "instance.ignore.tickets" => %{path: ["instance", "ignore", "tickets"], applies: "live"},
+    "instance.owns" => %{path: ["instance", "owns"], applies: "live"},
+    "instance.pool" => %{path: ["instance", "pool"], applies: "live"}
   }
 
   @doc "Merges every override accepted by this build into `workflow`."
@@ -317,7 +319,7 @@ defmodule Aiur.Config.Overrides do
     Path.join(Path.dirname(path), @rejected_prefix <> Integer.to_string(System.system_time(:microsecond)) <> ".json")
   end
 
-  defp locked(path, fun), do: :global.trans({__MODULE__, path}, fun)
+  defp locked(path, fun), do: :global.trans({{__MODULE__, path}, self()}, fun)
 
   defp file_stamp(path) do
     case File.read(path) do

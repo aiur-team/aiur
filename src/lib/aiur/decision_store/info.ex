@@ -5,6 +5,8 @@ defmodule Aiur.DecisionStore.Info do
 
   alias Aiur.Decision
   alias Aiur.DecisionPubSub
+
+  alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Boot
@@ -20,6 +22,10 @@ defmodule Aiur.DecisionStore.Info do
   end
 
   def handle_info(:decision_projection_recovered, state), do: Boot.handle_continue(:schedule_reconciliation, state)
+
+  def handle_info({:answer_comment_published, decision_id, action_id}, state) do
+    {:noreply, Answers.handle_ticket_comment_published(decision_id, action_id, state)}
+  end
 
   def handle_info({:retry_executor_request_notification, decision_id, version, attempt}, state) do
     case Map.get(state.current, decision_id) do

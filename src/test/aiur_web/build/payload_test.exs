@@ -66,6 +66,38 @@ defmodule AiurWeb.Build.PayloadTest do
     assert {"counts.bugs", :missing} in errors
   end
 
+  test "feature progress is keyed by a feature-local epic and preserves unknown counts" do
+    progress = %{
+      "f-pag-api" => %{
+        "feature" => "pag",
+        "label" => "Pagination · API",
+        "closed" => nil,
+        "open" => 1,
+        "ci_wait" => nil,
+        "unpublished" => 2,
+        "total" => nil,
+        "observed_at" => 1_791_408_000_000,
+        "wave" => "0b",
+        "summary" => "API work",
+        "icon" => nil,
+        "code" => "MP-E8",
+        "plan_version" => "v1",
+        "extras" => nil,
+        "root_number" => 3042,
+        "root_title" => "Home / Build page",
+        "start_date" => "2026-10-01",
+        "reason" => "states unavailable · CI state unknown · planned count unavailable"
+      }
+    }
+
+    data = put_in(fixture(), ["feature_progress"], %{"features" => progress, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => nil, "reason" => nil})
+    assert Payload.validate(data) == :ok
+
+    data = put_in(data, ["feature_progress", "features"], %{"pag" => progress["f-pag-api"]})
+    assert {:error, errors} = Payload.validate(data)
+    assert {"feature_progress.features.pag", :reference} in errors
+  end
+
   test "every source must be present" do
     for key <- ~w(history features queue agents index open_tickets) do
       data = fixture() |> update_in(["sources"], &Map.delete(&1, key))

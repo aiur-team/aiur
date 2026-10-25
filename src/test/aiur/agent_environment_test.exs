@@ -17,8 +17,7 @@ defmodule Aiur.AgentEnvironmentTest do
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_AGENT_NODE_NAME")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_COOKIE")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_ERLANG_COOKIE")
-    # Per-instance identity inputs (#431) must be scrubbed so an agent's inner aiur
-    # derives its own identity instead of reaping the outer.
+    # Inner aiur processes must not reuse the outer daemon's keyed identity (#431).
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_RELEASE_NODE")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_INSTANCE_KEY")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_REPO_ROOT")
@@ -38,7 +37,7 @@ defmodule Aiur.AgentEnvironmentTest do
   test "scrub_shell_command clears Erlang distribution environment before exec" do
     command =
       AgentEnvironment.scrub_shell_command(
-        "env | grep -E '^(ERL_AFLAGS|ERL_LIBS|ERL_CRASH_DUMP|ERL_CRASH_DUMP_SECONDS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
+        "env | grep -E '^(ERL_AFLAGS|ERL_LIBS|ERL_CRASH_DUMP|ERL_CRASH_DUMP_SECONDS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_CONTAINER|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
       )
 
     {output, 0} =
@@ -54,6 +53,7 @@ defmodule Aiur.AgentEnvironmentTest do
           {"AIUR_AGENT_NODE_NAME", "aiur@test"},
           {"AIUR_COOKIE", "secret"},
           {"AIUR_ERLANG_COOKIE", "secret"},
+          {"AIUR_CONTAINER", "1"},
           # #431 per-instance identity inputs — must not leak into an inner aiur.
           {"AIUR_RELEASE_NODE", "aiur-kevin-abc1230000@127.0.0.1"},
           {"AIUR_INSTANCE_KEY", "abc1230000"},
@@ -658,9 +658,9 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
       assert to_string(options) =~ "+S 4:4"
 
-      # The only permitted BASH_ENV is Aiur's immutable build-admission hook;
-      # an operator-provided value is replaced at the launch boundary.
-      assert {~c"BASH_ENV", build_gate_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      # The trusted shell hook runs before tool commands and chains build admission.
+      assert {~c"BASH_ENV", _shell_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert {~c"AIUR_BUILD_GATE_HOOK", build_gate_hook} = List.keyfind(env, ~c"AIUR_BUILD_GATE_HOOK", 0)
       assert to_string(build_gate_hook) == BuildGate.agent_hook_path()
       assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
       assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)
