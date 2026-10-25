@@ -196,10 +196,21 @@ defmodule Aiur.DecisionEvent do
          {:ok, persisted_hash} <- Validation.fetch_string(raw, "content_hash", :content_hash),
          {:ok, event} <-
            decode_typed_event(schema_version, type, decision_id, decision_version, data, event_id, run_id, occurred_at),
-         :ok <- Validation.verify_hash(event.content_hash, persisted_hash) do
-      {:ok, event}
+         :ok <- verify_persisted_hash(event, persisted_hash) do
+      {:ok, %{event | content_hash: persisted_hash}}
     end
   end
+
+  # Snapshots written while #5506 was live, before #6246, hashed the
+  # session-delivery keys as well; they replay against that material.
+  defp verify_persisted_hash(%__MODULE__{type: type} = event, persisted_hash) when type in [:requested, :enriched] do
+    with {:error, _reason} = mismatch <- Validation.verify_hash(event.content_hash, persisted_hash) do
+      material = %{event_material(event) | data: event_hash_data(event.schema_version, type, event.data)}
+      if DecisionValidation.content_hash(material) == persisted_hash, do: :ok, else: mismatch
+    end
+  end
+
+  defp verify_persisted_hash(event, persisted_hash), do: Validation.verify_hash(event.content_hash, persisted_hash)
 
   @doc "JSON-safe durable representation."
   @spec to_json_safe(t()) :: map()
@@ -250,9 +261,12 @@ defmodule Aiur.DecisionEvent do
       decision_id: decision_id,
       decision_version: decision_version,
       occurred_at: DateTime.to_iso8601(occurred_at),
-      data: event_hash_data(schema_version, type, data)
+      data: event_hash_data(schema_version, type, data) |> drop_unhashed_snapshot_keys(type)
     }
   end
+
+  defp event_material(%__MODULE__{} = e),
+    do: event_material(e.schema_version, e.type, e.event_id, e.run_id, e.decision_id, e.decision_version, e.occurred_at, e.data)
 
   # Schema-1 hashes retain main's material; provenance remains rollback-compatible.
   defp legacy_data_to_json_safe(:requested, %Decision{} = decision) do
@@ -274,6 +288,17 @@ defmodule Aiur.DecisionEvent do
 
   defp event_hash_data(@versioned_snapshot_schema_version, type, data),
     do: Codec.data_to_json_safe(type, data) |> Provenance.maybe_put_provenance_state(type, data)
+
+  # #5506 added these to the snapshot encoder. Older snapshots were hashed without
+  # them and replay never decodes them, so they stay out of the hash (#6246).
+  @unhashed_snapshot_keys ["pending_for_session", "ticket_comment_status"]
+
+  defp drop_unhashed_snapshot_keys(data, :requested), do: Map.drop(data, @unhashed_snapshot_keys)
+
+  defp drop_unhashed_snapshot_keys(data, :enriched),
+    do: Map.update!(data, "decision", &Map.drop(&1, @unhashed_snapshot_keys))
+
+  defp drop_unhashed_snapshot_keys(data, _type), do: data
 
   defp validate_type(type) when type in @types, do: :ok
   defp validate_type(_other), do: {:error, {:event_type, :unknown}}
