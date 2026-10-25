@@ -18,16 +18,50 @@ defmodule Aiur.Events.JournaledPublishTest do
         :ok = Exchange.subscribe("executor.test.ordered")
         send(parent, :subscribed)
 
-        receive do
+        receive_barrier do
           {:event, %{id: id}} -> File.read!(journal) =~ ~s("id":#{id})
-        after
-          1_000 -> :timeout
         end
       end)
 
     assert_receive :subscribed, 500
     assert {:ok, _id, _count} = JournaledPublish.publish("executor.test.ordered", %{n: 1}, journal: journal, journal_dir: dir)
-    assert Task.await(task) == true
+    assert Task.await(task, 5_000) == true
+  end
+
+  test "delivery waits for a delayed append and still observes the persisted record", %{dir: dir, journal: journal} do
+    :ok = Exchange.subscribe("executor.test.delayed")
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        :ok = Exchange.subscribe("executor.test.delayed")
+        send(parent, :subscribed)
+
+        receive_barrier do
+          {:event, %{id: id}} -> File.read!(journal) =~ ~s("id":#{id})
+        end
+      end)
+
+    assert_receive :subscribed, 500
+
+    append_fun = fn path, record ->
+      send(parent, {:append_started, self()})
+
+      receive do
+        :continue_append -> Aiur.Events.Journal.append(path, record)
+      end
+    end
+
+    publisher =
+      Task.async(fn ->
+        JournaledPublish.publish("executor.test.delayed", %{n: 1}, journal: journal, journal_dir: dir, append_fun: append_fun)
+      end)
+
+    assert_receive {:append_started, append_pid}, 500
+    refute_receive {:event, _}, 50
+    send(append_pid, :continue_append)
+    assert {:ok, _id, _count} = Task.await(publisher, 5_000)
+    assert Task.await(task, 5_000) == true
   end
 
   test "a failed append publishes nothing", %{dir: dir} do

@@ -27,9 +27,13 @@ defmodule Aiur.Events.JournaledPublish do
     with {:ok, id} <- IdGenerator.reserve_durable_id(),
          record = payload |> JSONSafe.normalize() |> Map.merge(%{"id" => id, "topic" => topic, "source" => source_name(source)}),
          :ok <- Journal.prepare(dir, journal),
-         :ok <- Journal.append(journal, record) do
+         :ok <- append(journal, record, opts) do
       Publisher.publish_persisted(topic, payload, id, Keyword.get(opts, :publish_opts, source: source))
     end
+  end
+
+  defp append(journal, record, opts) do
+    opts |> Keyword.get(:append_fun, &Journal.append/2) |> then(& &1.(journal, record))
   end
 
   defp source_name(source) when is_atom(source), do: Atom.to_string(source)
