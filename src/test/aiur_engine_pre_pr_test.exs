@@ -5,7 +5,7 @@ defmodule AiurEnginePrePrTest do
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
   @shim Path.expand("../../scripts/aiurdev", __DIR__)
 
-  test "conflicting origin main reports the file, aborts, and leaves the checkout clean" do
+  test "pre-pr snapshots origin main without merging it into the checkout" do
     fixture = fixture("conflict")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
@@ -16,15 +16,19 @@ defmodule AiurEnginePrePrTest do
     File.write!(Path.join(repo, "collision.txt"), "main\n")
     git!(repo, ["commit", "-am", "main"])
     git!(repo, ["switch", "feature"])
+    feature_head = git_output!(repo, ["rev-parse", "HEAD"])
 
     {output, status} = run_pre_pr(fixture, repo)
 
     assert status == 1
-    assert output =~ "FAIL merge conflict: collision.txt"
+    assert output =~ "PASS base origin/main"
+    assert output =~ "Base SHA:"
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
-    assert String.ends_with?(output, "--- end aiur pre-pr result ---\n")
+    assert output =~ "--- end aiur pre-pr result ---\n"
     assert git_output!(repo, ["status", "--porcelain"]) == ""
+    assert git_output!(repo, ["rev-parse", "HEAD"]) == feature_head
+    assert File.read!(Path.join(repo, "collision.txt")) == "feature\n"
     refute File.exists?(Path.join(fixture, "home/.aiur"))
     refute Enum.any?(File.ls!(fixture), &String.starts_with?(&1, "aiur-pre-pr."))
   end

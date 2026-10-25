@@ -61,7 +61,8 @@ checks on the current head SHA.
 
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
 `aiurdev pre-pr`) from the branch checkout. Paste its complete result block
-into the PR body; it records the merged `origin/main` SHA and each gate result.
+into the PR body; it records the configured base SHA and each gate result,
+without merging the base into the PR branch.
 The command never pushes and refuses a dirty checkout. Once a PR exists, it
 waits for GitHub to report the pushed head, then rewrites the body's
 `Tested head:` and `Base:` lines as plain SHAs; it fails if `gh` cannot read
