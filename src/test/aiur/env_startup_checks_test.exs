@@ -1,5 +1,6 @@
 defmodule Aiur.EnvStartupChecksTest do
   use ExUnit.Case, async: false
+  import Bitwise
 
   alias Aiur.Application.StartupChecks
   alias Aiur.Env
@@ -109,6 +110,36 @@ defmodule Aiur.EnvStartupChecksTest do
     assert {:error, messages} = StartupChecks.validate_deployment_credentials(consumer, %{"CODEX_HOME" => home})
     assert Enum.any?(messages, &String.contains?(&1, "CODEX_HOME/auth.json"))
   end
+
+  test "hosted startup prepares persistent Codex home and preserves explicit configuration" do
+    root = Aiur.TestSupport.tmp_root!("hosted-codex-home")
+    state_dir = Path.join(root, "state")
+    explicit_home = Path.join(root, "explicit-codex")
+    original_codex_home = System.get_env("CODEX_HOME")
+
+    on_exit(fn ->
+      restore_env("CODEX_HOME", original_codex_home)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    hosted = {:ok, %{instance: %{mode: "hosted"}}}
+    configured = StartupChecks.configure_codex_home(hosted, %{"AIUR_BG_STATE_DIR" => state_dir})
+    expected_home = Path.join(state_dir, "codex")
+    assert configured["CODEX_HOME"] == expected_home
+    assert System.get_env("CODEX_HOME") == expected_home
+    assert File.stat!(expected_home).mode |> band(0o777) == 0o700
+
+    explicit = StartupChecks.configure_codex_home(hosted, %{"AIUR_BG_STATE_DIR" => state_dir, "CODEX_HOME" => explicit_home})
+    assert explicit["CODEX_HOME"] == explicit_home
+    assert File.stat!(explicit_home).mode |> band(0o777) == 0o700
+
+    local_env = %{"CODEX_HOME" => "unchanged", "AIUR_BG_STATE_DIR" => state_dir}
+    assert StartupChecks.configure_codex_home({:ok, %{instance: %{mode: "local"}}}, local_env) == local_env
+    assert System.get_env("CODEX_HOME") == explicit_home
+  end
+
+  defp restore_env(key, nil), do: System.delete_env(key)
+  defp restore_env(key, value), do: System.put_env(key, value)
 
   test "hosted startup requires credentials for backend routes" do
     settings = %{
