@@ -145,7 +145,7 @@ defmodule Aiur.InstanceTest do
   test "the Executor sweep drops another instance's unreviewed PR and merge group" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path())
     ignore!("    tickets: [4430]\n")
-    now = ~U[2026-10-15 18:20:00Z]
+    now = DateTime.utc_now()
 
     pr = fn number, ticket ->
       %{
@@ -164,7 +164,7 @@ defmodule Aiur.InstanceTest do
         name: "run #{number}",
         head_branch: "gh-readonly-queue/main/pr-#{number}-abc",
         state: "queued",
-        started_at: ~U[2026-10-15 17:00:00Z]
+        started_at: DateTime.add(now, -80, :minute)
       }
     end
 
@@ -173,13 +173,17 @@ defmodule Aiur.InstanceTest do
         %{number: 4429, labels: ["agent:human-review"]},
         %{number: 4430, labels: ["agent:human-review"]}
       ],
-      decisions: [%{ticket: 4430, blocking: true}, %{ticket: 4429, blocking: true}],
+      decisions: [
+        %{ticket: 4430, blocking: true, created_at: DateTime.add(now, -20, :minute)},
+        %{ticket: 4429, blocking: true, created_at: DateTime.add(now, -20, :minute)}
+      ],
       pull_requests: [pr.(4447, 4429), pr.(4448, 4430)],
       merge_groups: [group.(4447), group.(4448)]
     }
 
     findings = Aiur.ExecutorSweep.findings(snapshot: snapshot, now: now)
     assert Enum.map(SweepFilter.own(snapshot).decisions, & &1.ticket) == [4429]
+    assert [%{queued_runs: 1, running_runs: 0, age_ms: 4_800_000}] = Enum.filter(findings, &(&1.kind == "runner_starvation"))
 
     assert for(
              %{kind: "unreviewed_pr", ticket_state: "human-review", pull_request: n} <- findings,
