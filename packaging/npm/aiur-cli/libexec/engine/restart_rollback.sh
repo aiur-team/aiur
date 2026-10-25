@@ -1,5 +1,28 @@
 # Startup rollback helpers for `aiur restart`. Sourced by aiur-engine.sh.
 aiur_restart_previous_release=""
+aiur_restart_snapshot_dir=""
+aiur_restart_startup_capture_file=""
+aiur_restart_alert_path_capture_file=""
+
+preserve_restart_failure_artifacts() {
+  local startup_capture="$1" alert_path_file="$2"
+  if [ -n "${AIUR_RESTART_STARTUP_CAPTURE:-}" ] && [ ! -s "$AIUR_RESTART_STARTUP_CAPTURE" ] && [ -r "$startup_capture" ]; then
+    cp "$startup_capture" "$AIUR_RESTART_STARTUP_CAPTURE" 2>/dev/null || true
+  fi
+  if [ -n "${AIUR_RESTART_ALERT_PATH_CAPTURE:-}" ] && [ -r "$alert_path_file" ]; then
+    cp "$alert_path_file" "$AIUR_RESTART_ALERT_PATH_CAPTURE" 2>/dev/null || true
+  fi
+}
+
+aiur_restart_cleanup_artifacts() {
+  [ -z "$aiur_restart_snapshot_dir" ] || rm -rf "$aiur_restart_snapshot_dir"
+  [ -z "$aiur_restart_startup_capture_file" ] || rm -f "$aiur_restart_startup_capture_file"
+  [ -z "$aiur_restart_alert_path_capture_file" ] || rm -f "$aiur_restart_alert_path_capture_file"
+  aiur_restart_snapshot_dir=""
+  aiur_restart_startup_capture_file=""
+  aiur_restart_alert_path_capture_file=""
+  unset AIUR_RESTART_STARTUP_CAPTURE AIUR_RESTART_ALERT_PATH_CAPTURE
+}
 
 restart_first_error_line() {
   local capture="$1" line
@@ -53,22 +76,25 @@ restart_release_snapshot() {
     return 1
   fi
   aiur_restart_previous_release="$RESTART_SNAPSHOT_DIR"
+  aiur_restart_snapshot_dir="$RESTART_SNAPSHOT_DIR"
 }
 
 restart_after_start_attempt() {
   local status="$1" capture="$2" previous_sha="$3" snapshot_dir="$4" keep_agents="$5" first_error
   if [ "$status" -eq 0 ]; then
     aiur_restart_daemon_state="running"
-    trap - EXIT INT TERM
-    [ -n "$snapshot_dir" ] && rm -rf "$snapshot_dir"
     [ "$keep_agents" -eq 0 ] || report_restart_handoff
+    aiur_restart_cleanup_artifacts
+    trap - EXIT INT TERM
     return 0
   fi
 
   if [ -z "$snapshot_dir" ]; then return "$status"; fi
   first_error="$(restart_first_error_line "$capture")"
-  local failed_ledger_file="${AIUR_ALERT_LEDGER_PATH_FILE:-}" failed_ledger_path=""
-  if [ -r "$failed_ledger_file" ]; then IFS= read -r failed_ledger_path <"$failed_ledger_file" || true; fi
+  local failed_ledger_path=""
+  if [ -r "$aiur_restart_alert_path_capture_file" ]; then
+    IFS= read -r failed_ledger_path <"$aiur_restart_alert_path_capture_file" || true
+  fi
   AIUR_RESTART_HANDOFF_ID="${aiur_restart_handoff_id:-${AIUR_RESTART_HANDOFF_ID:-}}"
   export AIUR_RESTART_HANDOFF_ID
   echo "aiur: new release failed during startup; attempting rollback to $previous_sha" >&2
@@ -78,8 +104,8 @@ restart_after_start_attempt() {
   fi
   AIUR_RESTART_HANDOFF_ID="${aiur_restart_handoff_id:-${AIUR_RESTART_HANDOFF_ID:-}}"
   aiur_restart_daemon_state="running"
-  trap - EXIT INT TERM
-  rm -rf "$snapshot_dir"
   record_restart_rollback_alert "rolled back to $previous_sha: new release failed with $first_error" "$failed_ledger_path"
   [ "$keep_agents" -eq 0 ] || report_restart_handoff
+  aiur_restart_cleanup_artifacts
+  trap - EXIT INT TERM
 }
