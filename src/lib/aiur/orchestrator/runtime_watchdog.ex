@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue}
+  alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
 
   @interrupted_turn_grace_ms 30_000
@@ -213,7 +213,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   defp restart_unhealthy_issue(state, issue_id, running_entry, reason, alert_slug, opts) do
     identifier = Map.get(running_entry, :identifier, issue_id)
-    emit_alert = Keyword.get(opts, :emit_alert, &Alerts.emit_custom/3)
+    emit_alert = Keyword.get(opts, :emit_alert, &Signal.agent_alert/3)
 
     _ =
       emit_alert.(
@@ -336,7 +336,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
 
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{identifier}.agent.stalled",
           "#{backend} backend command (#{command}) made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
           issue: Map.get(running_entry, :issue),

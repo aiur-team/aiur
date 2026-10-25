@@ -13,6 +13,7 @@
     "src/lib/aiur/coding_agent/**",
     "src/lib/aiur/harness/**",
     "src/lib/aiur/model_availability.ex",
+    "src/lib/aiur/model_availability/**",
     "src/lib/aiur/model_catalog.ex",
     "src/lib/aiur/model_discovery.ex",
     "src/lib/aiur/model_discovery/**",

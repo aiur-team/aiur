@@ -40,6 +40,13 @@ test('ticket usage accepts stale and known-empty states', () => {
   assert.equal(validate(knownEmpty), true, JSON.stringify(validate.errors));
 });
 
+test('spend-cap reached event requires the distinct budget_exhausted end state', () => {
+  const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket spend cap reached');
+  for (const wrong of ['failed', 'cancelled', null]) {
+    assert.equal(validate({ ...fixture, end_state: wrong }), false);
+  }
+});
+
 test('ticket cancel reserves exit evidence for an observed process exit', () => {
   const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket cancel');
 

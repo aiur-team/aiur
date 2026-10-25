@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
 
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AgentTeardown
@@ -19,6 +18,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TokenAccounting
+  alias Aiur.Signal
 
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
   def handle_agent_down(state, ref, reason),
@@ -276,7 +276,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
     identifier = Map.get(running_entry, :identifier)
 
     _ =
-      Alerts.emit_custom(
+      Signal.agent_alert(
         "ticket.#{identifier}.agent.orphan_reaped",
         "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
         issue: Map.get(running_entry, :issue),

@@ -169,6 +169,11 @@ claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md
 
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false
+
 # Build queue (GitHub only; defaults shown except opt-in set ordering).
 # build_queue:
 #   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch

@@ -14,12 +14,27 @@ defmodule Aiur.DecisionStore.Answers do
   @spec handle_answer(term(), term(), term(), term()) :: term()
   def handle_answer(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
-         {:ok, actor} <- fetch_actor(opts) do
+         {:ok, actor} <- fetch_actor(opts),
+         :ok <- require_relay_enabled(actor, state) do
       accept_or_replay_answer(decision, payload, actor, opts, state)
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
   end
+
+  @doc false
+  @spec require_relay_enabled(map(), map()) :: :ok | {:error, term()}
+  def require_relay_enabled(actor, state) do
+    kind = Map.get(actor, :kind, Map.get(actor, "kind"))
+    if kind in [:operator_relayed, "operator_relayed"] and state.relay_enabled.() != true, do: {:error, {:answer_invalid, {:operator_relay, :disabled}}}, else: :ok
+  end
+
+  @doc false
+  @spec notify_operator_relay(DecisionAnswer.t(), Decision.t(), map()) :: term()
+  def notify_operator_relay(%DecisionAnswer{actor: %{kind: :operator_relayed}} = answer, decision, state),
+    do: state.relay_notifier.(decision, answer)
+
+  def notify_operator_relay(_answer, _decision, _state), do: :ok
 
   @doc false
   @spec consume_pending_for_session(String.t(), String.t(), [String.t()], term()) :: term()
@@ -207,6 +222,7 @@ defmodule Aiur.DecisionStore.Answers do
   defp persist_answer(decision, answer, state) do
     case Persistence.build_and_persist_event(:answer_recorded, decision, answer, answer.accepted_at, state) do
       {:ok, next_state, updated} ->
+        notify_operator_relay(answer, updated, next_state)
         schedule_ticket_comment(updated, state.answer_comment_publisher)
 
         next_state =

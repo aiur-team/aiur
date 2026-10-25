@@ -3,12 +3,12 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
   Orchestrator call handlers for per-ticket pause, control requests, and control expiry.
   """
 
-  alias Aiur.Alerts
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Orchestrator.PauseResume.ControlRequest
   alias Aiur.Orchestrator.PauseResume.PauseRequest
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
   alias Aiur.TrackerIdentity
   require Logger
 
@@ -58,7 +58,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
   def emit_control_crash_alert(action, target, summary) do
     label = control_target_label(target)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{label}.agent.attention.control-call-crashed",
       "Operator #{action} of #{label} crashed inside the orchestrator (#{summary}). The agent registry was kept, " <>
         "but side effects the call made before it crashed (tracker labels, a started worker) were not undone; check the ticket.",

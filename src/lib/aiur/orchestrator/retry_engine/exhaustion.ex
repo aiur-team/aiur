@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.LocalHold
@@ -15,6 +14,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   defp finalize_exhausted_issue(issue_id, identifier, metadata, exhaustion_reason, opts) do
     case rework_handoff_state(identifier, metadata[:rework_head_sha], metadata) do
@@ -164,7 +164,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
             "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
               retry_exhausted_error_suffix(exhaustion_reason)
 
-          Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
+          Signal.agent_alert("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
             issue: identifier,
             reason: message,
             needs_attention: true,
@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   defp valid_lifecycle_state?(_state), do: false
 
   defp emit_error_state_write_failed(identifier, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.agent.attention.error-state-write-failed",
       "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
       issue: identifier,
@@ -255,7 +255,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   defp emit_rework_handoff_attention(identifier, state_name) do
     message = "Agent exhausted retries without handing off after pushing rework for #{identifier}; moved the ticket to agent:#{state_name}."
 
-    Alerts.emit_custom("ticket.#{identifier}.agent.rework_handoff", message,
+    Signal.agent_alert("ticket.#{identifier}.agent.rework_handoff", message,
       issue: identifier,
       reason: message,
       needs_attention: true,
