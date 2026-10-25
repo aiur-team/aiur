@@ -267,6 +267,19 @@ defmodule Aiur.GitHub.Budget do
   def request_resource(%{url: url}) when is_binary(url), do: EndpointPolicy.resource(url)
   def request_resource(_request), do: "core"
 
+  @doc false
+  @spec command([String.t()], String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def command(args, key, opts \\ []), do: BrokerPort.command(args, key, opts)
+
+  @doc false
+  @spec agent_families() :: [{String.t(), String.t(), boolean()}]
+  def agent_families, do: EndpointPolicy.families()
+
+  @doc false
+  @spec publish_shared_hold(map(), String.t(), String.t(), non_neg_integer()) :: :ok
+  def publish_shared_hold(request, key, resource, delay_ms),
+    do: Shared.publish_hold(request, key, resource, delay_ms)
+
   defp do_acquire(request, key, python, opts, deadline_at) do
     case Shared.hold_status(request, key) do
       :clear -> do_local_acquire(request, key, python, opts, deadline_at)

@@ -3,8 +3,6 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
 
   alias Aiur.AgentGitHubGuard.AgentToken
   alias Aiur.GitHub.Budget
-  alias Aiur.GitHub.Budget.{BrokerPort, Shared}
-  alias Aiur.GitHub.EndpointPolicy
 
   @spec execute([String.t()]) :: {:ok, String.t()} | {:error, term()}
   def execute(args), do: execute(args, [])
@@ -82,7 +80,7 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
 
     case broker_call(args, key, opts) do
       {:ok, _output} ->
-        Shared.publish_hold(request, key, if(scope == "token", do: "*", else: resource), milliseconds)
+        Budget.publish_shared_hold(request, key, if(scope == "token", do: "*", else: resource), milliseconds)
         {:ok, "held\n"}
 
       {:error, _} = error ->
@@ -98,7 +96,7 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
     family = Map.get(values, "--endpoint-family")
     consumer = Map.get(values, "--consumer-label")
     consumer_key = Map.get(values, "--consumer-key")
-    family_entry = Enum.find(EndpointPolicy.families(), &(elem(&1, 0) == family))
+    family_entry = Enum.find(Budget.agent_families(), &(elem(&1, 0) == family))
 
     with {^family, resource, _billable} <- family_entry,
          true <- is_binary(consumer) and String.starts_with?(consumer, "workspace:"),
@@ -195,5 +193,5 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
   defp family_url("search"), do: "https://api.github.com/search/issues"
   defp family_url(family), do: "https://api.github.com/repos/aiur/budget/#{family}"
 
-  defp broker_call(args, key, opts), do: BrokerPort.command(args, key, opts)
+  defp broker_call(args, key, opts), do: Budget.command(args, key, opts)
 end
