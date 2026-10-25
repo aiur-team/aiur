@@ -164,6 +164,17 @@ defmodule AiurWeb.Build.IndexReaderTest do
     assert index.sources.agents.state == "unavailable"
   end
 
+  test "running row read failure is isolated from other index parts" do
+    read =
+      IndexReader.read(MapSet.new([:now]), parts(),
+        units_fun: fn -> raise "unavailable" end,
+        pack_loader: fn -> [] end
+      )
+
+    assert read.now == {:error, :read_failed}
+    assert read.open.status == :available
+  end
+
   test "pack manifests are read as a safe reader part and retained on unrelated diffs" do
     parent = self()
     packs = [%{root_number: 99, tickets: []}]

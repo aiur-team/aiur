@@ -9,7 +9,7 @@ defmodule AiurWeb.Build.IndexReader do
   def read(dirty, previous, opts) do
     core = Index.read_core_parts(dirty, opts)
     parts = Map.merge(previous, core)
-    packs = read_part(:packs, dirty, parts, fn -> Index.safe_read(:packs, fn -> load_packs(opts) end) end)
+    packs = read_part(:packs, dirty, parts, fn -> load_packs(opts) end)
     parts = Map.put(parts, :packs, packs)
 
     repo =
@@ -37,7 +37,7 @@ defmodule AiurWeb.Build.IndexReader do
   end
 
   defp read_part(key, dirty, previous, fun) do
-    if dirty == :all or MapSet.member?(dirty, key), do: fun.(), else: previous[key]
+    if dirty == :all or MapSet.member?(dirty, key), do: Index.safe_read(key, fun), else: previous[key]
   end
 
   defp load_packs(opts), do: Keyword.get(opts, :pack_loader, &PackLoader.load_packs/0).()
