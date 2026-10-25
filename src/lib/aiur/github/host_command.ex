@@ -26,7 +26,6 @@ defmodule Aiur.GitHub.HostCommand do
   that shell resolves.
   """
 
-  alias Aiur.AgentGitHubGuard
   alias Aiur.GitHub.Access.Token
 
   @doc """
@@ -131,7 +130,7 @@ defmodule Aiur.GitHub.HostCommand do
   end
 
   defp installed_host_wrapper(bin_dir) do
-    bin_dir = bin_dir || AgentGitHubGuard.host_bin_dir()
+    bin_dir = bin_dir || Application.get_env(:aiur, :host_guard_bin_dir) || Path.join(System.user_home!(), ".aiur/bin")
     path = Path.join(bin_dir, "gh")
 
     case File.stat(path) do

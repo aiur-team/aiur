@@ -7,6 +7,7 @@ defmodule Aiur.HttpServer do
 
   alias Aiur.{Commands, Config, Orchestrator}
   alias Aiur.Config.Paths
+  alias AiurWeb.DashboardAuth.Passkeys
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
@@ -46,7 +47,8 @@ defmodule Aiur.HttpServer do
     dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
 
     with {:ok, ip} <- parse_host(host),
-         :ok <- guard_dashboard_credentials(ip, host, dashboard_writable) do
+         :ok <- guard_dashboard_credentials(ip, host, dashboard_writable),
+         :ok <- guard_public_browser_auth(ip, host) do
       previous_endpoint_config = Application.get_env(:aiur, Endpoint)
       previous_dashboard_pages = Application.get_env(:aiur, :dashboard_pages)
       configure_endpoint(opts, host, ip, port, dashboard_writable)
@@ -63,6 +65,7 @@ defmodule Aiur.HttpServer do
       end
     else
       :dashboard_credentials_missing -> :ignore
+      :dashboard_public_auth_missing -> :ignore
       other -> other
     end
   end
@@ -74,6 +77,43 @@ defmodule Aiur.HttpServer do
 
   defp restore_env(app, key, nil), do: Application.delete_env(app, key)
   defp restore_env(app, key, value), do: Application.put_env(app, key, value)
+
+  defp guard_public_browser_auth(ip, host) do
+    settings = Config.settings!()
+
+    cond do
+      loopback?(ip) ->
+        :ok
+
+      not public_browser_auth_ready?(settings, passkeys_enrolled?: Passkeys.available?()) ->
+        Logger.error(
+          "Aiur dashboard refusing public bind on #{inspect(host)}: disable dashboard_auth.browser_basic_auth " <>
+            "and configure Google sign-in with an email allowlist or enroll a passkey."
+        )
+
+        :dashboard_public_auth_missing
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc false
+  @spec public_browser_auth_ready?(map(), keyword()) :: boolean()
+  def public_browser_auth_ready?(settings, opts \\ []) do
+    auth = settings.dashboard_auth
+    passkeys_enrolled? = Keyword.get(opts, :passkeys_enrolled?, false)
+    public_url = settings.server.public_url
+
+    not auth.browser_basic_auth and public_url_https?(public_url) and
+      (google_sign_in_configured?(auth.google, opts) or passkeys_enrolled?)
+  end
+
+  defp google_sign_in_configured?(google, opts) do
+    google.allowed_emails != [] and
+      present?(Keyword.get(opts, :google_client_id, System.get_env("AIUR_GOOGLE_CLIENT_ID"))) and
+      present?(Keyword.get(opts, :google_client_secret, System.get_env("AIUR_GOOGLE_CLIENT_SECRET")))
+  end
 
   defp configure_endpoint(opts, host, ip, port, dashboard_writable) do
     settings = Config.settings!().server
@@ -98,6 +138,7 @@ defmodule Aiur.HttpServer do
       dashboard_writable: dashboard_writable,
       browser_basic_auth: Config.settings!().dashboard_auth.browser_basic_auth,
       dashboard_auth_required: dashboard_writable or not loopback?(ip),
+      public_bind: not loopback?(ip),
       dashboard_pages: Keyword.get(opts, :dashboard_pages?, true),
       decision_api: Keyword.get(opts, :decision_api, Commands.default_api()),
       decision_store: Keyword.get(opts, :decision_store, Commands.default_store()),
@@ -300,6 +341,8 @@ defmodule Aiur.HttpServer do
   defp loopback?(@loopback_v6), do: true
   defp loopback?(_), do: false
 
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
   # Read-only unless the Executor opted into dashboard writes. Fail closed if
   # config can't be resolved — an observe-only dashboard is the safe default.
   defp dashboard_writable? do
@@ -408,7 +451,13 @@ defmodule Aiur.HttpServer do
     Path.join([Paths.dashboard_secret_root(), "instances", instance, "secret_key_base"])
   end
 
-  defp public_url_https?(url) when is_binary(url), do: URI.parse(url).scheme == "https"
+  defp public_url_https?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: "https", host: host} when is_binary(host) and host != "" -> true
+      _ -> false
+    end
+  end
+
   defp public_url_https?(_), do: false
 
   defp endpoint_url(url, fallback_host) when is_binary(url) do
