@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.Index.Pages do
   @moduledoc false
-  @blocks ~w(epics features order counts sources repo)a
+  @blocks ~w(epics features order counts sources repo capacity)a
 
   @spec base(map()) :: map()
   def base(index) do

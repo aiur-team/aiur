@@ -35,8 +35,11 @@
     ],
     "env": [
       "AIUR_CI_CHANGED_PATHS_B64",
+      "AIUR_SECRETS_FROM_ENV",
+      "AIUR_STATE_PERSISTENT",
       "GITHUB_EVENT_NAME",
       "HOME",
+      "HOSTNAME",
       "XDG_CONFIG_HOME",
       "XDG_STATE_HOME"
     ],
@@ -61,7 +64,10 @@
     "executor"
   ],
   "env": [
+    "AIUR_SECRETS_FROM_ENV",
+    "AIUR_STATE_PERSISTENT",
     "HOME",
+    "HOSTNAME",
     "XDG_CONFIG_HOME",
     "XDG_STATE_HOME"
   ],

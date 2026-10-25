@@ -15,15 +15,33 @@ defmodule Aiur.Events.GithubCIPoller.BaseCause do
 
   @spec classify(map(), keyword()) :: :caused_by_pr | :inherited | :unknown
   def classify(result, opts) do
-    case Keyword.get_lazy(opts, :main_watch_history, &history/0) do
-      :disabled -> :caused_by_pr
-      history -> classify_against(Map.get(result, :failures, []), Enum.find(history, &(&1.sha == result[:base_sha] and is_binary(&1.sha))), history)
+    checks = classify_checks(result, opts)
+
+    cond do
+      checks == [] -> :unknown
+      Enum.any?(checks, &(&1.class == :caused_by_pr)) -> :caused_by_pr
+      Enum.all?(checks, &(&1.class == :inherited)) -> :inherited
+      true -> :unknown
     end
   end
 
-  defp classify_against([], _base, _history), do: :unknown
-  defp classify_against(failures, nil, history), do: if(Enum.any?(failures, &never_ran?(&1.name, history)), do: :caused_by_pr, else: :unknown)
-  defp classify_against(failures, %{checks: checks}, _history), do: if(Enum.any?(failures, &caused?(&1.name, checks)), do: :caused_by_pr, else: :inherited)
+  @doc "Classifies each failed check separately against the exact PR base and MainWatch history."
+  @spec classify_checks(map(), keyword()) :: [%{name: String.t(), class: :caused_by_pr | :inherited | :unknown}]
+  def classify_checks(result, opts) do
+    case Keyword.get_lazy(opts, :main_watch_history, &history/0) do
+      :disabled -> Enum.map(Map.get(result, :failures, []), &%{name: &1.name, class: :caused_by_pr})
+      history -> classify_checks_against(Map.get(result, :failures, []), Enum.find(history, &(&1.sha == result[:base_sha] and is_binary(&1.sha))), history)
+    end
+  end
+
+  defp classify_checks_against(failures, base, history) do
+    Enum.map(failures, fn failure ->
+      %{name: failure.name, class: classify_check(failure.name, base, history)}
+    end)
+  end
+
+  defp classify_check(name, nil, history), do: if(never_ran?(name, history), do: :caused_by_pr, else: :unknown)
+  defp classify_check(name, %{checks: checks}, _history), do: if(caused?(name, checks), do: :caused_by_pr, else: :inherited)
 
   defp never_ran?(name, history), do: not Enum.any?(history, fn entry -> Enum.any?(entry.checks, &(&1.name == name)) end)
 

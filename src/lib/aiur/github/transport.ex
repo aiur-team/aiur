@@ -43,7 +43,6 @@ defmodule Aiur.GitHub.Transport do
   @deadline_margin_ms 5_000
   @orchestrator_request_deadline_ms 10_000
   @budget_admission_timeout_ms 5_000
-  @budget_command_timeout_ms 3_000
   @orchestrator_budget_admission_timeout_ms 1_500
 
   @spec base_url() :: String.t()
@@ -171,7 +170,7 @@ defmodule Aiur.GitHub.Transport do
   defp budget_request(quota, request, request_fun, deadline_ms) do
     admission_ms = min(deadline_ms, if(orchestrator_process?(), do: @orchestrator_budget_admission_timeout_ms, else: @budget_admission_timeout_ms))
 
-    case Budget.acquire(request, timeout_ms: admission_ms, command_timeout_ms: @budget_command_timeout_ms, lease_timeout_ms: deadline_ms) do
+    case Budget.acquire(request, timeout_ms: admission_ms, lease_timeout_ms: deadline_ms) do
       {:ok, lease} ->
         deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
 

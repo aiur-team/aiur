@@ -80,7 +80,7 @@ defmodule Aiur.GlobalConfigStartup do
 
   defp ensure_labels(owner, repo, token, prefix, opts) do
     request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-    required = Labels.state_labels(prefix) ++ Labels.marker_labels(prefix) ++ Labels.complexity_labels()
+    required = Labels.state_labels(prefix) ++ Labels.reason_modifier_labels(prefix) ++ Labels.marker_labels(prefix) ++ Labels.complexity_labels()
 
     with {:ok, existing} <- existing_labels(owner, repo, token, request, 1, []),
          :ok <- Labels.ensure(owner, repo, token, required -- existing, request_fun: request) do

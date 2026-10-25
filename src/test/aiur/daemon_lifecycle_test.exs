@@ -85,7 +85,10 @@ defmodule Aiur.DaemonLifecycleTest do
           end)
         end
 
-      results = Task.await_many(tasks, 5_000)
+      # Each task starts a separate BEAM before it can exercise the shared file
+      # journal. Allow cold VM startup under broad concurrent coverage; this is
+      # an integration check, not a five-second boot-time assertion.
+      results = Task.await_many(tasks, 30_000)
       assert Enum.all?(results, &match?({_output, 0}, &1))
       assert DaemonLifecycle.daemon_events() |> Enum.map(& &1.run_id) |> Enum.sort() == ["run-first", "run-second"]
     end

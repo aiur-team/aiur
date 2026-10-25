@@ -92,7 +92,11 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   @doc false
-  @spec evaluate_for_test([map()], map()) :: %{decision: decision(), failures: [map()]}
+  @spec evaluate_for_test([map()], map()) :: %{
+          decision: decision(),
+          failures: [map()],
+          check_runs: [map()]
+        }
   def evaluate_for_test(check_runs, commit_status) when is_list(check_runs) and is_map(commit_status) do
     Evaluation.evaluate(check_runs, commit_status)
   end

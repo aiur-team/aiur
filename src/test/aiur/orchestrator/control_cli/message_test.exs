@@ -24,6 +24,21 @@ defmodule Aiur.Orchestrator.ControlCLI.MessageTest do
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
+  test "message status prints the current delivery state" do
+    Application.put_env(:aiur, :agent_control_cli_message_status_fun, fn request_id, timeout ->
+      assert request_id == 7
+      assert timeout >= 1_000
+      {:ok, :delivered}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_status_fun) end)
+
+    output = capture_io(fn -> AgentControlCLI.status(7) end)
+
+    assert output =~ "aiur: message request 7 is delivered"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
   test "message reports an unclaimed message as queued without claiming delivery", %{orchestrator: pid} do
     parent = self()
 
