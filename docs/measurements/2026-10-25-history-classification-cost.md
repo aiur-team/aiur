@@ -59,7 +59,7 @@ separate raw recorded total, never a sum across overlapping dimensions.
 The accompanying read-only census at 15:40:29Z held **176 cells for 15 tickets**,
 all `codex` / `app_server`, under one retained run. This is retained usage,
 not evidence that a newly dispatched ticket records usage today. The candidate
-routing is **`codex:sol:medium`**, resolving to **gpt-6.1-sol** through the Codex
+routing is **`codex:gpt-6.1-sol:medium`**, resolving to **gpt-6.1-sol** through the Codex
 app-server backend; certify it with a fresh canary before using it for C13-T04.
 **No currently recording routing is certified by this record.**
 
@@ -88,7 +88,7 @@ repeat `read_sample/2` directly inside the live release RPC.
    take every `max(1, div(N, 100))`-th row starting with the first, at most 100.
    For N <= 100 use the entire population. Preserve those rows in `sample.json`.
    Count sample rows with non-null `pr_number`.
-3. **Recording gate, before dispatch:** use `codex:sol:medium` only after a
+3. **Recording gate, before dispatch:** use `codex:gpt-6.1-sol:medium` only after a
    completed canary under that exact routing has healthy ticket-scoped cells
    and at least one known positive input/output token dimension. At dispatch,
    read that canary again; **stop if usage is absent, unhealthy or unknown**.
