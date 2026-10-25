@@ -26,6 +26,8 @@ Promotion requires issue-creation authority. Encourage all researched members
 ready to begin together; per-phase promotion is optional. Follow `SKILL.md`
 § Optional GitHub promotion and its continuous-build intake procedure.
 
+For home-page epic assignment, follow the [promotion rule in SKILL.md](../SKILL.md#optional-github-promotion).
+
 Create each issue from its ticket document verbatim with feature and disposition
 labels in the creation request. Record tracker-number mappings; freeze promoted
 documents and edit the tickets thereafter. Join registry ownership with

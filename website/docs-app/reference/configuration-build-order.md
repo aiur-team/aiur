@@ -60,13 +60,13 @@ never been read.
 Selecting a root and holding it open consume zero GitHub reads.
 
 The **catalog** itself is different: it is the most expensive single query in the
-system, and since #2312 it is demand-gated on an open Build Order page. Opening
-`/build-orders` renders the stored snapshot immediately (with its age), then buys
-one refresh on mount.
+system, and since #2312 it is demand-gated on a catalog subscriber. The dashboard
+has none, so the catalog reconciles on the cadence below only while another
+subscriber exists.
 
-While any Build Order page stays open the catalog reconciles on the cadence
-below; closing the last page stops it entirely, so a headless run — the normal
-case — buys none of it.
+`aiur build-orders` reads the held catalog, and
+`Aiur.BuildOrder.GraphProjection.refresh_catalog/1` is the explicit catalog
+refresh.
 
 `Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
 It exists so that removing the viewer cadence does not also remove an operator's
@@ -106,9 +106,9 @@ follow the *effective* interval: the one the daemon actually scheduled.
 - So an idle fleet widens the catalog's reads and the staleness window exactly
   as it widens the tracker, and a fleet that picks up work narrows both back
   together.
-- The widening matters only while a page is open: the catalog is event-sourced
-  (#2325) and demand-gated (#2312), so with no Build Order page open it neither
-  polls nor reads — it costs nothing rather than merely running slowly.
+- The widening matters only while a catalog subscriber exists: the catalog is
+  event-sourced (#2325) and demand-gated (#2312), so with no subscriber it
+  neither polls nor reads — it costs nothing rather than merely running slowly.
 
 `ticket_detail_freshness_ms` follows the **base** interval instead. It is a
 staleness window for the ticket-detail drawer, read once when the daemon starts
