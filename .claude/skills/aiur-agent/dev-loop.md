@@ -440,6 +440,11 @@ The Elixir examples below apply only to Aiur's Elixir core.
       repair loop.
       If the only failure is a flaky test unrelated to your change, file the
       flake as its own ticket with the CI run id (or link its existing ticket).
+      File flake and other non-feature follow-ups with `needs-triage` and the
+      instance's parked label (`agent:parked`, or `nuc:parked` on NUC); never
+      include a dispatch state label such as `agent:todo` or `nuc:todo`. New
+      non-feature tickets wait for operator triage unless they block merging.
+      Quarantine-first applies to tests that fail on `main` or in a merge group.
       NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
       A flaky test blocks CI, not the ticket's implementation. State in the PR
       that the only failure is the known flake, link the flake ticket and CI run,
