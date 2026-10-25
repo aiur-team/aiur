@@ -144,8 +144,9 @@ def event_bus_boundary_check(name, source, targets, expected, message, *, source
             'src/lib/aiur/shell.ex': 'defmodule Aiur.Shell do\nend\n',
             'src/lib/aiur/workflow.ex': 'defmodule Aiur.Workflow do\nend\n',
             'src/lib/aiur/events/topic.ex': '# aiur:event-bus-boundary-member\ndefmodule Aiur.Events.Topic do\nend\ndefmodule Aiur.PubSub do\nend\n',
-            'src/lib/aiur/agent_pubsub.ex': 'defmodule Aiur.AgentPubSub do\nend\n',
         }
+        if source_path != 'src/lib/aiur/agent_pubsub.ex':
+            files['src/lib/aiur/agent_pubsub.ex'] = 'defmodule Aiur.AgentPubSub do\nend\n'
         for file, content in files.items():
             target = root / file
             target.parent.mkdir(parents=True, exist_ok=True)
