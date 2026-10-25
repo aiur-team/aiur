@@ -107,7 +107,18 @@ defmodule Aiur.GitHub.Transport do
   members had different visibility would need the credential in the cache key.
   """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(req), do: Settings.with_request(fn -> TestScope.run(req, &do_request/1) end)
+  def default_request_fun(req) do
+    Settings.with_request(fn -> TestScope.run(req, &do_request/1) end)
+  catch
+    # A crash report prints the stacktrace arguments, which hold the request and its credential.
+    kind, reason -> :erlang.raise(kind, redact_token(reason), redact_token(__STACKTRACE__))
+  end
+
+  defp redact_token(%_{} = struct), do: struct
+  defp redact_token(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, if(key == :token, do: "[REDACTED]", else: redact_token(value))} end)
+  defp redact_token([head | tail]), do: [redact_token(head) | redact_token(tail)]
+  defp redact_token(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> redact_token() |> List.to_tuple()
+  defp redact_token(term), do: term
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =
@@ -133,6 +144,13 @@ defmodule Aiur.GitHub.Transport do
     quota_request(req, fn ->
       options = github_headers(token, req) |> request_options(req) |> Keyword.put(:json, body)
       Req.patch(url, options)
+    end)
+  end
+
+  defp do_request(%{method: :put, url: url, token: token, body: body} = req) do
+    quota_request(req, fn ->
+      options = github_headers(token, req) |> request_options(req) |> Keyword.put(:json, body)
+      Req.put(url, options)
     end)
   end
 

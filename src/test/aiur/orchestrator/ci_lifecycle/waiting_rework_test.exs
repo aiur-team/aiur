@@ -77,18 +77,19 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitingReworkTest do
       refute_received {:tracker_update, ^identifier, "rework", _opts}
     end
 
-    test "a #{label} conflicting PR approved at its head routes after two polls" do
+    # #6154: LandingWatch's ConflictUpdate owns an approved conflict; routing it here too looped against issue_sync.
+    test "a #{label} conflicting PR approved at its head is left to the landing watcher" do
       identifier = unique_identifier("approved-conflict")
       RecordingGitHubClient.record_to(self())
       result = %{decision: :pending, head_sha: "approved-head", pr_number: 4393, mergeable: "CONFLICTING", review_decision: "APPROVED", approved_review_head_sha: "approved-head"}
 
       ticket = issue(identifier, unquote(label))
       first = poll_ci(%State{}, ticket, result)
+      next = poll_ci(first, ticket, result)
+
       refute_received {:tracker_update, ^identifier, "rework", _opts}
-
-      _next = poll_ci(first, ticket, result)
-
-      assert_received {:tracker_update, ^identifier, "rework", [expected_state: unquote(label)]}
+      refute_received {:tracker_comment, ^identifier, _body}
+      assert State.rework_attempt_count(next, identifier, "approved-head") == 0
     end
 
     test "a #{label} conflicting PR approved only at an older head is routed to rework" do
