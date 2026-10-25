@@ -12,6 +12,9 @@ def run(check, repo):
         manifest = json.loads(path.read_text())
         caller, provider = manifest['components']
         caller.update(id=bus['id'], layer=bus['layer'], requires=bus['requires'], optional=bus['optional'])
+        # Isolate the structural rules; the seam fixtures exercise the strict shipped allowlist.
+        caller['boundary_reference_allowlist'] = bus['boundary_reference_allowlist'] + [
+            'Aiur.Orchestrator', 'Aiur.Orchestrator.State', 'Aiur.Config.State']
         provider.update(id='kernel', facades=['Aiur.JSONSafe'])
         (root / 'src/lib/b.ex').write_text('defmodule Aiur.JSONSafe do\nend\n')
         for name, layer, facade in [('config', 0, 'Aiur.Config'), ('orchestration', 3, 'Aiur.Orchestrator')]:
@@ -25,7 +28,7 @@ def run(check, repo):
     fixture = 'private_module_fails'
 
     def source(target):
-        return f'defmodule Aiur.Events.Exchange do\n  def run, do: {target}.run()\nend\n'
+        return f'# aiur:event-bus-boundary-member\ndefmodule Aiur.Events.Exchange do\n  def run, do: {target}.run()\nend\n'
 
     # Future-regression guards: these rules already enforce the shipped boundary.
     check('event_bus_private_module_fails', fixture, 1,
