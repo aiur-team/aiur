@@ -5,7 +5,6 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
 
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.Quota.ShellObservations
-  alias Aiur.Workspace.Layout
 
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
@@ -150,17 +149,25 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
   # so every agent `gh` call went uncounted while the meter still billed it
   # (#1805). This exercises both at once, as production does.
   test "finds the agent-shell log through a dot directory under a tilde-form workspace root" do
-    relative = "aiur-quota-test-#{System.unique_integer([:positive])}"
-    root = Path.join(System.user_home!(), relative)
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+    home = Aiur.TestSupport.tmp_root!("quota-home")
+    File.mkdir_p!(home)
 
-    quota_dir = Path.join([Layout.issue_workspace_path(root, "1790"), ".aiur-runtime", "github-quota"])
+    relative = Path.basename(Aiur.TestSupport.tmp_root!("aiur-quota-test"))
+    previous_home = System.get_env("HOME")
+    System.put_env("HOME", home)
+
+    on_exit(fn ->
+      if previous_home, do: System.put_env("HOME", previous_home), else: System.delete_env("HOME")
+      Aiur.TestCleanup.rm_rf!(home)
+    end)
+
+    quota_dir = Path.join([home, relative, "1790", ".aiur-runtime", "github-quota"])
     File.mkdir_p!(quota_dir)
     File.write!(Path.join(quota_dir, "agent-requests.tsv"), "#{DateTime.to_unix(@now)}\tticket:1790\tread\tcore\n")
 
-    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: Path.join("~", relative))
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: home)
 
-    quota = start_quota()
+    quota = start_quota(shell_log_path: Path.join([home, "*", "1790", ".aiur-runtime/github-quota/agent-requests.tsv"]))
 
     assert [%{consumer: "ticket:1790"}] = Quota.snapshot(quota).attribution
   end

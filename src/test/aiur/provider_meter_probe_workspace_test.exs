@@ -12,16 +12,23 @@ defmodule Aiur.ProviderMeterProbeWorkspaceTest do
 
   for representation <- [:relative, :home_relative] do
     test "provider probe creates and opens the same absolute directory for #{representation} roots" do
+      home = Aiur.TestSupport.tmp_root!("probe-home")
+      File.mkdir_p!(home)
+
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
+
       root =
         case unquote(representation) do
           :relative -> Path.join(File.cwd!(), ".verification/probe-#{System.unique_integer([:positive])}")
-          :home_relative -> Path.join([System.user_home!(), ".cache", Path.basename(Aiur.TestSupport.tmp_root!("probe-expanded-root"))])
+          :home_relative -> Path.join([home, ".cache", Path.basename(Aiur.TestSupport.tmp_root!("probe-expanded-root"))])
         end
+
+      File.mkdir_p!(root)
 
       configured_root =
         case unquote(representation) do
           :relative -> Path.relative_to(root, File.cwd!())
-          :home_relative -> String.replace_prefix(root, System.user_home!(), "~")
+          :home_relative -> String.replace_prefix(root, home, "~")
         end
 
       refute Path.type(configured_root) == :absolute
@@ -32,12 +39,29 @@ defmodule Aiur.ProviderMeterProbeWorkspaceTest do
         Aiur.TestCleanup.rm_rf!(root)
       end)
 
-      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: configured_root, tracker_kind: "memory")
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        workspace_root: if(unquote(representation) == :home_relative, do: "$AIUR_PROBE_HOME", else: configured_root)
+      )
+
+      previous_probe_home = System.get_env("AIUR_PROBE_HOME")
+      System.put_env("AIUR_PROBE_HOME", home)
+
+      on_exit(fn ->
+        if previous_probe_home,
+          do: System.put_env("AIUR_PROBE_HOME", previous_probe_home),
+          else: System.delete_env("AIUR_PROBE_HOME")
+      end)
+
+      effective_root = if unquote(representation) == :home_relative, do: home, else: root
 
       ProviderMeterProbe.observe(:codex, probe_agent: RecordingAgent, backend_configs: %{})
 
       assert_received {:probe_workspace, workspace}
-      assert workspace == Path.join(root, "usage-probe")
+
+      assert workspace ==
+               Aiur.Workspace.workspace_path_under(effective_root, "usage-probe") |> Path.expand()
+
       assert File.dir?(workspace)
     end
   end
