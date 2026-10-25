@@ -12,13 +12,7 @@ defmodule Aiur.BuildOrder.GraphProjection.CatalogCountsTest do
   @repository {"owner", "repo"}
 
   setup_all do
-    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_runtime_children_running()
   end
 
   # The catalog's per-member `labels` connection resolves each root's epic and

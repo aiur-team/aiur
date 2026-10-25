@@ -7,6 +7,9 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 }
 
 const artifactRoot = process.env.AIUR_BROWSER_ARTIFACT_DIR ?? '.artifacts/unmanaged'
+const reporters = process.env.GITHUB_ACTIONS === 'true'
+  ? [['line'], ['./support/github-failure-reporter.mjs']]
+  : 'list'
 
 export default defineConfig({
   testDir: './tests',
@@ -16,6 +19,7 @@ export default defineConfig({
   retries: 0,
   updateSnapshots: 'none',
   workers: 1,
+  reporter: reporters,
   timeout: 30_000,
   expect: {
     timeout: 10_000,
@@ -32,13 +36,5 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure'
   },
-  webServer: {
-    command: 'npm run fixture:server',
-    cwd: '.',
-    url: `http://127.0.0.1:${port}/health`,
-    reuseExistingServer: false,
-    timeout: 60_000,
-    stdout: 'pipe',
-    stderr: 'pipe'
-  }
+  webServer: undefined
 })

@@ -40,7 +40,7 @@ defmodule Aiur.SupervisionHealthAlertTest do
         Application.delete_env(:aiur, :log_file)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, health} =

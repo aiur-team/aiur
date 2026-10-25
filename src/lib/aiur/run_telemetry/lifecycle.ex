@@ -7,53 +7,111 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   are deliberately excluded from the record contract.
   """
 
-  alias Aiur.CodingAgent
   alias Aiur.Orchestrator.CommentWake
-  alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry
+  alias Aiur.RunTelemetry.{Cohort, DaemonEvents}
+  alias Aiur.RunTelemetry.Lifecycle.BackendOperations
 
   @events ~w(
-    dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
-    pr_opened pr_merged review_pause comment_received rework_start
-    agent_pause agent_resume
+    dispatch
+    optimistic_start
+    blocker_push
+    blocker_integrate
+    optimistic_park
+    optimistic_resume
+    optimistic_outcome
+    prewarm
+    workspace_setup
+    workspace_ownership
+    agent_spinup
+    implement
+    build_test
+    pr_opened
+    pr_merged
+    pr_facts
+    review_pause
+    comment_received
+    rework_start
+    agent_pause
+    agent_resume
+    state_change
+    ci_result
+    pr_ready
+    dependency_cleared
+    ticket_usage
   )
-  @boundaries ~w(start end point)
-  @metadata_fields [
-    :outcome,
-    :cause,
-    :operation_id,
-    :command_class,
-    :duration_status,
-    :source,
-    :source_id,
-    :actor,
-    :pr_number,
-    :comment_id,
-    :review_thread_id,
-    :author_trusted,
-    :source_timestamp,
-    :worker_host,
-    :backend,
-    :prewarm_outcome,
-    :reason_class,
-    :exit_status,
-    :turn_number,
-    :remote,
-    :retry_attempt,
-    :workspace_owner,
-    :workspace_generation,
-    :workspace_phase,
-    :complexity,
-    # Headroom dispatch summary (#3960): the chosen backend/account and every alternative's score.
-    :dispatch_selection
-  ]
+  @boundaries ~w(
+    start
+    end
+    point
+  )
+  # Headroom dispatch summary (#3960): dispatch_selection holds the chosen backend/account and every alternative's score.
+  @metadata_fields ~w(
+    outcome
+    cause
+    operation_id
+    command_class
+    duration_status
+    source
+    source_id
+    actor
+    pr_number
+    comment_id
+    review_thread_id
+    author_trusted
+    source_timestamp
+    worker_host
+    backend
+    prewarm_outcome
+    reason_class
+    exit_status
+    turn_number
+    remote
+    retry_attempt
+    workspace_owner
+    workspace_generation
+    workspace_phase
+    optimistic_blockers
+    optimistic_start
+    complexity
+    dispatch_selection
+    model
+    effort
+    feature
+    epic
+    work_kind
+    tags
+    blockers
+    start_mode
+    start_trigger
+    blocker_prs
+    coverage
+    pr_created_at
+    pr_ready_at
+    first_review_at
+    first_review_state
+    first_approval_at
+    merged_at
+    review_count
+    commented_count
+    changes_requested_count
+    approval_count
+    dismissed_count
+    reviewers_distinct
+    reviewer_classes
+    additions
+    deletions
+    changed_files
+    commit_count
+    merge_commit_sha
+    blocker
+    non_ff
+    head_start_ms
+    waste_ms
+  )a ++ DaemonEvents.metadata_fields()
 
-  @doc "Creates an opaque identity for one dispatched worker attempt."
-  @spec new_attempt_id(String.t()) :: String.t()
-  def new_attempt_id(ticket) when is_binary(ticket) do
-    suffix = 10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
-    "#{ticket}:#{suffix}"
-  end
+  @doc "See `Aiur.Signal.new_attempt_id/1`."
+  defdelegate new_attempt_id(ticket), to: Aiur.Signal
 
   @doc false
   @spec enabled?(keyword()) :: boolean()
@@ -92,70 +150,36 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   def record(_ticket, _attempt_id, _event, _boundary, _metadata, _opts), do: :ok
 
   @doc false
-  @spec reason_class(term()) :: String.t()
-  def reason_class(reason)
-  def reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+  @spec terminal_capture(Aiur.TrackerIdentity.t(), atom()) :: :ok
+  defdelegate terminal_capture(identity, lifecycle), to: Aiur.RunTelemetry.FactsCapture, as: :terminal
 
-  def reason_class(%{__struct__: module}) when is_atom(module) do
-    module
-    |> Module.split()
-    |> List.last()
-    |> Macro.underscore()
+  @doc false
+  @spec facts_attributes(String.t(), map()) :: map()
+  def facts_attributes(ticket, facts) do
+    source_id = {Map.get(facts, :pr_number) || Map.get(facts, "pr_number"), Map.get(facts, :merged_at) || Map.get(facts, "merged_at"), Map.get(facts, :coverage) || Map.get(facts, "coverage")}
+    attributes(ticket, nil, "pr_facts", "point", Map.put(facts, :source_id, event_key(source_id)))
   end
 
-  def reason_class({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
-  def reason_class({tag, _detail, _more}) when is_atom(tag), do: Atom.to_string(tag)
-  def reason_class(status) when is_integer(status), do: "status_#{status}"
-  def reason_class(_reason), do: "unknown"
+  @doc false
+  defdelegate reason_class(reason), to: Aiur.Signal
 
   @doc "Observes backend command lifecycle notifications and emits build/test boundaries."
   @spec observe_backend_message(String.t(), String.t() | nil, String.t(), map(), keyword()) :: :ok
-  def observe_backend_message(ticket, attempt_id, backend, message, opts \\ [])
+  defdelegate observe_backend_message(ticket, attempt_id, backend, message, opts \\ []), to: BackendOperations
 
-  def observe_backend_message(ticket, attempt_id, backend, message, opts)
-      when is_binary(ticket) and is_binary(backend) and is_map(message) and is_list(opts) do
-    if enabled?(opts) do
-      tracker = Keyword.get(opts, :tracker, self())
-      timestamp = MapAccess.message_timestamp(message)
+  @doc false
+  @spec decode_codex_operation(map()) ::
+          {:start, String.t(), String.t() | nil}
+          | {:complete, String.t(), String.t() | nil, atom()}
+          | :skip
+  defdelegate decode_codex_operation(message), to: BackendOperations
 
-      case backend_operation(backend, message) do
-        {:start, operation_id, command} ->
-          observe_operation_start(
-            ticket,
-            attempt_id,
-            tracker,
-            operation_id,
-            command,
-            timestamp,
-            opts
-          )
-
-        {:complete, operation_id, command, outcome} ->
-          observe_operation_complete(
-            ticket,
-            attempt_id,
-            tracker,
-            operation_id,
-            command,
-            outcome,
-            timestamp,
-            opts
-          )
-
-        :skip ->
-          :ok
-      end
-    end
-
-    :ok
-  rescue
-    _error -> :ok
-  catch
-    :exit, _reason -> :ok
-    _kind, _reason -> :ok
-  end
-
-  def observe_backend_message(_ticket, _attempt_id, _backend, _message, _opts), do: :ok
+  @doc false
+  @spec decode_claude_operation(map()) ::
+          {:start, String.t(), String.t() | nil}
+          | {:complete, String.t(), String.t() | nil, atom()}
+          | :skip
+  defdelegate decode_claude_operation(message), to: BackendOperations
 
   @doc "Converts a trusted GitHub exchange event into a body-free lifecycle anchor."
   @spec external_anchor(map()) :: {:ok, map(), term()} | :skip
@@ -164,11 +188,11 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     source = value(event, :source)
 
     with true <- source in [:github, "github", :github_reconciliation, "github_reconciliation"],
-         {:ok, ticket, kind} <- external_topic(topic),
+         {:ok, ticket, kind} <- DaemonEvents.topic(topic),
          true <- eligible_external_event?(kind, event) do
       timestamp = external_timestamp(kind, event)
       metadata = external_metadata(kind, event, timestamp)
-      {:ok, attributes(ticket, nil, external_event(kind), "point", metadata), timestamp}
+      {:ok, attributes(ticket, nil, DaemonEvents.event(kind), "point", metadata), timestamp}
     else
       _other -> :skip
     end
@@ -205,14 +229,29 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     |> Enum.flat_map(fn {key, value} ->
       atom_key = metadata_key(key)
 
-      if atom_key in @metadata_fields and not is_nil(value) do
-        [{atom_key, normalize_metadata_value(value)}]
+      if atom_key in @metadata_fields and (not is_nil(value) or atom_key in [:model, :effort, :feature, :epic, :work_kind]) do
+        [{atom_key, normalize_field(atom_key, value)}]
       else
         []
       end
     end)
     |> Map.new()
   end
+
+  defp normalize_field(:blocker_prs, values) when is_list(values), do: Enum.map(values, &if(is_integer(&1), do: &1, else: nil))
+
+  defp normalize_field(:optimistic_start, %{blockers: blockers, primary: primary, pr_base: base, started_at: started_at}) do
+    %{
+      blockers: Enum.map(blockers, &Map.take(&1, [:identifier, :pr_number, :ref, :sha])),
+      primary: primary,
+      pr_base: Cohort.normalize_metadata_value(:pr_base, base),
+      started_at: Cohort.normalize_metadata_value(:started_at, started_at)
+    }
+  end
+
+  defp normalize_field(:reviewer_classes, value) when is_list(value), do: Enum.filter(value, &(&1 in ["trusted", "bot", "other"]))
+
+  defp normalize_field(key, value), do: Cohort.normalize_metadata_value(key, value)
 
   defp metadata_key(key) when is_atom(key), do: key
 
@@ -221,12 +260,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   defp metadata_key(_key), do: nil
-
-  defp normalize_metadata_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp normalize_metadata_value(value) when is_boolean(value), do: value
-  defp normalize_metadata_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp normalize_metadata_value(value) when is_binary(value) or is_number(value), do: value
-  defp normalize_metadata_value(_value), do: "unknown"
 
   defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(value) when is_binary(value), do: value
@@ -248,231 +281,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     |> binary_part(0, 22)
   end
 
-  defp observe_operation_start(
-         ticket,
-         attempt_id,
-         tracker,
-         operation_id,
-         command,
-         timestamp,
-         opts
-       ) do
-    case command_class(command) do
-      nil ->
-        :ok
-
-      command_class ->
-        Process.put(operation_key(tracker, attempt_id, operation_id), command_class)
-
-        record(
-          ticket,
-          attempt_id,
-          :build_test,
-          :start,
-          %{operation_id: operation_id, command_class: command_class},
-          Keyword.put(opts, :timestamp, timestamp)
-        )
-    end
-  end
-
-  defp observe_operation_complete(
-         ticket,
-         attempt_id,
-         tracker,
-         operation_id,
-         command,
-         outcome,
-         timestamp,
-         opts
-       ) do
-    previous_class = Process.delete(operation_key(tracker, attempt_id, operation_id))
-    command_class = previous_class || command_class(command)
-
-    if command_class do
-      boundary = if previous_class, do: :end, else: :point
-
-      metadata = %{
-        operation_id: operation_id,
-        command_class: command_class,
-        outcome: outcome,
-        duration_status: if(boundary == :point, do: :unavailable, else: :measured)
-      }
-
-      record(
-        ticket,
-        attempt_id,
-        :build_test,
-        boundary,
-        metadata,
-        Keyword.put(opts, :timestamp, timestamp)
-      )
-    end
-  end
-
-  defp operation_key(tracker, attempt_id, operation_id),
-    do: {__MODULE__, :operation, tracker, attempt_id, operation_id}
-
-  defp backend_operation(backend, message) do
-    case get_in(CodingAgent.backends(), [backend, :run_telemetry]) do
-      decoder when is_function(decoder, 1) -> decoder.(message)
-      _ -> :skip
-    end
-  end
-
-  @doc false
-  @spec decode_codex_operation(map()) ::
-          {:start, String.t(), String.t() | nil}
-          | {:complete, String.t(), String.t() | nil, atom()}
-          | :skip
-  def decode_codex_operation(message) do
-    method = MapAccess.notification_method(message)
-    item = MapAccess.notification_item(message)
-
-    with item when is_map(item) <- item,
-         "commandExecution" <- value(item, :type),
-         operation_id when not is_nil(operation_id) <- operation_id(item) do
-      command = command_from_codex(item)
-
-      case method do
-        "item/started" -> {:start, operation_id, command}
-        "item/completed" -> {:complete, operation_id, command, codex_outcome(item)}
-        _other -> :skip
-      end
-    else
-      _other -> :skip
-    end
-  end
-
-  @doc false
-  @spec decode_claude_operation(map()) ::
-          {:start, String.t(), String.t() | nil}
-          | {:complete, String.t(), String.t() | nil, atom()}
-          | :skip
-  def decode_claude_operation(message) do
-    with "item/created" <- MapAccess.notification_method(message),
-         item when is_map(item) <- MapAccess.notification_item(message) do
-      case value(item, :type) do
-        "tool_call" ->
-          claude_tool_call(item)
-
-        "tool_result" ->
-          claude_tool_result(item)
-
-        _other ->
-          :skip
-      end
-    else
-      _other -> :skip
-    end
-  end
-
-  defp claude_tool_call(item) do
-    with "Bash" <- value(item, :name),
-         operation_id when not is_nil(operation_id) <- operation_id(item) do
-      input = value(item, :input) || %{}
-      {:start, operation_id, value(input, :command)}
-    else
-      _other -> :skip
-    end
-  end
-
-  defp claude_tool_result(item) do
-    operation_id =
-      value(item, :tool_use_id) || value(item, :tool_call_id) || value(item, :call_id)
-
-    if operation_id do
-      {:complete, to_string(operation_id), nil, claude_outcome(item)}
-    else
-      :skip
-    end
-  end
-
-  defp operation_id(item) do
-    case value(item, :id) || value(item, :item_id) do
-      nil -> nil
-      id -> to_string(id)
-    end
-  end
-
-  defp command_from_codex(item) do
-    case value(item, :commandActions) do
-      [first | _rest] when is_map(first) -> value(first, :command) || value(item, :command)
-      _other -> value(item, :command)
-    end
-  end
-
-  defp codex_outcome(item) do
-    case value(item, :exitCode) do
-      0 -> :success
-      code when is_integer(code) -> :failed
-      _other -> :unknown
-    end
-  end
-
-  defp claude_outcome(item) do
-    case value(item, :is_error) do
-      true -> :failed
-      false -> :success
-      _other -> :unknown
-    end
-  end
-
-  defp command_class(command) when is_binary(command) do
-    command = String.downcase(command)
-
-    cond do
-      contains_any?(command, [
-        "mix test",
-        "make ci",
-        "npm test",
-        "npm run test",
-        "pnpm test",
-        "yarn test",
-        "pytest",
-        "rspec",
-        "cargo test",
-        "go test",
-        "swift test",
-        "gradle test",
-        "mvn test"
-      ]) ->
-        :test
-
-      contains_any?(command, [
-        "mix compile",
-        "mix deps.compile",
-        "npm run build",
-        "pnpm build",
-        "yarn build",
-        "cargo build",
-        "cargo check",
-        "go build",
-        "make build",
-        "aiurdev build",
-        "xcodebuild"
-      ]) ->
-        :build
-
-      true ->
-        nil
-    end
-  end
-
-  defp command_class(_command), do: nil
-  defp contains_any?(text, needles), do: Enum.any?(needles, &String.contains?(text, &1))
-
-  defp external_topic(topic) when is_binary(topic) do
-    case Regex.run(
-           ~r/^ticket\.([^.]+)\.(pr\.opened|pr\.merged|issue\.commented|pr\.review_comment)$/,
-           topic
-         ) do
-      [_all, ticket, kind] -> {:ok, ticket, kind}
-      _other -> :error
-    end
-  end
-
-  defp external_topic(_topic), do: :error
-
   defp eligible_external_event?(kind, event)
        when kind in ["issue.commented", "pr.review_comment"] do
     CommentWake.trusted_comment_event?(event) and
@@ -480,10 +288,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
   end
 
   defp eligible_external_event?(_kind, _event), do: true
-
-  defp external_event("pr.opened"), do: "pr_opened"
-  defp external_event("pr.merged"), do: "pr_merged"
-  defp external_event(_comment), do: "comment_received"
 
   defp external_metadata(kind, event, timestamp) do
     pr = value(event, :pr) || %{}
@@ -510,6 +314,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
       review_thread_id: review_thread_id,
       author_trusted: value(event, :author_trusted?) == true
     }
+    |> Map.merge(DaemonEvents.ci_metadata(kind, event))
   end
 
   defp external_actor(event, pr, comment) do

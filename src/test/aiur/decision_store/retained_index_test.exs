@@ -18,6 +18,25 @@ defmodule Aiur.DecisionStore.RetainedIndexTest do
   alias Aiur.DecisionStore.RetainedIndex
 
   describe "canonical_counts/1" do
+    test "expired blockers stay listed but do not inflate blocking counts" do
+      expired = %{decision("dec-expired", true) | decision_status: :expired}
+
+      index = RetainedIndex.build(%{expired.decision_id => expired})
+      counts = RetainedIndex.canonical_counts(index)
+
+      assert counts.open == 1
+      assert counts.awaiting == 1
+      assert counts.blocking == 0
+      assert counts.awaiting_blocking == 0
+
+      answered = %{expired | answer: %{custom_response: "Proceed"}}
+      index = RetainedIndex.update(index, expired, answered)
+      counts = RetainedIndex.canonical_counts(index)
+
+      assert counts.open == 0
+      assert counts.blocking == 0
+    end
+
     test "awaiting tracks the listed open set through open -> deferred -> decided" do
       blocking = decision("dec-blocking", true)
       quiet = decision("dec-quiet", false)
@@ -118,14 +137,18 @@ defmodule Aiur.DecisionStore.RetainedIndexTest do
   # the same lifecycles would see, so that is exactly what is compared.
   defp assert_invariant(index, blocking_ids) do
     counts = RetainedIndex.canonical_counts(index)
-    open_ids = ids(index, :open)
+
+    open_ids =
+      ids(index, :open) ++
+        Enum.filter(ids(index, :expired), &MapSet.member?(blocking_ids, &1))
+
     deferred_ids = ids(index, :deferred)
 
     assert counts.awaiting == length(open_ids)
     assert counts.deferred == length(deferred_ids)
     assert counts.open == length(open_ids) + length(deferred_ids)
-    assert counts.awaiting_blocking == count_blocking(open_ids, blocking_ids)
-    assert counts.blocking == count_blocking(open_ids ++ deferred_ids, blocking_ids)
+    assert counts.awaiting_blocking == count_blocking(ids(index, :open), blocking_ids)
+    assert counts.blocking == count_blocking(ids(index, :open) ++ deferred_ids, blocking_ids)
     assert counts.awaiting >= 0
     assert counts.awaiting_blocking >= 0
   end

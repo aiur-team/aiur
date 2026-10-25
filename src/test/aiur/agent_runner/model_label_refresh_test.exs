@@ -131,7 +131,7 @@ defmodule Aiur.AgentRunner.ModelLabelRefreshTest do
 
     test "a label that resolved stays silent alongside concurrent materialization warnings" do
       tmp = Aiur.TestSupport.tmp_root!("model_label_concurrent_log")
-      on_exit(fn -> File.rm_rf!(tmp) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
       {_store, reader} = catalogue(%{"claude" => @claude})
       issue = %Issue{identifier: "FINE", labels: ["model:opus"]}
 

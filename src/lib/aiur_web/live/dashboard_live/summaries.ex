@@ -4,7 +4,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   import Phoenix.Component, only: [assign: 3]
 
   alias Aiur.{CurrentRunOutcomeSnapshot, CurrentRunSummary}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{CurrentRunOutcomesPresenter, RunSummaryPresenter}
 
   @run_summary_flush_ms 250
@@ -75,7 +75,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   end
 
   defp schedule_run_summary_flush do
-    case Endpoint.config(:run_summary_flush_timer) do
+    case EndpointConfig.get(:run_summary_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_run_summary, @run_summary_flush_ms)
       _other -> Process.send_after(self(), :flush_run_summary, @run_summary_flush_ms)
     end
@@ -143,7 +143,7 @@ defmodule AiurWeb.DashboardLive.Summaries do
   end
 
   defp schedule_current_run_outcomes_flush do
-    case Endpoint.config(:current_run_outcomes_flush_timer) do
+    case EndpointConfig.get(:current_run_outcomes_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_current_run_outcomes, @current_run_outcomes_flush_ms)
       _other -> Process.send_after(self(), :flush_current_run_outcomes, @current_run_outcomes_flush_ms)
     end

@@ -1,16 +1,17 @@
 defmodule Aiur.Workspace.RefreshTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentGitHubGuard, AppServer.Adapter}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AppServer.Adapter}
+  alias Aiur.TestSupport.IsolatedBuildGateEnv
   alias Aiur.Workflow
-  alias Aiur.Workspace.{Ownership, Refresh}
+  alias Aiur.Workspace.{Context, Hooks, Ownership, Refresh}
 
   setup do
     test_root = Aiur.TestSupport.tmp_root!("refresh_test")
     workspace = Path.join(test_root, "ws")
     File.mkdir_p!(workspace)
 
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
     {:ok, workspace: workspace, test_root: test_root}
   end
 
@@ -28,6 +29,31 @@ defmodule Aiur.Workspace.RefreshTest do
 
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
     assert :ok = Refresh.run(workspace, issue_context, nil)
+  end
+
+  test "run/3 refreshes outdated attribution hooks and preserves a repository hook", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    init_repo!(workspace)
+    hook_path = Path.join(workspace, ".git/hooks/pre-push")
+    File.write!(hook_path, "#!/bin/sh\n# stale Aiur hook\nexit 0\n")
+    File.chmod!(hook_path, 0o755)
+    before_run_marker = Path.join(test_root, "before-run-completed")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_before_run: "touch #{Aiur.Shell.escape(before_run_marker)}"
+    )
+
+    issue = %{id: 1, identifier: "test", state: "todo", labels: [], pr_head_ref: nil}
+    assert :ok = Refresh.run(workspace, issue, nil)
+
+    assert File.regular?(before_run_marker)
+    current_hook = File.read!(hook_path)
+    assert current_hook =~ "aiur-attribution-pre-push"
+    refute current_hook =~ "stale Aiur hook"
+    assert File.read!(hook_path <> ".aiur-original") =~ "stale Aiur hook"
   end
 
   test "run/3 stages a logs-only workspace before before_run and preserves prior logs", %{
@@ -124,25 +150,37 @@ defmodule Aiur.Workspace.RefreshTest do
 
     probe_bin = Path.join(test_root, "probe-bin")
     File.mkdir_p!(probe_bin)
-    File.write!(Path.join(probe_bin, "mise"), "#!/bin/sh\nprintf 'real-mise-ran\\n'\n")
+    File.write!(Path.join(probe_bin, "mise"), "#!/bin/sh\nprintf 'build-bin=%s\\n' \"$AIUR_BUILD_GATE_BIN\"\nprintf 'real-mise-ran\\n'\n")
     File.chmod!(Path.join(probe_bin, "mise"), 0o755)
 
     child = Path.join(workspace, "first-agent-build")
     File.write!(child, "#!/bin/sh\nexec mise exec -- mix compile\n")
     File.chmod!(child, 0o755)
+    gate_env = IsolatedBuildGateEnv.prepare(test_root)
+    assert IsolatedBuildGateEnv.isolated?(gate_env, test_root)
+
+    port_gate_env =
+      gate_env
+      |> Enum.reject(fn {name, _value} -> name == "AIUR_BUILD_GATE_BIN" end)
+      |> Enum.map(fn
+        {name, nil} -> {name, false}
+        entry -> entry
+      end)
 
     assert {:ok, port} =
              Adapter.start_port(
                workspace,
                Aiur.Shell.escape(child),
                fn _port -> :ok end,
-               env: [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")}]
+               env: [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")} | port_gate_env]
              )
 
-    assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 1_000
-    assert_receive {^port, {:data, {:eol, "real-mise-ran"}}}, 1_000
-    assert_receive {^port, {:data, {:eol, "aiur_build_gate released" <> _details}}}, 1_000
-    assert_receive {^port, {:exit_status, 0}}, 1_000
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 5_000
+    assert_receive {^port, {:data, {:eol, "build-bin=" <> build_bin}}}, 5_000
+    assert build_bin == AgentBuildGuard.bin_dir(workspace)
+    assert_receive {^port, {:data, {:eol, "real-mise-ran"}}}, 5_000
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate released" <> _details}}}, 5_000
+    assert_receive {^port, {:exit_status, 0}}, 5_000
   end
 
   test "run/3 reconstruction restores the governed GitHub wrapper and private config before dispatch", %{
@@ -285,12 +323,14 @@ defmodule Aiur.Workspace.RefreshTest do
     test_root: test_root
   } do
     init_repo!(workspace)
-    git!(["-C", workspace, "checkout", "--quiet", "-b", "aiur/123-fix-login"])
-    trace = Path.join(test_root, "branch-trace")
+    git!(workspace, ["checkout", "--quiet", "-b", "aiur/123-fix-login"])
+    trace_root = Path.join(test_root, "branch-traces")
+    File.mkdir_p!(trace_root)
+    trace = Path.join(trace_root, "123-fix-login")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
-      hook_before_run: "printf '%s\\n' \"$AIUR_TICKET_BRANCH\" >> #{trace}; exit 65"
+      hook_before_run: "printf '%s\\n' \"$AIUR_TICKET_BRANCH\" >> #{Aiur.Shell.escape(trace_root)}/\"${AIUR_TICKET_BRANCH#aiur/}\"; exit 65"
     )
 
     issue = %{
@@ -304,6 +344,30 @@ defmodule Aiur.Workspace.RefreshTest do
 
     assert {:error, _} = Refresh.run(workspace, issue, nil)
     assert File.read!(trace) |> String.split("\n", trim: true) == ["aiur/123-fix-login", "aiur/123-fix-login"]
+
+    other_workspace = Path.join(test_root, "other")
+    File.mkdir_p!(other_workspace)
+
+    other_issue = %{
+      id: 164,
+      identifier: "164",
+      title: "Rework completed, review still open",
+      state: "rework",
+      labels: [],
+      pr_head_ref: nil
+    }
+
+    assert {:error, {:workspace_hook_failed, "before_run", 65, _output}} =
+             Hooks.run_hook(
+               Config.settings!().hooks.before_run,
+               other_workspace,
+               Context.build(other_issue),
+               "before_run",
+               nil
+             )
+
+    assert File.read!(trace) |> String.split("\n", trim: true) == ["aiur/123-fix-login", "aiur/123-fix-login"]
+    assert File.read!(Path.join(trace_root, "164-rework-completed-review-still")) |> String.trim() == "aiur/164-rework-completed-review-still"
   end
 
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do
@@ -334,6 +398,11 @@ defmodule Aiur.Workspace.RefreshTest do
 
   defp git!(args) do
     {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    out
+  end
+
+  defp git!(workspace, args) do
+    {out, 0} = System.cmd(System.get_env("AIUR_REAL_GIT") || "/usr/bin/git", ["-C", workspace | args], stderr_to_stdout: true)
     out
   end
 end

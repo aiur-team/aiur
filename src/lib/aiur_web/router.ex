@@ -7,10 +7,30 @@ defmodule AiurWeb.Router do
   import Phoenix.LiveView.Router
 
   pipeline :dashboard_auth do
+    plug(:fetch_session)
     plug(:dashboard_basic_auth)
   end
 
+  pipeline :browser_dashboard_auth do
+    plug(:fetch_session)
+    plug(:dashboard_basic_auth, browser?: true)
+  end
+
+  pipeline :auth_session do
+    plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
+  end
+
+  pipeline :auth_post do
+    plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
+    plug(:protect_from_forgery)
+  end
+
   pipeline :dashboard_auth_required do
+    plug(:fetch_session)
     plug(:dashboard_basic_auth, required?: true)
   end
 
@@ -31,7 +51,6 @@ defmodule AiurWeb.Router do
   end
 
   pipeline :browser do
-    plug(:fetch_session)
     plug(AiurWeb.FinancialDataAccess, :persist_session)
     plug(:fetch_live_flash)
     plug(:put_root_layout, html: {AiurWeb.Layouts, :root})
@@ -66,22 +85,62 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Api.UsageProgressRoutes
+  require UsageProgressRoutes
 
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
+
+  get("/healthz", AiurWeb.PublicHealthController, :live)
+  get("/readyz", AiurWeb.PublicHealthController, :live)
+
+  scope "/auth" do
+    pipe_through(:auth_session)
+    get("/login", AiurWeb.DashboardAuthController, :login)
+    get("/google", AiurWeb.DashboardAuthController, :google)
+    get("/google/callback", AiurWeb.DashboardAuthController, :google_callback)
+  end
+
+  scope "/auth" do
+    pipe_through(:auth_post)
+    post("/logout", AiurWeb.DashboardAuthController, :logout)
+    post("/passkeys/authentication/challenge", AiurWeb.DashboardAuthController, :authentication_challenge)
+    post("/passkeys/authentication/finish", AiurWeb.DashboardAuthController, :authentication_finish)
+    post("/passkeys/registration/challenge", AiurWeb.DashboardAuthController, :registration_challenge)
+    post("/passkeys/registration/finish", AiurWeb.DashboardAuthController, :registration_finish)
+  end
+
   # Decision routes and catches must precede generic issue reads.
   Decisions.mutations()
   Decisions.reads()
   Decisions.method_catches()
   DashboardPages.static_assets()
   DashboardPages.pages()
+  Experiments.pages()
   Api.agent_writes()
   Api.machine_writes()
   Streamdeck.session()
   Capabilities.reads()
+  # Per-ticket usage read (#5692).
+  alias AiurWeb.Routes.Usage
+  require Usage
+  Usage.reads()
+  UsageProgressRoutes.reads()
+
+  # Account and rate-limit snapshot (#5697).
+  scope "/" do
+    pipe_through(:dashboard_auth)
+    get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
+    match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+    get("/api/v1/usage", AiurWeb.UsageApiController, :index)
+    match(:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed)
+    get("/api/v1/usage/:provider", AiurWeb.UsageApiController, :show)
+    match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
+  end
+
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
 
@@ -126,7 +185,7 @@ defmodule AiurWeb.Router do
   end
 
   defp dashboard_writable? do
-    AiurWeb.Endpoint.config(:dashboard_writable) == true
+    AiurWeb.EndpointConfig.get(:dashboard_writable) == true
   rescue
     _ -> false
   end
@@ -171,24 +230,21 @@ defmodule AiurWeb.Router do
   defp allowed_origins(conn) do
     endpoint_origin = safe_endpoint_origin()
 
-    [trusted_request_origin(conn, endpoint_origin), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
+    [trusted_request_origin(conn), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
     |> Enum.reject(&is_nil/1)
     |> Enum.flat_map(&expand_loopback_aliases/1)
     |> Enum.uniq()
   end
 
-  defp trusted_request_origin(conn, endpoint_origin) do
+  defp trusted_request_origin(conn) do
     case request_origin(conn) do
       {_scheme, host, _port} = origin ->
-        if loopback_host?(host) or same_endpoint_host?(origin, endpoint_origin), do: origin
+        if loopback_host?(host), do: origin
 
       nil ->
         nil
     end
   end
-
-  defp same_endpoint_host?({scheme, host, _port}, {scheme, host, _endpoint_port}), do: true
-  defp same_endpoint_host?(_request_origin, _endpoint_origin), do: false
 
   defp request_origin(%Plug.Conn{scheme: scheme, host: host, port: port})
        when scheme in [:http, :https] and is_binary(host) and is_integer(port) do

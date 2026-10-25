@@ -137,7 +137,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
 
         <footer class="decision-action-footer">
           <span>Targets action {@decision.active_action_id} · sequence {@decision.revision_sequence}</span>
-          <button class="btn" type="submit" phx-disable-with="Recording…">Record revision</button>
+          <button class="aiur-button aiur-button--dashboard btn" type="submit" phx-disable-with="Recording…">Record revision</button>
         </footer>
       </form>
 
@@ -154,7 +154,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
             <span>How was this follow-up handled?</span>
             <textarea name="follow_up[detail]" rows="2" maxlength="4000" required>{@follow_up_detail}</textarea>
           </label>
-          <button class="btn danger" type="submit" phx-disable-with="Recording…">Mark follow-up handled</button>
+          <button class="aiur-button aiur-button--dashboard aiur-button--danger btn danger" type="submit" phx-disable-with="Recording…">Mark follow-up handled</button>
         </form>
       </div>
     </section>

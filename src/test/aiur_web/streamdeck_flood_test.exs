@@ -5,6 +5,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
   alias Aiur.AgentPubSub
   alias Aiur.AgentPubSub.FleetRefresh
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
   alias Phoenix.Socket.Message
 
@@ -40,6 +41,7 @@ defmodule AiurWeb.StreamdeckFloodTest do
         streamdeck_provider_meters_fun: fn -> %{} end,
         streamdeck_decisions_fun: fn -> %{count: 0} end
       )
+      |> EndpointStubs.scope()
 
     Application.put_env(:aiur, Endpoint, config)
     Aiur.TestSupport.start_owned_endpoint!()

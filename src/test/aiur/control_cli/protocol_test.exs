@@ -1,12 +1,12 @@
 defmodule Aiur.ControlCLI.ProtocolTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport, async: false
 
   import ExUnit.CaptureIO
 
   alias Aiur.ControlCLI.Protocol
 
   test "regression guard: exit and error markers match the launcher's literals" do
-    engine = File.read!(Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__))
+    engine = Aiur.EngineSource.text()
 
     assert Protocol.exit_marker() == "__AIUR_CONTROL_EXIT__:"
     assert Protocol.error_marker() == "__AIUR_CONTROL_ERROR__:"

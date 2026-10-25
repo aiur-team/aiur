@@ -1,6 +1,6 @@
 defmodule Aiur.Codex.FramesTest do
   use ExUnit.Case, async: true
-
+  @moduletag :r7_characterization
   alias Aiur.Codex.Frames
 
   @policies %{approval_policy: "never", thread_sandbox: "read-only"}

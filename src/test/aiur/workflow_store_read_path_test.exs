@@ -16,6 +16,7 @@ defmodule Aiur.WorkflowStoreReadPathTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.TestSupport.OrchestratorGuard
 
   setup do
     ensure_workflow_store_running()
@@ -40,10 +41,19 @@ defmodule Aiur.WorkflowStoreReadPathTest do
       assert %Schema{} = Config.settings!()
     end
 
-    # A suspended process drains nothing, so anything the read path sent is
-    # still sitting here. Before the fix this was 100 `:current` calls; a real
-    # daemon with a busy store queues them behind every other caller.
-    assert {:message_queue_len, 0} = Process.info(store, :message_queue_len)
+    # Other async tests may legitimately queue reloads to the shared store. Pin
+    # the regression to calls made by this reader instead of requiring an empty
+    # process-wide mailbox.
+    assert {:messages, messages} = Process.info(store, :messages)
+
+    refute Enum.any?(messages, fn
+             {:"$gen_call", {caller, _tag}, request}
+             when caller == self() and request in [:current, :current_with_generation, :current_with_cache_identity] ->
+               true
+
+             _message ->
+               false
+           end)
   end
 
   test "a stalled store does not serialize concurrent readers" do
@@ -167,6 +177,8 @@ defmodule Aiur.WorkflowStoreReadPathTest do
   end
 
   test "a store restart drops the cache rather than serving a dead generation" do
+    codeowners_baseline = OrchestratorGuard.capture_shared_state().codeowners
+    on_exit(fn -> OrchestratorGuard.restore_codeowners_state!(codeowners_baseline) end)
     store = Process.whereis(WorkflowStore)
     assert %Schema{} = Config.settings!()
 

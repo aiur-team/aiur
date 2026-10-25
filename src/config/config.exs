@@ -1,10 +1,44 @@
 import Config
 
+config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
+
+# OTP terminate reports inspect the last message and server state while they
+# are translated into Logger events. Bound inspection here so a malformed or
+# unexpectedly large GenServer state cannot exhaust the daemon during logging.
+config :logger, :translator_inspect_opts,
+  limit: 100,
+  printable_limit: 4_096,
+  width: 120
+
+config :aiur, Aiur.Events.Trace, Aiur.Events.DebugLog
+
 config :aiur, env: config_env()
 
-config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
 
-config :aiur, :signal, alert_sink: Aiur.Alerts
+config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
+config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
+config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
+
+config :aiur, :signal,
+  alert_sink: Aiur.Alerts,
+  lifecycle_sink: Aiur.RunTelemetry.Lifecycle
+
+config :aiur, :github_poll_owner, Aiur.Orchestrator
+config :aiur, :github_quota_recovery_target, Aiur.Orchestrator
+config :aiur, :github_activity_recorder, {Aiur.Webhooks, :record_activity}
+config :aiur, :github_state_start_recorder, {Aiur.BuildOrder.History, :note_start}
+config :aiur, :github_rework_ci_canceller, {Aiur.GitHub.ReworkCICancel, :cancel_async}
+
+# Sources are named here so the sweep's complete set is readable in one place.
+config :aiur, :view_state_sources, [Aiur.BuildOrder.PackStatus]
+
+# The agent sandbox sits below the TUI and the orchestrator, so it reaches both
+# through these names instead of referencing them.
+config :aiur, :process_reaper_pane_killer, {Aiur.Tmux.Socket, :kill_pane}
+config :aiur, :pause_containment_result_target, Aiur.Orchestrator
+
+config :aiur, :agent_environment_contributors, [Aiur.GitHub.AgentEnvironmentContributor]
 
 config :aiur, :turn_sandbox_root_contributors, [
   Aiur.AgentEnvironment.SandboxRoots,
@@ -18,14 +52,28 @@ config :aiur, :tracker_adapters, %{
   "memory" => Aiur.Memory.Tracker
 }
 
+config :aiur, :workspace_preflights, %{"github" => Aiur.GitHub.WorkspacePreflight}
+# Prewarm historically resolves the GitHub origin even with another issue tracker.
+config :aiur, :repo_base_clone_url, {Aiur.GitHub.Tracker, :clone_url, []}
+config :aiur, :repo_base_git_token, {Aiur.GitHub.Config, :token, []}
+config :aiur, :workspace_git_credential_file, {Aiur.AgentGitHubGuard, :agent_token_path, []}
+config :aiur, :repo_ledger_validators, %{asks: {Aiur.Commands, :validate_asks}, findings: {Aiur.Findings, :validate}}
+config :aiur, :agent_support_modules, [Aiur.AgentGitHubGuard]
+
 config :aiur, :tracker_fallback_kind, "linear"
 
 config :aiur, :env_startup_checks, [Aiur.Commands]
 config :aiur, :keyring_token_fun_module, Aiur.GitHub.Config
 
+config :aiur, :experiment_metric_packs, [Aiur.Experiments.Packs.DeliverySpeed]
+
+config :aiur, :init_contributions, [Aiur.Voice]
+
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
+  Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
+  Aiur.Experiments.CapabilityProvider,
   Aiur.HttpServer.CapabilityProvider,
   Aiur.Orchestrator.CapabilityProvider,
   Aiur.Commands,
@@ -45,6 +93,8 @@ config :aiur, :project_identity_source, Aiur.Tracker
 config :aiur, :build_queue_claim_probe, Aiur.Orchestrator.BuildQueueClaimProbe
 
 # Exclusive order preserves the legacy cond, including GitHub taking precedence over Claude.
+config :aiur, :backend_catalog, Aiur.CodingAgent.ConfigCatalog
+
 config :aiur, :config_semantic_checks,
   exclusive: [
     Aiur.Tracker.SemanticCheck.MissingKind,
@@ -53,7 +103,11 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
-  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
+  always: [
+    Aiur.Orchestrator.HostedModeCheck,
+    Aiur.Config.Schema.TurnSandboxPolicyCheck,
+    Aiur.Opencode.Config.SemanticCheck
+  ]
 
 config :phoenix, :json_library, Jason
 
@@ -67,8 +121,16 @@ config :aiur, AiurWeb.Endpoint,
   pubsub_server: Aiur.PubSub,
   live_view: [signing_salt: "aiur-live-view"],
   secret_key_base: String.duplicate("s", 64),
-  check_origin: false,
+  check_origin: ["http://localhost", "http://127.0.0.1", "http://[::1]"],
   server: false
+
+# Composition: orchestration implements the Commands delivery port, so the
+# commands component never references orchestration itself.
+config :aiur, :commands_delivery_target, Aiur.Orchestrator.CommandDeliveryTarget
+
+# Composition: the dashboard implements the voice target port, so voice input
+# never references the dashboard or Commands itself.
+config :aiur, :voice_target_resolver, AiurWeb.OperatorControlCenter.VoiceTargetResolver
 
 # Demo / pre-ticket planning mode: render a Build Order in the spatial dashboard
 # straight from a local planning pack (no GitHub issues). Enable at build time
@@ -78,6 +140,17 @@ if System.get_env("AIUR_BUILD_ORDER_DEMO") in ~w(1 true) do
 end
 
 if config_env() == :test do
+  config :aiur, :dashboard_secret_root, Path.join(System.tmp_dir!(), "aiur-dashboard-secret-tests-#{System.unique_integer([:positive])}")
+
+  config :aiur, AiurWeb.Endpoint,
+    url: [host: "www.example.com"],
+    allowed_hosts: ["localhost", "127.0.0.1", "[::1]", "www.example.com"]
+
+  # System.tmp_dir!() may be a directory inside an agent checkout. Bound Git's
+  # upward discovery there so non-repository test fixtures stay non-repositories.
+  # Git still discovers repositories initialized below TMPDIR normally.
+  System.put_env("GIT_CEILING_DIRECTORIES", System.tmp_dir!())
+
   # Install before app boot: accidental tracker/provider calls must never dial
   # public hosts. Tests opt in per request with a fake :plug/:adapter, or
   # adapter: Req.Finch for explicitly tagged live-provider checks.
@@ -91,7 +164,16 @@ if config_env() == :test do
   # Tests manage GITHUB_TOKEN themselves; a boot resolution would cache a nil
   # (no valid token in CI) and shadow the per-test env tokens.
   config :aiur, :resolve_github_token_on_boot, false
+  config :aiur, :github_rework_ci_canceller, nil
   config :aiur, :workspace_github_preflight_enabled, false
+  # Webhook tests publish comments on the shared bus; the supervised orchestrator
+  # must not turn them into tracker-less comment-rework attempts (#4845).
+  config :aiur, :live_orchestrator_comment_topics?, false
+  # Every build index test supervises its own. The shared one rereads real providers on
+  # bus signals that tests publish and logs into an unrelated capture_log (#5164).
+  config :aiur, :build_index?, false
+  # Tests run with a per-test mise data dir, where the host's Erlang looks missing.
+  config :aiur, :toolchain_preflight_opts, mise: nil
   config :aiur, :github_quota_refresh?, false
   config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
@@ -122,6 +204,8 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+  # The analytics prewarmer would run Presenter.load against the shared test node at boot.
+  config :aiur, :analytics_prewarm?, false
   config :aiur, :build_order_root_import_enabled?, false
   config :aiur, :build_history_backfill_enabled?, false
 
@@ -135,6 +219,16 @@ if config_env() == :test do
   # tests and emit degraded alerts into an unrelated test's isolated ledger).
   # Tests drive `check/1` deterministically on their own instances.
   config :aiur, :broker_timeout_check_interval_ms, 0
+
+  # The shared app's terminal-ticket fact capture must not reach GitHub across
+  # sequential test boundaries: other tests queue tickets into it, and its 5 s
+  # retry tick sends `POST /graphql` whenever a later test has set a token.
+  # Tests that exercise it start their own instance.
+  config :aiur, :run_telemetry_facts_capture?, false
+
+  # The shared app's Executor sweep must not read daemon state or enqueue wakes
+  # across test boundaries. Tests start their own instance with an interval.
+  config :aiur, :executor_sweep_interval_ms, 0
 
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
@@ -157,11 +251,7 @@ if config_env() == :test do
   System.put_env("MISE_OFFLINE", "1")
   System.put_env("npm_config_offline", "true")
 
-  test_log_root =
-    Path.join(
-      System.tmp_dir!(),
-      "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}"
-    )
+  test_log_root = Aiur.TestLogTmp.test_root(System.tmp_dir!(), System.os_time(:millisecond), System.pid())
 
   # mix starts the application before test_helper. Capture HOME before changing
   # it, then isolate environment-based paths (provider credentials
@@ -209,6 +299,10 @@ if config_env() == :test do
   # per-VM isolation. Aiur.TestSupport gives each case its own root.
   config :aiur, :machine_state_dir, Path.join(test_log_root, "machine")
   config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
+  # Background Codex probes launch relay processes outside a test's lifecycle;
+  # tests that cover this behavior opt in explicitly to avoid writing into
+  # another case's runtime root.
+  config :aiur, :codex_usage_probe_async?, false
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
   config :aiur, :server_host_override, "127.0.0.1"

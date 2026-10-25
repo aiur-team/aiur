@@ -2,8 +2,9 @@ defmodule Aiur.OpenTicketSource.Snapshot do
   @moduledoc """
   Compact snapshot of every open tracker ticket on the configured repository.
 
-  `status` mirrors the named states the rest of the dashboard uses, so a failed
-  listing presents a stale or unavailable region rather than an empty healthy
+  `status` mirrors the named states the rest of the dashboard uses. The first
+  boot listing reports `:loading`; a failed listing presents a stale or
+  unavailable region rather than an empty healthy
   table. `:unsupported` is distinct from a fault: a non-GitHub tracker has no
   such listing at all, which is a configuration fact, not an outage.
   `truncated?` marks a listing cut short by the page budget, so a bounded prefix
@@ -17,7 +18,7 @@ defmodule Aiur.OpenTicketSource.Snapshot do
 
   alias Aiur.TrackerIdentity
 
-  @type status :: :available | :stale | :unavailable | :unsupported
+  @type status :: :available | :loading | :stale | :unavailable | :unsupported
 
   @type ticket :: %{
           identity: TrackerIdentity.t() | nil,

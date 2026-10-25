@@ -31,8 +31,8 @@ defmodule Aiur.Tmux.Exec do
     MockTransport.request(pid, Enum.join(args, " "))
   end
 
-  def run_args(%{transport: :shell}, args) do
-    full_args = prepend_socket(args)
+  def run_args(%{transport: :shell} = state, args) do
+    full_args = prepend_socket(state, args)
     Logger.debug("Tmux exec: tmux #{Enum.join(full_args, " ")}")
 
     case tmux_executable() do
@@ -61,8 +61,8 @@ defmodule Aiur.Tmux.Exec do
   def run_args_silent(%{transport: {:mock, _, _}} = state, args), do: run_args(state, args)
   def run_args_silent(%{transport: {:mock, _}} = state, args), do: run_args(state, args)
 
-  def run_args_silent(%{transport: :shell}, args) do
-    full_args = prepend_socket(args)
+  def run_args_silent(%{transport: :shell} = state, args) do
+    full_args = prepend_socket(state, args)
 
     case tmux_executable() do
       nil ->
@@ -99,10 +99,17 @@ defmodule Aiur.Tmux.Exec do
 
   # Read AIUR_TMUX_SOCKET each invocation so the Tmux GenServer (started
   # before the wrapper exports the var, in some test paths) still picks it up.
-  defp prepend_socket(args) do
-    case System.get_env("AIUR_TMUX_SOCKET") do
-      socket when is_binary(socket) and socket != "" -> ["-L", socket | args]
+  defp prepend_socket(state, args) do
+    case Map.get(state, :socket, System.get_env("AIUR_TMUX_SOCKET")) do
+      socket when is_binary(socket) and socket != "" -> ["-L", socket] ++ conf_args() ++ args
       _ -> args
+    end
+  end
+
+  defp conf_args do
+    case System.get_env("AIUR_TMUX_CONF") do
+      conf when is_binary(conf) and conf != "" -> ["-f", conf]
+      _ -> []
     end
   end
 

@@ -7,7 +7,7 @@ defmodule Aiur.AgentCommandInstallerTest do
     root = Aiur.TestSupport.tmp_root!("aiur-command-installer")
     workspace = Path.join(root, "workspace")
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     {:ok, root: root, workspace: workspace}
   end
 
@@ -53,19 +53,16 @@ defmodule Aiur.AgentCommandInstallerTest do
     assert {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode} == inodes
   end
 
-  # A growth budget, not a platform limit. Nothing breaks the moment the script
-  # passes it — the remote install is staged to a file and fed to `bash -s` on
-  # stdin by `Aiur.SSH.with_script/4`, so Linux's 128 KiB per-argument cap
-  # (`MAX_ARG_STRLEN`) never bound it; the composed agent-support payload is
-  # already megabytes and installs fine. What the budget protects is cost: the
-  # `gh` guard is compiled into the daemon, held in memory, and re-sent on every
-  # remote dispatch, so growth deserves a deliberate decision rather than a
-  # discovery. Raise it only with a reason stated in the commit.
+  # The 100,000-byte budget tracks recurring remote-install payload growth, not
+  # an OS limit: SSH stages the script and feeds `bash -s` on stdin. The bounded
+  # broker wait and signal cleanup add behavior worth the measured increase;
+  # CI measured 98,740 bytes and the local checkout 99,412.
   test "the remote install script stays inside its growth budget", context do
     script = AgentGitHubGuard.remote_install_script(context.workspace)
+    growth_budget = 100_000
 
-    assert byte_size(script) < 98_304,
-           "remote install script is #{byte_size(script)} bytes; the growth budget is 98304"
+    assert byte_size(script) < growth_budget,
+           "remote install script is #{byte_size(script)} bytes; the growth budget is #{growth_budget}"
   end
 
   test "local installation replaces a command-target symlink", context do
@@ -113,7 +110,7 @@ defmodule Aiur.AgentCommandInstallerTransportTest do
 
     on_exit(fn ->
       if previous_path, do: System.put_env("PATH", previous_path), else: System.delete_env("PATH")
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     install_fake_ssh!(root, trace_file, input_file)

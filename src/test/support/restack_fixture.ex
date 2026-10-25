@@ -19,7 +19,7 @@ defmodule Aiur.TestSupport.RestackFixture do
     git(workspace, ["push", "origin", "main"])
     dependent = dependent(workspace)
     merge = squash(workspace)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root, workspace: workspace, origin: origin, dependent: dependent, merge: merge}
   end
 
@@ -53,7 +53,7 @@ defmodule Aiur.TestSupport.RestackFixture do
   end
 
   @spec command(Path.t(), [String.t()]) :: {String.t(), integer()}
-  def command(path, args), do: System.cmd(System.get_env("AIUR_REAL_GIT") || System.find_executable("git"), ["-C", path | args], stderr_to_stdout: true)
+  def command(path, args), do: Aiur.TestGit.cmd(["-C", path | args])
 
   @spec git(Path.t(), [String.t()]) :: String.t()
   def git(path, args) do

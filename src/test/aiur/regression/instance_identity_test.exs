@@ -22,11 +22,12 @@ defmodule Aiur.Regression.InstanceIdentityTest do
   use ExUnit.Case, async: true
 
   @engine Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
+  @identity_timeout_seconds "5"
 
   # Run the engine's `__identity` command and parse its KEY=VALUE printout.
   defp identity(root) do
-    {out, 0} =
-      System.cmd("bash", [@engine, "__identity"],
+    {out, status} =
+      System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
         # Reset the identity vars the engine exports — a key/node inherited from a
         # parent aiur (this suite dogfoods aiur) would otherwise subvert derivation.
         env: [
@@ -37,6 +38,9 @@ defmodule Aiur.Regression.InstanceIdentityTest do
         ],
         stderr_to_stdout: true
       )
+
+    assert status == 0,
+           "aiur-engine.sh __identity failed or exceeded #{@identity_timeout_seconds}s timeout (status #{status}): #{out}"
 
     out
     |> String.split("\n", trim: true)
@@ -79,21 +83,23 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       # realpath-derived key. HOME is pinned to a sibling temp dir that holds no
       # config and is not an ancestor of the projects, so this genuinely exercises
       # the not-under-$HOME variant regardless of the runner's real $HOME/TMPDIR.
-      base = Aiur.TestSupport.tmp_root!("aiur-noconfig")
+      # Keep this outside the checkout because the workspace TMPDIR may walk up
+      # into the checkout's `.aiur/config`, hiding the no-config fallback.
+      base = Path.join("/tmp", "aiur-noconfig-#{System.pid()}-#{System.unique_integer([:positive])}")
       home = Path.join(base, "home")
       proj_a = Path.join(base, "alpha")
       proj_b = Path.join(base, "beta")
       File.mkdir_p!(home)
       File.mkdir_p!(proj_a)
       File.mkdir_p!(proj_b)
-      on_exit(fn -> File.rm_rf!(base) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(base) end)
 
       id = fn cd ->
-        {out, 0} =
-          System.cmd("bash", [@engine, "__identity"],
+        {out, status} =
+          System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
             env: [
               {"HOME", home},
-              {"AIUR_REPO_ROOT", ""},
+              {"AIUR_REPO_ROOT", nil},
               {"AIUR_INSTANCE_KEY", nil},
               {"AIUR_RELEASE_NODE", nil},
               {"USER", "tester"}
@@ -101,6 +107,9 @@ defmodule Aiur.Regression.InstanceIdentityTest do
             cd: cd,
             stderr_to_stdout: true
           )
+
+        assert status == 0,
+               "aiur-engine.sh __identity failed or exceeded #{@identity_timeout_seconds}s timeout (status #{status}): #{out}"
 
         out
         |> String.split("\n", trim: true)
@@ -139,14 +148,14 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       proj_b = Path.join([home, "projects", "beta"])
       File.mkdir_p!(proj_a)
       File.mkdir_p!(proj_b)
-      on_exit(fn -> File.rm_rf!(home) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
 
       key = fn cd ->
-        {out, 0} =
-          System.cmd("bash", [@engine, "__identity"],
+        {out, status} =
+          System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
             env: [
               {"HOME", home},
-              {"AIUR_REPO_ROOT", ""},
+              {"AIUR_REPO_ROOT", nil},
               {"AIUR_INSTANCE_KEY", nil},
               {"AIUR_RELEASE_NODE", nil},
               {"USER", "tester"}
@@ -154,6 +163,9 @@ defmodule Aiur.Regression.InstanceIdentityTest do
             cd: cd,
             stderr_to_stdout: true
           )
+
+        assert status == 0,
+               "aiur-engine.sh __identity failed or exceeded #{@identity_timeout_seconds}s timeout (status #{status}): #{out}"
 
         out
         |> String.split("\n", trim: true)
@@ -189,11 +201,11 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       File.mkdir_p!(deep_a)
       File.mkdir_p!(Path.join(root_b, ".aiur"))
       File.write!(Path.join([root_b, ".aiur", "config"]), "")
-      on_exit(fn -> File.rm_rf!(base) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(base) end)
 
       key = fn cd ->
-        {out, 0} =
-          System.cmd("bash", [@engine, "__identity"],
+        {out, status} =
+          System.cmd("timeout", [@identity_timeout_seconds, "bash", "-x", @engine, "__identity"],
             env: [
               {"AIUR_REPO_ROOT", nil},
               {"AIUR_INSTANCE_KEY", nil},
@@ -203,6 +215,9 @@ defmodule Aiur.Regression.InstanceIdentityTest do
             cd: cd,
             stderr_to_stdout: true
           )
+
+        assert status == 0,
+               "aiur-engine.sh __identity failed or exceeded #{@identity_timeout_seconds}s timeout (status #{status}): #{out}"
 
         out
         |> String.split("\n", trim: true)
@@ -225,17 +240,23 @@ defmodule Aiur.Regression.InstanceIdentityTest do
 
   describe "engine wiring (source asserts)" do
     test "tmux session and socket are keyed per-instance" do
-      src = File.read!(@engine)
+      src = Aiur.EngineSource.text()
 
-      assert String.contains?(src, ~S(${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default)),
+      assert String.contains?(
+               src,
+               ~S(${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default)
+             ),
              "the tmux session name must include AIUR_INSTANCE_KEY so two instances never share a session"
 
-      assert String.contains?(src, ~S(${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}")),
+      assert String.contains?(
+               src,
+               ~S(${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}")
+             ),
              "the tmux socket must include AIUR_INSTANCE_KEY"
     end
 
     test "launch reclaims a legacy un-keyed orphan, guarded by a live-session check (success criterion 3)" do
-      src = File.read!(@engine)
+      src = Aiur.EngineSource.text()
 
       assert String.contains?(src, ~S(kill_beams_matching "-name aiur-${USER}@127.0.0.1")),
              "a keyed launch must reclaim a stale legacy-name beam so the old fixed name doesn't block startup"

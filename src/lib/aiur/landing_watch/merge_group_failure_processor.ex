@@ -1,0 +1,475 @@
+defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
+  @moduledoc "Classifies failed merge-group runs and routes each PR outcome."
+  alias Aiur.Alerts
+  alias Aiur.GitHub.{CIRecovery, Errors, Transport}
+  alias Aiur.LandingWatch
+  alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupJournal, MergeGroupRequeue, QuarantineEvidence}
+
+  require Logger
+
+  # A run that fails to classify this many polls in a row keeps its claim and raises an attention.
+  @lasting_failure_polls 5
+
+  @spec process_completed([map()], [map()], String.t(), keyword()) :: :ok | {:error, term()}
+  def process_completed(runs, observations, base, opts) do
+    failures =
+      Enum.filter(
+        runs,
+        &(&1["conclusion"] in ["failure", "timed_out", "startup_failure"] and
+            is_integer(&1["id"]))
+      )
+
+    has_observed_pr? =
+      Enum.any?(failures, fn run ->
+        Enum.any?(
+          pr_numbers(run["head_branch"]),
+          &Enum.any?(observations, fn pr -> pr.number == &1 end)
+        )
+      end)
+
+    opts = if has_observed_pr?, do: prepare_failure_evidence(opts, base), else: opts
+    store_watchdog_evidence(runs, observations, opts)
+
+    # One failing run must not hold back later runs; report the first error after trying all.
+    Enum.reduce(failures, :ok, fn run, first_error ->
+      result = process_claimed_failed_group(run, runs, observations, base, opts)
+      if first_error == :ok, do: result, else: first_error
+    end)
+  end
+
+  defp prepare_failure_evidence(opts, base) do
+    case MergeGroupFailureEvidence.recent_main_paths(base, opts) do
+      {:ok, paths} ->
+        opts
+        |> Keyword.put(:merge_group_failure_evidence_prepared, true)
+        |> Keyword.put(:recent_main_failure_paths, paths)
+        |> Keyword.put(:known_failure_patterns, MergeGroupFailureEvidence.known_patterns(opts))
+
+      {:error, reason} ->
+        Logger.warning("merge-group blame evidence unavailable; using legacy routing reason=#{inspect(reason)}")
+        Keyword.put(opts, :blame_evidence_error, reason)
+    end
+  end
+
+  defp store_watchdog_evidence(runs, observations, opts) do
+    case Keyword.get(opts, :merge_group_evidence_fun) do
+      fun when is_function(fun, 3) -> fun.(runs, observations, opts)
+      _ -> :ok
+    end
+  end
+
+  defp process_claimed_failed_group(run, runs, observations, base, opts) do
+    case Journal.claim_merge_group_run(run["id"], opts) do
+      {:ok, :already_claimed} -> :ok
+      {:ok, :new} -> process_new_failed_group(run, runs, observations, base, opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp process_new_failed_group(run, runs, observations, base, opts) do
+    case process_failed_group(run, runs, observations, base, opts) do
+      :ok ->
+        _ = MergeGroupJournal.clear_merge_group_run_failures(run["id"], opts)
+        :ok
+
+      {:error, reason} = error ->
+        if throttled?(reason) do
+          _ = Journal.release_merge_group_run(run["id"], opts)
+          error
+        else
+          release_counted_failure(run, base, reason, error, opts)
+        end
+    end
+  end
+
+  # Budget holds and GitHub rate limits throttle every run, not this one, so they retry uncounted.
+  defp throttled?({:job_log, _job_id, reason}), do: throttled?(reason)
+  defp throttled?({:github, :rate_limited, _}), do: true
+  defp throttled?(reason), do: Errors.outcome({:error, reason}) == :held
+
+  defp release_counted_failure(run, base, reason, error, opts) do
+    case MergeGroupJournal.release_failed_merge_group_run(run["id"], @lasting_failure_polls, opts) do
+      {:ok, :kept} -> emit_lasting_failure_attention(run, base, reason, opts)
+      _ -> error
+    end
+  end
+
+  defp emit_lasting_failure_attention(run, base, reason, opts) do
+    {:ok, prs} = run_prs(run, base)
+
+    emit_unclassified_attention(
+      "system.pr.landing.merge_group_unclassified",
+      run,
+      prs,
+      "#{@lasting_failure_polls} consecutive polls failed (last error: #{inspect(reason)})",
+      opts
+    )
+  end
+
+  defp process_failed_group(run, runs, observations, base, opts) do
+    case run_prs(run, base) do
+      {:ok, []} -> :ok
+      {:ok, prs} -> process_failed_group_for_prs(run, runs, observations, prs, opts)
+    end
+  end
+
+  defp process_failed_group_for_prs(run, _runs, observations, prs, opts) do
+    case Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2).(run["id"], opts) do
+      {:ok, jobs} -> classify_and_route(run, observations, prs, jobs, opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp classify_and_route(run, observations, prs, jobs, opts) do
+    blame_opts = classifier_options(run, prs, jobs, opts)
+
+    case MergeFailureClassifier.classify(run, jobs, observations, blame_opts) do
+      {:ok, {classification, failure}} ->
+        route_classification(classification, failure, run, observations, prs, blame_opts, opts)
+
+      {:error, {:job_log, job_id, {:github, :http, %{status: status}} = reason}} when status in [404, 410] ->
+        emit_unclassified_attention("system.pr.landing.job_log_unavailable", run, prs, "log for job #{inspect(job_id)} is unavailable (#{inspect(reason)})", opts)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp route_classification(:infra, _failure, run, observations, prs, _blame_opts, opts),
+    do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "infrastructure failure", opts)
+
+  defp route_classification(:cancelled, _failure, run, observations, prs, _blame_opts, opts),
+    do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "cancelled merge-group run", opts)
+
+  defp route_classification(:inherited, _failure, run, observations, prs, _blame_opts, opts),
+    do: MergeGroupRequeue.requeue_group_prs(prs, observations, run, "inherited merge-group failure", opts)
+
+  defp route_classification(classification, failure, run, observations, prs, blame_opts, opts)
+       when classification in [:known_non_pr, :pr_caused] do
+    identities = failure_identities(failure)
+    route_failure_by_blame(classification, failure, run, observations, prs, blame_opts, identities, opts)
+  end
+
+  defp route_failure_by_blame(classification, failure, run, observations, prs, blame_opts, identities, opts) do
+    case blamed_pr(failure, prs, blame_opts) do
+      {:culprits, numbers} -> route_attributed_failure(numbers, prs -- numbers, observations, failure, run, identities, opts)
+      {:mixed, numbers} -> route_attributed_failure(numbers, prs -- numbers, observations, failure, run, identities, opts)
+      :none -> route_unattributed_failure(:innocent, classification, prs, observations, failure, run, identities, opts)
+      _ -> route_unattributed_failure(:unresolved, classification, prs, observations, failure, run, identities, opts)
+    end
+  end
+
+  defp route_attributed_failure(culprits, innocent, observations, failure, run, identities, opts) do
+    {repeats, first} = split_repeated_failures(culprits, observations, identities, opts)
+
+    with :ok <- route_repeated_failures(repeats, observations, failure, run, opts),
+         :ok <- requeue_and_count(innocent, observations, run, "group contained a PR-caused failure", identities, opts),
+         :ok <- route_failed_prs(first, observations, failure, run, opts),
+         do: record_counted_failures(first, observations, identities, opts)
+  end
+
+  defp route_unattributed_failure(kind, classification, prs, observations, failure, run, identities, opts) do
+    {repeats, first} = split_repeated_failures(prs, observations, identities, opts)
+
+    with :ok <- route_repeated_failures(repeats, observations, failure, run, opts) do
+      route_first_unattributed(kind, classification, first, observations, failure, run, identities, opts)
+    end
+  end
+
+  defp route_first_unattributed(:innocent, _classification, [], _observations, _failure, _run, _identities, _opts), do: :ok
+
+  defp route_first_unattributed(:innocent, _classification, prs, observations, failure, run, identities, opts),
+    do: route_innocent(prs, observations, run, failure, "untouched failing test", identities, opts)
+
+  defp route_first_unattributed(:unresolved, classification, prs, observations, failure, run, identities, opts),
+    do: route_unresolved(classification, failure, run, observations, prs, identities, opts)
+
+  defp hold_failed_heads(numbers, observations, opts) do
+    Enum.reduce_while(numbers, :ok, &hold_failed_head(&1, &2, observations, opts))
+  end
+
+  defp hold_failed_head(_number, {:error, _} = error, _observations, _opts), do: {:halt, error}
+
+  defp hold_failed_head(number, :ok, observations, opts) do
+    case Enum.find(observations, &(&1.number == number)) do
+      %{head: head} when is_binary(head) ->
+        case Journal.hold_merge_group_head(number, head, opts) do
+          :ok -> {:cont, :ok}
+          {:error, _} = error -> {:halt, error}
+        end
+
+      _ ->
+        {:cont, :ok}
+    end
+  end
+
+  defp route_unresolved(:known_non_pr, _failure, run, observations, prs, identities, opts) do
+    Logger.warning("merge-group blame evidence incomplete; using legacy routing run=#{run["id"]}")
+    requeue_and_count(prs, observations, run, "known non-PR failure", identities, opts)
+  end
+
+  defp route_unresolved(:pr_caused, failure, run, observations, prs, identities, opts) do
+    if Keyword.has_key?(opts, :blame_evidence_error), do: Logger.warning("merge-group blame evidence fetch failed; using legacy routing run=#{run["id"]}")
+    route_pr_caused(prs, observations, failure, run, identities, opts)
+  end
+
+  defp emit_unclassified_attention(name, run, prs, detail, opts) do
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+
+    message =
+      "Merge-group run #{run["id"]} for PR #{Enum.map_join(prs, ", ", &"##{&1}")} was not classified: #{detail}."
+
+    emitter.(name,
+      central: true,
+      durable: true,
+      needs_attention: true,
+      message: message,
+      reason: message
+    )
+
+    :ok
+  end
+
+  @doc false
+  @spec classifier_options(map(), [integer()], [map()], keyword()) :: keyword()
+  def classifier_options(run, prs, jobs, opts) do
+    MergeFailureOptions.build(run, prs, jobs, opts, &MergeGroupFailureEvidence.job_log/2)
+  end
+
+  # A run whose failure is a quarantined test did not fail because of its PRs.
+  defp route_pr_caused(prs, observations, failure, run, identities, opts) do
+    if run["id"] in Keyword.get(opts, :quarantined_run_ids, []),
+      do: requeue_and_count(prs, observations, run, "a quarantined flaky test", identities, opts),
+      else:
+        with(
+          :ok <- route_failed_prs(prs, observations, failure, run, opts),
+          do: record_counted_failures(prs, observations, identities, opts)
+        )
+  end
+
+  defp route_failed_prs(_prs, _observations, nil, _run, _opts), do: :ok
+
+  defp route_failed_prs(prs, observations, failure, run, opts) do
+    with :ok <- hold_failed_heads(prs, observations, opts) do
+      do_route_failed_prs(prs, observations, failure, run, opts)
+    end
+  end
+
+  defp do_route_failed_prs(prs, observations, failure, run, opts) do
+    _ = record_blame(run, prs, failure, :pr_caused, opts)
+    failures = [failure_to_map(failure)]
+    run_link = run_url(run["id"], opts)
+
+    prs
+    |> Enum.map(&Enum.find(observations, fn observation -> observation.number == &1 end))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce(:ok, &rework_if_ok(&1, &2, failures, run_link, opts))
+  end
+
+  defp blamed_pr(%{log: log, blame_complete: true}, prs, opts) when is_binary(log) do
+    with false <- Keyword.has_key?(opts, :blame_evidence_error),
+         paths when paths != [] <- failure_paths(log) do
+      paths_blame(paths, log, prs, opts)
+    else
+      _ -> :unknown
+    end
+  end
+
+  defp blamed_pr(_, _, _), do: :unknown
+
+  defp paths_blame(paths, log, prs, opts) do
+    results = Enum.map(paths, &path_blame(&1, log, prs, opts))
+
+    culprits =
+      results
+      |> Enum.flat_map(fn
+        {:culprits, numbers} -> numbers
+        _ -> []
+      end)
+      |> Enum.uniq()
+
+    cond do
+      Enum.any?(results, &(&1 == :unknown)) -> :unknown
+      culprits == [] -> :none
+      Enum.any?(results, &(&1 == :none)) -> {:mixed, culprits}
+      true -> {:culprits, culprits}
+    end
+  end
+
+  defp path_blame(path, log, prs, opts) do
+    touched = touched_prs(path, prs, opts)
+
+    cond do
+      length(touched) == 1 -> {:culprits, touched}
+      touched == [] -> path_blame_without_test_change(path, log, prs, opts)
+      true -> :unknown
+    end
+  end
+
+  defp path_blame_without_test_change(path, log, prs, opts) do
+    case changed_code_prs(path, log, prs, opts) do
+      [number] -> {:culprits, [number]}
+      [] -> if known_failure?(path, log, opts), do: :none, else: :unknown
+      _ -> :unknown
+    end
+  end
+
+  defp changed_code_prs(path, log, prs, opts) do
+    candidates =
+      Enum.filter(prs, fn number ->
+        case get_in(opts, [:changed_paths_by_pr, number]) do
+          paths when is_list(paths) -> Enum.any?(paths, &same_test_area_lib_path?(path, &1))
+          _ -> false
+        end
+      end)
+
+    if known_failure?(path, log, opts), do: [], else: candidates
+  end
+
+  defp same_test_area_lib_path?("src/test/" <> rest, "src/lib/" <> _ = changed_path) do
+    area = rest |> Path.dirname() |> then(&Path.join("src/lib", &1))
+    String.starts_with?(changed_path, area <> "/")
+  end
+
+  defp same_test_area_lib_path?(_test_path, _changed_path), do: false
+
+  defp touched_prs(path, prs, opts) do
+    Enum.filter(prs, fn pr ->
+      case get_in(opts, [:changed_paths_by_pr, pr]) do
+        paths when is_list(paths) -> QuarantineEvidence.touched?(path, paths)
+        _ -> false
+      end
+    end)
+  end
+
+  defp known_failure?(path, log, opts) do
+    path in Keyword.get(opts, :recent_main_failure_paths, []) or
+      Enum.any?(Keyword.get(opts, :known_failure_patterns, []), &String.contains?(String.downcase(log), String.downcase(&1)))
+  end
+
+  defp failure_paths(log), do: MergeGroupFailureEvidence.test_paths(log)
+
+  defp route_innocent(prs, observations, run, failure, reason, identities, opts) do
+    _ = record_blame(run, prs, failure, :innocent_requeued, opts)
+    requeue_and_count(prs, observations, run, reason, identities, opts)
+  end
+
+  defp requeue_and_count(prs, observations, run, reason, identities, opts) do
+    case MergeGroupRequeue.requeue_group_prs(prs, observations, run, reason, opts) do
+      :ok -> record_counted_failures(prs, observations, identities, opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp split_repeated_failures(prs, observations, failure_identities, opts) do
+    Enum.split_with(prs, &repeat_failure?(&1, observations, failure_identities, opts))
+  end
+
+  defp repeat_failure?(number, observations, failure_identities, opts) do
+    case Enum.find(observations, &(&1.number == number)) do
+      %{head: head} when is_binary(head) ->
+        Enum.any?(failure_identities, &failure_repeated?(number, head, &1, opts))
+
+      _ ->
+        false
+    end
+  end
+
+  defp failure_repeated?(number, head, identity, opts) do
+    case Journal.merge_group_failure_attempts(number, head, identity, opts) do
+      {:ok, count} -> count >= 1
+      _ -> false
+    end
+  end
+
+  defp record_counted_failures(prs, observations, failure_identities, opts) do
+    pr_head_failures =
+      Enum.flat_map(prs, fn number ->
+        case Enum.find(observations, &(&1.number == number)) do
+          %{head: head} when is_binary(head) -> [{number, head, failure_identities}]
+          _ -> []
+        end
+      end)
+
+    case Journal.record_merge_group_failure_attempts(pr_head_failures, opts) do
+      {:ok, _counts} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp failure_identities(%{log: log, job: job}) do
+    case MergeGroupFailureEvidence.test_identities(log) do
+      [_ | _] = identities -> Enum.sort(identities)
+      [] -> [job["name"] || "unknown failing spec"]
+    end
+  end
+
+  defp failure_identities(_), do: ["unknown failing spec"]
+
+  defp rework_repeat_prs(prs, observations, failure, run, opts) do
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+
+    Enum.each(prs, fn number ->
+      message = "PR ##{number} was removed after the same head failed a merge-group run twice."
+      emitter.("system.pr.landing.merge_group_repeat_failure", central: true, durable: true, needs_attention: true, message: message, reason: "same_head_failed_twice")
+    end)
+
+    route_failed_prs(prs, observations, failure, run, opts)
+  end
+
+  defp route_repeated_failures([], _observations, _failure, _run, _opts), do: :ok
+
+  defp route_repeated_failures(prs, observations, failure, run, opts) do
+    _ = record_blame(run, prs, failure, :repeat_ejected, opts)
+    rework_repeat_prs(prs, observations, failure, run, opts)
+  end
+
+  defp record_blame(run, prs, failure, decision, opts) do
+    Journal.record_failure_observation(
+      %{
+        "identity" => "merge-group-blame:#{run["id"]}",
+        "source" => "merge_group_blame",
+        "run_id" => run["id"],
+        "group_prs" => prs,
+        "decision" => to_string(decision),
+        "at_ms" => Keyword.get(opts, :now_ms, System.system_time(:millisecond)),
+        "path" => if(is_map(failure), do: failure |> Map.get(:log, "") |> failure_paths() |> List.first())
+      },
+      opts
+    )
+  end
+
+  defp failure_to_map(failure),
+    do: %{
+      name: failure.job["name"] || "Failed merge-group test",
+      excerpt: String.slice(failure.log, 0, 500)
+    }
+
+  defp run_url(run_id, opts) do
+    case Keyword.get(opts, :repo_fun, &Transport.parse_repo/0).() do
+      {:ok, {owner, repo}} -> "https://github.com/#{owner}/#{repo}/actions/runs/#{run_id}"
+      _ -> "https://github.com/actions/runs/#{run_id}"
+    end
+  end
+
+  defp run_prs(run, base) do
+    branch = Map.get(run, "head_branch", "")
+    prefix = "gh-readonly-queue/#{base}/"
+    prs = if is_binary(branch) and String.starts_with?(branch, prefix), do: pr_numbers(branch), else: []
+    {:ok, prs}
+  end
+
+  defp rework_if_ok(_pr, {:error, _} = error, _failures, _run_link, _opts), do: error
+
+  defp rework_if_ok(pr, :ok, failures, run_link, opts),
+    do: LandingWatch.rework(pr, failures, Keyword.put(opts, :run_url, run_link))
+
+  defp pr_numbers(branch) when is_binary(branch) do
+    Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first)
+    |> List.flatten()
+    |> Enum.map(&String.to_integer/1)
+    |> Enum.uniq()
+  end
+
+  defp pr_numbers(_), do: []
+end

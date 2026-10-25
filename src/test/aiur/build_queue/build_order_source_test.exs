@@ -114,12 +114,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
-        assert Aiur.BuildQueueCLI.run(verb: :add, build_order: 99, queue: "roadmap", server: pid) == 1
+        assert Aiur.BuildQueueCLI.run(verb: :add, build_order: 99, queue: "roadmap", rank: 0, server: pid) == 1
       end)
 
     assert output =~ "Build Order #99: ok"
     assert output =~ "#1: already in queue paseo"
-    assert Enum.find(get(:document).queues, &(&1.root == 99)).name == "roadmap"
+    assert Enum.map(get(:document).queues, &{&1.name, &1.rank}) == [{"roadmap", 0}, {"paseo", 1}]
     assert Enum.find(get(:document).items, &(&1.issue_id == "2")).queue_id == Enum.find(get(:document).queues, &(&1.name == "roadmap")).id
     assert {:ok, [{"Build Order #99", {:error, :already_adopted}}]} = MutationCLI.execute(verb: :add, build_order: 99, server: pid)
   end
@@ -216,6 +216,7 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
     pid = server(projection)
     assert :ok = Aiur.BuildQueue.add(["1"], "list")
     assert {:ok, [{"1", :already_queued}]} = Aiur.BuildQueue.adopt(99)
+    assert Enum.map(get(:document).queues, &{&1.kind, &1.rank}) == [{:list, 0}, {:build_order, 1}]
     assert Enum.count(get(:document).items, &(&1.issue_id == "1")) == 1
     reconcile(pid)
     changed = snapshot([member(1), member(2), member(4)])
@@ -416,12 +417,12 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
   end
 
   test "an unresponsive projection is tried once per cycle while an independent list promotes" do
-    queues = [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]
-    {:ok, document, _} = ListMutations.add(%{@empty | queues: queues}, ["4"], [queue: "list"], DateTime.from_unix!(0))
+    {:ok, document, _} = ListMutations.add(%{@empty | queues: [%{queue() | root: 99}, %{queue() | id: "q-0001", root: 100}]}, ["4"], [queue: "list"], DateTime.from_unix!(0))
     update(:document, document)
     update(:labels, Map.put(get(:labels), "4", ["agent:queued"]))
     projection = start_supervised!({Projection, snapshot([member(1)])})
     :sys.replace_state(projection, &%{&1 | timeout?: true})
+    start_supervised!({Aiur.BuildProgress, state_file: Path.join(Aiur.TestSupport.tmp_root!("build-order-source"), "progress.json")})
     server(projection)
     assert {:add, "4", "agent:todo"} in get(:calls)
     # A snapshot recorded elsewhere on the shared topic must not reach this server and re-try the projection.
@@ -469,7 +470,6 @@ defmodule Aiur.BuildQueue.BuildOrderSourceTest do
          build_order_projection: projection,
          clock: fn -> get(:now) end,
          schedule: fn _, _, _ -> make_ref() end,
-         sleep: fn _ -> :ok end,
          exchange: :missing_exchange,
          open_issues_topic: "tracker:open_issues:#{System.unique_integer([:positive])}"}
       )

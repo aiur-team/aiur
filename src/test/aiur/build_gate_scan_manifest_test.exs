@@ -19,8 +19,8 @@ defmodule Aiur.BuildGateScanManifestTest do
 
     on_exit(fn ->
       Enum.each(stale, &File.rm/1)
-      File.rm_rf!(gate_dir)
-      File.rm_rf!(BuildGate.lock_dir(gate_dir))
+      Aiur.TestCleanup.rm_rf!(gate_dir)
+      Aiur.TestCleanup.rm_rf!(BuildGate.lock_dir(gate_dir))
     end)
 
     status =

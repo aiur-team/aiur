@@ -40,7 +40,7 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
 
   defp request(pid, source) do
     DecisionStore.request(
-      %{"question" => "Deploy?", "blocking" => true, "source_id" => source, "options" => [%{"id" => "ship", "label" => "Ship"}]},
+      %{"question" => "Deploy? #{source}", "blocking" => true, "source_id" => source, "options" => [%{"id" => "ship", "label" => "Ship"}]},
       [ticket: @ticket, source: %{agent_id: "agent-3275", session_id: "session-3275", event_id: nil}],
       pid
     )

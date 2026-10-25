@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Fake gh for check-stack-order_test.sh. Answers from files under $STACK_FIXTURE.
+set -euo pipefail
+
+f="$STACK_FIXTURE"
+case "$1 ${2:-}" in
+  "pr view")
+    if [[ "$3" == "$(cat "$f/pr-number")" ]]; then
+      cat "$f/pr.json"
+    elif [[ -f "$f/prhead-$3.txt" ]]; then
+      cat "$f/prhead-$3.txt"
+    else
+      exit 1
+    fi
+    ;;
+  "pr list")
+    id="$(sed -E 's/.*head:aiur\/([0-9]+).*/\1/' <<<"$*")"
+    cat "$f/prs-$id.json"
+    ;;
+  "api repos/"*)
+    case "$2" in
+      */dependencies/blocked_by*)
+        [[ ! -f "$f/blocked_by.fail" ]] || { echo "HTTP 500" >&2; exit 1; }
+        cat "$f/blocked_by.json"
+        ;;
+      */compare/*)
+        sha="${2#*/compare/}"
+        cat "$f/compare-${sha%%...*}.json"
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 1 ;;
+esac

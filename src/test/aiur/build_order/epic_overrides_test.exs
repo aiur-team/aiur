@@ -9,7 +9,7 @@ defmodule Aiur.BuildOrder.EpicOverridesTest do
   setup do
     dir = Aiur.TestSupport.tmp_root!("epic-overrides")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     name = Module.concat(__MODULE__, "S#{System.unique_integer([:positive])}")
 
     opts = [

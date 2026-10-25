@@ -73,8 +73,6 @@ def resource_attributes(text):
 
 def reverse_resources(root, files):
     problems = []
-    allowed = ('src/lib/aiur_web/streamdeck_key_face_contract.ex',
-               'packages/streamdeck/src/key-face-contract.json')
     for source in files:
         if not source.startswith('src/lib/') or not source.endswith('.ex'):
             continue
@@ -95,8 +93,5 @@ def reverse_resources(root, files):
             if not target.is_relative_to(root / 'packages'):
                 continue
             relative = target.relative_to(root).as_posix()
-            if (source, relative) == allowed:
-                print(f'components: {source}: R-reverse-resource: allowlisted {relative} (MP-R6 owns)')
-            else:
-                problems.append((source, f'R-reverse-resource: {relative}'))
+            problems.append((source, f'R-reverse-resource: {relative}'))
     return problems

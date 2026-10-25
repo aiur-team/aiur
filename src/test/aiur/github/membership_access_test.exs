@@ -46,10 +46,10 @@ defmodule Aiur.GitHub.MembershipAccessTest do
         |> Map.new()
 
       for name <- [:update, :put, :forget, :clear] do
-        assert {:exit, {:membership_unavailable, {:timeout, _call}}} = results[name]
+        assert {:exit, {:membership_unavailable, {:aiur, :unknown, :timeout}}} = results[name]
       end
 
-      assert %{status: :error, reason: {:exit, {:membership_unavailable, {:timeout, _call}}}} = results.delivery
+      assert %{status: :error, reason: {:exit, {:membership_unavailable, {:aiur, :unknown, :timeout}}}} = results.delivery
       # Timeout does not cancel the queued calls. Crucially, none has been
       # acknowledged as complete while the held body is still unchanged.
       assert [{^key, %{data: %{"present" => true}}}] = :ets.lookup(ResourceStore.Table, key)

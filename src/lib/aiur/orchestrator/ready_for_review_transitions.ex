@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     * a draft observation records `:draft`;
     * a ready observation of a `:draft` PR publishes and records
       `{:announced, head_sha}`;
+    * a ready observation at a new head publishes once for that head;
     * a ready observation of a PR the ledger does not know is resolved from the
       PR's history (`GitHub.Client.fetch_pull_request_was_draft/2`), which the
       comment poll reads once per such PR: a PR that was a draft publishes, and
@@ -27,13 +28,13 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
       webhook does. The CI poll does not read history, so it leaves an unknown
       PR for the comment poll.
 
-  Each draft period of a PR therefore gets exactly one wake, at the head the
-  poll saw. The publish carries the webhook's dedup key
+  Each newly ready head therefore gets exactly one wake. The publish carries the webhook's dedup key
   (`GithubKeys.pr_dedup_key(repo, pr, "ready_for_review", head_sha)`), so a
   webhook delivery and a poll of the same transition produce one event.
   """
 
-  alias Aiur.Events.{GithubKeys, Publisher}
+  alias Aiur.Config.AgentSettings
+  alias Aiur.{Events, Events.GithubKeys}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator.State
   alias Aiur.PrReadyLedgerStore
@@ -51,7 +52,9 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
           required(:pr_number) => pos_integer(),
           required(:head_sha) => String.t(),
           required(:draft?) => boolean(),
-          optional(:was_draft?) => boolean() | :error | nil
+          optional(:pr_author) => String.t() | nil,
+          optional(:was_draft?) => boolean() | :error | nil,
+          optional(:ready_at_ms) => integer() | nil
         }
 
   @doc """
@@ -80,6 +83,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
          ref when is_binary(ref) <- Map.get(head, "ref"),
          {:ticket, ticket, _topic} <- GithubKeys.ref_to_topic("refs/heads/" <> ref) do
       observation(ticket, Map.get(pr, "number"), Map.get(head, "sha"), Map.get(pr, "draft"))
+      |> maybe_put_author(get_in(pr, ["user", "login"]))
     else
       _ -> nil
     end
@@ -111,6 +115,22 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   def ledger(%State{pr_ready_ledger: ledger}) when is_map(ledger), do: ledger
   def ledger(%State{}), do: PrReadyLedgerStore.load()
 
+  @doc "Records a real webhook-observed draft-to-ready transition without publishing it again."
+  @spec observe_webhook_transition(State.t(), String.t(), pos_integer(), String.t()) :: State.t()
+  def observe_webhook_transition(%State{} = state, ticket, pr_number, head_sha)
+      when is_binary(ticket) and ticket != "" and is_integer(pr_number) and pr_number > 0 and is_binary(head_sha) and head_sha != "" do
+    ledger = ledger(state)
+    next = Map.put(ledger, {ticket, pr_number}, {:announced, head_sha})
+
+    if next != ledger do
+      :ok = PrReadyLedgerStore.save(next)
+    end
+
+    %{state | pr_ready_ledger: next}
+  end
+
+  def observe_webhook_transition(%State{} = state, _ticket, _pr_number, _head_sha), do: state
+
   @doc """
   Folds observations into the ledger, publishes what they reveal, and persists
   the ledger when it changed.
@@ -129,36 +149,171 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     end
   end
 
+  @doc false
+  @spec announce_ci_ready(State.t(), String.t(), pos_integer(), String.t(), keyword()) :: State.t()
+  def announce_ci_ready(%State{} = state, ticket, pr_number, head_sha, opts \\ []) do
+    observation =
+      observation(ticket, pr_number, head_sha, false)
+
+    announce_ci_ready_observation(state, observation, opts)
+  end
+
+  defp announce_ci_ready_observation(state, nil, _opts), do: state
+
+  defp announce_ci_ready_observation(state, observation, opts) do
+    ticket = observation.ticket
+    pr_number = observation.pr_number
+    head_sha = observation.head_sha
+    key = {ticket, pr_number}
+
+    case Keyword.get(opts, :repo_fun, &GitHubConfig.repo/0).() do
+      repo when is_binary(repo) and repo != "" ->
+        Events.publish(
+          "ticket.#{ticket}.pr.ready_for_review",
+          ready_payload(repo, pr_number, head_sha, observation, opts),
+          issue_number: ticket,
+          bypass_contamination: true,
+          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ci_ready_for_review", head_sha)
+        )
+
+        ready_at_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+        update_entry(state, key, {:announced, head_sha, ready_at_ms, nil})
+
+      _no_repo ->
+        state
+    end
+  end
+
+  @doc "Re-raises an aged ready PR when its current head is green and has no review."
+  @spec re_raise_unreviewed(State.t(), observation(), map(), keyword()) :: State.t()
+  def re_raise_unreviewed(state, observation, result, opts \\ [])
+
+  def re_raise_unreviewed(%State{} = state, %{draft?: false, ticket: ticket, pr_number: pr_number, head_sha: head_sha, ready_at_ms: ready_at_ms}, result, opts) do
+    key = {ticket, pr_number}
+    state = record_ready_head(state, key, head_sha, ready_at_ms)
+    ledger = ledger(state)
+    now_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
+    age_limit_ms = Keyword.get(opts, :age_limit_ms, age_limit_ms())
+
+    with entry when not is_nil(entry) <- Map.get(ledger, key),
+         {:ok, tracked_ready_at_ms, retry_at_ms} <- tracked_head(entry, head_sha),
+         ready_at_ms when is_integer(ready_at_ms) <- ready_at_ms || tracked_ready_at_ms,
+         true <- now_ms - ready_at_ms >= age_limit_ms,
+         true <- is_nil(retry_at_ms) or now_ms >= retry_at_ms,
+         true <- result[:decision] == :passed,
+         # CHANGES_REQUESTED sticks until the next review, so a reworked head handed back still needs one.
+         true <- result[:review_decision] in ["REVIEW_REQUIRED", "CHANGES_REQUESTED"],
+         true <- result[:reviewed_head?] == false,
+         {:ok, repo} <- repo_name(opts),
+         :ok <- emit_stale_attention(ticket, pr_number, head_sha, now_ms - ready_at_ms, repo, opts) do
+      update_entry(state, key, {:announced, head_sha, ready_at_ms, now_ms + Keyword.get(opts, :backoff_ms, age_limit_ms)})
+    else
+      _ -> state
+    end
+  end
+
+  def re_raise_unreviewed(%State{} = state, _observation, _result, _opts), do: state
+
+  defp tracked_head({:announced, head_sha, ready_at_ms, retry_at_ms}, head_sha), do: {:ok, ready_at_ms, retry_at_ms}
+  defp tracked_head({:announced, head_sha}, head_sha), do: {:ok, nil, nil}
+  defp tracked_head(_, _head_sha), do: :error
+
+  defp record_ready_head(state, key, head_sha, ready_at_ms) when is_integer(ready_at_ms) do
+    case Map.get(ledger(state), key) do
+      :never_draft -> update_entry(state, key, {:announced, head_sha, ready_at_ms, nil})
+      _ -> state
+    end
+  end
+
+  defp record_ready_head(state, _key, _head_sha, _ready_at_ms), do: state
+
+  @spec age_limit_ms() :: pos_integer()
+  def age_limit_ms do
+    AgentSettings.unreviewed_pr_age_limit_minutes() * 60_000
+  end
+
+  defp repo_name(opts) do
+    case Keyword.get(opts, :repo_fun, &GitHubConfig.repo/0).() do
+      repo when is_binary(repo) and repo != "" -> {:ok, repo}
+      _ -> :error
+    end
+  end
+
+  defp emit_stale_attention(ticket, pr_number, head_sha, age_ms, repo, opts) do
+    message = "PR ##{pr_number} for ticket ##{ticket} has been ready and unreviewed for #{Float.round(age_ms / 3_600_000, 1)} hours (head #{head_sha})."
+    emitter = Keyword.get(opts, :alert_emitter, &Aiur.Alerts.emit_system/2)
+
+    emitter.("ticket.#{ticket}.agent.attention.unreviewed_ready_pr",
+      issue: ticket,
+      central: true,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      exchange_payload: %{"pr_number" => pr_number, "head_sha" => head_sha, "age_ms" => age_ms, "repo" => repo}
+    )
+  end
+
+  defp update_entry(state, key, entry) do
+    next = Map.put(ledger(state), key, entry)
+    :ok = PrReadyLedgerStore.save(next)
+    %{state | pr_ready_ledger: next}
+  end
+
   defp apply_observation(ledger, %{ticket: ticket, pr_number: pr_number, draft?: draft?} = observation, opts) do
     key = {ticket, pr_number}
 
-    case {draft?, Map.get(ledger, key)} do
+    entry = Map.get(ledger, key)
+
+    case {draft?, entry} do
       # The comment poll folds an observation taken when its task started, so
       # a stale draft reading can arrive after the CI poll already announced
       # the same head. The fold is monotonic for that head: only a draft at a
       # different head re-arms the PR. A real same-head re-draft loses nothing,
       # because its next ready would carry the announced dedup key anyway.
       {true, {:announced, head_sha}} ->
-        if head_sha == observation.head_sha, do: ledger, else: Map.put(ledger, key, :draft)
+        stale_draft(ledger, key, observation.head_sha, head_sha)
+
+      {true, {:announced, head_sha, _ready_at_ms, _retry_at_ms}} ->
+        stale_draft(ledger, key, observation.head_sha, head_sha)
 
       {true, _entry} ->
         Map.put(ledger, key, :draft)
 
-      {false, :draft} ->
-        announce(ledger, key, observation, opts)
-
-      {false, nil} ->
-        classify_from_history(ledger, key, observation, opts)
-
-      {false, {:history_failed, _retry_at_ms}} ->
-        classify_from_history(ledger, key, observation, opts)
-
-      {false, _announced_or_never_draft} ->
-        ledger
+      {false, entry} ->
+        apply_ready_observation(ledger, key, observation, opts, entry)
     end
   end
 
   defp apply_observation(ledger, _observation, _opts), do: ledger
+
+  defp apply_ready_observation(ledger, key, observation, opts, :draft), do: announce(ledger, key, observation, opts)
+  defp apply_ready_observation(ledger, key, observation, opts, nil), do: classify_from_history(ledger, key, observation, opts)
+  defp apply_ready_observation(ledger, key, observation, opts, {:history_failed, _retry_at}), do: classify_from_history(ledger, key, observation, opts)
+
+  defp apply_ready_observation(ledger, key, observation, _opts, :never_draft) do
+    ready_at_ms = Map.get(observation, :ready_at_ms)
+    if is_integer(ready_at_ms), do: Map.put(ledger, key, {:announced, observation.head_sha, ready_at_ms, nil}), else: ledger
+  end
+
+  defp apply_ready_observation(ledger, key, observation, opts, {:announced, prior_head, _, _}) when prior_head != observation.head_sha, do: announce(ledger, key, observation, opts)
+  defp apply_ready_observation(ledger, key, observation, opts, {:announced, prior_head}) when prior_head != observation.head_sha, do: announce(ledger, key, observation, opts)
+
+  defp apply_ready_observation(ledger, key, %{head_sha: head_sha} = observation, _opts, {:announced, head_sha}) do
+    ready_at_ms = Map.get(observation, :ready_at_ms)
+    if is_integer(ready_at_ms), do: Map.put(ledger, key, {:announced, head_sha, ready_at_ms, nil}), else: ledger
+  end
+
+  defp apply_ready_observation(ledger, key, %{head_sha: head_sha} = observation, _opts, {:announced, head_sha, prior_ready_at_ms, retry_at_ms}) do
+    observed_ready_at_ms = Map.get(observation, :ready_at_ms)
+    ready_at_ms = if is_integer(observed_ready_at_ms), do: min(prior_ready_at_ms, observed_ready_at_ms), else: prior_ready_at_ms
+    Map.put(ledger, key, {:announced, head_sha, ready_at_ms, retry_at_ms})
+  end
+
+  defp apply_ready_observation(ledger, _key, _observation, _opts, _known), do: ledger
+
+  defp stale_draft(ledger, key, observed_head, announced_head) do
+    if announced_head == observed_head, do: ledger, else: Map.put(ledger, key, :draft)
+  end
 
   defp classify_from_history(ledger, key, observation, opts) do
     case Map.get(observation, :was_draft?) do
@@ -177,33 +332,51 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     end
   end
 
-  defp announce(ledger, {ticket, pr_number} = key, %{head_sha: head_sha}, opts) do
+  defp announce(ledger, {ticket, pr_number} = key, observation, opts) do
     repo_fun = Keyword.get(opts, :repo_fun, &GitHubConfig.repo/0)
 
     case repo_fun.() do
       repo when is_binary(repo) and repo != "" ->
-        Publisher.publish(
+        Events.publish(
           "ticket.#{ticket}.pr.ready_for_review",
-          ready_payload(pr_number, head_sha, opts),
+          ready_payload(repo, pr_number, observation.head_sha, observation, opts),
           issue_number: ticket,
-          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", head_sha)
+          # A ready PR is itself the wake signal for a parked ticket, which
+          # may be absent from the active tracked set while it waits on CI.
+          bypass_contamination: true,
+          dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", observation.head_sha)
         )
 
-        Map.put(ledger, key, {:announced, head_sha})
+        ready_at_ms = Map.get(observation, :ready_at_ms) || System.system_time(:millisecond)
+        Map.put(ledger, key, {:announced, observation.head_sha, ready_at_ms, nil})
 
       _no_repo ->
         ledger
     end
   end
 
-  defp ready_payload(pr_number, head_sha, opts) do
-    payload = %{action: "ready_for_review", pr: %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}}
+  defp ready_payload(repo, pr_number, head_sha, observation, opts) do
+    pr_author = Map.get(observation, :pr_author)
+    pr = %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}
+
+    pr =
+      case GithubKeys.last_review_sha(repo, pr_number, pr_author) do
+        sha when is_binary(sha) -> Map.put(pr, "last_review_sha", sha)
+        _ -> pr
+      end
+
+    payload = %{action: "ready_for_review", pr: pr}
 
     case Keyword.get(opts, :observation) do
       "initial_sync" -> Map.put(payload, :observation, "initial_sync")
       _ -> payload
     end
   end
+
+  defp maybe_put_author(observation, author) when is_map(observation) and is_binary(author),
+    do: Map.put(observation, :pr_author, author)
+
+  defp maybe_put_author(observation, _author), do: observation
 
   defp prune(ledger) when map_size(ledger) <= @max_entries, do: ledger
 

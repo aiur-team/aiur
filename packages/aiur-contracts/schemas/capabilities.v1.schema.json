@@ -305,11 +305,7 @@
           "type": "string"
         },
         "mode": {
-          "enum": [
-            "in_band_hold",
-            "defer_resume",
-            "none"
-          ]
+          "type": "string"
         },
         "v": {
           "type": "integer",

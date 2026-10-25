@@ -1,0 +1,22 @@
+[
+  {
+    "spec": "tests/design-parity-matrix.browser.spec.mjs",
+    "reason": "Manual home parity sign-off only; home-parity-signoff.yml is workflow_dispatch-only and does not gate merges.",
+    "ticket": 5124
+  },
+  {
+    "spec": "tests/build-home-conversation-events-parity.browser.spec.mjs",
+    "reason": "Manual home parity sign-off only (per-kind event row cells, about 10 minutes serial); the ticket conversation .cv-main parity in test:build-home-conversation gates merges.",
+    "ticket": 3163
+  },
+  {
+    "spec": "tests/build-home-perf-matrix.browser.spec.mjs",
+    "reason": "Report-mode timing matrix (npm run perf:build-home); host-dependent timings never gate merges. The enforced guards are build-home-performance.",
+    "ticket": 3176
+  },
+  {
+    "spec": "tests/build-home-phone-webkit.browser.spec.mjs",
+    "reason": "Hand-run WebKit pass (npm run test:home-phone:webkit); CI installs only Chromium and Linux WebKit is not iOS WKWebView (MP-E8-C12-T04 Decision 3).",
+    "ticket": 3174
+  }
+]

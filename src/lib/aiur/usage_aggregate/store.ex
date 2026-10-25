@@ -120,7 +120,7 @@ defmodule Aiur.UsageAggregate.Store do
       disconnected_since: nil,
       outage_alerted?: false,
       last_event_at: nil,
-      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_system/2),
+      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Signal.alert/2),
       ledger_scan_fun: Keyword.get(opts, :ledger_scan_fun, &Aiur.UsageLedger.scan/1),
       ledger_subscribe_fun: Keyword.get(opts, :ledger_subscribe_fun, &Aiur.UsageLedger.subscribe/1),
       ledger_generation_fun: Keyword.get(opts, :ledger_generation_fun, &Aiur.UsageLedger.generation/0),

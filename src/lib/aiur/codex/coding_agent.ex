@@ -4,12 +4,13 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.CodingAgent.Backend
   @behaviour Aiur.AppServer.Adapter
 
-  alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc}
+  alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc, Transport}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   alias Aiur.Codex.{
     AccountGeneration,
     AppServerPort,
+    Compaction,
     EventNormalizer,
     Handshake,
     Interrupts,
@@ -22,8 +23,32 @@ defmodule Aiur.Codex.CodingAgent do
 
   alias Aiur.Config
 
+  @doc false
+  @spec restore_handoff_session(map(), Aiur.Issue.t(), GenServer.server()) :: map()
+  def restore_handoff_session(session, issue, server) do
+    binding = AccountGeneration.new_binding(server)
+
+    session =
+      Map.merge(session, %{
+        account_generation_binding: binding.binding,
+        account_generation_authority: binding.authority,
+        account_generation_context: binding.context,
+        account_generation_topic: binding.topic
+      })
+
+    metadata = Map.get(session, :metadata, %{})
+
+    session
+    |> Map.put(:containment, SessionLifecycle.register_pause_containment(issue.identifier, metadata, session.workspace))
+    |> Map.put(:account_generation_notification_handler, SessionLifecycle.notification_handler(session, fn _ -> :ok end))
+  end
+
+  @doc false
+  @spec compact_session(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def compact_session(%{port: port}, thread_id, opts), do: Compaction.request_compact(port, thread_id, opts)
+
   @type session :: %{
-          port: port(),
+          port: port() | pid(),
           metadata: map(),
           approval_policy: String.t() | map(),
           auto_approve_requests: boolean(),
@@ -168,12 +193,20 @@ defmodule Aiur.Codex.CodingAgent do
     collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "")
   end
 
+  defp recover_startup_exit(port, {:response_error, _} = reason) when is_pid(port) do
+    case collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "") do
+      :port_closed -> reason
+      exit -> exit
+    end
+  end
+
   defp recover_startup_exit(_port, reason), do: reason
 
   defp collect_startup_exit(port, deadline, pending) do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         StreamDiagnostics.record(port, pending <> to_string(chunk))
+        :ok = Transport.acknowledge(port)
         collect_startup_exit(port, deadline, "")
 
       {^port, {:data, {:noeol, chunk}}} ->
@@ -206,7 +239,7 @@ defmodule Aiur.Codex.CodingAgent do
   end
 
   @impl Aiur.CodingAgent.Backend
-  def stop_session(%{port: port} = session) when is_port(port) do
+  def stop_session(%{port: port} = session) when is_port(port) or is_pid(port) do
     AccountGeneration.process_stopped(session)
   after
     try do

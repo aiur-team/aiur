@@ -22,7 +22,7 @@ defmodule AiurEngineStopPidfileTest do
     File.write!(events, "")
     File.write!(Path.join(fake_bin, "tmux"), "#!/bin/sh\nexit 1\n")
     File.chmod!(Path.join(fake_bin, "tmux"), 0o755)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     script = ~S"""
     source "$AIUR_ENGINE"
@@ -124,7 +124,7 @@ defmodule AiurEngineStopPidfileTest do
         children
       ])
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     script = ~S"""

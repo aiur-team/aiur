@@ -14,22 +14,23 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
   @now ~U[2026-07-27 12:00:00Z]
 
   setup do
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
 
     {:ok, owner} = ProviderAccountGeneration.start_link(name: nil, mint: sequence_mint())
     {:ok, store} = Store.start_link(name: nil, account_generation_owner: owner, clock: fn -> @now end)
 
     projection_name = :"projection_int_#{System.unique_integer([:positive])}"
 
-    {:ok, _projection} =
-      ProviderMeterProjection.start_link(
-        name: projection_name,
-        clock: fn -> DateTime.add(@now, 90, :second) end
-      )
+    projection =
+      start_supervised!({ProviderMeterProjection, name: projection_name, clock: fn -> DateTime.add(@now, 90, :second) end})
 
-    %{owner: owner, store: store, projection: projection_name}
+    %{owner: owner, store: store, projection: projection_name, projection_pid: projection}
+  end
+
+  test "the projection is not linked to the test process", ctx do
+    {:links, links} = Process.info(self(), :links)
+
+    refute ctx.projection_pid in links
   end
 
   test "a binding-scoped ingest becomes readable without a binding", ctx do
@@ -54,8 +55,7 @@ defmodule Aiur.ProviderMeterProjectionIntegrationTest do
 
     view = await_observed(ctx.projection, :codex)
 
-    refute view |> inspect(limit: :infinity) |> String.contains?(generation),
-           "the account generation leaked into the consumer projection"
+    Aiur.TestSupport.refute_leak(view, generation)
   end
 
   defp await_observed(projection, provider, attempts \\ 50) do

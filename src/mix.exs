@@ -41,7 +41,6 @@ defmodule Aiur.MixProject do
           Aiur.Claude.EventHumanizer,
           Aiur.Codeowners,
           Aiur.Codex.CodingAgent,
-          Aiur.Codex.DynamicTool,
           Aiur.Codex.EventHumanizer,
           Aiur.EventHumanizer,
           Aiur.GitHub.Client,
@@ -131,8 +130,18 @@ defmodule Aiur.MixProject do
         ]
       ],
       test_ignore_filters: [
+        "test/support/core_test_support.exs",
+        "test/support/extensions_test_support.exs",
         "test/support/snapshot_support.exs",
-        "test/support/test_support.exs"
+        "test/support/test_support.exs",
+        "test/support/test_support/workflow_yaml_sections.exs",
+        "test/support/test_support/workflow_yaml.exs",
+        "test/support/test_support/runtime_children.exs",
+        "test/support/test_support/orchestrator_guard.exs",
+        "test/support/test_support/processes.exs",
+        "test/support/test_support/runner_tasks.exs",
+        "test/support/test_support/workflow_files.exs",
+        "test/support/test_reset_support.ex"
       ],
       dialyzer: [
         plt_add_apps: [:mix],
@@ -153,17 +162,19 @@ defmodule Aiur.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:bandit, "~> 1.12"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.2", only: :test},
+      {:ex_json_schema, "~> 0.11", only: :test},
       {:phoenix, "~> 1.8.9"},
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.1.0"},
       {:req, "~> 0.7"},
+      {:assent, "~> 0.3.1"},
+      {:wax_, "~> 0.7.0"},
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
       {:jose, "~> 1.11"},
@@ -174,8 +185,10 @@ defmodule Aiur.MixProject do
       {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
       {:ecto, "~> 3.13.6"},
+      {:postgrex, "~> 0.22.4"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
+      {:voice_converse, path: "../packages/elixir/voice_converse"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
       {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.5", sparse: "optimized", app: false, compile: false, depth: 1}
@@ -199,9 +212,40 @@ defmodule Aiur.MixProject do
       aiur: [
         applications: [aiur: :permanent],
         include_executables_for: [:unix],
-        steps: [:assemble, &Aiur.MixProject.copy_cli_launcher/1]
+        steps: [:assemble, &Aiur.MixProject.copy_analytics/1, &Aiur.MixProject.copy_cli_launcher/1]
       ]
     ]
+  end
+
+  @doc "Copies runtime analytics tools, libraries and schemas without tests or bytecode."
+  def copy_analytics(release) do
+    source = Path.expand("../analytics", __DIR__)
+    target = Path.join(safe_release_root!(release.path), "analytics")
+    File.rm_rf!(target)
+    File.mkdir_p!(target)
+
+    for entry <- File.ls!(source), entry in ["lib", "schema"] or (File.regular?(Path.join(source, entry)) and Path.extname(entry) == "") do
+      File.cp_r!(Path.join(source, entry), Path.join(target, entry))
+    end
+
+    for path <- Path.wildcard(Path.join(target, "**/__pycache__")) ++ Path.wildcard(Path.join(target, "**/*.pyc")),
+        String.starts_with?(path, target <> "/"),
+        do: File.rm_rf!(path)
+
+    release
+  end
+
+  # Fail closed before any delete: the release root must be absolute and not the source tree or "/".
+  defp safe_release_root!(path) do
+    path = to_string(path)
+    expanded = Path.expand(path)
+    source_root = Path.expand("..", __DIR__)
+
+    if Path.type(path) != :absolute or expanded == "/" or String.starts_with?(source_root <> "/", expanded <> "/") do
+      raise ArgumentError, "refusing to copy analytics into unsafe release path: #{inspect(path)}"
+    end
+
+    expanded
   end
 
   # The escript build is retained as a fallback path that does not
@@ -225,17 +269,18 @@ defmodule Aiur.MixProject do
   """
   def copy_cli_launcher(release) do
     project_root = File.cwd!()
-    wrapper_path = Path.join([project_root, "bin", "aiur"])
+    wrapper_path = System.get_env("AIUR_MIX_CLI_LAUNCHER_PATH") || Path.join([project_root, "bin", "aiur"])
     File.mkdir_p!(Path.join(project_root, "bin"))
-    release_bin = Path.join(release.path, "bin/aiur")
+    release_root = System.get_env("AIUR_MIX_RELEASE_FINAL_DIR") || to_string(release.path)
+    release_bin = Path.join(release_root, "bin/aiur")
 
     contents = """
     #!/usr/bin/env bash
-    # Thin shim around the OTP release at #{release.path}.
+    # Thin shim around the OTP release at #{release_root}.
     # Passes args to Aiur.CLI.main/1 via an argv file so quoting survives.
     # Releases ship priv/ on disk, so exqlite + other NIFs load correctly.
     set -euo pipefail
-    release_root="#{release.path}"
+    release_root="#{release_root}"
     argv_file="$(mktemp "${TMPDIR:-/tmp}/aiur-argv.XXXXXX")"
     trap 'rm -f "$argv_file"' EXIT
     : >"$argv_file"

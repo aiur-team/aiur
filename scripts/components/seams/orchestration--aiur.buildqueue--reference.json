@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.BuildQueue",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/orchestrator/optimistic_guard_effects.ex"
+  ],
+  "reason": "#3761 serialize guard attentions through the optional queue facade; disabled queues use journaled transient publication"
+}

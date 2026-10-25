@@ -22,6 +22,17 @@ defmodule Aiur.Orchestrator.TrackerTasks do
     if owner?(state), do: start(state, key, fetch, apply_result), else: apply_result.(state, fetch.())
   end
 
+  # Like `run/4`, but a job already running for `key` is followed by this one instead of
+  # absorbing it, so same-key work keeps its submission order.
+  @spec chain(State.t(), term(), (-> term()), (State.t(), term() -> State.t())) :: State.t()
+  def chain(state, key, fetch, apply_result) do
+    if owner?(state) and running?(state, key) do
+      retain_completion(state, key, fn current, _result -> chain(current, key, fetch, apply_result) end)
+    else
+      run(state, key, fetch, apply_result)
+    end
+  end
+
   @spec running?(State.t(), term()) :: boolean()
   def running?(state, key), do: Enum.any?(state.tracker_tasks, fn {_ref, job} -> job.key == key end)
 
@@ -114,6 +125,13 @@ defmodule Aiur.Orchestrator.TrackerTasks do
 
   # A paginated poll has transport deadlines per request, not an arbitrary batch deadline.
   defp task_timer(:dispatch_poll, _ref), do: nil
+  # Terminal state writes, and the stranded-work reopen, may be waiting for a
+  # one-hour GitHub Core budget reset. Their bounded LocalHold retry is the
+  # deadline; killing the task after the generic two-minute timeout would lose
+  # the write.
+  defp task_timer({:retry_exhausted, _issue_id}, _ref), do: nil
+  defp task_timer({:merged_comment, _identifier}, _ref), do: nil
+  defp task_timer({:stranded_work, _identifier}, _ref), do: nil
   defp task_timer(_key, ref), do: Process.send_after(self(), {:tracker_task_timeout, ref}, @timeout_ms)
 
   defp cancel_timer(nil), do: :ok

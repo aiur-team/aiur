@@ -63,7 +63,6 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     )
 
     _endpoint = Aiur.TestSupport.start_owned_endpoint!()
-    if is_nil(Process.whereis(Aiur.TaskSupervisor)), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
 
     Auth.reset_alert_throttle()
     Publisher.set_tracked_fn(fn _ -> true end)
@@ -361,7 +360,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     log = start_supervised!({DeliveryLog, name: name, state_dir: dir}, id: name)
 
     Application.put_env(:aiur, :webhook_delivery_log, log)
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     log
   end

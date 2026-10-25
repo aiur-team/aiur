@@ -1,0 +1,27 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.GitHub.Transport",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/landing_watch.ex",
+    "src/lib/aiur/landing_watch/attribution.ex",
+    "src/lib/aiur/landing_watch/flake_recorder.ex",
+    "src/lib/aiur/landing_watch/merge_group_failure_evidence.ex",
+    "src/lib/aiur/landing_watch/merge_group_failure_processor.ex",
+    "src/lib/aiur/landing_watch/merge_group_quarantine.ex",
+    "src/lib/aiur/landing_watch/merge_group_requeue.ex",
+    "src/lib/aiur/landing_watch/merge_group_run_fetcher.ex",
+    "src/lib/aiur/landing_watch/merge_groups.ex",
+    "src/lib/aiur/landing_watch/merge_queue_watchdog.ex",
+    "src/lib/aiur/landing_watch/merge_queue_watchdog_recovery.ex",
+    "src/lib/aiur/landing_watch/observer.ex",
+    "src/lib/aiur/landing_watch/runner_queue.ex",
+    "src/lib/aiur/landing_watch/quarantine_lifter.ex",
+    "src/lib/aiur/landing_watch/quarantine_pr.ex",
+    "src/lib/aiur/landing_watch/workflow_timeouts.ex",
+    "src/lib/aiur/orchestrator/merge_attribution.ex",
+    "src/lib/aiur/landing_watch/conflict_update.ex",
+    "src/lib/aiur/orchestrator/ci_lifecycle/cancelled_merge_group.ex"
+  ],
+  "reason": "#4457: reuse governed CI jobs and bounded failed-job recovery; #4569: read failed merge-group job logs; #4570: inspect failed merge-group jobs for quarantine candidates; #4631: observe approved exact-head PRs before CI recovery; #4606: rerun approved PRs with non-PR failures and read their workflow paths; #4905: check whether a flaky test changed on the base after the run; #5496: job coverage for CI-stability metrics; #5498: inspect scheduled quarantine jobs to lift or escalate expired entries; #5594: classify failed merge-group evidence before recovering a stuck queue head; #6050: classify cancelled merge-group evidence before the lifecycle failure transition; #6088: update-branch an approved conflicting PR"
+}
