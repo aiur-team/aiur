@@ -39,7 +39,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
       :ok ->
         message = terminal_policy_alert_message(failure)
 
-        Alerts.emit_custom("ticket.#{identifier}.agent.attention.hosted-authentication-refused", message,
+        Signal.agent_alert("ticket.#{identifier}.agent.attention.hosted-authentication-refused", message,
           issue: identifier,
           reason: message,
           needs_attention: true,
