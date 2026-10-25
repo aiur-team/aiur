@@ -9,13 +9,13 @@ defmodule Aiur.Orchestrator.DurationCapRelease do
   require Logger
 
   alias Aiur.AgentRunner.TurnProgress
-  alias Aiur.Signal
   alias Aiur.CodeHost
   alias Aiur.Config
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, DispatchPolicy, ReworkGate, State, TrackerTasks}
   alias Aiur.Orchestrator.{Dispatcher.Budgets, DurationCapRetryStore}
   alias Aiur.Orchestrator.StartupClaimReconciler.Release
+  alias Aiur.Signal
 
   @spec maybe_release(State.t(), map(), atom(), keyword()) :: State.t()
   def maybe_release(state, running_entry, status, opts \\ [])

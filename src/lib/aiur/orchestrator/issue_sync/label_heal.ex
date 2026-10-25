@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.IssueSync.LabelWrites
@@ -13,6 +12,7 @@ defmodule Aiur.Orchestrator.IssueSync.LabelHeal do
   alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   # A contradictory-label pair must persist this long (about one poll cycle)
   # before the single fleet alert fires, so a pair the heal repairs on the same

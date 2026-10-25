@@ -4,9 +4,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.ControlAlerts do
   Public API stays on `Aiur.Orchestrator.OperatorMessages`.
   """
 
-  alias Aiur.Signal
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Signal
 
   @spec maybe_emit_agent_control_alert(atom(), atom(), map()) :: :ok
   def maybe_emit_agent_control_alert(previous_status, status, running_entry) do

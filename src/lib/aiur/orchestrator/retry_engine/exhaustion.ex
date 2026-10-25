@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.LocalHold
@@ -15,6 +14,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   defp finalize_exhausted_issue(issue_id, identifier, metadata, exhaustion_reason, opts) do
     case rework_handoff_state(identifier, metadata[:rework_head_sha], metadata) do

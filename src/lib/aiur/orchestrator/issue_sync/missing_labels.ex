@@ -5,13 +5,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Issue
   alias Aiur.Orchestrator.IssueSync.LabelWrites
   alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   # A ticket observed with zero `agent:*` state labels is invisible to dispatch
   # (#2420): every reconciler consumes either the filtered candidate list or

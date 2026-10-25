@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   @moduledoc false
 
-  alias Aiur.{Signal, Config, Issue, Tracker}
+  alias Aiur.{Config, Issue, Signal, Tracker}
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
   alias Aiur.Orchestrator.StartupClaimReconciler.Observation

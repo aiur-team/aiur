@@ -4,13 +4,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Signal
   alias Aiur.GitHub.MergeQueue
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
   require Logger
 
   @doc false

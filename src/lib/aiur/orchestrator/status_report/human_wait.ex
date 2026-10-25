@@ -3,9 +3,9 @@ defmodule Aiur.Orchestrator.StatusReport.HumanWait do
   # Tracks waiting-for-human episodes and their overdue/resolved alerts.
 
   alias Aiur.AlertFeed
-  alias Aiur.Signal
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport.AgentStatuses
+  alias Aiur.Signal
 
   @waiting_for_human_alert_after_seconds 600
 

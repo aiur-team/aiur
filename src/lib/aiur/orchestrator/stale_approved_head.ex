@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.StaleApprovedHead do
   @moduledoc "Disarms auto-merge when a pushed PR head changes its approved contribution."
 
-  alias Aiur.Signal
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.LandingWithdrawal
+  alias Aiur.Signal
 
   @read_retries 2
   @read_retry_delay_ms 200

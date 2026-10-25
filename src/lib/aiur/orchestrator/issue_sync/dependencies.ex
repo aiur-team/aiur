@@ -7,7 +7,6 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
 
   alias Aiur.AgentQueue
   alias Aiur.AgentQueueStore
-  alias Aiur.Signal
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoSubscriptions
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   @capacity_starvation_alert_after_ms 60_000
   @doc false

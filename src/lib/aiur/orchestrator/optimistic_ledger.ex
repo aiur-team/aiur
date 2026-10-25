@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator.OptimisticLedger do
   @moduledoc "Durable optimistic dispatch attempts; writes are serialized, reads use ETS."
   use GenServer
   require Logger
-  alias Aiur.{JsonStore, Signal}
   alias Aiur.Config.Paths
+  alias Aiur.{JsonStore, Signal}
   alias Aiur.Orchestrator.{DispatchPolicy, OptimisticIntegration, OptimisticLedgerTelemetry}
 
   @table :aiur_optimistic_starts

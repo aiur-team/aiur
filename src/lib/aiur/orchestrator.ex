@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator do
   use GenServer
   require Logger
 
-  alias Aiur.{Signal, Issue}
+  alias Aiur.{Issue, Signal}
 
   alias Aiur.Orchestrator.{
     AutoSubscriptions,

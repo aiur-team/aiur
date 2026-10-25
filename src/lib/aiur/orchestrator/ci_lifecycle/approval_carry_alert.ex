@@ -8,13 +8,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovalCarryAlert do
   differing hunks in its reason.
   """
 
-  alias Aiur.Signal
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Poll
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @max_reason_hunks 10
   @max_hunk_lines 12

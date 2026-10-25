@@ -4,11 +4,11 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Signal
   alias Aiur.Issue
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @spec sync_todo_capacity_alert(State.t(), list()) :: State.t()
   def sync_todo_capacity_alert(%State{} = state, issues) when is_list(issues) do

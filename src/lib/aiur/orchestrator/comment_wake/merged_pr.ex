@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Signal
   alias Aiur.CurrentRunMembership
   alias Aiur.GitHub.Config
   alias Aiur.GitHub.Issues, as: GitHubIssues
@@ -25,6 +24,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.Orchestrator.WorkspaceCleanup
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
+  alias Aiur.Signal
 
   @non_closing_merge_state "needs-triage"
   @max_closing_refreshes 10

@@ -20,8 +20,8 @@ defmodule Aiur.Orchestrator.EventTopics do
   }
 
   alias Aiur.AlertFeed
-  alias Aiur.Signal
   alias Aiur.Commands
+  alias Aiur.Signal
 
   @spec route(State.t(), map(), keyword()) :: State.t()
   def route(state, event, opts \\ [])

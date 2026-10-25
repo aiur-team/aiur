@@ -7,11 +7,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.PrLessReview do
   Executor attention; a visible PR or leaving human-review resolves it.
   """
 
-  alias Aiur.Signal
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
   require Logger
 
   @no_pr_reasons [:open_pr_not_yet_visible, :open_pr_no_longer_visible]
