@@ -208,6 +208,7 @@ test('rendered glyph contrast rejects a colour below its size-class threshold', 
   await glyph.evaluate(element => { element.id = 'contrast-glyph-probe' })
   const original = await measureGlyphContrast(page, ['#contrast-glyph-probe'])
   expect(original).toHaveLength(1)
+  expect(original[0].minimum).toBe(4.5)
   expectGlyphContrast(original)
   await glyph.evaluate(element => {
     element.style.setProperty('color', getComputedStyle(element.closest('.bd-in')).backgroundColor, 'important')
@@ -215,4 +216,6 @@ test('rendered glyph contrast rejects a colour below its size-class threshold', 
   const degraded = await measureGlyphContrast(page, ['#contrast-glyph-probe'])
   expect(degraded[0].ratio).toBeLessThan(degraded[0].minimum)
   expect(() => expectGlyphContrast(degraded)).toThrow()
+  await glyph.evaluate(element => { element.style.fontSize = '24px' })
+  expect((await measureGlyphContrast(page, ['#contrast-glyph-probe']))[0].minimum).toBe(3)
 })

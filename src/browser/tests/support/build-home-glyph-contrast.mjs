@@ -2,7 +2,7 @@ import { expect } from '@playwright/test'
 import { contrastRatio } from './build-home-a11y-audit.mjs'
 
 // Measure the existing DOM glyphs, including their opacity/filter and both
-// ends of the card's progress wash. Never substitute a token for a missing colour.
+// ends of progress washes, stripes and the grid. Never substitute a token for a missing colour.
 export async function measureGlyphContrast(page, selectors) {
   const measurements = await page.evaluate(selectors => {
     const canvas = document.createElement('canvas')
@@ -14,27 +14,37 @@ export async function measureGlyphContrast(page, selectors) {
       const glyph = document.querySelector(selector)
       if (!glyph?.matches('.bd-cx')) throw new Error('Expected a rendered complexity glyph: ' + selector)
       const style = getComputedStyle(glyph)
-      let host = glyph, background
-      const washes = []
+      let host = glyph
+      const layers = []
       while (host) {
         const paint = getComputedStyle(host)
+        let stops = [null]
         if (paint.backgroundImage !== 'none') {
-          if (!paint.backgroundImage.startsWith('linear-gradient(')) throw new Error('Unsupported glyph background: ' + paint.backgroundImage)
-          washes.unshift(...paint.backgroundImage.match(/(?:rgba?|oklch|oklab|lab|lch|color)\([^)]*\)|transparent/g))
+          if (!/^(repeating-)?(linear|radial)-gradient\(/.test(paint.backgroundImage)) throw new Error('Unsupported glyph background: ' + paint.backgroundImage)
+          stops.push(...paint.backgroundImage.match(/(?:rgba?|oklch|oklab|lab|lch|color)\([^)]*\)|transparent/g))
         }
+        layers.unshift({ color: paint.backgroundColor, stops })
         context.reset()
         context.fillStyle = paint.backgroundColor
         context.fillRect(0, 0, 1, 1)
-        if (pixel()[3] === 255) { background = paint.backgroundColor; break }
+        if (pixel()[3] === 255) break
         host = host.parentElement
       }
-      if (!background) throw new Error('No opaque background for glyph ' + selector)
-      const backgrounds = [null, ...washes]
-      const pairs = backgrounds.map(wash => {
+      if (!host) throw new Error('No opaque background for glyph ' + selector)
+      let backgrounds = ['#000000']
+      for (const layer of layers) {
+        backgrounds = [...new Set(backgrounds.flatMap(background => layer.stops.map(stop => {
+          context.reset()
+          context.fillStyle = background; context.fillRect(0, 0, 1, 1)
+          context.fillStyle = layer.color; context.fillRect(0, 0, 1, 1)
+          if (stop) { context.fillStyle = stop; context.fillRect(0, 0, 1, 1) }
+          return hex(pixel())
+        }))) ]
+      }
+      const pairs = backgrounds.map(background => {
         context.reset()
         context.fillStyle = background
         context.fillRect(0, 0, 1, 1)
-        if (wash) { context.fillStyle = wash; context.fillRect(0, 0, 1, 1) }
         const bg = hex(pixel())
         context.filter = style.filter
         context.globalAlpha = Number(style.opacity)

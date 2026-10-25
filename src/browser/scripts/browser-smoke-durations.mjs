@@ -12,8 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
-  // Governed local run (2026-10-23): 80 accessibility cases completed in 5.1m with four workers.
-  'test:build-home-a11y': 306,
+  // Governed local run (2026-10-25): 86 accessibility cases completed in 7.5m with four workers; rounded up.
+  'test:build-home-a11y': 460,
   // 18 functional cases: 2.4m plus six units and startup margin (2026-10-24).
   'test:build-home-features': 160,
   // #3166 local run (2026-10-21): six control cases 36.6s; four parity cells 133.1s.
