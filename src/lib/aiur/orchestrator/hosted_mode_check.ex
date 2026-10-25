@@ -8,7 +8,7 @@ defmodule Aiur.Orchestrator.HostedModeCheck do
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
   alias Aiur.Harness.Capabilities
-  alias Aiur.Orchestrator.HostedAuthPolicy
+  alias Aiur.Config.HostedAuthPolicy
 
   @impl true
   def applies?(_settings), do: true

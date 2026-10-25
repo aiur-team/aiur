@@ -1,4 +1,4 @@
-defmodule Aiur.Orchestrator.HostedAuthPolicy do
+defmodule Aiur.Config.HostedAuthPolicy do
   @moduledoc "Fail-closed authentication decisions for hosted execution."
 
   @type auth_class :: :api_key | :subscription | :oauth | :personal_token | :headers | :agent_identity | :bedrock | :unknown

@@ -2,7 +2,7 @@ defmodule Aiur.Codex.AccountGeneration do
   @moduledoc false
 
   alias Aiur.Codex.{AccountGeneration.Context, ExhaustedReset, RateLimitAdapter, RateLimits}
-  alias Aiur.Orchestrator.HostedAuthPolicy
+  alias Aiur.Config.HostedAuthPolicy
   alias Aiur.{ProviderAccountGeneration, ProviderMeters}
 
   @account_updated "account/updated"

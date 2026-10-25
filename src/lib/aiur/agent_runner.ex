@@ -12,7 +12,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.GitHub.Errors
   alias Aiur.Instance.LeaseStore
   alias Aiur.Opencode.ApiClient
-  alias Aiur.Orchestrator.HostedAuthPolicy
+  alias Aiur.Config.HostedAuthPolicy
   alias Aiur.Signal
   alias Aiur.Workspace.Ownership
 

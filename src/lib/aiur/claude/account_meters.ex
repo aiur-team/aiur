@@ -9,7 +9,7 @@ defmodule Aiur.Claude.AccountMeters do
   @redacted_method "provider_account/rate_limits_changed"
 
   @spec handle_notification(map(), map(), keyword()) ::
-          :ok | {:error, atom() | Aiur.Orchestrator.HostedAuthPolicy.refusal()}
+          :ok | {:error, atom() | Aiur.Config.HostedAuthPolicy.refusal()}
   def handle_notification(session, payload, opts \\ [])
 
   def handle_notification(session, payload, opts) when is_map(session) and is_map(payload) do

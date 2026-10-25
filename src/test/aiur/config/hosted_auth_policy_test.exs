@@ -1,9 +1,7 @@
-defmodule Aiur.Orchestrator.HostedAuthPolicyTest do
+defmodule Aiur.Config.HostedAuthPolicyTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Config.AgentSettings
-  alias Aiur.Config.Schema
-  alias Aiur.Orchestrator.HostedAuthPolicy
+  alias Aiur.Config.{AgentSettings, HostedAuthPolicy, Schema}
   alias Aiur.Orchestrator.HostedModeCheck
 
   @safe_hosted %{

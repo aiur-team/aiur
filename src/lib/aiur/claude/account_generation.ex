@@ -2,7 +2,7 @@ defmodule Aiur.Claude.AccountGeneration do
   @moduledoc false
 
   alias Aiur.Claude.AccountGeneration.Context
-  alias Aiur.Orchestrator.HostedAuthPolicy
+  alias Aiur.Config.HostedAuthPolicy
   alias Aiur.ProviderAccountGeneration
 
   @auth_modes [:subscription, :api_key]
