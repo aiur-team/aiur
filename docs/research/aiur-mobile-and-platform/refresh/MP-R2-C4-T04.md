@@ -95,7 +95,8 @@ The child list is now application/children.ex (374 lines); Config is 440 lines,
 tracker_settings.ex 175; router.ex 304, endpoint.ex 98, engine 441 and the
 agent_control_cli.ex facade 83. Router/endpoint are not rows in this release
 ledger; their current dashboard-ui component ownership is not a fabricated U8
-WEB assignment. C7-T02 also references DECK_WEB-owned channel fixtures.
+WEB assignment. agent_control_cli.ex likewise has no current U8 row; the
+engine retains its CLI row. C7-T02 also references DECK_WEB-owned channel fixtures.
 
 ## Consumer census and planning drift
 

@@ -10,7 +10,7 @@ prior_units: [U8, U9]
 prior_boundaries: [BUS #10, CLI #31]
 prior_features: []
 prior_findings: []
-size_owner: CLI (engine and agent_control_cli.ex release-ledger owners); current split paths audited in refresh report; keep files over 500 lines shrink-only
+size_owner: CLI (engine U8 row; agent_control_cli.ex has no current U8 row); current split paths audited in refresh report; keep files over 500 lines shrink-only
 base_sha: 761756f394e6783794c777668fc1a26a540e4059
 researched: 2026-10-06
 ---
