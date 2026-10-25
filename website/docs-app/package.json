@@ -7,7 +7,8 @@
     "dev": "vitepress dev .",
     "build": "vitepress build .",
     "preview": "vitepress preview .",
-    "check:cli-reference": "bash scripts/check-cli-reference.sh"
+    "check:cli-reference": "bash scripts/check-cli-reference.sh",
+    "test:components": "node --test scripts/test-components-loader.mjs"
   },
   "devDependencies": {
     "mermaid": "^11.17.0",

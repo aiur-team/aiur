@@ -40,6 +40,21 @@ expect_rejected() {
 
 run_verifier "$declaration"
 
+# Frozen pre-rollout contract: never derive this fixture from the verifier's allowlist.
+legacy_checks='["browser harness","build","coverage (1/4)","coverage (2/4)","coverage (3/4)","coverage (4/4)","dialyzer","layout release smoke","lint","streamdeck","test","workflow security"]'
+legacy_filter='(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) = ($legacy | reverse | map({context: ., integration_id: 15368}))'
+jq --argjson legacy "$legacy_checks" "$legacy_filter" "$declaration" > "$test_dir/legacy.json"
+run_verifier "$test_dir/legacy.json"
+
+expect_rejected \
+  "partial-legacy-contract" \
+  "$legacy_filter | (.rules[] | select(.type == \"required_status_checks\") | .parameters.required_status_checks) |= .[1:]" \
+  "ruleset must require every blocking GitHub Actions status check" --argjson legacy "$legacy_checks"
+expect_rejected \
+  "untrusted-legacy-check-source" \
+  "$legacy_filter | (.rules[] | select(.type == \"required_status_checks\") | .parameters.required_status_checks[0].integration_id) = 1" \
+  "ruleset must require every blocking GitHub Actions status check" --argjson legacy "$legacy_checks"
+
 expect_rejected \
   "tag-target" \
   '.target = "tag"' \
@@ -94,14 +109,28 @@ expect_rejected \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = true' \
   "ruleset must require every blocking GitHub Actions status check"
 expect_rejected \
-  "missing-workflow-security-check" \
-  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "workflow security"))' \
+  "missing-ci-gate" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "ci gate"))' \
   "ruleset must require every blocking GitHub Actions status check"
 expect_rejected \
-  "missing-coverage-partition" \
-  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "coverage (4/4)"))' \
+  "obsolete-full-check" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) += [{"context":"coverage (4/4)","integration_id":15368}]' \
   "ruleset must require every blocking GitHub Actions status check"
 expect_rejected \
   "untrusted-check-source" \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[0].integration_id) = 1' \
   "ruleset must require every blocking GitHub Actions status check"
+
+# Applying with no arguments must update both declared rulesets in place.
+calls="$test_dir/apply-calls"
+PATH="$fixtures:$PATH" GITHUB_REPOSITORY="example/repository" GH_CALL_LOG="$calls" \
+  bash "$root/scripts/apply-human-only-merge-ruleset.sh"
+
+for expected in \
+  "--method PUT repos/example/repository/rulesets/123 --input $declaration" \
+  "--method PUT repos/example/repository/rulesets/456 --input $root/docs/security/main-merge-queue-ruleset.json"; do
+  if ! grep -Fq -- "$expected" "$calls"; then
+    echo "apply did not issue: $expected" >&2
+    exit 1
+  fi
+done

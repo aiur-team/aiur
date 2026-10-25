@@ -67,7 +67,7 @@ defmodule Aiur.Regression.EventFlowE2eTest do
         Exchange.unsubscribe(pattern)
       end
 
-      File.rm_rf!(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
 
     %{tmp_dir: tmp_dir}

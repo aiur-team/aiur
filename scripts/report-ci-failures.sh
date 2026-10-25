@@ -42,4 +42,8 @@ while IFS=$'\t' read -r name conclusion url; do
   printf '  - %s [%s]: %s\n' "$name" "$conclusion" "$url"
 done <<<"$failures"
 
+# The step stops here; downstream checks can distinguish this dependency failure.
+upstream="$(cut -f1 <<<"$failures" | jq -Rsc 'split("\n") | map(select(length > 0)) | unique')"
+upstream="${upstream//%/%25}"
+printf '::error title=aiur-derived-failure::%s\n' "$upstream"
 exit 1

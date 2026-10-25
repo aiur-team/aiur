@@ -115,6 +115,36 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
   end
 
   describe "refresh failure" do
+    test "refresh_now replaces a rejected cached token synchronously" do
+      test_pid = self()
+      emit_fun = install_test_env(test_pid)
+      put_app_credentials()
+      AppTokenRefresher.cache_token("ghs_installation_token_rejected", DateTime.from_iso8601("2026-10-16T12:00:00Z") |> elem(1), %{"contents" => "read"})
+
+      request_fun = fn
+        %{method: :post, url: _url} ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "token" => "ghs_installation_token_recovered",
+               "expires_at" => "2026-10-16T12:00:00Z",
+               "permissions" => %{"contents" => "write", "issues" => "write", "pull_requests" => "write"}
+             }
+           }}
+
+        %{method: :get, url: "https://api.github.com/rate_limit"} ->
+          {:ok, %{status: 200, headers: %{"x-ratelimit-remaining" => ["42"]}, body: %{}}}
+      end
+
+      name = unique_name()
+      {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+      assert :ok = AppTokenRefresher.refresh_now(name)
+      assert AppTokenRefresher.current_token() == "ghs_installation_token_recovered"
+    end
+
     test "emits a needs-attention alert, keeps the last good token, and leaks no secret" do
       test_pid = self()
       emit_fun = install_test_env(test_pid)

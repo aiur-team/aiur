@@ -10,8 +10,8 @@ defmodule Aiur.Decision do
       (see `Aiur.DecisionValidation`). Stable across versions/replays.
     * `source_id` — the agent-proposed identity from the raw payload,
       preserved for correlation; never used as the canonical identity.
-    * `version` — starts at 1; an accepted append-only enrichment
-      increments it by exactly 1.
+    * `version` — starts at 1; an accepted append-only enrichment or
+      Executor authority reclassification increments it by exactly 1.
     * `ticket` — `%{identifier, title, url}`, injected from trusted
       runtime context, never from the raw agent payload.
     * `source` — `%{agent_id, session_id, event_id}`.
@@ -133,6 +133,8 @@ defmodule Aiur.Decision do
           content_hash: String.t(),
           decision_status: decision_status(),
           delivery_status: delivery_status(),
+          pending_for_session?: boolean(),
+          ticket_comment_status: :pending | :published | nil,
           answer: Aiur.DecisionAnswer.t() | nil,
           active_action_id: String.t() | nil,
           revision_sequence: non_neg_integer(),
@@ -177,6 +179,8 @@ defmodule Aiur.Decision do
                 provenance: nil,
                 decision_status: :open,
                 delivery_status: :not_dispatched,
+                pending_for_session?: false,
+                ticket_comment_status: nil,
                 answer: nil,
                 active_action_id: nil,
                 revision_sequence: 0,

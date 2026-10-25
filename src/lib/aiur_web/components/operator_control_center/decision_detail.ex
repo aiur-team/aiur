@@ -13,6 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
 
@@ -29,6 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
         decision={@decision}
         state={@action_state}
         writable={@writable}
+        live_connected={@live_connected}
       />
       <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} />
 
@@ -104,7 +106,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
       </div>
 
       <footer class="decision-detail-footer">
-        <.link patch={@collapse_path} class="btn ghost">Collapse details</.link>
+        <.link patch={@collapse_path} class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost">Collapse details</.link>
       </footer>
     </div>
     """

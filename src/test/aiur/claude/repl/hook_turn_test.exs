@@ -1,6 +1,7 @@
 defmodule Aiur.Claude.Repl.HookTurnTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.Handoff
   alias Aiur.Claude.HookEvents
   alias Aiur.Claude.Repl.HookTurn
   alias Aiur.Tmux
@@ -114,6 +115,24 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     respond_error(tmux, "no such pane\n")
 
     assert {:error, {:pause_interrupt_failed, _reason}} = Task.await(task, 3_000)
+  end
+
+  test "a preflight abort mid-turn keeps the hook turn running in the same session", %{tmux: tmux} do
+    identifier = "HT-HANDOFF-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10) end)
+
+    expect_prompt_submit(tmux)
+    Handoff.hold(task.pid)
+    snapshot = Task.async(fn -> Handoff.snapshot(task.pid) end)
+    assert {:ok, record} = drain_pane_pid(tmux, snapshot)
+    assert record["transport"]["kind"] == "repl"
+    Handoff.abort(task.pid)
+
+    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "ok", "session_id" => "sess-abort"})
+
+    assert {:ok, result} = drain_pane_pid(tmux, task)
+    assert result.thread_id == "sess-abort"
   end
 
   test "fully silent session returns {:error, :turn_timeout} after backstop", %{tmux: tmux} do

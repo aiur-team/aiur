@@ -5,7 +5,7 @@ defmodule Aiur.Codex.TurnEvents do
 
   alias Aiur.Codex.AppServerPort
 
-  @spec metadata_from_message(port(), term()) :: map()
+  @spec metadata_from_message(port() | pid(), term()) :: map()
   def metadata_from_message(port, payload) do
     port |> AppServerPort.port_metadata() |> maybe_set_usage(payload)
   end

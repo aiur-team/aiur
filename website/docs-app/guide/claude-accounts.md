@@ -40,16 +40,53 @@ account name. Keys remain in the env file; the machine account registry stores
 only the variable name. Per-key identity and usage are unavailable for these
 backends and are shown as unavailable.
 
-List account identity and usage without exposing credentials:
+The compatibility command `aiur accounts` now prints the shared provider usage
+summary and is deprecated. Use `aiur usage` or `aiur usage claude --json` for
+provider-level readings. Account-level identities remain available from the
+authenticated endpoint below; credentials are never returned:
 
 ```sh
-aiur accounts
-aiur accounts codex --json
+aiur usage
+aiur usage claude --json
 ```
 
-Usage percentages and freshness come from the daemon's last poll. If Aiur is
-not running, the command still shows account identity and reports usage as
-unavailable; it does not make a separate usage request.
+Usage percentages and freshness come from the daemon's last poll. The usage
+command requires the daemon and does not make a separate provider request.
+
+The daemon polls Claude usage every `polling.usage_interval_seconds` while
+agents run or a dashboard is in focus, in any `account_selection` mode. A
+shorter `agent.headroom_reading_max_age_seconds` clamps that cadence down to
+the provider's 120-second polling floor. A max age below 120 seconds can become
+stale between probes. Older readings show as `stale`.
+
+When polls fail, Claude rows show `last_error`. After an earlier good reading
+the row is `stale` with that reading's age. Three failures in a row log one
+warning.
+
+A running daemon serves the same rows over HTTP, behind dashboard basic auth:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Per-account rows are limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at`, `age_ms` and, on Claude rows, `last_error`. |
+| `GET /api/v1/usage/accounts?harness=codex` | The same envelope, limited to one harness. |
+
+Every row has a `freshness` value:
+
+| `freshness` | Numbers |
+| --- | --- |
+| `fresh`, `cached` | Current Claude meter reading. |
+| `stale` | Claude reading older than `agent.headroom_reading_max_age_seconds`; numbers are kept and `age_ms` shows how old they are. A failing poll after an earlier good reading is also `stale`, with numbers `null`. |
+| `ledger` | Read from the usage ledger (a backend with one account). |
+| `stale_ledger` | Ledger reading past the max age; numbers are `null`, `age_ms` is kept. |
+| `usage_not_observed` | Claude account the daemon has not polled yet. |
+| `usage_not_polled` | Backend without a per-account meter or a usable ledger reading. |
+| `usage_unavailable` | API-key account; no per-key meter. |
+| other | Reason the last poll failed, for example `no_oauth_token`. |
+
+A missing reading is `null`, never `0`. Each row carries only the listed
+fields, and `identity` carries only `email`, `organization`, `seatTier` and
+`account_id`. Responses are `Cache-Control: no-store` and never include
+credentials, API keys or profile paths.
 
 ## Enable accounts for dispatch
 
@@ -69,6 +106,11 @@ agent:
 five-hour utilization to break ties. `priority` uses the first configured
 account. Usage-aware selection currently applies to Claude and Codex.
 
+`headroom` looks across backends as well as accounts: each new ticket goes to
+the backend and account with the most usage left, within the routes its
+complexity level allows. See
+[Headroom dispatch](/concepts/headroom-dispatch).
+
 ## Continue a session after a usage limit
 
 When a resumable Claude REPL session reaches its account's usage limit, Aiur
@@ -87,12 +129,14 @@ session.
 If no other configured account has room, Aiur keeps the existing
 wait-for-reset behavior.
 
-The dashboard shows a named weekly usage bar for each Claude account, with
-freshness and observation age. Missing readings remain unknown.
+The dashboard shows a named weekly remaining bar for each Claude account, with
+freshness and observation age. A full bar is 100% left; an empty bar is
+unusable until reset. Missing readings remain unknown.
 
 The CLI and Stream Deck summary selects the highest weekly utilization, falling
-back to the highest reported window when weekly usage is absent. It names the
-selected account and labels complete readings “worst of N accounts”.
+back to the highest reported window when weekly usage is absent. The displayed
+bars and percentages show the remaining share, so the summary names the least
+remaining account when all weekly readings are available.
 
 If an account could not be read, the summary names the selected account and the
 observed account count instead.

@@ -44,6 +44,26 @@ defmodule Aiur.ModelAvailabilityTest do
     assert %{"backends" => %{"codex" => %{"hourly" => %{"used" => 100, "limit" => 100}, "weekly" => %{"used" => 20}}}} = ModelAvailability.load(path)
   end
 
+  # Codex reports a 5-hour primary and a 7-day secondary window. Both used to
+  # land in "weekly" and the second was dropped, so the weekly limit was never
+  # seen (#3960).
+  test "keeps Codex's 5-hour and weekly windows apart", %{path: path} do
+    reset = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
+
+    assert :ok =
+             ModelAvailability.observe(
+               "codex",
+               %{
+                 primary: %{usedPercent: 30, windowDurationMins: 300, resetsAt: reset},
+                 secondary: %{usedPercent: 100, windowDurationMins: 10_080, resetsAt: reset}
+               },
+               path: path
+             )
+
+    assert %{"backends" => %{"codex" => %{"hourly" => %{"used" => 30}, "weekly" => %{"used" => 100}}}} = ModelAvailability.load(path)
+    refute ModelAvailability.available?("codex", path: path)
+  end
+
   test "restores availability after the limiting reset", %{path: path} do
     past = DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.to_iso8601()
     assert :ok = ModelAvailability.mark_limited("claude", past, path: path)

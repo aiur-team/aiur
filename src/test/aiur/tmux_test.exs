@@ -215,7 +215,7 @@ defmodule Aiur.TmuxTest do
 
     assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
-    assert cmd == "new-window -d -n aiur-repl-telemetry -e CLAUDE_CODE_ENABLE_TELEMETRY=1 -e OTEL_RESOURCE_ATTRIBUTES= -P -F \#{pane_id} exec claude"
+    assert cmd == "new-window -d -n aiur-repl-telemetry -e CLAUDE_CODE_ENABLE_TELEMETRY=1 -e OTEL_RESOURCE_ATTRIBUTES= -P -F \#{pane_id} unset OTEL_RESOURCE_ATTRIBUTES && exec claude"
 
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%8\n%end 1 1 0\n"})
     assert {:ok, "%8"} = Task.await(task, 1_000)

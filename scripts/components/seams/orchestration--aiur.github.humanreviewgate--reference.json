@@ -1,0 +1,9 @@
+{
+  "from": "orchestration",
+  "to_module": "Aiur.GitHub.HumanReviewGate",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/landing_watch.ex"
+  ],
+  "reason": "#4457: recheck the latest approval at the observed pull request head"
+}

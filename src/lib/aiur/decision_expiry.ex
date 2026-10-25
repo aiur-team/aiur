@@ -6,7 +6,7 @@ defmodule Aiur.DecisionExpiry do
   races. Liveness lookup failures skip the entire sweep so a transient
   Orchestrator outage can never be mistaken for an empty run.
 
-  A blocking `human_required` Decision is exempt: an agent idle *because* it
+  An unanswered blocking Decision is exempt: an agent idle *because* it
   escalated to the operator is the expected steady state for that Decision,
   not evidence it went stale, and retiring it removes the only surface the
   operator can answer (see #1779).
@@ -16,13 +16,13 @@ defmodule Aiur.DecisionExpiry do
 
   require Logger
 
+  alias Aiur.Commands.DeliveryTarget
   alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionStore}
 
   @interval_ms 60_000
   @grace_seconds 300
   @stale_after_seconds 86_400
   @reason_class "agent_not_running"
-  @orchestrator_timeout 1_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -86,14 +86,8 @@ defmodule Aiur.DecisionExpiry do
   defp active_identifiers(opts) do
     case Keyword.get(opts, :active_identifiers_fun) do
       fun when is_function(fun, 0) -> fun.()
-      nil -> fetch_active_identifiers()
+      nil -> DeliveryTarget.impl().active_identifiers()
     end
-  end
-
-  defp fetch_active_identifiers do
-    {:ok, GenServer.call(Aiur.Orchestrator, :list_active_identifiers, @orchestrator_timeout)}
-  catch
-    :exit, reason -> {:error, {:orchestrator_unavailable, reason}}
   end
 
   defp decisions(opts) do
@@ -111,16 +105,16 @@ defmodule Aiur.DecisionExpiry do
 
   defp expired_candidate?(decision, active, now, grace_seconds) do
     decision.decision_status == :open and
+      not (decision.blocking and is_nil(decision.answer)) and
       not waiting_on_operator?(decision) and
       not MapSet.member?(active, decision.ticket.identifier) and
       DateTime.diff(now, decision.created_at, :second) >= grace_seconds
   end
 
-  # A blocking Decision that only the operator may answer is retired by the
-  # operator answering (or dismissing) it, never because its owning agent is
-  # between turns. `agent_not_running` is the normal steady state of exactly
-  # the agent that escalated it, so it is the opposite of a stale signal here.
-  # Supervisor-answerable and non-blocking Decisions still expire as before.
+  # A blocking Decision is retired by the operator answering it, never because
+  # its owning agent is between turns. `agent_not_running` is the normal steady
+  # state of exactly the agent that escalated it, so it is the opposite of a
+  # stale signal here.
   defp waiting_on_operator?(%Decision{blocking: true, authority: :human_required}), do: true
   defp waiting_on_operator?(_decision), do: false
 

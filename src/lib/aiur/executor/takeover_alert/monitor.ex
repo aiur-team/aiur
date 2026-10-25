@@ -20,11 +20,11 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Config
   alias Aiur.Executor.TakeoverAlert
   alias Aiur.Executor.TakeoverAlert.{Snapshot, Store}
   alias Aiur.Issue
+  alias Aiur.Signal
 
   @default_interval_ms :timer.minutes(5)
   # Re-fetch open-PR evidence no more often than this, regardless of a tighter
@@ -266,7 +266,7 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
   end
 
   defp emit_alert(%{identifier: identifier, evidence: evidence}) do
-    Alerts.emit_system(TakeoverAlert.topic(identifier),
+    Signal.alert(TakeoverAlert.topic(identifier),
       message: TakeoverAlert.message(evidence),
       issue: %Issue{identifier: identifier},
       reason: "Executor takeover advisory for ##{identifier}.",
@@ -276,7 +276,7 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
   end
 
   defp emit_resolution(%{identifier: identifier}) do
-    Alerts.emit_system(TakeoverAlert.resolution_topic(identifier),
+    Signal.alert(TakeoverAlert.resolution_topic(identifier),
       message: "Executor takeover advisory resolved: ##{identifier} is terminal or out of run scope.",
       issue: %Issue{identifier: identifier},
       reason: "Executor takeover advisory resolved.",

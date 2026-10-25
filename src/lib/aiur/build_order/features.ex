@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.Features do
   @moduledoc "Durable, single-writer feature registry and membership journal."
   use GenServer
 
-  alias Aiur.BuildOrder.Features.{Journal, Operations, Persistence, Reads}
+  alias Aiur.BuildOrder.Features.{Journal, Operations, Persistence, Reads, RootImportMapping}
   alias Aiur.BuildOrder.ProviderHealth
 
   @topic "build-order-features:changed"
@@ -40,6 +40,10 @@ defmodule Aiur.BuildOrder.Features do
   def health(opts \\ []), do: call(:health, opts, :health)
   @spec subscribe() :: :ok
   def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+
+  @doc "The slug of the feature a Build Order root is imported as."
+  @spec root_slug(pos_integer()) :: String.t()
+  defdelegate root_slug(number), to: RootImportMapping, as: :slug
 
   @impl true
   def init(opts), do: {:ok, Persistence.boot(opts)}
@@ -98,7 +102,7 @@ defmodule Aiur.BuildOrder.Features do
 
   # ponytail: mailbox reads suffice; add ETS only after measured read latency exceeds 5 ms.
   defp call(message, opts, kind) do
-    GenServer.call(Keyword.get(opts, :server, __MODULE__), message, 60_000)
+    GenServer.call(Keyword.get(opts, :server, __MODULE__), message, Keyword.get(opts, :timeout, 60_000))
   catch
     :exit, {:noproc, _} -> missing(kind)
     :exit, {:normal, _} -> missing(kind)

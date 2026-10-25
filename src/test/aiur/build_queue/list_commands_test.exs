@@ -35,7 +35,7 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
         {:ok, document} = state.document
         {_, labels, time} = state.snapshot
         failing? = elem(call, 0) in [:mark, :unmark] and state.marker_failures > 0
-        result = if failing?, do: {:error, :transient}, else: :ok
+        result = if failing?, do: state.marker_failure, else: :ok
 
         labels =
           case {result, call} do
@@ -61,27 +61,33 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
 
   setup do
     labels = Map.new(["1", "2", "3", "9"], &{&1, %{labels: []}})
-    pid = start_supervised!({Agent, fn -> %{document: {:ok, @empty}, snapshot: {:ok, labels, 1_000}, saves: [], calls: [], save_result: :ok, marker_failures: 0, now: 1_000} end})
+
+    pid =
+      start_supervised!(
+        {Agent, fn -> %{document: {:ok, @empty}, snapshot: {:ok, labels, 1_000}, saves: [], calls: [], save_result: :ok, marker_failures: 0, marker_failure: {:error, :transient}, now: 1_000} end}
+      )
+
     Process.register(pid, Boundary)
     :ok
   end
 
   test "facade adds and removes through durable membership and real marker writer" do
     server()
+    assert :ok = Aiur.BuildQueue.add(["9"], "paseo")
     assert :ok = Aiur.BuildQueue.add(["1", "2"], "paseo", after: "9")
-    assert Enum.map(document().items, & &1.issue_id) == ["1", "2"]
+    assert Enum.map(document().items, & &1.issue_id) == ["9", "1", "2"]
     assert Enum.map(document().edges, &{&1.prerequisite, &1.dependent}) == [{"9", "1"}, {"9", "2"}]
     calls = Agent.get(Boundary, & &1.calls)
-    assert Enum.map(calls, &elem(&1, 0)) == [{:ensure, ["agent:queued"]}, {:mark, "1", "agent:queued"}, {:mark, "2", "agent:queued"}]
-    {_, before_mark} = Enum.at(calls, 1)
-    assert Enum.map(before_mark.items, & &1.issue_id) == ["1", "2"]
+    assert Enum.map(calls, &elem(&1, 0)) == [{:ensure, ["agent:queued"]}, {:mark, "9", "agent:queued"}, {:mark, "1", "agent:queued"}, {:mark, "2", "agent:queued"}]
+    {_, before_mark} = Enum.at(calls, 2)
+    assert Enum.map(before_mark.items, & &1.issue_id) == ["9", "1", "2"]
     assert Enum.any?(before_mark.intents, &(&1.issue_id == "1" and &1.action == :mark and &1.outcome == nil))
     assert :ok = Aiur.BuildQueue.reorder("2", 0)
-    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}, {"1", 1}]
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}, {"9", 1}, {"1", 2}]
     assert :ok = Aiur.BuildQueue.add_edge("3", "2")
     assert Enum.any?(document().edges, &(&1.prerequisite == "3" and &1.dependent == "2" and &1.source == :list))
     assert :ok = Aiur.BuildQueue.remove("1")
-    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}]
+    assert Enum.map(document().items, &{&1.issue_id, &1.position}) == [{"2", 0}, {"9", 1}]
     assert {{:unmark, "1", "agent:queued"}, before_unmark} = List.last(Agent.get(Boundary, & &1.calls))
     refute Enum.any?(before_unmark.items, &(&1.issue_id == "1"))
     assert ListCommands.pending(document()) == []
@@ -106,10 +112,8 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
     assert Agent.get(Boundary, & &1) == previous
   end
 
-  test "closed, missing and stale snapshots refuse the entire add without saving" do
+  test "stale and unavailable snapshots refuse add without saving" do
     server()
-    update(:snapshot, {:ok, %{"1" => %{labels: []}}, 1_000})
-    assert {:error, :closed} = Aiur.BuildQueue.add(["1", "2"], "paseo")
     update(:snapshot, :none)
     assert {:error, :inputs_unavailable} = Aiur.BuildQueue.add(["1"], "paseo")
     update(:snapshot, {:ok, %{"1" => %{labels: []}}, 100_000})
@@ -134,7 +138,8 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
   end
 
   test "paced markers survive restart and are retried without repeating successful marks" do
-    pid = server(2)
+    pid = server(3)
+    assert :ok = Aiur.BuildQueue.add(["9"], "paseo")
     assert {:error, {:marker_write_failed, [{:mark, "2", {:error, :paced}}]}} = Aiur.BuildQueue.add(["1", "2"], "paseo", after: "9")
     assert ListCommands.pending(document()) == [{:mark, "2"}]
     assert :ok = stop_supervised(Server)
@@ -146,10 +151,38 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
     assert Enum.count(markers, &(&1 == {:mark, "2", "agent:queued"})) == 1
   end
 
-  test "successful marker retry returns success after an intermediate failure" do
-    server()
+  test "failed marker is reported immediately and scheduled retry finishes membership" do
+    pid = server()
     update(:marker_failures, 1)
-    assert :ok = Aiur.BuildQueue.add(["1"], "paseo")
+    assert {:error, {:marker_write_failed, [{:mark, "1", {:error, :transient}}]}} = Aiur.BuildQueue.add(["1"], "paseo")
+    assert ListCommands.pending(document()) == [{:mark, "1"}]
+    assert_received {:scheduled, ^pid, :retry_writes}
+    update(:now, 2_000)
+    send(pid, :retry_writes)
+    GenServer.call(pid, :status)
+    assert ListCommands.pending(document()) == []
+    calls = Agent.get(Boundary, &Enum.map(&1.calls, fn {call, _} -> call end))
+    assert Enum.count(calls, &(&1 == {:mark, "1", "agent:queued"})) == 2
+  end
+
+  test "local budget hold leaves visible reorderable membership and retry clears marker intent" do
+    pid = server()
+    update(:marker_failures, 1)
+    update(:marker_failure, {:error, {:github, :local_hold, %{reason: :shared_budget, resource: "core"}}})
+
+    assert {:error, {:marker_write_failed, [{:mark, "1", {:error, {:github, :local_hold, _}}}]}} = Aiur.BuildQueue.add(["1"], "paseo")
+    assert Enum.map(document().items, & &1.issue_id) == ["1"]
+    assert {:error, {:already_queued, "paseo"}} = Aiur.BuildQueue.add(["1"], "paseo")
+    queue = Enum.find(Aiur.BuildQueue.show().queues, &(&1.name == "paseo"))
+    assert [%{number: 1, state: :unknown}] = queue.items
+    assert :ok = Aiur.BuildQueue.reorder("1", 0)
+    assert ListCommands.pending(document()) == [{:mark, "1"}]
+    assert GenServer.call(pid, :status) == :writes_paused
+
+    update(:marker_failure, :ok)
+    send(pid, :retry_writes)
+    GenServer.call(pid, :status)
+    assert :running = GenServer.call(pid, :status)
     assert ListCommands.pending(document()) == []
     calls = Agent.get(Boundary, &Enum.map(&1.calls, fn {call, _} -> call end))
     assert Enum.count(calls, &(&1 == {:mark, "1", "agent:queued"})) == 2
@@ -202,7 +235,6 @@ defmodule Aiur.BuildQueue.ListCommandsTest do
          store: Boundary,
          claim_probe: Boundary,
          clock: fn -> Agent.get(Boundary, & &1.now) end,
-         sleep: fn _ -> :ok end,
          schedule: fn target, message, _ ->
            send(owner, {:scheduled, target, message})
            make_ref()

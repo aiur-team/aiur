@@ -1,0 +1,32 @@
+{
+  "id": "docs-site",
+  "name": "Documentation",
+  "layer": 5,
+  "kind": "in-app",
+  "paths": [
+    "website/docs-app/**"
+  ],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Publishes setup guides, operating concepts and reference pages for Aiur.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": []
+}

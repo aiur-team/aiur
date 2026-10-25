@@ -50,6 +50,37 @@ defmodule AiurWeb.ControlCenterCacheTest do
     assert :counters.get(counter, 1) == 2
   end
 
+  test "an unobserved fleet view is startup-pending only until the deadline" do
+    clock = :atomics.new(1, [])
+    boot = :atomics.new(1, [])
+    :atomics.put(clock, 1, 0)
+    :atomics.put(boot, 1, 0)
+
+    cache =
+      start_supervised!({ControlCenterCache, name: nil, clock: fn -> :atomics.get(clock, 1) end, boot_elapsed_ms: fn -> :atomics.get(boot, 1) end, startup_observation_timeout_ms: 100})
+
+    payload = %{provider_health: %{fleet: :unavailable}, fleet: %{error: %{code: "snapshot_timeout"}}, units: %{status: :stale}}
+
+    assert %{fleet_startup_pending?: true} = ControlCenterCache.fetch(cache, :fleet, 10_000, fn -> payload end)
+    :atomics.put(clock, 1, 100_000)
+    assert %{fleet_startup_pending?: true} = ControlCenterCache.fetch(cache, :fleet, 10_000, fn -> flunk("fresh cached payload expected") end)
+    :atomics.put(boot, 1, 100)
+    assert %{fleet_startup_timed_out?: true} = ControlCenterCache.fetch(cache, :fleet, 10_000, fn -> flunk("fresh cached payload expected") end)
+  end
+
+  test "future regression guard: a fleet view observed since startup keeps a later outage unavailable" do
+    clock = :atomics.new(1, [])
+    :atomics.put(clock, 1, 0)
+    cache = start_supervised!({ControlCenterCache, name: nil, clock: fn -> :atomics.get(clock, 1) end, startup_observation_timeout_ms: 100})
+    healthy = %{provider_health: %{fleet: :ok}, fleet: %{}, units: %{status: :ready}}
+    failed = %{provider_health: %{fleet: :unavailable}, fleet: %{error: %{code: "snapshot_timeout"}}, units: %{status: :stale}}
+
+    assert %{provider_health: %{fleet: :ok}} = ControlCenterCache.fetch(cache, :fleet, 0, fn -> healthy end)
+    :atomics.put(clock, 1, 101)
+    refute Map.has_key?(ControlCenterCache.fetch(cache, :fleet, 0, fn -> failed end), :fleet_startup_pending?)
+    refute Map.has_key?(ControlCenterCache.fetch(cache, :fleet, 10_000, fn -> flunk("fresh cached payload expected") end), :fleet_startup_timed_out?)
+  end
+
   test "coalesces a provider event across viewers and refreshes the ordinary TTL entry" do
     cache = start_supervised!({ControlCenterCache, name: nil})
     counter = :counters.new(1, [])
@@ -140,7 +171,9 @@ defmodule AiurWeb.ControlCenterCacheTest do
     cold = Task.async(fn -> ControlCenterCache.fetch_event(cache, :cold, :event, loader) end)
     assert_receive {:waiting, pid_a}, 500
     assert_receive {:waiting, pid_b}, 500
-    assert Task.await(warm, 5_100) == %{generation: 1, stale: true}
+    # The retained payload carries its real age so a surface can render it (#3937).
+    assert %{generation: 1, stale: true, stale_age_ms: age_ms} = Task.await(warm, 5_100)
+    assert age_ms in 3_900..5_000
     assert Task.await(cold, 5_100) == %{stale: true, error: {:cache_unavailable, :timeout}}
     assert System.monotonic_time(:millisecond) - started < 5_000
     assert :counters.get(counter, 1) == 2

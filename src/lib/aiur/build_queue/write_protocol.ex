@@ -6,7 +6,16 @@ defmodule Aiur.BuildQueue.WriteProtocol do
 
   @spec attempt(map(), atom(), String.t(), map()) :: {map(), :ok | {:error, term()}}
   def attempt(context, action, id, runtime) do
-    intent = %Intent{id: Ecto.UUID.generate(), issue_id: id, action: action, target_labels: targets(context, action, id), recorded_at_ms: context.clock.(), outcome: nil}
+    intent = %Intent{
+      id: Ecto.UUID.generate(),
+      issue_id: id,
+      action: action,
+      target_labels: targets(context, action, id),
+      recorded_at_ms: context.clock.(),
+      preexisting_todo?: preexisting_todo?(context, action, id),
+      outcome: nil
+    }
+
     document = %{context.document | intents: context.document.intents ++ [intent]}
 
     case context.store.save(document) do
@@ -14,6 +23,18 @@ defmodule Aiur.BuildQueue.WriteProtocol do
       {:error, reason} -> {%{context | status: :store_unavailable}, {:error, reason}}
     end
   end
+
+  defp preexisting_todo?(context, :mark, id) do
+    context.document.intents
+    |> Enum.reverse()
+    |> Enum.find(&(&1.issue_id == id and &1.action == :mark))
+    |> case do
+      %{preexisting_todo?: true} -> true
+      _ -> false
+    end
+  end
+
+  defp preexisting_todo?(_context, _action, _id), do: false
 
   defp write(context, intent, runtime) do
     result = execute(context, intent, runtime)

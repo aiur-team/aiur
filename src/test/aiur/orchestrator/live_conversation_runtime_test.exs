@@ -5,8 +5,13 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
   alias Aiur.LiveConversation.Source
   alias Aiur.Orchestrator.State
 
+  setup_all do
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
+  end
+
   test "fences runtime status by worker, exact source, epoch, revision, and restart" do
-    issue = issue()
+    identifier = "runtime-test-#{System.unique_integer([:positive])}"
+    issue = issue(identifier)
     issue_id = issue.id
     :ok = AgentPubSub.subscribe_running()
 
@@ -22,22 +27,22 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
       last_polled_issues: %{issue_id => issue}
     }
 
-    first = status(7, "session-a", epoch("A"), 1, 1)
+    first = status(7, "session-a", epoch("A"), 1, 1, identifier)
     assert {:noreply, state} = State.handle_worker_runtime_info(state, issue_id, %{live_conversation: first})
     assert state.running[issue_id].live_conversation == first
-    assert_receive {:running_changed, _summaries}, 1000
+    assert_receive {:running_changed, [%{identifier: ^identifier}]}, 1000
 
     assert {:noreply, ^state} =
              State.handle_worker_runtime_info(state, issue_id, %{live_conversation: first})
 
-    refute_receive {:running_changed, _summaries}, 100
+    refute_receive {:running_changed, [%{identifier: ^identifier}]}, 100
 
-    wrong_worker = status(8, "session-a", epoch("A"), 2, 1)
+    wrong_worker = status(8, "session-a", epoch("A"), 2, 1, identifier)
 
     assert {:noreply, ^state} =
              State.handle_worker_runtime_info(state, issue_id, %{live_conversation: wrong_worker})
 
-    next_session = status(7, "session-b", epoch("A"), 3, 2)
+    next_session = status(7, "session-b", epoch("A"), 3, 2, identifier)
 
     assert {:noreply, rotated} =
              State.handle_worker_runtime_info(state, issue_id, %{
@@ -47,16 +52,16 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
     assert rotated.running[issue_id].live_conversation.source.session_id ==
              Source.opaque_session_id("session-b")
 
-    assert_receive {:running_changed, _summaries}, 1000
+    assert_receive {:running_changed, [%{identifier: ^identifier}]}, 1000
 
-    late_predecessor = status(7, "session-a", epoch("A"), 4, 1)
+    late_predecessor = status(7, "session-a", epoch("A"), 4, 1, identifier)
 
     assert {:noreply, ^rotated} =
              State.handle_worker_runtime_info(rotated, issue_id, %{
                live_conversation: late_predecessor
              })
 
-    wrong_epoch = status(7, "session-b", epoch("B"), 5, 2)
+    wrong_epoch = status(7, "session-b", epoch("B"), 5, 2, identifier)
 
     assert {:noreply, ^rotated} =
              State.handle_worker_runtime_info(rotated, issue_id, %{
@@ -76,16 +81,16 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
            } = restarted.running[issue_id].live_conversation
 
     assert projection_epoch == epoch("B")
-    assert_receive {:running_changed, _summaries}, 1000
+    assert_receive {:running_changed, [%{identifier: ^identifier}]}, 1000
 
-    same_worker_after_restart = status(7, "session-b", epoch("B"), 1, 1)
+    same_worker_after_restart = status(7, "session-b", epoch("B"), 1, 1, identifier)
 
     assert {:noreply, ^restarted} =
              State.handle_worker_runtime_info(restarted, issue_id, %{
                live_conversation: same_worker_after_restart
              })
 
-    refute_receive {:running_changed, _summaries}, 100
+    refute_receive {:running_changed, [%{identifier: ^identifier}]}, 100
 
     replacement_entry =
       restarted.running[issue_id]
@@ -94,7 +99,7 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
       |> Map.delete(:live_conversation_fence)
 
     replacement_state = put_in(restarted.running[issue_id], replacement_entry)
-    replacement = status(8, "replacement-session", epoch("B"), 2, 2)
+    replacement = status(8, "replacement-session", epoch("B"), 2, 2, identifier)
 
     assert {:noreply, accepted} =
              State.handle_worker_runtime_info(replacement_state, issue_id, %{
@@ -102,10 +107,10 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
              })
 
     assert accepted.running[issue_id].live_conversation == replacement
-    assert_receive {:running_changed, _summaries}, 1000
+    assert_receive {:running_changed, [%{identifier: ^identifier}]}, 1000
   end
 
-  defp status(worker_generation, session_id, projection_epoch, revision, source_revision) do
+  defp status(worker_generation, session_id, projection_epoch, revision, source_revision, identifier) do
     %{
       projection_epoch: projection_epoch,
       revision: revision,
@@ -117,7 +122,7 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
           kind: :github,
           owner: "owner",
           repository: "repo",
-          identifier: "1130"
+          identifier: identifier
         },
         run_id: "run-1",
         attempt_id: "attempt-1",
@@ -134,20 +139,20 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
 
   defp epoch(character), do: "projection:" <> String.duplicate(character, 43)
 
-  defp issue do
+  defp issue(identifier) do
     identity = %TrackerIdentity{
       status: :joinable,
       kind: :github,
       owner: "owner",
       repository: "repo",
       provider_id: "provider-1130",
-      identifier: "1130",
+      identifier: identifier,
       reason: nil
     }
 
     %Issue{
-      id: "gid-1130-runtime",
-      identifier: "1130",
+      id: "gid-#{identifier}",
+      identifier: identifier,
       title: "runtime fence",
       state: "in-progress",
       tracker_identity: identity

@@ -102,7 +102,6 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.HttpServer,
     Aiur.TailscaleFunnel,
     Aiur.Opencode.TokenRegistry,
-    Aiur.Opencode.ActiveTurns,
     Aiur.Opencode.PaneSupervisor,
     Aiur.Opencode.SessionSupervisor,
     Aiur.Opencode.BridgeSupervisor,
@@ -116,18 +115,39 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.Opencode.PrewarmSupervisor,
     Aiur.AgentList.App,
     Aiur.AgentList.Input,
-    Aiur.LauncherWatchdog
+    Aiur.LauncherWatchdog,
+    Aiur.BackgroundCpu,
+    Aiur.PRLifecycle.HeadVerdictRouter
   ]
 
   # Add an ID => reason entry only when a new child must start before existing
   # children. Explain the startup dependency here; do not extend the baseline.
   # Feeder subscribes after History starts and before Backfill can publish completion.
   @early_start_exceptions %{
+    # The orchestrator resets listeners before its first dispatch.
+    Aiur.GitHub.Listeners => "Start poll-source owners before Orchestrator resets and polls them",
+    Aiur.Opencode.ActiveTurns => "Create the turn table before agent tasks can start or be adopted",
+    # Initial orchestrator dispatch must persist attempts before starting runners.
+    Aiur.Orchestrator.OptimisticLedger => "Load durable attempts before Orchestrator starts its first dispatch",
     Aiur.BuildOrder.History.Feeder => "Subscribe to History before Backfill starts so completion triggers catch-up",
+    Aiur.AgentPubSub.FleetRefresh => "Create the subscriber table after PubSub and before channels can register",
+    Aiur.Orchestrator.SnapshotCache => "Create the snapshot table before SnapshotStore or SnapshotPublisher can write",
+    Aiur.GitHub.HoldPressure => "Record local holds before any GitHub request can arrive",
+    Aiur.Usage.Alerts => "Subscribe before ProviderMeterRefresh emits baseline observations",
     # The first CI poll and queue reconcile need the seeded progress table before they run.
-    Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress"
+    Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress",
+    Aiur.PostDeployChecklist => "Subscribe before Orchestrator's initial poll so merged PR checklist events are not missed"
   }
-  @flags [:interactive_cli?, :headless?, :dashboard?, :tailscale_funnel?, :telemetry?, :executor_mode?, :ls_remote_ticker?, :recording?]
+  @flags [
+    :interactive_cli?,
+    :headless?,
+    :dashboard?,
+    :tailscale_funnel?,
+    :telemetry?,
+    :executor_mode?,
+    :ls_remote_ticker?,
+    :recording?
+  ]
 
   test "the fully enabled tree retains every existing child in its pinned order" do
     children = child_ids(Keyword.put(Enum.map(@flags, &{&1, true}), :headless?, false))

@@ -25,7 +25,7 @@ defmodule Aiur.Claude.UsageApiTest do
       Aiur.TestSupport.tmp_root!("usage_api_test_#{prefix}")
 
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     dir
   end
 
@@ -318,6 +318,35 @@ defmodule Aiur.Claude.UsageApiTest do
                  now_ms: 5_000
                )
 
+      assert :counters.get(counter, 1) == 2
+    end
+
+    # #5747: shortening only the scheduler cadence is ineffective if this
+    # cache keeps the longer configured interval; every early tick would just
+    # re-serve the old observation until it was already stale.
+    test "the configured cache TTL is capped by the reading max age", %{credentials_path: path} do
+      counter = :counters.new(1, [])
+
+      request_fun = fn _token ->
+        :counters.add(counter, 1, 1)
+        {:ok, %{status: 200, body: %{"five_hour" => %{"utilization" => 33}}}}
+      end
+
+      settings =
+        {:ok,
+         %{
+           polling: %{usage_interval_seconds: 3_600},
+           agent: %{headroom_reading_max_age_seconds: 1_800}
+         }}
+
+      now_ms = 1_800_000_000_000
+      opts = [credentials_path: path, request_fun: request_fun, settings: settings, now_ms: now_ms]
+
+      assert {:ok, _} = UsageApi.fetch(opts)
+      assert {:ok, _} = UsageApi.fetch(Keyword.put(opts, :now_ms, now_ms + 1_799_999))
+      assert :counters.get(counter, 1) == 1
+
+      assert {:ok, _} = UsageApi.fetch(Keyword.put(opts, :now_ms, now_ms + 1_800_001))
       assert :counters.get(counter, 1) == 2
     end
 

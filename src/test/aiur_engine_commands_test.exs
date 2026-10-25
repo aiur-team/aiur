@@ -1,0 +1,301 @@
+defmodule AiurEngineCommandsTest do
+  use ExUnit.Case, async: true
+
+  import Aiur.TestSupport.EngineCase
+
+  test "commands routes filters and encoded detail arguments through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_commands dec:42 --filter resolved --json --limit 10|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+  end
+
+  test "units routes page-visible filters through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"dW5maW5pc2hlZA==\"), conditions: [Base.decode64!(\"cXVldWVk\"), Base.decode64!(\"YWxlcnQ=\")], json: true])"
+  end
+
+  test "units forwards the human layout format" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\"), format: Base.decode64!(\"cmVjb3Jkcw==\")])"
+
+    {err, 64} = run_sourced_engine(~s|cmd_units --format|, [])
+    assert err =~ "units --format requires a value"
+  end
+
+  test "bare units invocation routes an empty condition list" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"
+  end
+
+  test "commands reports missing option values as usage errors" do
+    {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
+    assert out =~ "commands --filter requires a value"
+  end
+
+  test "legacy usage commands print a deprecation line and route to the shared CLI" do
+    aliases = [
+      {"accounts", "aiur usage", "", "Aiur.Usage.CLI.legacy_accounts(false, nil)"},
+      {"accounts", "aiur usage", "kimi --json", "Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!(\"a2ltaQ==\"))"},
+      {"github-cost", "aiur usage github", "--budget core --format records", "Aiur.AgentControlCLI.github_cost([budget: \"core\", format: :records])"},
+      {"github-usage", "aiur usage github", "--json", "Aiur.AgentControlCLI.github_usage([json: true])"},
+      {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.TicketUsageCLI.rpc(Base.decode64!(\"NTY5Mg==\"), json: true)"}
+    ]
+
+    for {command, replacement, args, expression} <- aliases do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf up; }; run_control_rpc() { echo "RPC:$1"; }\nusage_alias #{command} #{args}|,
+          []
+        )
+
+      assert out =~ "deprecated; use '#{replacement}'"
+      assert out =~ "RPC:#{expression}"
+    end
+  end
+
+  test "executor-answer safely routes one option answer through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --option rebase --rationale 'Known stale branch' --idempotency-key 'exec:42:v3' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_answer(["
+    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
+    assert out =~ "expected_version: 3"
+    assert out =~ "option_id: Base.decode64!(\"cmViYXNl\")"
+    assert out =~ "rationale: Base.decode64!(\"S25vd24gc3RhbGUgYnJhbmNo\")"
+    assert out =~ "idempotency_key: Base.decode64!(\"ZXhlYzo0Mjp2Mw==\")"
+    assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "operator answer refuses agent processes before contacting the daemon" do
+    {out, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
+        [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
+      )
+
+    assert out =~ "agents and Executors must not run it"
+    refute out =~ "RPC:"
+
+    {noninteractive, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_operator_answer 'decision:42' --option build_content --operator|,
+        [
+          {"AIUR_AGENT_BIN", nil},
+          {"AIUR_AGENT_MIX_SCHEDULERS", nil},
+          {"AIUR_AGENT_QUOTA_STATE_PATH", nil},
+          {"AIUR_AGENT_TMPFILE", nil},
+          {"AIUR_AGENT_TMUX_SOCKET", nil},
+          {"AIUR_AGENT_WORKSPACE", nil},
+          {"CLAUDECODE", nil},
+          {"CODEX_THREAD_ID", nil}
+        ]
+      )
+
+    assert noninteractive =~ "requires an interactive terminal"
+    refute noninteractive =~ "RPC:"
+
+    {missing, 64} = run_sourced_engine("cmd_operator_answer decision:42 --option yes", [])
+    assert missing =~ "answer requires --operator"
+  end
+
+  test "executor-answer --supersede asks the store to replace an undelivered answer" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --custom-response 'New plan' --rationale 'Operator changed direction' --idempotency-key 'exec:42:s1' --supersede|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_answer(["
+    assert out =~ ", supersede: true])"
+
+    {plain, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --option yes --rationale why --idempotency-key key|,
+        []
+      )
+
+    refute plain =~ "supersede"
+  end
+
+  test "executor mutations describe their attempted decision and version to the wrapper" do
+    for {function, args} <- [
+          {"cmd_executor_answer", "'decision:42' --expected-version 3 --option yes --rationale why --idempotency-key key"},
+          {"cmd_executor_escalate", "'decision:42' --expected-version 3 --reason why"}
+        ] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "CONTEXT:$AIUR_CONTROL_ATTEMPT_CONTEXT"; }\n#{function} #{args}|,
+          []
+        )
+
+      assert out =~ "CONTEXT:decision ID decision:42 with expected version 3"
+    end
+  end
+
+  test "executor-answer requires one choice and all concurrency/audit fields" do
+    for {argv, message} <- [
+          {~s|'decision:42' --expected-version 3 --rationale why --idempotency-key key|, "exactly one of --option or --custom-response"},
+          {~s|'decision:42' --expected-version 3 --option yes --custom-response yes --rationale why --idempotency-key key|, "exactly one of --option or --custom-response"},
+          {~s|'decision:42' --option yes --rationale why --idempotency-key key|, "--expected-version expects a positive integer"},
+          {~s|'decision:42' --expected-version 3 --option yes --idempotency-key key|, "--rationale is required"},
+          {~s|'decision:42' --expected-version 3 --option yes --rationale why|, "--idempotency-key is required"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_executor_answer #{argv}", [])
+      assert out =~ message
+    end
+  end
+
+  test "executor-escalate safely routes one explicit operator alert" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_escalate 'decision:42' --expected-version 3 --reason 'Irreversible scope change' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_escalate(["
+    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
+    assert out =~ "expected_version: 3"
+    assert out =~ "reason: Base.decode64!(\"SXJyZXZlcnNpYmxlIHNjb3BlIGNoYW5nZQ==\")"
+    assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "executor-escalate requires a decision, version, and reason" do
+    for {argv, message} <- [
+          {~s|--expected-version 3 --reason why|, "expects exactly one decision ID"},
+          {~s|'decision:42' --reason why|, "--expected-version expects a positive integer"},
+          {~s|'decision:42' --expected-version 3|, "--reason is required"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_executor_escalate #{argv}", [])
+      assert out =~ message
+    end
+  end
+
+  test "executor-reclassify safely routes the rationale and expected version" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_reclassify 'decision:42' --expected-version 3 --rationale 'Acceptance specifies the fallback' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_reclassify(["
+    assert out =~ "expected_version: 3"
+    assert out =~ "rationale: Base.decode64!("
+    assert out =~ "executor_id: Base.decode64!("
+  end
+
+  test "executor mutation commands dispatch through the live control path" do
+    rel = fake_release()
+    env = [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}]
+
+    {answer, _code} =
+      run_engine_real(
+        [
+          "executor-answer",
+          "decision:42",
+          "--expected-version",
+          "3",
+          "--custom-response",
+          "Rebase it",
+          "--rationale",
+          "Known stale branch",
+          "--idempotency-key",
+          "exec:42:v3"
+        ],
+        env
+      )
+
+    {escalate, _code} =
+      run_engine_real(
+        [
+          "executor-escalate",
+          "decision:42",
+          "--expected-version",
+          "3",
+          "--reason",
+          "Irreversible"
+        ],
+        env
+      )
+
+    assert answer =~ "Aiur.AgentControlCLI.executor_answer(["
+    assert answer =~ "custom_response: Base.decode64!"
+    assert escalate =~ "Aiur.AgentControlCLI.executor_escalate(["
+  end
+
+  test "build-orders routes its selector and JSON mode through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
+  end
+
+  test "build-orders rejects multiple roots" do
+    {out, 64} = run_sourced_engine(~s|cmd_build_orders 1363 1467|, [])
+    assert out =~ "build-orders accepts at most one root"
+  end
+
+  test "analytics routes an explicit window through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_analytics --range full --since 2026-08-09T10:00:00Z --until 2026-08-09T11:00:00Z --build-order 1595 --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.analytics([range: :full, json: true"
+    assert out =~ "since: Base.decode64!"
+    assert out =~ "build_order: Base.decode64!"
+  end
+
+  test "alerts ack refuses agent sessions before contacting the daemon" do
+    {out, 64} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_alerts ack ticket.42.agent.attention.duplicate-dispatch --executor-id executor|,
+        [{"AIUR_AGENT_WORKSPACE", "/tmp/agent-workspace"}]
+      )
+
+    assert out =~ "operator-only"
+    refute out =~ "RPC:"
+  end
+
+  test "analytics rejects malformed launcher arguments before an RPC" do
+    for {argv, message} <- [
+          {~s|--range week|, "analytics --range accepts run or full"},
+          {~s|--build-order not-a-ticket|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--build-order ''|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--since|, "analytics --since requires a value"},
+          {~s|--unknown|, "analytics received an unknown option"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_analytics #{argv}", [])
+      assert out =~ message
+    end
+  end
+end

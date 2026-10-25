@@ -2,6 +2,34 @@ defmodule Aiur.Init.GitHubTest do
   use ExUnit.Case
 
   alias Aiur.Init.GitHub
+  alias Aiur.Init.GitHubApp
+
+  test "container init prints App permissions and events and selects App auth by default" do
+    previous_env = Map.new(["AIUR_SECRETS_FROM_ENV", "AIUR_STATE_PERSISTENT", "AIUR_GITHUB_ALLOW_PAT"], &{&1, System.get_env(&1)})
+
+    on_exit(fn ->
+      Enum.each(previous_env, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+    end)
+
+    System.put_env("AIUR_SECRETS_FROM_ENV", "1")
+    System.delete_env("AIUR_STATE_PERSISTENT")
+    System.delete_env("AIUR_GITHUB_ALLOW_PAT")
+
+    parent = self()
+    io = %{puts: fn line -> send(parent, {:init_output, line}) end, select: fn _, _, _ -> flunk("container auth must be selected without prompting") end}
+
+    assert GitHubApp.prompt(io, %{kind: "github", base_branch: "main"}) == :github_app
+    assert_received {:init_output, output}
+    assert output =~ "Contents Read and write"
+    assert output =~ "Checks Read"
+    assert output =~ "Actions Read"
+    assert output =~ "pull_request_review_thread"
+    assert output =~ "branch_protection_rule"
+    assert output =~ "GITHUB_APP_PRIVATE_KEY"
+  end
 
   describe "detect_github_login/1" do
     test "clears the governed credential file for the human-only lookup" do
@@ -162,13 +190,13 @@ defmodule Aiur.Init.GitHubTest do
       System.put_env("AIUR_CI_READINESS_TOKEN", "operator-token")
 
       on_exit(fn ->
-        File.rm_rf!(root)
-
         if original_token do
           System.put_env("AIUR_CI_READINESS_TOKEN", original_token)
         else
           System.delete_env("AIUR_CI_READINESS_TOKEN")
         end
+
+        Aiur.TestCleanup.rm_rf!(root)
       end)
 
       assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
@@ -233,7 +261,7 @@ defmodule Aiur.Init.GitHubTest do
 
       tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
 
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, tracker)
       assert message =~ "Repository CI readiness is incomplete"
@@ -284,7 +312,7 @@ defmodule Aiur.Init.GitHubTest do
 
       tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
 
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
 
@@ -325,7 +353,7 @@ defmodule Aiur.Init.GitHubTest do
 
       tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
 
-      on_exit(fn -> File.rm_rf!(root) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
       assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
 
@@ -430,7 +458,7 @@ defmodule Aiur.Init.GitHubTest do
     test "returns owner/name from git remote" do
       dir = Aiur.TestSupport.tmp_root!("detect-repo")
       File.mkdir_p!(dir)
-      on_exit(fn -> File.rm_rf!(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
       System.cmd("git", ["init"], cd: dir)
       System.cmd("git", ["remote", "add", "origin", "git@github.com:o/r.git"], cd: dir)
@@ -442,7 +470,7 @@ defmodule Aiur.Init.GitHubTest do
     test "returns nil when no origin remote" do
       dir = Aiur.TestSupport.tmp_root!("detect-repo-noremote")
       File.mkdir_p!(dir)
-      on_exit(fn -> File.rm_rf!(dir) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
       System.cmd("git", ["init"], cd: dir)
 

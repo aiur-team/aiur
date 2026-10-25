@@ -9,6 +9,8 @@ defmodule Aiur.TestTicketScope do
 
   @env "AIUR_DEV_TEST_TICKET_IDS"
 
+  alias Aiur.GitHub.Config
+
   @spec validate!() :: :ok
   def validate! do
     _ids = allowed_ids!()
@@ -37,6 +39,146 @@ defmodule Aiur.TestTicketScope do
   end
 
   def allowed_identifier?(_identifier), do: allowed_ids!() == :all
+
+  @spec with_write_scope(map(), (-> term())) :: term()
+  def with_write_scope(request, fun), do: with(:ok <- allow_write?(request), do: fun.())
+
+  @doc "Whether an outgoing GitHub state mutation is inside the active test scope."
+  @spec allow_write?(map()) :: :ok | {:error, {:outside_test_ticket_scope, String.t()}}
+  def allow_write?(%{method: method, url: url} = request)
+      when method in [:post, :patch, :put, :delete] and is_binary(url) do
+    case System.get_env(@env) do
+      nil ->
+        :ok
+
+      ids when is_binary(ids) and ids != "" ->
+        allow_scoped_write(request, resource_number(url))
+
+      _invalid_scope ->
+        {:error, {:outside_test_ticket_scope, "unknown"}}
+    end
+  end
+
+  def allow_write?(%{method: method}) when method in [:post, :patch, :put, :delete],
+    do: {:error, {:outside_test_ticket_scope, "unknown"}}
+
+  def allow_write?(_request), do: :ok
+
+  defp allow_scoped_write(request, resource) do
+    cond do
+      allowed_post_request?(request) ->
+        :ok
+
+      dependency_mutation?(request) ->
+        deny_write(resource_identifier(resource))
+
+      match?({:ok, :issue, _number}, resource) and allowed_identifier?(resource_identifier(resource)) ->
+        :ok
+
+      true ->
+        deny_write(resource_identifier(resource))
+    end
+  end
+
+  defp deny_write(identifier), do: {:error, {:outside_test_ticket_scope, identifier}}
+
+  defp installation_token_request?(url) do
+    Regex.match?(~r{\Ahttps://api\.github\.com/app/installations/[1-9][0-9]*/access_tokens\z}, url)
+  end
+
+  defp allowed_post_request?(%{method: :post, url: url} = request) do
+    installation_token_request?(url) or scoped_graphql_read?(request) or repository_label_create?(request)
+  end
+
+  defp allowed_post_request?(_request), do: false
+
+  defp repository_label_create?(%{url: url, body: body}) do
+    with %URI{} = uri <- URI.parse(url),
+         true <- uri.scheme == "https" and uri.host == "api.github.com" and is_nil(uri.userinfo),
+         true <- uri.port in [nil, 443] and uri.path == "/repos/#{configured_repository_path()}/labels",
+         true <- is_map(body) and Map.get(body, "name") == "#{Config.label_prefix()}:queued" do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp repository_label_create?(_request), do: false
+
+  defp configured_repository_path do
+    case configured_repository() do
+      {:ok, {owner, repository}} -> "#{owner}/#{repository}"
+      :error -> ""
+    end
+  end
+
+  # GitHub sends GraphQL reads and mutations as POSTs. Reads do not change
+  # tracker state; mutations are denied because their node IDs do not
+  # reliably identify a pinned issue or PR.
+  defp scoped_graphql_read?(%{url: url, body: %{"query" => document}}) when is_binary(document) do
+    with %URI{} = uri <- URI.parse(url),
+         true <- uri.scheme == "https" and uri.host == "api.github.com" and is_nil(uri.userinfo),
+         true <- uri.port in [nil, 443] and uri.path == "/graphql",
+         true <- declared_read_operation?(document) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp scoped_graphql_read?(_request), do: false
+
+  defp dependency_mutation?(%{method: method, url: url}) when method in [:post, :delete] and is_binary(url) do
+    case URI.parse(url) do
+      %URI{path: path} when is_binary(path) -> Regex.match?(~r{/issues/[1-9][0-9]*/dependencies/blocked_by(?:/.*)?\z}, path)
+      _ -> false
+    end
+  end
+
+  defp dependency_mutation?(_request), do: false
+
+  defp declared_read_operation?(document) do
+    leading_trivia_removed = Regex.replace(~r/\A(?:\s|\#[^\n]*(?:\n|\z))*/, document, "")
+
+    (Regex.match?(~r/\Aquery\b/, leading_trivia_removed) or String.starts_with?(leading_trivia_removed, "{")) and
+      not Regex.match?(~r/\bmutation\b/, document)
+  end
+
+  defp resource_identifier({:ok, :issue, number}), do: number
+  defp resource_identifier(_resource), do: "unknown"
+
+  defp resource_number(url) do
+    with %URI{} = uri <- URI.parse(url),
+         true <- uri.scheme == "https" and uri.host == "api.github.com" and is_nil(uri.userinfo),
+         true <- uri.port in [nil, 443],
+         path when is_binary(path) <- uri.path,
+         [owner, repository, number] <-
+           Regex.run(~r{\A/repos/([^/]+)/([^/]+)/issues/([1-9][0-9]*)(?:/.*)?\z}, path, capture: :all_but_first),
+         {:ok, {expected_owner, expected_repository}} <- configured_repository(),
+         true <- same_repository?(owner, repository, expected_owner, expected_repository) do
+      {:ok, :issue, number}
+    else
+      _ -> :invalid
+    end
+  end
+
+  defp configured_repository do
+    case Config.repo() do
+      repo when is_binary(repo) ->
+        case String.split(repo, "/") do
+          [owner, repository] when owner != "" and repository != "" -> {:ok, {owner, repository}}
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp same_repository?(owner, repository, expected_owner, expected_repository) do
+    String.downcase(owner) == String.downcase(expected_owner) and
+      String.downcase(repository) == String.downcase(expected_repository)
+  end
 
   defp identifier(%{identifier: identifier}) when is_binary(identifier), do: identifier
   defp identifier(%{identifier: identifier}) when is_integer(identifier), do: Integer.to_string(identifier)

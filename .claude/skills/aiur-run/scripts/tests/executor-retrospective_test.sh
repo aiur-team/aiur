@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script="$(cd "$(dirname "$0")/.." && pwd)/executor-retrospective.sh"
+script="${AIUR_EXECUTOR_RETROSPECTIVE_SCRIPT:-$(cd "$(dirname "$0")/.." && pwd)/executor-retrospective.sh}"
 visual_test="$(cd "$(dirname "$0")/../../../aiur-meta/scripts/tests" && pwd)/capture-dashboard_test.mjs"
 state_root="$(mktemp -d)"
 export AIUR_EXECUTOR_RETRO_FILE="$state_root/test-retros.md"
 export AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=0
 export AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK=0
-trap 'rm -rf "$state_root"' EXIT
+first_pid=""
+second_pid=""
+cleanup() {
+  : > "$state_root/release-first-lock"
+  for pid in "$first_pid" "$second_pid"; do
+    [ -n "$pid" ] || continue
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  rm -rf "$state_root"
+}
+trap cleanup EXIT
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -42,13 +53,31 @@ process_start_identity() {
   printf 'ps:%s\n' "$identity"
 }
 
-if AIUR_EXECUTOR_STATE_DIR="$state_root" "$script" due >"$state_root/missing-run.out" 2> "$state_root/missing-run.err"; then
-  fail "missing run ID was accepted"
-else
-  missing_run_status=$?
-fi
-[ "$missing_run_status" -eq 68 ] || fail "missing run ID did not return its distinct precondition status (got $missing_run_status)"
-grep -q 'AIUR_EXECUTOR_RUN_ID is required' "$state_root/missing-run.err" || fail "missing run ID did not print the stderr precondition line"
+default_run_root="$state_root/default-run-id"
+env -u AIUR_EXECUTOR_RUN_ID -u AIUR_TMUX_SOCKET AIUR_TMUX_SESSION=stale-session \
+  AIUR_EXECUTOR_STATE_DIR="$default_run_root" "$script" due >/dev/null
+[ -s "$default_run_root/default/retrospective-state.json" ] ||
+  fail "missing run ID did not use the documented default"
+[ ! -e "$default_run_root/stale-session/retrospective-state.json" ] ||
+  fail "stale tmux session name was used outside a live Aiur tmux session"
+
+tmux_stub_dir="$state_root/tmux-bin"
+mkdir -p "$tmux_stub_dir"
+cat > "$tmux_stub_dir/tmux" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$TMUX_TEST_SESSION_ID"
+EOF
+chmod +x "$tmux_stub_dir/tmux"
+session_state_root="$state_root/session-run-id"
+for session_id in '$7' '$7' '$8'; do
+  TMUX_TEST_SESSION_ID="$session_id" PATH="$tmux_stub_dir:$PATH" \
+    AIUR_EXECUTOR_STATE_DIR="$session_state_root" AIUR_TMUX_SOCKET=aiur-test \
+    AIUR_TMUX_SESSION=aiur-test-default env -u AIUR_EXECUTOR_RUN_ID "$script" due >/dev/null
+done
+[ -s "$session_state_root/tmux-aiur-test-7/retrospective-state.json" ] ||
+  fail "live tmux session ID was not used as the retrospective identity"
+[ -s "$session_state_root/tmux-aiur-test-8/retrospective-state.json" ] ||
+  fail "a recreated tmux session reused the previous retrospective identity"
 
 mkdir -p "$state_root/invalid-run-id"
 for invalid_run_id in . ..; do
@@ -193,16 +222,30 @@ jq -e '.prev_interval_seconds == 30 and .next_interval_seconds == 60' \
   <<< "$(run_wait corrupt-wait 30 900 2 plan-wait quiet recovered-from-corruption)" >/dev/null ||
   fail "corrupted last_wait_interval_seconds did not fall back to the floor"
 
-run concurrent 60 record first unchanged > "$state_root/first.out" 2> "$state_root/first.err" &
+lock_held_file="$state_root/first-lock-held"
+release_lock_file="$state_root/release-first-lock"
+AIUR_EXECUTOR_RETROSPECTIVE_TEST_LOCK_HELD_FILE="$lock_held_file" \
+  AIUR_EXECUTOR_RETROSPECTIVE_TEST_RELEASE_FILE="$release_lock_file" \
+  run concurrent 60 record first unchanged > "$state_root/first.out" 2> "$state_root/first.err" &
 first_pid=$!
+for _ in $(seq 1 200); do
+  [ -e "$lock_held_file" ] && break
+  kill -0 "$first_pid" 2>/dev/null || fail "first recorder exited before holding the lock"
+  sleep 0.01
+done
+[ -e "$lock_held_file" ] || fail "first recorder did not reach the lock barrier"
 run concurrent 60 record second unchanged > "$state_root/second.out" 2> "$state_root/second.err" &
 second_pid=$!
+sleep 0.1
+kill -0 "$second_pid" 2>/dev/null || fail "second recorder exited while first held the lock"
+: > "$release_lock_file"
 wait "$first_pid"
 wait "$second_pid"
 
-recorded="$(jq -s '[.[] | select(.type == "hourly_retrospective")] | length' "$state_root/first.out" "$state_root/second.out")"
-skipped="$(jq -s '[.[] | select(.recorded == false and .reason == "not_due")] | length' "$state_root/first.out" "$state_root/second.out")"
-[ "$recorded" -eq 1 ] && [ "$skipped" -eq 1 ] || fail "concurrent record was not serialized"
+jq -e '.type == "hourly_retrospective"' "$state_root/first.out" >/dev/null ||
+  fail "first recorder did not record while holding the lock"
+jq -e '.recorded == false and .reason == "not_due"' "$state_root/second.out" >/dev/null ||
+  fail "second recorder did not skip while first held the lock"
 
 # Dashboard evidence is stored beside the run retrospective and its short
 # verdict is appended to the narrative. A fake browser command keeps this
@@ -286,7 +329,15 @@ jq -e '.type == "hourly_retrospective"' "$missing_capture_out" >/dev/null || fai
 # it does on a bare CI runner.
 empty_socket_dir="$state_root/empty-sockets"
 mkdir -p "$empty_socket_dir"
+url_missing_tmux_bin="$state_root/url-missing-tmux-bin"
+mkdir -p "$url_missing_tmux_bin"
+cat > "$url_missing_tmux_bin/tmux" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+chmod +x "$url_missing_tmux_bin/tmux"
 url_missing_retro="$state_root/url-missing-retrospective.md"
+PATH="$url_missing_tmux_bin:$PATH" \
 AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=url-missing \
   AIUR_EXECUTOR_RETRO_FILE="$url_missing_retro" \
@@ -330,12 +381,13 @@ grep -q 'Overall:.*attention' "$state_root/empty-capture-retrospective.md" ||
 
 # The missing password is the third precondition, with its own code (69), its
 # own stderr line, and a did-not-run verdict — distinct from a missing URL (67)
-# or a missing run ID (68). Without the daemon environment fallback it is a
+# or an invalid run ID (68). Without the daemon environment fallback it is a
 # hard failure: a capture that cannot authenticate must never look like one
 # that ran.
 password_missing_retro="$state_root/password-missing-retrospective.md"
 set +e
-AIUR_EXECUTOR_STATE_DIR="$state_root" \
+env -u AIUR_DASHBOARD_PASSWORD \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=password-missing \
   AIUR_EXECUTOR_RETRO_FILE="$password_missing_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
@@ -364,6 +416,7 @@ jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition |
 # redirected log is never silently empty next to a bare exit code.
 record_precondition_retro="$state_root/record-precondition-retrospective.md"
 set +e
+PATH="$url_missing_tmux_bin:$PATH" \
 AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=record-precondition \
   AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
@@ -423,6 +476,10 @@ case "${1:-}" in
     exit 0
     ;;
   list-panes)
+    case " $* " in
+      *" -a "*) ;;
+      *) exit 1 ;;
+    esac
     printf '%s\n' "${FAKE_TMUX_PANE_PID:-1}"
     exit 0
     ;;
@@ -456,11 +513,13 @@ PATH="$tmux_shim_dir:$PATH" \
   AIUR_DASHBOARD_USERNAME="test-user" \
   AIUR_DASHBOARD_PASSWORD="test-password" \
   AIUR_TMUX_SOCKET_DIR="$sweep_socket_dir" \
-  "$script" visual-check >/dev/null 2>&1
+  "$script" visual-check >/dev/null 2> "$state_root/sweep.err"
 sweep_status=$?
 set -e
 [ "$sweep_status" -eq 0 ] || fail "socket sweep did not discover a publishing aiur tmux server"
 grep -q 'metric-column-missing' "$sweep_retro" || fail "socket sweep did not append its capture verdict"
+grep -q 'visual-check sources: dashboard URL=tmux socket (aiur-alpha); username=caller environment; password=caller environment' "$state_root/sweep.err" ||
+  fail "socket sweep did not report the URL and credential sources"
 
 # Two live daemons publishing different dashboards is ambiguous. Picking by
 # glob order would silently audit the wrong fleet, so discovery must refuse
@@ -548,7 +607,8 @@ EOF
 
 daemon_env_retro="$state_root/daemon-env-retrospective.md"
 set +e
-PATH="$tmux_shim_dir:$PATH" \
+env -u AIUR_DASHBOARD_USERNAME -u AIUR_DASHBOARD_PASSWORD \
+  PATH="$tmux_shim_dir:$PATH" \
   FAKE_TMUX_URLS="aiur-d=http://127.0.0.1:4024" \
   FAKE_TMUX_PANE_PID=$'999999\n'"$fake_daemon_pid" \
   AIUR_EXECUTOR_STATE_DIR="$state_root" \
@@ -556,7 +616,7 @@ PATH="$tmux_shim_dir:$PATH" \
   AIUR_EXECUTOR_RETRO_FILE="$daemon_env_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$env_dump_capture" \
   AIUR_TMUX_SOCKET_DIR="$daemon_env_socket_dir" \
-  "$script" visual-check >/dev/null 2>&1
+  "$script" visual-check >/dev/null 2> "$state_root/daemon-env.err"
 daemon_env_status=$?
 set -e
 [ "$daemon_env_status" -eq 0 ] || fail "daemon-environment credential fallback failed with status $daemon_env_status"
@@ -564,6 +624,8 @@ daemon_env_evidence="$(find "$daemon_env_retro.d" -name env.json -print -quit)"
 [ -n "$daemon_env_evidence" ] || fail "daemon-environment fallback did not invoke the capture"
 jq -e '.username == "daemon-user" and .password == "daemon-secret"' "$daemon_env_evidence" >/dev/null ||
   fail "daemon-environment credentials did not reach the capture"
+grep -q 'visual-check sources: dashboard URL=tmux socket (aiur-d); username=daemon environment; password=daemon environment' "$state_root/daemon-env.err" ||
+  fail "daemon-environment fallback did not report the URL and credential sources"
 
 # The pane-env fallback must not masquerade as the beam read: the pane shell
 # has no credentials here, so if the capture received them it can only have
@@ -829,7 +891,11 @@ kill -0 "$live_window_waiter_pid" 2>/dev/null || fail "contender stole a publish
 [ -d "$live_window_dir" ] || fail "contender removed a publishing owner's lock directory"
 [ -e "$live_claim" ] || fail "contender removed a live owner claim"
 rm "$live_claim"
-rmdir "$live_window_dir"
+for _ in $(seq 1 200); do
+  [ ! -d "$live_window_dir" ] && break
+  sleep 0.01
+done
+[ ! -d "$live_window_dir" ] || fail "contender did not reclaim the released publication lock"
 wait "$live_window_waiter_pid"
 
 run live-lock 60 due >/dev/null
@@ -847,7 +913,11 @@ kill -0 "$live_waiter_pid" 2>/dev/null || fail "contender stole a live retrospec
 [ -e "$live_owner_marker" ] || fail "contender removed a live owner marker"
 
 rm "$live_owner_marker"
-rmdir "$live_lock_dir"
+for _ in $(seq 1 200); do
+  [ ! -d "$live_lock_dir" ] && break
+  sleep 0.01
+done
+[ ! -d "$live_lock_dir" ] || fail "contender did not reclaim the released live lock"
 wait "$live_waiter_pid"
 jq -e '.outcome == "action" and .reason == "waited for live lock"' \
   "$state_root/live-lock.out" >/dev/null || fail "contender did not proceed after live lock release"

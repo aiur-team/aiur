@@ -75,5 +75,25 @@ defmodule Aiur.StartTriggerTest do
     assert StartTrigger.parse(nil) == {:error, :invalid_start_trigger}
   end
 
+  test "describer names each trigger and verdict without inventing PR identity" do
+    row = evidence(identifier: "12", state_label: "ci-wait", pr_number: 99)
+
+    for trigger <- StartTrigger.triggers() do
+      text = StartTrigger.describe(trigger, row, :pending)
+      assert text == "#12 needs #{trigger} (now pr_opened, PR #99)"
+      assert String.length(text) < 80
+      refute String.ends_with?(text, ".")
+    end
+
+    assert StartTrigger.describe(:pr_opened, row, {:satisfied, :optimistic}) == "#12 optimistic (pr_opened)"
+    assert StartTrigger.describe(:pr_merged, row, {:satisfied, :final}) == "#12 satisfied"
+    assert StartTrigger.describe(:pr_opened, row, {:unknown, :stale}) == "#12 unknown: stale observation"
+    assert StartTrigger.describe(:pr_opened, row, {:failed, :pr_closed_unmerged}) == "#12 failed: PR closed unmerged"
+    assert StartTrigger.describe(:pr_opened, row, {:failed, :agent_error}) == "#12 failed: agent error"
+    assert StartTrigger.describe(:pr_opened, row, {:unknown, :duplicate}) == "#12 unknown: duplicate"
+    assert StartTrigger.describe(:pr_opened, evidence(identifier: "LIN-12"), :pending) == "LIN-12 needs pr_opened (now no PR stage)"
+    assert StartTrigger.describe(:pr_opened, nil, {:unknown, :stale}) == "dependency unknown: stale observation"
+  end
+
   defp evidence(opts \\ []), do: struct!(%Evidence{issue_open?: true, observed_at_ms: 10_000}, opts)
 end

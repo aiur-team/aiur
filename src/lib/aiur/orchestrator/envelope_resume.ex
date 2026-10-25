@@ -2,13 +2,13 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   @moduledoc false
   require Logger
 
-  alias Aiur.{Config, Events.Publisher}
+  alias Aiur.{Config, Events}
   alias Aiur.Orchestrator.{EnvelopeStore, State}
 
   @spec boot(map()) :: map()
   def boot(agent) do
     base = %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false}
-    record = if agent.target_load_average, do: EnvelopeStore.load(agent.load_resume_max_age_seconds, System.schedulers_online())
+    record = if Map.get(agent, :target_cpu_pressure) || agent.target_load_average, do: EnvelopeStore.load(agent.load_resume_max_age_seconds, System.schedulers_online())
     seed(base, record)
   end
 
@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
   defp seed(base, record) do
     payload = %{resume_level: record.resume_level, age_seconds: DateTime.diff(DateTime.utc_now(), record.recorded_at)}
 
-    case Publisher.publish("system.fleet.capacity.resume_seeded", payload, source: "orchestrator") do
+    case Events.publish("system.fleet.capacity.resume_seeded", payload, source: "orchestrator") do
       {:error, reason} -> Logger.warning("Envelope resume event failed: #{inspect(reason)}")
       _ -> :ok
     end
@@ -118,7 +118,14 @@ defmodule Aiur.Orchestrator.EnvelopeResume do
 
   @spec status(map(), pos_integer(), pos_integer()) :: map()
   def status(envelope, effective, cap) do
-    envelope = validate(envelope, Config.target_load_average(), System.schedulers_online())
+    target =
+      case envelope[:signal] do
+        :cpu_pressure -> Config.target_cpu_pressure()
+        :load -> Config.target_load_average()
+        _ -> Config.target_cpu_pressure() || Config.target_load_average()
+      end
+
+    envelope = validate(envelope, target, System.schedulers_online())
     resume = envelope[:resume_level]
     stamp = envelope[:recorded_at]
 

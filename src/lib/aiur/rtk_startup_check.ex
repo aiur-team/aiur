@@ -3,7 +3,7 @@ defmodule Aiur.RtkStartupCheck do
 
   require Logger
 
-  alias Aiur.{Alerts, Rtk}
+  alias Aiur.{Rtk, Signal}
 
   @alert_topic "system.rtk.gh_rewrite"
   @remedy ~s(Add `exclude_commands = ["gh"]` under `[hooks]` in rtk's config.)
@@ -30,7 +30,7 @@ defmodule Aiur.RtkStartupCheck do
 
         Logger.info(message)
 
-        emit = Keyword.get(opts, :emit, &Alerts.emit_system/2)
+        emit = Keyword.get(opts, :emit, &Signal.alert/2)
 
         case emit.(@alert_topic,
                message: message,

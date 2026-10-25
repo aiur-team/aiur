@@ -8,8 +8,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   alias Aiur.{CodingAgent, Config}
   alias Aiur.HttpServer
   alias Aiur.Issue
-  alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
-  alias Aiur.Orchestrator.{Dispatcher, RetryEngine, State, StatusReport, TrackerTasks}
+  alias Aiur.Orchestrator.{AgentTeardown, Dispatcher, RetryEngine, State, StatusReport, TicketTransition, TrackerTasks}
   require Logger
 
   @spec set_remote_control(String.t(), boolean()) :: {:ok, :on | :off} | {:error, term()}
@@ -49,11 +48,21 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   @spec ensure_remote_control_trust_call(State.t(), String.t(), GenServer.from() | nil) :: {:reply, term(), State.t()} | {:noreply, State.t()}
   def ensure_remote_control_trust_call(%State{} = state, workspace, from \\ nil)
       when is_binary(workspace) do
+    ensure_remote_control_trust_call(state, workspace, from, &TrackerTasks.start/4)
+  end
+
+  @doc false
+  @spec ensure_remote_control_trust_call(State.t(), String.t(), GenServer.from() | nil, (State.t(), term(), (-> term()), (State.t(), term() -> State.t()) -> State.t())) ::
+          {:reply, term(), State.t()} | {:noreply, State.t()}
+  def ensure_remote_control_trust_call(state, workspace, from, start_task)
+      when is_binary(workspace) and is_function(start_task, 4) do
+    trust_opts = remote_control_trust_opts()
+
     if is_nil(from) do
-      {:reply, RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()), state}
+      {:reply, RemoteControl.ensure_workspace_trusted(workspace, trust_opts), state}
     else
       next =
-        TrackerTasks.start(state, {:rc_trust, workspace, make_ref()}, fn -> RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) end, fn current, result ->
+        start_task.(state, {:rc_trust, workspace, make_ref()}, fn -> RemoteControl.ensure_workspace_trusted(workspace, trust_opts) end, fn current, result ->
           GenServer.reply(from, result)
           current
         end)
@@ -304,10 +313,10 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
-    Orchestrator.kill_repl_session(running_entry)
-    Orchestrator.close_active_chat_streams(identifier, reason)
+    AgentTeardown.kill_repl_session(running_entry)
+    AgentTeardown.close_active_chat_streams(identifier, reason)
     if is_reference(ref), do: Process.demonitor(ref, [:flush])
-    if is_pid(pid), do: Orchestrator.terminate_task(pid)
+    if is_pid(pid), do: AgentTeardown.terminate_task(pid)
 
     cleared =
       running_entry
@@ -319,6 +328,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       | running: Map.put(state.running, issue_id, cleared),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+    |> AgentTeardown.clear_transient_reason_labels(issue_id)
   end
 
   @doc false

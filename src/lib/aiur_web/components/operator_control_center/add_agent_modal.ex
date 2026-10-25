@@ -29,7 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
             <h2 id="add-agent-title" tabindex="-1">#{@modal.identifier} {@modal.title}</h2>
           </div>
           <div class="modal-actions">
-            <button type="button" class="tool-btn" phx-click="close-add-agent">Close</button>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click="close-add-agent">Close</button>
           </div>
         </header>
 
@@ -107,8 +107,8 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
           <p :if={@modal.result} class={["add-agent-note", result_tone(@modal.result)]} role="status">{result_message(@modal.result)}</p>
 
           <div class="add-agent-actions">
-            <button type="button" class="btn ghost" phx-click="close-add-agent">Cancel</button>
-            <button type="submit" class="btn" disabled={!@writable or @modal.pending?}>{if @modal.pending?, do: "Applying…", else: if(empty_plan?(@modal.plan), do: "Check admission", else: "Confirm")}</button>
+            <button type="button" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost" phx-click="close-add-agent">Cancel</button>
+            <button type="submit" class="aiur-button aiur-button--dashboard btn" disabled={!@writable or @modal.pending?}>{if @modal.pending?, do: "Applying…", else: if(empty_plan?(@modal.plan), do: "Check admission", else: "Confirm")}</button>
           </div>
         </form>
 
