@@ -302,7 +302,8 @@ defmodule Aiur.AgentEnvironment do
         __MODULE__.GitIdentity.port_env(opts) ++
         Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
-        port_startup_env
+        port_startup_env ++
+        Aiur.AgentShellHook.port_env(build_gate_env)
 
     contributions = Contributor.port_env(workspace, opts)
 
@@ -339,9 +340,7 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  # Build admission is the sole permitted BASH_ENV hook in an agent workspace:
-  # it is an Aiur-owned absolute path, replaces (rather than inherits) the
-  # operator value, and is only present when admission is enabled.
+  # AgentShellHook replaces operator BASH_ENV, repairs PATH after profiles, then sources this hook.
   defp replace_bash_env(startup_env, build_gate_env) do
     case List.keyfind(build_gate_env, "BASH_ENV", 0) do
       {"BASH_ENV", _hook_path} ->
