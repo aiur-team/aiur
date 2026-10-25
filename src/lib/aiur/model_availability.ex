@@ -38,9 +38,17 @@ defmodule Aiur.ModelAvailability do
 
   @spec path() :: Path.t()
   def path do
+    if Aiur.Config.booted_instance_mode() == "hosted" do
+      Path.join(hosted_state_dir(), "model-usage.json")
+    else
+      Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
+    end
+  end
+
+  defp hosted_state_dir do
     case System.get_env("AIUR_BG_STATE_DIR") do
-      state_dir when is_binary(state_dir) and state_dir != "" -> Path.join(state_dir, "model-usage.json")
-      _ -> Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
+      state_dir when is_binary(state_dir) and state_dir != "" -> state_dir
+      _ -> Path.expand("~/.config/aiur")
     end
   end
 
