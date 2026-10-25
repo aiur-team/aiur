@@ -4,6 +4,8 @@
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
 
+An accepted blocking decision answer is mirrored to its ticket with a stable action marker, so retries do not duplicate comments. If no agent is running, Aiur keeps the answer pending and includes it in the next session's launch prompt.
+
 Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
 
 Idle restacks use delivered PR facts and the agent credential file, with cached GitHub helpers cleared. Push propagation uses exact-head leases for fast-forward commits. Each direct dependent’s push advances the cascade; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).

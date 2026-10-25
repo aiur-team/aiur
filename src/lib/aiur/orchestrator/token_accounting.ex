@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
 
       running_entry ->
         {updated_running_entry, token_delta} = integrate_codex_update(running_entry, update)
+        updated_running_entry = consume_answered_decisions_after_prompt(updated_running_entry, update)
 
         state =
           state
@@ -38,6 +39,32 @@ defmodule Aiur.Orchestrator.TokenAccounting do
         StatusReport.notify_dashboard(next_state)
         {:noreply, next_state}
     end
+  end
+
+  defp consume_answered_decisions_after_prompt(
+         %{pending_answered_decisions: [_ | _] = action_ids, decision_store: store, issue: issue} = entry,
+         update
+       ) do
+    if first_turn_started?(update) do
+      case Map.get(entry, :native_session_id) || Map.get(entry, :session_id) do
+        session_id when is_binary(session_id) and session_id != "" ->
+          Aiur.Commands.consume_pending_for_session_async(issue.identifier, session_id, action_ids, store)
+          Map.put(entry, :pending_answered_decisions, [])
+
+        _missing_session_id ->
+          entry
+      end
+    else
+      entry
+    end
+  end
+
+  defp consume_answered_decisions_after_prompt(entry, _update), do: entry
+
+  defp first_turn_started?(update) do
+    payload = Map.get(update, :payload, %{})
+    method = payload |> payload_value(:method)
+    method in ["turn/started", :turn_started]
   end
 
   @spec integrate_codex_update(map(), %{event: term(), timestamp: DateTime.t()}) :: {map(), map()}
