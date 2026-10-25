@@ -13,7 +13,6 @@ defmodule Aiur.LandingWatch.PrRefreshSafety do
       :ok
     else
       {:error, _} = error -> error
-      _ -> {:error, :pr_head_not_refreshable}
     end
   end
 
