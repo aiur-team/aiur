@@ -30,6 +30,7 @@ defmodule Aiur.GitHubCostCLI.Fleet do
   def print(%{"available?" => true, "instances" => instances} = fleet) do
     IO.puts("")
     IO.puts("fleet attributed spend: #{fleet["total_attributed_points"]} points across #{fleet["observed_instances"]} observed instances")
+    IO.puts("daemon GitHub budget is shared; agent gh calls are counted per host")
 
     Enum.each(instances, fn instance ->
       IO.puts("  #{instance["instance_id"]}: #{instance["attributed_points"]} points, observed #{instance["age_seconds"]}s ago")

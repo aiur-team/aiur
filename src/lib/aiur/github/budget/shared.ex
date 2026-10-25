@@ -49,10 +49,10 @@ defmodule Aiur.GitHub.Budget.Shared do
     end
   end
 
-  @spec grant_or_hold(String.t(), map(), String.t()) :: term()
-  def grant_or_hold(id, request, token_key) do
+  @spec grant_or_hold(String.t(), map(), String.t(), keyword()) :: term()
+  def grant_or_hold(id, request, token_key, opts \\ []) do
     if String.match?(id, ~r/\A[a-f0-9]{32}\z/) do
-      case admit(id, request, token_key) do
+      case admit(id, request, token_key, opts) do
         :admitted ->
           {:ok, %{id: id, token_key: token_key}}
 
@@ -60,16 +60,27 @@ defmodule Aiur.GitHub.Budget.Shared do
           {:ok, %{id: id, token_key: token_key}}
 
         {:held, reset_at} ->
-          _ = BrokerPort.command(["release", "--lease-id", id], token_key, [])
+          release_lease(id, token_key, opts)
           {:hold, %{reason: :shared_budget, resource: Budget.request_resource(request), reset_at: reset_at}}
 
+        # The local broker has already granted this lease using the divided
+        # fallback ceiling. A shared-store outage must not discard that grant.
         {:error, _reason} ->
-          _ = BrokerPort.command(["release", "--lease-id", id], token_key, [])
-          {:error, :github_budget_broker_unavailable}
+          {:ok, %{id: id, token_key: token_key}}
       end
     else
       {:error, :github_budget_broker_unavailable}
     end
+  end
+
+  defp release_lease(id, token_key, opts) do
+    release_fun =
+      Keyword.get(opts, :release_fun, fn lease_id, key ->
+        BrokerPort.command(["release", "--lease-id", lease_id], key, [])
+      end)
+
+    _ = release_fun.(id, token_key)
+    :ok
   end
 
   @spec fallback_limits(tuple(), map()) :: tuple()
@@ -77,7 +88,10 @@ defmodule Aiur.GitHub.Budget.Shared do
     if coordination.available? do
       {core, graphql, search}
     else
-      count = max(coordination.live_count, 1)
+      # Even when the last roster read saw only this daemon, an outage can hide
+      # another instance starting at the same time. Reserve half the ceiling
+      # until shared admissions are available again.
+      count = max(coordination.live_count, 2)
       {fallback_limit(core, count), fallback_limit(graphql, count), fallback_limit(search, count)}
     end
   end
@@ -90,23 +104,28 @@ defmodule Aiur.GitHub.Budget.Shared do
     :ok
   end
 
-  defp admit(lease_id, request, token_key) do
-    if LeaseStore.budget_coordination_status().available? do
-      admit_shared(lease_id, request, token_key)
+  defp admit(lease_id, request, token_key, opts) do
+    status_fun = Keyword.get(opts, :coordination_status_fun, &LeaseStore.budget_coordination_status/0)
+
+    if status_fun.().available? do
+      admit_shared(lease_id, request, token_key, opts)
     else
       :disabled
     end
   end
 
-  defp admit_shared(lease_id, request, token_key) do
+  defp admit_shared(lease_id, request, token_key, opts) do
     resource = Budget.request_resource(request)
-    limits = Settings.settings([])
+    limits = Settings.settings(opts)
     limit = resource_limit(resource, limits)
     credential_key = Map.get(request, :credential_key) || token_key
     consumer_key = Settings.consumer_key([])
-    points = request_points(request, resource)
+    # Until GitHub reports query cost, charge one request per admission.
+    points = Keyword.get(opts, :request_points, 1)
 
-    case LeaseStore.admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points) do
+    admit_fun = Keyword.get(opts, :github_budget_admit_fun, &LeaseStore.admit_github_budget/6)
+
+    case admit_fun.(lease_id, credential_key, resource, consumer_key, limit, points) do
       {:ok, :admitted} -> :admitted
       {:ok, {:held, reset_at}} -> {:held, reset_at}
       :disabled -> :disabled
@@ -125,8 +144,4 @@ defmodule Aiur.GitHub.Budget.Shared do
 
   defp fallback_limit(0, _count), do: 0
   defp fallback_limit(limit, count), do: max(div(limit, count), 1)
-
-  defp request_points(%{method: method}, resource) when method in ["GET", "HEAD"] and resource != "graphql", do: 1
-  defp request_points(_request, "graphql"), do: 1
-  defp request_points(_request, _resource), do: 1
 end

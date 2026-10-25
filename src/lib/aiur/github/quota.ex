@@ -35,6 +35,7 @@ defmodule Aiur.GitHub.Quota do
 
   alias Aiur.GitHub.Access.Token
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Budget.FleetSnapshot
   alias Aiur.GitHub.Credential
   alias Aiur.GitHub.CredentialRegistry
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
@@ -270,7 +271,17 @@ defmodule Aiur.GitHub.Quota do
     }
 
     SnapshotCache.put(self(), snapshot, System.monotonic_time(:millisecond), System.system_time(:millisecond))
-    _ = LeaseStore.publish_github_quota_snapshot(snapshot)
+
+    _ =
+      Task.start(fn ->
+        _ = LeaseStore.publish_github_quota_snapshot(snapshot)
+
+        case LeaseStore.github_quota_snapshots() do
+          {:ok, snapshots} when is_list(snapshots) -> FleetSnapshot.put(snapshots)
+          _unavailable -> :ok
+        end
+      end)
+
     state = maybe_alert_stale_sample(state, now)
     {:reply, snapshot, state}
   end

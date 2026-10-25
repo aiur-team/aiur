@@ -34,11 +34,17 @@ defmodule Aiur.Instance.LeaseStore.SharedState do
     if configured?() do
       GenServer.call(Keyword.get(opts, :server, @name), {:shared_state, :budget_coordination_status})
     else
-      %{available?: false, live_count: 1}
+      %{available?: false, live_count: last_live_count()}
     end
   catch
-    :exit, _reason -> %{available?: false, live_count: 1}
+    :exit, _reason -> %{available?: false, live_count: last_live_count()}
   end
+
+  @doc false
+  defdelegate last_live_count(), to: Aiur.Instance.LeaseStore.LiveCount, as: :read
+
+  @doc false
+  defdelegate remember_live_count(count), to: Aiur.Instance.LeaseStore.LiveCount, as: :remember
 
   @spec handle_call(term(), map()) :: {:reply, term(), map()}
   def handle_call(:last_live_count, state), do: {:reply, state.known_instance_count, state}

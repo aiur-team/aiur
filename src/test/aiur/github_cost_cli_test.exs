@@ -347,6 +347,21 @@ defmodule Aiur.GitHubCostCLITest do
 
     assert envelope["data"]["fleet"]["total_attributed_points"] == 60
     assert [%{"instance_id" => "daemon-west", "attributed_points" => 60, "age_seconds" => 30}] = envelope["data"]["fleet"]["instances"]
+
+    output =
+      capture_io(fn ->
+        assert 0 ==
+                 GitHubCostCLI.run(
+                   snapshot_fun: fn -> snapshot() end,
+                   fleet_snapshots_fun: fn -> {:ok, [fleet_snapshot]} end,
+                   now: @now,
+                   format: :table
+                 )
+      end)
+
+    assert output =~ "fleet attributed spend: 60 points across 1 observed instances"
+    assert output =~ "daemon-west: 60 points"
+    assert output =~ "agent gh calls are counted per host"
   end
 
   test "surfaces a transport error as estimated GraphQL spend from the production meter" do

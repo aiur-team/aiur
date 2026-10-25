@@ -137,19 +137,22 @@ defmodule Aiur.ProviderMeterProjection do
   def init(opts) do
     _ = if Keyword.get(opts, :subscribe?, true), do: Events.subscribe_observed()
 
-    {:ok,
-     %{
-       observations: %{},
-       host_observations: Keyword.get(opts, :host_observations, Aiur.ProviderMeters.HostObservations),
-       probe_statuses: %{},
-       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-       probe_interval_seconds: Keyword.get(opts, :probe_interval_seconds, configured_probe_interval_seconds())
-     }}
+    state = %{
+      observations: %{},
+      host_observations: Keyword.get(opts, :host_observations, Aiur.ProviderMeters.HostObservations),
+      probe_statuses: %{},
+      clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
+      probe_interval_seconds: Keyword.get(opts, :probe_interval_seconds, configured_probe_interval_seconds()),
+      shared_refresh_interval_ms: Keyword.get(opts, :shared_refresh_interval_ms, 15_000),
+      shared_refresh_fun: Keyword.get(opts, :shared_refresh_fun, &fetch_shared_observations/0),
+      shared_refresh_pending?: false
+    }
+
+    {:ok, schedule_shared_refresh(state)}
   end
 
   @impl true
   def handle_call(:snapshot, _from, state) do
-    state = merge_shared_observations(state)
     now = state.clock.()
 
     views =
@@ -161,13 +164,10 @@ defmodule Aiur.ProviderMeterProjection do
   end
 
   def handle_call({:provider_view, provider}, _from, state) when provider in @providers do
-    state = merge_shared_observations(state)
     {:reply, consumer_view(provider, state.clock.(), state), state}
   end
 
   def handle_call({:redacted_snapshot, provider}, _from, state) do
-    state = merge_shared_observations(state)
-
     reply =
       if host_scoped?(provider) do
         HostObservations.redacted_snapshot(state.host_observations, provider)
@@ -209,7 +209,9 @@ defmodule Aiur.ProviderMeterProjection do
   @impl true
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{provider: provider} = snapshot}, state)
       when provider in @providers do
-    if snapshot.identity_scope == :account, do: LeaseStore.publish_provider_meter(snapshot)
+    if snapshot.identity_scope == :account do
+      _ = Task.start(fn -> LeaseStore.publish_provider_meter(snapshot) end)
+    end
 
     {:noreply,
      %{
@@ -219,23 +221,42 @@ defmodule Aiur.ProviderMeterProjection do
      }}
   end
 
+  def handle_info(:refresh_shared_observations, state) do
+    state = schedule_shared_refresh(state)
+
+    if state.shared_refresh_pending? do
+      {:noreply, state}
+    else
+      projection = self()
+      refresh_fun = state.shared_refresh_fun
+      _ = Task.start(fn -> send(projection, {:shared_observations, refresh_fun.()}) end)
+      {:noreply, %{state | shared_refresh_pending?: true}}
+    end
+  end
+
+  def handle_info({:shared_observations, snapshots}, state) when is_map(snapshots) do
+    observations =
+      Enum.reduce(snapshots, state.observations, fn
+        {provider, {:ok, %ProviderMeterSnapshot{} = shared}}, acc -> retain(acc, provider, shared)
+        _unavailable, acc -> acc
+      end)
+
+    {:noreply, %{state | observations: observations, shared_refresh_pending?: false}}
+  end
+
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp merge_shared_observations(state) do
-    Enum.reduce(@providers, state, fn provider, acc ->
-      case LeaseStore.shared_provider_meter(provider) do
-        {:ok, %ProviderMeterSnapshot{} = shared} ->
-          observations = retain(acc.observations, provider, shared)
-          %{acc | observations: observations}
+  defp schedule_shared_refresh(state) do
+    Process.send_after(self(), :refresh_shared_observations, state.shared_refresh_interval_ms)
+    state
+  end
 
-        _unavailable ->
-          acc
-      end
-    end)
+  defp fetch_shared_observations do
+    Map.new(@providers, fn provider -> {provider, LeaseStore.shared_provider_meter(provider)} end)
   rescue
-    _unavailable -> state
+    _unavailable -> %{}
   catch
-    :exit, _reason -> state
+    :exit, _reason -> %{}
   end
 
   # An observation with no observed_at cannot be aged, and an older observation

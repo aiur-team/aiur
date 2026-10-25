@@ -197,7 +197,7 @@ defmodule Aiur.Instance.LeaseStore do
       reconnect_ms: Keyword.get(opts, :reconnect_initial_ms, @reconnect_initial_ms),
       reconnect_max_ms: Keyword.get(opts, :reconnect_max_ms, @reconnect_max_ms),
       outage?: false,
-      known_instance_count: max(Keyword.get(opts, :known_instance_count, 1), 1),
+      known_instance_count: max(Keyword.get(opts, :known_instance_count, SharedState.last_live_count()), 1),
       retry_timer: nil
     }
 
@@ -298,7 +298,8 @@ defmodule Aiur.Instance.LeaseStore do
 
     case result do
       {:ok, instances} when is_list(instances) ->
-        {:reply, result, %{state | known_instance_count: max(length(instances), 1)}}
+        count = SharedState.remember_live_count(max(length(instances), 1))
+        {:reply, result, %{state | known_instance_count: count}}
 
       _ ->
         reply_with_reconnect(result, state)
@@ -319,7 +320,8 @@ defmodule Aiur.Instance.LeaseStore do
 
     case result do
       {:ok, instances} when is_list(instances) ->
-        {:reply, result, %{state | known_instance_count: max(length(instances), 1)}}
+        count = SharedState.remember_live_count(max(length(instances), 1))
+        {:reply, result, %{state | known_instance_count: count}}
 
       _ ->
         reply_with_reconnect(result, state)
