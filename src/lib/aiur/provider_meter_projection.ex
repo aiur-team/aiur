@@ -27,6 +27,7 @@ defmodule Aiur.ProviderMeterProjection do
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeters.HostObservations
   alias Aiur.ProviderMeterSnapshot
+  alias Aiur.ProviderMeterProjection.SharedRefresh
 
   # Registry-derived at compile time (a literal list, so the `in @providers`
   # guards below still inline) — a new metered backend projects with no edit.
@@ -144,7 +145,7 @@ defmodule Aiur.ProviderMeterProjection do
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       probe_interval_seconds: Keyword.get(opts, :probe_interval_seconds, configured_probe_interval_seconds()),
       shared_refresh_interval_ms: Keyword.get(opts, :shared_refresh_interval_ms, 15_000),
-      shared_refresh_fun: Keyword.get(opts, :shared_refresh_fun, &fetch_shared_observations/0),
+      shared_refresh_fun: Keyword.get(opts, :shared_refresh_fun, &SharedRefresh.fetch/0),
       shared_refresh_pending?: false
     }
 
@@ -249,14 +250,6 @@ defmodule Aiur.ProviderMeterProjection do
   defp schedule_shared_refresh(state) do
     Process.send_after(self(), :refresh_shared_observations, state.shared_refresh_interval_ms)
     state
-  end
-
-  defp fetch_shared_observations do
-    Map.new(@providers, fn provider -> {provider, LeaseStore.shared_provider_meter(provider)} end)
-  rescue
-    _unavailable -> %{}
-  catch
-    :exit, _reason -> %{}
   end
 
   # An observation with no observed_at cannot be aged, and an older observation
