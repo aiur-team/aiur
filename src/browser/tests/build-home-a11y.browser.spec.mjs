@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import AxeBuilder from '@axe-core/playwright'
 import { measureGlyphContrast, expectGlyphContrast } from './support/build-home-glyph-contrast.mjs'
+import { recordContrastBaselines, measureContrastBaselines } from './support/build-home-contrast-baselines.mjs'
 import { boardAudit, contrastRatio } from './support/build-home-a11y-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
@@ -184,7 +185,15 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         await settleAnimations(page, '#build-root')
         const audit = await new AxeBuilder({ page }).include('#bd-vp').exclude('.bd-cx[aria-hidden="true"]').analyze()
         await test.info().attach('axe-audit', { body: JSON.stringify(audit), contentType: 'application/json' })
-        expectAuditClean(boardAudit(audit))
+        const cell = { dataset, view, theme, mode }
+        const measurements = await measureContrastBaselines(page, audit, cell)
+        const classified = recordContrastBaselines(boardAudit(audit), cell, measurements)
+        await test.info().attach('known-contrast-baseline-violations', {
+          body: JSON.stringify(classified.known), contentType: 'application/json'
+        })
+        for (const known of classified.known) test.info().annotations.push({ type: 'known baseline violation',
+          description: known.id + ': ' + known.measuredRatio + ':1; ' + known.followup })
+        expectAuditClean(classified.audit)
       })
     }
   }

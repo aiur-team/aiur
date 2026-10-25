@@ -64,3 +64,60 @@ test('partial obscuring accepts only card-over-lane provenance', () => {
   check.relatedNodes = [{ target: ['#bd-lanes'] }]
   assert.throws(() => expectAuditClean(boardAudit(partial)))
 })
+
+
+test('edge imgNode accepts card interiors and rejects unrelated related nodes', () => {
+  const input = audit('imgNode')
+  const check = input.incomplete[0].nodes[0].any[0]
+  for (const card of ['div[data-id="607"] > .bd-in', 'div[data-id="607"] > .bd-in > .bd-top > .bd-id']) {
+    check.relatedNodes = [{ target: ['#bd-edges'] }, { target: [card] }]
+    expectAuditClean(boardAudit(input))
+    check.relatedNodes.push({ target: ['#unrelated'] })
+    assert.throws(() => expectAuditClean(boardAudit(input)))
+  }
+  for (const unrelated of ['.bd-in', 'div[data-id="607"] > .unrelated', '#bd-lanes']) {
+    check.relatedNodes = [{ target: [unrelated] }]
+    assert.throws(() => expectAuditClean(boardAudit(input)))
+  }
+})
+
+// Explicit design baselines stay failures in the report and cannot absorb growth.
+test('known contrast baselines reject worsening ratios, new elements and rules', async () => {
+  const { recordContrastBaselines } = await import('../tests/support/build-home-contrast-baselines.mjs')
+  const cell = { dataset: 'live', view: 'graph', theme: 'light' }
+  const input = { violations: [{ id: 'color-contrast', nodes: [{ target: ['.promo'],
+    any: [{ id: 'color-contrast', data: { contrastRatio: 4.14, messageKey: null } }], all: [], none: [] }] }], incomplete: [] }
+  const measured = { 'div[data-id="607"] .bd-q.promo': { count: 1, ratio: 4.14, targets: ['.promo'] } }
+  const result = recordContrastBaselines(input, cell, measured)
+  expectAuditClean(result.audit)
+  assert.equal(result.known[0].status, 'known baseline violation')
+  assert.equal(result.known[0].followup, '#6292')
+  assert.equal(input.violations[0].nodes.length, 1)
+  assert.throws(() => recordContrastBaselines({ violations: [], incomplete: [] }, cell,
+    { 'div[data-id="607"] .bd-q.promo': { count: 1, ratio: 4.10, targets: [] } }))
+  for (const change of ['ratio', 'target', 'rule', 'duplicate']) {
+    const bad = structuredClone(input)
+    if (change === 'ratio') bad.violations[0].nodes[0].any[0].data.contrastRatio = 4.13
+    if (change === 'target') bad.violations[0].nodes[0].target = ['.new-promotion']
+    if (change === 'rule') bad.violations[0].id = 'new-rule'
+    if (change === 'duplicate') bad.violations[0].nodes.push(structuredClone(bad.violations[0].nodes[0]))
+    assert.throws(() => expectAuditClean(recordContrastBaselines(bad, cell, measured).audit))
+  }
+  assert.throws(() => recordContrastBaselines(input, cell, { 'div[data-id="607"] .bd-q.promo': { count: 2, ratio: 4.14, targets: ['.promo'] } }))
+  assert.throws(() => expectAuditClean(recordContrastBaselines(input, { ...cell, theme: 'dark' }, measured).audit))
+})
+
+test('short-text baseline requires its measured ratio and exact node and cause', async () => {
+  const { recordContrastBaselines } = await import('../tests/support/build-home-contrast-baselines.mjs')
+  const target = 'span[title="openrouter"] > .ax-mono'
+  const input = { violations: [], incomplete: [{ id: 'color-contrast', nodes: [{ target: [target],
+    any: [{ id: 'color-contrast', data: { messageKey: 'shortTextContent' } }], all: [], none: [] }] }] }
+  const measured = { [target]: { count: 1, ratio: 3.8174, targets: [target] } }
+  const result = recordContrastBaselines(input, { dataset: 'unknowns' }, measured)
+  expectAuditClean(result.audit)
+  assert.equal(result.known[0].measuredRatio, 3.8174)
+  assert.equal(result.known[0].followup, '#6293')
+  assert.throws(() => recordContrastBaselines(input, { dataset: 'unknowns' }, { [target]: { ...measured[target], ratio: 3.81 } }))
+  input.incomplete[0].nodes[0].any[0].data.messageKey = 'unknown-cause'
+  assert.throws(() => expectAuditClean(recordContrastBaselines(input, { dataset: 'unknowns' }, measured).audit))
+})

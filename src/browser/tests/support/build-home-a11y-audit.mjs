@@ -14,7 +14,8 @@ function overlapCheck(check) {
   if (key === 'pseudoContent') return related.length > 0 && related.every(target => target === '#bd-now')
   if (!['imgNode', 'shortTextContent'].includes(key)) return false
   const targets = (check.relatedNodes ?? []).map(node => node.target.join(''))
-  return targets.includes('#bd-edges') && targets.every(target => ['#bd-edges', '#bd-lanes'].includes(target))
+  const card = target => /^div\[data-id="[^"]+"\] > \.bd-in(?: > [\w.#:[\]=" -]+)*$/.test(target)
+  return targets.includes('#bd-edges') && targets.every(target => ['#bd-edges', '#bd-lanes'].includes(target) || (key === 'imgNode' && card(target)))
 }
 export function boardAudit(audit) {
   return {

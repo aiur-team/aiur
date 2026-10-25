@@ -5,7 +5,7 @@ import { contrastRatio } from './build-home-a11y-audit.mjs'
 // Ancestor dim/hdim opacity is outside this at-rest fixture census; glyph-level
 // opacity/filter and background layers are included. Measure both
 // ends of progress washes, stripes and the grid. Never substitute a token for a missing colour.
-export async function measureGlyphContrast(page, selectors) {
+export async function measureTextContrast(page, selectors) {
   const measurements = await page.evaluate(selectors => {
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = 1
@@ -14,7 +14,7 @@ export async function measureGlyphContrast(page, selectors) {
     const hex = rgb => '#' + rgb.slice(0, 3).map(n => n.toString(16).padStart(2, '0')).join('')
     return selectors.map(selector => {
       const glyph = document.querySelector(selector)
-      if (!glyph?.matches('.bd-cx')) throw new Error('Expected a rendered complexity glyph: ' + selector)
+      if (!glyph) throw new Error('Expected rendered text: ' + selector)
       const style = getComputedStyle(glyph)
       let host = glyph
       const layers = []
@@ -72,3 +72,5 @@ export function expectGlyphContrast(measurements, baseline) {
     expect(measurement.ratio, JSON.stringify(measurement)).toBeGreaterThanOrEqual(floor)
   }
 }
+
+export { measureTextContrast as measureGlyphContrast }
