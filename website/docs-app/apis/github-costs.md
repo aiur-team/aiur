@@ -6,6 +6,8 @@ There is a third path, and it is the cheapest one: a change Aiur makes.
 
 Sparse merge events that omit the merger login trigger one `GET /pulls/{number}` in the merge tracker task, attributed to `merge_attribution`. Events carrying the login need no read; failed or unattributed reads retain the critical attribution alert.
 
+Setting `PUT /api/v1/<ticket>/spend-cap` resolves that issue once through the existing `issue_by_id` read before it stores a repository-qualified tracker identity. Reading or clearing an existing cap is local and adds no GitHub request.
+
 Idle restacks use delivered PR facts and the agent credential file, with cached GitHub helpers cleared. Push propagation uses exact-head leases for fast-forward commits. Each direct dependent’s push advances the cascade; conflicts write rework and a path comment ([restacking](/concepts/build-orders#restacking-after-a-squash-merge)).
 
 Stacked-base checks use held dependency edges without the dispatch-age cutoff and PR facts delivered within 24 hours. Missing evidence restores the integration base; no remote reads are added ([ticket lifecycle](/concepts/ticket-lifecycle#build-queue)). A stale queue [lists open issues](/concepts/build-orders#queue-cost) as `build_queue_open_issue_list`.

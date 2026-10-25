@@ -45,6 +45,12 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
+    terminate_running_issue(state, issue_id, cleanup_workspace, terminate_reason(cleanup_workspace))
+  end
+
+  @doc false
+  @spec terminate_running_issue(State.t(), String.t(), boolean(), term()) :: State.t()
+  def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace, stop_reason) do
     state = CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
     state = clear_transient_reason_labels(state, issue_id)
 
@@ -68,7 +74,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # old `aiur_turn_id` and miss every event the next-dispatched
         # agent emits. The Executor sees an empty chat pane until the
         # 10-minute watchdog fires.
-        close_active_chat_streams(identifier, terminate_reason(cleanup_workspace))
+        close_active_chat_streams(identifier, stop_reason)
 
         if is_pid(pid) do
           terminate_task(pid)

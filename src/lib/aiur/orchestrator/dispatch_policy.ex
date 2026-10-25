@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   require Logger
 
   alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, SystemCpu, SystemFileDescriptors, Tracker}
-  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
+  alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates, SpendCap}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
   @type admission_reason :: Gates.admission_reason()
@@ -168,6 +168,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :paused
           | :parked
           | :executor_owned
+          | :spend_cap_exhausted
+          | :spend_cap_unavailable
           | :inactive_state
           | :no_agent_work_state
           | :terminal_state
@@ -200,6 +202,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :paused,
     :parked,
     :executor_owned,
+    :spend_cap_exhausted,
+    :spend_cap_unavailable,
     :inactive_state,
     :no_agent_work_state,
     :terminal_state,
@@ -375,7 +379,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       not issue_not_paused?(issue) -> {:skip, :paused}
       not issue_not_parked?(issue) -> {:skip, :parked}
       not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
-      true -> :dispatch
+      true -> SpendCap.decision(issue)
     end
   end
 

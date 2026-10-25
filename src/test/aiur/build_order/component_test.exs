@@ -149,7 +149,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
     AiurWeb.DashboardAuth.ChallengeStore,
     Aiur.BuildOrder.Estimates,
-    AiurWeb.Build.IndexSupervisor
+    AiurWeb.Build.IndexSupervisor,
+    Aiur.Orchestrator.SpendCap.Store
   ]
 
   setup do

@@ -399,7 +399,7 @@ defmodule Aiur.GitHub.IssueState do
 
   @spec maybe_close_issue(function(), String.t(), String.t(), String.t()) :: :ok | {:error, term()}
   def maybe_close_issue(request_fun, token, issue_url, state_name) do
-    if StatePolicy.normalize_state(state_name) in ["done", "cancelled", "canceled"] do
+    if StatePolicy.normalize_state(state_name) in ["done", "cancelled", "canceled", "budget-exhausted"] do
       case request_fun.(%{
              method: :patch,
              url: issue_url,

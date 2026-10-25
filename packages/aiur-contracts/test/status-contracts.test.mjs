@@ -40,6 +40,13 @@ test('ticket usage accepts stale and known-empty states', () => {
   assert.equal(validate(knownEmpty), true, JSON.stringify(validate.errors));
 });
 
+test('spend-cap reached event requires the distinct budget_exhausted end state', () => {
+  const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket spend cap reached');
+  for (const wrong of ['failed', 'cancelled', null]) {
+    assert.equal(validate({ ...fixture, end_state: wrong }), false);
+  }
+});
+
 test('status accepts nullable polling and structured CI results emitted by the presenter', () => {
   const { fixture, validate } = contractCases.find(({ name }) => name === 'status');
   const status = structuredClone(fixture);

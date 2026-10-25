@@ -20,6 +20,14 @@ const outputs = [
       'ticket-progress.v1.schema.json',
     ],
   },
+  {
+    name: 'TicketSpendCapContract',
+    target: new URL('../src/spend-cap.generated.ts', import.meta.url),
+    refs: [
+      'ticket-spend-cap.v1.schema.json',
+      'ticket-spend-cap-reached.v1.schema.json',
+    ],
+  },
 ];
 
 for (const output of outputs) {
