@@ -172,6 +172,13 @@ cmd_restart() {
     aiur_write_restart_diagnostic
   fi
 
+  local previous_sha="unknown" snapshot_dir=""
+  if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
+    restart_release_snapshot "${AIUR_RELEASE_DIR:-}" || die "restart aborted before stop: could not preserve the previous release"
+    previous_sha="${RESTART_PREVIOUS_SHA:-unknown}"
+    snapshot_dir="${RESTART_SNAPSHOT_DIR:-}"
+  fi
+
   # Restarting something that is already down is a start, not an error: the
   # operator asked for a running daemon on current code, and that is what they
   # get. Any OTHER stop failure is fatal — building and starting on top of a
@@ -269,8 +276,9 @@ cmd_restart() {
   aiur_restart_phase="startup"
   aiur_restart_reason="startup_started"
   aiur_write_restart_diagnostic
-  local start_status=0
-  aiur_restart_start_with_retry || start_status=$?
+  local boot_status=0 start_status=0
+  aiur_restart_start_with_retry || boot_status=$?
+  restart_after_start_attempt "$boot_status" "${AIUR_LOGS_ROOT:-}/log/boot.out.log" "$previous_sha" "$snapshot_dir" "$keep_agents" || start_status=$?
   if [ "$start_status" -ne 0 ]; then
     aiur_restart_phase="startup_failed"
     aiur_restart_reason="startup_failed_exit_${start_status}"
@@ -281,9 +289,12 @@ cmd_restart() {
   fi
 
   aiur_restart_daemon_state="running"
-  aiur_restart_phase="complete"
-  aiur_restart_reason="restart_succeeded"
+  if [ "$boot_status" -ne 0 ]; then
+    aiur_restart_phase="rollback_complete"
+    aiur_restart_reason="new_release_failed_rolled_back"
+  else
+    aiur_restart_phase="complete"
+    aiur_restart_reason="restart_succeeded"
+  fi
   aiur_write_restart_diagnostic
-  trap - EXIT INT TERM
-  [ "$keep_agents" -eq 0 ] || report_restart_handoff
 }

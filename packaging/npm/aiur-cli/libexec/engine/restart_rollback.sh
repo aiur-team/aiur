@@ -1,4 +1,5 @@
 # Startup rollback helpers for `aiur restart`. Sourced by aiur-engine.sh.
+aiur_restart_previous_release=""
 
 restart_first_error_line() {
   local capture="$1" line
@@ -40,6 +41,8 @@ rollback_restart_release() {
 
 restart_release_snapshot() {
   local release_dir="$1" source_sha
+  RESTART_PREVIOUS_SHA="unknown"
+  RESTART_SNAPSHOT_DIR=""
   [ -n "$release_dir" ] && [ -d "$release_dir" ] || return 0
   source_sha="$(sed -n 's/^source_sha=//p' "$release_dir/AIUR_BUILD_STAMP" 2>/dev/null | head -n 1)"
   RESTART_PREVIOUS_SHA="${source_sha:-unknown}"
