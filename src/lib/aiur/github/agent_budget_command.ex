@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
   @moduledoc false
 
   alias Aiur.AgentGitHubGuard.AgentToken
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Access
 
   @spec execute([String.t()]) :: {:ok, String.t()} | {:error, term()}
   def execute(args), do: execute(args, [])
@@ -16,13 +16,13 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
   end
 
   defp dispatch(["acquire" | _], _token, request, opts) do
-    if Keyword.get(opts, :priority?), do: Budget.prioritize()
-    Budget.acquire(request, opts) |> acquire_response()
+    if Keyword.get(opts, :priority?), do: Access.prioritize()
+    Access.acquire_budget(request, opts) |> acquire_response()
   end
 
   defp dispatch(["release", "--lease-id", id], token, _request, opts) do
     if valid_lease?(id) do
-      Budget.release(%{id: id, token_key: Budget.token_key(token)}, opts)
+      Access.release_budget(%{id: id, token_key: Access.token_key(token)}, opts)
       {:ok, "released\n"}
     else
       {:error, :invalid_request}
@@ -31,7 +31,7 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
 
   defp dispatch(["reconcile", "--lease-id", id, "--status", "304"], _token, request, opts) do
     if valid_lease?(id) do
-      Budget.observe(request, {:ok, %{status: 304}}, opts)
+      Access.observe_budget(request, {:ok, %{status: 304}}, opts)
       {:ok, "reconciled\n"}
     else
       {:error, :invalid_request}
@@ -40,7 +40,7 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
 
   defp dispatch(["renew", "--lease-id", id, "--lease-ttl-ms", ttl], token, _request, opts) do
     if valid_lease?(id) and valid_integer?(ttl, 1_000..3_600_000) do
-      broker_call(["renew", "--lease-id", id, "--lease-ttl-ms", ttl], Budget.token_key(token), opts)
+      broker_call(["renew", "--lease-id", id, "--lease-ttl-ms", ttl], Access.token_key(token), opts)
     else
       {:error, :invalid_request}
     end
@@ -74,13 +74,13 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
   defp acquire_response(:bypass), do: {:error, :github_budget_broker_unavailable}
 
   defp update_hold(scope, resource, delay, milliseconds, token, opts) do
-    key = Budget.token_key(token)
+    key = Access.token_key(token)
     request = %{token: token, url: family_url(resource)}
     args = ["hold", "--scope", scope, "--resource", resource, "--delay-ms", delay]
 
     case broker_call(args, key, opts) do
       {:ok, _output} ->
-        Budget.publish_shared_hold(request, key, if(scope == "token", do: "*", else: resource), milliseconds)
+        Access.publish_shared_budget_hold(request, key, if(scope == "token", do: "*", else: resource), milliseconds)
         {:ok, "held\n"}
 
       {:error, _} = error ->
@@ -96,13 +96,13 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
     family = Map.get(values, "--endpoint-family")
     consumer = Map.get(values, "--consumer-label")
     consumer_key = Map.get(values, "--consumer-key")
-    family_entry = Enum.find(Budget.agent_families(), &(elem(&1, 0) == family))
+    family_entry = Enum.find(Access.agent_budget_families(), &(elem(&1, 0) == family))
 
     with {^family, resource, _billable} <- family_entry,
          true <- is_binary(consumer) and String.starts_with?(consumer, "workspace:"),
-         true <- consumer_key == Budget.token_key(consumer),
+         true <- consumer_key == Access.token_key(consumer),
          true <- Map.get(values, "--resource") == resource do
-      request = %{token: token, url: family_url(family), credential_key: Budget.token_key(token)}
+      request = %{token: token, url: family_url(family), credential_key: Access.token_key(token)}
 
       budget_opts =
         Keyword.merge(opts,
@@ -193,5 +193,5 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
   defp family_url("search"), do: "https://api.github.com/search/issues"
   defp family_url(family), do: "https://api.github.com/repos/aiur/budget/#{family}"
 
-  defp broker_call(args, key, opts), do: Budget.command(args, key, opts)
+  defp broker_call(args, key, opts), do: Access.agent_budget_command(args, key, opts)
 end

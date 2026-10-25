@@ -5,8 +5,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   alias Aiur.AgentEnvironment.TestRunIsolation
   alias Aiur.AgentGitHubGuard
   alias Aiur.Config.Paths
-  alias Aiur.GitHub.AgentBudgetSocket
-  alias Aiur.GitHub.{Access, AgentMarker}
+  alias Aiur.GitHub.{Access, AgentBudgetSocket, AgentMarker}
   alias Aiur.GitHub.Config, as: GitHubConfig
 
   @impl true
