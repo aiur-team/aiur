@@ -35,9 +35,11 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
 | `pre_warmed_sessions` | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
-## executor takeover alerts
-| `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
 ## executor
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
+| `executor.relay_operator_answers` | boolean | false | Opt-in quoted operator answers via `operator-relay-answer`, including human-only Commands. Enabling and recording raise info alerts; disable to revoke. See [relay attribution and corrections](/concepts/commands#operator-answers-relayed-in-conversation). |
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
