@@ -98,8 +98,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
       assert MapSet.member?(result.claimed, issue.id)
     end
 
-    # The live route defers Refs-only triage to the poll reconciler.
-    test "a merged PR whose body only refs the ticket does not write triage twice" do
+    test "a merged PR whose body only refs the ticket comments without changing state" do
       issue = %Issue{
         id: "issue-refs-only",
         identifier: "176",
@@ -120,6 +119,9 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
           pr_body: "Refs #176 (six operator gates remain)",
+          pr_number: 901,
+          pr_url: "https://github.com/owner/repo/pull/901",
+          repository: "owner/repo",
           merged_by_login: "its-everdred",
           update_issue_state_fun: fn identifier, state_name ->
             send(parent, {:transition, identifier, state_name})
@@ -153,7 +155,8 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPrTargetsTest do
 
       refute_receive {:label, "176", _label}, 100
       refute_receive {:transition, "176", _state}, 100
-      refute_receive {:triage_comment, "176", _body}, 100
+      assert_receive {:triage_comment, "176", body}, 1000
+      assert body =~ "PR 901 referencing this ticket merged"
       refute_receive {:transition, "176", "done"}, 100
       refute_receive :membership_recorded, 100
       refute_receive :session_cleared, 100
