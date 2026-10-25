@@ -40,16 +40,18 @@ account name. Keys remain in the env file; the machine account registry stores
 only the variable name. Per-key identity and usage are unavailable for these
 backends and are shown as unavailable.
 
-List account identity and usage without exposing credentials:
+The compatibility command `aiur accounts` now prints the shared provider usage
+summary and is deprecated. Use `aiur usage` or `aiur usage claude --json` for
+provider-level readings. Account-level identities remain available from the
+authenticated endpoint below; credentials are never returned:
 
 ```sh
-aiur accounts
-aiur accounts codex --json
+aiur usage
+aiur usage claude --json
 ```
 
-Usage percentages and freshness come from the daemon's last poll. If Aiur is
-not running, the command still shows account identity and reports usage as
-unavailable; it does not make a separate usage request.
+Usage percentages and freshness come from the daemon's last poll. The usage
+command requires the daemon and does not make a separate provider request.
 
 The daemon polls Claude usage every `polling.usage_interval_seconds` while
 agents run or a dashboard is in focus, in any `account_selection` mode. A
@@ -65,7 +67,7 @@ A running daemon serves the same rows over HTTP, behind dashboard basic auth:
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Each row is the matching `aiur accounts --json` row, limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at`, `age_ms` and, on Claude rows, `last_error`. |
+| `GET /api/v1/usage/accounts` | `{contract: "aiur.usage.accounts", contract_version: 1, observed_at, accounts: [...]}`. Per-account rows are limited to an allowlist: identity labels, `weekly_percent`, `five_hour_percent`, `remaining_percent`, `freshness`, `observed_at`, `age_ms` and, on Claude rows, `last_error`. |
 | `GET /api/v1/usage/accounts?harness=codex` | The same envelope, limited to one harness. |
 
 Every row has a `freshness` value:

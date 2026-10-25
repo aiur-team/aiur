@@ -5,6 +5,7 @@ defmodule AiurWeb.Api.UsageControllerTest do
 
   alias Aiur.TestSupport.EndpointStubs
   alias Aiur.TestSupport.GroupedScopes, as: GS
+  alias Aiur.Usage.CLI
   alias AiurWeb.Router
   @session_options Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session")
 
@@ -38,6 +39,29 @@ defmodule AiurWeb.Api.UsageControllerTest do
     assert body["schema_version"] == 1
     assert body["ticket"]["identifier"] == "5692"
     assert body["totals"]["tokens"] == %{"input" => 100}
+  end
+
+  test "provider routes use the same versioned envelope as the CLI" do
+    opts = [meter_views: %{}, github_quota: %{state: :unknown, windows: %{}}, broker_usage: %{}, ticket_usage: %{}]
+    previous = Application.get_env(:aiur, :usage_read_opts)
+    Application.put_env(:aiur, :usage_read_opts, opts)
+
+    on_exit(fn ->
+      if is_nil(previous), do: Application.delete_env(:aiur, :usage_read_opts), else: Application.put_env(:aiur, :usage_read_opts, previous)
+    end)
+
+    response = request(:get, "/api/v1/usage/codex")
+    assert response.status == 200
+    assert Jason.decode!(response.resp_body) == elem(CLI.payload("codex", opts), 1)
+
+    summary = request(:get, "/api/v1/usage")
+    assert summary.status == 200
+    assert Jason.decode!(summary.resp_body) == Aiur.Usage.json_snapshot(opts)
+  end
+
+  test "provider API rejects unknown providers and protects both route forms" do
+    assert request(:get, "/api/v1/usage/nope").status == 404
+    assert request(:get, "/api/v1/usage", nil).status == 401
   end
 
   test "an unknown ticket answers the documented not-found shape" do

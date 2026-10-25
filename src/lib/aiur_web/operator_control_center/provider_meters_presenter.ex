@@ -116,7 +116,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
     state = card_state(snapshot)
     known? = known_identity?(state)
 
-    %{
+    card = %{
       provider: provider,
       provider_label: provider_label(provider),
       backend_label: backend_label(snapshot),
@@ -133,6 +133,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       summary_label: if(snapshot, do: snapshot.summary_label),
       account_usage: AccountUsagePresenter.present(account_readings)
     }
+
+    case Aiur.Usage.dashboard_card(card) do
+      {:ok, usage} -> Map.put(card, :usage, usage)
+      :error -> card
+    end
   end
 
   # A card names quota/tier facts only for identities with an exact known
