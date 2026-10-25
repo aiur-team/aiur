@@ -1,7 +1,6 @@
 defmodule Aiur.GitHub.Access.WrapperTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.Access.Wrapper
   alias Aiur.GitHub.HostCommand
 
   @moduletag :tmp_dir
@@ -14,7 +13,6 @@ defmodule Aiur.GitHub.Access.WrapperTest do
     File.write!(executable, "#!/bin/sh\nexit 0\n")
     File.chmod!(executable, 0o755)
 
-    assert Wrapper.host_bin_dir() == root
     assert Aiur.AgentGitHubGuard.host_bin_dir() == root
     assert HostCommand.find_executable() == executable
   end

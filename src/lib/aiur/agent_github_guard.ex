@@ -141,7 +141,9 @@ defmodule Aiur.AgentGitHubGuard do
   defp real_directory?(path), do: match?({:ok, %File.Stat{type: :directory}}, File.lstat(path))
 
   @spec host_bin_dir() :: Path.t()
-  defdelegate host_bin_dir(), to: Aiur.GitHub.Access.Wrapper
+  def host_bin_dir do
+    Application.get_env(:aiur, :host_guard_bin_dir) || Path.join(System.user_home!(), ".aiur/bin")
+  end
 
   @spec real_gh() :: Path.t() | nil
   def real_gh do

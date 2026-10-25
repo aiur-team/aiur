@@ -47,7 +47,6 @@
     "Aiur.GitHub.Access.SettingsProvider",
     "Aiur.GitHub.Access.StaticSettings",
     "Aiur.GitHub.Access.Token",
-    "Aiur.GitHub.Access.Wrapper",
     "Aiur.GitHub.AgentCacheBridge",
     "Aiur.GitHub.AppCredentials",
     "Aiur.GitHub.AppToken",
