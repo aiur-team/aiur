@@ -122,7 +122,7 @@ defmodule Aiur.Application.StartupChecks do
 
   defp missing_hosted_route_credentials(_settings, _env, _kind), do: []
 
-  defp configure_codex_home(%{instance: %{mode: "hosted"}}, env) do
+  defp configure_codex_home({:ok, %{instance: %{mode: "hosted"}}}, env) do
     state_dir = env["AIUR_BG_STATE_DIR"] || Path.expand("~/.config/aiur")
 
     codex_home =
