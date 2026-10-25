@@ -13,12 +13,32 @@ defmodule Aiur.Instance.LeaseStore.RepositoryLease do
   @spec renew(String.t(), keyword()) :: :ok | {:error, term()}
   def renew(repository, opts \\ []), do: call(:renew, repository, opts)
 
+  @spec claim_leader(String.t(), keyword()) :: :acquired | :held | {:error, term()}
+  def claim_leader(repository, opts \\ []), do: claim_for_store(:claim, repository, opts)
+
+  @spec renew_leader(String.t(), keyword()) :: :ok | {:error, term()}
+  def renew_leader(repository, opts \\ []), do: claim_for_store(:renew, repository, opts)
+
   @doc false
-  def claim_for_store(action, repository, opts, server) do
+  @spec claim_for_store(:claim | :renew, String.t(), keyword()) :: :acquired | :held | :ok | {:error, term()}
+  def claim_for_store(action, repository, opts) do
+    server = Keyword.get(opts, :server, LeaseStore)
     instance_id = Keyword.get_lazy(opts, :instance_id, fn -> GenServer.call(server, :instance_id) end)
     call(action, repository, Keyword.put(opts, :instance_id, instance_id))
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
+  @spec state_instance_id(map()) :: term()
+  def state_instance_id(%{instance_id: instance_id}) when is_function(instance_id, 0), do: instance_id.()
+  def state_instance_id(%{instance_id: instance_id}), do: instance_id
+
+  @spec configured_instance_id(keyword()) :: term()
+  def configured_instance_id(opts) do
+    case Keyword.get(opts, :instance_id, &Identity.current/0) do
+      fun when is_function(fun, 0) -> fun.()
+      id -> id
+    end
   end
 
   @spec leader(String.t(), keyword()) :: map() | :unheld | :disabled | :unknown
