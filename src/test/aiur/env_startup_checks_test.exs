@@ -85,6 +85,22 @@ defmodule Aiur.EnvStartupChecksTest do
     assert :ok = StartupChecks.validate_secrets(settings, env)
   end
 
+  test "hosted GitHub startup names the opt-in when only a PAT is configured" do
+    settings = %{tracker: %{kind: "github"}, instance: %{mode: "hosted"}}
+    env = %{"GITHUB_TOKEN" => "pat-secret"}
+
+    assert {:error, message} = StartupChecks.validate_github_auth(settings, env)
+    assert message =~ "AIUR_GITHUB_ALLOW_PAT=1"
+    refute message =~ "pat-secret"
+  end
+
+  test "hosted GitHub startup permits the opted-in PAT fallback" do
+    settings = %{tracker: %{kind: "github"}, instance: %{mode: "hosted"}}
+    env = %{"GITHUB_TOKEN" => "pat-secret", "AIUR_GITHUB_ALLOW_PAT" => "1"}
+
+    assert StartupChecks.validate_github_auth(settings, env) == :ok
+  end
+
   test "Google OAuth client id and secret must be configured together" do
     assert {:error, errors} = Env.validate(%{"AIUR_GOOGLE_CLIENT_ID" => "client-id"})
     assert Enum.any?(errors, &(&1 =~ "Google sign-in credentials are partially configured"))

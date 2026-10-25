@@ -7,3 +7,6 @@ R-declared	Aiur.Webhooks.DeliveryMode	MP-R1-GHA-3 (#3825): inject freshness port
 R-declared	Aiur.Webhooks.ModeTable	MP-R1-GHA-3 (#3825): inject freshness port
 R-down	Aiur.TestTicketScope	MP-R1-GHA-3 (#3825): inject transport sandbox scope policy
 R-private	Aiur.GitHub.QueueCost	MP-R1-GHA-3 (#3825): inject caller attribution hook
+R-declared	Aiur.GitHub.AuthPolicy	#5944: hosted GitHub auth policy is owned by config and called by access
+R-declared	Aiur.Config	#5944: hosted-mode auth policy reads instance configuration
+R-declared	Aiur.Secrets	#5944: hosted-mode auth policy reads environment opt-in flags
