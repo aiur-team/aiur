@@ -10,13 +10,22 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
   end
 
   def all_with_errors(root) do
+    with {:ok, scans, errors} <- scans_with_errors(root) do
+      {:ok, Enum.map(scans, &public_conversation/1), errors}
+    end
+  end
+
+  # Boot reconciliation needs the provider ids and final record time as well as
+  # the public index fields. Keep those values from the same streaming scan so
+  # a large transcript is never read again for cleanup or crash closing.
+  def scans_with_errors(root) do
     case File.ls(root) do
       {:ok, entries} ->
         entries
         |> Enum.filter(&Regex.match?(@id_regex, &1))
         |> Enum.map(&String.trim_trailing(&1, ".ndjson"))
         |> Enum.reduce({[], []}, fn id, {conversations, errors} ->
-          case conversation(root, id) do
+          case scan(root, id) do
             {:ok, item} -> {[item | conversations], errors}
             {:error, reason} -> {conversations, [{id, reason} | errors]}
           end
@@ -33,7 +42,7 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
 
   def conversation(root, conversation_id) do
     with {:ok, scan} <- scan(root, conversation_id) do
-      {:ok, Map.drop(scan, [:provider_ids, :last_at])}
+      {:ok, public_conversation(scan)}
     end
   end
 
@@ -97,7 +106,18 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
     with {:ok, %{last_at: at}} <- scan(root, conversation_id), do: {:ok, at || fallback}
   end
 
-  defp empty_scan, do: %{started: nil, ended: nil, turn_count: 0, drafts: %{}, provider_ids: [], last_at: nil}
+  def public_conversation(scan), do: Map.drop(scan, [:provider_ids, :cleanup_provider_ids, :last_at])
+
+  defp empty_scan,
+    do: %{
+      started: nil,
+      ended: nil,
+      turn_count: 0,
+      drafts: %{},
+      provider_ids: [],
+      cleanup_provider_ids: [],
+      last_at: nil
+    }
 
   defp scan_record(%{started: nil} = scan, %{"type" => "session_started"} = record),
     do: {:cont, {:ok, %{scan | started: record, last_at: record["at"]}}}
@@ -121,6 +141,9 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
         %{"type" => "provider_conversation", "id" => id} when is_binary(id) and id != "" ->
           %{scan | provider_ids: Enum.uniq([id | scan.provider_ids])}
 
+        %{"type" => "cleanup_enqueued", "provider_id" => id} when is_binary(id) and id != "" ->
+          %{scan | cleanup_provider_ids: Enum.uniq([id | scan.cleanup_provider_ids])}
+
         _ ->
           scan
       end
@@ -143,6 +166,7 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
       draft_counts: scan.drafts |> Map.values() |> Enum.frequencies(),
       duration_s: ended && duration(ended, started),
       provider_ids: Enum.reverse(scan.provider_ids),
+      cleanup_provider_ids: Enum.reverse(scan.cleanup_provider_ids),
       last_at: scan.last_at
     }
   end

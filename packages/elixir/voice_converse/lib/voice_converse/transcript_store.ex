@@ -33,9 +33,10 @@ defmodule VoiceConverse.TranscriptStore do
   """
 
   @version 1
+  require Logger
   @id_regex ~r/\Avc_[A-Za-z0-9_-]{22}\z/
   @types ~w(session_started context user_turn assistant_turn tool_call tool_result draft delivery
-            provider_conversation session_ended)
+            provider_conversation cleanup_enqueued session_ended)
   @forbidden_top ~w(audio data_b64 signed_url api_key)
   @forbidden_deep ~w(data_b64 signed_url api_key)
 
@@ -85,7 +86,7 @@ defmodule VoiceConverse.TranscriptStore do
       with :ok <- sync_fs.(), :ok <- write_line(store, line) do
         # The transcript is authoritative. A later boot rebuilds this derived index if its own
         # append fails, so a usable durable transcript is never discarded for index trouble.
-        _ = VoiceConverse.TranscriptIndex.record_opened(root, conversation_id)
+        log_index_failure("opened", conversation_id, VoiceConverse.TranscriptIndex.record_opened(root, conversation_id))
         {:ok, store}
       else
         {:error, reason} ->
@@ -124,13 +125,17 @@ defmodule VoiceConverse.TranscriptStore do
 
   @doc "Appends one record and returns only after it is synced to disk. Nothing is written on a refusal."
   @spec append(session_store(), record()) :: :ok | {:error, term()}
-  def append(:none, record) when is_map(record) do
+  def append(store, record) when is_map(record), do: append(store, record, [])
+
+  @doc false
+  @spec append(session_store(), record(), keyword()) :: :ok | {:error, term()}
+  def append(:none, record, _opts) when is_map(record) do
     with {:ok, _line} <- encode(record), do: :ok
   end
 
-  def append(%__MODULE__{} = store, record) when is_map(record) do
+  def append(%__MODULE__{} = store, record, opts) when is_map(record) and is_list(opts) do
     with {:ok, line} <- encode(record), :ok <- write_line(store, line) do
-      maybe_record_closed(store, record)
+      if Keyword.get(opts, :record_index, true), do: maybe_record_closed(store, record)
       :ok
     end
   end
@@ -209,7 +214,11 @@ defmodule VoiceConverse.TranscriptStore do
 
   defp maybe_record_closed(store, record) do
     if Map.get(record, :type, Map.get(record, "type")) == "session_ended" do
-      _ = VoiceConverse.TranscriptIndex.record_closed(Path.dirname(store.path), store.conversation_id)
+      log_index_failure(
+        "closed",
+        store.conversation_id,
+        VoiceConverse.TranscriptIndex.record_closed(Path.dirname(store.path), store.conversation_id)
+      )
     end
   end
 
@@ -311,5 +320,11 @@ defmodule VoiceConverse.TranscriptStore do
       {_output, 0} -> :ok
       {output, status} -> {:error, {:sync_failed, status, output}}
     end
+  end
+
+  defp log_index_failure(_operation, _conversation_id, :ok), do: :ok
+
+  defp log_index_failure(operation, conversation_id, {:error, reason}) do
+    Logger.warning("voice transcript index #{operation} failed for #{conversation_id}: #{inspect(reason)}")
   end
 end

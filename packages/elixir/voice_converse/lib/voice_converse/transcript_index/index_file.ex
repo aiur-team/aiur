@@ -13,6 +13,8 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
     end
   end
 
+  def exists?(root), do: File.exists?(path(root))
+
   def read_or_rebuild(root) do
     case read(root) do
       {:ok, conversations} ->
@@ -25,19 +27,28 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
 
   def append(root, op, conversation) do
     with :ok <- ensure_root(root),
-         {:ok, fd} <- :file.open(String.to_charlist(path(root)), [:append, :binary, :raw]),
-         :ok <- File.chmod(path(root), 0o600),
-         :ok <- write_event(fd, event(op, conversation)),
-         :ok <- :file.datasync(fd) do
-      :file.close(fd)
-    else
-      {:error, reason} -> {:error, reason}
+         {:ok, fd} <- :file.open(String.to_charlist(path(root)), [:read, :append, :binary, :raw]) do
+      try do
+        with :ok <- repair_torn_tail(fd, path(root)),
+             :ok <- File.chmod(path(root), 0o600),
+             :ok <- write_event(fd, event(op, conversation)),
+             :ok <- :file.datasync(fd) do
+          :ok
+        end
+      after
+        :file.close(fd)
+      end
     end
   end
 
-  def rebuild(root) do
+  def rebuild(root, conversations \\ nil)
+
+  def rebuild(root, nil) do
+    with {:ok, conversations} <- Transcripts.all(root), do: rebuild(root, conversations)
+  end
+
+  def rebuild(root, conversations) when is_list(conversations) do
     with :ok <- ensure_root(root),
-         {:ok, conversations} <- Transcripts.all(root),
          :ok <- replace(root, conversations) do
       :ok
     end
@@ -74,16 +85,28 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
 
   defp replace(root, conversations) do
     temporary = path(root) <> ".tmp"
-    File.rm(temporary)
 
-    with {:ok, fd} <- :file.open(String.to_charlist(temporary), [:write, :binary, :raw]),
-         :ok <- File.chmod(temporary, 0o600),
-         :ok <- write_all(fd, conversations),
-         :ok <- :file.datasync(fd),
-         :ok <- :file.close(fd),
-         :ok <- File.rename(temporary, path(root)) do
-      :ok
-    else
+    with :ok <- remove_temporary(temporary),
+         {:ok, fd} <- :file.open(String.to_charlist(temporary), [:write, :binary, :raw]) do
+      try do
+        with :ok <- File.chmod(temporary, 0o600),
+             :ok <- write_all(fd, conversations),
+             :ok <- :file.datasync(fd),
+             :ok <- :file.close(fd),
+             :ok <- File.rename(temporary, path(root)),
+             :ok <- sync_directory(root) do
+          :ok
+        end
+      after
+        :file.close(fd)
+      end
+    end
+  end
+
+  defp remove_temporary(path) do
+    case File.rm(path) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
@@ -128,16 +151,61 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
   defp sort(conversations), do: Enum.sort_by(conversations, &{&1.started_at || "", &1.conversation_id}, :desc)
   defp path(root), do: Path.join(Path.expand(root), @index_filename)
 
-  defp ensure_root(root) when is_binary(root) and root != "" do
-    case File.lstat(root) do
-      {:ok, %File.Stat{type: :directory, mode: mode}} when Bitwise.band(mode, 0o077) == 0 -> :ok
-      {:ok, %File.Stat{type: :directory, mode: mode}} -> {:error, {:insecure_root, mode}}
-      {:ok, %File.Stat{type: :symlink}} -> {:error, {:symlink_rejected, root}}
-      {:ok, %File.Stat{}} -> {:error, {:not_a_directory, root}}
-      {:error, :enoent} -> with(:ok <- File.mkdir_p(root), do: File.chmod(root, 0o700))
+  defp repair_torn_tail(fd, path) do
+    with {:ok, content} <- File.read(path),
+         false <- content == "" or String.ends_with?(content, "\n") do
+      offset =
+        case :binary.matches(content, "\n") do
+          [] -> 0
+          matches -> matches |> List.last() |> elem(0) |> Kernel.+(1)
+        end
+
+      with {:ok, _} <- :file.position(fd, offset),
+           :ok <- :file.truncate(fd),
+           :ok <- :file.datasync(fd) do
+        :ok
+      end
+    else
+      true -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
 
+  defp ensure_root(root) when is_binary(root) and root != "" do
+    case File.lstat(root) do
+      {:ok, %File.Stat{type: :directory, mode: mode}} when Bitwise.band(mode, 0o077) == 0 ->
+        :ok
+
+      {:ok, %File.Stat{type: :directory, mode: mode}} ->
+        {:error, {:insecure_root, mode}}
+
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:error, {:symlink_rejected, root}}
+
+      {:ok, %File.Stat{}} ->
+        {:error, {:not_a_directory, root}}
+
+      {:error, :enoent} ->
+        with :ok <- File.mkdir_p(root),
+             :ok <- File.chmod(root, 0o700),
+             :ok <- sync_directory(root) do
+          :ok
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp ensure_root(_), do: {:error, :invalid_root}
+
+  defp sync_directory(root) do
+    with {:ok, fd} <- :file.open(String.to_charlist(root), [:read, :raw, :directory]) do
+      try do
+        :file.sync(fd)
+      after
+        :file.close(fd)
+      end
+    end
+  end
 end

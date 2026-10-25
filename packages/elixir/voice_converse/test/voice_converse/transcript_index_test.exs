@@ -2,6 +2,7 @@ defmodule VoiceConverse.TranscriptIndexTest do
   use ExUnit.Case, async: true
 
   alias VoiceConverse.{TestCleanup, TranscriptIndex, TranscriptStore}
+  alias VoiceConverse.TranscriptIndex.IndexFile
   alias VoiceConverse.Testing.{FakeBriefingSource, StaticCredentials}
 
   @id "vc_aaaaaaaaaaaaaaaaaaaaaa"
@@ -129,6 +130,28 @@ defmodule VoiceConverse.TranscriptIndexTest do
     assert 1 == Enum.count(records, &(&1.record["type"] == "session_ended"))
   end
 
+  test "boot re-enqueues a closed session's cleanup once and records the durable handoff", %{root: root} do
+    store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
+    :ok = TranscriptStore.append(store, %{type: "provider_conversation", id: "provider-1", at: "2026-10-24T10:01:00Z"})
+    :ok = TranscriptStore.append(store, %{type: "session_ended", reason: "user_end", at: "2026-10-24T10:02:00Z"})
+    :ok = TranscriptStore.close(store)
+
+    enqueue = fn provider_id, conversation_id ->
+      send(self(), {:enqueue, provider_id, conversation_id})
+      :ok
+    end
+
+    assert {:ok, %{reconciled: 0, errors: []}} = TranscriptIndex.reconcile(root, enqueue: enqueue)
+    assert_received {:enqueue, "provider-1", @id}
+    assert {:ok, records, nil} = TranscriptIndex.get(root, @id, after: 0, limit: 10)
+    assert 1 == Enum.count(records, &(&1.record["type"] == "cleanup_enqueued"))
+
+    assert {:ok, %{reconciled: 0, errors: []}} = TranscriptIndex.reconcile(root, enqueue: enqueue)
+    refute_received {:enqueue, _, _}
+    assert {:ok, records, nil} = TranscriptIndex.get(root, @id, after: 0, limit: 10)
+    assert 1 == Enum.count(records, &(&1.record["type"] == "cleanup_enqueued"))
+  end
+
   test "reconciled crashes are listed with daemon_restart and count toward today's minutes", %{root: root} do
     store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
 
@@ -198,6 +221,19 @@ defmodule VoiceConverse.TranscriptIndexTest do
     assert {:ok, [%{conversation_id: @id, end_reason: "user_end"}], nil} = TranscriptIndex.list(root, limit: 10)
   end
 
+  test "boot leaves an intact index in place", %{root: root} do
+    store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
+    :ok = TranscriptStore.append(store, %{type: "session_ended", reason: "user_end", at: "2026-10-24T10:02:00Z"})
+    :ok = TranscriptStore.close(store)
+
+    index_path = Path.join(root, "index.ndjson")
+    index = File.read!(index_path) |> String.replace(~s({"op":), ~s({"preserved":true,"op":), global: false)
+    :ok = File.write(index_path, index)
+
+    assert {:ok, %{reconciled: 0, errors: []}} = TranscriptIndex.reconcile(root)
+    assert File.read!(index_path) == index
+  end
+
   test "list and minutes rebuild a torn index outside boot", %{root: root} do
     store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
 
@@ -219,6 +255,48 @@ defmodule VoiceConverse.TranscriptIndexTest do
              TranscriptIndex.minutes_today(root,
                now: ~U[2026-10-24 13:00:00Z],
                today: ~D[2026-10-24]
+             )
+  end
+
+  test "closing a transcript repairs a torn index tail before appending", %{root: root} do
+    store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
+    :ok = File.write(Path.join(root, "index.ndjson"), ~s({"op":), [:append])
+
+    :ok =
+      TranscriptStore.append(store, %{
+        type: "session_ended",
+        reason: "user_end",
+        at: "2026-10-24T10:02:00Z",
+        duration_s: 120
+      })
+
+    :ok = TranscriptStore.close(store)
+    assert {:ok, [_conversation]} = IndexFile.read(root)
+    assert {:ok, [%{conversation_id: @id, end_reason: "user_end"}], nil} = TranscriptIndex.list(root, limit: 10)
+  end
+
+  test "minutes_today uses an injected local date across midnight", %{root: root} do
+    before_midnight = open!(root, @id, ~U[2026-10-25 07:59:00Z])
+    after_midnight = open!(root, @second_id, ~U[2026-10-25 08:00:00Z])
+
+    for {store, id} <- [{before_midnight, "before"}, {after_midnight, "after"}] do
+      :ok =
+        TranscriptStore.append(store, %{
+          type: "session_ended",
+          reason: "user_end",
+          at: "2026-10-25T08:01:00Z",
+          duration_s: if(id == "before", do: 120, else: 60)
+        })
+
+      :ok = TranscriptStore.close(store)
+    end
+
+    local_date = fn datetime -> datetime |> DateTime.add(-8, :hour) |> DateTime.to_date() end
+
+    assert 1 ==
+             TranscriptIndex.minutes_today(root,
+               now: ~U[2026-10-25 08:02:00Z],
+               local_date: local_date
              )
   end
 
