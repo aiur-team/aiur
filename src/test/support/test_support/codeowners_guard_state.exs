@@ -22,13 +22,13 @@ defmodule Aiur.TestSupport.CodeownersGuardState do
   end
 
   def leaks(expected, test_name) do
-    if unregistered?() do
-      [unregistered_leak(test_name)]
-    else
-      case Process.whereis(CodeOwners) do
-        nil -> []
-        pid -> if state(pid) == expected, do: [], else: ["Aiur.GitHub.CodeOwners changed from #{inspect(expected)} to #{inspect(state(pid))}"]
-      end
+    if unregistered?(), do: [unregistered_leak(test_name)], else: registered_leaks(expected)
+  end
+
+  defp registered_leaks(expected) do
+    case Process.whereis(CodeOwners) do
+      nil -> []
+      pid -> if state(pid) == expected, do: [], else: ["Aiur.GitHub.CodeOwners changed from #{inspect(expected)} to #{inspect(state(pid))}"]
     end
   end
 
