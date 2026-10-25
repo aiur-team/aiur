@@ -7,16 +7,16 @@ defmodule Aiur.LandingWatch.PrRerun do
   refresh spends one of four shared 15-minute slots in the journal. A head
   deferred by the shared cap stays in the journal's rerun backlog until a later poll retries it.
   A head whose failure needs a fresh merge ref is never rerun; it gets GitHub's
-  update-branch under the same budget and cap (#4930), unless the base changed
-  the PR's own files; then it routes to rework so the worker retests the new
-  head. The refresh is allowed only when a newer base commit fixes a failing
-  check; ordinary base movement is not a reason to update the branch.
+  update-branch under the same budget and cap (#4930), including unapproved PRs,
+  unless the base changed the PR's own files; then it routes to rework so the
+  worker retests the new head. The refresh is allowed only when a newer base
+  commit fixes a failing check; ordinary base movement is not a reason to
+  update the branch.
   """
 
-  alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.{CIRecovery, Client}
   alias Aiur.LandingWatch
-  alias Aiur.LandingWatch.{Journal, MergeGroupJournal, MergeGroupRunFetcher, PrRerunClassifier}
+  alias Aiur.LandingWatch.{Journal, MergeGroupJournal, MergeGroupRunFetcher, PrRefreshSafety, PrRerunClassifier}
   alias Aiur.TicketBranch
 
   @rerun_conclusions ["cancelled", "failure", "timed_out", "startup_failure"]
@@ -198,7 +198,7 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   defp base_overlap(observation, opts) do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
-         {:ok, base_paths} <- Keyword.get(opts, :base_changes_fun, &base_changes/3).(observation.head, base, opts),
+         {:ok, base_paths} <- base_changes(observation.head, base, opts),
          {:ok, own} when is_list(own) <- Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2).(observation.number, opts) do
       {:ok, Enum.filter(own, &(base_paths == :all or &1 in base_paths))}
     else
@@ -207,17 +207,20 @@ defmodule Aiur.LandingWatch.PrRerun do
     end
   end
 
-  # Files the base changed since the PR's merge base.
+  # Files the base changed since the PR's merge base; GitHub caps the listing at 300.
   defp base_changes(head, base, opts) do
-    case CIRecovery.read("/compare/#{head}...#{base}", opts) do
-      # GitHub lists at most 300 files, so a full list may hide an overlap.
+    case Keyword.get(opts, :base_changes_fun, &default_base_changes/3).(head, base, opts) do
       {:ok, %{"files" => files}} when is_list(files) and length(files) >= 300 -> {:ok, :all}
       {:ok, %{"files" => files}} when is_list(files) -> {:ok, Enum.flat_map(files, &[&1["filename"], &1["previous_filename"]])}
+      {:ok, paths} when is_list(paths) -> {:ok, paths}
       {:error, _} = error -> error
       _ -> {:error, :base_compare_unavailable}
     end
   end
 
+  defp default_base_changes(head, base, opts), do: CIRecovery.read("/compare/#{head}...#{base}", opts)
+
+  # Files the base changed since the PR's merge base.
   defp request_remedy(observation, runs, action, reason, opts) do
     failed = Enum.filter(runs, &(Map.get(&1, "conclusion") in @rerun_conclusions))
     now = now(opts)
@@ -328,28 +331,22 @@ defmodule Aiur.LandingWatch.PrRerun do
   defp failed_checks(runs), do: for(run <- runs, run["conclusion"] in @rerun_conclusions, uniq: true, do: run["name"])
 
   defp apply_remedy(:refresh, observation, _failed, opts) do
-    with true <- approved_at_head?(observation),
-         {:ok, _response} <- Keyword.get(opts, :update_branch_fun, &CIRecovery.update_branch/3).(observation.number, observation.head, opts),
-         {:ok, refreshed} <- Keyword.get(opts, :observe_refresh_fun, &CIRecovery.observe/2).(observation.number, opts),
-         {:ok, :identical} <- classify_refreshed_contribution(observation, refreshed, opts) do
+    safety_opts =
+      opts
+      |> Keyword.put_new(:refresh_observation_fun, &CIRecovery.observe/2)
+      |> Keyword.put_new(:base_changes_fun, &base_changes/3)
+      |> Keyword.put_new(:update_branch_fun, &CIRecovery.update_branch/3)
+      |> Keyword.put_new(:observe_refresh_fun, &CIRecovery.observe/2)
+
+    with :ok <- PrRefreshSafety.apply(observation, safety_opts),
+         {:ok, _response} <- safety_opts[:update_branch_fun].(observation.number, observation.head, safety_opts),
+         :ok <- PrRefreshSafety.verify_updated_head(observation, safety_opts) do
       :ok
     else
-      false -> {:error, :approval_not_on_observed_head}
-      {:ok, {:changed, evidence}} -> {:error, {:approval_not_carried, evidence}}
       {:error, _} = error -> error
       _ -> {:error, :update_branch_unconfirmed}
     end
   end
-
-  defp approved_at_head?(%{review_decision: "APPROVED", head: head, reviews: [%{"commit" => %{"oid" => head}} | _]}) when is_binary(head), do: true
-  defp approved_at_head?(_), do: false
-
-  defp classify_refreshed_contribution(observation, %{"headRefOid" => head}, opts) when is_binary(head) and head != "" do
-    classifier = Keyword.get(opts, :approval_carry_classifier, &GithubCIPoller.classify_contribution/4)
-    {:ok, classifier.(observation.head, head, observation.number, opts)}
-  end
-
-  defp classify_refreshed_contribution(_observation, _refreshed, _opts), do: {:error, :refreshed_head_unconfirmed}
 
   defp rerun_all(runs, opts) do
     Enum.reduce_while(runs, :ok, fn run, :ok ->
@@ -378,7 +375,7 @@ defmodule Aiur.LandingWatch.PrRerun do
     body =
       case action do
         :rerun -> "Landing watcher reran the failed CI (#{checks}) on approved head `#{observation.head}`: #{reason}."
-        :refresh -> "Landing watcher updated the branch from the base after failed CI (#{checks}) on approved head `#{observation.head}`: #{reason}."
+        :refresh -> "Landing watcher updated the branch from the base after failed CI (#{checks}) on PR head `#{observation.head}`: #{reason}."
       end
 
     case Keyword.get(opts, :comment_fun, &Client.create_comment(to_string(&1), &2, &3)).(observation.number, body, opts) do
