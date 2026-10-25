@@ -102,6 +102,21 @@ cmd_pre_pr() {
     pre_pr_persist "$base_sha" INCOMPLETE
   }
 
+  if [ -f "$root/scripts/lib/layout-assets.sh" ]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      results+=("FAIL pinned layout assets (Node/npm required; install Node/npm, then run npm ci --ignore-scripts and npm run vendor:elk -- --check in src/browser)")
+      result=1
+      printf '%s\n' 'ELK asset generation failed; release build stopped. Install Node/npm and retry:' '  cd src/browser && npm ci --ignore-scripts && npm run vendor:elk -- --check' >"$temp_dir/layout-assets.log"
+      failures+=("$temp_dir/layout-assets.log")
+    elif ! ( source "$root/scripts/lib/layout-assets.sh"; build_layout_assets "$root" mise exec -- ) >"$temp_dir/layout-assets.log" 2>&1; then
+      results+=("FAIL pinned layout assets")
+      failures+=("$temp_dir/layout-assets.log")
+      result=1
+    else
+      results+=("PASS pinned layout assets")
+    fi
+  fi
+
   run_gate "mix format --check-formatted" bash -c 'cd src && mise exec -- mix format --check-formatted'
   run_gate "mix compile --warnings-as-errors" bash -c 'cd src && mise exec -- mix compile --warnings-as-errors'
   run_gate "check-pr-structure" python3 scripts/check-pr-structure.py --base "$base_sha"

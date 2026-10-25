@@ -104,24 +104,33 @@ See [CLI and control commands](/reference/cli) for the complete operational surf
 
 ## Running two daemons against one repository
 
-Set the same `AIUR_LEASE_DATABASE_URL` on every daemon. Eligible instances
-(`instance.role: primary`) share ticket leases and elect one repository leader
-on equal terms; `secondary` instances never lead. The leader runs repository
-services, with failover after expiry. Dashboard and `aiur status` show its ID
-and lease age.
+Set the same `AIUR_LEASE_DATABASE_URL` on every daemon. Instances with
+`instance.role: primary` are equally eligible to claim the repository leader
+lease. Set other instances to `secondary` to keep repository-wide services off
+them; they still dispatch tickets and handle ticket CI. The role is read at
+daemon start, so restart after changing it. The leader runs repository services
+until its lease expires; the dashboard and `aiur status` show the leader ID and
+lease age.
 
-Each instance continues to heal labels for tickets in its own tracker view, so
-split label prefixes do not depend on the repository leader.
+Each instance heals labels for tickets in its own tracker view, so split label
+prefixes do not depend on the repository leader. Use distinct
+`tracker.github.label_prefix` values to split dispatch between instances.
 
-Use distinct `tracker.github.label_prefix` values to split dispatch between
-instances. The role is read at daemon start, so restart after changing it.
+Use `instance.owns` to reserve selected tickets without changing their labels.
+For example, `instance.owns: [{label: "build-lane:voice"}]` sends matching work
+to the NUC while it is live and dispatching; when it stops or pauses, matching
+tickets return to the shared pool.
 
-Dispatch is split by prefix, but per-ticket watchers (landing, merge close-out,
-pr_health, the Executor sweep and wake inbox) see every ticket. On each daemon,
-list the other instance's tickets under `instance.ignore`.
+`instance.pool: false` keeps a daemon on its owned tickets only. These rules
+require the shared `AIUR_LEASE_DATABASE_URL`.
 
-`label_prefixes: [nuc]` is the durable rule; `tickets: [4121]` covers a ticket
-handed over mid-flight. Edits apply without a restart, and `aiur status` prints
-the active rules and the count of events ignored since boot.
+`aiur status` shows ownership rules for this instance and other live ones.
 
-Register each daemon in `~/.aiur/remote-instances.yaml` as described under [Remote instances](/reference/cli-options#remote-instances). From the machine running the Executor, use `aiur --instance nuc status` (or another supported control command) to operate the named daemon without a second local Aiur run.
+`instance.ignore` remains available for static installations and per-ticket
+watcher filtering. Its `label_prefixes: [nuc]` and `tickets: [4121]` entries do
+not affect dispatch; use `instance.owns` for live rule-based dispatch.
+
+Register each daemon in `~/.aiur/remote-instances.yaml` as described under
+[Remote instances](/reference/cli-options#remote-instances). From the Executor
+machine, use `aiur --instance nuc status` (or another control command) to
+operate the named daemon without starting a second local Aiur run.
