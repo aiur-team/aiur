@@ -98,7 +98,8 @@ defmodule Aiur.OperatorRelayAnswerTest do
     stop_supervised!(DecisionStore)
     restarted = store(dir)
     assert {:ok, %{answer: ^answer}} = DecisionStore.get(decision.decision_id, restarted)
-    assert {:ok, ^answer} = answer |> DecisionAnswer.to_json_safe() |> DecisionAnswer.from_json_safe()
+    assert {:ok, decoded} = answer |> DecisionAnswer.to_json_safe() |> DecisionAnswer.from_json_safe()
+    assert decoded == DecisionAnswer.content(answer)
   end
 
   test "relay supersede and revision cannot replace a direct operator answer", %{dir: dir, config: config} do
@@ -129,7 +130,12 @@ defmodule Aiur.OperatorRelayAnswerTest do
 
     actor = %{kind: :operator_relayed, id: "attended-executor"}
     assert {:error, {:answer_invalid, {:operator_relay, :operator_answer_present}}} = DecisionStore.revise(decision.decision_id, revision, [actor: actor], store)
-    assert {:ok, ^original} = DecisionStore.get(decision.decision_id, store)
+    assert {:ok, unchanged} = DecisionStore.get(decision.decision_id, store)
+    # Ticket-comment publication may advance asynchronously; answer and revision state must not.
+    assert unchanged.answer == original.answer
+    assert unchanged.active_action_id == original.active_action_id
+    assert unchanged.revision_sequence == 0
+    assert unchanged.revisions == []
 
     correction = %{expected_version: 1, option_id: "replace", idempotency_key: "operator-revision", rationale: "Operator changed direction"}
     assert {:ok, %{decision: revised}} = DecisionStore.supersede(decision.decision_id, correction, [actor: operator], store)
