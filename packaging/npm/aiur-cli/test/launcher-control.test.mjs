@@ -1,102 +1,13 @@
 import { test, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-  existsSync,
-  rmSync,
-  chmodSync,
-} from "node:fs";
+import { readFileSync, existsSync, rmSync } from "node:fs";
 import path from "node:path";
-import { root, captureFile, setupRealLauncher, useTempRoot } from "./launcher-support.mjs";
+import { root, captureFile, useTempRoot } from "./launcher-support.mjs";
+import { runControl, setupControlRpc } from "./launcher-control-support.mjs";
 
 useTempRoot();
 
 // --- Control RPC error reporting -------------------------------------------
-
-// Builds on setupRealLauncher with the two binaries run_control_rpc shells out
-// to: the release `bin/aiur` (its `rpc` subcommand) and the bundled epmd
-// (`-names`). Behaviour is env-driven so one layout exercises every branch:
-//   AIUR_FAKE_RPC_MODE        ok | appfail | noconnection | hang
-//   AIUR_FAKE_EPMD_REGISTERED "1" lists our node (up); "error" => -names exits
-//                             non-zero (unreachable epmd => unknown); else absent (down)
-const CONTROL_NODE = "aiur-test@127.0.0.1";
-const CONTROL_SHORT = CONTROL_NODE.split("@")[0];
-
-function setupControlRpc() {
-  const { launcher, releaseDir } = setupRealLauncher();
-
-  const binAiur = path.join(releaseDir, "bin", "aiur");
-  mkdirSync(path.dirname(binAiur), { recursive: true });
-  writeFileSync(
-    binAiur,
-    [
-      "#!/usr/bin/env bash",
-      // Only the `rpc <expr>` form is modelled — the one run_control_rpc uses.
-      'if [ "$1" = "rpc" ]; then',
-      '  expr="${*:2}"',
-      '  echo "RPC_EXPR:$expr" >>"$AIUR_TEST_OUT"',
-      '  echo "RPC_TIMEOUT:${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-10}" >>"$AIUR_TEST_OUT"',
-      '  case "${AIUR_FAKE_RPC_MODE:-ok}" in',
-      // Transport succeeds; the control CLI prints output + the exit marker.
-      '    ok) echo ":ok"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
-      '    set_success) echo "aiur: max-agents set to 3 (2 active)"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
-      '    set_draining) echo "aiur: max-agents set to 1 (2 active, draining)"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
-      '    appfail) echo "__AIUR_CONTROL_EXIT__:7"; exit 0 ;;',
-      '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
-      '    missing_marker_empty) exit 0 ;;',
-      // A partial reply up front keeps the "partial output was discarded" branch from
-      // depending on bash's own "Terminated" notice reaching the output file (#4678).
-      '    hang) trap \'echo cleaned >"$AIUR_FAKE_RPC_CLEANUP"; exit 143\' TERM; echo "partial reply"; while :; do sleep 1; done ;;',
-      '    hang_descendant) setsid bash -c \'trap "" TERM; while :; do sleep 1; done\' & child=$!; echo "$child" >"$AIUR_FAKE_RPC_CHILD"; wait "$child" ;;',
-      // Transport fails the way Elixir --rpc-eval does for an unreachable node.
-      '    noconnection) echo "--rpc-eval : RPC failed with reason :noconnection" >&2; exit 1 ;;',
-      "  esac",
-      "fi",
-      "exit 0",
-      "",
-    ].join("\n"),
-  );
-  chmodSync(binAiur, 0o755);
-
-  const epmd = path.join(releaseDir, "erts-15.0", "bin", "epmd");
-  mkdirSync(path.dirname(epmd), { recursive: true });
-  writeFileSync(
-    epmd,
-    [
-      "#!/usr/bin/env bash",
-      'if [ "$1" = "-names" ]; then',
-      // "error" models an unreachable epmd daemon: -names itself exits non-zero.
-      '  if [ "${AIUR_FAKE_EPMD_REGISTERED:-0}" = "error" ]; then exit 1; fi',
-      '  if [ "${AIUR_FAKE_EPMD_REGISTERED:-0}" = "1" ]; then',
-      '    echo "epmd: up and running on port 4369 with data:"',
-      `    echo "name ${CONTROL_SHORT} at port 12345"`,
-      "  fi",
-      "  exit 0",
-      "fi",
-      "exit 0",
-      "",
-    ].join("\n"),
-  );
-  chmodSync(epmd, 0o755);
-
-  return { launcher, releaseDir };
-}
-
-function runControl(launcher, releaseDir, env, args = ["pause", "--all"]) {
-  return spawnSync(launcher, args, {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      AIUR_RELEASE_DIR: releaseDir,
-      AIUR_RELEASE_NODE: CONTROL_NODE,
-      AIUR_BG_STATE_DIR: path.join(root, "state"),
-      AIUR_TEST_OUT: captureFile,
-      ...env,
-    },
-  });
-}
 
 test("bare pause/resume flip the global switch; targeted forms stay per-agent", () => {
   const { launcher, releaseDir } = setupControlRpc();
