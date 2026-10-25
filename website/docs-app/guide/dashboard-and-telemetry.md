@@ -66,6 +66,12 @@ In List view, **List shows** switches between Tickets, Features and Epics. The
 selection is kept in the `list` link parameter; `tickets` is the default and
 omitted.
 
+The Features list shows closed, published-open, and planned-not-published
+segments for each feature. Percentages use closed tickets divided by the full
+planned feature total. Unavailable counts show `—` with a reason; incomplete
+history does not appear as zero progress. Each row opens the existing feature
+focus in Tickets view.
+
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
 button to open the Dependency tree overlay.
