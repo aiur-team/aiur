@@ -16,7 +16,8 @@ defmodule Aiur.DecisionProjection.Reducers do
          | answer: answer,
            active_action_id: answer.action_id,
            decision_status: :decided,
-           delivery_status: :pending
+           delivery_status: :pending,
+           ticket_comment_status: if(answer.ticket_comment_pending?, do: :pending, else: nil)
        }}
     end
   end
@@ -32,8 +33,28 @@ defmodule Aiur.DecisionProjection.Reducers do
          | answer: answer,
            active_action_id: answer.action_id,
            decision_status: :decided,
-           delivery_status: :pending
+           delivery_status: :pending,
+           ticket_comment_status: if(answer.ticket_comment_pending?, do: :pending, else: nil)
        }}
+    end
+  end
+
+  def transition(%Decision{active_action_id: action_id} = decision, %DecisionEvent{type: :pending_for_session, data: %{action_id: action_id}} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version) do
+      {:ok, %{decision | pending_for_session?: true, delivery_status: :pending}}
+    end
+  end
+
+  def transition(%Decision{active_action_id: action_id, pending_for_session?: true} = decision, %DecisionEvent{type: :session_started, data: %{action_id: action_id}} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version) do
+      {:ok, %{decision | pending_for_session?: false}}
+    end
+  end
+
+  def transition(%Decision{answer: answer, ticket_comment_status: :pending} = decision, %DecisionEvent{type: :answer_comment_published, data: %{action_id: action_id}} = event)
+      when not is_nil(answer) and action_id == answer.action_id do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version) do
+      {:ok, %{decision | ticket_comment_status: :published}}
     end
   end
 

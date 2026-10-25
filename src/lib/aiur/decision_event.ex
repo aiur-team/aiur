@@ -29,6 +29,9 @@ defmodule Aiur.DecisionEvent do
     :executor_escalated,
     :authority_reclassified,
     :answer_recorded,
+    :pending_for_session,
+    :session_started,
+    :answer_comment_published,
     :revision_recorded,
     :dispatch_queued,
     :revision_dispatched,
@@ -59,6 +62,9 @@ defmodule Aiur.DecisionEvent do
           | :executor_escalated
           | :authority_reclassified
           | :answer_recorded
+          | :pending_for_session
+          | :session_started
+          | :answer_comment_published
           | :revision_recorded
           | :dispatch_queued
           | :dispatch_outcome_unknown

@@ -277,7 +277,7 @@ defmodule AiurWeb.ObservabilityApiController do
   end
 
   defp render_control_response({:error, {tag, _detail} = reason}, conn, _issue_identifier, _action)
-       when tag in [:worker_startup_failed, :not_resumable_control_status] do
+       when tag in [:worker_startup_failed, :not_resumable_control_status, :max_concurrent_agents_reached] do
     error_response(conn, 409, "control_conflict", inspect(reason))
   end
 
