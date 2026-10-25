@@ -55,13 +55,11 @@ jobs:
     name: workflow security
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    permissions:
-      contents: read
+    permissions: { contents: read }
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
@@ -115,6 +113,7 @@ jobs:
         run: bash scripts/test-check-file-size.sh
       - name: Set up Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with: { bun-version: "1.4.2" }
   build:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
@@ -519,8 +518,7 @@ jobs:
       - name: Set up Bun
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.0.2
-        with:
-          bun-version: "1.4.2"
+        with: { bun-version: "1.4.2" }
       - name: Test npm launcher
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: packaging/npm/aiur-cli
