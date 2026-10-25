@@ -85,6 +85,7 @@
     "test:build-home-states-parity": "node scripts/run-browser-tests.mjs tests/build-home-states-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:browser-suite": "node scripts/browser-suites.mjs",
     "test:build-home-list-unit": "TZ=America/Los_Angeles node --test scripts/build-home-list.test.mjs",
+    "test:build-home-list-browser": "node scripts/run-browser-tests.mjs tests/build-home-list.browser.spec.mjs",
     "test:build-home-edges-parity": "AIUR_BROWSER_KEEP_ARTIFACTS=1 node scripts/run-browser-tests.mjs tests/build-home-edges-parity.browser.spec.mjs --config playwright.design-parity.config.mjs",
     "test:build-home-now-band": "TZ=America/Los_Angeles node --test scripts/build-home-band.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-now-band.browser.spec.mjs",
     "test:build-home-band-motion": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-motion.browser.spec.mjs --config playwright.design-parity.config.mjs --grep 'product interactions live 390 .*snap[.]' --fully-parallel --workers=2",

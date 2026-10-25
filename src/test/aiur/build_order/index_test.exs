@@ -178,6 +178,33 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert progress.reason == "planned count unavailable"
   end
 
+  test "GitHub root progress counts its sub-issue membership across ticket states" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    root = row(99, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..104, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    parent = %{owner: "acme", repository: "widgets", number: 99}
+    closed = row(100, %{parent: parent, labels: ["build-lane:core"]})
+    ci_wait = row(101, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:core", "agent:human-review"], agent_model: "codex"})
+    rework = row(102, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "agent:rework"]})
+    parked = row(103, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "nuc:parked"]})
+    unowned = row(104, %{parent: parent, labels: ["build-lane:core"]})
+    feature = %{slug: "bo-99", label: "Build order", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}, %{key: "f-bo-99-ui", label: "UI"}], from: now(), to: :none, baseline: :none}
+    registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
+    p = parts([root, closed, ci_wait, rework, parked, unowned])
+    owner = fn epic -> %{feature: "bo-99", epic: epic, source: "import:build-order", joined_at: DateTime.from_unix!(now(), :millisecond)} end
+    registry = put_in(registry, [:owners], %{100 => owner.("f-bo-99-core"), 101 => owner.("f-bo-99-core"), 102 => owner.("f-bo-99-ui"), 103 => owner.("f-bo-99-ui")})
+
+    p =
+      put_in(p, [:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+      |> put_in([:now, :source], source())
+      |> put_in([:now, :rows, "101"], %{id: "101", num: 101, sec: "now", status: "running", ord: 101, agent: %{state: "ci_wait"}})
+      |> put_in([:not_queued, :rows], [%{num: 102, sec: "nq", status: "open", ord: 102}, %{num: 103, sec: "nq", status: "open", ord: 103}])
+
+    assert {:ok, index} = assemble(p)
+    assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :total]) == %{closed: 2, open: 0, ci_wait: 1, total: 3}
+    assert Map.take(index.feature_progress.features["f-bo-99-ui"], [:closed, :open, :ci_wait, :total]) == %{closed: 0, open: 2, ci_wait: 0, total: 2}
+  end
+
   test "producer fields win over older history fields" do
     p = parts([row(4, %{labels: ["complexity:2"], lifecycle: %Lifecycle{state: :open}})])
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, title: "Fresher", created: 123, cx: 3, pts: 3}])

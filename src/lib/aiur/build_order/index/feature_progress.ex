@@ -23,23 +23,41 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp epic_progress(context) do
     %{parts: parts, all: all, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?, now: now} = context
     key = epic_key(epic)
-    lane = epic_lane(key, pack_set)
+    lane = epic_lane(key, pack_set, context.slug)
     {lane_packs, members, rows, workstream} = epic_data(key, lane, pack_set, all)
     ci_known? = complete? and source_ok?(parts[:now])
     states = row_counts(rows, complete?, ci_known?)
     plan = plan_counts(members, rows, lane_packs, complete?, packs_available?)
+    root_members = root_members(parts, context, key, complete?)
+    plan = if root_members == :unknown, do: plan, else: Map.merge(plan, %{unpublished: 0, root_total: length(root_members)})
+    root_counts = if is_list(root_members), do: root_row_counts(root_members, all, complete?, ci_known?)
 
     progress_metadata(context, lane_packs, members, workstream, plan, ci_known?)
     |> Map.merge(%{
-      closed: states.closed,
-      open: states.open,
-      ci_wait: states.ci_wait,
+      closed: if(root_counts, do: root_counts.closed, else: states.closed),
+      open: if(root_counts, do: root_counts.open, else: states.open),
+      ci_wait: if(root_counts, do: root_counts.ci_wait, else: states.ci_wait),
       unpublished: plan.unpublished,
-      total: total_count(states, plan.unpublished, complete?, ci_known?),
+      total: if(is_list(root_members), do: length(root_members), else: total_count(states, plan.unpublished, complete?, ci_known?)),
       extras: plan.extras,
       observed_at: now
     })
   end
+
+  defp root_row_counts(members, all, complete?, ci_known?) do
+    rows = Enum.map(members, &all[to_string(&1)])
+    states_known? = complete? and Enum.all?(rows, &is_map/1)
+    ci_known? = ci_known? and Enum.all?(rows, &is_map/1)
+
+    %{
+      closed: if(states_known?, do: Enum.count(rows, &closed_status?(&1.status))),
+      open: if(states_known?, do: Enum.count(rows, &(not closed_status?(&1.status) and not ci_wait_row?(&1)))),
+      ci_wait: if(ci_known?, do: Enum.count(rows, &ci_wait_row?/1))
+    }
+  end
+
+  defp closed_status?(status), do: status in ["done", "failed", "not_planned", "closed"]
+  defp ci_wait_row?(row), do: row.sec == "now" and get_in(row, [:agent, :state]) == "ci_wait" and not closed_status?(row.status)
 
   defp epic_data(key, lane, pack_set, all) do
     lane_packs = Enum.filter(pack_set, &pack_has_lane?(&1, lane))
@@ -69,9 +87,9 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
     }
   end
 
-  defp feature_wave(feature, workstream), do: normalize_wave(feature[:wave]) || normalize_wave(get_workstream(workstream, "wave"))
+  defp feature_wave(feature, workstream), do: normalize_wave(feature[:wave]) || normalize_wave(get_workstream(workstream, "wave")) || normalize_wave(get_workstream(workstream, "phase"))
   defp get_workstream(nil, _key), do: nil
-  defp get_workstream(workstream, key), do: workstream[key]
+  defp get_workstream(workstream, key), do: workstream[key] || workstream[String.to_atom(key)]
   defp epic_label(%{label: label}), do: label
   defp epic_label(_epic), do: nil
 
@@ -102,6 +120,32 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
 
     %{unpublished: unpublished, extras: extras}
   end
+
+  defp root_members(parts, %{slug: "bo-" <> root}, key, complete?) do
+    with {number, ""} when number > 0 <- Integer.parse(root),
+         {:ok, registry} <- parts[:features],
+         true <- registry.health.state == :healthy,
+         true <- complete?,
+         {:ok, %{rows: history_rows, repository: repository}} <- parts[:history],
+         %{features: features} <- registry,
+         %{slug: slug} <- features["bo-#{number}"],
+         true <- slug == "bo-#{number}" do
+      history_rows
+      |> Enum.filter(fn {_member, row} -> root_member?(row, number, repository) end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.filter(&lane_key(number, history_rows[&1], key))
+    else
+      _unknown -> :unknown
+    end
+  end
+
+  defp root_members(_parts, _context, _key, _complete?), do: :unknown
+
+  defp root_member?(%{parent: %{number: root} = parent}, root, repository), do: RootImportMapping.same_repository?(parent, repository)
+  defp root_member?(_row, _root, _repository), do: false
+
+  defp lane_key(root, %{labels: labels}, key), do: RootImportMapping.key(root, RootImportMapping.lane(root, %{labels: labels})) == key
+  defp lane_key(root, _row, key), do: RootImportMapping.key(root, :unassigned) == key
 
   defp total_count(%{closed: closed, open: open, ci_wait: ci_wait}, unpublished, complete?, ci_known?) do
     if complete? and ci_known? and is_integer(unpublished), do: closed + open + ci_wait + unpublished
@@ -176,9 +220,27 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp ticket_number(%{"github" => %{"number" => number}}) when is_integer(number) and number > 0, do: number
   defp ticket_number(_), do: nil
 
-  defp epic_lane(epic_key, packs) do
-    Enum.find_value(packs, :unassigned, &pack_lane(&1, epic_key))
+  defp epic_lane(epic_key, packs, slug) do
+    Enum.find_value(packs, fn pack ->
+      lane = pack_lane(pack, epic_key)
+      if lane && pack_has_lane?(pack, lane), do: lane
+    end) || imported_lane(epic_key, slug) || :unassigned
   end
+
+  defp imported_lane(epic_key, "bo-" <> root) do
+    with {number, ""} <- Integer.parse(root),
+         prefix = RootImportMapping.key(number, :unassigned) <> "-",
+         true <- String.starts_with?(epic_key, prefix) do
+      case String.replace_prefix(epic_key, prefix, "") do
+        "" -> nil
+        lane -> lane
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp imported_lane(_epic_key, _slug), do: nil
 
   defp pack_has_lane?(pack, lane), do: Enum.any?(pack.members, &(&1.lane == lane))
 
