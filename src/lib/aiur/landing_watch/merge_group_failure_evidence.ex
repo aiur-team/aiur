@@ -9,19 +9,65 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   @spec test_paths(binary()) :: [String.t()]
   def test_paths(log) when is_binary(log) do
-    Regex.scan(
-      ~r/^\s*\d+\)\s+test .+\([^)]+\)\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
-      log,
-      capture: :all_but_first
-    )
-    |> List.flatten()
-    |> Enum.map(&normalize_test_path/1)
-    |> Enum.uniq()
+    log = strip_actions_timestamps(log)
+
+    exunit_paths =
+      Regex.scan(
+        ~r/^\s*\d+\)\s+test .+\([^)]+\)\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
+        log,
+        capture: :all_but_first
+      )
+      |> List.flatten()
+      |> Enum.map(&normalize_test_path/1)
+
+    browser_paths = browser_spec_paths(log)
+
+    Enum.uniq(exunit_paths ++ browser_paths)
+  end
+
+  @spec test_identities(binary()) :: [String.t()]
+  def test_identities(log) when is_binary(log) do
+    log = strip_actions_timestamps(log)
+
+    exunit_identities =
+      Regex.scan(
+        ~r/^\s*\d+\)\s+(test .+\([^)]+\))\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
+        log,
+        capture: :all_but_first
+      )
+      |> Enum.map(fn [name, path] -> "#{name} :: #{normalize_test_path(path)}" end)
+
+    browser_identities = Enum.map(browser_spec_paths(log), &"BrowserSpec :: #{&1}")
+
+    Enum.uniq(exunit_identities ++ browser_identities)
   end
 
   @spec normalize_test_path(String.t()) :: String.t()
   def normalize_test_path("test/" <> _ = path), do: "src/" <> path
   def normalize_test_path(path), do: path
+
+  defp browser_spec_paths(log) do
+    annotations =
+      Regex.scan(~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)(?=\s|$)/, log, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.map(&normalize_browser_path/1)
+
+    playwright =
+      Regex.scan(
+        ~r/^\s*\d+\)\s+(?:\[[^\]\r\n]+\]\s*›\s*)?tests\/(.+?\.spec\.mjs):\d+:\d+\s+›/m,
+        log,
+        capture: :all_but_first
+      )
+      |> List.flatten()
+      |> Enum.map(&"src/browser/tests/#{&1}")
+
+    Enum.uniq(annotations ++ playwright)
+  end
+
+  defp strip_actions_timestamps(log), do: Regex.replace(~r/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /m, log, "")
+
+  defp normalize_browser_path("browser/tests/" <> _ = path), do: "src/" <> path
+  defp normalize_browser_path(path), do: path
 
   @spec recent_main_paths(binary(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
   def recent_main_paths(base, opts) do
