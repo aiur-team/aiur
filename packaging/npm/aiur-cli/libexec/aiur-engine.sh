@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket ticket_usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -76,6 +76,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]  explicit launch form
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur token create <name> [--scope read|write] | list | revoke <name>  manage machine credentials
+       aiur usage [<provider>] [--json]  show shared usage or one provider
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
        aiur accounts [<harness>] [--json]  list registered accounts
        aiur logout <harness> <name> [--purge]  remove a backend account
@@ -107,15 +108,15 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
        aiur feature show [<slug>] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
-       aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
+       aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
        aiur experiments abandon <id> --reason <text> --confirm [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
        aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
-       aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
-       aiur ticket-usage <ticket> [--json]  one ticket's model usage per session, model and provider
+       aiur github-usage [--json]  deprecated GitHub usage alias
+       aiur ticket-usage <ticket> [--json]  deprecated ticket usage alias
        aiur alerts [--needs-attention] [--limit <n> | --all] | ack ticket.<id>.agent.attention.duplicate-dispatch --executor-id <id>  show or acknowledge duplicate-dispatch alerts
        aiur executor-sweep [--json] [--apply]  inspect local Executor findings
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
@@ -233,10 +234,7 @@ aiur_engine_main() {
       shift
       run_local_cli token "$@"
       ;;
-    accounts)
-      shift
-      cmd_accounts "$@"
-      ;;
+    accounts) shift; usage_alias accounts "$@" ;;
     logout)
       run_local_cli "$@"
       ;;
@@ -318,15 +316,12 @@ aiur_engine_main() {
       ;;
     history) shift; cmd_history "$@" ;;
     analytics) shift; cmd_analytics "$@" ;;
-    github-cost) shift; cmd_github_cost "$@" ;;
+    github-cost) shift; usage_alias github-cost "$@" ;;
     experiments) shift; cmd_experiments "$@" ;;
     capabilities)
       shift; cmd_capabilities "$@" ;;
-    ticket-usage) shift; cmd_ticket_usage "$@" ;;
-    github-usage)
-      shift
-      cmd_github_usage "$@"
-      ;;
+    ticket-usage) shift; usage_alias ticket-usage "$@" ;;
+    github-usage) shift; usage_alias github-usage "$@" ;;
     alerts)
       shift
       cmd_alerts "$@"

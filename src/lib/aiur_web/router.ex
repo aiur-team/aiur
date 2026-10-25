@@ -145,6 +145,10 @@ defmodule AiurWeb.Router do
     pipe_through(:client_token_read)
     get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
     match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+    get("/api/v1/usage", AiurWeb.UsageApiController, :index)
+    match(:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed)
+    get("/api/v1/usage/:provider", AiurWeb.UsageApiController, :show)
+    match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
   end
 
   # Generic issue reads and the catch-all stay last.
