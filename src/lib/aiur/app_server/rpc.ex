@@ -104,42 +104,51 @@ defmodule Aiur.AppServer.Rpc do
 
   defp handle_json_response(
          %{"id" => response_id, "error" => error},
-         _port,
+         port,
          request_id,
          _timeout_ms,
          _backend_label,
          _on_notification,
          _sensitive_response?
        )
-       when response_id == request_id,
-       do: {:error, {:response_error, error}}
+       when response_id == request_id do
+    :ok = Transport.acknowledge(port)
+    {:error, {:response_error, error}}
+  end
 
   defp handle_json_response(
          %{"id" => response_id, "result" => result},
-         _port,
+         port,
          request_id,
          _timeout_ms,
          _backend_label,
          _on_notification,
          _sensitive_response?
        )
-       when response_id == request_id,
-       do: {:ok, result}
+       when response_id == request_id do
+    :ok = Transport.acknowledge(port)
+    {:ok, result}
+  end
 
   defp handle_json_response(
          %{"id" => response_id} = response,
-         _port,
+         port,
          request_id,
          _timeout_ms,
          _backend_label,
          _on_notification,
          _sensitive_response?
        )
-       when response_id == request_id,
-       do: {:error, {:response_error, response}}
+       when response_id == request_id do
+    :ok = Transport.acknowledge(port)
+    {:error, {:response_error, response}}
+  end
 
   defp handle_json_response(response, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?) do
-    with :ok <- maybe_route_notification(response, on_notification, backend_label) do
+    routing = maybe_route_notification(response, on_notification, backend_label)
+    :ok = Transport.acknowledge(port)
+
+    with :ok <- routing do
       with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
     end
   end
@@ -147,6 +156,7 @@ defmodule Aiur.AppServer.Rpc do
   defp handle_non_json_response(payload, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?) do
     unless sensitive_response?, do: StreamDiagnostics.record(port, payload)
     log_non_json_stream_line(payload, "response stream", backend_label, sensitive_response?: sensitive_response?)
+    :ok = Transport.acknowledge(port)
     with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
   end
 
