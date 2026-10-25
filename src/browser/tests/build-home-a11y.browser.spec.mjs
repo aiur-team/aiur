@@ -211,6 +211,9 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         })
         for (const known of classified.known) test.info().annotations.push({ type: 'known baseline violation',
           description: known.id + ': ' + known.measuredRatio + ':1; ' + known.followup })
+        if (classified.known.length) console.info('KNOWN CONTRAST BASELINE', JSON.stringify({
+          cell, entries: classified.known.map(({ id, measuredRatio, followup }) => ({ id, measuredRatio, followup }))
+        }))
         expectAuditClean(classified.audit)
       })
     }
