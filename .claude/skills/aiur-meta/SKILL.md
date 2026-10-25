@@ -99,6 +99,7 @@ coverage.
 | Commands | `/commands` | real commands awaiting response |
 | Build Order | `/build-orders` | progress that tracks reality |
 | Build | `/build` | an available timeline and ticket cards for queued members |
+| Build home Features | `/?view=list&list=features` | per-feature progress |
 | Analytics | `/analytics` | current data, not a frozen window |
 
 The `/build` capture reports an unavailable timeline banner, skeleton cards
@@ -372,6 +373,7 @@ of prose nobody reads. `aiur-run`'s communication contract governs it:
   terminal does not need a copy.
 - The periodic progress table belongs here rather than on every wake, since this
   check already runs on the right cadence.
+- Read per-feature progress from Build home at `/?view=list&list=features`.
 - A finding that blocks the run still escalates in full, with a push
   notification. Terseness never applies to something waiting on the operator.
 

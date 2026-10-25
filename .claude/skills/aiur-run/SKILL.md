@@ -96,6 +96,8 @@ A returning operator wants shape as well as events. On a real cadence — the
 hourly audit is the natural one — or when the shape materially changes, emit
 one compact table instead of prose about overall progress:
 
+Read per-feature progress from Build home at `/?view=list&list=features`.
+
 ```
 #2637  init repo-local config    ████████░░  80%  codex terra   PR #2650 ci
 #2638  .env credential shadow    ██████░░░░  60%  codex sol     rework
