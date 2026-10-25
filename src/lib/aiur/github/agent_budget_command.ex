@@ -52,20 +52,7 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
        when scope in ["token", "resource"] and resource in ["core", "graphql", "search"] do
     case Integer.parse(delay) do
       {milliseconds, ""} when milliseconds in 1..3_600_000 ->
-        key = Budget.token_key(token)
-        request = %{token: token, url: family_url(resource)}
-
-        case broker_call(["hold", "--scope", scope, "--resource", resource, "--delay-ms", delay], key, opts) do
-          {:ok, _output} ->
-            Shared.publish_hold(request, key, if(scope == "token", do: "*", else: resource), milliseconds)
-            {:ok, "held\n"}
-
-          {:error, _} = error ->
-            error
-
-          _unavailable ->
-            {:error, :github_budget_broker_unavailable}
-        end
+        update_hold(scope, resource, delay, milliseconds, token, opts)
 
       _invalid ->
         {:error, :invalid_request}
@@ -87,6 +74,24 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
 
   defp acquire_response({:error, _} = error), do: error
   defp acquire_response(:bypass), do: {:error, :github_budget_broker_unavailable}
+
+  defp update_hold(scope, resource, delay, milliseconds, token, opts) do
+    key = Budget.token_key(token)
+    request = %{token: token, url: family_url(resource)}
+    args = ["hold", "--scope", scope, "--resource", resource, "--delay-ms", delay]
+
+    case broker_call(args, key, opts) do
+      {:ok, _output} ->
+        Shared.publish_hold(request, key, if(scope == "token", do: "*", else: resource), milliseconds)
+        {:ok, "held\n"}
+
+      {:error, _} = error ->
+        error
+
+      _unavailable ->
+        {:error, :github_budget_broker_unavailable}
+    end
+  end
 
   defp request(["acquire" | args], token, opts) do
     values = parse_args(args)

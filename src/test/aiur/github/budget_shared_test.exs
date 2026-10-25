@@ -2,9 +2,9 @@ defmodule Aiur.GitHub.BudgetSharedTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentGitHubGuard.AgentToken
+  alias Aiur.GitHub.AgentBudgetCommand
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Budget.Shared
-  alias Aiur.GitHub.AgentBudgetCommand
   alias Aiur.GitHub.BudgetTestSupport
   alias Aiur.TestCleanup
 
