@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Materialize do
 
   require Logger
   alias Aiur.TicketBranch
-  alias Aiur.Workspace.{Checkout, Reconstruction}
+  alias Aiur.Workspace.{Checkout, Reconstruction, SeededBuild}
 
   @doc false
   # Copy the warm base into `workspace` (CoW when the FS supports it) and branch
@@ -17,10 +17,14 @@ defmodule Aiur.Workspace.Materialize do
   @doc false
   @spec materialize_from_base(Path.t(), Path.t(), String.t(), String.t() | nil) ::
           :ok | {:error, term()}
-  def materialize_from_base(base, workspace, branch_name, nil) when is_binary(branch_name) do
-    materialize(workspace, fn stage ->
+  def materialize_from_base(base, workspace, branch_name, pr_head_ref),
+    do: materialize_from_base(base, workspace, branch_name, pr_head_ref, nil)
+
+  @spec materialize_from_base(Path.t(), Path.t(), String.t(), String.t() | nil, map() | nil) :: :ok | {:error, term()}
+  def materialize_from_base(base, workspace, branch_name, nil, start_point) when is_binary(branch_name) do
+    materialize(base, workspace, fn stage ->
       with {_out, 0} <- copy_tree(base, stage),
-           :ok <- Checkout.checkout_fresh_branch(stage, branch_name) do
+           :ok <- Checkout.checkout_fresh_branch(stage, branch_name, start_point) do
         :ok
       else
         other -> {:error, other}
@@ -28,9 +32,9 @@ defmodule Aiur.Workspace.Materialize do
     end)
   end
 
-  def materialize_from_base(base, workspace, _branch_name, pr_head_ref)
+  def materialize_from_base(base, workspace, _branch_name, pr_head_ref, _start_point)
       when is_binary(pr_head_ref) do
-    materialize(workspace, fn stage ->
+    materialize(base, workspace, fn stage ->
       with {_out, 0} <- copy_tree(base, stage),
            :ok <- Checkout.checkout_existing_pr_branch(stage, pr_head_ref) do
         :ok
@@ -46,9 +50,10 @@ defmodule Aiur.Workspace.Materialize do
     materialize_from_base(base, workspace, TicketBranch.legacy_branch_name(Path.basename(workspace)), pr_head_ref)
   end
 
-  defp materialize(workspace, prepare) do
+  defp materialize(base, workspace, prepare) do
     prepare_and_filter = fn stage ->
-      with :ok <- prepare.(stage) do
+      with :ok <- prepare.(stage),
+           :ok <- SeededBuild.invalidate_path_sensitive(base, stage) do
         remove_ignored_crash_dumps(stage)
       end
     end

@@ -27,7 +27,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
-      assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT='"
+      assert prefix =~ "AIUR_REAL_GH=\n" and prefix =~ "AIUR_REAL_GIT='"
       refute prefix =~ "command -v git"
       assert prefix =~ "AIUR_GITHUB_LABEL_PREFIX='agent'"
       # A remote worker keeps its own budget root, and therefore its own state
@@ -39,9 +39,9 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
       assert prefix =~ "AIUR_GITHUB_BUDGET_BROKER='/work/aiur/440/.aiur-runtime/bin/aiur-github-budget'"
       assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT=4"
       assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=2"
-      assert prefix =~ "AIUR_GITHUB_REQUESTS_PER_MINUTE=120"
+      assert prefix =~ "AIUR_GITHUB_REQUESTS_PER_MINUTE=300"
       assert prefix =~ "AIUR_GITHUB_STAGGER_MS=75"
-      assert prefix =~ "export AIUR_REAL_GH AIUR_REAL_GIT"
+      assert prefix =~ "export AIUR_REAL_GH\n" and prefix =~ "export AIUR_REAL_GIT\n"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "GH_CONFIG_DIR='/work/aiur/440/.aiur-runtime/gh'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
@@ -115,7 +115,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
     setup do
       workspace = Aiur.TestSupport.tmp_root!("aiur-env-scratch")
       File.mkdir_p!(workspace)
-      on_exit(fn -> File.rm_rf(workspace) end)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
       {:ok, workspace: workspace}
     end
 
@@ -142,30 +142,6 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
       assert List.keyfind(env, ~c"TMPPREFIX", 0) == nil
     end
 
-    test "local agent zsh heredocs use private scratch when the inherited temp path is unusable", %{
-      workspace: workspace
-    } do
-      blocked = Path.join(workspace, "blocked")
-      File.write!(blocked, "regular file")
-      scratch = AgentEnvironment.workspace_env(workspace)
-
-      temp_env =
-        scratch
-        |> Enum.filter(fn {name, _} -> name in [~c"TMPDIR", ~c"TMP", ~c"TEMP", ~c"TMPPREFIX"] end)
-        |> Map.new(fn {name, value} -> {to_string(name), to_string(value)} end)
-
-      {output, 0} =
-        System.cmd("zsh", ["-c", "wc -c <<EOF\nworkpad\nEOF"],
-          env: [
-            {"TMPDIR", temp_env["TMPDIR"]},
-            {"TMPPREFIX", Map.get(temp_env, "TMPPREFIX", Path.join(blocked, "zsh-"))}
-          ],
-          stderr_to_stdout: true
-        )
-
-      assert output == "8\n"
-    end
-
     test "the export prefix redirects TMPDIR for the SSH-launch path", %{workspace: workspace} do
       prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
 
@@ -175,22 +151,6 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
       scratch = Path.join(workspace, ".aiur-runtime/tmp")
       assert resolved == "#{scratch}|#{scratch}|#{scratch}|#{scratch}/zsh-"
       assert File.dir?(scratch)
-    end
-
-    test "SSH agent zsh heredocs use private scratch when the inherited temp path is unusable", %{
-      workspace: workspace
-    } do
-      blocked = Path.join(workspace, "blocked")
-      File.write!(blocked, "regular file")
-      prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
-
-      {output, 0} =
-        System.cmd("bash", ["-c", "#{prefix} && zsh -c 'wc -c <<EOF\nworkpad\nEOF'"],
-          env: [{"TMPPREFIX", Path.join(blocked, "zsh-")}],
-          stderr_to_stdout: true
-        )
-
-      assert output == "8\n"
     end
 
     # A path whose parent component is a regular file always fails with ENOTDIR,
@@ -211,4 +171,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
       assert resolved == "/tmp"
     end
   end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end

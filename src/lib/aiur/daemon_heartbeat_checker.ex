@@ -15,7 +15,7 @@ defmodule Aiur.DaemonHeartbeatChecker do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, DaemonLifecycle}
+  alias Aiur.{Config, DaemonLifecycle, Signal}
   alias Aiur.Config.Paths
 
   @alert_topic "system.daemon.gap"
@@ -27,7 +27,7 @@ defmodule Aiur.DaemonHeartbeatChecker do
       &Paths.daemon_heartbeat_path/0,
       &Config.daemon_heartbeat_stale_ms/0,
       &DaemonLifecycle.daemon_events/0,
-      &Alerts.emit_system/2
+      &Signal.alert/2
     )
   end
 

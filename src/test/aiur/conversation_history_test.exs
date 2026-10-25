@@ -52,7 +52,7 @@ defmodule Aiur.Conversation.HistoryTest do
 
   test "workspace and anchor reads preserve content and observed placement" do
     workspace = Aiur.TestSupport.tmp_root!("history")
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
     path = History.workspace_log_path(workspace)
     File.mkdir_p!(Path.dirname(path))
 

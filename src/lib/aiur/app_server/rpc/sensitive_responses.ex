@@ -4,11 +4,11 @@ defmodule Aiur.AppServer.Rpc.SensitiveResponses do
   @key {Aiur.AppServer.Rpc, :late_sensitive_response_ids}
   @partial_key {Aiur.AppServer.Rpc, :late_sensitive_response_partials}
 
-  @spec retain(port(), integer()) :: :ok
+  @spec retain(port() | pid(), integer()) :: :ok
   def retain(port, request_id), do: retain(port, request_id, false)
 
-  @spec retain(port(), integer(), boolean()) :: :ok
-  def retain(port, request_id, partial_line?) when is_port(port) and is_integer(request_id) and is_boolean(partial_line?) do
+  @spec retain(port() | pid(), integer(), boolean()) :: :ok
+  def retain(port, request_id, partial_line?) when (is_port(port) or is_pid(port)) and is_integer(request_id) and is_boolean(partial_line?) do
     ids = @key |> Process.get(MapSet.new()) |> MapSet.put({port, request_id})
     Process.put(@key, ids)
 
@@ -20,8 +20,8 @@ defmodule Aiur.AppServer.Rpc.SensitiveResponses do
     :ok
   end
 
-  @spec clear(port()) :: :ok
-  def clear(port) when is_port(port) do
+  @spec clear(port() | pid()) :: :ok
+  def clear(port) when is_port(port) or is_pid(port) do
     ids = @key |> Process.get(MapSet.new()) |> MapSet.reject(fn {retained_port, _request_id} -> retained_port == port end)
     put_ids(ids)
 
@@ -33,8 +33,8 @@ defmodule Aiur.AppServer.Rpc.SensitiveResponses do
     put_partials(partials)
   end
 
-  @spec discard?(port(), binary() | map()) :: boolean()
-  def discard?(port, data) when is_port(port) do
+  @spec discard?(port() | pid(), binary() | map()) :: boolean()
+  def discard?(port, data) when is_port(port) or is_pid(port) do
     case take_partial(port) do
       :none ->
         discard_response(port, data)

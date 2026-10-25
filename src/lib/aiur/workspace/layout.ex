@@ -1,9 +1,8 @@
 defmodule Aiur.Workspace.Layout do
   @moduledoc "Pure path policy: where a workspace lives (repo-namespaced layout) and whether a path is legal under the configured root."
 
-  alias Aiur.{Config, PathSafety}
+  alias Aiur.{Config, PathSafety, Tracker}
   alias Aiur.Config.Paths
-  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @type worker_host :: String.t() | nil
 
@@ -100,16 +99,7 @@ defmodule Aiur.Workspace.Layout do
   # component is sanitized and traversal parts (".", "..", "") are dropped so the
   # segment can never escape the workspace root.
   defp repo_segment do
-    settings = Config.settings!()
-
-    raw =
-      case settings.tracker.kind do
-        "github" -> GitHubConfig.repo()
-        "linear" -> settings.tracker.linear.project_slug
-        _ -> nil
-      end
-
-    case raw do
+    case Tracker.workspace_repo_segment() do
       value when is_binary(value) and value != "" -> safe_repo_segment(value)
       _ -> nil
     end

@@ -26,6 +26,13 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbeTest do
     assert BuildQueueClaimProbe.classify(state, "unknown") == :unclaimed
   end
 
+  test "deferred authorization remains pending even before dispatch records a decline" do
+    issue = %Issue{id: "8", dispatch_authorized?: false, dispatch_authorization: :deferred}
+    state = %State{last_polled_issues: %{"8" => issue}, dispatch_declines: %{"8" => :unauthorized}}
+
+    assert BuildQueueClaimProbe.classify(state, "8") == :authorization_pending
+  end
+
   test "the batched call classifies every requested id without changing state" do
     state = %State{claimed: MapSet.new(["7"]), dispatch_declines: %{"8" => :unauthorized}}
     expected = %{"7" => :claimed, "8" => {:declined, :unauthorized}, "9" => :unclaimed}
@@ -36,6 +43,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbeTest do
   test "status and demand reach a real orchestrator process" do
     server = start_supervised!({Orchestrator, name: nil, initial_poll?: false})
     assert BuildQueueClaimProbe.status(server, ["unknown"]) == %{"unknown" => :unclaimed}
+    assert BuildQueueClaimProbe.next_set(server) == {:ok, nil}
     assert BuildQueueClaimProbe.notify_demand(server, ["7"]) == :ok
     assert Map.has_key?(:sys.get_state(server).queued_demand_hints, "7")
   end
@@ -45,6 +53,7 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbeTest do
     ref = Process.monitor(server)
     receive_barrier({:DOWN, ^ref, :process, ^server, _})
     assert BuildQueueClaimProbe.status(server, ["7"]) == :unavailable
+    assert BuildQueueClaimProbe.next_set(server) == :unavailable
     assert BuildQueueClaimProbe.notify_demand(server, ["7"]) == :unavailable
   end
 

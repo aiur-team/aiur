@@ -7,7 +7,7 @@ defmodule Aiur.AgentEnvironment do
   credential names in `Aiur.AgentEnvironment.Names`.
   """
 
-  alias Aiur.AgentEnvironment.{Names, ShellScrub, WorkspaceEnv}
+  alias Aiur.AgentEnvironment.{CredentialScrub, Names, ShellScrub, WorkspaceEnv}
 
   defdelegate erlang_distribution_env_name?(name), to: ShellScrub
   defdelegate scrub_shell_command(command, opts \\ []), to: ShellScrub
@@ -30,19 +30,17 @@ defmodule Aiur.AgentEnvironment do
   @doc false
   @spec provider_credential_env_names() :: [String.t()]
   def provider_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(Names.provider_api_key_pattern(), &1))
-    Enum.uniq(Names.provider_credential() ++ inherited)
+    Enum.uniq(Names.provider_credential() ++ CredentialScrub.inherited_env_names(Names.provider_api_key_pattern()))
   end
 
   @doc """
   Every GitHub App credential variable to remove from an agent's environment:
   the known names plus anything the daemon inherited under the same
-  `GITHUB_APP_` prefix. See `Aiur.AgentEnvironment.Names` for why agents must
-  not hold these (#2266).
+  `GITHUB_APP_` prefix. See the attribute comment for why agents must not hold
+  these (#2266).
   """
   @spec app_credential_env_names() :: [String.t()]
   def app_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(Names.app_credential_pattern(), &1))
-    Enum.uniq(Names.app_credential() ++ inherited)
+    Enum.uniq(Names.app_credential() ++ CredentialScrub.inherited_env_names(Names.app_credential_pattern()))
   end
 end

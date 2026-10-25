@@ -38,7 +38,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   test "local workspaces get command guards and a private scratch directory" do
     workspace = Aiur.TestSupport.tmp_root!("aiur-provision-scratch")
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
     assert File.dir?(Path.join(workspace, ".aiur-runtime/tmp"))
@@ -62,11 +62,28 @@ defmodule Aiur.Workspace.ProvisionerTest do
     bin_dir = Path.join(test_root, "bin")
     active_path = Path.join(test_root, "active")
     max_path = Path.join(test_root, "max")
+    previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+    previous_lease_path = System.get_env("AIUR_BUILD_GATE_LEASE_PATH")
+    previous_lease_token = System.get_env("AIUR_BUILD_GATE_LEASE_TOKEN")
+    Application.put_env(:aiur, :build_gate_dir_override, Path.join(test_root, "build-gate"))
+    assert Aiur.BuildGate.gate_dir() == Path.join(test_root, "build-gate")
+    System.delete_env("AIUR_BUILD_GATE_LEASE_PATH")
+    System.delete_env("AIUR_BUILD_GATE_LEASE_TOKEN")
     # `File.rm_rf/1`, not the bang: this test deliberately leaves external child
     # builds running under `test_root`, and one still writing when teardown
     # walks the tree makes `rm_rf!` raise `:eexist` and fail the test on its
     # cleanup rather than on its subject — likelier the busier the box (#2548).
-    on_exit(fn -> File.rm_rf(test_root) end)
+    on_exit(fn ->
+      case previous_build_gate_dir do
+        nil -> Application.delete_env(:aiur, :build_gate_dir_override)
+        path -> Application.put_env(:aiur, :build_gate_dir_override, path)
+      end
+
+      restore_env("AIUR_BUILD_GATE_LEASE_PATH", previous_lease_path)
+      restore_env("AIUR_BUILD_GATE_LEASE_TOKEN", previous_lease_token)
+
+      Aiur.TestCleanup.rm_rf!(test_root)
+    end)
 
     File.mkdir_p!(bin_dir)
     File.write!(active_path, "0\n")
@@ -121,7 +138,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     home = Path.join(root, "home")
     File.mkdir_p!(workspace)
     File.mkdir_p!(home)
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     runner = fn "worker-1", script, timeout ->
       assert is_integer(timeout) and timeout > 0
@@ -158,7 +175,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     File.mkdir_p!(outside)
     File.write!(Path.join(outside, "sentinel"), "unchanged")
     File.ln_s!(outside, Path.join(workspace, ".aiur-runtime/gh"))
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     runner = fn _host, script, _timeout ->
       {output, status} =
@@ -236,7 +253,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     sentinel = Path.join(tmp, "sentinel.txt")
     File.write!(sentinel, "wip")
 
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
 
     assert {:ok, ^tmp, false} = Provisioner.ensure_workspace(tmp, nil)
     assert File.read!(sentinel) == "wip"
@@ -249,7 +266,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     notes = Path.join(workspace, "notes.txt")
     File.write!(notes, "do not discard\n")
 
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert {:ok, ^workspace, false} = Provisioner.ensure_workspace(workspace, nil)
 
@@ -265,7 +282,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     File.mkdir_p!(workspace)
     File.write!(notes, "agent WIP\n")
 
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
              Provisioner.ensure_workspace(workspace, nil)
@@ -279,7 +296,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     File.mkdir_p!(workspace)
     File.write!(notes, "intentional non-git workspace\n")
 
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert :ok = Provisioner.mark_workspace_ready(workspace, nil)
     assert {:ok, ^workspace, false} = Provisioner.ensure_workspace(workspace, nil)
@@ -295,7 +312,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     File.write!(skill, "partial bootstrap\\n")
     File.write!(notes, "preserve this work\\n")
 
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
              Provisioner.ensure_workspace(workspace, nil)
@@ -308,7 +325,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     test_root = Aiur.TestSupport.tmp_root!("prov_completion")
     workspace_root = Path.join(test_root, "workspaces")
 
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
@@ -353,7 +370,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     File.mkdir_p!(Path.dirname(log_path))
     File.write!(log_path, "preserve this transcript\n")
 
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert {:ok, ^workspace, true} =
              Provisioner.ensure_workspace(workspace, nil, nil, "aiur/123-workspace-recovery", nil)
@@ -370,7 +387,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
     on_exit(fn ->
       restore_env("PATH", previous_path)
-      File.rm_rf!(test_root)
+      Aiur.TestCleanup.rm_rf!(test_root)
     end)
 
     File.mkdir_p!(Path.dirname(log_path))
@@ -401,7 +418,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     File.mkdir_p!(workspace)
     File.write!(Path.join(workspace, "logs"), "not a directory")
 
-    on_exit(fn -> File.rm_rf!(workspace) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
 
     assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
              Provisioner.ensure_workspace(workspace, nil, nil, "aiur/invalid-logs", nil)
@@ -412,7 +429,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     workspace_root = Path.join(test_root, "workspaces")
     File.mkdir_p!(workspace_root)
 
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -431,7 +448,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     init_repo!(workspace)
     git!(["-C", workspace, "checkout", "--quiet", "-b", "aiur/123-fix-login"])
 
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     context = ticket_context("aiur/123-fix-login-and-signup")
 
@@ -472,7 +489,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   defp git!(args) do
-    {out, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    {out, 0} = Aiur.TestGit.cmd(args)
     out
   end
 end

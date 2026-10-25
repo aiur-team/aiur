@@ -15,7 +15,7 @@ defmodule Aiur.Accounts.SessionMoveTest do
     on_exit(fn ->
       UsageReadings.reset()
       if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
-      File.rm_rf!(home)
+      Aiur.TestCleanup.rm_rf!(home)
     end)
 
     %{home: home}
@@ -96,7 +96,7 @@ defmodule Aiur.Accounts.SessionMoveTest do
     transcript = Path.join([source, "projects", RemoteControl.workspace_slug("/repo"), session <> ".jsonl"])
     File.mkdir_p!(Path.dirname(transcript))
     File.write!(transcript, "transcript")
-    rm = fn path -> if path == transcript, do: {:error, :injected_delete_failure}, else: File.rm_rf(path) end
+    rm = fn path -> if path == transcript, do: {:error, :injected_delete_failure}, else: Aiur.TestCleanup.rm_rf!(path) end
 
     assert {:error, {:source_delete_failed, :injected_delete_failure}} =
              Accounts.move_session("claude", "default", "work", session, "/repo", same_device: false, rm_rf: rm)

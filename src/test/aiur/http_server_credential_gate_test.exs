@@ -99,6 +99,20 @@ defmodule Aiur.HttpServerCredentialGateTest do
   end
 
   describe "loopback bind without credentials" do
+    test "dashboard_pages? stays written to endpoint config when startup is ignored" do
+      start = fn opts ->
+        capture_log(fn ->
+          HttpServer.start_link([host: "127.0.0.1", port: 0, dashboard_writable: false, endpoint_start_fun: fn -> :ignore end] ++ opts)
+        end)
+
+        {Application.get_env(:aiur, AiurWeb.Endpoint)[:dashboard_pages], Application.get_env(:aiur, :dashboard_pages)}
+      end
+
+      on_exit(fn -> Application.delete_env(:aiur, :dashboard_pages) end)
+      assert start.(dashboard_pages?: false) == {false, false}
+      assert start.([]) == {true, true}
+    end
+
     test "a read-only loopback listener binds and warns that requests fail closed" do
       log =
         capture_log(fn ->
@@ -176,32 +190,23 @@ defmodule Aiur.HttpServerCredentialGateTest do
   end
 
   describe "non-loopback bind with credentials" do
-    test "passes the gate (doesn't short-circuit with :ignore)" do
+    test "still requires browser sign-in configuration" do
       System.put_env("AIUR_DASHBOARD_USERNAME", "alice")
       System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
 
       Process.flag(:trap_exit, true)
 
-      # We expect the gate to pass and the Endpoint to then try to bind.
-      # Binding to TEST-NET-1 fails with :eaddrnotavail — that's fine,
-      # the assertion is "we got past the credential gate", not "we
-      # actually bound the port". Trapping exits keeps the test process
-      # alive when Endpoint's supervisor cascades the failure.
-      result =
-        try do
-          HttpServer.start_link(
-            host: "192.0.2.1",
-            port: 0,
-            orchestrator: Aiur.Orchestrator
-          )
-        catch
-          :exit, reason -> {:exit, reason}
-        end
+      log =
+        capture_log(fn ->
+          assert :ignore =
+                   HttpServer.start_link(
+                     host: "192.0.2.1",
+                     port: 0,
+                     orchestrator: Aiur.Orchestrator
+                   )
+        end)
 
-      # `:ignore` here would mean the gate rejected before binding.
-      # Anything else (success, bind failure, exit) means the gate
-      # let us through.
-      refute result == :ignore
+      assert log =~ "configure Google sign-in with an email allowlist or enroll a passkey"
     end
   end
 end

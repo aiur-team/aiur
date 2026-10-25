@@ -22,10 +22,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert view.locked.authentication_path == "Sign in."
 
       # No protected snapshot value leaks into the locked view.
-      refute inspect(view) =~ "gen-codex"
-      refute inspect(view) =~ "Primary"
-      refute inspect(view) =~ "subscription"
-      refute inspect(view) =~ ":pro"
+      Aiur.TestSupport.refute_leak(view, "gen-codex")
+      Aiur.TestSupport.refute_leak(view, "Primary")
+      Aiur.TestSupport.refute_leak(view, "subscription")
+      Aiur.TestSupport.refute_leak(view, ":pro")
     end
 
     test "announcement names the locked state" do
@@ -47,6 +47,16 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert view.state == :authorized
       assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :muse, :fake]
       assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Muse", "Fake"]
+    end
+
+    test "attaches the shared usage read model to registered provider cards" do
+      view = Presenter.present(authorized(), %{codex: healthy(:codex)})
+      usage = card(view, :codex).usage
+
+      assert %Aiur.Usage.Provider.Codex{provider: :codex, freshness: :fresh, source: "provider_meter_projection"} = usage
+      assert usage.observed_at == @observed
+      assert is_integer(usage.age_ms)
+      assert usage.fields.windows == card(view, :codex).windows
     end
 
     test "names the generic transport backend" do
@@ -104,7 +114,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert codex.auth_mode.value == :unknown
       assert codex.identity.state == :unknown
       assert codex.windows == []
-      refute inspect(codex) =~ "Enterprise"
+      Aiur.TestSupport.refute_leak(codex, "Enterprise")
     end
 
     test "a rotated account renders a different account generation label" do
@@ -116,6 +126,26 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "provider and window health states are distinct" do
+    test "known used percentages become remaining while unknown values stay absent" do
+      windows = %{
+        "empty" => %{kind: :rate_limit, name: "Empty", used_percent: 100, coverage: :supported},
+        "half" => %{kind: :rate_limit, name: "Half", used_percent: 50, coverage: :supported},
+        "full" => %{kind: :rate_limit, name: "Full", used_percent: 0, coverage: :supported},
+        "unknown" => %{kind: :rate_limit, name: "Unknown", used_percent: nil, coverage: :supported}
+      }
+
+      snapshot = %{healthy(:codex) | windows: windows}
+      codex = card(Presenter.present(authorized(), %{codex: snapshot}), :codex)
+
+      assert Enum.sort(Enum.map(codex.windows, &{&1.name, &1.meter.kind, Map.get(&1.meter, :now)})) ==
+               Enum.sort([
+                 {"Empty", :exact, 0},
+                 {"Full", :exact, 100},
+                 {"Half", :exact, 50},
+                 {"Unknown", :none, nil}
+               ])
+    end
+
     test "loading: awaiting first observation for a known generation" do
       snapshot = ProviderMeterSnapshot.empty(:codex, :app_server, "gen-codex")
       assert card(Presenter.present(authorized(), %{codex: snapshot}), :codex).state == :loading
@@ -129,6 +159,13 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     test "partial: mixed window freshness" do
       snapshot = healthy(:codex) |> Map.put(:health, health(:partial)) |> Map.put(:freshness, :partial)
       assert card(Presenter.present(authorized(), %{codex: snapshot}), :codex).state == :partial
+    end
+
+    # Guards the unknown freshness branch (already true on main, not new coverage):
+    # an unrecognised status is named Unknown, never a placeholder.
+    test "unknown snapshot freshness is named Unknown" do
+      snapshot = healthy(:codex) |> Map.put(:freshness, :unknown)
+      assert card(Presenter.present(authorized(), %{codex: snapshot}), :codex).freshness == %{status: :unknown, label: "Unknown"}
     end
 
     test "stale last-known-good retains windows after a refresh failure" do
@@ -247,7 +284,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       [meter] = codex.windows
 
       assert meter.coverage == :supported
-      assert meter.meter == %{kind: :exact, now: 40, min: 0, max: 100}
+      assert meter.meter == %{kind: :exact, now: 60, min: 0, max: 100}
       assert meter.standing_label == "Allowed"
       assert meter.resets_at == @reset
     end
@@ -255,7 +292,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     test "zero usage is an exact value distinct from unknown" do
       window = window(used_percent: 0, remaining_percent: 100, coverage: :supported)
       [meter] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"z" => window})}), :codex).windows
-      assert meter.meter == %{kind: :exact, now: 0, min: 0, max: 100}
+      assert meter.meter == %{kind: :exact, now: 100, min: 0, max: 100}
     end
 
     test "unsupported and empty-supported windows carry no meter value and stay distinct" do

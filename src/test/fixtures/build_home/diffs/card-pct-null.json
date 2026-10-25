@@ -1,0 +1,47 @@
+{
+  "now": 1791408000000,
+  "upsert": [
+    {
+      "id": "9002",
+      "num": 9002,
+      "title": "Cursor-based events API",
+      "type": "feature",
+      "epic": "f-pag-api",
+      "feature": "pag",
+      "also": [],
+      "cx": 4,
+      "pts": 5,
+      "sec": "now",
+      "ord": 9,
+      "start": 1791396480000,
+      "start_src": "label",
+      "end": null,
+      "created": 1791324480000,
+      "status": "running",
+      "pct": null,
+      "agent": {
+        "model": "claude",
+        "state": "active",
+        "effort": "high",
+        "name": "Claude"
+      },
+      "est": 4,
+      "override": null,
+      "added": false,
+      "deps": [
+        "597"
+      ],
+      "children": [],
+      "dep_states": {
+        "597": "cleared"
+      },
+      "deps_missing": 0,
+      "wave": null,
+      "qpos": null,
+      "cue": null,
+      "pr": null
+    }
+  ],
+  "remove": [],
+  "set": {}
+}

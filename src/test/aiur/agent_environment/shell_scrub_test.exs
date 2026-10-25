@@ -16,8 +16,7 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_AGENT_NODE_NAME")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_COOKIE")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_ERLANG_COOKIE")
-    # Per-instance identity inputs (#431) must be scrubbed so an agent's inner aiur
-    # derives its own identity instead of reaping the outer.
+    # Inner aiur processes must not reuse the outer daemon's keyed identity (#431).
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_RELEASE_NODE")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_INSTANCE_KEY")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_REPO_ROOT")
@@ -37,7 +36,7 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
   test "scrub_shell_command clears Erlang distribution environment before exec" do
     command =
       AgentEnvironment.scrub_shell_command(
-        "env | grep -E '^(ERL_AFLAGS|ERL_LIBS|ERL_CRASH_DUMP|ERL_CRASH_DUMP_SECONDS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
+        "env | grep -E '^(ERL_AFLAGS|ERL_LIBS|ERL_CRASH_DUMP|ERL_CRASH_DUMP_SECONDS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_CONTAINER|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
       )
 
     {output, 0} =
@@ -53,6 +52,7 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
           {"AIUR_AGENT_NODE_NAME", "aiur@test"},
           {"AIUR_COOKIE", "secret"},
           {"AIUR_ERLANG_COOKIE", "secret"},
+          {"AIUR_CONTAINER", "1"},
           # #431 per-instance identity inputs — must not leak into an inner aiur.
           {"AIUR_RELEASE_NODE", "aiur-kevin-abc1230000@127.0.0.1"},
           {"AIUR_INSTANCE_KEY", "abc1230000"},
@@ -105,7 +105,7 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
     File.mkdir_p!(release_bin)
     File.write!(Path.join(release_erts_bin, "erl"), "#!/bin/sh\necho poisoned-release-erl\nexit 86\n")
     File.chmod!(Path.join(release_erts_bin, "erl"), 0o755)
-    on_exit(fn -> File.rm_rf!(release_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(release_root) end)
 
     command =
       AgentEnvironment.scrub_shell_command("mise exec -- elixir -e 'IO.puts(:code.lib_dir(:inets)); IO.inspect(Application.ensure_all_started(:inets))'")
@@ -374,7 +374,6 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
   # ELEVENLABS_API_KEY is the Stream Deck voice-input credential the daemon reads.
   # It ends in `_API_KEY`, so all three scrub surfaces already cover it; this is
   # the regression guard that keeps it that way.
-
   test "shell startup suppression clears profile hooks" do
     assert AgentEnvironment.shell_startup_env() == [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", "/dev/null"}]
     assert AgentEnvironment.shell_startup_prefix() == "unset BASH_ENV ENV; export ZDOTDIR='/dev/null'"
@@ -416,4 +415,7 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
 
     assert output == "GH_TOKEN=gh-token\nGITHUB_TOKEN=tracker-token\n"
   end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end

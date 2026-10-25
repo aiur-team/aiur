@@ -8,7 +8,7 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
   defp baseline_path do
     dir = Aiur.TestSupport.tmp_root!("aiur-balance-baseline")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Path.join(dir, "balance-baseline.json")
   end
 
@@ -85,7 +85,7 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
     # must swallow it and report no baseline rather than propagating a raise.
     dir = Aiur.TestSupport.tmp_root!("aiur-baseline-writefail")
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     opts = [path: dir, backend_configs: %{}]
 

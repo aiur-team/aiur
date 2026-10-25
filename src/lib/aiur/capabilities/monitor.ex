@@ -4,7 +4,7 @@ defmodule Aiur.Capabilities.Monitor do
   require Logger
 
   alias Aiur.Capabilities.Collector
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -52,8 +52,9 @@ defmodule Aiur.Capabilities.Monitor do
   end
 
   defp notify(revision, opts, warnings) do
-    if Process.whereis(Aiur.PubSub), do: Phoenix.PubSub.broadcast(Aiur.PubSub, "capabilities", {:capabilities_changed, revision})
-    publish = Keyword.get(opts, :publish_fun, &Publisher.publish/3)
+    pubsub = Keyword.get(opts, :pubsub, Aiur.PubSub)
+    if Process.whereis(pubsub), do: Phoenix.PubSub.broadcast(pubsub, "capabilities", {:capabilities_changed, revision})
+    publish = Keyword.get(opts, :publish_fun, &Events.publish/3)
 
     case publish_change(publish, revision) do
       {:error, reason} -> MapSet.put(warnings, {:publish_failed, reason})

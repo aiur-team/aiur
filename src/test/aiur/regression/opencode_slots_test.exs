@@ -13,7 +13,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
 
   alias Aiur.Opencode.{AttachPool, Slot, SlotPolicy, SlotRegistry}
 
-  @slot_source Path.expand("../../../lib/aiur/opencode/slot.ex", __DIR__)
+  @slot_source Enum.map(~w(slot.ex slot/attach.ex slot/selection.ex), &Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__))
   @events_source Path.expand("../../../lib/aiur/opencode/slot/events.ex", __DIR__)
   @serve_lifecycle_source Path.expand("../../../lib/aiur/opencode/slot/serve_lifecycle.ex", __DIR__)
   @state_source Path.expand("../../../lib/aiur/opencode/slot/state.ex", __DIR__)
@@ -54,8 +54,8 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
   end
 
   setup do
-    {:ok, pool} =
-      AttachPool.start_link(name: :"AttachPool_#{System.unique_integer([:positive])}")
+    name = :"AttachPool_#{System.unique_integer([:positive])}"
+    pool = start_supervised!({AttachPool, name: name})
 
     {:ok, pool: pool}
   end
@@ -175,17 +175,20 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
   end
 
   describe "warmth lifecycle events (4-state marker inputs)" do
-    test "first attach flips :slot_fully_warmed exactly once; losing the last attach drops warmth" do
+    test "first attach flips :slot_fully_warmed exactly once; losing the last attach drops warmth",
+         %{pool: pool} do
       Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-1"})
       assert_receive {:slot_fully_warmed, 1}, 2000
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_added, 1, "issue-2"})
-      refute_receive {:slot_fully_warmed, 1}, 1000
+      sync(pool)
+      refute_receive {:slot_fully_warmed, 1}, 0
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_removed, 1, "issue-1"})
-      refute_receive {:slot_warmth_dropped, 1}, 1000
+      sync(pool)
+      refute_receive {:slot_warmth_dropped, 1}, 0
 
       Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_attach_removed, 1, "issue-2"})
       assert_receive {:slot_warmth_dropped, 1}, 2000
@@ -310,7 +313,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
 
   describe "operator-message preservation through slot lifecycle (#332 class)" do
     test "detach never reaps the identifier's SessionWriter" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
       events_source = File.read!(@events_source)
 
       block =
@@ -349,7 +352,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
     end
 
     test "set_visible same-identifier fast path returns the existing pane without respawn" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       assert source =~ ~r/state\.visible_identifier == identifier and is_binary\(state\.pane_id\)/,
              """
@@ -361,7 +364,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
     end
 
     test "deferred select reply vs fire-and-forget attach retry stay distinct contracts" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       select_block =
         extract!(
@@ -391,7 +394,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
   describe "rebuild/watchdog invariants (source-pinned)" do
     test "serve rebuild teardown order: reap writers -> stop serve -> kill pane -> delete token -> rebuild_now" do
       lifecycle_source = File.read!(@serve_lifecycle_source)
-      slot_source = File.read!(@slot_source)
+      slot_source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       block =
         extract!(
@@ -435,7 +438,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
 
     test "pane-death watchdog: threshold 3, reset on success, cancel-before-reschedule" do
       state_source = File.read!(@state_source)
-      slot_source = File.read!(@slot_source)
+      slot_source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       assert state_source =~ ~r/@poll_death_threshold 3/
 
@@ -458,7 +461,7 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
     end
 
     test "attach_many stays sequential (PR #83 SQLite contention)" do
-      source = File.read!(@slot_source)
+      source = Enum.map_join(@slot_source, "\n", &File.read!/1)
 
       block =
         extract!(

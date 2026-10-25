@@ -21,12 +21,69 @@ defmodule Aiur.BuildQueue.AttentionTest do
         :error -> Application.delete_env(:aiur, :decision_state_dir)
       end
 
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     :ok = Exchange.subscribe(@topic <> ".#")
     {:ok, document} = Store.load()
     {:ok, document: document, root: root}
+  end
+
+  defmodule CaptureSink do
+    def emit_system(topic, opts) do
+      send(Application.fetch_env!(:aiur, :queue_attention_test_pid), {:signal_alert, topic, opts})
+      :ok
+    end
+  end
+
+  test "attention goes through Signal.alert with the E1 payload" do
+    previous = Application.fetch_env!(:aiur, :signal)
+    Application.put_env(:aiur, :queue_attention_test_pid, self())
+    Application.put_env(:aiur, :signal, alert_sink: CaptureSink)
+
+    on_exit(fn ->
+      restore_signal_config(previous)
+      Application.delete_env(:aiur, :queue_attention_test_pid)
+    end)
+
+    assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
+    assert_received {:signal_alert, @topic, opts}
+
+    assert Keyword.delete(opts, :message) == [
+             issue: "12",
+             needs_attention: true,
+             severity: "warning",
+             durable: true,
+             refs_only: true,
+             bypass_contamination: true,
+             exchange_payload: @payload
+           ]
+
+    assert opts[:message] =~ "#12 closed as not planned; #13, #14 wait on it"
+    # The queue adds no fallback to the alerts ledger behind the port.
+    assert alerts(@topic) == []
+  end
+
+  test "focus starvation validates member ids and emits a durable system alert" do
+    previous = Application.fetch_env(:aiur, :signal)
+    Application.put_env(:aiur, :queue_attention_test_pid, self())
+    Application.put_env(:aiur, :signal, alert_sink: CaptureSink)
+
+    on_exit(fn ->
+      restore_signal_config(previous)
+      Application.delete_env(:aiur, :queue_attention_test_pid)
+    end)
+
+    assert :ok = Attention.open(:focus_starved, nil, %{members: [21, 22]})
+    assert_received {:signal_alert, "system.queue.focus_starved", opts}
+    assert opts[:exchange_payload] == %{members: [21, 22]}
+    assert opts[:message] =~ "#21, #22"
+    assert :ok = Attention.open(:focus_starved, nil, %{members: [21, 22]})
+    refute_received {:signal_alert, "system.queue.focus_starved", _}
+    assert :ok = Attention.resolve(:focus_starved, nil)
+    assert_received {:signal_alert, "system.queue.focus_starved.resolved", resolved}
+    assert resolved[:needs_attention] == false
+    assert {:ok, %{latches: []}} = Store.load()
   end
 
   test "duplicate closure attention preserves and names its unknown completion cause" do
@@ -197,4 +254,8 @@ defmodule Aiur.BuildQueue.AttentionTest do
   end
 
   defp alerts(topic), do: AlertLedger.read(AlertLedger.path()) |> Enum.filter(&(&1["topic"] == topic))
+
+  defp restore_signal_config({:ok, config}), do: Application.put_env(:aiur, :signal, config)
+  defp restore_signal_config(config) when is_list(config), do: Application.put_env(:aiur, :signal, config)
+  defp restore_signal_config(:error), do: Application.delete_env(:aiur, :signal)
 end

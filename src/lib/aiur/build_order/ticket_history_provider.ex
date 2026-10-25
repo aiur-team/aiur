@@ -17,6 +17,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
 
   alias Aiur.BuildOrder.TicketHistory.{Failure, Normalizer, Snapshot}
   alias Aiur.BuildOrder.TicketHistoryProvider.Options
+  alias Aiur.BuildOrder.TicketHistoryStore, as: Store
   alias Aiur.TrackerIdentity
 
   @reset_topic "build_order:ticket_history:reset"
@@ -367,155 +368,24 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
   end
 
   defp store(entry, state) do
-    previous = Map.get(state.entries, key(entry.identity))
-    {entry, state} = touch(entry, state)
+    case Store.put(entry, state) do
+      {:unchanged, entry, state} ->
+        {entry, state}
 
-    if same_content?(previous, entry) do
-      {entry, put_entry_without_change(entry, state)}
-    else
-      {state, evicted} = make_room(state, entry.identity)
-      {evicted, state} = allocate_eviction_generations(evicted, state)
-      {generation, state} = allocate_generation(state)
-      entry = %{entry | generation: generation}
+      {:changed, entry, state, evicted} ->
+        Enum.each(evicted, fn {evicted_entry, eviction_generation} ->
+          broadcast_evicted(evicted_entry, eviction_generation)
+        end)
 
-      state = %{
-        state
-        | entries: Map.put(state.entries, key(entry.identity), entry)
-      }
-
-      Enum.each(evicted, fn {evicted_entry, eviction_generation} ->
-        broadcast_evicted(evicted_entry, eviction_generation)
-      end)
-
-      broadcast(entry, state)
-      {entry, state}
+        broadcast(entry, state)
+        {entry, state}
     end
   end
 
-  defp allocate_eviction_generations(entries, state) do
-    Enum.map_reduce(entries, state, fn entry, state ->
-      {generation, state} = allocate_generation(state)
-      {{entry, generation}, state}
-    end)
-  end
-
-  defp allocate_generation(state) do
-    {state.next_generation, %{state | next_generation: state.next_generation + 1}}
-  end
-
-  defp same_content?(nil, _entry), do: false
-
-  defp same_content?(previous, entry) do
-    Map.drop(previous, [:last_access]) == Map.drop(entry, [:last_access])
-  end
-
-  defp touch(entry, state) do
-    sequence = state.access_sequence + 1
-    {%{entry | last_access: sequence}, %{state | access_sequence: sequence}}
-  end
-
-  defp put_entry_without_change(entry, state) do
-    %{state | entries: Map.put(state.entries, key(entry.identity), entry)}
-  end
-
-  defp make_room(state, identity) do
-    identity_key = key(identity)
-
-    if Map.has_key?(state.entries, identity_key) or map_size(state.entries) < state.max_identities do
-      {state, []}
-    else
-      {evicted_key, evicted} =
-        Enum.min_by(state.entries, fn {entry_key, entry} -> {entry.last_access, entry_key} end)
-
-      {%{state | entries: Map.delete(state.entries, evicted_key)}, [evicted]}
-    end
-  end
-
-  defp snapshot(entry, state) do
-    now = now(state)
-    observed_at = latest_observation(entry)
-    activity_health = activity_source_health(entry, now, state.stale_after_ms)
-    freshness = freshness(observed_at, now, state.stale_after_ms)
-    health = overall_health(entry, activity_health, freshness)
-
-    %Snapshot{
-      identity: entry.identity,
-      generation: entry.generation,
-      health: health,
-      status_label: status_label(health),
-      progress: progress(entry.activity),
-      latest_evidence: latest_evidence(entry.activity),
-      entries: entry.entries,
-      truncated?: entry.truncated?,
-      observed_at: observed_at,
-      freshness: freshness,
-      source_health: %{activity: activity_health, history: entry.history_health}
-    }
-  end
-
-  defp missing_snapshot(identity) do
-    %Snapshot{
-      identity: identity,
-      generation: :unknown,
-      health: :missing_source,
-      status_label: status_label(:missing_source),
-      progress: %{status: :unknown},
-      latest_evidence: %{status: :unknown},
-      entries: [],
-      truncated?: false,
-      observed_at: nil,
-      freshness: :unknown,
-      source_health: %{activity: :missing_source, history: :missing_source}
-    }
-  end
-
-  defp overall_health(%{history_health: :unavailable}, _activity_health, _freshness), do: :unavailable
-  defp overall_health(_entry, :unavailable, _freshness), do: :unavailable
-  defp overall_health(%{history_health: :missing_source}, _activity_health, _freshness), do: :missing_source
-  defp overall_health(%{entries: [_ | _]}, :missing_source, _freshness), do: :restart_unknown
-  defp overall_health(_entry, :missing_source, _freshness), do: :missing_source
-  defp overall_health(_entry, :stale, _freshness), do: :stale
-  defp overall_health(_entry, _activity_health, :stale), do: :stale
-  defp overall_health(%{entries: []}, _activity_health, _freshness), do: :known_empty
-  defp overall_health(_entry, _activity_health, _freshness), do: :available
-
-  defp activity_source_health(%{activity_health: :available, activity: activity}, now, stale_after_ms) do
-    if field(activity, :status) == :stale or freshness(field(activity, :observed_at), now, stale_after_ms) == :stale,
-      do: :stale,
-      else: :available
-  end
-
-  defp activity_source_health(%{activity_health: health}, _now, _stale_after_ms), do: health
-
-  defp freshness(nil, _now, _stale_after_ms), do: :unknown
-
-  defp freshness(%DateTime{} = observed_at, %DateTime{} = now, stale_after_ms) do
-    if DateTime.diff(now, observed_at, :millisecond) > stale_after_ms, do: :stale, else: :fresh
-  end
-
-  defp latest_observation(entry) do
-    activity_time = entry.activity && field(entry.activity, :observed_at)
-    entry_time = entry.entries |> List.first() |> then(&(&1 && &1.observed_at))
-
-    case {activity_time, entry_time} do
-      {%DateTime{} = left, %DateTime{} = right} -> if(DateTime.compare(left, right) == :lt, do: right, else: left)
-      {%DateTime{} = value, _} -> value
-      {_, %DateTime{} = value} -> value
-      _ -> nil
-    end
-  end
-
-  defp progress(%{progress: progress}) when is_map(progress), do: progress
-  defp progress(_activity), do: %{status: :unknown}
-  defp latest_evidence(%{latest_evidence: evidence}) when is_map(evidence), do: evidence
-  defp latest_evidence(_activity), do: %{status: :unknown}
-
-  defp status_label(:available), do: "Recent ticket history available"
-  defp status_label(:known_empty), do: "No recent structured ticket activity"
-  defp status_label(:missing_source), do: "Structured ticket history source missing"
-  defp status_label(:restart_unknown), do: "History restored; current activity unknown after restart"
-  defp status_label(:stale), do: "Recent ticket history is stale"
-  defp status_label(:unavailable), do: "Recent ticket history unavailable"
+  defp snapshot(entry, state), do: Store.snapshot(entry, state, now(state))
+  defp missing_snapshot(identity), do: Store.missing_snapshot(identity)
+  defp touch(entry, state), do: Store.touch(entry, state)
+  defp put_entry_without_change(entry, state), do: Store.put_unchanged(entry, state)
 
   defp authorize(%{repository: :unavailable}, _identity),
     do: {:error, %Failure{kind: :configuration}}
@@ -621,7 +491,6 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider do
     end
   end
 
-  defp key(identity), do: TrackerIdentity.github_key(identity)
-  defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
-  defp field(_map, _key), do: nil
+  defp key(identity), do: Store.key(identity)
+  defp field(map, key), do: Store.field(map, key)
 end

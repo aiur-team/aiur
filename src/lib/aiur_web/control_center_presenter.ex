@@ -215,8 +215,9 @@ defmodule AiurWeb.ControlCenterPresenter do
   defp provider_health(:degraded), do: :degraded
   defp provider_health(_status), do: :unavailable
 
-  defp analytics(%{available?: available?, path: path, message: message}) when is_boolean(available?) do
-    %{available?: available?, path: path, message: message}
+  # Keep the Experiments flag: every page builds its nav from this contract (#4886).
+  defp analytics(%{available?: available?, path: path, message: message} = analytics) when is_boolean(available?) do
+    %{available?: available?, path: path, message: message, experiments_available?: Map.get(analytics, :experiments_available?) == true}
   end
 
   defp analytics(_analytics) do

@@ -3,7 +3,7 @@ defmodule Aiur.BuildQueue.Writer do
   alias Aiur.BuildQueue.{AttentionActions, Bookkeeping, Events, WriteEvidence, WriteProtocol}
 
   @spec new() :: map()
-  def new, do: %{writes: [], failures: %{}, ensured?: false, paused?: false}
+  def new, do: %{writes: [], failures: %{}, retries: %{}, ensured?: false, paused?: false}
 
   @spec run(map(), list(), map()) :: map()
   def run(context, actions, runtime) do
@@ -17,7 +17,15 @@ defmodule Aiur.BuildQueue.Writer do
   end
 
   defp execute({action, id}, context) when action in [:promote, :withdraw, :mark, :unmark] do
-    context = retry(context, action, id, [1_000, 4_000, 16_000])
+    context =
+      case Map.get(context.writer.retries, {action, id}) do
+        %{at: at, delays: delays} ->
+          if context.clock.() >= at, do: retry(context, action, id, delays), else: record(context, action, id, {:error, :retry_wait})
+
+        nil ->
+          retry(context, action, id, [1_000, 4_000, 16_000])
+      end
+
     if context.status == :running, do: {:cont, context}, else: {:halt, context}
   end
 
@@ -112,7 +120,8 @@ defmodule Aiur.BuildQueue.Writer do
   end
 
   defp success(context, action, id) do
-    writer = %{context.writer | failures: Map.delete(context.writer.failures, id), paused?: false}
+    retries = Map.delete(context.writer.retries, {action, id})
+    writer = %{context.writer | failures: Map.delete(context.writer.failures, id), retries: retries, paused?: false}
     promoted = if action == :promote, do: [id | context.promoted], else: context.promoted
     context = %{context | writer: writer, promoted: promoted, status: :running}
     AttentionActions.execute(context, {:attention_resolve, {:write_failed, id}})
@@ -126,11 +135,12 @@ defmodule Aiur.BuildQueue.Writer do
   end
 
   defp again(%{status: :store_unavailable} = context, _action, _id, _delays), do: context
-  defp again(context, _action, _id, []), do: context
+  defp again(context, action, id, []), do: %{context | writer: %{context.writer | retries: Map.delete(context.writer.retries, {action, id})}}
 
   defp again(context, action, id, [delay | rest]) do
-    context.sleep.(delay)
-    retry(context, action, id, rest)
+    context.schedule.(self(), :retry_writes, delay)
+    retries = Map.put(context.writer.retries, {action, id}, %{at: context.clock.() + delay, delays: rest})
+    %{context | writer: %{context.writer | retries: retries}}
   end
 
   defp latch(context, id) do

@@ -98,8 +98,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
-                <span :if={!present?(row.build_lane) && present?(row.tracker_state)} class="u-lane is-state">
-                  <span class="u-lane-dot" aria-hidden="true"></span>{row.tracker_state |> to_string() |> String.replace("-", " ") |> String.upcase()}
+                <span :if={state_label = UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{state_label}
+                </span>
+                <span :if={reason_label = UnitsPresentation.reason_label(row)} class="u-lane is-state" title={reason_label}>
+                  <span class="u-lane-dot" aria-hidden="true"></span>{reason_label}
                 </span>
               </td>
 
@@ -119,10 +122,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <div class="ut-latest-meta mono num">
                   <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
                   <span><span class="sr-only">Runtime </span>{runtime(row, @now, @view)}</span>
+                  <span :if={slot_released?(row)} title="Paused on a provider usage limit; not counted against max-agents">Slot released</span>
                 </div>
                 <div class="ut-latest-meta ut-agent-context mono num">
-                  <span title="Aiur orchestration turns in this running attempt">Turns {turn_count(row)}</span>
-                  <span title="Current context occupancy, separate from cumulative token usage">Context {AgentContextPresentation.compact(row[:context_usage])}</span>
+                  <span title={turn_count_title(row)}>Turns {turn_count(row)}</span>
+                  <span title={context_title(row)}>Context {context_usage(row)}</span>
                 </div>
               </td>
 
@@ -158,7 +162,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
       <div :if={@view[:zero_result?]} class="units-state empty-state filtered-empty">
         <p>No units match this valid scope and condition selection.</p>
-        <button type="button" class="btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
+        <button type="button" class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
       </div>
 
       <div :if={no_units?(@status, @rows, @view)} class="units-state empty-state">{empty_sentence(@status, @message)}</div>
@@ -167,7 +171,29 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   end
 
   defp turn_count(%{turn_count: count}) when is_integer(count) and count >= 0, do: count
-  defp turn_count(_row), do: "—"
+  defp turn_count(row), do: unreported_label(row)
+
+  defp turn_count_title(%{turn_count: count}) when is_integer(count) and count >= 0,
+    do: "Aiur orchestration turns in this running attempt"
+
+  defp turn_count_title(row), do: unreported_title(row, "a turn count")
+
+  defp context_usage(%{context_usage: %{} = context}), do: AgentContextPresentation.compact(context)
+  defp context_usage(row), do: unreported_label(row)
+
+  defp context_title(%{context_usage: %{}}), do: "Current context occupancy, separate from cumulative token usage"
+  defp context_title(row), do: unreported_title(row, "context occupancy")
+
+  # A missing measurement names why it is missing instead of looking like an empty value.
+  defp unreported_label(row), do: if(running?(row), do: "not reported", else: "no attempt")
+
+  defp unreported_title(row, measurement) do
+    if running?(row),
+      do: "The #{row[:backend] || "agent"} backend has not reported #{measurement} for this attempt",
+      else: "No running attempt, so there is no #{measurement} to report"
+  end
+
+  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
 
   attr(:token, :string, required: true)
   attr(:row, :map, required: true)
@@ -396,6 +422,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp unit_sort_value(row), do: Enum.join(Enum.reject([agent_label(row), model_label(row)], &is_nil/1), " ")
 
   defp latest_text(row), do: UnitsPresentation.latest_text(row)
+
+  defp slot_released?(row), do: get_in(row, [:reasons, :waiting]) == :provider_limited
 
   defp progress_width(progress), do: known_percent(progress) || 0
 

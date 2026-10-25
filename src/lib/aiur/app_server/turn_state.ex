@@ -168,6 +168,8 @@ defmodule Aiur.AppServer.TurnState do
     do: status
 
   def turn_completion_status(%{"turn" => %{"status" => status}}) when is_binary(status), do: status
+  # aiur-claude puts the status flat on params; missing it read an interrupt as completion (#4696).
+  def turn_completion_status(%{"params" => %{"status" => status}}) when is_binary(status), do: status
   def turn_completion_status(_payload), do: "completed"
 
   defp finish_or_continue(state) do

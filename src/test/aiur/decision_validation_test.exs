@@ -167,12 +167,14 @@ defmodule Aiur.DecisionValidationTest do
         "blocking" => true,
         "kind" => "sequencing",
         "authority" => "human_required",
+        "context" => %{"authority_basis" => "product"},
         "reversibility" => "reversible"
       }
 
       assert {:ok, decision} = normalize(payload)
       assert decision.authority == :human_required
       assert decision.reversibility == :reversible
+      assert decision.context.authority_basis == "product"
     end
 
     test "an unclassified kind falls back to the Executor-answerable defaults" do

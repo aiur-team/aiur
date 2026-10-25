@@ -37,7 +37,7 @@ defmodule Aiur.Events.Exchange do
   draining their own mailboxes. The renderer + at-least-once cursor
   dedup contract upstream is what makes this safe.
   """
-
+  # aiur:event-bus-boundary-member
   use GenServer
 
   require Logger

@@ -272,7 +272,7 @@ defmodule Aiur.ModelAvailability.Limits do
 
   defp window_name(window) do
     case number(window["window_minutes"] || window["windowDurationMins"]) do
-      minutes when is_number(minutes) and minutes <= 60 -> "hourly"
+      minutes when is_number(minutes) and minutes < 10_080 -> "hourly"
       minutes when is_number(minutes) and minutes <= 10_080 -> "weekly"
       minutes when is_number(minutes) -> "monthly"
       _ -> nil

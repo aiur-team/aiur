@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
 
   alias Aiur.{AgentControlCLI, Boot, Issue}
   alias Aiur.Orchestrator.{Dispatcher, IssueSync, SnapshotStore, State, StatusObservation, StatusReport}
-  alias AiurWeb.OperatorControlCenter.{CapacityControl, CapacityPresenter, FleetTable, Overview}
+  alias AiurWeb.OperatorControlCenter.{CapacityControl, CapacityPresenter}
   alias AiurWeb.Presenter
 
   test "snapshot projection preserves all six renderer inputs and their behavior" do
@@ -32,6 +32,15 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
 
     assert StatusReport.snapshot_payload(input).orphaned_agent_reap_count == 17
     assert StatusReport.snapshot_payload(input).capacity.load == 7.0
+  end
+
+  test "snapshot retains same-head rework attempt counts for the Executor sweep" do
+    state = %State{rework_attempts: %{{"4429", "current-head"} => 3, {"4429", "old-head"} => 1}}
+
+    assert [
+             %{issue_id: "4429", head_sha: "current-head", count: 3},
+             %{issue_id: "4429", head_sha: "old-head", count: 1}
+           ] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).rework_attempts |> Enum.sort_by(& &1.head_sha)
   end
 
   test "groups retain source timestamps and grow older at read time" do
@@ -60,6 +69,27 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     assert retained.capacity.dispatch_observation == retained.observations.dispatch
   end
 
+  test "per-ticket group age follows later ticket polls without resetting older row ages" do
+    now = DateTime.utc_now()
+    old_ticket = DateTime.add(now, -300, :second)
+    fresh_ticket = DateTime.add(now, -15, :second)
+
+    state = %State{tracker_observations: %{"old" => old_ticket, "fresh" => fresh_ticket}}
+    snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(state))
+
+    assert snapshot.observations.per_ticket.observed_at == DateTime.to_iso8601(fresh_ticket)
+    assert snapshot.observations.per_ticket.age_ms >= 15_000
+    assert snapshot.observations.per_ticket.oldest_ticket_id == "old"
+    assert snapshot.observations.per_ticket.oldest_observed_at == DateTime.to_iso8601(old_ticket)
+    assert snapshot.observations.per_ticket.oldest_age_ms >= 300_000
+    assert snapshot.ticket_observations["old"] == old_ticket
+    assert snapshot.ticket_observations["fresh"] == fresh_ticket
+    refreshed = StatusObservation.refresh(snapshot, DateTime.add(now, 120, :second))
+    assert refreshed.observations.per_ticket.oldest_age_ms == 420_000
+    output = capture_io(fn -> StatusObservation.print_groups(refreshed) end)
+    assert output =~ "PER_TICKET OBSERVATION 135s old; oldest retained #old 420s old"
+  end
+
   test "successful tracker observations survive failed cycles and paused idle rows retain their age" do
     issue = %Issue{id: "idle", identifier: "idle", state: "todo", title: "Idle", paused: true, labels: ["agent:paused"]}
     before_observation = DateTime.utc_now()
@@ -77,6 +107,11 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     server = self()
     on_exit(fn -> SnapshotStore.forget(server) end)
     :ok = SnapshotStore.publish(server, snapshot, input)
+    payload = Presenter.state_payload(server, 5_000)
+    # Guard the presenter contract; the aggregate-age regression is asserted above.
+    assert [idle_payload] = payload.idle
+    assert idle_payload.observed_at == idle.observed_at
+    assert idle_payload.age_ms >= 60_000
     {:ok, cli, _} = StatusReport.fleet_view(server, 5_000, fleet_rows?: true)
     assert [row] = cli.statuses
     assert row.observed_at == idle.observed_at
@@ -150,16 +185,14 @@ defmodule Aiur.Orchestrator.StatusReadModelTest do
     capacity_html = render_component(&CapacityControl.capacity_control/1, capacity: CapacityPresenter.present(payload.capacity), writable: false, input: "", feedback: nil)
     assert capacity_html =~ "maximum 6"
     assert capacity_html =~ "0s old"
-    overview = render_component(&Overview.fleet_overview/1, fleet: payload, filters: MapSet.new([:all]))
-    assert overview =~ "Fleet snapshot 0s old"
-    table = render_component(&FleetTable.fleet_table/1, fleet: payload, now: DateTime.utc_now())
-    assert table =~ "80s old; since daemon start"
   end
 
   test "missing observations and unavailable snapshots cannot masquerade as zero age or capacity" do
     snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(%State{}))
     assert snapshot.observations.dispatch == %{observed_at: nil, age_ms: nil}
-    assert snapshot.observations.per_ticket == %{observed_at: nil, age_ms: nil}
+    assert snapshot.observations.per_ticket == %{observed_at: nil, age_ms: nil, oldest_ticket_id: nil, oldest_observed_at: nil, oldest_age_ms: nil}
+    output = capture_io(fn -> StatusObservation.print_groups(snapshot) end)
+    refute output =~ "oldest retained #"
     assert StatusObservation.label(snapshot.observations.dispatch) == "age unavailable"
     assert StatusObservation.label(%{observed_at: "invalid", age_ms: nil}) == "age unavailable"
     assert StatusObservation.observation("invalid", DateTime.utc_now()) == %{observed_at: nil, age_ms: nil}

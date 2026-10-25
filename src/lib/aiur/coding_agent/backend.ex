@@ -14,6 +14,8 @@ defmodule Aiur.CodingAgent.Backend do
   declared capability in the registry entry (`t:capabilities/0`).
   Unknown backends fail loud in the registry accessors, never here.
 
+  See `CONTRIBUTING.md` § Adding a harness adapter for the contributor checklist.
+
   ## Session contract
 
   A session is the adapter-owned map returned by `c:start_session/2`
@@ -48,6 +50,7 @@ defmodule Aiur.CodingAgent.Backend do
   optional `c:interrupt/1` callback is the out-of-band variant for
   backends whose live process is cut externally (the persistent REPL:
   Ctrl+C into the pane).
+  Optional `c:steer/3` delivers mid-turn input without cancelling the turn.
   """
 
   alias Aiur.CodingAgent
@@ -59,6 +62,18 @@ defmodule Aiur.CodingAgent.Backend do
   One registry entry in `Aiur.CodingAgent.backends/0`. Required keys
   exist on every backend; optional keys are declared capabilities:
 
+    * `:delivery` — non-derivable transport, mid-turn injection, pull-tool,
+      hook-boundary and native-question facts for `Aiur.Harness.Capabilities`.
+      Omitted declarations get conservative defaults.
+    * `:hosted_execution` — declared permission, network, and credential
+      boundaries consumed by hosted-mode validation. Omitted facts are unsafe.
+    * `:launch_telemetry` — module exporting `prepare_launch/2` and `revoke/1`
+      for backend-correlated launch capabilities (distinct from `:run_telemetry` decoding).
+    * `:children` — child specs the harness needs before the Orchestrator
+      starts, collected once by `Aiur.CodingAgent.child_specs/0` in `:init_order`.
+    * `:display_tailer` — module exporting `start/1`, `current_session/1`,
+      `buffer_operator_delivery/3`, `handoff_state/1` and `restore_handoff/2`.
+      Required when `:rc_display_tail` is true.
     * `:immediate_delivery` — Executor messages pass straight through
       to the live process instead of holding at a checkpoint.
     * `:remote_transport` — the backend an RC-promoted session
@@ -76,6 +91,10 @@ defmodule Aiur.CodingAgent.Backend do
       version itself). Defaults to `:native`.
     * `:recoverable_session_error` — provider-owned predicate for errors
       that can safely restore claimed work and replace the stale session.
+    * Provider adapters may expose `restore_handoff_session/3`,
+      `handoff_socket_name/1`, `restore_handoff_transport/3`,
+      `adopt_handoff_turn/4`, and `compact_session/3` for provider-owned
+      daemon handoff and compaction behavior.
   """
   @type capabilities :: %{
           required(:adapter) => module(),
@@ -90,6 +109,8 @@ defmodule Aiur.CodingAgent.Backend do
           required(:models) => [String.t()],
           optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],
+          optional(:delivery) => map(),
+          optional(:hosted_execution) => Aiur.Harness.Capabilities.hosted_security(),
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),
           optional(:fallback_backend) => CodingAgent.backend(),
@@ -98,6 +119,8 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:model_catalog_backend) => CodingAgent.backend(),
           optional(:meter_probe) => (atom(), CodingAgent.backend(), keyword() -> map()),
           optional(:recoverable_session_error) => (term() -> boolean()),
+          optional(:launch_telemetry) => module(),
+          optional(:display_tailer) => module(),
           optional(:run_telemetry) => (map() -> term()),
           optional(:presentation) => map(),
           optional(:pricing) => map(),
@@ -110,6 +133,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:configurable) => boolean(),
           optional(:init) => module(),
           optional(:init_order) => non_neg_integer(),
+          optional(:children) => [Supervisor.child_spec() | module() | {module(), term()}],
           optional(:default_command) => String.t(),
           optional(:install_hint) => String.t(),
           optional(atom()) => term()
@@ -145,5 +169,17 @@ defmodule Aiur.CodingAgent.Backend do
   """
   @callback interrupt(session()) :: :ok | {:error, term()}
 
-  @optional_callbacks interrupt: 1
+  @doc "MP-E7: non-cancelling mid-turn input, optionally pinned to the expected turn."
+  @callback steer(session(), CodingAgent.operator_payload(), expected_turn_id :: String.t() | nil) ::
+              {:ok, term()} | {:error, :no_active_turn | :turn_mismatch | term()}
+
+  @doc "MP-E2: answer a held native question on the session that asked it."
+  @callback reply_native_question(session(), native_ref :: term(), %{String.t() => [String.t()]}) ::
+              :ok | {:error, :not_pending | :session_gone | term()}
+
+  @doc "MP-E2: release a held native question with the non-interactive answer text."
+  @callback release_native_question(session(), native_ref :: term(), String.t()) ::
+              :ok | {:error, :not_pending | :session_gone | term()}
+
+  @optional_callbacks interrupt: 1, steer: 3, reply_native_question: 3, release_native_question: 3
 end

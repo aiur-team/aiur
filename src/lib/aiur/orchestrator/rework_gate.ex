@@ -27,7 +27,17 @@ defmodule Aiur.Orchestrator.ReworkGate do
   alias Aiur.Alerts
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{OperatorMessages, ReworkHandoffChecks, State}
+  alias Aiur.PRLifecycle.PostAgentRouting
+
+  @doc false
+  @spec operator_queue_empty?(GenServer.server(), String.t()) :: boolean()
+  def operator_queue_empty?(orchestrator, issue_identifier) do
+    case OperatorMessages.control_capabilities(orchestrator, issue_identifier) do
+      {:ok, %{queue_depth: 0}} -> true
+      _queued_or_unavailable -> false
+    end
+  end
 
   @doc """
   Returns the open pull request for the rework target.
@@ -127,7 +137,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
   # re-derived every cycle the way `reviewDecision` was. Read the guard in the
   # publisher, not here:
   #
-  #   * `Aiur.Events.Publisher` consults `resource_processed?/1` BEFORE its
+  #   * the `Aiur.Events` publish boundary consults `resource_processed?/1` BEFORE its
   #     volatile dedup window. A review publishes as
   #     `{:pr_review, owner, repo, review_id}` at `resource_version =
   #     submitted_at`, which is immutable for a review, and `ResourceStore`
@@ -189,6 +199,8 @@ defmodule Aiur.Orchestrator.ReworkGate do
     * `{:skip, :no_unresolved_review_threads}` — the open PR has no unresolved
       threads; the reviewer is not currently asking for a change, so the ticket
       must not be routed to rework;
+    * `{:skip, :approved_and_queued}` — the PR is approved and in the merge
+      queue; the ticket keeps its waiting state (#4204);
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
 
@@ -199,13 +211,13 @@ defmodule Aiur.Orchestrator.ReworkGate do
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
           {:ok, map()}
-          | {:skip, :no_open_pr | :no_unresolved_review_threads}
+          | {:skip, :no_open_pr | :no_unresolved_review_threads | :approved_and_queued}
           | {:error, term()}
   def verify_unresolved_review_threads(issue_key, opts \\ []) do
     case open_pr(issue_key, opts) do
       {:ok, %{} = pr} ->
         case open_pull_request_rework_verdict(pr, opts) do
-          {:ok, :rework} -> {:ok, pr}
+          {:ok, :rework} -> rework_unless_queued(pr, opts)
           {:skip, reason} -> {:skip, reason}
           {:error, reason} -> {:error, reason}
         end
@@ -215,6 +227,34 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # #4204: a queued branch rejects pushes, so a rework turn could only ask the
+  # Executor to dequeue it, and the approval already outranks an open thread
+  # (#1756). A failed read keeps the rework verdict the threads justified.
+  defp rework_unless_queued(pr, opts) do
+    # A blocking review submitted after the approval leaves `reviewDecision` APPROVED; it is still a finding.
+    blocking? = Keyword.get(opts, :blocking_review_submission?, false)
+
+    if not blocking? and approved_and_queued?(pr, opts) == {:ok, true},
+      do: {:skip, :approved_and_queued},
+      else: {:ok, pr}
+  end
+
+  @doc false
+  @spec approved_and_queued?(map(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def approved_and_queued?(pr, opts \\ []) do
+    fetcher = Keyword.get(opts, :queued_approval_fetcher, &default_queued_approval_fetcher/1)
+    fetcher.(pr)
+  end
+
+  defp default_queued_approval_fetcher(pr) do
+    with true <- available?(),
+         number when is_integer(number) <- Map.get(pr, "number") do
+      GitHubClient.pull_request_approved_and_queued?(number)
+    else
+      _unavailable -> {:ok, false}
     end
   end
 
@@ -258,27 +298,107 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   def head_sha(_pr), do: nil
 
+  @doc "True when the PR's approval carries to its head: approved at the head, or only merge drift since (#4965)."
+  @spec approval_carries_to_head?(integer(), keyword()) :: boolean()
+  def approval_carries_to_head?(number, opts \\ []), do: PostAgentRouting.approved?(number, opts)
+
+  @doc "Routes a post-agent handoff from the current review verdict, falling back to the caller's CI-derived state."
+  @spec post_agent_handoff_target(map(), String.t(), keyword()) :: String.t()
+  def post_agent_handoff_target(pr, fallback, opts \\ []),
+    do: PostAgentRouting.route(pr, fallback, opts)
+
   @doc "Returns the safest handoff state when a stopped agent has an open PR."
   @spec stopped_agent_handoff(String.t(), String.t() | atom() | nil, keyword()) ::
           :none | {:handoff, String.t()}
   def stopped_agent_handoff(issue_key, original_head, opts \\ []) do
     case open_pr(issue_key, opts) do
-      {:ok, pr} ->
-        current_head = head_sha(pr)
-
-        if is_binary(current_head) and current_head != "" and
-             (not is_binary(original_head) or original_head == "" or current_head != original_head) do
-          {:handoff, ci_handoff_state(current_head, opts)}
-        else
-          :none
-        end
-
-      {:error, _reason} ->
-        {:handoff, "human-review"}
-
-      {:skip, :no_open_pr} ->
-        :none
+      {:ok, pr} -> open_pr_handoff(issue_key, pr, original_head, opts)
+      {:error, _reason} -> {:handoff, "human-review"}
+      {:skip, :no_open_pr} -> :none
     end
+  end
+
+  defp open_pr_handoff(issue_key, pr, original_head, opts) do
+    current_head = head_sha(pr)
+
+    if head_moved?(current_head, original_head) do
+      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(current_head, opts), opts)}
+    else
+      pr
+      |> superseded_review_handoff(current_head, opts)
+      |> alert_no_op_rework(issue_key, pr, original_head, opts)
+    end
+  end
+
+  defp head_moved?(current_head, original_head)
+       when is_binary(current_head) and current_head != "" do
+    not is_binary(original_head) or original_head == "" or current_head != original_head
+  end
+
+  defp head_moved?(_current_head, _original_head), do: false
+
+  defp alert_no_op_rework(:none, issue_key, pr, original_head, opts) do
+    ReworkHandoffChecks.alert_no_op_rework(issue_key, original_head, head_sha(pr), opts)
+    :none
+  end
+
+  defp alert_no_op_rework(handoff, _issue_key, _pr, _original_head, _opts), do: handoff
+
+  @doc false
+  @spec agent_handoff_blockers(String.t(), String.t() | atom() | nil, keyword()) ::
+          {:blocked, [String.t()]} | :allow
+  def agent_handoff_blockers(issue_key, dispatch_head, opts \\ []) do
+    if is_binary(dispatch_head) and dispatch_head not in ["", :pending, :lookup_failed] do
+      case open_pr(issue_key, opts) do
+        {:ok, pr} -> ReworkHandoffChecks.agent_handoff_blockers(dispatch_head, head_sha(pr), opts)
+        _unknown -> :allow
+      end
+    else
+      :allow
+    end
+  end
+
+  @doc "Returns a handoff only when a completed turn pushed a new open-PR head."
+  @spec completed_agent_handoff(String.t(), term(), keyword()) :: :none | {:handoff, String.t()}
+  def completed_agent_handoff(issue_key, original_head, opts \\ []) do
+    with original when is_binary(original) and original != "" <- original_head,
+         {:ok, pr} <- open_pr(issue_key, opts),
+         head when is_binary(head) and head != "" <- head_sha(pr),
+         true <- head != original do
+      {:handoff, post_agent_handoff_target(pr, ci_handoff_state(head, opts), opts)}
+    else
+      _ -> :none
+    end
+  end
+
+  # #3971: the head can equal the dispatch head and still carry the fixes — they
+  # were pushed by an earlier run. A blocking review that names an older commit
+  # has not seen this head, so it goes back to the reviewer, red CI included.
+  defp superseded_review_handoff(pr, head, opts) do
+    with true <- Keyword.get(opts, :superseded_review_handoff?, false) and is_binary(head),
+         {:ok, reviews} <-
+           (Keyword.get(opts, :reviews_fetcher) || (&default_reviews_fetcher/1)).(Map.get(pr, "number")),
+         [_ | _] = blocking <- blocking_reviews(reviews),
+         false <- Enum.any?(blocking, &(&1["commit_id"] == head)) do
+      {:handoff,
+       post_agent_handoff_target(
+         pr,
+         ci_handoff_state(head, opts),
+         Keyword.put(opts, :reviews_fetcher, fn _ -> {:ok, reviews} end)
+       )}
+    else
+      _not_superseded -> :none
+    end
+  end
+
+  @doc "Each trusted reviewer's latest verdict that still blocks; an old `CHANGES_REQUESTED` is sticky, so callers compare `commit_id` to the head."
+  @spec blocking_reviews([map()]) :: [map()]
+  def blocking_reviews(reviews), do: PostAgentRouting.blocking_reviews(reviews)
+
+  defp default_reviews_fetcher(number) do
+    if available?() and is_integer(number),
+      do: Aiur.CodeHost.fetch_classified_pr_reviews(number),
+      else: {:error, :unavailable}
   end
 
   defp ci_handoff_state(head_sha, opts) do
@@ -286,8 +406,21 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
     case fetcher.(head_sha) do
       {:ok, %{check_runs: runs, commit_status: status}} ->
-        pending_runs? = Enum.any?(runs, &(Map.get(&1, "status") in ["waiting", "requested", "pending", "in_progress", "queued"]))
-        if pending_runs? or get_in(status, ["state"]) == "pending", do: "ci-wait", else: "human-review"
+        pending_runs? =
+          Enum.any?(
+            runs,
+            &(Map.get(&1, "status") in [
+                "waiting",
+                "requested",
+                "pending",
+                "in_progress",
+                "queued"
+              ])
+          )
+
+        if pending_runs? or get_in(status, ["state"]) == "pending",
+          do: "ci-wait",
+          else: "human-review"
 
       _ ->
         "ci-wait"

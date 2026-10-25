@@ -16,8 +16,8 @@ defmodule Aiur.UsageAggregate.StoreTest do
     {:ok, ledger} = UsageLedger.Store.start_link(name: ledger_name, state_dir: ledger_root, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
-      File.rm_rf(ledger_root)
-      File.rm_rf(agg_root)
+      Aiur.TestCleanup.rm_rf!(ledger_root)
+      Aiur.TestCleanup.rm_rf!(agg_root)
     end)
 
     %{ledger_root: ledger_root, ledger: ledger, ledger_name: ledger_name, agg_root: agg_root, agg_name: agg_name}

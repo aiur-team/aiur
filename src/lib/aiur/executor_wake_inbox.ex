@@ -3,14 +3,10 @@ defmodule Aiur.ExecutorWakeInbox do
 
   use GenServer
 
-  require Logger
-
-  alias Aiur.Alerts
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
-  alias Aiur.Fs
+  alias Aiur.ExecutorWakeInbox.{Recovery, Storage}
   alias Aiur.Journal
-  alias Aiur.JsonStore
 
   @default_debounce_ms 2_000
   @default_max_records 10_000
@@ -25,19 +21,16 @@ defmodule Aiur.ExecutorWakeInbox do
 
   @spec wait(non_neg_integer(), GenServer.server()) :: {:ok, [map()]} | :timeout | {:error, term()}
   def wait(timeout_ms, server \\ __MODULE__) when is_integer(timeout_ms) and timeout_ms >= 0 do
-    GenServer.call(server, {:wait, timeout_ms}, timeout_ms + 5_000)
+    wait(timeout_ms, nil, false, server)
   end
 
-  @doc """
-  Advances the shared cursor past `records`, with **no ownership check**.
-
-  Internal and test use only. Every consumer path must go through
-  `acknowledge_as/3`, which is the only form that respects the lease; calling
-  this directly bypasses the lease entirely and lets two consumers split the
-  stream between them.
-  """
-  @spec acknowledge([map()], GenServer.server()) :: :ok
-  def acknowledge(records, server \\ __MODULE__) when is_list(records), do: GenServer.call(server, {:acknowledge, records})
+  @spec wait(non_neg_integer(), String.t() | nil, boolean(), GenServer.server()) ::
+          {:ok, [map()]} | :timeout | :superseded | {:error, term()}
+  def wait(timeout_ms, consumer_id, defer_ack?, server \\ __MODULE__)
+      when is_integer(timeout_ms) and timeout_ms >= 0 and (is_binary(consumer_id) or is_nil(consumer_id)) and
+             is_boolean(defer_ack?) do
+    GenServer.call(server, {:wait, timeout_ms, consumer_id, defer_ack?}, timeout_ms + 5_000)
+  end
 
   @doc """
   Advances the shared cursor on behalf of the leased owner.
@@ -78,11 +71,11 @@ defmodule Aiur.ExecutorWakeInbox do
   acknowledgement, refuses ids beyond or absent from the durable journal, and
   leaves every newer wake unread.
   """
-  @spec fast_forward_as(String.t(), pos_integer(), GenServer.server()) ::
+  @spec fast_forward_as(String.t(), non_neg_integer(), GenServer.server()) ::
           {:ok, %{from: non_neg_integer(), through: non_neg_integer(), acknowledged_count: non_neg_integer(), pending_count: non_neg_integer()}}
           | {:error, term()}
   def fast_forward_as(consumer_id, wake_id, server \\ __MODULE__)
-      when is_binary(consumer_id) and is_integer(wake_id) and wake_id > 0 do
+      when is_binary(consumer_id) and is_integer(wake_id) and wake_id >= 0 do
     GenServer.call(server, {:fast_forward_as, consumer_id, wake_id}, claim_call_timeout_ms())
   end
 
@@ -105,11 +98,13 @@ defmodule Aiur.ExecutorWakeInbox do
     pending_path = Keyword.get(opts, :pending_path, pending_path())
     max_records = Keyword.get(opts, :max_records, Application.get_env(:aiur, :executor_wake_max_records, @default_max_records))
 
+    alert_fun = Keyword.get(opts, :alert_fun, &Storage.safe_alert/3)
+
     StatePaths.ensure()
 
     with :ok <- Journal.prepare(Path.dirname(path), path),
-         {:ok, pending} <- read_pending(pending_path),
-         {:ok, summary} <- journal_summary(path, pending, cursor_path) do
+         {:ok, pending} <- Storage.read_pending(pending_path),
+         {:ok, summary} <- Storage.journal_summary(path, pending, cursor_path, alert_fun) do
       state = %{
         path: path,
         cursor_path: cursor_path,
@@ -121,7 +116,10 @@ defmodule Aiur.ExecutorWakeInbox do
         cursor: summary.cursor,
         pending_count: summary.pending_count,
         timer: nil,
-        waiters: %{}
+        waiters: %{},
+        alert_fun: alert_fun,
+        flush_failures: 0,
+        trim_alerted?: false
       }
 
       if map_size(state.pending) > 0, do: send(self(), :flush)
@@ -145,30 +143,28 @@ defmodule Aiur.ExecutorWakeInbox do
           {Map.put(state.pending, key, assigned), state.next_wake_id + 1}
       end
 
-    :ok = persist_pending(state.pending_path, pending)
+    :ok = Storage.persist_pending(state.pending_path, pending)
     state = %{state | pending: pending, next_wake_id: next_wake_id} |> ensure_flush_timer()
     {:reply, :ok, state}
   end
 
-  def handle_call({:wait, timeout_ms}, from, state) do
-    case unread_records(state) do
+  def handle_call({:wait, timeout_ms, consumer_id, defer_ack?}, from, state) do
+    case Storage.unread_records(state) do
       {:ok, [_ | _] = records} ->
         {:reply, {:ok, records}, state}
 
       {:ok, []} ->
+        key = waiter_key(from, consumer_id, defer_ack?)
+        state = supersede_waiter(state, key, defer_ack?)
         {pid, _tag} = from
         monitor = Process.monitor(pid)
-        timer = Process.send_after(self(), {:wait_timeout, from}, timeout_ms)
-        {:noreply, %{state | waiters: Map.put(state.waiters, from, {monitor, timer})}}
+        timer = Process.send_after(self(), {:wait_timeout, key}, timeout_ms)
+        waiter = %{from: from, monitor: monitor, timer: timer}
+        {:noreply, %{state | waiters: Map.put(state.waiters, key, waiter)}}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
-  end
-
-  def handle_call({:acknowledge, records}, _from, state) do
-    state = state |> advance_cursor(records) |> trim_consumed()
-    {:reply, :ok, state}
   end
 
   def handle_call({:acknowledge_as, consumer_id, records}, _from, state) do
@@ -187,14 +183,14 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   def handle_call(:cursor, _from, state) do
-    state = refresh_cursor(state)
+    state = Storage.refresh_cursor(state)
     {:reply, state.cursor, state}
   end
 
   def handle_call(:stats, _from, state) do
-    state = refresh_cursor(state)
+    state = Storage.refresh_cursor(state)
 
-    case unread_records(state) do
+    case Storage.unread_records(state) do
       {:ok, unread} ->
         in_flight = Enum.count(state.pending, fn {_key, record} -> record["wake_id"] > state.cursor end)
         stats = %{cursor: state.cursor, pending_count: length(unread) + in_flight}
@@ -207,7 +203,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
   def handle_call(:pending, _from, state) do
     records =
-      case unread_records(state) do
+      case Storage.unread_records(state) do
         {:ok, items} -> items
         _ -> []
       end
@@ -223,12 +219,12 @@ defmodule Aiur.ExecutorWakeInbox do
 
   def handle_info({:flush, _stale_token}, state), do: {:noreply, state}
 
-  def handle_info({:wait_timeout, from}, state) do
-    case Map.pop(state.waiters, from) do
+  def handle_info({:wait_timeout, key}, state) do
+    case Map.pop(state.waiters, key) do
       {nil, _waiters} ->
         {:noreply, state}
 
-      {{monitor, _timer}, waiters} ->
+      {%{from: from, monitor: monitor}, waiters} ->
         Process.demonitor(monitor, [:flush])
         {reply, state} = expire_waiter(%{state | waiters: waiters})
         GenServer.reply(from, reply)
@@ -237,8 +233,8 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
-    {dead, live} = Enum.split_with(state.waiters, fn {_from, {ref, _timer}} -> ref == monitor end)
-    Enum.each(dead, fn {_from, {_ref, timer}} -> Process.cancel_timer(timer) end)
+    {dead, live} = Enum.split_with(state.waiters, fn {_key, waiter} -> waiter.monitor == monitor end)
+    Enum.each(dead, fn {_key, waiter} -> Process.cancel_timer(waiter.timer) end)
     {:noreply, %{state | waiters: Map.new(live)}}
   end
 
@@ -277,13 +273,13 @@ defmodule Aiur.ExecutorWakeInbox do
   defp flush_pending(state) do
     records = state.pending |> Map.values() |> Enum.sort_by(& &1["wake_id"])
 
-    case append_new_records(state.path, records) do
+    case Storage.append_new_records(state.path, records) do
       :ok ->
-        :ok = persist_pending(state.pending_path, %{})
-        state |> Map.put(:pending, %{}) |> trim_consumed() |> serve_waiters()
+        :ok = Storage.persist_pending(state.pending_path, %{})
+        state |> Map.merge(%{pending: %{}, flush_failures: 0}) |> Storage.trim_consumed() |> serve_waiters()
 
-      {:error, _reason} ->
-        ensure_flush_timer(state)
+      {:error, reason} ->
+        state |> Recovery.flush_failed(reason) |> ensure_flush_timer()
     end
   end
 
@@ -297,7 +293,7 @@ defmodule Aiur.ExecutorWakeInbox do
   defp expire_waiter(state) do
     state = flush_now(state)
 
-    case unread_records(state) do
+    case Storage.unread_records(state) do
       {:ok, [_ | _] = records} -> {{:ok, records}, state}
       {:ok, []} -> {:timeout, state}
       {:error, reason} -> {{:error, reason}, state}
@@ -307,12 +303,12 @@ defmodule Aiur.ExecutorWakeInbox do
   defp serve_waiters(%{waiters: waiters} = state) when map_size(waiters) == 0, do: state
 
   defp serve_waiters(state) do
-    case unread_records(state) do
+    case Storage.unread_records(state) do
       {:ok, [_ | _] = records} ->
-        Enum.each(state.waiters, fn {from, {monitor, timer}} ->
-          Process.demonitor(monitor, [:flush])
-          Process.cancel_timer(timer)
-          GenServer.reply(from, {:ok, records})
+        Enum.each(state.waiters, fn {_key, waiter} ->
+          Process.demonitor(waiter.monitor, [:flush])
+          Process.cancel_timer(waiter.timer)
+          GenServer.reply(waiter.from, {:ok, records})
         end)
 
         %{state | waiters: %{}}
@@ -322,48 +318,21 @@ defmodule Aiur.ExecutorWakeInbox do
     end
   end
 
-  defp unread_records(state) do
-    cursor = current_cursor(state)
+  defp waiter_key(from, _consumer_id, false), do: {:from, from}
+  defp waiter_key(_from, consumer_id, true), do: {:consumer, consumer_id}
 
-    with {:ok, records} <- durable_records(state) do
-      {:ok, Enum.filter(records, &(&1["wake_id"] > cursor))}
-    end
-  end
+  defp supersede_waiter(state, _key, false), do: state
 
-  defp durable_records(state) do
-    case Journal.replay(state.path, &validate_record/1) do
-      {:ok, records, nil} -> {:ok, records}
-      {:ok, _records, corruption} -> {:error, corruption}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  defp supersede_waiter(state, key, true) do
+    case Map.pop(state.waiters, key) do
+      {nil, _waiters} ->
+        state
 
-  defp validate_record(%{"wake_id" => wake_id, "event_id" => event_id, "topic" => topic} = record)
-       when is_integer(wake_id) and wake_id > 0 and (is_integer(event_id) or is_nil(event_id)) and is_binary(topic),
-       do: {:ok, record}
-
-  defp validate_record(_record), do: {:error, :invalid_executor_wake}
-
-  defp append_new_records(path, records) do
-    with {:ok, durable_ids} <- durable_wake_ids(path) do
-      records
-      |> Enum.reject(&MapSet.member?(durable_ids, &1["wake_id"]))
-      |> Enum.reduce_while(:ok, &append_record(path, &1, &2))
-    end
-  end
-
-  defp append_record(path, record, :ok) do
-    case Journal.append(path, record) do
-      :ok -> {:cont, :ok}
-      {:error, reason} -> {:halt, {:error, reason}}
-    end
-  end
-
-  defp durable_wake_ids(path) do
-    case Journal.replay(path, &validate_record/1) do
-      {:ok, records, nil} -> {:ok, MapSet.new(records, & &1["wake_id"])}
-      {:ok, _records, corruption} -> {:error, corruption}
-      {:error, reason} -> {:error, reason}
+      {%{from: from, monitor: monitor, timer: timer}, waiters} ->
+        Process.demonitor(monitor, [:flush])
+        Process.cancel_timer(timer)
+        GenServer.reply(from, :superseded)
+        %{state | waiters: waiters}
     end
   end
 
@@ -374,108 +343,10 @@ defmodule Aiur.ExecutorWakeInbox do
     |> Map.put("first_seen_at", previous["first_seen_at"])
   end
 
-  defp persist_pending(path, pending) do
-    encoded = Map.new(pending, fn {{topic_class, ticket}, record} -> {Jason.encode!([topic_class, ticket]), record} end)
-    JsonStore.write!(path, encoded)
-  end
-
-  defp read_pending(path) do
-    case JsonStore.read(path, %{}) do
-      {:ok, %{} = encoded} ->
-        decode_pending(encoded)
-
-      {:ok, _wrong_shape} ->
-        {:error, :invalid_executor_wake_pending_store}
-
-      {:error, reason} ->
-        {:error, {:executor_wake_pending_store_unavailable, reason}}
-    end
-  end
-
-  defp decode_pending(encoded) do
-    Enum.reduce_while(encoded, {:ok, %{}}, fn {encoded_key, record}, {:ok, pending} ->
-      with {:ok, key} <- decode_pending_key(encoded_key),
-           false <- Map.has_key?(pending, key),
-           {:ok, record} <- validate_pending_record(key, record) do
-        {:cont, {:ok, Map.put(pending, key, record)}}
-      else
-        _invalid -> {:halt, {:error, :invalid_executor_wake_pending_store}}
-      end
-    end)
-  end
-
-  defp decode_pending_key(encoded_key) when is_binary(encoded_key) do
-    case Jason.decode(encoded_key) do
-      {:ok, [topic_class, ticket]}
-      when is_binary(topic_class) and (is_binary(ticket) or is_nil(ticket)) ->
-        {:ok, {topic_class, ticket}}
-
-      _invalid ->
-        :error
-    end
-  end
-
-  defp decode_pending_key(_encoded_key), do: :error
-
-  defp validate_pending_record({topic_class, ticket}, record) do
-    with {:ok, record} <- validate_record(record),
-         true <- record["topic_class"] == topic_class and record["ticket"] == ticket do
-      {:ok, record}
-    else
-      _invalid -> :error
-    end
-  end
-
-  defp journal_summary(path, pending, cursor_path) do
-    case Journal.replay(path, &validate_record/1) do
-      {:ok, records, nil} ->
-        cursor = read_cursor(cursor_path)
-        durable_ids = Enum.map(records, & &1["wake_id"])
-        pending_ids = pending |> Map.values() |> Enum.map(& &1["wake_id"])
-
-        {:ok,
-         %{
-           next_wake_id: Enum.max([cursor | durable_ids ++ pending_ids]) + 1,
-           cursor: cursor,
-           pending_count: Enum.count(records, &(&1["wake_id"] > cursor))
-         }}
-
-      {:ok, _records, corruption} ->
-        {:error, corruption}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp read_cursor(path) do
-    case JsonStore.read(path, %{}) do
-      {:ok, %{"last_seen_wake_id" => id}} when is_integer(id) -> id
-      _ -> 0
-    end
-  end
-
-  # The journal, cursor and pending files live under the repository state root,
-  # not under a process, so every Executor daemon on this host and repository
-  # shares them. A peer that acknowledges wakes advances the very same cursor
-  # file while this process still holds the value it cached at boot. Caching is
-  # still worth keeping for the write path, so the cached value is treated as a
-  # lower bound rather than the truth: reads take the newer of cache and disk,
-  # which observes a peer's advance and still cannot be rewound by a stale file.
-  defp current_cursor(state), do: max(state.cursor, read_cursor(state.cursor_path))
-
-  defp refresh_cursor(state), do: %{state | cursor: current_cursor(state)}
-
-  defp advance_cursor(state, records) do
-    cursor = Enum.max([current_cursor(state) | Enum.map(records, & &1["wake_id"])])
-    :ok = JsonStore.write!(state.cursor_path, %{"last_seen_wake_id" => cursor})
-    %{state | cursor: cursor}
-  end
-
   defp fast_forward(state, consumer_id, wake_id) do
-    state = refresh_cursor(state)
+    state = Storage.refresh_cursor(state)
 
-    case durable_records(state) do
+    case Storage.durable_records(state) do
       {:ok, durable} -> fast_forward_durable(state, consumer_id, wake_id, durable)
       {:error, _reason} = error -> {error, state}
     end
@@ -486,14 +357,14 @@ defmodule Aiur.ExecutorWakeInbox do
     latest_wake_id = durable |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> state.cursor end)
 
     cond do
+      wake_id <= state.cursor ->
+        fast_forward_already_seen(state, consumer_id, wake_id, length(records))
+
       wake_id > latest_wake_id ->
-        {{:error, {:beyond_latest_wake, latest_wake_id}}, state}
+        {{:error, :journal_reset}, state}
 
       not Enum.any?(durable, &(&1["wake_id"] == wake_id)) ->
         {{:error, {:wake_not_found, wake_id}}, state}
-
-      wake_id <= state.cursor ->
-        fast_forward_already_seen(state, consumer_id, wake_id, length(records))
 
       true ->
         fast_forward_existing_prefix(state, consumer_id, records, wake_id)
@@ -503,7 +374,7 @@ defmodule Aiur.ExecutorWakeInbox do
   defp fast_forward_already_seen(state, consumer_id, wake_id, pending_count) do
     case acknowledge_records_as(state, consumer_id, [], state.cursor) do
       {:ok, updated_state} ->
-        result = {:ok, %{from: state.cursor, through: wake_id, acknowledged_count: 0, pending_count: pending_count}}
+        result = {:ok, %{from: state.cursor, through: max(wake_id, state.cursor), acknowledged_count: 0, pending_count: pending_count}}
         {result, updated_state}
 
       {:error, _reason} = error ->
@@ -537,80 +408,11 @@ defmodule Aiur.ExecutorWakeInbox do
   defp acknowledge_records_as(state, consumer_id, records, highest) do
     case Claims.record_acknowledgement(consumer_id, highest) do
       {:ok, _entry} ->
-        {:ok, state |> advance_cursor(records) |> trim_consumed()}
+        {:ok, state |> Storage.advance_cursor(records) |> Storage.trim_consumed()}
 
       {:error, _reason} = error ->
         error
     end
-  end
-
-  # Recording is unconditional now, so an unattended run appends wake records
-  # that nobody will ever acknowledge. Dropping only consumed records left the
-  # ledger unbounded in exactly that case, which is the growth #1661 is about.
-  # The retained set is therefore capped at `max_records` outright: consumed
-  # records are evicted first and only then the oldest unread, so the bound
-  # holds with or without a consumer.
-  #
-  # Evicting an unread record loses a wake, so it is never silent — it is logged
-  # with the count and the id range, and the durable cursor is advanced past the
-  # dropped range so a consumer's next read is honest about where the stream now
-  # begins rather than replaying a gap it cannot fill.
-  defp trim_consumed(state) do
-    case Journal.replay(state.path, &validate_record/1) do
-      {:ok, records, nil} -> trim_records(state, records)
-      _error -> state
-    end
-  end
-
-  defp trim_records(state, records) do
-    unread = Enum.filter(records, &(&1["wake_id"] > state.cursor))
-    consumed = Enum.filter(records, &(&1["wake_id"] <= state.cursor))
-    retained_unread = Enum.take(unread, -state.max_records)
-    consumed_limit = max(state.max_records - length(retained_unread), 0)
-    retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
-
-    if length(retained) < length(records) do
-      contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
-      _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
-    end
-
-    cursor = report_dropped_unread(state, unread -- retained_unread)
-    %{state | cursor: cursor, pending_count: length(retained_unread)}
-  end
-
-  defp report_dropped_unread(state, []), do: state.cursor
-
-  defp report_dropped_unread(state, dropped) do
-    ids = Enum.map(dropped, & &1["wake_id"])
-    cursor = Enum.max(ids)
-    :ok = JsonStore.write!(state.cursor_path, %{"last_seen_wake_id" => cursor})
-
-    message =
-      "Executor wake ledger overflowed its #{state.max_records}-record bound; " <>
-        "#{length(dropped)} unread wakes (ids #{Enum.min(ids)}-#{Enum.max(ids)}) were evicted and will never be delivered."
-
-    Logger.warning(
-      "aiur_executor_wake_inbox phase=unread_evicted count=#{length(dropped)} " <>
-        "first_wake_id=#{Enum.min(ids)} last_wake_id=#{Enum.max(ids)} max_records=#{state.max_records}"
-    )
-
-    safe_overflow_alert(message)
-    cursor
-  end
-
-  # Losing a wake is exactly the class of event an operator must be told about;
-  # a daemon log line is effectively silent. The alert never carries record
-  # content, only counts and ids, so the identifier-only boundary holds.
-  defp safe_overflow_alert(message) do
-    if Application.get_env(:aiur, :executor_wake_overflow_alerts?, true) do
-      _ = Alerts.emit_custom("executor.wakes.overflow", message, needs_attention: false, severity: "warning")
-    end
-
-    :ok
-  rescue
-    _error -> :ok
-  catch
-    :exit, _reason -> :ok
   end
 
   defp journal_path, do: StatePaths.wakes_path()

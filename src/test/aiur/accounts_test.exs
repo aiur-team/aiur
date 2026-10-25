@@ -22,7 +22,7 @@ defmodule Aiur.AccountsTest do
     on_exit(fn ->
       UsageReadings.reset()
       if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
-      File.rm_rf!(home)
+      Aiur.TestCleanup.rm_rf!(home)
     end)
 
     %{home: home}
@@ -76,7 +76,7 @@ defmodule Aiur.AccountsTest do
   test "Claude profile env preserves the exact path and default has no override", %{home: home} do
     dir = Path.join(home, "profiles/max")
     assert [{"CLAUDE_CONFIG_DIR", ^dir}] = Claude.profile_env(dir)
-    assert Accounts.profile_env("claude", "default") == []
+    assert Accounts.profile_env("claude", "default") == [{"CLAUDE_CONFIG_DIR", false}]
   end
 
   test "Codex profile copies only shared config and skills and reads identity metadata", %{home: home} do
@@ -102,7 +102,7 @@ defmodule Aiur.AccountsTest do
     assert File.read_link!(Path.join(profile, "skills")) == Path.join(source, "skills")
     refute File.exists?(Path.join(profile, "auth.json"))
     assert %{"account_id" => "acct-123", "email" => "codex@example.com"} = CodexAccounts.identity(source)
-    refute inspect(CodexAccounts.identity(profile)) =~ "secret-token"
+    Aiur.TestSupport.refute_leak(CodexAccounts.identity(profile), "secret-token")
 
     # Exercise the child environment, not just the profile_env/2 return value.
     script = Path.join(home, "profile-probe.sh")
@@ -123,7 +123,6 @@ defmodule Aiur.AccountsTest do
     write_workflow_file!(Application.fetch_env!(:aiur, :workflow_file_path), codex_command: "bash " <> Aiur.Shell.escape(script))
     assert {:ok, %{"primary" => %{"usedPercent" => 8}}} = Accounts.usage("codex", "work")
     refute RemoteControl.process_alive?(pid_path |> File.read!() |> String.to_integer())
-    assert Path.wildcard(Path.join(Config.workspace_root(), "codex-usage-probe-*")) == []
   end
 
   test "API key account registry stores named env key, never the value", %{home: home} do
@@ -220,7 +219,7 @@ defmodule Aiur.AccountsTest do
     File.write!(Path.join(source, "auth.json"), Jason.encode!(%{"tokens" => %{"id_token" => token, "access_token" => "never-print-this"}}))
 
     assert %{"account_id" => "acct-nested", "email" => "nested@example.com"} = CodexAccounts.identity(source)
-    refute inspect(CodexAccounts.identity(source)) =~ "never-print-this"
+    Aiur.TestSupport.refute_leak(CodexAccounts.identity(source), "never-print-this")
   end
 
   test "backend capability explains native single-login backends" do

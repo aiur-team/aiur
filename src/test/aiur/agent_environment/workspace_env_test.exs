@@ -253,7 +253,7 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvTest do
 
       assert {~c"AIUR_GITHUB_MAX_INFLIGHT", ~c"4"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT", 0)
       assert {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", ~c"2"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", 0)
-      assert {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", ~c"120"} = List.keyfind(env, ~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", 0)
+      assert {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", ~c"300"} = List.keyfind(env, ~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", 0)
       assert {~c"AIUR_GITHUB_STAGGER_MS", ~c"75"} = List.keyfind(env, ~c"AIUR_GITHUB_STAGGER_MS", 0)
 
       assert {~c"AIUR_BASE_BRANCH", ~c"integration"} =
@@ -265,10 +265,10 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvTest do
       assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
       assert to_string(options) =~ "+S 4:4"
 
-      # The only permitted BASH_ENV is Aiur's immutable build-admission hook;
-      # an operator-provided value is replaced at the launch boundary.
-      assert {~c"BASH_ENV", build_gate_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
-      assert to_string(build_gate_hook) == BuildGate.hook_path()
+      # The trusted shell hook runs before tool commands and chains build admission.
+      assert {~c"BASH_ENV", _shell_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert {~c"AIUR_BUILD_GATE_HOOK", build_gate_hook} = List.keyfind(env, ~c"AIUR_BUILD_GATE_HOOK", 0)
+      assert to_string(build_gate_hook) == BuildGate.agent_hook_path()
       assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
       assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)
 

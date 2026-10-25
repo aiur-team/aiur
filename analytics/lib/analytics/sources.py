@@ -14,7 +14,7 @@ from pathlib import Path
 
 # Telemetry schema versions the reducer understands (mirrors the Elixir
 # RunTelemetry.schema_version/0 range; version 2 adds dispatch complexity).
-SUPPORTED_TELEMETRY_SCHEMA_VERSIONS = (1, 2)
+SUPPORTED_TELEMETRY_SCHEMA_VERSIONS = (1, 2, 3)
 
 TELEMETRY_FILENAME = "telemetry.ndjson"
 
@@ -52,7 +52,7 @@ def discover_telemetry_files(inputs: list[str]) -> list[Path]:
         if path.is_file():
             found.append(path)
         elif path.is_dir():
-            found.extend(path.rglob(TELEMETRY_FILENAME))
+            found.extend(path.rglob(TELEMETRY_FILENAME + "*"))
         # Missing inputs are ignored (discovery is best-effort).
 
     # De-duplicate while preserving a stable, deterministic order.

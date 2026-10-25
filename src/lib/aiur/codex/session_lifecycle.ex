@@ -7,7 +7,7 @@ defmodule Aiur.Codex.SessionLifecycle do
   alias Aiur.Codex.{AccountGeneration, AppServerPort, Handshake, TurnEvents}
   alias Aiur.{ModelAvailability, PauseContainment}
 
-  @spec observe_startup(port(), boolean(), map(), keyword()) :: :ok
+  @spec observe_startup(port() | pid(), boolean(), map(), keyword()) :: :ok
   def observe_startup(port, true, session, handshake_opts) do
     seed_account(port, session, handshake_opts)
     observe_rate_limits(port, session, handshake_opts)
@@ -48,7 +48,7 @@ defmodule Aiur.Codex.SessionLifecycle do
 
   def register_pause_containment(_identifier, _metadata, _workspace), do: nil
 
-  @spec cleanup_port(port(), term() | nil) :: :ok
+  @spec cleanup_port(port() | pid(), term() | nil) :: :ok
   def cleanup_port(port, containment) do
     AppServerPort.stop_port(port)
   after

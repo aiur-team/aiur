@@ -12,7 +12,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     store_name = Module.concat(__MODULE__, :FirstStore)
     registry_name = Module.concat(__MODULE__, :FirstRegistry)
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {:ok, first_store} = start_supervised({Store, name: store_name, state_dir: root, sync_fun: fn -> :ok end})
     {:ok, _first_registry} = start_supervised({Registry, keys: :unique, name: registry_name})
@@ -75,7 +75,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     store_name = Module.concat(__MODULE__, :CorruptStore)
     path = Path.join(root, "workspace-ownership.receipts")
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     File.mkdir_p!(root)
     corrupt = :erlang.term_to_binary(:wrong_format)
@@ -97,7 +97,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   test "a v1 receipt reloads in a fresh BEAM before receipt atoms are loaded" do
     root = Aiur.TestSupport.tmp_root!("ownership-fresh-beam")
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     writer = """
     root = System.fetch_env!("RECEIPT_DIR")
@@ -165,7 +165,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     root = Aiur.TestSupport.tmp_root!("ownership-v3-write")
     path = Path.join(root, "workspace-ownership.receipts")
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
     assert :ok = Store.put("v3-ticket", %{phase: :active}, store)
@@ -179,7 +179,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     path = Path.join(root, "workspace-ownership.receipts")
     ticket = "v2-unknown-provider"
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     File.mkdir_p!(root)
 
     receipt = %{
@@ -204,7 +204,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     root = Aiur.TestSupport.tmp_root!("ownership-invalid")
     path = Path.join(root, "workspace-ownership.receipts")
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     File.mkdir_p!(root)
     File.write!(path, <<131, 104>>)
@@ -219,7 +219,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     root = Aiur.TestSupport.tmp_root!("ownership-newer-version")
     path = Path.join(root, "workspace-ownership.receipts")
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     File.mkdir_p!(root)
 
@@ -248,7 +248,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
 
     path = Path.join(root, "workspace-ownership.receipts")
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     File.mkdir_p!(root)
 
@@ -292,7 +292,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     root = Aiur.TestSupport.tmp_root!("ownership-store-loss")
     store_name = Module.concat(__MODULE__, :StoppedStore)
 
-    on_exit(fn -> File.rm_rf(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
 
     {:ok, store} = Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
     assert :ok = Store.delete("missing-ticket", store)
@@ -311,7 +311,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     {:ok, sync_calls} = Agent.start_link(fn -> 0 end)
 
     on_exit(fn ->
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
       Aiur.TestSupport.safe_stop(sync_calls)
     end)
 

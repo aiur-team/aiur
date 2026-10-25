@@ -10,7 +10,7 @@ defmodule Aiur.TailscaleFunnel do
   use GenServer
   require Logger
 
-  alias Aiur.{Alerts, Config, HttpServer}
+  alias Aiur.{Config, HttpServer, Signal}
 
   @interval_ms 30_000
   @command_timeout_ms 5_000
@@ -81,7 +81,7 @@ defmodule Aiur.TailscaleFunnel do
   defp report_result(_other, state), do: state
 
   defp emit_reconciliation_alert({:live_funnel_target_conflict}, opts) do
-    alert = Keyword.get(opts, :alert, &Alerts.emit_system/2)
+    alert = Keyword.get(opts, :alert, &Signal.alert/2)
 
     alert.("system.build_order_funnel.target_mismatch",
       message: "Tailscale Funnel HTTPS 443 is serving another live target; Aiur left it unchanged",
@@ -91,7 +91,7 @@ defmodule Aiur.TailscaleFunnel do
   end
 
   defp emit_reconciliation_alert(reason, opts) do
-    alert = Keyword.get(opts, :alert, &Alerts.emit_system/2)
+    alert = Keyword.get(opts, :alert, &Signal.alert/2)
 
     alert.("system.build_order_funnel.health_check_error",
       message: "Tailscale Funnel dashboard reconciliation failed",

@@ -4,7 +4,7 @@ defmodule Aiur.Codex.AppServerPort do
   """
 
   alias Aiur.{AgentEnvironment, Config, PathSafety, ProcessReaper, SSH}
-  alias Aiur.AppServer.Adapter
+  alias Aiur.AppServer.{Adapter, Transport}
   alias Aiur.Codex.Config, as: CodexConfig
   alias Aiur.ProcessTree
 
@@ -52,7 +52,7 @@ defmodule Aiur.Codex.AppServerPort do
   end
 
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil) ::
-          {:ok, port()} | {:error, term()}
+          {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, worker_host, model, effort),
     do: start_port(workspace, worker_host, model, effort, fn _process_group_id -> :ok end, fn _provider -> :ok end, [])
 
@@ -65,7 +65,7 @@ defmodule Aiur.Codex.AppServerPort do
           (integer() -> term()),
           (map() -> term()),
           keyword()
-        ) :: {:ok, port()} | {:error, term()}
+        ) :: {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, worker_host, model, effort, on_process_group_started, on_provider_started, env)
       when is_function(on_process_group_started, 1) and is_function(on_provider_started, 1) and is_list(env) do
     open_port(
@@ -83,21 +83,21 @@ defmodule Aiur.Codex.AppServerPort do
   end
 
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term())) ::
-          {:ok, port()} | {:error, term()}
+          {:ok, port() | pid()} | {:error, term()}
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term()), (map() -> term())) ::
-          {:ok, port()} | {:error, term()}
+          {:ok, port() | pid()} | {:error, term()}
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
-          {:ok, port()} | {:error, term()}
+          {:ok, port() | pid()} | {:error, term()}
   @spec start_port(Path.t(), String.t(), String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
-          {:ok, port()} | {:error, term()}
+          {:ok, port() | pid()} | {:error, term()}
   @spec start_port(Path.t(), nil, String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
-          {:ok, port()} | {:error, term()}
+          {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, worker_host, model, effort, on_process_group_started)
       when is_function(on_process_group_started, 1),
       do: start_port(workspace, worker_host, model, effort, on_process_group_started, fn _provider -> :ok end, [])
 
   @spec start_port(Path.t(), String.t(), String.t() | nil, String.t() | nil, (integer() -> term()), keyword()) ::
-          {:ok, port()} | {:error, term()}
+          {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, worker_host, model, effort, on_process_group_started, _env)
       when is_binary(worker_host) and is_function(on_process_group_started, 1),
       do: start_port_remote(workspace, worker_host, model, effort, on_process_group_started)
@@ -110,7 +110,8 @@ defmodule Aiur.Codex.AppServerPort do
       fn port ->
         notify_process_group_started(port, nil, on_process_group_started)
       end,
-      env: env
+      env: env,
+      backend: "codex"
     )
   end
 
@@ -124,7 +125,7 @@ defmodule Aiur.Codex.AppServerPort do
   end
 
   defp open_port(workspace, nil, model, effort, on_port_started, env) when is_function(on_port_started, 1) do
-    Adapter.start_port(workspace, codex_command(model, effort), on_port_started, env: env)
+    Adapter.start_port(workspace, codex_command(model, effort), on_port_started, env: env, backend: "codex")
   end
 
   defp open_port(workspace, worker_host, model, effort, on_port_started, _env)
@@ -142,7 +143,7 @@ defmodule Aiur.Codex.AppServerPort do
 
   defp close_uncontained_remote_port(port, error) do
     try do
-      Port.close(port)
+      Transport.close(port)
     rescue
       ArgumentError -> :ok
     end
@@ -151,14 +152,14 @@ defmodule Aiur.Codex.AppServerPort do
   end
 
   # Startup primes this owner-local cache; message deltas never need another OS inspection.
-  @spec port_metadata(port(), String.t() | nil) :: map()
-  def port_metadata(port, worker_host \\ nil) when is_port(port) do
+  @spec port_metadata(port() | pid(), String.t() | nil) :: map()
+  def port_metadata(port, worker_host \\ nil) when is_port(port) or is_pid(port) do
     Process.get({__MODULE__, port}) || cache_port_metadata(port, worker_host)
   end
 
   defp cache_port_metadata(port, worker_host) do
     metadata =
-      case :erlang.port_info(port, :os_pid) do
+      case Transport.os_pid(port) do
         {:os_pid, os_pid} ->
           %{provider_pid: to_string(os_pid), codex_app_server_pid: to_string(os_pid)}
 
@@ -166,7 +167,10 @@ defmodule Aiur.Codex.AppServerPort do
           %{}
       end
 
-    metadata
+    port
+    |> Transport.metadata()
+    |> Map.merge(metadata)
+    |> maybe_put_relay_process_group()
     |> maybe_put_local_process_group(worker_host)
     |> maybe_put_worker_host(worker_host)
     |> tap(&Process.put({__MODULE__, port}, &1))
@@ -176,10 +180,10 @@ defmodule Aiur.Codex.AppServerPort do
   @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
   defdelegate process_group_for_pid(pid), to: ProcessTree
 
-  @spec stop_port(port()) :: :ok
-  def stop_port(port) when is_port(port) do
+  @spec stop_port(port() | pid()) :: :ok
+  def stop_port(port) when is_port(port) or is_pid(port) do
     os_pid =
-      case :erlang.port_info(port, :os_pid) do
+      case Transport.os_pid(port) do
         {:os_pid, pid} -> pid
         _ -> nil
       end
@@ -188,7 +192,18 @@ defmodule Aiur.Codex.AppServerPort do
   end
 
   @doc false
-  @spec stop_port(port(), pos_integer() | nil) :: :ok
+  @spec stop_port(port() | pid(), pos_integer() | nil) :: :ok
+  def stop_port(port, os_pid) when is_pid(port) do
+    Process.delete({__MODULE__, port})
+    metadata = Transport.metadata(port)
+    Transport.close(port)
+    ProcessReaper.unregister({:os_pid, metadata[:relay_pid]})
+    ProcessReaper.unregister({:os_pid, os_pid})
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
   def stop_port(port, os_pid) when is_port(port) do
     Process.delete({__MODULE__, port})
 
@@ -200,7 +215,7 @@ defmodule Aiur.Codex.AppServerPort do
     end
 
     try do
-      Port.close(port)
+      Transport.close(port)
       :ok
     rescue
       ArgumentError ->
@@ -241,11 +256,18 @@ defmodule Aiur.Codex.AppServerPort do
     command <> " --config " <> Aiur.Shell.escape(~s(#{key}="#{value}"))
   end
 
+  defp maybe_put_relay_process_group(%{pgid: group} = metadata) when is_integer(group) and group > 0,
+    do: Map.put(metadata, :agent_process_group_id, Integer.to_string(group))
+
+  defp maybe_put_relay_process_group(metadata), do: metadata
+
   # The BEAM spawns the local port as its own session/process-group leader, so
   # the port PID is safe to record only when `ps` confirms it is still that
   # leader (os_pid == pgid). A failed or mismatched inspection deliberately
   # produces no containment metadata; callers must never fall back to a cwd- or
   # host-wide kill.
+  defp maybe_put_local_process_group(%{agent_process_group_id: _group} = metadata, nil), do: metadata
+
   defp maybe_put_local_process_group(metadata, nil) do
     case metadata[:codex_app_server_pid] do
       pid when is_binary(pid) ->

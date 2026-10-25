@@ -1,0 +1,33 @@
+{
+  "without_model": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "turn/start",
+    "params": {
+      "threadId": "thread-golden",
+      "input": [
+        {
+          "type": "text",
+          "text": "Operator says: check \"frames\".\nThen continue — safely."
+        }
+      ],
+      "cwd": "/workspace/golden"
+    }
+  },
+  "with_model": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "turn/start",
+    "params": {
+      "threadId": "thread-golden",
+      "input": [
+        {
+          "type": "text",
+          "text": "Operator says: check \"frames\".\nThen continue — safely."
+        }
+      ],
+      "cwd": "/workspace/golden",
+      "model": "session-model"
+    }
+  }
+}

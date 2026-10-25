@@ -31,9 +31,48 @@ fi
 # ExUnit prints each failure as:
 #     1) test <name> (<Module>)
 failing_tests="$(
-  sed -nE 's/^[[:space:]]*[0-9]+\) test (.*) \(([A-Za-z0-9_.]+)\)[[:space:]]*$/\2 :: \1/p' "$log_file" |
-    sort -u
+  awk '
+    function flush() { if (identity != "") print identity "\t" path "\t" line }
+    /^[[:space:]]*[0-9]+\) test .* \([A-Za-z0-9_.]+\)[[:space:]]*$/ {
+      flush(); name=$0; sub(/^[[:space:]]*[0-9]+\) test /, "", name)
+      module=name; sub(/^.* \(/, "", module); sub(/\)[[:space:]]*$/, "", module)
+      sub(/ \([A-Za-z0-9_.]+\)[[:space:]]*$/, "", name)
+      identity=module " :: " name; path=""; line=""; next
+    }
+    identity != "" && /^[[:space:]]*(src\/)?test\/.*\.exs:[0-9]+[[:space:]]*$/ {
+      location=$0; sub(/^[[:space:]]*/, "", location); sub(/[[:space:]]*$/, "", location)
+      line=location; sub(/^.*:/, "", line)
+      path=location; sub(/:[0-9]+$/, "", path)
+      if (path ~ /^test\//) path="src/" path
+      flush(); identity=""
+    }
+    END { flush() }
+  ' "$log_file" | sort -u
 )"
+
+# OrchestratorGuard fails the suite after the last test: "plain ExUnit tests broke
+# Aiur.Orchestrator: <Module>: test <name> (down)". It names the last test that finished,
+# which is timing, not proof of cause (#5114), so the named test is never classified or
+# quarantined. A separate aiur-guard-failure annotation carries the evidence for one
+# orchestrator-guard fix ticket.
+guard_names="$(
+  python3 -I - "$log_file" <<'PY'
+import pathlib, re, sys
+entry = re.compile(r'(Aiur[\w.]*: test .+? \((?:down|held by a stand-in [^)]*)\))(?=, Aiur|, unknown|\s*$)')
+found = set()
+for line in pathlib.Path(sys.argv[1]).read_text(errors='replace').splitlines():
+    _, sep, leaks = line.partition('plain ExUnit tests broke Aiur.Orchestrator: ')
+    if sep:
+        found.update(entry.findall(leaks.strip()))
+print('\n'.join(sorted(found)))
+PY
+)"
+while IFS= read -r named; do
+  [[ -z "$named" ]] && continue
+  named="${named//'%'/'%25'}"
+  printf '::error title=aiur-guard-failure::orchestrator-guard :: %s\n' "$named"
+  echo "OrchestratorGuard fired; last finished test (not proof of cause): $named" >> "$summary_file"
+done <<< "$guard_names"
 
 {
   echo ""
@@ -56,17 +95,41 @@ if [[ -f "$list_file" ]]; then
   grep -vE '^[[:space:]]*(#|$)' "$list_file" | sed 's/[[:space:]]*$//' > "$known_file"
 fi
 
+# Escape workflow-command data; colons in test names remain literal message text.
+annotation() {
+  local message="$1" path="${2:-}" line="${3:-}"
+  message="${message//'%'/'%25'}"
+  message="${message//$'\r'/'%0D'}"
+  message="${message//$'\n'/'%0A'}"
+  if [[ -n "$path" ]]; then
+    path="${path//'%'/'%25'}"
+    path="${path//','/'%2C'}"
+    path="${path//':'/'%3A'}"
+    printf '::error title=aiur-test-failure,file=%s,line=%s::%s\n' "$path" "$line" "$message"
+  else
+    printf '::error title=aiur-test-failure::%s\n' "$message"
+  fi
+}
+
 known=0
 new=0
-while IFS= read -r test; do
+while IFS=$'\t' read -r test path line; do
   if [[ -f "$list_file" ]] && grep -Fxq -- "$test" "$known_file"; then
     echo "  - $test — **known flake** (listed in .github/known-flaky-tests.txt)" >> "$summary_file"
+    classification=known-flake
     known=$((known + 1))
   else
     echo "  - $test — **NEW failure** (not a known flake)" >> "$summary_file"
+    classification=new-failure
     new=$((new + 1))
   fi
+  if (( known + new <= 9 )); then
+    annotation "$classification :: $test" "$path" "$line"
+  fi
 done <<< "$failing_tests"
+if (( known + new > 9 )); then
+  annotation "truncated :: and $((known + new - 9)) more"
+fi
 
 echo "" >> "$summary_file"
 if (( new == 0 )); then

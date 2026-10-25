@@ -142,6 +142,7 @@ defmodule Aiur.DecisionDelegationTest do
       "blocking" => true,
       "kind" => Keyword.get(overrides, :kind, "architecture"),
       "authority" => overrides |> Keyword.get(:authority, :supervisor_allowed) |> Atom.to_string(),
+      "context" => %{"authority_basis" => "security"},
       "reversibility" => overrides |> Keyword.get(:reversibility, :reversible) |> Atom.to_string(),
       "options" => [%{"id" => "ship", "label" => "Ship"}]
     }
