@@ -16,13 +16,18 @@ defmodule AiurWeb.ControlCenterPresenter do
     decision_metrics = Keyword.get(opts, :decision_metrics, Commands.default_metrics())
     recent_merge_store = Keyword.get(opts, :recent_merge_store, Aiur.RecentMergeStore)
 
+    # `:bound` gives each provider read a deadline; the fleet's own read is lock-free.
+    bound = Keyword.get(opts, :bound, & &1)
+
     presenter_opts = [
-      decision_history_fun: fn ->
-        required_provider_call(Commands, :history, [[server: decision_store, limit: @decision_history_limit]])
-      end,
-      recent_merge_snapshot_fun: fn ->
-        required_provider_call(Aiur.RecentMergeStore, :snapshot, [recent_merge_store])
-      end
+      decision_history_fun:
+        bound.(fn ->
+          required_provider_call(Commands, :history, [[server: decision_store, limit: @decision_history_limit]])
+        end),
+      recent_merge_snapshot_fun:
+        bound.(fn ->
+          required_provider_call(Aiur.RecentMergeStore, :snapshot, [recent_merge_store])
+        end)
     ]
 
     fleet_fun =
@@ -30,10 +35,10 @@ defmodule AiurWeb.ControlCenterPresenter do
         Presenter.state_payload(orchestrator, snapshot_timeout_ms, presenter_opts)
       end)
 
-    decisions_fun = Keyword.get(opts, :decisions_fun, fn -> Commands.recent_decisions(50, decision_store) end)
+    decisions_fun = bound.(Keyword.get(opts, :decisions_fun, fn -> Commands.recent_decisions(50, decision_store) end))
 
     decision_metrics_fun =
-      Keyword.get(opts, :decision_metrics_fun, fn -> Commands.metrics_snapshots(decision_metrics) end)
+      bound.(Keyword.get(opts, :decision_metrics_fun, fn -> Commands.metrics_snapshots(decision_metrics) end))
 
     {fleet, fleet_health} = safe_read(fleet_fun, unavailable_fleet(), &is_map/1)
     {decisions, decisions_health} = safe_read(decisions_fun, [], &is_list/1)
@@ -210,8 +215,9 @@ defmodule AiurWeb.ControlCenterPresenter do
   defp provider_health(:degraded), do: :degraded
   defp provider_health(_status), do: :unavailable
 
-  defp analytics(%{available?: available?, path: path, message: message}) when is_boolean(available?) do
-    %{available?: available?, path: path, message: message}
+  # Keep the Experiments flag: every page builds its nav from this contract (#4886).
+  defp analytics(%{available?: available?, path: path, message: message} = analytics) when is_boolean(available?) do
+    %{available?: available?, path: path, message: message, experiments_available?: Map.get(analytics, :experiments_available?) == true}
   end
 
   defp analytics(_analytics) do

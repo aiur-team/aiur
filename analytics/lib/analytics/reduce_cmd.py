@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import cli, reduce as reducer, sources
+from . import cli, ledger_store, reduce as reducer, sources
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,6 +19,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Materialize run-summaries (and optional build rollups) from durable telemetry into the state node.",
     )
     cli.add_discovery_args(parser)
+    parser.add_argument("--ledger", action="store_true", help="Also materialize durable cross-launch ticket records.")
+    parser.add_argument("--telemetry-glob", action="append", help="Retained launch glob for the ledger (repeatable).")
+    parser.add_argument("--since", help="Only rebuild ledger tickets with events on or after this ISO date.")
     parser.add_argument("--all", action="store_true", help="Materialize every boot (default; explicit for CLI parity with the daemon).")
     parser.add_argument("--boot", default=None, metavar="BOOT_ID", help="Materialize only this boot.")
     parser.add_argument("--build", default=None, metavar="SLUG", action="append",
@@ -46,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         boot_ids = cli.boot_ids_from(dataset)
 
+    written_tickets = []
+    if args.ledger:
+        import glob
+        ledger_files = sorted(set(files) | {Path(p) for pattern in args.telemetry_glob or []
+                                           for p in glob.glob(str(Path(pattern).expanduser()), recursive=True)})
+        written_tickets = ledger_store.materialize(ledger_files, state_node, args.since, args.repo)
+
     written_runs = reducer.write_all_run_summaries(state_node, dataset, boot_ids, opts)
 
     build_slugs: list[str] = []
@@ -69,11 +79,11 @@ def main(argv: list[str] | None = None) -> int:
         if path:
             written_builds.append(path)
 
-    result = {"written": written_runs, "build_summaries": written_builds, "state_node": str(state_node)}
+    result = {"tickets": written_tickets, "written": written_runs, "build_summaries": written_builds, "state_node": str(state_node)}
     if args.json:
         cli.emit_json(result)
     else:
-        for path in written_runs:
+        for path in written_tickets + written_runs:
             print("wrote %s" % path)
         for path in written_builds:
             print("wrote %s" % path)

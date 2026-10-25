@@ -1,0 +1,10 @@
+{
+  "from": "build-queue",
+  "to_module": "Aiur.Orchestrator.TicketTransition",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/build_queue/write_protocol.ex"
+  ],
+  "allow_forbidden": true,
+  "reason": "#3306 lifecycle-write owner: #3259 preserves the exact sanctioned scan exception"
+}

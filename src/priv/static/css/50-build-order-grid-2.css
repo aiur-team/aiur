@@ -1,0 +1,341 @@
+/* --- ticket card (small square) --- */
+.bo-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 0 0 108px;
+  width: 108px;
+  padding: 0.45rem 0.5rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  min-width: 0;
+  cursor: default;
+  transition: opacity 0.2s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bo-node.is-openable {
+  cursor: pointer;
+}
+
+.bo-node.is-openable:hover {
+  border-color: var(--accent-line);
+}
+
+.bo-node.is-openable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bo-node.is-ready {
+  border-color: var(--accent-line);
+  border-style: solid;
+}
+
+/* Green is reserved for work that is finished AND merged. An agent being live
+   on a ticket is activity, not an outcome — colouring it green made a graph of
+   in-flight work read as a graph of completed work, which is the same
+   confident-wrong-signal problem the rest of this dashboard is written against.
+   In flight is the accent (blue): live, not done. */
+.bo-node.is-working {
+  border-color: var(--accent-line);
+  background:
+    linear-gradient(var(--accent-soft), var(--accent-soft)),
+    var(--surface-2);
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+.bo-node.is-merged {
+  border-color: var(--good-line);
+  background:
+    linear-gradient(var(--good-soft), var(--good-soft)),
+    var(--surface-2);
+  box-shadow: 0 0 0 1px var(--good-line);
+}
+
+.bo-node.is-blocked {
+  border-color: var(--blocking-line);
+}
+
+/* Planning (pre-ticket): neutral, not-yet-started. */
+.bo-node.is-planned {
+  border-style: solid;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+  color: var(--fg);
+}
+
+/* Dependency highlight (hover or pinned): a blue ring on the hovered card and
+   every card its dependency lines connect to. Placed after the state rules so
+   it overrides their border colours. */
+.bo-node.is-hl-source,
+.bo-node.is-hl-linked {
+  border-color: var(--accent);
+  border-style: solid;
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+/* Indirect (2+ hops away) dependencies get a lighter, more transparent ring so
+   direct blockers stay visually stronger than transitive ones. */
+.bo-node.is-hl-indirect {
+  border-color: var(--accent-line);
+  border-style: solid;
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+/* When a chain is locked (pinned), fade every card outside the chain so the
+   highlighted dependency path stands out. */
+.bo-grid-root.is-locked .bo-node:not(.is-hl-source):not(.is-hl-linked):not(.is-hl-indirect) {
+  opacity: 0.3;
+}
+
+/* Hovering the tag ITSELF (not the whole ticket) lifts it and grows a blue
+   shadow, signalling it is clickable independently of the card (click = lock the
+   dependency highlight). Only the inner fill moves; the outer hit target is
+   stable, so the lift cannot oscillate under the cursor. */
+.bo-node-blocks:hover {
+  cursor: pointer;
+}
+
+.bo-node-blocks:hover .bo-node-blocks-fill {
+  transform: translateY(-3px);
+  animation: bo-blocks-lift 0.9s ease-in-out infinite alternate;
+}
+
+/* Pinned: the highlight is locked; the tag holds its lifted, glowing state. */
+.bo-node.is-pinned .bo-node-blocks-fill {
+  transform: translateY(-3px);
+  animation: none;
+  box-shadow: 0 5px 13px hsl(215 100% 60% / 0.65);
+}
+
+@keyframes bo-blocks-lift {
+  from {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+  to {
+    box-shadow: 0 5px 12px hsl(215 100% 60% / 0.55);
+  }
+}
+
+.bo-planning-note {
+  margin: 0 0 0.6rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.bo-legend-swatch.is-planned {
+  border-style: solid;
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.bo-legend-line.is-planned {
+  border-top-style: solid;
+  border-top-color: var(--faint);
+}
+
+.bo-node-top {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bo-node-id {
+  flex: 1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+/* Top-right "blocks" tag (how many tickets depend on this one) — also the pin
+   control that locks the dependency highlight. Colour is set inline, green →
+   red by count.
+
+   The outer span is a STABLE hit target that never transforms; only the inner
+   fill lifts on hover. A child's transform doesn't change the parent's layout
+   box, so the cursor stays over the outer span even as the pill lifts — that is
+   what prevents the "tag moves up out from under the cursor" oscillation. */
+.bo-node-blocks {
+  flex: 0 0 auto;
+  display: inline-flex;
+  cursor: default;
+}
+
+.bo-node-blocks-fill {
+  min-width: 1.15rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Epic icon in the card's top-left corner. */
+.bo-epic-ic.bo-node-ic {
+  flex: 0 0 auto;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--faint);
+}
+
+/* Complexity moved into the card body as a plain detail. */
+.bo-node-cx {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.bo-node-title {
+  font-size: 0.82rem;
+  line-height: 1.25;
+  color: inherit;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bo-node-status {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.bo-node-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.bo-node.is-merged .bo-node-pct {
+  color: var(--muted);
+}
+
+/* A card whose percent is a last-known reading keeps the number but flags it:
+   the percent turns to the warning tone and a note under the status row gives
+   the reading's age, so retained work is never mistaken for a live report. */
+.bo-node-pct[data-progress-freshness="last_known"] {
+  color: var(--attention-ink);
+}
+
+.bo-node-note {
+  font-size: 0.62rem;
+  line-height: 1.2;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* On the brighter merged fill (--surface-3), keep the small meta text at
+   --muted so it clears WCAG AA 4.5:1; --faint reads at only 4.27:1 there. */
+.bo-node.is-merged .bo-node-cx {
+  color: var(--muted);
+}
+
+.bo-node-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bo-node-bar {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* Progress is blue while work is in flight and green only once the ticket is
+   merged. A part-filled green bar reads as "done" at a glance, which is exactly
+   the wrong signal on a graph an operator scans for what is finished. */
+.bo-node-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.bo-node.is-merged .bo-node-bar > i {
+  background: var(--good);
+}
+
+.bo-node-context {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.bo-node-context:hover {
+  background: var(--accent-line);
+}
+
+/* --- edges --- */
+.bo-edge {
+  fill: none;
+  stroke: var(--blocking);
+  stroke-width: 1.5;
+  opacity: 0.5;
+}
+
+.bo-edge.is-cleared {
+  stroke: var(--good);
+  opacity: 0.6;
+}
+
+.bo-edge.is-planned {
+  stroke: var(--faint);
+  opacity: 0.5;
+}
+
+.bo-edge-dot.is-planned {
+  fill: var(--faint);
+  opacity: 0.5;
+}
+
+.bo-edge.is-hl {
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  opacity: 1;
+}
+
+/* Edges further along the chain (not touching the source) are lighter. */
+.bo-edge.is-hl-far {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  opacity: 0.4;
+}
+
+.bo-edge.is-dim {
+  opacity: 0.12;
+}
+
+.bo-edge-dot {
+  fill: var(--blocking);
+  opacity: 0.6;
+}
+
+.bo-edge-dot.is-cleared {
+  fill: var(--good);
+}
+

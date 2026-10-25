@@ -314,7 +314,7 @@ defmodule Aiur.Claude.RemoteControl do
   def reap_workspace_agents(workspace_root, opts \\ []) when is_binary(workspace_root) do
     proc_dir = Keyword.get(opts, :proc_dir, "/proc")
     kill_fun = Keyword.get(opts, :kill_fun, &graceful_kill/1)
-    protected = MapSet.new(Keyword.get_lazy(opts, :protected_pids, &self_pid_tree/0))
+    protected = {MapSet.new(Keyword.get_lazy(opts, :protected_pids, &self_pid_tree/0)), Keyword.get(opts, :additional_protected_pids, [])}
     max_sweeps = positive_integer(Keyword.get(opts, :max_sweeps), @workspace_reap_max_sweeps)
     backoff_ms = non_negative_integer(Keyword.get(opts, :backoff_ms), @workspace_reap_backoff_ms)
 
@@ -383,10 +383,11 @@ defmodule Aiur.Claude.RemoteControl do
     end
   end
 
-  defp workspace_reap_candidates(root, proc_dir, protected) do
-    root
-    |> workspace_agent_pids(proc_dir)
-    |> Enum.reject(&MapSet.member?(protected, &1))
+  defp workspace_reap_candidates(root, proc_dir, {protected, additional}) do
+    candidates = workspace_agent_pids(root, proc_dir)
+    additional = if is_function(additional, 0), do: additional.(), else: additional
+    protected = MapSet.union(protected, MapSet.new(additional))
+    Enum.reject(candidates, &MapSet.member?(protected, &1))
   end
 
   defp log_workspace_reap_survivors(root, proc_dir, protected) do

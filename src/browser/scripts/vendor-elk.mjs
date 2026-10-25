@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readWorkerSource } from './layout-worker-source.mjs'
 
 const ELK_VERSION = '0.11.1'
 const ELK_INTEGRITY = 'sha512-zxxR9k+rx5ktMwT/FwyLdPCrq7xN6e4VGGHH8hA01vVYKjTFik7nHOxBnAYtrgYUB1RpAiLvA1/U2YraWxyKKg=='
@@ -28,7 +29,7 @@ async function main() {
   const [engine, license, worker, client] = await Promise.all([
     readFile(path.join(packageRoot, 'lib', 'elk-worker.min.js')),
     readFile(path.join(packageRoot, 'LICENSE.md')),
-    readFile(path.join(layoutSourceRoot, 'aiur-layout-worker.js')),
+    readWorkerSource(layoutSourceRoot),
     readFile(path.join(layoutSourceRoot, 'aiur-layout-client.js'))
   ])
 
@@ -55,17 +56,29 @@ async function main() {
     }
   }
 
-  await rm(vendorRoot, { recursive: true, force: true })
+  if (process.argv.includes('--check')) {
+    const pinned = JSON.parse(await readFile(path.join(vendorRoot, 'manifest.json'), 'utf8'))
+    if (JSON.stringify(pinned) !== JSON.stringify(manifest)) {
+      throw new Error('generated ELK assets differ from the tracked manifest; review sources and the approved pin')
+    }
+  }
+
   await mkdir(vendorRoot, { recursive: true })
+  if (!process.argv.includes('--check')) {
+    await Promise.all([
+      writeFile(path.join(vendorRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`),
+      writeFile(path.join(vendorRoot, 'PROVENANCE.md'), provenance(manifest)),
+      writeFile(path.join(vendorRoot, 'SOURCE.md'), sourceAvailability(manifest))
+    ])
+  }
+
   await Promise.all([
     writeFile(path.join(vendorRoot, 'elk-worker.min.js'), engine),
     writeFile(path.join(vendorRoot, 'aiur-layout-worker.js'), worker),
     writeFile(path.join(vendorRoot, 'aiur-layout-client.js'), client),
-    writeFile(path.join(vendorRoot, 'LICENSE.md'), license),
-    writeFile(path.join(vendorRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`),
-    writeFile(path.join(vendorRoot, 'PROVENANCE.md'), provenance(manifest)),
-    writeFile(path.join(vendorRoot, 'SOURCE.md'), sourceAvailability(manifest))
+    writeFile(path.join(vendorRoot, 'LICENSE.md'), license)
   ])
+  console.log(`ELK ${ELK_VERSION} generated at build: sha256=${assets.engine.sha256}`)
 }
 
 function assetRecord(revision, file, body) {
@@ -83,7 +96,7 @@ function assetRecord(revision, file, body) {
 function provenance(manifest) {
   const { engine, assets } = manifest
 
-  return `# ELK.js provenance\n\n- Package: \`${engine.package}\`\n- Version: \`${engine.version}\`\n- Registry tarball: \`https://registry.npmjs.org/elkjs/-/elkjs-${engine.version}.tgz\`\n- npm integrity: \`${engine.integrity}\`\n- License: \`EPL-2.0\` (full text: \`LICENSE.md\`; source availability: \`SOURCE.md\`)\n- Engine size budget: \`${engine.sizeBudgetBytes}\` bytes\n- Source maps: \`${engine.sourceMapPolicy}\`\n\n## Generated assets\n\n| Asset | SHA-256 | Bytes | Local URL |\n| --- | --- | ---: | --- |\n| engine | \`${assets.engine.sha256}\` | ${assets.engine.bytes} | \`${assets.engine.url}\` |\n| worker | \`${assets.worker.sha256}\` | ${assets.worker.bytes} | \`${assets.worker.url}\` |\n| client | \`${assets.client.sha256}\` | ${assets.client.bytes} | \`${assets.client.url}\` |\n\nRun \`npm run vendor:elk\` from \`src/browser\` after an approved dependency upgrade. Run \`npm run check:elk\` to verify the committed runtime bytes and metadata.\n`
+  return `# ELK.js provenance\n\n- Package: \`${engine.package}\`\n- Version: \`${engine.version}\`\n- Registry tarball: \`https://registry.npmjs.org/elkjs/-/elkjs-${engine.version}.tgz\`\n- npm integrity: \`${engine.integrity}\`\n- License: \`EPL-2.0\` (full text: \`LICENSE.md\`; source availability: \`SOURCE.md\`)\n- Engine size budget: \`${engine.sizeBudgetBytes}\` bytes\n- Source maps: \`${engine.sourceMapPolicy}\`\n\n## Generated assets\n\n| Asset | SHA-256 | Bytes | Local URL |\n| --- | --- | ---: | --- |\n| engine | \`${assets.engine.sha256}\` | ${assets.engine.bytes} | \`${assets.engine.url}\` |\n| worker | \`${assets.worker.sha256}\` | ${assets.worker.bytes} | \`${assets.worker.url}\` |\n| client | \`${assets.client.sha256}\` | ${assets.client.bytes} | \`${assets.client.url}\` |\n\nRun \`npm run vendor:elk\` from \`src/browser\` after an approved dependency upgrade. Run \`npm run check:elk\` to verify the generated runtime bytes against the tracked manifest. The engine, worker and client are generated at build and are not tracked; release and development builds use \`npm ci --ignore-scripts\` followed by \`npm run vendor:elk -- --check\`.\n`
 }
 
 function sourceAvailability(manifest) {

@@ -8,6 +8,7 @@ defmodule Aiur.BuildQueue.Codec do
      [
        id: :queue_id,
        name: :string,
+       rank: {:default, {:nullable, :nonnegative}, nil},
        kind: {:enum, [:list, :build_order]},
        root: {:nullable, :positive},
        held: :boolean,
@@ -26,7 +27,16 @@ defmodule Aiur.BuildQueue.Codec do
        added_at: :datetime
      ]},
     {:edges, Edge, [prerequisite: :issue_id, dependent: :issue_id, source: {:enum, [:list, :build_order, :native]}]},
-    {:intents, Intent, [id: :string, issue_id: :issue_id, action: {:enum, [:promote, :withdraw, :mark, :unmark]}, target_labels: :strings, recorded_at_ms: :nonnegative, outcome: :outcome]},
+    {:intents, Intent,
+     [
+       id: :string,
+       issue_id: :issue_id,
+       action: {:enum, [:promote, :withdraw, :mark, :unmark]},
+       target_labels: :strings,
+       recorded_at_ms: :nonnegative,
+       preexisting_todo?: {:default, :boolean, false},
+       outcome: :outcome
+     ]},
     {:latches, Latch, [key: :key, opened_at_ms: :nonnegative, emitted?: {:default, :boolean, true}]}
   ]
 
@@ -66,12 +76,20 @@ defmodule Aiur.BuildQueue.Codec do
         error -> {:halt, error}
       end
     end)
+    |> assign_ranks()
     |> validate_positions()
   end
 
   def decode(%{"version" => version}), do: {:error, {:unsupported_version, version}}
   def decode(%{}), do: invalid(["version"])
   def decode(_), do: invalid([])
+
+  defp assign_ranks({:ok, document}) do
+    ranks = document.queues |> Enum.sort_by(&DateTime.to_unix(&1.created_at, :microsecond)) |> Enum.with_index() |> Map.new(fn {q, rank} -> {q.id, rank} end)
+    {:ok, %{document | queues: Enum.map(document.queues, &%{&1 | rank: &1.rank || ranks[&1.id]})}}
+  end
+
+  defp assign_ranks(error), do: error
 
   defp validate_positions({:ok, document}) do
     kinds = Map.new(document.queues, &{&1.id, &1.kind})

@@ -1,3 +1,4 @@
+# Cohesion: these cases share a git-backed base fixture and pin materialization contracts.
 defmodule Aiur.WorkspaceMaterializeTest do
   use ExUnit.Case, async: true
 
@@ -21,7 +22,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
     File.mkdir_p!(Path.join(base, "_build"))
     File.write!(Path.join(base, "_build/sentinel"), "warm\n")
 
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp) end)
     {:ok, tmp: tmp, base: base}
   end
 
@@ -143,6 +144,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
     Enum.each(stale_locks, fn lock ->
       File.mkdir_p!(Path.dirname(lock))
       File.write!(lock, "stale\n")
+      set_stale_mtime!(lock)
     end)
 
     assert :ok = Workspace.ensure_git_metadata_writable(workspace)
@@ -199,9 +201,15 @@ defmodule Aiur.WorkspaceMaterializeTest do
   end
 
   defp branch(workspace) do
-    {out, 0} =
-      System.cmd("git", ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
+    workspace
+    |> Path.join(".git/HEAD")
+    |> File.read!()
+    |> String.trim()
+    |> String.replace_prefix("ref: refs/heads/", "")
+  end
 
-    String.trim(out)
+  defp set_stale_mtime!(path) do
+    timestamp = DateTime.to_unix(DateTime.add(DateTime.utc_now(), -180, :second))
+    {_, 0} = System.cmd("touch", ["-d", "@#{timestamp}", path])
   end
 end

@@ -23,6 +23,14 @@ defmodule Aiur.Config.Paths do
 
   alias Aiur.PathSafety
 
+  @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
+
+  @doc false
+  @spec dashboard_secret_root() :: Path.t()
+  def dashboard_secret_root do
+    Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+  end
+
   @doc """
   Returns the per-launch log directory. Defaults to `<cwd>/log` when no
   `--logs-root` was set. It does not survive a daemon restart.
@@ -58,9 +66,10 @@ defmodule Aiur.Config.Paths do
   """
   @spec decision_state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def decision_state_dir do
-    case Application.get_env(:aiur, :decision_state_dir) do
-      path when is_binary(path) and path != "" -> {:ok, path}
-      _ -> resolve_decision_state_dir()
+    case Aiur.TestRunState.decision_state_override(Application.get_env(:aiur, :decision_state_dir)) do
+      {:ok, path} -> {:ok, path}
+      :resolve -> resolve_decision_state_dir()
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -112,6 +121,15 @@ defmodule Aiur.Config.Paths do
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "progress-retention")}
         end
+    end
+  end
+
+  @doc "Resolves the durable estimate overrides beneath the decision state root."
+  @spec build_estimates_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_estimates_state_dir do
+    case Application.get_env(:aiur, :build_estimates_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "build-estimates")}
     end
   end
 
@@ -204,6 +222,20 @@ defmodule Aiur.Config.Paths do
       _ ->
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "usage-compaction")}
+        end
+    end
+  end
+
+  @doc "Resolves the daemon-private per-issue native thread-compaction outcome directory."
+  @spec agent_compaction_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def agent_compaction_state_dir do
+    case Application.get_env(:aiur, :agent_compaction_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- runtime_state_dir() do
+          {:ok, Path.join(root, "agent-compaction")}
         end
     end
   end
@@ -347,6 +379,57 @@ defmodule Aiur.Config.Paths do
     sanitize(value || default)
   end
 
+  @doc "Absolute root beneath which every per-repository state node lives."
+  @spec repo_state_root() :: Path.t()
+  def repo_state_root do
+    Application.get_env(:aiur, :repo_base_root) || Path.expand("~/.aiur/repo")
+  end
+
+  @doc "Absolute path of the per-repository state node for `repo_url`."
+  @spec repo_state_path(String.t()) :: Path.t()
+  def repo_state_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_state_root(), repo_slug(repo_url))
+
+  @doc "Path of the per-repository state node relative to its owning home directory."
+  @spec repo_state_relative_path(String.t()) :: Path.t()
+  def repo_state_relative_path(repo_url) when is_binary(repo_url),
+    do: Path.join([".aiur", "repo", repo_slug(repo_url)])
+
+  @doc false
+  @spec repo_cache_sidecars() :: [String.t()]
+  def repo_cache_sidecars, do: @repo_cache_sidecars
+
+  @doc false
+  @spec repo_cache_sidecar_paths(Path.t()) :: [Path.t()]
+  def repo_cache_sidecar_paths(root) when is_binary(root) do
+    Enum.map(@repo_cache_sidecars, &Path.join(root, &1))
+  end
+
+  # Reduce a repo URL or local path to a stable `<owner>/<name>`-style slug for
+  # the base directory. Handles https/ssh URLs and bare local paths. Rejects
+  # path-traversal components (`..`) so a malicious or malformed repo identity
+  # can never resolve outside the state root — defense in depth, since the CLI
+  # already validates the slug at its boundary.
+  @doc false
+  @spec repo_slug(String.t()) :: String.t()
+  def repo_slug(repo_url) when is_binary(repo_url) do
+    slug =
+      repo_url
+      |> String.trim_trailing("/")
+      |> String.replace_suffix(".git", "")
+      |> String.split(~r{[/:]})
+      |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
+      |> Enum.take(-2)
+      |> Enum.join("/")
+
+    if Enum.any?(Path.split(slug), &(&1 == "..")) do
+      raise ArgumentError,
+            "repo identity must not escape the state root (got: #{inspect(repo_url)})"
+    end
+
+    slug
+  end
+
   defp safe_project_identity do
     source = Application.get_env(:aiur, :project_identity_source, Aiur.Tracker)
     source.project_identity()
@@ -391,10 +474,7 @@ defmodule Aiur.Config.Paths do
   end
 
   defp decision_state_root do
-    case System.get_env("AIUR_BG_STATE_DIR") do
-      root when is_binary(root) and root != "" -> root
-      _ -> Path.join(File.cwd!(), ".aiur-state")
-    end
+    Aiur.TestRunState.decision_state_root(Path.join(File.cwd!(), ".aiur-state"))
   end
 
   defp contain_within_root(root, candidate) do

@@ -1,11 +1,66 @@
 defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
   @moduledoc false
   import ExUnit.Assertions
+  import ExUnit.Callbacks, only: [on_exit: 1]
+  import Aiur.TestSupport, only: [write_workflow_file!: 2, restore_env: 2]
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Events.GithubCommentsPoller
+  alias Aiur.GitHub.Listeners.Comments.{Cursor, Poll}
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.{CommentPolling, ReadyForReviewTransitions, State}
+  alias Aiur.Orchestrator.CommentPollingState
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State}
   @repo "owner/repo"
   @dedup_table Aiur.Events.Publisher.Dedup
+
+  defmacro __using__(_opts) do
+    quote do
+      use Aiur.TestSupport
+      use Aiur.TestSupport.EventTicket
+      import Aiur.TestSupport.WebhookEquivalenceFixture
+
+      setup :equivalence_setup
+    end
+  end
+
+  def equivalence_setup(_context) do
+    prev_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: @repo,
+      tracker_label_prefix: "aiur"
+    )
+
+    Publisher.set_tracked_fn(fn _ -> true end)
+    clear_dedup()
+
+    on_exit(fn ->
+      restore_env("GITHUB_TOKEN", prev_token)
+      Publisher.set_tracked_fn(fn _ -> true end)
+      clear_dedup()
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+    end)
+
+    :ok
+  end
+
+  def thread_resolver(thread_id) do
+    fn _request ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "node" => %{"pullRequestReviewThread" => %{"id" => thread_id}}
+           }
+         }
+       }}
+    end
+  end
 
   def assert_indistinguishable(polled, pushed) do
     volatile = [:id, :ticket_observation]
@@ -33,6 +88,7 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
       "number" => pr_number,
       "state" => "open",
       "draft" => draft?,
+      "user" => %{"login" => "aiur-worker"},
       "head" => %{"ref" => "aiur/#{target}", "sha" => head_sha}
     }
 
@@ -49,6 +105,7 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
       GithubCommentsPoller.poll([target],
         since: "2026-06-24T11:00:00Z",
         repo: @repo,
+        token: "test-gh-token",
         request_fun: request_fun,
         review_submission_targets: MapSet.new(),
         pr_ready_ledger: ReadyForReviewTransitions.ledger(state),
@@ -64,8 +121,8 @@ defmodule Aiur.TestSupport.WebhookEquivalenceFixture do
 
     assert {:ok, %{errors: []}} = poll_result
 
-    ref = make_ref()
-    CommentPolling.apply_async(%{state | github_comment_poll: %{ref: ref}}, ref, {:ok, %{}, [], {[target], poll_result}})
+    {_cursor, outcome} = Poll.apply(%Cursor{}, {:ok, %{}, [], {[target], poll_result}})
+    CommentPollingState.fold(state, outcome)
   end
 
   def history_response({:status, status}), do: {:ok, %{status: status, body: %{"message" => "Not Found"}}}

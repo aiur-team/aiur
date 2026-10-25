@@ -7,7 +7,7 @@ defmodule Aiur.LogCleanupTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("log-cleanup")
     File.mkdir_p!(root)
-    on_exit(fn -> File.rm_rf!(root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root}
   end
 
@@ -61,7 +61,7 @@ defmodule Aiur.LogCleanupTest do
   end
 
   test "test3 requires explicit opt-in to clear logs" do
-    script = File.read!(Path.expand("../../../scripts/aiurdev", __DIR__))
+    script = File.read!(Path.expand("../../../scripts/lib/aiurdev-harness.sh", __DIR__))
     [_, parser] = Regex.run(~r/\n(debug_mode=0.*?\ndone)\n/s, script)
     command = parser <> "\nprintf '%s' \"$clear_mode\""
     assert {"0", 0} = System.cmd("bash", ["-c", command, "flags", "--test3"])

@@ -67,7 +67,7 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
     on_exit(fn ->
       Process.delete(:serve_attempts)
       Process.delete(:failed_servers)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     state = %{slot_index: 98, generation: 1, workspace_path: Path.join(root, "slot"), attached_identifiers: MapSet.new(["ticket-a"])}
@@ -96,7 +96,7 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
       Process.delete(:serve_attempts)
       Process.delete(:failures_before_success)
       Process.delete(:failed_servers)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     state = %{slot_index: 97, generation: 1, workspace_path: Path.join(root, "slot")}
@@ -118,7 +118,7 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
 
     on_exit(fn ->
       Process.delete(:early_exit_attempts)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     state = %{slot_index: 96, generation: 1, workspace_path: Path.join(root, "slot")}
@@ -139,7 +139,7 @@ defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
     on_exit(fn ->
       Process.delete(:failed_servers)
       TokenRegistry.delete_stale(99, 2)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     state = %{slot_index: 99, generation: 1, workspace_path: Path.join(root, "slot")}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "app",
+  "version": "1",
+  "metrics": [
+    {
+      "id": "deploy_latency",
+      "label": "Deployment latency",
+      "description": "Time from deployment start to completion",
+      "unit": "ms",
+      "unit_of_analysis": "deployment",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "decrease",
+      "group": "Deployments",
+      "requires": [],
+      "source": {
+        "kind": "event_interval",
+        "start": "executor.app.deploy.started",
+        "end": "executor.app.deploy.finished",
+        "unit_key": "/deployment_id",
+        "attrs": {"branch": "/branch"}
+      }
+    },
+    {
+      "id": "request_latency",
+      "label": "Request latency",
+      "description": "Application request latency from its own measurement script",
+      "unit": "ms",
+      "unit_of_analysis": "request",
+      "kind": "duration",
+      "better": "lower",
+      "default_direction": "decrease",
+      "group": "Requests",
+      "requires": [],
+      "source": {
+        "kind": "script",
+        "argv": ["/bin/sh", "bin/latency.sh"],
+        "cwd": "repo"
+      }
+    }
+  ]
+}

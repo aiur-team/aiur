@@ -2,12 +2,23 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
   use Aiur.TestSupport
   import Plug.Conn
   import Plug.Test
+  alias Aiur.Config.SessionOptions
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.{FinancialDataAccess, Router}
 
   setup do
     FinancialDataAccess.Generation.invalidate()
-    Aiur.TestSupport.start_owned_endpoint!()
+    previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
+    {:ok, held_listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, {{127, 0, 0, 1}, held_port}} = :inet.sockname(held_listener)
+    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.merge(previous_endpoint || [], server: true, http: [ip: {127, 0, 0, 1}, port: held_port]))
+
+    on_exit(fn ->
+      :gen_tcp.close(held_listener)
+      if previous_endpoint, do: Application.put_env(:aiur, AiurWeb.Endpoint, previous_endpoint), else: Application.delete_env(:aiur, AiurWeb.Endpoint)
+    end)
+
+    endpoint = Aiur.TestSupport.start_owned_endpoint!()
     directory = Aiur.TestSupport.tmp_root!("planning-document")
     File.mkdir_p!(Path.join(directory, "tickets"))
     path = Path.join(directory, "build-order.json")
@@ -30,10 +41,10 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :build_order_planning_pack, previous), else: Application.delete_env(:aiur, :build_order_planning_pack)
-      File.rm_rf!(directory)
+      Aiur.TestCleanup.rm_rf!(directory)
     end)
 
-    %{directory: directory}
+    %{directory: directory, endpoint: endpoint, held_port: held_port}
   end
 
   test "future regression guard: full draft document requires dashboard authentication" do
@@ -81,8 +92,16 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
     end
   end
 
+  test "owned endpoint ignores an occupied fixed port in the application config", %{endpoint: endpoint, held_port: held_port} do
+    assert {:ok, {_address, port}} = AiurWeb.Endpoint.server_info(:http)
+    assert port > 0
+    refute port == held_port
+    assert Process.alive?(endpoint)
+  end
+
   defp request(path, authenticated? \\ true) do
-    request = conn(:get, path) |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
+    session_options = Plug.Session.init(SessionOptions.runtime_options())
+    request = conn(:get, path) |> Plug.Session.call(session_options) |> fetch_session() |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
     request = if authenticated?, do: put_req_header(request, "authorization", "Basic " <> Base.encode64("operator:secret")), else: request
     Router.call(request, Router.init([]))
   end

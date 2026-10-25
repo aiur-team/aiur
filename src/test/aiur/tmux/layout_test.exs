@@ -109,6 +109,32 @@ defmodule Aiur.Tmux.LayoutTest do
     assert {:ok, "%7"} = Task.await(task, 1_000)
   end
 
+  # #3970: `-e NAME=` alone gives the pane an EMPTY value, and Claude reads an
+  # empty CLAUDE_CONFIG_DIR as a config dir of "" (logged out). The launched
+  # command must leave the variable absent, on both launch paths.
+  test "a false env entry is absent in the launched command, never empty" do
+    parent = self()
+    state = mock_state(parent)
+    env = [{"CLAUDE_CONFIG_DIR", false}, {"CLAUDE_CODE_ENABLE_TELEMETRY", "1"}]
+    probe = "printenv CLAUDE_CONFIG_DIR || echo absent"
+
+    task = Task.async(fn -> Layout.new_hidden_window_with_env(state, "aiur-repl-1", probe, env) end)
+
+    assert_receive {:tmux_mock_out, "new-window" <> _ = new_window}, 1_000
+    send(task.pid, {:tmux_mock_data, "%begin 1 1 0\nno server running on /tmp/tmux-1001/test\n%error 1 1 0\n"})
+    assert_receive {:tmux_mock_out, "new-session" <> _ = new_session}, 1_000
+    send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n%7\n%end 1 1 0\n"})
+    assert {:ok, "%7"} = Task.await(task, 1_000)
+
+    for cmd <- [new_window, new_session] do
+      [_args, launched] = String.split(cmd, "\#{pane_id} ", parts: 2)
+      assert launched == "unset CLAUDE_CONFIG_DIR && " <> probe
+
+      # What tmux does with `-e CLAUDE_CONFIG_DIR=`: the pane's shell starts with an empty value.
+      assert {"absent\n", 0} = System.cmd("sh", ["-c", launched], env: [{"CLAUDE_CONFIG_DIR", ""}])
+    end
+  end
+
   test "join_pane/3 emits join-pane -s -t -h" do
     parent = self()
     state = mock_state(parent)

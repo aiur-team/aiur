@@ -23,7 +23,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
 
     on_exit(fn ->
       TokenRegistry.delete(token)
-      File.rm_rf!(workspace)
+      Aiur.TestCleanup.rm_rf!(workspace)
     end)
 
     for model <- ["issue-ticket-a", "aiur/issue-ticket-a", "issue-_slot-97"] do

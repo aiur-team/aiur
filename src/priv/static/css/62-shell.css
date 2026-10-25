@@ -1,0 +1,37 @@
+/* Document/content rules stay local; chrome is in aiur-style/dashboard-shell.css. */
+::selection { background: var(--accent-soft); }
+html { overflow-x: hidden; }
+html { scrollbar-gutter: stable; }
+/* Phones: a reserved gutter or classic scrollbar leaves a strip beside the full-width shell (#4885). */
+@media (max-width: 480px) { html { scrollbar-gutter: auto; scrollbar-width: none; } }
+.page-head h1 { font-family: "Bungee", sans-serif; font-weight: 400; text-transform: uppercase; font-size: 1.55rem; letter-spacing: .01em; }
+.page-head-run { display: none !important; }
+.dashboard-shell > .page-head { order: -1; }
+#decisions-banner { display: none !important; }
+.dashboard-shell > .page-head { display: none !important; }
+.app-shell { max-width: none; margin: 0 auto; padding: 0; min-width: 0; }
+@media (max-width: 360px) { .bo-breakdown-row-top { flex-wrap: wrap; } }
+.aiur-shell--dashboard {
+  --aiur-color-accent-soft: var(--accent-soft);
+  --aiur-shell-bg: var(--bg);
+  --aiur-shell-bg-2: var(--bg-2);
+  --aiur-shell-surface: var(--surface);
+  --aiur-shell-surface-2: var(--surface-2);
+  --aiur-shell-surface-3: var(--surface-3);
+  --aiur-shell-fg: var(--fg);
+  --aiur-shell-muted: var(--muted);
+  --aiur-shell-faint: var(--faint);
+  --aiur-shell-line: var(--line);
+  --aiur-shell-line-strong: var(--line-strong);
+  --aiur-shell-accent: var(--accent);
+  --aiur-shell-accent-soft: var(--accent-soft);
+  --aiur-shell-accent-ink: var(--accent-ink);
+  --aiur-shell-attn: var(--attn);
+  --aiur-shell-attn-ink: var(--attn-ink);
+  --aiur-shell-attn-line: var(--attn-line);
+  --aiur-shell-attn-soft: var(--attn-soft);
+  --aiur-shell-block: var(--block);
+  --aiur-shell-block-soft: var(--block-soft);
+}
+/* Generic unlayered links must defer to the package's navigation state colors. */
+a.aiur-shell__item { color: revert-layer; text-decoration: revert-layer; }

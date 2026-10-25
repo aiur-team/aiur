@@ -219,4 +219,112 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
       assert ReworkGate.verify_rework_attempt(state, "2422", nil) == {:ok, state}
     end
   end
+
+  # #3971: stopped rework handoffs when the agent head moved or a superseded
+  # review can safely hand off.
+  describe "stopped_agent_handoff/3" do
+    @pr %{"number" => 42, "head" => %{"sha" => "head"}}
+
+    defp handoff(reviews, extra \\ []) do
+      ReworkGate.stopped_agent_handoff(
+        "3971",
+        "head",
+        Keyword.merge(
+          [
+            superseded_review_handoff?: true,
+            open_pr_fetcher: fn _ -> {:ok, @pr} end,
+            reviews_fetcher: fn 42 -> {:ok, reviews} end,
+            required_checks_fetcher: fn _ -> {:ok, [%{name: "lint", app_id: nil}]} end,
+            commit_ci_status_fetcher: fn "head" ->
+              {:ok, %{check_runs: [%{"id" => 1, "name" => "lint", "status" => "completed", "conclusion" => "failure"}], commit_status: %{}}}
+            end
+          ],
+          extra
+        )
+      )
+    end
+
+    defp review(commit, attrs \\ %{}) do
+      Map.merge(%{"state" => "CHANGES_REQUESTED", "commit_id" => commit, "user" => %{"login" => "reviewer"}, "submitted_at" => "2026-10-10T00:00:00Z", authoritative: true}, attrs)
+    end
+
+    test "hands off to review when every blocking review names an older commit" do
+      assert handoff([review("older")]) == {:handoff, "human-review"}
+    end
+
+    test "a carried approval routes a stopped agent handoff to ci-wait" do
+      assert ReworkGate.stopped_agent_handoff("3971", "older",
+               open_pr_fetcher: fn _ -> {:ok, @pr} end,
+               reviews_fetcher: fn _ -> {:ok, []} end,
+               pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "approved-head"}} end,
+               approval_carry_classifier: fn "approved-head", "head", 42, _ -> :carried end,
+               commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{}}} end
+             ) == {:handoff, "ci-wait"}
+    end
+
+    test "a superseded review handoff routes to ci-wait when approval carries to the current head" do
+      assert handoff([review("older")],
+               pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "approved-head"}} end,
+               approval_carry_classifier: fn "approved-head", "head", 42, _ -> :carried end
+             ) == {:handoff, "ci-wait"}
+    end
+
+    test "a current blocking review routes the stopped agent handoff to rework" do
+      assert ReworkGate.stopped_agent_handoff("3971", "older",
+               open_pr_fetcher: fn _ -> {:ok, @pr} end,
+               reviews_fetcher: fn _ -> {:ok, [review("head")]} end,
+               pull_request_approval_fetcher: fn 42 -> {:ok, {"head", "head"}} end,
+               commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{}}} end
+             ) == {:handoff, "rework"}
+    end
+
+    test "does not hand off while a blocking review names the head, or none exists, or the read fails" do
+      assert handoff([review("older"), review("head", %{"user" => %{"login" => "second"}})]) == :none
+      assert handoff([]) == :none
+      assert handoff([review("older", %{authoritative: false})]) == :none
+      assert handoff([review("older"), review("older", %{"state" => "APPROVED", "submitted_at" => "2026-10-10T01:00:00Z"})]) == :none
+      assert ReworkGate.stopped_agent_handoff("3971", "head", open_pr_fetcher: fn _ -> {:ok, @pr} end, superseded_review_handoff?: true, reviews_fetcher: fn _ -> {:error, :timeout} end) == :none
+    end
+
+    test "refuses same-head hand-back when required checks fail" do
+      test_pid = self()
+
+      assert handoff(
+               [],
+               emit_alert_fun: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
+             ) == :none
+
+      assert_receive {:alert, "ticket.3971.agent.attention.no_op_rework", alert_opts}, 100
+      assert Keyword.fetch!(alert_opts, :needs_attention)
+      reason = Keyword.fetch!(alert_opts, :reason)
+      assert reason =~ "head is unchanged"
+    end
+
+    test "is opt-in so retry exhaustion and the turn limit keep their behaviour" do
+      assert handoff([review("older")], superseded_review_handoff?: false) == :none
+    end
+  end
+
+  test "a completed agent handoff with an approval at head routes to ci-wait" do
+    pr = %{"number" => 42, "head" => %{"sha" => "new-head"}}
+
+    assert ReworkGate.completed_agent_handoff("3971", "old-head",
+             open_pr_fetcher: fn _ -> {:ok, pr} end,
+             reviews_fetcher: fn _ -> {:ok, []} end,
+             pull_request_approval_fetcher: fn 42 -> {:ok, {"new-head", "new-head"}} end,
+             commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{}}} end
+           ) == {:handoff, "ci-wait"}
+  end
+
+  test "a completed agent handoff with a blocking review at the current head routes to rework" do
+    pr = %{"number" => 42, "head" => %{"sha" => "new-head"}}
+    review = %{"state" => "CHANGES_REQUESTED", "commit_id" => "new-head", "user" => %{"login" => "reviewer"}, "submitted_at" => "2026-10-17T00:00:00Z", authoritative: true}
+
+    assert ReworkGate.completed_agent_handoff("3971", "old-head",
+             open_pr_fetcher: fn _ -> {:ok, pr} end,
+             reviews_fetcher: fn _ -> {:ok, [review]} end,
+             pull_request_approval_fetcher: fn 42 -> {:ok, {"new-head", "new-head"}} end,
+             commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{}}} end
+           ) == {:handoff, "rework"}
+  end
 end

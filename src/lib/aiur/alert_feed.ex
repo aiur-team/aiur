@@ -3,7 +3,8 @@ defmodule Aiur.AlertFeed do
   Reads persisted structured alert events from the project-scoped alert ledger.
   """
 
-  alias Aiur.{AlertLedger, AlertTopic}
+  alias Aiur.AlertFeed.Projection
+  alias Aiur.AlertLedger
   alias Aiur.Config
   alias Aiur.Config.Paths
   alias Aiur.Jsonl
@@ -19,7 +20,7 @@ defmodule Aiur.AlertFeed do
     |> Enum.flat_map(&read_alerts(&1, opts))
     |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
     |> collapse_repeated_resolutions()
-    |> resolve_attention_alerts()
+    |> Projection.resolve()
     |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
     |> maybe_filter_agents(Keyword.get(opts, :agents))
   end
@@ -343,36 +344,6 @@ defmodule Aiur.AlertFeed do
 
   defp maybe_filter_agents(alerts, agents) when is_list(agents), do: Enum.filter(alerts, &(&1["agent"] in agents))
   defp maybe_filter_agents(alerts, _agents), do: alerts
-
-  defp resolve_attention_alerts(alerts) do
-    Enum.reduce(alerts, [], fn alert, active_alerts ->
-      case AlertTopic.resolved_attention_key(alert) do
-        nil -> collapse_repeated_attention(alert, active_alerts)
-        key -> [alert | Enum.reject(active_alerts, &(AlertTopic.attention_key(&1) == key))]
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp collapse_repeated_attention(%{"needs_attention" => true} = alert, active_alerts) do
-    case AlertTopic.attention_key(alert) do
-      nil ->
-        [alert | active_alerts]
-
-      key ->
-        {previous, remaining} = Enum.split_with(active_alerts, &(AlertTopic.attention_key(&1) == key))
-
-        first_opened_at =
-          previous
-          |> List.first(%{})
-          |> then(fn previous -> Map.get(previous, "first_seen_at") || Map.get(previous, "timestamp") end)
-
-        collapsed = Map.put(alert, "first_seen_at", first_opened_at || Map.get(alert, "timestamp"))
-        [collapsed | remaining]
-    end
-  end
-
-  defp collapse_repeated_attention(alert, active_alerts), do: [alert | active_alerts]
 
   defp string_field(map, key) do
     case Map.get(map, key) do

@@ -6,6 +6,8 @@ tracker:
   base_branch: {{BASE_BRANCH}}           # required integration branch; `aiur init` offers the repository default read from GitHub
   # propagate_blocker_pushes: true  # default: true for optimistic queue triggers, false otherwise
   # restack_after_blocker_merge: true  # idle dependent fast-forward restacks after squash merge
+  # Runtime reason labels (agent:ci-red, agent:retrying, etc.) are modifiers,
+  # not workflow states; keep them out of active_states.
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, closed, cancelled, canceled]
   # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency
@@ -25,11 +27,45 @@ tracker:
     # allowed_contributors:
     #   users: [583231]
     #   orgs: [{id: 9919, login: github}]
-  # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
-  # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
+  # human_mergers is the explicit human-only post-merge attribution allowlist and the
+  # identity allowlist for the planned aiur pr merge command. It never inherits
+  # CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
+
+# Merge policy defaults; currently validated and shown in status/capabilities.
+# For a second daemon on the same GitHub repository, set instance.role: secondary.
+instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
+  role: primary                       # primary | secondary; one primary per repository
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
+  # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
+  #   label_prefixes: [nuc]           # its tracker.github.label_prefix
+  #   tickets: []                     # ids handed over mid-flight
+# Merge enforcement, worker instructions and main watching ship separately.
+# merge_policy:
+#   ci: wait                       # wait
+#   local_tests: partial           # all | partial | none
+#   full_ci_labels: [main-fix]
+#   full_ci_paths: []               # changed-path globs forcing full CI
+#   premerge_checks: []             # commands on the merge result
+#   attribution_scan: false
+#   main_watch:
+#     enabled: false
+#     workflows: []                 # empty = all base-branch workflows
+#     on_red: alert                 # alert | dispatch_fixer
+#     fixer_label: main-fix         # dispatch_fixer requires this in full_ci_labels
+#     canary_minutes: 45            # 0 disables canary reruns
+#     red_fallback_minutes: 0      # off; 60 waits for CI after main is red for one hour (MP4)
 
 # === Coding agents ===
 agent:
+  # ci_recovery_enabled: true             # false disables automatic CI reruns
+  # ci_recovery_max_per_poll: 5
+  # ci_recovery_max_per_hour: 20
+  # non_closing_merge_marker: needs-triage # label applied to an own-PR reference without closing keywords
+  # relay: true                         # detached transport for local Codex / headless Claude
+  # relay_orphan_timeout_seconds: 1800  # positive; stop provider after no controller
   # Ordered dispatch preference (replaces `kind` + `switch_model_on_ratelimit` +
   # `backend_configs.<b>.enabled`). Presence in the array makes a backend
   # dispatchable; the first available entry is the default backend; and when a
@@ -37,7 +73,9 @@ agent:
   # next one in the list, returning to an earlier one once it recovers.
   priority: {{PRIORITY}}                   # e.g. [deepseek, codex, claude]
   # accounts: {claude: [default, max]}     # machine-local Claude profiles; omit for legacy single-account behavior
-  # account_selection: balance            # balance = lowest weekly usage; priority = first eligible account
+  # account_selection: balance            # balance = lowest weekly usage; priority = first eligible account;
+  #                                       # headroom = backend+account with most usage left (routing values may be lists)
+  # git_identity: {name: Agent Name, email: agent@example.com}  # author/committer of agent commits; default = github.bot_account
   # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
   # pricing_policy:
   #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
@@ -54,8 +92,15 @@ agent:
   # Full emergency opt-out: set both build settings above to 0 and leave min_free_memory_mb omitted.
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
-  max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
-  # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
+  # max_repeated_identical_commands: 5  # steer after five identical read-only results; stop on the next repeat; 0 disables
+  # local_gate_wait_steer_minutes: 20    # only after prolonged local gate polling with fresh green CI; lets ordinary builds finish
+  # local_gate_wait_stop_minutes: 30     # ten minutes after the steer, to give the worker time to refresh the PR body and hand off
+  # local_gate_ci_max_age_minutes: 15    # ignore a green cache entry old enough to belong to a previous PR head
+  # max_commands_per_turn: 1000  # optional tool-call cap; null disables
+  # max_input_tokens_per_turn: 20000000  # optional input-token cap; null disables
+  max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # runtime cap: release worker, route to rework/review; 0 = off
+  # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress`/busy-loop load generators; null = cores/4, 0 = disabled
+  # synthetic_load_kill_detected: false  # true also kills busy loops found by behaviour and orphaned generators; false only reports them
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
   prior_work_continuation: true           # cold redispatch/backend switch continues from shared workspace context, never a cross-provider transcript
   # backend_configs:                      # optional overrides keyed by registry instance
@@ -85,15 +130,18 @@ agent:
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
-  # max_load_average: 1.5                # minus CPU niced above the daemon, CPU-corroborated; null disables
-  # target_load_average: 1.0             # per-scheduler target on the same signal; null disables
-  # load_resume_max_age_seconds: 21600  # safe occupancy record lifetime; 0 disables resume
-  # load_ramp_step: 1                    # slots added per below-target poll
-  # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
+  # max_cpu_pressure: 20.0              # Linux CPU PSI some avg60 percent ceiling; null disables
+  # target_cpu_pressure: 10.0           # PSI AIMD target percent; null disables
+  # max_load_average: 1.5                # per-scheduler ceiling only when PSI unavailable; null disables
+  # target_load_average: 1.0             # per-scheduler AIMD fallback only; null disables
+  # load_resume_max_age_seconds: 21600   # safe occupancy record lifetime; 0 disables resume
+  # load_ramp_step: 1                    # slots added below 80% PSI target, or at/below load target
+  # load_cooldown_seconds: 60            # minimum seconds between sustained above-target decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
   # budget_broker_rate_window_seconds: 300       # window over which budget-broker-timeout retries are counted for the retry-rate signal
   # budget_broker_degraded_retry_threshold: 5    # retries in the window above which the broker counts as degraded (keep above an isolated timeout)
-  # budget_broker_degraded_alert_after_seconds: 600  # dwell before the single `system.github.budget_broker_degraded` alert raises
+  # budget_broker_degraded_alert_after_seconds: 60   # dwell before the single `system.github.budget_broker_degraded` alert raises
+  # dispatch_hold_attention_threshold: 3         # consecutive local GitHub budget holds on one ticket's dispatch before it raises an Executor attention; fewer are retried silently
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
@@ -139,6 +187,7 @@ pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast
 prewarm:
   enabled: {{PREWARM_ENABLED}}           # turn on to pre-warm a shared base before agents dispatch
 {{PREWARM_BASE_BUILD_FILE}}  poll_seconds: 0                        # background base refresh interval (s); 0 = refresh eagerly/lazily only
+  build_timeout_minutes: 60              # total clone/fetch/build limit; expiry releases dispatch for cold clones
 
 # === Alert sound effects (opt-in; play a sound when an agent is stuck or needs input) ===
 alerts:
@@ -146,6 +195,14 @@ alerts:
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
   alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
+
+# Optional low-usage alerts. Thresholds are remaining percentages; unknown or stale readings do not trigger alerts.
+# usage:
+#   alerts:
+#     claude:
+#       threshold: 10
+#     codex:
+#       threshold: 10
 
 # === Executor takeover advisories (advanced defaults shown) ===
 # While a nonterminal ticket stays in the run scope, aiur watches its convergence age
@@ -156,7 +213,26 @@ alerts:
 # are rejected.
 # executor_takeover_first_alert_hours: 8     # first advisory after this many hours of convergence
 # executor_takeover_continuous_alert_hours: 1 # repeat cadence (hours) while unresolved; 0 = first alert only
+
+# === Executor sweep ===
+# Threshold for an open, non-draft PR in agent:human-review that has no review on its current head.
+# executor:
+#   sweep:
+#     unreviewed_pr_minutes: 10
 {{ELEVENLABS_SECTION}}
+# === Voice conversation (optional; read only when a voice session starts) ===
+# llm and cloud_disclosure_accepted have no default: a session refuses to start until both are set.
+# voice:
+#   conversation:
+#     llm: <model id>                  # required; the model the assistant reasons with
+#     cloud_disclosure_accepted: true  # required; true = accept that audio and text go to the cloud voice provider
+#     agent_id: <agent id>             # ElevenLabs Agents agent; an account-visible id, not a secret
+#     roles_dir: voice/roles           # role pre-context files; a relative path resolves next to this config
+#     max_session_seconds: 1800        # 60..3600
+#     idle_timeout_seconds: 120        # 15..900
+#     daily_minutes_cap: 60            # proposed default; crashed sessions always count; 0 disables, null removes the cap
+#     context_token_budget: 4000       # 1000..32000
+
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
 # Requires github.bot_account (reply identity) and CODEOWNERS / github.trusted_accounts (who may direct the agent).
@@ -211,12 +287,26 @@ alerts:
 #     - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
+# Optional Codex-native compaction immediately before final agent handoff.
+# It synchronously calls the live app-server method and leaves the original
+# rollout and thread resume handle intact. Other providers are rejected. The
+# app-server currently exposes no auto-trigger or progress polling protocol.
+# compaction:
+#   enabled: true
+#   backends: [codex]
+#   manual_approval: true # explicit operator opt-in at terminal handoff
+#   auto_trigger:
+#     enabled: false
+#     token_threshold: 50000 # cumulative tokens required at human-review handoff
+#   timeout_ms: 30000
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
-# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
+# observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_tags: {}, capture_label_prefixes: ["experiment:", "cohort:", "feature:"], capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
-# server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); set host explicitly for remote access
+# server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); 0.0.0.0 exposes the LAN
+# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com], trusted_proxies: [10.0.0.0/8] }
+# dashboard_auth: { google: { allowed_emails: [operator@example.com] }, passkeys: false, session_max_age_days: 30, browser_basic_auth: true }
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur
 # dashboard owns Funnel HTTPS 443 and should alert on a stale target.
 # server: { tailscale_funnel: true }     # reconcile an operator-enabled Funnel on HTTPS 443 to this dashboard's current bound port
@@ -225,11 +315,47 @@ alerts:
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
 
-# Build queue (GitHub only; defaults shown).
+# Build queue (GitHub only; defaults shown except opt-in set ordering).
 # build_queue:
+#   set_order: ranked                  # opt in to set rank order; default none preserves ordinary dispatch
+#   max_active_sets: null              # unfinished started sets; held sets do not count
+#   spill_reserve_slots: 0             # leave slots free for the earliest unfinished set
+#   optimistic_slot_share: 0.5         # 0..1 of effective slots; 0 disables optimistic starts
 #   start_trigger: pr_merged           # issue_closed, pr_merged, pr_approved, pr_ci_green, pr_opened
 #   enabled: true
 #   reconcile_interval_seconds: 60      # 10..3600 seconds
 #   max_writes_per_minute: 20           # 1..60 writes
 #   observation_max_age_seconds: null  # 2 x polling.interval_seconds; explicit 10..3600
 #   merged_open_grace_seconds: 600      # 60..86400 seconds
+#   optimistic_failure_grace_seconds: 600 # Replacement grace, 60..86400 seconds
+#   optimistic_churn_attention_threshold: 3 # Conflicts, 0 disables (0..50)
+
+# Experiment specs and audit history are stored under the repo state node.
+# experiments:
+#   analyst:
+#     auto_request: true             # false for CLI-only analyst requests
+#   enabled: true
+#   default_min_samples: 15
+#   default_before_days: 14
+#   pack_dirs: [".aiur/experiments/packs"]
+#   disabled_packs: []
+#   script_timeout_ms: 60000
+#   checkpoint_interval_ms: 3600000
+#   max_snapshot_observations: 50000
+
+#   auto:
+#     enabled: true
+#     version_line: true
+#     release_line: true
+#     release_tag_pattern: "v*"
+#     release_include_prereleases: false
+#     release_min_interval_days: 7
+#     feature_label: "experiment:feature"
+#     feature_live_signal: "auto"
+#     feature_quiet_hours: 6
+#     live_signal_max_wait_hours: 72
+#     before_days: 14
+#     after_days: 14
+#     after_step_days: 7
+#     after_max_days: 42
+#     metric_packs: ["delivery"]

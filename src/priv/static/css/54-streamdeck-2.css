@@ -1,0 +1,384 @@
+.sd-ag-foot {
+  margin-top: auto;
+  gap: 8px;
+  color: var(--sd-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sd-ag-foot.col {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.sd-ag-stat {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-ag-stat::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-right: 0.28rem;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  flex: none;
+}
+
+.sd-ag-tag {
+  margin-left: auto;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sd-ag-tag.blocked { background: rgba(224, 86, 78, 0.2); color: #ff9a90; }
+
+.sd-ag-tag.ready { background: rgba(74, 200, 130, 0.2); color: #88e0a6; }
+
+.sd-ag-foot.col .sd-ag-tag { margin-left: 0; }
+
+/*
+ * The unblocked state is a glyph in the key's bottom-right corner, not a pill:
+ * the sidecar's rasterizer paints the same open padlock in the same green, so
+ * the emulator and the physical deck say "ready to start" the same way.
+ */
+.sd-ag-unblocked {
+  display: inline-flex;
+  align-self: flex-end;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--good-ink);
+}
+
+.sd-ag-unblocked svg { width: 100%; height: 100%; }
+
+.sd-ag-dot {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--sd-accent);
+}
+
+.sd-ag-foot.is-progress-unknown .sd-ag-dot {
+  border: 0;
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* Pulse timings come from key-face-contract.json via @key_face_css. */
+
+.sd-ag-bar {
+  display: block;
+  height: var(--progress-bar-height);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.sd-ag-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--sd-progress-fill);
+  min-width: var(--progress-bar-height);
+}
+
+.sd-ag-foot.is-progress-unknown .sd-ag-bar {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
+   from key-face-contract.json by StreamdeckLive; see @key_face_css. Restating
+   them here is what lets the two renderers drift. */
+
+.sd-key:is(.is-empty, .sd-empty) {
+  background: #0a0b0d;
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sd-key:is(.is-empty, .sd-empty) .sd-key-face {
+  background: #101114;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.sd-key:is(.is-flashing, .flash) {
+  animation: sd-flash 0.45s ease;
+}
+
+.sd-screen {
+  display: grid;
+  grid-template-columns: repeat(var(--sd-screen-segments, 4), minmax(0, 1fr));
+  height: 88px;
+  gap: 4px;
+  padding: 6px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #060708;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.sd-screen-segment {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-align: center;
+  transition: background 0.14s ease;
+}
+
+.sd-screen-icon {
+  color: var(--accent-ink);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sd-screen-segment.is-live {
+  border-color: var(--good-line);
+  color: var(--fg);
+}
+
+.sd-screen-segment.is-live::after {
+  position: absolute;
+  top: 0.34rem;
+  right: 0.34rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0.45rem var(--good);
+  content: "";
+  animation: sd-live-pulse 1.2s ease-in-out infinite;
+}
+
+/* Cmd and logs keep the strip's dial columns so the pager segment stays under
+   dial D where the operator reads which agent they are controlling. The page
+   itself takes every column left of it — full width in every practical sense,
+   without evicting the dial-D label. */
+.sd-screen.sd-screen-cmd,
+.sd-screen.sd-screen-logs {
+  display: grid;
+}
+
+.sd-strip-cmd,
+.sd-strip-logs {
+  height: 100%;
+  min-width: 0;
+  grid-column: 1 / -2;
+}
+
+.sd-strip-cmd {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.28rem;
+  padding: 0.42rem 0.55rem;
+}
+
+.sd-strip-cmd-heading,
+.sd-strip-cmd-body,
+.sd-log-evhdr,
+.sd-log-diff,
+.sd-log-message {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.sd-strip-cmd-heading,
+.sd-log-evhdr,
+.sd-log-diff {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.53rem;
+  font-weight: 800;
+}
+
+.sd-cmd-provider-logo {
+  width: 0.9rem;
+  height: 0.9rem;
+  object-fit: contain;
+}
+
+/* The icon and the status wording take the focused agent's own state accent,
+   set inline from key-face-contract.json, so the strip and the key for the
+   same agent cannot disagree. */
+.sd-strip-cmd-agent-icon {
+  color: var(--sd-accent);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.sd-strip-cmd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--sd-accent);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+}
+
+/* The design's leading state dot (streamdeck.design.css:112). currentColor
+   means it tracks --sd-accent without naming a colour twice. */
+.sd-strip-cmd-status::before {
+  content: "";
+  flex: none;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sd-strip-cmd-provider {
+  color: var(--accent-ink);
+  letter-spacing: 0.08em;
+}
+
+.sd-strip-cmd-pager {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.sd-strip-cmd-ticket,
+.sd-strip-cmd-percent {
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.sd-strip-cmd-title {
+  overflow: hidden;
+  flex: 1;
+  color: var(--fg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-strip-cmd-progress {
+  display: block;
+  height: var(--progress-bar-height);
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sd-strip-cmd-progress > i {
+  display: block;
+  height: 100%;
+  min-width: var(--progress-bar-height);
+  border-radius: inherit;
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before {
+  box-sizing: border-box;
+  border: 0;
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.sd-strip-logs {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0.22rem;
+  padding: 0.3rem 0.45rem;
+}
+
+/* The Commands readout: a history heading with the open count, or the selected
+   Command's question and reading. The strip sits in the same full-width slot as
+   cmd and logs so the four surfaces read alike. */
+.sd-strip-commands {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.28rem;
+  height: 100%;
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+  grid-column: 1 / -2;
+}
+
+.sd-strip-commands-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.53rem;
+  font-weight: 800;
+}
+
+.sd-strip-commands-title {
+  color: var(--fg);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.sd-strip-commands-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--accent-ink);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+}
+
+.sd-strip-commands-status::before {
+  content: "";
+  flex: none;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sd-strip-commands-ticket {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.sd-strip-commands-title + .sd-strip-commands-reading,
+.sd-strip-commands-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sd-strip-commands-reading {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-strip-commands-note,
+.sd-strip-commands-page {
+  color: var(--muted);
+  font-size: 0.56rem;
+  font-weight: 700;
+}
+

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "khala-omitted",
+    "kind": "design-removal",
+    "selector": ".sidenav-nav .snav[data-tab=\"khala\"]",
+    "cells": {},
+    "reason": "DESIGN-E8 adopted OQ-E8-2 default: base navigation is Build, Commands, Analytics and Streamdeck; Khala is omitted.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/blob/6732f5f9f448b1857a9643993849635f85321e19/docs/research/aiur-mobile-and-platform/bucket-2-platform/MP-E8/tickets/MP-E8-C12-T01.md#routes-after-this-ticket"
+    }
+  }
+]

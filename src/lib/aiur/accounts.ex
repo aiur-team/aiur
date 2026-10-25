@@ -1,7 +1,7 @@
 defmodule Aiur.Accounts do
   @moduledoc "Machine-local harness accounts and pure account selection."
 
-  alias Aiur.Init.Dotenv
+  alias Aiur.Accounts.EnvKey
 
   @registry "machine"
 
@@ -31,11 +31,11 @@ defmodule Aiur.Accounts do
   defp put_if_binary(map, :profile_dir, _value), do: Map.put(map, :profile_dir, nil)
   defp put_if_binary(map, _key, _value), do: map
 
-  @spec profile_env(String.t(), String.t()) :: [{String.t(), String.t()}]
+  @spec profile_env(String.t(), String.t()) :: [{String.t(), String.t() | false}]
   def profile_env(harness, name) do
     case account(harness, name) do
       {:ok, %{profile_dir: nil}} ->
-        []
+        shim_profile_env(shim!(harness), false)
 
       {:ok, %{api_key_env: _env_name}} ->
         []
@@ -95,10 +95,10 @@ defmodule Aiur.Accounts do
   end
 
   @spec select(String.t(), [String.t()], String.t(), map()) :: {:ok, String.t()} | {:error, term()}
-  def select(_harness, candidates, mode, usage) when mode in ["balance", "priority"] do
+  def select(_harness, candidates, mode, usage) when mode in ["balance", "priority", "headroom"] do
     case mode do
       "priority" -> select_priority(candidates, usage)
-      "balance" -> select_balance(candidates, usage)
+      _balance_or_headroom -> select_balance(candidates, usage)
     end
   end
 
@@ -693,22 +693,7 @@ defmodule Aiur.Accounts do
     end)
   end
 
-  defp local_env_value(name) do
-    path = Path.join(System.get_env("HOME") || Path.expand("~"), ".aiur/.env")
-
-    case File.read(path) do
-      {:ok, contents} ->
-        find_env_value(Dotenv.parse(contents), name)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp find_env_value(entries, name), do: Enum.find_value(entries, fn {key, value} -> if key == name, do: nonempty(value), else: nil end)
-
-  defp nonempty(""), do: nil
-  defp nonempty(value), do: value
+  defp local_env_value(name), do: EnvKey.read(name)
 
   defp write_registry(accounts) do
     path = machine_path()

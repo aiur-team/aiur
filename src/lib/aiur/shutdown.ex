@@ -22,9 +22,11 @@ defmodule Aiur.Shutdown do
 
   require Logger
 
-  alias Aiur.{AlertLedger, Config}
-  alias Aiur.Claude.{RemoteControl, ReplAgent}
+  alias Aiur.{AlertLedger, Config, ProcessTree}
+  alias Aiur.Claude.RemoteControl
+  alias Aiur.Claude.Repl.Reaper
   alias Aiur.Fs
+  alias Aiur.Handoff.Protection
   alias Aiur.Opencode.SessionWriterRegistry
 
   @default_cleanup_timeout_ms 5_000
@@ -39,7 +41,11 @@ defmodule Aiur.Shutdown do
   Run cleanup (idempotent) without halting. Called by `Aiur.Application.stop/1`.
   """
   @spec cleanup(non_neg_integer()) :: :ok
-  def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
+  def cleanup(timeout_ms \\ @default_cleanup_timeout_ms), do: cleanup(timeout_ms, [])
+
+  @doc false
+  @spec cleanup(non_neg_integer(), keyword()) :: :ok
+  def cleanup(timeout_ms, opts) do
     # `derive: false` — this runs on the shutdown path, where deriving config is
     # a deadlock. See `workspace_root/1`.
     safely(fn -> record_workspace_root(derive: false) end, "record_workspace_root")
@@ -56,8 +62,10 @@ defmodule Aiur.Shutdown do
     safely(fn -> Aiur.ProcessReaper.reap([:agent], drain: true) end, "reap_agents")
     safely(fn -> SessionWriterRegistry.delete_all(timeout_ms) end, "delete_all")
     safely(fn -> Aiur.ProcessReaper.reap([:serve], drain: true) end, "reap_serves")
-    safely(fn -> ReplAgent.sweep_own_panes() end, "sweep_repl_panes")
-    safely(fn -> reap_workspace_agents() end, "reap_workspace_agents")
+
+    safely(fn -> Reaper.sweep_own_panes(Keyword.get(opts, :tmux), protected_refs: protected_panes()) end, "sweep_repl_panes")
+    safely(fn -> reap_workspace_agents(Keyword.get(opts, :workspace_reap_opts, [])) end, "reap_workspace_agents")
+
     safely(fn -> truncate_session_tempfile() end, "truncate_tempfile")
     :ok
   end
@@ -162,18 +170,41 @@ defmodule Aiur.Shutdown do
   # test-suite cleanup — which resolves the REAL workspace root but sets neither
   # flag — never touches live agents. A headless `--bg` node still uses the
   # reparenting backend, so it must reap here too.
-  defp reap_workspace_agents do
+  defp reap_workspace_agents(opts) do
     if Application.get_env(:aiur, :interactive_cli, false) or
          Application.get_env(:aiur, :headless, false) do
       # Same `:application_controller` deadlock hazard as `record_workspace_root/1`
       # — this phase also runs after teardown — so it takes the same guarded root.
       case workspace_root(false) do
-        {:ok, root} -> RemoteControl.reap_workspace_agents(root)
+        {:ok, root} -> RemoteControl.reap_workspace_agents(root, Keyword.put(opts, :additional_protected_pids, &protected_processes/0))
         :unavailable -> :ok
       end
     end
 
     :ok
+  end
+
+  defp protected_transports do
+    case Protection.prepared() do
+      %{result: %{agents: agents}, tickets: tickets} ->
+        for agent <- agents, MapSet.member?(tickets, to_string(agent["identifier"])), do: agent["transport"] || %{}
+
+      _ ->
+        []
+    end
+  end
+
+  defp protected_panes do
+    for %{"pane_id" => pane} = transport <- protected_transports() do
+      case transport["socket"] do
+        socket when is_binary(socket) -> {:pane, pane, socket}
+        _ -> {:pane, pane}
+      end
+    end
+  end
+
+  defp protected_processes do
+    for transport <- protected_transports(), key <- ~w(relay_pid provider_pid os_pid), pid = transport[key], is_integer(pid) and pid > 0, member <- ProcessTree.process_tree(pid), do: member
   end
 
   # On graceful exit the BEAM has already deleted every session via

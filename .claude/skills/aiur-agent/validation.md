@@ -6,7 +6,11 @@ skills do not make a target workspace an Elixir project.
 1. Read the target repository's AGENTS.md, CONTRIBUTING instructions, package
    manifests, lockfiles and CI workflow before selecting validation commands.
    In a monorepo, identify the affected package and its runner configuration.
-2. Run focused tests for changed behavior and directly affected callers. Use
+2. Follow the current config-driven local-tests mode: `all` runs the full
+   suite; `partial` covers changed tests, source mirrors, direct callers and
+   deleted-name references, falling back to the full suite for shared support,
+   build/dependency/runtime config or unknown file types; `none` runs compile
+   and format only, relying on CI. For selected tests, use
    the repository's documented test command and installed package manager;
    for TypeScript, inspect package.json scripts and the selected runner's file
    filters rather than assuming npm, pnpm, Vitest, Jest, or a `test` script.
@@ -23,6 +27,9 @@ skills do not make a target workspace an Elixir project.
 5. Run the target repository's required full gate at its prescribed stage.
    Report exact commands and results, including genuine environment blockers;
    do not claim unrun tests pass or broaden a focused pass into a full CI pass.
+   Every PR needs `## Local tests`: policy, full pushed head SHA, base ref/SHA,
+   selection rationale and exact commands with actual results. Update after
+   each push and validate with `mix pr_body.check --file <body>`.
 
 The prohibition on destructive `scripts/aiurdev --test` / `--test3` sandbox
 resets is not a prohibition on focused repository tests. Keep that reset guard;

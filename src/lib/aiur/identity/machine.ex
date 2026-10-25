@@ -111,7 +111,7 @@ defmodule Aiur.Identity.Machine do
 
   defp announce(dir, announced, reason, opts) do
     if :atomics.compare_exchange(announced, 1, 0, 1) == :ok do
-      emit = Keyword.get(opts, :emit_fun, &Aiur.Alerts.emit_system/2)
+      emit = Keyword.get(opts, :emit_fun, &Aiur.Signal.alert/2)
       suffix = if reason == :identity_unreadable, do: "unreadable", else: "uncreatable"
       emit.("system.identity." <> suffix, needs_attention: true, message: "Machine identity #{suffix} in #{dir}; automatic regeneration is disabled")
     end

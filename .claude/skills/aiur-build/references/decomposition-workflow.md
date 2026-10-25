@@ -23,7 +23,7 @@ or hand-written handoff as a live ticket database.
 - Preserve the user's request verbatim or link to its durable source.
 - Record objective, non-goals, constraints, terminal condition, repository,
   base branch, and explicit planning-only boundary.
-- Allocate `build_order_id`, `plan_version`, and immutable logical ticket IDs.
+- Allocate a feature slug, `plan_version`, and immutable logical ticket IDs.
 - Create the planning branch and `questions-or-commands.md`.
 - State source precedence and mutation authority.
 - Record the researched repository SHA and relevant open PR/issue snapshot.
@@ -31,9 +31,9 @@ or hand-written handoff as a live ticket database.
   required end-to-end proof, and the later run's terminal condition.
 - Create a deferred-findings ledger before execution begins.
 
-Good Build Order identity is stable before GitHub numbers exist. Prefer a
-repository-scoped slug such as `owner/repo:feature-name`, plus an immutable root
-issue node ID after promotion.
+Feature identity is stable before GitHub numbers exist. Choose a repository-local
+slug for `aiur feature create`; map logical members to tracker IDs on promotion.
+Inspect the existing continuous build for real cross-collection prerequisites.
 
 ## Stage 1: Research plan and grounding
 
@@ -214,11 +214,9 @@ and record the chosen icon name for each lane in the pack's lane metadata (the
 README lane index and Executor handoff): the strict `build-order.json` schema
 and the GitHub label projection carry no icon field, so the name lives in pack
 prose only. An unknown or absent name falls back to a generic glyph, so
-rendering never needs a model call. Prefer a single Build Order containing every
-ticket in the program over sibling packs: one graph maximizes how many agents
-can work at once, and separation belongs in lanes and phases, not in
-membership — split membership only when a track genuinely must not gate or be
-gated by the feature's completion.
+rendering never needs a model call. Use one feature collection for the new
+program, appended to the continuous build. Lanes and feature epics organize it; native prerequisites connect it to
+existing collections without making a standalone Build Order root.
 
 Analyze write surfaces and public contracts, not just file paths. Two tickets
 editing different modules may still conflict on a route, schema, event topic,
@@ -311,7 +309,9 @@ the budget is met (publish before/after wave tables in the pack):
 
 ## Stage 7: Mechanical and semantic validation
 
-Run the bundled validator, then check semantics it cannot prove:
+Validate collection records and the graph below. The bundled Build Order
+validator applies to legacy packs only; never invent a root to satisfy it.
+Then check the semantics:
 
 1. each ticket is pickable by one agent and can land green;
 2. the graph expresses real prerequisites rather than preferences;
@@ -334,21 +334,23 @@ and any accepted exceptions.
 
 ## Stage 8: Executor-owned GitHub promotion
 
-This stage requires explicit user permission and is not hardcoded machinery.
-The Executor asks whenever the user wants tickets created and encourages
-promotion of every researched, ready-to-begin ticket. For each selected member,
-create the tracker issue from `tickets/<ID>.md` verbatim and apply the waiting
-marker or todo label in that same creation request, following `SKILL.md`
-§ Optional GitHub promotion for queue status and root adoption. Record its number
-in the pack's `ticket` field, and freeze the document. **After promotion, edits go to the ticket, never the doc.** The Build
-Order root and explicit `Epic:` containers remain undispatched hierarchy.
-Per-phase promotion is optional user complexity, not an Aiur-imposed workflow.
+This stage requires issue-creation authority; reuse explicit authorization already
+present. Encourage promotion of every researched, ready-to-begin member together;
+per-phase promotion remains optional. Follow `SKILL.md` § Optional GitHub promotion
+and the linked continuous-build intake procedure, including prioritized placement.
+
+Create the feature collection and each selected issue from `tickets/<ID>.md`
+verbatim with feature and disposition labels in the creation request. Record
+tracker IDs, native prerequisites within and across collections, registry ownership,
+and queue membership. Freeze promoted documents: subsequent edits go to tickets.
+No new standalone Build Order root is created. Verify the collection, labels,
+links, and effective queue order; record failures as incomplete promotion.
 
 ## Stage 9: Handoff and stop
 
 Write a durable Executor handoff with:
 
-- Build Order ID/version and approved planning commit;
+- Feature slug/plan version, queue placement, and approved planning commit;
 - objective, non-goals, smallest slice, and terminal condition;
 - requirement, decision, design, ticket, validation, and acceptance links;
 - GitHub selector and logical-ID mapping for current ticket truth;

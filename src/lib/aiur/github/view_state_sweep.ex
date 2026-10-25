@@ -82,7 +82,6 @@ defmodule Aiur.GitHub.ViewStateSweep do
 
   alias Aiur.Config
   alias Aiur.GitHub.{ResourceStore, Transport}
-  alias Aiur.Webhooks
 
   # Sources are supplied by the application composition root.
   @sources []
@@ -278,7 +277,11 @@ defmodule Aiur.GitHub.ViewStateSweep do
   defp record_head_activity(_full_name, nil), do: :ok
 
   defp record_head_activity(full_name, head) do
-    Webhooks.record_activity(full_name, observation: {:issue_head, head})
+    case Application.get_env(:aiur, :github_activity_recorder) do
+      {module, function} -> apply(module, function, [full_name, [observation: {:issue_head, head}]])
+      nil -> :ok
+    end
+
     :ok
   end
 

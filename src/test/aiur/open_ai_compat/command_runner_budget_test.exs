@@ -4,6 +4,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
   alias Aiur.AgentGitHubGuard
   alias Aiur.GitHub.Budget
   alias Aiur.OpenAICompat.CommandRunner
+  alias Aiur.TestSupport.RuntimeChildren
 
   @bwrap_skip_reason (case System.find_executable("bwrap") do
                         nil ->
@@ -22,9 +23,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
                       end)
 
   setup do
-    if is_nil(Process.whereis(Aiur.TaskSupervisor)) do
-      start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
-    end
+    :ok = RuntimeChildren.ensure_aiur_supervisor_running()
 
     root = Aiur.TestSupport.tmp_root!("aiur-command-budget")
     workspace = Path.join(root, "workspace")
@@ -40,7 +39,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
     on_exit(fn ->
       restore_env(:github_budget_dir, previous_budget)
       restore_env(:github_budget_enabled?, previous_enabled)
-      File.rm_rf(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, workspace: workspace, budget: budget}
@@ -167,8 +166,9 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
   end
 
   test "refuses a sandbox command when the shared budget state cannot be mounted", %{workspace: workspace, budget: budget} do
-    File.rm_rf!(budget)
-    File.write!(budget, "not a directory")
+    invalid_budget = budget <> "-file"
+    File.write!(invalid_budget, "not a directory")
+    Application.put_env(:aiur, :github_budget_dir, invalid_budget)
     parent = self()
 
     runner = fn _executable, _args, _opts ->

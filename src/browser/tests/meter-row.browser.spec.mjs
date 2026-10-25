@@ -5,6 +5,7 @@ async function openMeterRow(page, query = '') {
   await page.goto('/auth/read_only')
   await page.goto(`/meter-row${query}`)
   await expect(page.locator('[data-meter-row-fixture="true"]')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
 }
 
 const closeEnough = (left, right) => Math.abs(left - right) <= 0.25
@@ -80,8 +81,8 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       await expect(page.locator('.rs-block.rs-models')).toHaveCount(1)
 
       const elevenlabs = page.locator('.rs-elevenlabs')
-      await expect(elevenlabs).toContainText('75.0K left · 25% used · resets 3d')
-      await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:25\.0%/)
+      await expect(elevenlabs).toContainText('75.0K left · 75% left · resets 3d')
+      await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:75%/)
       await expect(elevenlabs.locator('img')).toHaveAttribute('src', '/elevenlabs-symbol.svg')
       await expect(elevenlabs.locator('img')).toHaveAttribute('alt', 'ElevenLabs')
       await expect.poll(() => elevenlabs.locator('img').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0)
@@ -116,7 +117,7 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
         barHeight: line.querySelector('.rs-meter').getBoundingClientRect().height
       })))
       for (const line of modelLines) {
-        expect(line.height, `model line must keep the design's 11px height at ${width}px`).toBeCloseTo(11, 0)
+        expect(line.height, `model line must fit its label and full-width bar at ${width}px`).toBeCloseTo(17, 0)
         expect(line.barHeight, `model bar must be the design's 5px bar at ${width}px`).toBeCloseTo(5, 0)
       }
       const identityHeight = await page.locator('.rs-api .rs-head').first().evaluate((identity) => identity.getBoundingClientRect().height)
@@ -180,8 +181,8 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       // Every reading keeps its percentage; a provider that reported nothing
       // reads unknown over an inert bar, never a measured 0%.
       await expect(page.locator('.rs-state')).toHaveCount(0)
-      await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-pc')).toHaveText('62%')
-      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-pc')).toHaveText('0%')
+      await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-pc')).toHaveText('62% left')
+      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-pc')).toHaveText('0% left')
       await expectVisibleMetadata(elevenlabs, 'compact', '75.0K')
       const kimi = page.locator('.rs-model').filter({ hasText: 'Kimi' })
       await expect(kimi.locator('.rs-pc')).toHaveText('')
