@@ -157,6 +157,10 @@ for review in REVIEW_REQUIRED CHANGES_REQUESTED ''; do
 done
 TEST_REVIEW=APPROVED expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
 ! grep -Fq 'fast checks only' "$test_dir/summary"
+# The aggregate CI gate needs these jobs in the same workflow. A sibling guard
+# workflow would reintroduce independent (and potentially stale) PR gating.
+[[ ! -e "$root/.github/workflows/ci-guards.yml" ]]
+[[ ! -e "$root/scripts/ci/changes-classify.sh" ]]
 workflow="$root/.github/workflows/ci.yml"
 ! grep -q 'outputs.draft\|pull_request.draft' "$workflow"
 grep -Fq 'uses: ./.github/actions/setup-elixir' "$workflow"

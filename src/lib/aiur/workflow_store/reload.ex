@@ -264,8 +264,29 @@ defmodule Aiur.WorkflowStore.Reload do
     Cache.put(state.workflow, state.generation, path)
     broadcast_configuration(state)
     maybe_announce_base_branch_change(previous, state)
+    maybe_announce_operator_relay_enablement(previous, state)
     :ok
   end
+
+  defp maybe_announce_operator_relay_enablement(previous, current) do
+    if relay_enabled?(current) and not relay_enabled?(previous) do
+      Signal.alert("system.config.operator_relay.enabled",
+        message: "executor.relay_operator_answers enabled: Executors may record quoted operator answers",
+        reason: "The operator-answer relay gate changed from disabled to enabled.",
+        needs_attention: false,
+        severity: "info"
+      )
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp relay_enabled?(%{workflow: %{config: %{"executor" => %{"relay_operator_answers" => true}}}}), do: true
+  defp relay_enabled?(_state), do: false
 
   defp broadcast_configuration(%State{generation: generation}) do
     if Process.whereis(Aiur.PubSub) do

@@ -4,11 +4,11 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Issue
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @spec sync_todo_capacity_alert(State.t(), list()) :: State.t()
   def sync_todo_capacity_alert(%State{} = state, issues) when is_list(issues) do
@@ -119,7 +119,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
   defp emit_capacity_starvation_alert(context, since_by_identity, alerted_identities, due_identities) do
     next_alerted_identities = MapSet.union(alerted_identities, MapSet.new(due_identities))
 
-    case Alerts.emit_system("system.dispatch.capacity_starved",
+    case Signal.alert("system.dispatch.capacity_starved",
            reason: capacity_starvation_reason(context),
            needs_attention: true,
            severity: "warning"
@@ -149,7 +149,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
         AlertFeed.active_system_attention?("system.dispatch.capacity_starved")
 
     if active? do
-      case Alerts.emit_system("system.dispatch.capacity_starved.resolved",
+      case Signal.alert("system.dispatch.capacity_starved.resolved",
              reason: "Ready-work dispatch capacity recovered; fleet dispatch may resume.",
              needs_attention: false,
              severity: "info"
@@ -180,7 +180,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
   defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
     case List.first(todo_issues) do
       %Issue{} = issue ->
-        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+        Signal.alert("system.dispatch.todo_capacity_exceeded",
           issue: issue,
           worker_host: State.WorkerHost.running_worker_host(state, issue.id),
           reason: "Todo issue count exceeds the current dispatch capacity.",
@@ -189,7 +189,7 @@ defmodule Aiur.Orchestrator.IssueSync.CapacityStarvation do
         )
 
       _ ->
-        Alerts.emit_system("system.dispatch.todo_capacity_exceeded",
+        Signal.alert("system.dispatch.todo_capacity_exceeded",
           reason: "Todo issue count exceeds the current dispatch capacity.",
           needs_attention: true,
           severity: "warning"

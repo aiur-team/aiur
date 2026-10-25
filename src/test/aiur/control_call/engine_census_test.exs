@@ -54,6 +54,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"experiments list", "cmd_experiments list", :read, []},
     {"experiments stats", "cmd_experiments stats 123", :read, []},
     {"experiments freeze", "cmd_experiments freeze", :write, []},
+    {"operator relay answer", "cmd_operator_relay_answer decision --expected-version 1 --option yes --quote approved --relayed-by executor --idempotency-key key", :write, []},
     {"executor answer", "cmd_executor_answer decision --expected-version 1 --option yes --rationale approved --idempotency-key key", :write, []},
     {"executor escalate", "cmd_executor_escalate decision --expected-version 1 --reason help", :write, []},
     {"executor reclassify", "cmd_executor_reclassify decision --expected-version 1 --rationale update", :write, []},

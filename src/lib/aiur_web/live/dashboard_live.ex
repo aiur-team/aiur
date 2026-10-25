@@ -18,7 +18,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
-  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel, Voice}
+  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, RepositoryLeaderBanner, Summaries, UnitsPanel, Voice}
   alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
@@ -89,8 +89,7 @@ defmodule AiurWeb.DashboardLive do
 
     socket =
       socket
-      |> assign(:payload, payload)
-      |> assign(:now, DateTime.utc_now())
+      |> assign(%{payload: payload, now: DateTime.utc_now(), repository_leader: RepositoryLeaderBanner.initial_status()})
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
       |> assign(:netlify_usage, NetlifyUsage.snapshot())
@@ -210,7 +209,7 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_info(:runtime_tick, socket) do
     schedule_runtime_tick()
-    {:noreply, assign(socket, :now, DateTime.utc_now())}
+    {:noreply, RepositoryLeaderBanner.refresh(socket)}
   end
 
   def handle_info(:github_quota_tick, socket) do
@@ -332,10 +331,9 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, Controls.apply_control_lifecycle(socket, payload)}
   end
 
-  # A unit's agent topic also carries transcript, alert, turn, and aiur-turn
-  # traffic that this view subscribes for the control lifecycle but does not
-  # otherwise consume. Ignore that noise — and any future message added to a
-  # topic this view does not own — rather than crashing every open dashboard.
+  # A unit's agent topic carries transcript, alert, turn, and aiur-turn traffic
+  # this view subscribes to but does not consume. Ignore it rather than crashing
+  # on any message this view does not own.
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
@@ -778,6 +776,7 @@ defmodule AiurWeb.DashboardLive do
       writable={@writable}
     >
       <:banner>
+        <RepositoryLeaderBanner.banner status={Map.get(assigns, :repository_leader)} />
         <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
