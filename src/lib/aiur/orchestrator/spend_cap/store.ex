@@ -3,15 +3,14 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   use GenServer
   require Logger
 
-  alias Aiur.Events
-  alias Aiur.Orchestrator.SpendCap.{Evaluation, Persistence, Record, Stop}
+  alias Aiur.{AgentPubSub, Events, Signal}
+  alias Aiur.Orchestrator.SpendCap.{Evaluation, Persistence, Record, Runtime, Stop}
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.TrackerIdentity
-  alias Aiur.Usage.GroupedScopes
-  alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
 
   @dispatch_table Aiur.Orchestrator.SpendCap.DispatchTable
+  @refresh_debounce_ms 100
   @retry_ms 1_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -70,14 +69,23 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       inflight: MapSet.new(),
       retrying: MapSet.new(),
       effect_retry_counts: %{},
-      usage_fun: Keyword.get(opts, :usage_fun, &usage/1),
+      running_keys: MapSet.new(),
+      running_identifiers: MapSet.new(),
+      refresh_scheduled?: false,
+      partial_alerted: MapSet.new(),
+      usage_fun: Keyword.get(opts, :usage_fun, &Runtime.usage/1),
+      snapshot_fun: Keyword.get(opts, :snapshot_fun, &UsageAggregate.cells_snapshot/0),
+      project_fun: Keyword.get(opts, :project_fun, &Runtime.usage_from_snapshot/2),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       subscribe_fun: Keyword.get(opts, :subscribe_fun, &UsageAggregate.subscribe/0),
+      running_subscribe_fun: Keyword.get(opts, :running_subscribe_fun, &AgentPubSub.subscribe_running/0),
+      alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
       reserve_event_id_fun: Keyword.get(opts, :reserve_event_id_fun, &Events.reserve_durable_id/0),
       stop_fun: Keyword.get(opts, :stop_fun, fn identity, _end_state -> Stop.request(identity) end),
       event_fun: Keyword.get(opts, :event_fun, &publish_event/3),
       transition_fun: Keyword.get(opts, :transition_fun, &transition_ticket/2),
       task_start_fun: Keyword.get(opts, :task_start_fun, &start_effect_task/1),
+      refresh_debounce_ms: Keyword.get(opts, :refresh_debounce_ms, @refresh_debounce_ms),
       retry_ms: Keyword.get(opts, :retry_ms, @retry_ms),
       retry_max_ms: Keyword.get(opts, :retry_max_ms, 60_000),
       sync_fun: Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0)
@@ -99,12 +107,13 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   @impl true
   def handle_continue(:subscribe_and_resume, state) do
-    case safe_call(state.subscribe_fun) do
-      :ok ->
-        {:noreply, state |> refresh_all() |> drive_effects()}
-
+    with :ok <- safe_call(state.subscribe_fun),
+         :ok <- safe_call(state.running_subscribe_fun) do
+      send(self(), :resume_spend_cap_effects)
+      {:noreply, state}
+    else
       reason ->
-        Logger.error("spend-cap usage subscription failed reason=#{inspect(reason)}")
+        Logger.error("spend-cap subscription failed reason=#{inspect(reason)}")
         state = %{state | health: {:unavailable, :spend_cap_subscription_failed}}
         sync_table(state)
         {:noreply, state}
@@ -134,7 +143,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
         with {:ok, record} <- Record.new(identity, amount, configured_at),
              {_status, record} <- Evaluation.refresh(record, safe_usage(state, identity), configured_at),
              {:ok, state} <- persist_records(state, Map.put(state.records, key, record)) do
-          state = drive_effects(state)
+          state = state |> Runtime.update_partial_attention(key, record, self()) |> drive_effects()
           {:reply, {:ok, Record.public(record)}, state}
         else
           {:error, reason} -> {:reply, {:error, reason}, state}
@@ -177,10 +186,34 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   @impl true
   def handle_info({:usage_aggregate_changed, _payload}, %{health: :healthy} = state) do
-    {:noreply, state |> refresh_all() |> drive_effects()}
+    {:noreply, schedule_refresh(state)}
   end
 
   def handle_info({:usage_aggregate_changed, _payload}, state), do: {:noreply, state}
+
+  def handle_info({:running_changed, summaries}, state) when is_list(summaries) do
+    {running_keys, running_identifiers} = Runtime.running_records(summaries)
+
+    state =
+      state
+      |> Map.merge(%{running_keys: running_keys, running_identifiers: running_identifiers})
+      |> schedule_refresh()
+
+    {:noreply, state}
+  end
+
+  def handle_info(:refresh_running_spend_caps, %{health: :healthy} = state) do
+    state = %{state | refresh_scheduled?: false}
+    {:noreply, state |> refresh_running() |> drive_effects()}
+  end
+
+  def handle_info(:refresh_running_spend_caps, state), do: {:noreply, %{state | refresh_scheduled?: false}}
+
+  def handle_info(:resume_spend_cap_effects, state), do: {:noreply, drive_effects(state)}
+
+  def handle_info({:spend_cap_partial_alert, key, disposition, result}, state) do
+    {:noreply, Runtime.finish_partial_attention(state, key, disposition, result)}
+  end
 
   def handle_info({:spend_cap_effect, key, effect, result}, state) do
     state = %{state | inflight: MapSet.delete(state.inflight, key)}
@@ -216,33 +249,64 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp refresh_all(state) do
+  defp schedule_refresh(%{health: :healthy, refresh_scheduled?: false} = state) do
+    if Enum.any?(state.records, fn {key, record} -> refreshable_running?(state, key, record) end) do
+      Process.send_after(self(), :refresh_running_spend_caps, state.refresh_debounce_ms)
+      %{state | refresh_scheduled?: true}
+    else
+      state
+    end
+  end
+
+  defp schedule_refresh(state), do: state
+
+  defp refresh_running(state) do
+    snapshot = Runtime.snapshot(state.snapshot_fun)
+
     Enum.reduce(state.records, state, fn {key, record}, current ->
-      {_record, current} = refresh_one(current, key, record)
-      current
+      if refreshable_running?(current, key, record) do
+        usage = Runtime.project(current.project_fun, snapshot, record.identity)
+        {_record, current} = refresh_one(current, key, record, usage)
+        current
+      else
+        current
+      end
     end)
+  end
+
+  defp refreshable_running?(_state, _key, %Record{state: :budget_exhausted}), do: false
+
+  defp refreshable_running?(state, key, %Record{} = record) do
+    MapSet.member?(state.running_keys, key) or MapSet.member?(state.running_identifiers, record.identity.identifier)
   end
 
   defp refresh_one(state, _key, %Record{state: :budget_exhausted} = record), do: {record, state}
 
   defp refresh_one(state, key, record) do
-    {_status, refreshed} = Evaluation.refresh(record, safe_usage(state, record.identity), state.now_fun.())
+    refresh_one(state, key, record, safe_usage(state, record.identity))
+  end
 
-    cond do
-      refreshed == record ->
-        {record, state}
+  defp refresh_one(state, key, record, usage) do
+    {_status, refreshed} = Evaluation.refresh(record, usage, state.now_fun.())
 
-      refreshed.state == :budget_exhausted ->
-        case persist_records(state, Map.put(state.records, key, refreshed)) do
-          {:ok, state} -> {refreshed, state}
-          {:error, _reason} -> {record, state}
-        end
+    {record, state} =
+      cond do
+        refreshed == record ->
+          {record, state}
 
-      true ->
-        state = %{state | records: Map.put(state.records, key, refreshed)}
-        sync_record(state.table, key, refreshed)
-        {refreshed, state}
-    end
+        refreshed.state == :budget_exhausted ->
+          case persist_records(state, Map.put(state.records, key, refreshed)) do
+            {:ok, state} -> {refreshed, state}
+            {:error, _reason} -> {record, state}
+          end
+
+        true ->
+          state = %{state | records: Map.put(state.records, key, refreshed)}
+          sync_record(state.table, key, refreshed)
+          {refreshed, state}
+      end
+
+    {record, Runtime.update_partial_attention(state, key, record, self())}
   end
 
   defp persist_records(state, records) do
@@ -375,17 +439,6 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       usage when is_map(usage) -> usage
       _other -> %{state: :unavailable}
     end
-  end
-
-  defp usage(identity) do
-    with %{cells: cells, metadata: metadata} = source when is_map(cells) and is_map(metadata) <- UsageAggregate.cells_snapshot(),
-         {:ok, scope} <- Scope.explicit_ticket_set([identity]) do
-      GroupedScopes.project(source, scope, currency: "USD")
-    else
-      _other -> %{state: :unavailable}
-    end
-  catch
-    :exit, _reason -> %{state: :unavailable}
   end
 
   defp publish_event(topic, payload, event_id), do: Events.publish_persisted(topic, payload, event_id, digest_source: :orchestrator)

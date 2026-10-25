@@ -85,6 +85,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
          repository: "its-everdred/aiur",
          subscribe_fun: fn -> :ok end,
          usage_fun: fn ^identity -> usage(Agent.get(spend, & &1)) end,
+         snapshot_fun: fn -> %{spend: Agent.get(spend, & &1)} end,
+         project_fun: fn %{spend: amount}, ^identity -> usage(amount) end,
          reserve_event_id_fun: fn -> {:ok, 43} end,
          stop_fun: fn stopped, end_state ->
            send(owner, {:stopped_after_update, stopped, end_state})
@@ -96,6 +98,7 @@ defmodule Aiur.Orchestrator.SpendCap.StoreTest do
       )
 
     assert {:ok, %{"state" => "active"}} = Store.put(store, identity, "1.00")
+    send(store, {:running_changed, [%{status: :running, identifier: "5693", tracker_identity: identity}]})
     Agent.update(spend, fn _current -> "1.00" end)
     send(store, {:usage_aggregate_changed, %{generation: 4}})
 

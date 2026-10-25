@@ -18,6 +18,7 @@ defmodule Aiur.Orchestrator.SpendCap.Persistence do
   defp do_load(opts, repository, writer) do
     with {:ok, dir} <- directory(opts),
          :ok <- File.mkdir_p(dir),
+         :ok <- File.chmod(dir, 0o700),
          {:ok, %{type: :directory}} <- File.lstat(dir) do
       path = Path.join(dir, @filename)
 
