@@ -1,13 +1,13 @@
 defmodule Aiur.ExecutorSweep.CacheFreshness do
   @moduledoc false
-  alias Aiur.GitHub.RunnerStarvation
+  alias Aiur.GitHub.MergeQueue
 
   @spec stale_merge_groups(map(), DateTime.t(), pos_integer(), pos_integer()) :: [map()]
   def stale_merge_groups(snapshot, now, stale_minutes, max_age_ms) do
     groups = Map.get(snapshot, :merge_groups, [])
 
     starvation =
-      case RunnerStarvation.diagnose(groups, DateTime.to_unix(now, :millisecond), stale_minutes) do
+      case MergeQueue.runner_starvation(groups, DateTime.to_unix(now, :millisecond), stale_minutes) do
         nil -> []
         diagnosis -> [runner_starvation(diagnosis, groups, snapshot, max_age_ms)]
       end

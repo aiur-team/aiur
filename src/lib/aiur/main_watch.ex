@@ -4,13 +4,12 @@ defmodule Aiur.MainWatch do
   require Logger
   alias Aiur.Config
   alias Aiur.Events
-  alias Aiur.GitHub.{Budget, ResourceStore, RunnerStarvation, Transport}
+  alias Aiur.GitHub.{Budget, MergeQueue, ResourceStore, Transport}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
 
   @request_limit 64
-  @runner_starvation_age_minutes 15
 
   @spec enabled?() :: boolean()
   def enabled?, do: MergePolicy.current().main_watch.enabled
@@ -76,7 +75,7 @@ defmodule Aiur.MainWatch do
 
   defp runner_starvation(groups, now_ms) when is_list(groups) do
     groups
-    |> RunnerStarvation.diagnose(now_ms, @runner_starvation_age_minutes)
+    |> MergeQueue.runner_starvation(now_ms)
     |> case do
       nil -> nil
       diagnosis -> Map.take(diagnosis, [:queued_runs, :running_runs, :status_url])
