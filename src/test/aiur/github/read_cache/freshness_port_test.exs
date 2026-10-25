@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.ReadCache.FreshnessPortTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.Access.{Settings, StaticSettings}
+  alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.ReadCache.Policy
 
   defmodule WebhookPort do
@@ -20,22 +21,34 @@ defmodule Aiur.GitHub.ReadCache.FreshnessPortTest do
     on_exit(fn -> Aiur.TestSupport.restore_app_env(prior) end)
     Application.put_env(:aiur, :github_access_settings_provider, StaticSettings)
     Application.put_env(:aiur, :github_access_settings, Settings.new(root, freshness: Map.get(context, :port, WebhookPort)))
+    ReadCache.reset()
+    on_exit(&ReadCache.reset/0)
     :ok
   end
 
   @moduletag :tmp_dir
 
   test "a webhook-mode repo gets the long TTL through the port and a polling repo the short one" do
-    assert {:cache, :issue, 3_600_000} = Policy.classify(issue("webhook-repo"))
-    assert {:cache, :issue, 30_000} = Policy.classify(issue("polling-repo"))
+    for repo <- ["webhook-repo", "polling-repo"] do
+      assert {:ok, %{body: "paid"}} = ReadCache.through(issue(repo), fn -> {:ok, %{status: 200, body: "paid"}} end)
+    end
+
+    # Age deposits past the polling TTL, without meeting the real clock or sleeping.
+    table = :aiur_github_read_cache_entries
+    for {key, response, deposited_at} <- :ets.tab2list(table), do: :ets.insert(table, {key, response, deposited_at - 31_000})
+
+    assert {:ok, %{body: "paid"}} = ReadCache.through(issue("webhook-repo"), fn -> flunk("webhook port must retain the paid read") end)
+    assert {:ok, %{body: "refetched"}} = ReadCache.through(issue("polling-repo"), fn -> {:ok, %{status: 200, body: "refetched"}} end)
   end
 
   @tag port: nil
+  # Regression guard: unset settings retain the existing fail-safe TTLs.
   test "settings without a freshness port answer polling TTLs" do
     assert {:cache, :issue, 30_000} = Policy.classify(issue("webhook-repo"))
     assert {:cache, :repo_config, 300_000} = Policy.classify(rest("https://api.github.com/repos/port-owner/webhook-repo/actions/workflows?per_page=100"))
   end
 
+  # Regression guard: a port never relaxes the existing verdict refusal.
   test "a verdict selection is still refused under a webhook-mode port" do
     document =
       "query Q { repository(owner: $o, name: $r) { t0: issueOrPullRequest(number: 7) { ... on PullRequest { statusCheckRollup { state } } } } }"

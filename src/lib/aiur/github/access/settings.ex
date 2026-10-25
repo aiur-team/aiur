@@ -43,6 +43,10 @@ defmodule Aiur.GitHub.Access.Settings do
   @spec unscoped(map(), (-> result)) :: result when result: term()
   def unscoped(_request, fun), do: fun.()
 
+  @doc "Forward an alert through the configured embedding application's sink."
+  @spec alert(String.t(), keyword()) :: term()
+  def alert(name, opts), do: current().alert_sink.(name, opts)
+
   @doc "Run a function with one settings snapshot shared by nested accessors."
   @spec with_request((-> result)) :: result when result: term()
   def with_request(fun) when is_function(fun, 0) do

@@ -23,6 +23,7 @@ defmodule Aiur.GitHub.Access.SettingsPortsTest do
 
   test "default settings leave the request untagged and unscoped", %{root: root} do
     Application.put_env(:aiur, :github_access_settings, Settings.new(root))
-    assert %{url: "u"} == TestScope.run(%{url: "u"}, & &1)
+    request = Aiur.GitHub.Transport.put_caller(%{url: "u"}, caller: :standalone)
+    assert %{url: "u", caller: "standalone"} == TestScope.run(request, & &1)
   end
 end
