@@ -1,6 +1,8 @@
 defmodule Aiur.BuildHistoryGuidanceSkillTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.EngineCase
+  alias Aiur.AgentTools.Dispatch
+  alias Aiur.BuildOrder.Estimates
   @root Path.expand("../../..", __DIR__)
   @filing ~w(aiur-agent/conventions.md aiur-run/SKILL.md aiur-run/references/executor.md aiur-meta/SKILL.md aiur-build/SKILL.md aiur-build/references/planning-contract.md)
   @planning ~w(aiur-build/SKILL.md aiur-run/SKILL.md)
@@ -48,7 +50,7 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
     assert text =~ "workpad"
     refute text =~ "aiur epic set"
     refute text =~ "--source"
-    specs = Map.new(Aiur.AgentTools.Dispatch.tool_specs(), &{&1["name"], &1})
+    specs = Map.new(Dispatch.tool_specs(), &{&1["name"], &1})
     examples = Regex.scan(~r/`(aiur_\w+) (\{[^`]+\})`/, text)
     assert length(examples) == 2
 
@@ -63,7 +65,7 @@ defmodule Aiur.BuildHistoryGuidanceSkillTest do
   end
 
   test "estimate overrides need a strong reason and are not resizing" do
-    hours = Enum.map_join(1..5, ", ", &Aiur.BuildOrder.Estimates.default_hours/1)
+    hours = Enum.map_join(1..5, ", ", &Estimates.default_hours/1)
 
     for path <- @planning do
       text = blocks(path, "estimate override")
