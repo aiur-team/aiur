@@ -8,7 +8,11 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
     ResourceStore.reset()
 
     on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
@@ -19,11 +23,20 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "query AiurCIPollBatch"
-      assert body["query"] =~ "checkSuite { id app { databaseId } workflowRun { workflow { databaseId } } }"
+
+      assert body["query"] =~
+               "checkSuite { id app { databaseId } workflowRun { workflow { databaseId } } }"
+
       assert body["query"] =~ "mergeQueueEntry { id state }"
-      assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100)"
+
+      assert body["query"] =~
+               "timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100)"
+
       assert body["query"] =~ "reviews(last: 100) { nodes { state commit { oid } } }"
-      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN, orderBy:)
+
+      assert body["query"] =~
+               ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: [OPEN, CLOSED], orderBy:)
+
       # The cost claim: aliases only, never a scan of the repository's open PR
       # list (paginated or not).
       refute body["query"] =~ "states: OPEN, after:"
@@ -42,9 +55,19 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                    Map.merge(pull_request_with_workflow_run(), %{
                      "reviews" => %{
                        # Oldest first, as `last:` returns them: the newest approval is the head.
-                       "nodes" => [%{"state" => "APPROVED", "commit" => %{"oid" => "older-head"}}, %{"state" => "APPROVED", "commit" => %{"oid" => "reviewed-head"}}]
+                       "nodes" => [
+                         %{"state" => "APPROVED", "commit" => %{"oid" => "older-head"}},
+                         %{"state" => "APPROVED", "commit" => %{"oid" => "reviewed-head"}}
+                       ]
                      },
-                     "timelineItems" => %{"nodes" => [%{"__typename" => "ReadyForReviewEvent", "createdAt" => "2026-10-14T19:08:00Z"}]}
+                     "timelineItems" => %{
+                       "nodes" => [
+                         %{
+                           "__typename" => "ReadyForReviewEvent",
+                           "createdAt" => "2026-10-14T19:08:00Z"
+                         }
+                       ]
+                     }
                    })
                  ]
                }
@@ -61,7 +84,10 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              )
 
     assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
-    assert batch.pull_request["ready_at_ms"] == DateTime.to_unix(~U[2026-10-14 19:08:00Z], :millisecond)
+
+    assert batch.pull_request["ready_at_ms"] ==
+             DateTime.to_unix(~U[2026-10-14 19:08:00Z], :millisecond)
+
     assert batch.pull_request["reviewed_head?"] == false
     # The batch carries the merge-queue recovery observation derived from the
     # same node, without any extra read.
@@ -77,8 +103,33 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              }
            } = batch.pull_request
 
-    assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "workflow_id" => 44, "app" => %{"id" => 15_368}}] = batch.check_runs
-    assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
+    assert [
+             %{
+               "name" => "test",
+               "status" => "completed",
+               "conclusion" => "success",
+               "workflow_id" => 44,
+               "app" => %{"id" => 15_368}
+             }
+           ] = batch.check_runs
+
+    assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} =
+             batch.commit_status
+  end
+
+  test "a closed ticket PR is returned with its merged state for lifecycle routing" do
+    closed_pr =
+      pull_request()
+      |> Map.put("state", "CLOSED")
+      |> Map.put("mergedAt", "2026-10-20T00:00:00Z")
+
+    request_fun = fn %{body: body} ->
+      assert body["query"] =~ "states: [OPEN, CLOSED]"
+      ci_response(closed_pr)
+    end
+
+    assert {:ok, %{"42" => %{pull_request: %{"number" => 77, "state" => "merged"}}}} =
+             CIPollBatch.fetch(["42"], request_fun: request_fun, branch_names_by_target: %{"42" => "aiur/42-ci-batch"})
   end
 
   defp pull_request_with_workflow_run do
@@ -143,7 +194,10 @@ defmodule Aiur.GitHub.CIPollBatchTest do
            body: %{
              "data" => %{
                "repository" => %{
-                 "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+                 "branch_0_0" => %{
+                   "pageInfo" => %{"hasNextPage" => false},
+                   "nodes" => [pull_request()]
+                 }
                }
              }
            }
@@ -180,7 +234,13 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                  "owner/repo",
                  "42",
                  "head-77",
-                 %{"id" => 502, "name" => "test", "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
+                 %{
+                   "id" => 502,
+                   "name" => "test",
+                   "status" => "completed",
+                   "conclusion" => "success",
+                   "completed_at" => "2026-08-21T10:01:00Z"
+                 }
                )
 
       request_fun = fn %{body: body} ->
@@ -190,6 +250,15 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       end
 
       assert {:ok, %{"42" => _batch}} = CIPollBatch.fetch(["42"], request_fun: request_fun)
+    end
+
+    test "a delivered closed PR preserves its terminal state without treating it as absent" do
+      deliver_pull_request(42, 77)
+      node = pull_request() |> Map.put("state", "CLOSED") |> Map.put("mergedAt", "2026-10-20T00:00:00Z")
+      request_fun = fn _request -> ci_response(node, "delivered_0") end
+
+      assert {:ok, %{"42" => %{pull_request: %{"state" => "merged", "number" => 77}, check_runs: []}}} =
+               CIPollBatch.fetch(["42"], request_fun: request_fun)
     end
 
     test "a poll-written snapshot does not displace" do
@@ -217,7 +286,8 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       deliver_pull_request(42, 77)
       deliver_ci_contexts(42, "head-77", 501)
 
-      assert {:ok, %{fetched_at_ms: fetched_at_ms}} = ResourceStore.fetch(PollSnapshots.ci_contexts_key("owner/repo", "42"))
+      assert {:ok, %{fetched_at_ms: fetched_at_ms}} =
+               ResourceStore.fetch(PollSnapshots.ci_contexts_key("owner/repo", "42"))
 
       request_fun = fn %{body: body} ->
         assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
@@ -238,7 +308,10 @@ defmodule Aiur.GitHub.CIPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request()]
+               }
              }
            }
          }
@@ -258,10 +331,17 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                "owner/repo",
                "42",
                "head-77",
-               %{"id" => 501, "name" => "test", "status" => "completed", "conclusion" => "failure", "completed_at" => "2026-08-21T10:02:00Z"}
+               %{
+                 "id" => 501,
+                 "name" => "test",
+                 "status" => "completed",
+                 "conclusion" => "failure",
+                 "completed_at" => "2026-08-21T10:02:00Z"
+               }
              )
 
-    assert {:ok, %{"check_runs" => [%{"id" => 501, "conclusion" => "failure"}]}} = PollSnapshots.ci_contexts("owner/repo", "42")
+    assert {:ok, %{"check_runs" => [%{"id" => 501, "conclusion" => "failure"}]}} =
+             PollSnapshots.ci_contexts("owner/repo", "42")
   end
 
   test "a poll-only snapshot does not suppress check-run fields" do
@@ -290,7 +370,8 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     deliver_pull_request(42, 77)
     deliver_ci_contexts(42, "head-77", 501)
 
-    assert {:ok, %{fetched_at_ms: fetched_at_ms}} = ResourceStore.fetch(PollSnapshots.ci_contexts_key("owner/repo", "42"))
+    assert {:ok, %{fetched_at_ms: fetched_at_ms}} =
+             ResourceStore.fetch(PollSnapshots.ci_contexts_key("owner/repo", "42"))
 
     request_fun = fn %{method: :post, body: body} ->
       assert body["query"] =~ "... on CheckRun { databaseId name status conclusion"
@@ -307,7 +388,9 @@ defmodule Aiur.GitHub.CIPollBatchTest do
   # daemon pays a GraphQL call ON TOP OF the unchanged REST fan-out.
   test "queries the title-derived branch as well as the legacy one" do
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-daemon-read-budget-conditional")
+      assert body["query"] =~
+               ~s(branch_0_0: pullRequests(headRefName: "aiur/42-daemon-read-budget-conditional")
+
       assert body["query"] =~ ~s(branch_0_1: pullRequests(headRefName: "aiur/42")
 
       {:ok,
@@ -316,7 +399,10 @@ defmodule Aiur.GitHub.CIPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]},
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request()]
+               },
                "branch_0_1" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
@@ -327,7 +413,9 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     assert {:ok, %{"42" => batch}} =
              CIPollBatch.fetch(["42"],
                request_fun: request_fun,
-               titles_by_target: %{"42" => "Daemon read-budget: conditional requests, GraphQL-batched fan-outs"}
+               titles_by_target: %{
+                 "42" => "Daemon read-budget: conditional requests, GraphQL-batched fan-outs"
+               }
              )
 
     assert %{"number" => 77} = batch.pull_request
@@ -342,7 +430,10 @@ defmodule Aiur.GitHub.CIPollBatchTest do
            "data" => %{
              "repository" => %{
                "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []},
-               "branch_0_1" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+               "branch_0_1" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request()]
+               }
              }
            }
          }
@@ -350,14 +441,18 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     end
 
     assert {:ok, %{"42" => batch}} =
-             CIPollBatch.fetch(["42"], request_fun: request_fun, titles_by_target: %{"42" => "Some legacy ticket"})
+             CIPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               titles_by_target: %{"42" => "Some legacy ticket"}
+             )
 
     assert %{"number" => 77} = batch.pull_request
   end
 
   test "falls back to the legacy branch name when orchestration knows no branch" do
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
+      assert body["query"] =~
+               ~s(branch_0_0: pullRequests(headRefName: "aiur/42", states: [OPEN, CLOSED], orderBy:)
 
       {:ok,
        %{
@@ -408,7 +503,15 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       overflowed =
         pull_request()
         |> put_in(
-          ["commits", "nodes", Access.at(0), "commit", "statusCheckRollup", "contexts", "pageInfo"],
+          [
+            "commits",
+            "nodes",
+            Access.at(0),
+            "commit",
+            "statusCheckRollup",
+            "contexts",
+            "pageInfo"
+          ],
           %{"hasNextPage" => true, "endCursor" => "next"}
         )
 

@@ -3,7 +3,14 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{CIPollBatchReadyReview, DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
+  alias Aiur.GitHub.{
+    CIPollBatchReadyReview,
+    DeliveredPullRequest,
+    MergeQueue,
+    PollSnapshots,
+    Transport
+  }
+
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -86,7 +93,15 @@ defmodule Aiur.GitHub.CIPollBatch do
 
       result =
         Map.new(delivered, fn {target, {:ok, %{"head_sha" => head_sha} = contexts}} ->
-          {target, delivered_entry(target, owner, repo, opts, head_sha, Map.get(contexts, "check_runs", []))}
+          {target,
+           delivered_entry(
+             target,
+             owner,
+             repo,
+             opts,
+             head_sha,
+             Map.get(contexts, "check_runs", [])
+           )}
         end)
 
       fetch_remaining(to_fetch, request_fun, token, owner, repo, opts, result)
@@ -145,8 +160,11 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp target_entry(target, owner, repo, opts, started_at_ms) do
     entry =
       case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
-        number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
-        nil -> branch_target_entry(target, opts)
+        number when is_integer(number) ->
+          %{target: target, pull_request_number: number, known_branch: true}
+
+        nil ->
+          branch_target_entry(target, opts)
       end
 
     Map.merge(entry, %{owner: owner, repo: repo, started_at_ms: started_at_ms})
@@ -177,7 +195,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp known_branch(target, opts) do
     branch =
       opts |> Keyword.get(:branch_names_by_target, %{}) |> Map.get(target) ||
-        opts |> Keyword.get(:open_pull_requests_by_target, %{}) |> open_pull_request_head_ref(target)
+        opts
+        |> Keyword.get(:open_pull_requests_by_target, %{})
+        |> open_pull_request_head_ref(target)
 
     if is_binary(branch) and branch != "", do: branch, else: nil
   end
@@ -194,7 +214,13 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp fetch_chunk(request_fun, token, owner, repo, entries) do
     indexed = Enum.with_index(entries)
 
-    case Transport.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo}, caller: :ci_poll_batch) do
+    case Transport.github_graphql(
+           request_fun,
+           token,
+           query(indexed),
+           %{"owner" => owner, "repo" => repo},
+           caller: :ci_poll_batch
+         ) do
       {:ok, body} ->
         case get_in(body, ["data", "repository"]) do
           %{} = repository -> {:ok, match_entries(indexed, repository)}
@@ -227,12 +253,14 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp branch_aliases(%{branches: branches} = entry, index) do
     branches
     |> Enum.with_index()
-    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, entry, index, candidate) end)
+    |> Enum.map_join("\n", fn {branch, candidate} ->
+      branch_alias(branch, entry, index, candidate)
+    end)
   end
 
   defp branch_alias(branch, entry, index, candidate) do
     """
-    branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
+    branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: [OPEN, CLOSED], orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
       nodes { #{pull_request_fields(entry)} }
     }
@@ -241,7 +269,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp pull_request_fields(_entry) do
     """
-    number state createdAt headRefName headRefOid baseRefName baseRefOid
+    number state mergedAt createdAt headRefName headRefOid baseRefName baseRefOid
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     #{CIPollBatchReadyReview.fields()}
@@ -276,17 +304,34 @@ defmodule Aiur.GitHub.CIPollBatch do
   end
 
   defp match_entries(indexed, repository) do
-    Enum.reduce(indexed, %{}, fn {entry, index}, acc -> match_entry(acc, entry, repository, index) end)
+    Enum.reduce(indexed, %{}, fn {entry, index}, acc ->
+      match_entry(acc, entry, repository, index)
+    end)
+  end
+
+  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
+
+  defp put_terminal_pull_request(acc, entry, node) do
+    result = normalize_pull_request(node)
+
+    Map.put(acc, entry.target, %{
+      pull_request: result.pull_request,
+      check_runs: [],
+      commit_status: empty_commit_status()
+    })
   end
 
   # A delivery already named the pull request, so there is one alias and no
-  # candidate list to choose between. A pull request GitHub now reports as
-  # closed is left to the REST fallback rather than answered as "no open pull
-  # request": closed is exactly the state in which a newer one may exist.
+  # candidate list to choose between. Preserve terminal state so the lifecycle
+  # can distinguish merged and closed PRs from a branch with no visible PR.
   defp match_entry(acc, %{pull_request_number: _number} = entry, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node), do: put_first_pull_request(acc, entry, node), else: acc
+        if open_pull_request_node?(node) do
+          put_first_pull_request(acc, entry, node)
+        else
+          put_terminal_pull_request(acc, entry, node)
+        end
 
       _other ->
         Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
@@ -305,13 +350,13 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
-
   defp candidate_connections(entry, repository, index) do
     connections =
       entry.branches
       |> Enum.with_index()
-      |> Enum.map(fn {_branch, candidate} -> Map.get(repository, "branch_#{index}_#{candidate}") end)
+      |> Enum.map(fn {_branch, candidate} ->
+        Map.get(repository, "branch_#{index}_#{candidate}")
+      end)
 
     if Enum.all?(connections, &match?(%{"nodes" => nodes} when is_list(nodes), &1)),
       do: {:ok, connections},
@@ -322,13 +367,21 @@ defmodule Aiur.GitHub.CIPollBatch do
   # candidate matched does the "no open PR" answer stand — and then only for a
   # branch orchestration actually knows.
   defp match_candidates(acc, entry, connections) do
-    case Enum.find(connections, fn %{"nodes" => nodes} -> nodes != [] end) do
+    open_node = Enum.find_value(connections, fn %{"nodes" => nodes} -> Enum.find(nodes, &open_pull_request_node?/1) end)
+
+    case open_node do
       nil ->
         [connection | _rest] = connections
-        put_entry_result(acc, entry, [], Map.get(connection, "pageInfo") || %{})
+        terminal_node = Enum.find_value(connections, fn %{"nodes" => nodes} -> List.first(nodes) end)
 
-      connection ->
-        put_entry_result(acc, entry, Map.get(connection, "nodes"), Map.get(connection, "pageInfo") || %{})
+        if terminal_node do
+          put_terminal_pull_request(acc, entry, terminal_node)
+        else
+          put_entry_result(acc, entry, [], Map.get(connection, "pageInfo") || %{})
+        end
+
+      node ->
+        put_first_pull_request(acc, entry, node)
     end
   end
 
@@ -337,6 +390,7 @@ defmodule Aiur.GitHub.CIPollBatch do
       # More open PRs share the head branch than one page covers; leave the
       # target to REST fallback so the truncated listing is never trusted.
       Logger.warning("Github CI GraphQL batch overflow: head_ref_pull_requests target=#{entry.target}")
+
       acc
     else
       put_first_pull_request(acc, entry, List.first(nodes))
@@ -349,7 +403,11 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_first_pull_request(acc, %{known_branch: false}, nil), do: acc
 
   defp put_first_pull_request(acc, entry, nil) do
-    Map.put(acc, entry.target, %{pull_request: nil, check_runs: [], commit_status: empty_commit_status()})
+    Map.put(acc, entry.target, %{
+      pull_request: nil,
+      check_runs: [],
+      commit_status: empty_commit_status()
+    })
   end
 
   defp put_first_pull_request(acc, entry, node) do
@@ -373,19 +431,29 @@ defmodule Aiur.GitHub.CIPollBatch do
   end
 
   defp normalize_pull_request(node) do
-    {contexts, contexts_overflow} = get_in(node, ["commits", "nodes"]) |> List.wrap() |> List.last() |> status_contexts()
+    state = if is_binary(Map.get(node, "mergedAt")), do: "merged", else: String.downcase(to_string(Map.get(node, "state", "open")))
+
+    {contexts, contexts_overflow} =
+      get_in(node, ["commits", "nodes"]) |> List.wrap() |> List.last() |> status_contexts()
+
     {check_runs, statuses} = Enum.split_with(contexts, &(Map.get(&1, "__typename") == "CheckRun"))
 
     %{
       pull_request:
         %{
           "number" => Map.get(node, "number"),
-          "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
+          "state" => state,
           "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
           "base" => %{"ref" => Map.get(node, "baseRefName"), "sha" => Map.get(node, "baseRefOid")}
         }
         |> put_merge_queue_observation(node)
-        |> Map.put("reopened_at", get_in(node, ["timelineItems", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["createdAt"]))),
+        |> Map.put(
+          "reopened_at",
+          get_in(node, ["timelineItems", "nodes"])
+          |> List.wrap()
+          |> List.last()
+          |> then(&get_in(&1 || %{}, ["createdAt"]))
+        ),
       check_runs: Enum.map(check_runs, &normalize_check_run/1),
       commit_status: normalize_commit_status(statuses),
       contexts_overflow: contexts_overflow
@@ -401,7 +469,9 @@ defmodule Aiur.GitHub.CIPollBatch do
     case MergeQueue.normalize_graphql_pull_request(node) do
       %{} = observation ->
         review = CIPollBatchReadyReview.project(node)
-        observation = Map.put(observation, :approved_review_head_sha, review.approved_review_head_sha)
+
+        observation =
+          Map.put(observation, :approved_review_head_sha, review.approved_review_head_sha)
 
         pull_request
         |> Map.put("merge_queue", observation)
