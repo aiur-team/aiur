@@ -44,7 +44,7 @@ No titles, bodies, proposal reasons, or financial data belong in that fixture.
 2. Follow `data.next_after` with `--after` until null. Require the same
    `data.matching_total` on every page; restart the pass if it changes.
    Record N, `data.unresolved_total`, envelope `snapshot.captured_at`, and sum
-   `data.sources.issue_bodies.held` / `.of` over pages. Sort tickets by number;
+   `sources.issue_bodies.held` / `.of` over pages. Sort tickets by number;
    take every `max(1, div(N, 100))`-th row starting with the first, at most 100.
    For N <= 100 use the entire population. Preserve those rows in `sample.json`.
    Count sample rows with non-null `pr_number`.
