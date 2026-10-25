@@ -122,12 +122,13 @@ defmodule Aiur.GitHub.CodeownersTrustSnapshotTest do
     end)
 
     payload = %{author: "member", comment: %{"user" => %{"login" => "member"}, "body" => "/aiur <request>"}}
-    trusted = payload |> Sanitizer.scrub() |> Sanitizer.stamp_author_trust(trust_server: server)
+    trust_fun = &CodeOwners.allowed?(&1, server)
+    trusted = payload |> Sanitizer.scrub() |> Sanitizer.stamp_author_trust(trust_fun: trust_fun)
     assert trusted.author_trusted? == true
 
     Agent.update(mode, fn _ -> :failure end)
     CodeOwners.refresh(server)
-    sanitized = payload |> Sanitizer.scrub() |> Sanitizer.stamp_author_trust(trust_server: server) |> Sanitizer.put_comment_message()
+    sanitized = payload |> Sanitizer.scrub() |> Sanitizer.stamp_author_trust(trust_fun: trust_fun) |> Sanitizer.put_comment_message()
     assert sanitized.comment["body"] == "/aiur &lt;request&gt;"
     assert sanitized.author_trusted? == false
     refute PrCommandScanner.command?(Map.put(sanitized.comment, :author_trusted?, sanitized.author_trusted?), "/aiur", nil)

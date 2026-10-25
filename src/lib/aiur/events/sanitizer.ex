@@ -1,6 +1,5 @@
 defmodule Aiur.Events.Sanitizer do
   alias Aiur.GitHub.AgentMarker
-  alias Aiur.GitHub.CodeOwners
   alias Aiur.SecretRedactor
 
   @moduledoc """
@@ -198,8 +197,8 @@ defmodule Aiur.Events.Sanitizer do
   defp author_trusted?(nil, _opts), do: false
 
   defp author_trusted?(author, opts) when is_binary(author) do
-    case Keyword.fetch(opts, :trust_server) do
-      {:ok, server} -> CodeOwners.allowed?(author, server)
+    case Keyword.fetch(opts, :trust_fun) do
+      {:ok, trust_fun} -> trust_fun.(author)
       :error -> classifier().trusted?(author)
     end
   rescue
