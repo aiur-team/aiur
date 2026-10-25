@@ -272,6 +272,4 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
     first = trimmed |> String.split(~r/\s+/, parts: 2) |> List.first()
     first in @read_commands and not String.match?(trimmed, ~r/[;&|><`$]/)
   end
-
-  defp read_only_command?(_command), do: false
 end
