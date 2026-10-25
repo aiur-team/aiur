@@ -205,6 +205,11 @@ agent:
       approval_mode: onRequest
 prompt_file: github-muse.prompt.md
 
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false
+
 # Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when enabled).
 # events:
 #   export:
