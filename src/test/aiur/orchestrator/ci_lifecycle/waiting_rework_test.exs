@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitingReworkTest do
 
   alias Aiur.CiLifecycleTestSupport.RecordingGitHubClient
   alias Aiur.Orchestrator.State
+  alias Aiur.TestSupport.Isolation
 
   setup :ci_lifecycle_setup
 
@@ -90,6 +91,23 @@ defmodule Aiur.Orchestrator.CiLifecycle.WaitingReworkTest do
       refute_received {:tracker_update, ^identifier, "rework", _opts}
       refute_received {:tracker_comment, ^identifier, _body}
       assert State.rework_attempt_count(next, identifier, "approved-head") == 0
+    end
+
+    # #6154: the landing watcher runs only on the primary, so a secondary must still route the conflict.
+    test "a #{label} conflicting PR approved at its head routes to rework on a secondary instance" do
+      Isolation.with_app_env!(:aiur, :booted_instance_role, "secondary")
+      identifier = unique_identifier("secondary-approved-conflict")
+      RecordingGitHubClient.record_to(self())
+      result = %{decision: :pending, head_sha: "approved-head", pr_number: 4393, mergeable: "CONFLICTING", review_decision: "APPROVED", approved_review_head_sha: "approved-head"}
+
+      ticket = issue(identifier, unquote(label))
+      first = poll_ci(%State{}, ticket, result)
+      refute_received {:tracker_update, ^identifier, "rework", _opts}
+
+      next = poll_ci(first, ticket, result)
+
+      assert_received {:tracker_update, ^identifier, "rework", [expected_state: unquote(label)]}
+      assert State.rework_attempt_count(next, identifier, "approved-head") == 1
     end
 
     test "a #{label} conflicting PR approved only at an older head is routed to rework" do

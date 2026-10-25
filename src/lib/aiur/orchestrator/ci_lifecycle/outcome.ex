@@ -198,9 +198,11 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome do
     state = PrLessReview.reconcile(state, issue, result, opts)
 
     # Unapproved conflicts only: changes-requested belongs to HeadVerdictRouter (#4822),
-    # and a PR approved at its head belongs to LandingWatch's ConflictUpdate (#6154).
+    # and a PR approved at its head belongs to LandingWatch's ConflictUpdate (#6154),
+    # which runs only on the primary instance.
     if Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state] and
-         result[:mergeable] == "CONFLICTING" and result[:conflict_confirmed?] == true and not approved_at_head?(result) do
+         result[:mergeable] == "CONFLICTING" and result[:conflict_confirmed?] == true and
+         not (approved_at_head?(result) and Aiur.Config.booted_instance_role() == "primary") do
       route_conflicting_pr(state, issue, result, opts)
     else
       do_recover_ci_poll_result(state, issue, result, opts)

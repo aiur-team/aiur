@@ -374,12 +374,12 @@ defmodule Aiur.GitHub.TransportTest do
     test "a crash inside default_request_fun does not carry the request credential" do
       log =
         capture_log(fn ->
-          {:ok, task} = Task.start(fn -> Transport.default_request_fun(%{method: :head, url: "https://api.github.com/repos/owner/repo", token: "secret-credential"}) end)
+          task = start_supervised!({Task, fn -> Transport.default_request_fun(%{method: :head, url: "https://api.github.com/repos/owner/repo", token: "secret-credential"}) end})
           ref = Process.monitor(task)
 
           assert_receive {:DOWN, ^ref, :process, ^task, {:function_clause, [{Transport, :do_request, [request], _location} | _]} = reason}, 1000
           assert request.url == "https://api.github.com/repos/owner/repo"
-          refute inspect(reason) =~ "secret-credential"
+          Aiur.TestSupport.refute_leak(reason, "secret-credential")
         end)
 
       assert log =~ "do_request"
