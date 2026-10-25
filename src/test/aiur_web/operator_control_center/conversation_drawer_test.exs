@@ -68,7 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
       usage_error: Keyword.get(opts, :usage_error, :no_usage_data),
       close_event: Keyword.get(opts, :close_event, "close-conversation"),
       fallback_focus_id: "units-title",
-      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token")
+      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token"),
+      voice_capabilities: Keyword.get(opts, :voice_capabilities, %{})
     })
   end
 
@@ -90,10 +91,12 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     assert html =~ ~s(role="log")
   end
 
-  test "states the reader is not participating and mirrors identity, not participation" do
+  test "explains sending is unavailable while preserving conversation identity" do
     html = render(Presenter.present(row(), snapshot()))
 
-    assert html =~ "not participating"
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
+    assert html =~ "Read-only dashboard — use the TUI to message or pause this agent."
     assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Responsive Units interface"
   end
@@ -216,6 +219,25 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ "Interactive voice chat is not available yet"
   end
 
+  # The client reads these attributes to tell "voice is not configured" from
+  # "voice failed" before the microphone is pressed; no visible copy changes.
+  test "the voice input carries the published voice.stt state and reason" do
+    composer = %{target_key: "1110", writable_target?: true, messages: []}
+    view = Presenter.present(row(), snapshot())
+
+    unconfigured = %{"voice.stt" => %{state: :unavailable, reason: :not_configured}, "voice.tts" => %{state: :unavailable, reason: :not_configured}}
+    html = render(view, composer: composer, writable: true, voice_capabilities: unconfigured)
+    assert html =~ ~s(data-voice-stt-state="unavailable")
+    assert html =~ ~s(data-voice-stt-reason="not_configured")
+
+    html = render(view, composer: composer, writable: true, voice_capabilities: %{"voice.stt" => %{state: :available}})
+    assert html =~ ~s(data-voice-stt-state="available")
+    refute html =~ "data-voice-stt-reason"
+
+    html = render(view, composer: composer, writable: true)
+    refute html =~ "data-voice-stt-state"
+  end
+
   # Captured verbatim from the drawer before the voice controls moved into
   # AiurWeb.Components.VoiceInput. The voice controller and the drawer focus hook
   # bind these exact selectors, classes and labels.
@@ -297,6 +319,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
 
     refute html =~ ~s(<textarea)
     refute html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
     assert html =~ "not a unique writable target"
   end
 

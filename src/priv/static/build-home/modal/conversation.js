@@ -5,6 +5,8 @@ import { modelInfo } from '../agents.js';
 import { MS, registerBody, bodyRenderer, onModalClose } from './frame.js';
 import { itemEl } from './conversation-items.js';
 import { footer, notRetainedCue } from './conversation-footer.js';
+import { timed } from '../perf.js';
+export const prependEntries = timed('convPage', prependEntriesImpl);
 export { itemEl, notRetainedCue };
 export const MAX_DOM = 500;
 let open = null, sequence = 0;
@@ -20,7 +22,8 @@ function rows() { return Array.from($('#cv-log')?.children || []).filter(el => e
 function trim(from) {
   const items = rows();
   while (items.length > MAX_DOM) (from === 'top' ? items.shift() : items.pop()).remove();
-  if (from === 'top' && items.length) { open.before = items[0].dataset.cursor; open.more = true; }
+  const first = items.find(el => el.dataset.cursor);
+  if (from === 'top' && first) { open.before = first.dataset.cursor; open.more = true; }
 }
 function find(id) { return rows().find(el => el.dataset.eid === id); }
 export function appendEntries(entries) {
@@ -38,7 +41,7 @@ export function appendEntries(entries) {
   fx.scheduleMap(); return added;
 }
 export const appendItem = entry => fx.appendEntries([entry]);
-export function prependEntries(msg) {
+function prependEntriesImpl(msg) {
   const log = $('#cv-log'); if (!open || !log) return;
   const height = log.scrollHeight, top = log.scrollTop, fragment = document.createDocumentFragment();
   for (const entry of msg.entries) { if (!find(entry.id)) { const el = itemEl(entry, open.model); if (el) fragment.append(el); } }
@@ -82,7 +85,7 @@ export function renderConversation(msg, t = open?.ticket, model = open?.model) {
     if (current(ref) && $('#cv-log').scrollTop <= 120 && ref.more && !ref.pending && !ref.failed) older();
   }, { passive: true });
   ref.life.frame('conversation-bottom', () => { if (current(ref) && $('#cv-log')) $('#cv-log').scrollTop = $('#cv-log').scrollHeight; });
-  fx.wireLive(t, model);
+  fx.wireLive(t, model); fx.placeCommand();
 }
 async function request(ref, before) {
   const serial = ++ref.serial;

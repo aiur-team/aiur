@@ -14,7 +14,8 @@ defmodule Aiur.Capabilities.OptionalProvidersTest do
     settings: %{
       tracker: %{kind: "github", github: %{repo: "test-owner/optional-providers"}},
       elevenlabs: %{api_key: "secret-key", voice_id: "voice-id"},
-      agent: %{remote_control: true, routing: %{}}
+      agent: %{remote_control: true, routing: %{}},
+      observability: %{dashboard_writable: true}
     }
   }
   @available %{state: :available}
@@ -25,7 +26,13 @@ defmodule Aiur.Capabilities.OptionalProvidersTest do
 
   defp inputs(overrides \\ []) do
     Keyword.merge(
-      [lookup_fun: fn _ -> self() end, http_port_fun: fn -> 4000 end, env_fun: fn _ -> "secret" end, catalog_fun: fn -> %{health: %{state: :healthy}, data: %{entries: [:root]}} end],
+      [
+        lookup_fun: fn _ -> self() end,
+        http_port_fun: fn -> 4000 end,
+        env_fun: fn _ -> "secret" end,
+        provider_fun: fn -> Aiur.ElevenLabs end,
+        catalog_fun: fn -> %{health: %{state: :healthy}, data: %{entries: [:root]}} end
+      ],
       overrides
     )
   end
@@ -78,6 +85,28 @@ defmodule Aiur.Capabilities.OptionalProvidersTest do
     end
 
     Aiur.TestSupport.refute_leak(Voice.evaluate(@context, inputs()), "secret-key")
+  end
+
+  # A key alone cannot make voice work: without an installed provider there is
+  # nothing to transcribe with, so clients must not offer a microphone.
+  test "an absent voice provider reports not_installed even with a key" do
+    caps = Voice.evaluate(@context, inputs(provider_fun: fn -> nil end))
+    assert caps == %{"voice.stt" => %{state: :unavailable, reason: :not_installed}, "voice.tts" => %{state: :unavailable, reason: :not_installed}}
+  end
+
+  # The voice socket refuses read-only dashboards, so a configured key there
+  # must read as disabled rather than available or not_configured.
+  test "a read-only dashboard reports voice disabled even with a key" do
+    context = put_in(@context.settings.observability.dashboard_writable, false)
+    disabled = %{state: :unavailable, reason: :disabled}
+    assert Voice.evaluate(context, inputs()) == %{"voice.stt" => disabled, "voice.tts" => disabled}
+    context = put_in(context.settings.elevenlabs.api_key, nil)
+    assert Voice.evaluate(context, inputs()) == %{"voice.stt" => @not_configured, "voice.tts" => @not_configured}
+  end
+
+  test "an unreadable writable flag is unknown, never available" do
+    context = update_in(@context.settings, &Map.delete(&1, :observability))
+    assert Voice.evaluate(context, inputs()) == %{"voice.stt" => @unknown, "voice.tts" => @unknown}
   end
 
   test "HTTP-dependent optional IDs require a bound listener in either run shape" do

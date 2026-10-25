@@ -218,9 +218,12 @@ sets any of them. The Supervisor Decision API uses `AIUR_SUPERVISOR_TOKEN`;
 generate one with `openssl rand -base64 32`. The value must be at least 32
 bearer-safe bytes with no surrounding whitespace. An absent or empty value
 disables the API, while a present non-empty unusable value aborts startup.
-Provider keys use
+Google browser sign-in uses `AIUR_GOOGLE_CLIENT_ID` / `AIUR_GOOGLE_CLIENT_SECRET` from dotenv and requires the machine Basic Auth credentials. Restart after changing `dashboard_auth`. Provider keys use
 `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
 `OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
+`AIUR_SECRET_KEY_BASE` (64+ bytes) overrides dashboard signing; otherwise Aiur stores a mode-0600 key per instance under `~/.aiur/instances/`. Hosted mode can set `AIUR_SECRETS_FROM_ENV=1` to disable dotenv; startup and `aiur status` list missing credential names only. Set `AIUR_STATE_PERSISTENT=1` only when state survives restarts; otherwise set `AIUR_SECRET_KEY_BASE`.
+`AIUR_LEASE_DATABASE_URL` optionally configures the shared PostgreSQL coordination store for multi-instance ticket leases and instance heartbeats. Every participating instance must use the same TLS PostgreSQL URL; new dispatch and live-instance reads fail closed when the configured store is unreachable. The credential is removed from agent environments.
+Dashboard Host/origin checks use the public URL and loopback; loopback listeners also accept `*.ts.net` Hosts and HTTPS origins while they remain loopback-bound. `server.allowed_hosts` adds Host names.
 Keep the global per-user file outside Git trees and never commit either dotenv
 file. `aiur init` also reads `.env` for the GitHub token during setup.
 

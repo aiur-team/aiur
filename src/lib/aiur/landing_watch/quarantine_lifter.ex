@@ -7,6 +7,8 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   alias Aiur.Events
   alias Aiur.GitHub.{Errors, Transport}
   alias Aiur.LandingWatch.Journal
+  alias Aiur.LandingWatch.QuarantineNightlyResults
+  alias Aiur.TestQuarantine
 
   @list_paths ["src/test/quarantine.txt", "src/browser/quarantine.txt"]
   # A ticket closed without a merged fix PR never sees `pr.merged`, so its entries are swept.
@@ -34,7 +36,142 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   @spec lift_closed(keyword()) :: :ok | {:error, term()}
   def lift_closed(opts \\ []) do
     with {:ok, tickets} <- quarantined_tickets(opts) do
+      case lift_expired(opts) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("expired quarantine sweep failed reason=#{inspect(reason)}")
+      end
+
       Enum.each(tickets, &lift_if_closed(&1, opts))
+      :ok
+    end
+  end
+
+  @doc "Applies the nightly quarantine result to entries past their expiry date."
+  @spec lift_expired(keyword()) :: :ok | {:error, term()}
+  def lift_expired(opts \\ []) do
+    today = Keyword.get(opts, :today, Date.utc_today())
+
+    with {:ok, contents} <- test_quarantine_contents(opts),
+         {:ok, entries} <- TestQuarantine.parse(contents) do
+      expired = Enum.filter(entries, &(Date.compare(&1.expires, today) != :gt))
+
+      if expired == [] do
+        :ok
+      else
+        process_expired_entries(expired, opts)
+      end
+    end
+  end
+
+  defp process_expired_entries(entries, opts) do
+    with {:ok, runs} <- QuarantineNightlyResults.fetch(opts) do
+      Enum.reduce_while(entries, :ok, &expire_entry_result(&1, &2, runs, opts))
+    end
+  end
+
+  defp expire_entry_result(entry, :ok, runs, opts) do
+    case expire_entry(entry, runs, opts) do
+      :ok -> {:cont, :ok}
+      {:error, _} = error -> {:halt, error}
+    end
+  end
+
+  defp test_quarantine_contents(opts) do
+    case Keyword.get(opts, :test_quarantine_contents_fun) do
+      fun when is_function(fun, 1) ->
+        fun.(opts)
+
+      _ ->
+        with {:ok, context} <- context(hd(@list_paths), opts),
+             {:ok, contents, _sha} <- get_contents(context, opts) do
+          {:ok, contents}
+        end
+    end
+  end
+
+  defp expire_entry(entry, runs, opts) do
+    required = Keyword.get(opts, :green_runs_required, 3)
+    identity = entry.module <> " :: " <> entry.name
+    recent = Enum.take(runs, required) |> Enum.map(&nightly_status(&1, identity, entry))
+
+    cond do
+      length(recent) >= required and Enum.all?(recent, &(&1 == :success)) ->
+        ticket = String.to_integer(String.trim_leading(entry.ticket, "#"))
+        Keyword.get(opts, :quarantine_lift_fun, &lift/2).(ticket, Keyword.put(opts, :lift_reason, "after #{length(recent)} green nightly quarantine runs")) |> normalize_lift_result()
+
+      Enum.any?(recent, &(&1 == :failure)) ->
+        escalate_once(entry, opts)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp nightly_status(%{fallback: fallback, failures: failures}, identity, %{name: "*", module: module}) do
+    if Map.has_key?(failures, identity) or module_failure?(failures, module), do: :failure, else: fallback
+  end
+
+  defp nightly_status(%{fallback: fallback, failures: failures}, identity, _entry), do: if(Map.has_key?(failures, identity), do: :failure, else: fallback)
+
+  defp nightly_status(_run, _identity, _entry), do: :unknown
+
+  defp module_failure?(failures, module) do
+    Enum.any?(failures, fn {identity, result} -> result == :failure and String.starts_with?(identity, module <> " :: ") end)
+  end
+
+  defp normalize_lift_result(:ok), do: :ok
+  defp normalize_lift_result({:ok, :already_claimed}), do: :ok
+  defp normalize_lift_result({:error, _} = error), do: error
+
+  defp escalate_once(entry, opts) do
+    claim = "quarantine-expiry-escalation :: #{entry.ticket}"
+
+    case Journal.claim_flake(claim, opts) do
+      {:ok, :already_claimed} -> :ok
+      {:ok, :new} -> release_failed_escalation(claim, escalate(entry, opts), opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp release_failed_escalation(_claim, :ok, _opts), do: :ok
+
+  defp release_failed_escalation(claim, {:error, _} = error, opts) do
+    case Journal.release_flake(claim, opts) do
+      :ok -> error
+      {:error, reason} -> {:error, {:quarantine_escalation_claim_release_failed, reason, error}}
+    end
+  end
+
+  defp escalate(entry, opts) do
+    with {:ok, context} <- context(hd(@list_paths), opts) do
+      escalate_ticket(context, String.trim_leading(entry.ticket, "#"), opts)
+    end
+  end
+
+  defp escalate_ticket(context, number, opts) do
+    with :ok <- add_priority_label(context, number, opts) do
+      change_label(context, number, :delete, "priority:2", opts)
+    end
+  end
+
+  defp add_priority_label(context, number, opts) do
+    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{number}/labels"
+
+    case request(opts).(%{method: :post, url: url, token: context.token, caller: "quarantine_expiry_priority", body: %{"labels" => ["priority:1"]}}) do
+      {:ok, %{status: status}} when status in [200, 201] -> :ok
+      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp change_label(context, number, method, label, opts) do
+    url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{number}/labels/#{URI.encode(label)}"
+
+    case request(opts).(%{method: method, url: url, token: context.token, caller: "quarantine_expiry_priority"}) do
+      {:ok, %{status: status}} when status in [200, 201, 204] -> :ok
+      {:ok, %{status: 404}} when method == :delete -> :ok
+      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:error, _} = error -> error
     end
   end
 
@@ -59,7 +196,11 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   end
 
   defp list_tickets(contents) do
-    for line <- String.split(contents, "\n"), [_module, _name, "#" <> number] <- [String.split(line, "\t")], {ticket, ""} <- [Integer.parse(number)], do: ticket
+    for line <- String.split(contents, "\n"),
+        fields when length(fields) in [3, 4] <- [String.split(line, "\t")],
+        "#" <> number <- [Enum.at(fields, 2)],
+        {ticket, ""} <- [Integer.parse(number)],
+        do: ticket
   end
 
   defp issue_state(ticket, opts) do
@@ -187,6 +328,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
   defp ticket_entry?(line, target) do
     case String.split(line, "\t") do
       [_module, _name, ^target] -> true
+      [_module, _name, ^target, _expires] -> true
       _ -> false
     end
   end

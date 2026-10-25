@@ -1,5 +1,14 @@
 defmodule VoiceConverse.Config do
-  @moduledoc "Validated configuration for one VoiceConverse instance. The core reads no application env."
+  @moduledoc """
+  Validated configuration for one VoiceConverse instance. The core reads no application env.
+
+  `llm` and `cloud_disclosure_accepted` have no default: the operator must choose the model and
+  accept that audio and text go to a cloud provider. An instance still boots without them, but
+  `check_session_start/1` refuses a session until both are set.
+
+  `limits.daily_minutes_cap` is an integer number of minutes (0 disables sessions) or `nil` for
+  no cap. Minutes from a session that ended in a crash always count toward the cap.
+  """
 
   @required [:transcript_root, :credentials, :briefing_source]
   @ports [:credentials, :briefing_source, :agent_channel, :command_source, :token_issuer]
@@ -17,6 +26,8 @@ defmodule VoiceConverse.Config do
 
   defstruct name: VoiceConverse,
             provider: nil,
+            llm: nil,
+            cloud_disclosure_accepted: nil,
             credentials: nil,
             briefing_source: nil,
             agent_channel: nil,
@@ -30,9 +41,18 @@ defmodule VoiceConverse.Config do
             glossary: [],
             limits: @default_limits,
             turn: @default_turn,
+            providers: VoiceConverse.ProviderConfig.default(),
             privacy: %{}
 
   @type t :: %__MODULE__{}
+
+  @doc "Default `limits`, for hosts that map their own settings onto them."
+  @spec default_limits() :: map()
+  def default_limits, do: @default_limits
+
+  @doc "Default provider order when a host has not saved a preference."
+  @spec default_provider_preference() :: [atom()]
+  def default_provider_preference, do: VoiceConverse.ProviderConfig.default_preference()
 
   @doc "Builds and validates a config from a keyword list or map."
   @spec new(keyword() | map() | t()) :: {:ok, t()} | {:error, %{field: atom(), reason: atom()}}
@@ -42,12 +62,13 @@ defmodule VoiceConverse.Config do
     opts = Map.new(opts)
 
     with {:ok, opts} <- check_known(opts) do
-      base = struct(__MODULE__, Map.drop(opts, [:limits, :turn]))
+      base = struct(__MODULE__, Map.drop(opts, [:limits, :turn, :providers]))
 
       validate(%{
         base
         | limits: Map.merge(@default_limits, Map.new(opts[:limits] || %{})),
-          turn: Map.merge(@default_turn, Map.new(opts[:turn] || %{}))
+          turn: Map.merge(@default_turn, Map.new(opts[:turn] || %{})),
+          providers: VoiceConverse.ProviderConfig.merge(opts[:providers])
       })
     end
   end
@@ -57,11 +78,32 @@ defmodule VoiceConverse.Config do
     with :ok <- check_required(config),
          :ok <- check_ports(config),
          :ok <- check_transcript_root(config),
+         :ok <- check_session_settings(config),
          :ok <- check_limits(config),
+         :ok <- VoiceConverse.ProviderConfig.validate(config.providers),
          :ok <- VoiceConverse.ProviderPolicy.validate(config.privacy) do
       {:ok, config}
     end
   end
+
+  @doc """
+  Checks the settings a session needs before it may start: an `llm` and an explicit `true` for
+  `cloud_disclosure_accepted`. The error names the missing field.
+  """
+  @spec check_session_start(t()) :: :ok | {:error, %{field: atom(), reason: atom()}}
+  def check_session_start(%__MODULE__{llm: llm} = config) do
+    if is_nil(llm) or String.trim(llm) == "",
+      do: {:error, %{field: :llm, reason: :missing}},
+      else: check_disclosure(config)
+  end
+
+  defp check_disclosure(%__MODULE__{cloud_disclosure_accepted: nil}),
+    do: {:error, %{field: :cloud_disclosure_accepted, reason: :missing}}
+
+  defp check_disclosure(%__MODULE__{cloud_disclosure_accepted: true}), do: :ok
+
+  defp check_disclosure(%__MODULE__{}),
+    do: {:error, %{field: :cloud_disclosure_accepted, reason: :not_accepted}}
 
   defp check_known(opts) do
     case Enum.find(Map.keys(opts), &(not Map.has_key?(%__MODULE__{}, &1))) do
@@ -106,10 +148,23 @@ defmodule VoiceConverse.Config do
   defp check_transcript_root(%{transcript_root: root}) when is_binary(root), do: :ok
   defp check_transcript_root(_), do: {:error, %{field: :transcript_root, reason: :invalid}}
 
+  defp check_session_settings(%{llm: llm}) when not (is_nil(llm) or is_binary(llm)),
+    do: {:error, %{field: :llm, reason: :invalid}}
+
+  defp check_session_settings(%{cloud_disclosure_accepted: accepted})
+       when not (is_nil(accepted) or is_boolean(accepted)),
+       do: {:error, %{field: :cloud_disclosure_accepted, reason: :invalid}}
+
+  defp check_session_settings(_config), do: :ok
+
   defp check_limits(%{limits: limits}) do
-    case Enum.find(limits, fn {_k, v} -> not (is_integer(v) and v > 0) end) do
+    case Enum.find(limits, fn {key, value} -> not valid_limit?(key, value) end) do
       nil -> :ok
       {key, _} -> {:error, %{field: :limits, reason: :invalid, key: key}}
     end
   end
+
+  defp valid_limit?(:daily_minutes_cap, nil), do: true
+  defp valid_limit?(:daily_minutes_cap, value), do: is_integer(value) and value >= 0
+  defp valid_limit?(_key, value), do: is_integer(value) and value > 0
 end

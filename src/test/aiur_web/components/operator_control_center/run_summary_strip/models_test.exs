@@ -137,9 +137,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
     refute html =~ "rs-token-ic"
   end
 
-  # Rule 9: any meter at exactly 100% used renders red, including rate-limit
-  # windows and the run progress bar.
-  test "a rate-limit bar at 100% used renders red" do
+  # The run progress bar is a separate completion meter; provider quota meters
+  # use remaining values and go critical as they approach empty.
+  test "a rate-limit bar at 100% used is empty and a 10% remaining bar is critical" do
     meters = %{
       state: :authorized,
       cards: [
@@ -162,10 +162,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
         now: @now
       })
 
-    assert html =~ ~s(class="is-critical" style="width:100%")
+    assert html =~ ~s(<span class="rs-pc is-critical">0% left</span>)
+    assert html =~ ~s(aria-valuenow="0")
+    refute html =~ ~s(style="width:0%")
   end
 
-  test "a bar at 99% used renders warning (orange), not critical" do
+  test "a bar at 99% used renders 1% remaining and critical" do
     meters = %{
       state: :authorized,
       cards: [
@@ -188,11 +190,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
         now: @now
       })
 
-    assert html =~ ~s(<i class="is-warning" style="width:99%">)
-    refute html =~ "is-critical"
+    assert html =~ ~s(<span class="rs-pc is-critical">1% left</span>)
+    assert html =~ ~s(<i class="is-critical" style="width:1%">)
   end
 
-  test "meter stages: yellow from 80%, orange from 90%, red at 100%" do
+  test "meter stages follow remaining: warning at 20%, critical at 10%" do
     render = fn percent ->
       meters = %{
         state: :authorized,
@@ -216,10 +218,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
       })
     end
 
+    assert render.(0) =~ ~s(<i class="" style="width:100%">)
     assert render.(50) =~ ~s(<i class="" style="width:50%">)
-    assert render.(80) =~ ~s(<i class="is-caution" style="width:80%">)
-    assert render.(90) =~ ~s(<i class="is-warning" style="width:90%">)
-    assert render.(100) =~ ~s(<i class="is-critical" style="width:100%">)
+    assert render.(85) =~ ~s(<i class="is-warning" style="width:15%">)
+    assert render.(95) =~ ~s(<i class="is-critical" style="width:5%">)
   end
 
   test "the run progress bar at 100% renders red in the compact summary" do
@@ -305,8 +307,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
 
         # Model lines read percent, bar, then the reset time beside the recycle
         # icon (#3751); GitHub keeps its own remaining/limit and reset.
-        for percent <- ["40%", "62%", "0%"], do: assert(html =~ ~s(<span class="rs-pc">#{percent}</span>))
-        assert html =~ "3750/5000 left · resets in 30m"
+        for percent <- ["60% left", "38% left", "100% left"], do: assert(html =~ ~s(<span class="rs-pc">#{percent}</span>))
+        assert html =~ "3750/5000 left · 75% left · resets in 30m"
         [_, models_html] = String.split(html, "rs-models", parts: 2)
         # No window label and no filler row: Kimi, with nothing observed, reads unknown.
         refute models_html =~ "rs-limit-label" or models_html =~ "resets in"
@@ -353,8 +355,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
   end
 
   # The models pane shows every provider's reading as a plain percentage; the
-  # staleness qualifier was removed (operator directive), so a stale or
-  # unavailable reading renders like any other rather than carrying a label.
+  # staleness text qualifier was removed (operator directive), so a stale or
+  # unavailable reading carries no label, only the line's stale mark.
   test "the models pane renders stale and unavailable readings without labels" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
@@ -368,11 +370,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
           })
 
         # DeepSeek is a real, fresh zero-consumed reading.
-        assert html =~ ~s(<span class="rs-pc">0%</span>)
+        assert html =~ ~s(<span class="rs-pc">100% left</span>)
 
-        # Claude's window renders its percentage without a stale qualifier.
-        assert html =~ ~s(<span class="rs-pc">62%</span>)
-        refute html =~ "stale"
+        # Claude's window remains a percentage of quota left. Staleness is
+        # conveyed by the line treatment, not a percentage label.
+        assert html =~ ~s(<span class="rs-pc">38% left</span>)
+        refute html =~ ~r/>[^<]*stale/i
 
         # Kimi reported nothing at all, which is neither healthy nor a zero; its
         # status label was deleted (operator directive) so the row is just the
@@ -413,13 +416,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
           now: @now
         })
 
-      assert html =~ ~s(<span class="rs-pc">40%</span>)
+      assert html =~ ~s(<span class="rs-pc">60% left</span>)
       refute html =~ "stale"
       refute html =~ "partial"
     end
   end
 
-  test "a stale-stamped window renders its percentage without qualifiers" do
+  test "a stale-stamped window renders its percentage without a text label but with the stale mark" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         run: %{state: :loading},
@@ -433,14 +436,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
               state: :stale,
               status_label: "Retained",
               auth_mode: %{value: :session},
-              windows: [Map.put(scoped_window("codex:primary", 40), :freshness, :stale)]
+              windows: [Map.merge(scoped_window("codex:primary", 40), %{freshness: :stale, observed_at: DateTime.add(@now, -13_000, :second)})]
             }
           ]
         },
         now: @now
       })
 
-    assert html =~ ~s(<span class="rs-pc">40%</span>)
-    refute html =~ "stale"
+    assert html =~ ~s(<span class="rs-pc">60% left</span>)
+    refute html =~ ~r/>[^<]*stale/i
+    assert html =~ ~s(class="rs-ln is-stale")
   end
 end

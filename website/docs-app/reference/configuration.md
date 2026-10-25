@@ -1,16 +1,20 @@
 # Configuration reference
 Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below. Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
-## Environment variables
+Runtime overrides set with `aiur set` are operator-owned and stored per instance without changing this YAML. The daemon cooperatively refuses mutations when raw caller path evidence matches its configured or live agent workspaces; #6075 tracks authenticated operator-token enforcement.
 
+Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`. Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
+
+## Environment variables
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
 
 - **Layering.** Shell exports win, then `./.env`, then `~/.aiur/.env`: the launcher reads the repository file first and each file fills only unset names, so the home file only fills the gaps. A blank value such as the `GITHUB_TOKEN=` placeholder `aiur init` writes is not a setting and shadows nothing. GitHub credentials (`GITHUB_TOKEN` and the `GITHUB_APP_*` set) resolve as one group: when `./.env` sets any of them, every GitHub credential in `~/.aiur/.env` is ignored, so a machine-wide App never outranks the token a repository configured for itself. When the home value loses either way, the daemon logs a startup warning naming the variable (never its value).
+- **Hosted environment-only mode.** Set `AIUR_SECRETS_FROM_ENV=1` on the daemon to skip both dotenv files. Startup and `aiur status` report missing tracker credentials, remote-dashboard credentials and allowlist, webhook secrets, non-persistent-state signing keys, and keys required by configured provider routes together by variable name; secret values are never included. Set `AIUR_STATE_PERSISTENT=1` only when the state directory survives daemon restarts; otherwise `AIUR_SECRET_KEY_BASE` is required.
 - **Required vs optional.** The only configuration that aborts a boot is the GitHub credential (`GITHUB_TOKEN`, a `gh` keyring login via `gh auth login`, or the complete GitHub App set — `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and one of `GITHUB_APP_PRIVATE_KEY_PATH` / `GITHUB_APP_PRIVATE_KEY`) and the tracker configuration. Every integration — GitHub App auth, webhooks, Linear, voice, dashboard, Supervisor Decision API, provider keys — is optional; absence disables the feature and is reported once at startup, never a boot failure.
 - **All-or-nothing credential groups.** A partially configured group (one dashboard credential without the other, or some but not all GitHub App credentials) fails at startup naming the missing members; a fully absent group is a supported setup.
 - **Type validation.** Values that fail their declared type (for example `AIUR_OPENCODE_BRIDGE_PORT=banana`) abort the boot naming the variable and what was expected, instead of failing at first use hours later.
 - **Secrets never leak.** Secrets render as an empty placeholder in `.env.example` and are excluded from error text and startup warnings. No real value from any `.env` file reaches the generated example, logs, or error output.
-- **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [GUI](/guide/gui) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
+- **Dashboard credentials/key.** Set `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD` for machine Basic Auth and optional browser fallback. Google browser sign-in uses `AIUR_GOOGLE_CLIENT_ID` / `AIUR_GOOGLE_CLIENT_SECRET` ([GUI](/guide/gui)). `AIUR_SECRET_KEY_BASE` (at least 64 bytes, e.g. `openssl rand -base64 48`) overrides the cookie key; otherwise Aiur persists a mode-0600 key per instance under `~/.aiur/instances/`.
 
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
 
@@ -21,13 +25,18 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
+| `instance.id` | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+| `instance.ignore.label_prefixes` | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+| `instance.ignore.labels` | array of strings | `[]` | Exact labels marking tickets another instance owns. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+| `instance.ignore.tickets` | array of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+| `instance.mode` | string | `local` | `hosted` enables fail-closed startup, reload, and dispatch checks for permission, network, credential, Remote Control, local-pane, and REPL isolation. Current production backends remain ineligible until #5701. Read once at daemon start; change it with a restart. |
+| `instance.role` | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
 | `pre_warmed_sessions` | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
-
 ## executor takeover alerts
-| `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait in `agent:human-review` without a review on its current head before the Executor sweep reports it. Must be positive. |
+| `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
 ## executor
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
@@ -39,8 +48,6 @@ Aiur watches nonterminal tickets in the run scope and, once a ticket's **converg
 
 - `first_observed_active_work_at` is persisted durably per ticket in daemon state, set once the first time the monitor observes the ticket as nonterminal and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon restart never resets it.
 - `open_pr_created_at` is the creation time of the ticket's open PR (a floor, so an already-open PR is never hidden by a freshly installed or restarted monitor).
-
-The alert carries actionable evidence.
 
 | Evidence | Detail |
 | --- | --- |
@@ -77,7 +84,7 @@ The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a ma
 | `tracker.github.daemon_graphql_limit_per_hour` | integer | 4500 | Hourly billable GraphQL response ceiling for the daemon actor. `0` disables. Raised from 2000 because the guard now books the high-level GraphQL-on-the-wire reads (`gh pr view/list/status/checks`, `gh issue view/list/status`, `gh search issues/prs`, `gh api graphql`) to the GraphQL window, and the App-token daemon alone measures ~3,400-4,300 such requests per hour. |
 | `tracker.github.daemon_search_limit_per_hour` | integer | 600 | Hourly billable ceiling for GitHub's separate `search` pool (`gh search repos/code/commits/users` hit REST `/search/*`, metered at roughly 30 requests per minute rather than 5,000/hour). `0` disables. |
 | `tracker.github.github_app.account` | string | nil | Optional. The GitHub App bot login (`<app-slug>[bot]`) the **daemon** writes as when App credentials are configured (see [GitHub](/apis/github-auth#github-app-authentication)). Set it only when the daemon's identity differs from the agents': an App installation token can never write as `tracker.github.bot_account`, so one key naming both would make every agent-authorship check demand a login no agent holds. Leave it unset for a single-identity install — self-loop suppression, PR command handling and the CODEOWNERS self-include then fall back to `tracker.github.bot_account` exactly as before. Only the login lives here; the App credentials stay in `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `GITHUB_APP_PRIVATE_KEY_PATH`. |
-| `tracker.github.human_mergers` | array | `[]` | Explicit human-only post-merge attribution allowlist; also the identity allowlist for the planned `aiur pr merge` command. Never inherits CODEOWNERS, bot accounts, trusted accounts or dispatch users. |
+| `tracker.github.human_mergers` | array | `[]` | Explicit human-only allowlist for post-merge attribution, current-head CHANGES_REQUESTED review routing and the planned `aiur pr merge` command. Reviews from these logins can route tickets to rework independently of `trusted_accounts`. Never inherits CODEOWNERS, bot accounts or dispatch users. |
 | `tracker.github.identity_mode` | string | `separate_account` | Whether the agents post as a login no human uses (`separate_account`) or share the operator's own login (`single_account`). Stated, never inferred: nothing compares `bot_account` against the token's viewer login to guess, because that guess is wrong in both directions and silently changes which comments wake an agent. Under `separate_account` the author login proves authorship and nothing else is needed. Under `single_account` it proves nothing, so Aiur appends an invisible HTML-comment marker to comments it writes and suppresses only comments carrying it — anything unmarked, including every comment posted before this existed, reads as human and wakes the agent. Any other value is rejected at config load. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.max_inflight` | integer | 4 | Cap on concurrent tracker HTTP requests across all endpoints (1-100). |
@@ -124,23 +131,15 @@ Freshness thresholds follow this cadence. You do not set them separately.
   | `planning` | Build Order catalog, pack status, ad-hoc listings | The most expensive reads and the least urgent. Recommended value `0` (on-demand): the catalog's only consumers are web pages and it is demand-gated, so it needs no timer. |
   | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. The firehose loop is **not gated** on a class cadence — it rides the dispatch tick — so no value is recommended: leave it unset to inherit `interval_seconds`. An entry would be a dead knob. |
 
-- The dashboard, the Units catalog and Build Order ticket history all judge
-  staleness against the effective interval of the class they mean: the
-  orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
-  ticket history from `planning`.
-- Build Order's remaining `graph_catalog_refresh_ms` — the failure-backoff base
-  for the catalog scope, the window after which the catalog snapshot is shown
-  as ageing, and the floor the labelled-read cadence rides on — is derived from
-  the effective `planning` interval, so an idle fleet widens the Build Order
-  backoff exactly as it widens the tracker poll.
-- The catalog itself is event-sourced (#2313): the page renders the store
-  projection, there is no recurring sweep, and the only GitHub reads are the
-  rare reconciliation (daemon boot and degraded webhook delivery). It is not
-  demand-gated by who is looking — the reconciliation is the daemon-owned
-  writer that re-converges the store — and it needs no timer. A selected root's
-  staleness window and failure backoff are therefore re-based on delivery
-  latency (`webhooks.silence_threshold_seconds`), the gap after which
-  degradation triggers the reconciliation, rather than on a poll cadence.
+- The dashboard and Build Order ticket history judge staleness against class
+  intervals: orchestrator snapshots use `dispatch`; Build Order uses `planning`.
+- Build Order's `graph_catalog_refresh_ms` (failure-backoff base, snapshot-age
+  window and labelled-read cadence floor) derives from `planning`, so idle fleets
+  widen its backoff as they widen the tracker poll.
+- The event-sourced catalog (#2313) renders its store projection without a
+  recurring sweep; GitHub reads only reconcile at boot or after degraded webhook
+  delivery. That daemon-owned writer needs no timer. Root staleness and backoff
+  derive from `webhooks.silence_threshold_seconds`, not a poll cadence.
 - So a change to an interval needs no matching threshold edit.
 - `aiur status` prints the effective value and the live interval per class, for
   example:
@@ -328,7 +327,7 @@ This optional section configures voice features; `aiur init` records declines as
 
 The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable, `ELEVENLABS_API_KEY` included, from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
 
-Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what each figure does and does not measure.
+Configuring the key also adds an ElevenLabs meter beside the GitHub API meter on the Build page [usage strip](/concepts/build-history#usage-strip) and the Units [API meters](/concepts/units#api-meters). It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely.
 
 ## compaction
 
@@ -409,11 +408,13 @@ These policy keys never grant transport access by themselves. The supervisor API
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-18 -->
 | --- | --- | --- | --- |
-| `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
+| `server.allowed_hosts` | array | derived | Additional accepted Host names; the public URL host and loopback addresses are always accepted. |
+| `server.host` | string | `127.0.0.1` | HTTP bind address. `0.0.0.0` exposes the dashboard to the LAN; there is no automatic Tailscale detection. |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
+| `server.public_url` | string | nil | Public URL for generated links and Host/origin allowlists; loopback listeners also accept tailnet hosts. |
 | `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
 
-When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+Unset `server.host` binds `127.0.0.1` (or `AIUR_DEFAULT_DASHBOARD_HOST`); explicit config/`--host` override. `0.0.0.0` exposes LAN. Loopback permits `*.ts.net` Hosts and HTTPS origins while loopback-bound. For Tailscale, build and restart, set `server.public_url` (e.g. `https://<host>.ts.net:4001`), then restart again. `server.allowed_hosts` adds hosts.
 
 Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed.
 
@@ -421,13 +422,9 @@ Before changing a different target, Aiur probes that target's `/build-orders/1`.
 
 Only a connection-refused probe counts as stale and permits an update. Timeouts, TLS failures, and other probe errors leave the route unchanged and raise `system.build_order_funnel.health_check_error` with cause `unknown`. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target.
 
-Enable this on only one Aiur daemon per node. A second daemon with this key enabled can repoint the route while the owning dashboard restarts and its old target refuses connections.
+Enable this on only one Aiur daemon per node. A second can repoint the route while the owner restarts. When enabled, the reconciler suppresses `observability.build_order_funnel_health_check` and reports its own failures after each attempt.
 
-When `server.tailscale_funnel` is enabled, the reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
-
-A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it once with `sudo tailscale set --operator=$USER`; then run Aiur as that account.
-
-Aiur does not enable Funnel or create a route. The dashboard's existing authentication remains in place, and the route supports HTTP and WebSocket traffic.
+A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it with `sudo tailscale set --operator=$USER`; then run Aiur as that account. Aiur does not enable Funnel or create a route. Dashboard authentication remains in place, and the route supports HTTP and WebSocket traffic.
 
 The target probe is a bounded liveness check, not proof of daemon identity or route ownership. A live stale service requires operator intervention. Aiur does not restart, stop, or otherwise manage the Tailscale daemon.
 
@@ -435,8 +432,14 @@ A fixed `server.port` that is already bound — for example a second `aiur` inst
 
 The durable repository Executor state also records every daemon start and stop in `<repo>.control-lifecycle.json`, with the invoking process's OS pid, parent pid, and hostname. All runs for that repository share the journal, so a second instance or a crash is identifiable after the fact even when each run has a different log directory.
 
+## dashboard_auth
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-22 -->
+| --- | --- | --- | --- |
+| `dashboard_auth.browser_basic_auth` | boolean | true | Allows Basic Auth fallback on browser pages; API and Stream Deck machine clients keep Basic Auth. |
+| `dashboard_auth.google.allowed_emails` | array | `[]` | Exact email allowlist for Google OpenID Connect; an empty list disables Google sign-in. |
+| `dashboard_auth.passkeys` | boolean | false | Enables passkey login and enrollment after a fresh Google sign-in. |
+| `dashboard_auth.session_max_age_days` | integer | 30 | Maximum dashboard browser session age in days. |
 ## opencode
-
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-19 -->
 | --- | --- | --- | --- |
 | `opencode.bridge_host` | string | `127.0.0.1` | Aiur↔opencode bridge host. |
@@ -445,7 +448,6 @@ The durable repository Executor state also records every daemon start and stop i
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
 | `opencode.serve_args` | array | `[]` | Extra `opencode serve` arguments. |
-
 ## experiments
 The daemon owns [experiment](../concepts/experiments) writes through control RPC.
 
@@ -475,7 +477,6 @@ The daemon owns [experiment](../concepts/experiments) writes through control RPC
 | `experiments.max_snapshot_observations` | integer | 50000 | Maximum observations in a snapshot; positive, reserved for snapshot capture. |
 | `experiments.pack_dirs` | string list | [".aiur/experiments/packs"] | Consumer metric pack directories, relative to the base checkout; reserved for metric packs. |
 | `experiments.script_timeout_ms` | integer | 60000 | Script metric timeout in milliseconds; positive, reserved for metric packs. |
-
 ## build_queue
 Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
@@ -493,8 +494,6 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 | `build_queue.set_order` | string | `none` | `none` preserves ordinary candidate ordering. Opt into `ranked` to prefer queue sets by persisted rank (creation order by default); ready members follow list position, while optimistic members retain deepest-first ordering within each set. Ready work always precedes optimistic work. With a cap or reserve configured, earlier unknown or stale readiness blocks ranked spill because it may have ready work. Held sets remain stopped. Main CI fixer tickets dispatch ahead of ranked sets. |
 | `build_queue.spill_reserve_slots` | integer | 0 | Slots kept free for the earliest unfinished, unheld set before admitting later-set work; minimum 0. Reserve applies even while that set waits on review. Set-policy waits appear as `queue_set_order` in status and queue show. |
 | `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. Also governs native dependency dispatch. Override with `queue add --start-on` or `queue set NAME --start-on`; `default` follows config. Missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds one conditional review read per watched blocker. Linear dependency dispatch supports only `issue_closed` and `pr_merged`. See [Start trigger](/concepts/build-orders#start-trigger). |
-
 ## Further sections
-
 - [`agent`, host-pressure admission, `agent.claude`, `agent.codex`, model discovery](/reference/configuration-agent)
 - [`build_order` and resolution notes](/reference/configuration-build-order)

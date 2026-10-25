@@ -203,7 +203,7 @@ defmodule AiurWeb.AnalyticsLive do
           <div>
             <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
             <p class="an-scope-note">
-              {scope_note(@analytics_scope)}
+              {scope_note(@analytics_scope, @model)}
             </p>
             <p :if={@source} class="an-source" data-source-kind={@source.kind} title={source_title(@source)}>
               Source: <b>{source_kind_label(@source.kind)}</b>
@@ -574,14 +574,14 @@ defmodule AiurWeb.AnalyticsLive do
   defp provider_spend_view(_view), do: %{state: :unavailable}
 
   defp analytics_scope(root_number), do: ScopeResolver.resolve(root_number)
-
   defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, latest run"
   defp scope_label(:session), do: "latest run"
   defp scope_label(:unavailable), do: "selected Build Order unavailable"
 
-  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in the latest run with telemetry."
-  defp scope_note(:session), do: "The latest run with telemetry. Add a Build Order selection to scope this page to its members."
-  defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
+  defp scope_note(%{kind: :build_order}, _model), do: "Only the selected Build Order's typed members in the latest run with telemetry."
+  defp scope_note(:session, %{tickets: [_ticket]}), do: "This is a 1-ticket window: only one ticket has telemetry in the latest run."
+  defp scope_note(:session, _model), do: "The latest run with telemetry. Add a Build Order selection to scope this page to its members."
+  defp scope_note(:unavailable, _model), do: "The selected Build Order could not provide a valid member graph."
 
   # The rendered charts can come from the live boot or from a retained prior
   # run (the restart fallback). The source line makes which one visible so a

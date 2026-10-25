@@ -11,6 +11,34 @@
 
 [Capabilities](/concepts/capabilities) describes how clients discover available instance features.
 
+## Hosted execution safety
+
+Set `instance.mode: hosted` only when every dispatchable backend has explicit,
+safe permission, network, and credential boundaries. Aiur checks the complete
+backend set and every registered agent-environment contributor before starting
+supervision and again before dispatch after a config reload. Missing or unknown
+declarations are unsafe.
+
+Hosted mode also rejects Remote Control (`agent.remote_control`, `+remote`
+routes, and `model:remote` labels), foreground tmux panes, tmux-backed REPL
+agents, and the test harness's `--allow-remote` bypass.
+
+Hosted mode requires bounded agent permissions, network access denied by
+default, and credentials kept in trusted daemon-side components. Codex must
+use an approval policy other than `never`, a bounded thread sandbox, and a
+bounded per-turn sandbox with network access disabled.
+
+The current production backends each expose at least one agent-side boundary,
+so no production backend can pass hosted startup until the hosted-safe backend
+work lands in #5701. Local mode remains the default and preserves existing
+execution behavior without running hosted-only registry or
+environment-contributor checks.
+
+The mode is immutable for a running daemon. Editing `instance.mode` on reload
+is rejected in either direction; restart Aiur to change it. A rejection lists
+the backend or environment contributor and the unsafe boundary, never a secret
+value.
+
 ## Hourly meta-check
 
 `aiur-run` arms `aiur-meta` **before dispatching** and repeats it hourly.
@@ -19,7 +47,7 @@ The timer keeps the audit from being lost during a busy merge queue.
 
 | Check | What it catches |
 | --- | --- |
-| Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
+| Build home, Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
 | Interactive CLI timing | Empty or timed-out responses hidden by static status. |
 | Host pressure | CPU PSI and free memory against configured admission thresholds; load is the PSI-unavailable fallback. |
 | PR backlog | Review, conflict, and merge-queue snags. |

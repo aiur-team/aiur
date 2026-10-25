@@ -4,10 +4,10 @@ defmodule AiurWeb.DashboardLive.Controls do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1]
 
-  alias Aiur.{AgentChat, AgentPubSub}
+  alias Aiur.AgentPubSub
   alias Aiur.Orchestrator.Slots
   alias AiurWeb.{DashboardLive, EndpointConfig}
-  alias AiurWeb.OperatorControlCenter.{PauseState, UnitsControlPolicy, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{PauseState, UnitControls, UnitsControlPolicy, UnitsPresenter}
 
   @doc false
   @spec toggle_global_pause(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
@@ -111,141 +111,30 @@ defmodule AiurWeb.DashboardLive.Controls do
 
   @doc false
   @spec pause_agent(Aiur.TrackerIdentity.t() | String.t()) :: term()
-  def pause_agent(target) do
-    case EndpointConfig.get(:agent_chat_pause_fun) do
-      fun when is_function(fun, 1) -> fun.(target)
-      _fun -> AgentChat.pause(target)
-    end
-  end
+  def pause_agent(target), do: UnitControls.pause(target)
 
-  # --- Unit controls (DASH-005) --------------------------------------------
-
-  # Resolve the row server-side by opaque token, recheck live capability, then
-  # invoke DASH-004. Applied state is mirrored only from lifecycle evidence, so
-  # this only records the request; it never mutates the row's lifecycle.
   @doc false
   @spec request_unit_control(Phoenix.LiveView.Socket.t(), String.t(), :pause | :resume) :: Phoenix.LiveView.Socket.t()
   def request_unit_control(socket, token, action) do
-    control = Map.get(socket.assigns.unit_controls, token)
-
-    if UnitsControlPolicy.settled?(control) do
-      resolve_unit_control_row(socket, token, action)
-    else
-      # A request for this unit is already pending; activation is idempotent.
-      socket
-    end
-  end
-
-  defp resolve_unit_control_row(socket, token, action) do
     catalog = Map.get(socket.assigns.payload, :units, %{})
 
-    case UnitsPresenter.lookup(catalog, token) do
-      {:ok, row} -> invoke_unit_control(socket, token, row, action)
-      {:error, :not_found} -> socket
-    end
-  end
+    row =
+      case UnitsPresenter.lookup(catalog, token) do
+        {:ok, row} -> row
+        {:error, :not_found} -> nil
+      end
 
-  defp invoke_unit_control(socket, token, row, action) do
-    case UnitsControlPolicy.identifier(row) do
-      nil ->
-        put_unit_control(socket, token, %{action: action, status: :no_identity, identifier: nil})
-
-      identifier ->
-        recheck_and_invoke(socket, token, identifier, action)
-    end
-  end
-
-  defp recheck_and_invoke(socket, token, identifier, action) do
-    case unit_capabilities(identifier) do
-      {:ok, capabilities} ->
-        recheck_result(socket, token, identifier, action, UnitsControlPolicy.recheck(capabilities, action))
-
-      {:error, reason} ->
-        put_unit_control(socket, token, UnitsControlPolicy.settle_error(action, reason, identifier))
-    end
-  end
-
-  defp recheck_result(socket, token, identifier, action, :ok),
-    do: dispatch_unit_control(socket, token, identifier, action)
-
-  defp recheck_result(socket, token, identifier, action, {:error, reason}),
-    do: put_unit_control(socket, token, %{action: action, status: reason, identifier: identifier})
-
-  defp dispatch_unit_control(socket, token, identifier, action) do
-    case invoke_control_owner(action, identifier) do
-      {:ok, result} ->
-        # Subscribe to this unit's agent topic now, before its lifecycle
-        # evidence can arrive, even if the row is not in the :running bucket the
-        # periodic subscription sync tracks. The pending control is also unioned
-        # into the sync set so the subscription survives reloads until it settles.
-        socket
-        |> put_unit_control(token, %{
-          action: action,
-          status: :requested,
-          request_id: control_request_id(result),
-          identifier: identifier
-        })
-        |> ensure_control_subscription(identifier)
-
-      {:error, reason} ->
-        put_unit_control(socket, token, UnitsControlPolicy.settle_error(action, reason, identifier))
-    end
-  end
-
-  defp ensure_control_subscription(socket, identifier) do
-    subscriptions = socket.assigns.unit_control_subscriptions
-
-    if connected?(socket) and not MapSet.member?(subscriptions, identifier) do
-      AgentPubSub.subscribe_agent(identifier)
-      assign(socket, :unit_control_subscriptions, MapSet.put(subscriptions, identifier))
-    else
-      socket
-    end
-  end
-
-  defp invoke_control_owner(:pause, identifier), do: pause_agent(identifier)
-  defp invoke_control_owner(:resume, identifier), do: resume_agent(identifier)
-
-  defp control_request_id(result) when is_integer(result), do: result
-  defp control_request_id(_result), do: nil
-
-  defp put_unit_control(socket, token, control_state) do
-    assign(socket, :unit_controls, Map.put(socket.assigns.unit_controls, token, control_state))
-  end
-
-  defp resume_agent(identifier) do
-    case EndpointConfig.get(:agent_chat_resume_fun) do
-      fun when is_function(fun, 1) -> fun.(identifier)
-      _fun -> AgentChat.resume(identifier)
-    end
-  end
-
-  defp unit_capabilities(identifier) do
-    case EndpointConfig.get(:agent_chat_capabilities_fun) do
-      fun when is_function(fun, 1) -> fun.(identifier)
-      _fun -> AgentChat.capabilities(identifier)
-    end
+    {controls, identifier} = UnitControls.request(socket.assigns.unit_controls, token, row, action)
+    socket = assign(socket, :unit_controls, controls)
+    if identifier, do: sync_unit_control_subscriptions(socket, connected?(socket)), else: socket
   end
 
   @doc false
   @spec apply_control_lifecycle(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
   def apply_control_lifecycle(socket, payload) do
-    identifier = get_in(payload, [:tracker_identity, :identifier])
-
-    case find_control_token(socket.assigns.unit_controls, identifier) do
-      {token, control} ->
-        put_unit_control(socket, token, UnitsControlPolicy.apply_lifecycle(control, payload))
-
-      nil ->
-        socket
-    end
+    {controls, _key} = UnitControls.apply_lifecycle(socket.assigns.unit_controls, payload)
+    assign(socket, :unit_controls, controls)
   end
-
-  defp find_control_token(controls, identifier) when is_binary(identifier) do
-    Enum.find(controls, fn {_token, control} -> Map.get(control, :identifier) == identifier end)
-  end
-
-  defp find_control_token(_controls, _identifier), do: nil
 
   @doc false
   @spec sync_unit_control_subscriptions(Phoenix.LiveView.Socket.t(), boolean()) :: Phoenix.LiveView.Socket.t()
@@ -277,45 +166,15 @@ defmodule AiurWeb.DashboardLive.Controls do
     MapSet.union(running, in_flight_control_identifiers(socket))
   end
 
-  defp in_flight_control_identifiers(socket) do
-    socket.assigns.unit_controls
-    |> Enum.reject(fn {_token, control} -> UnitsControlPolicy.settled?(control) end)
-    |> Enum.map(fn {_token, control} -> Map.get(control, :identifier) end)
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
-  end
+  defp in_flight_control_identifiers(socket), do: UnitControls.in_flight_identifiers(socket.assigns.unit_controls)
 
-  # A changed or terminal row cancels stale in-flight UI intent rather than
-  # targeting a replacement unit; settled states are left untouched.
   @doc false
   @spec reconcile_unit_controls(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
-  def reconcile_unit_controls(%{assigns: %{unit_controls: controls}} = socket) when controls == %{},
-    do: socket
-
   def reconcile_unit_controls(socket) do
     catalog = Map.get(socket.assigns.payload, :units, %{})
-    rows_by_token = Map.new(unit_rows(catalog), fn row -> {UnitsPresenter.row_token(row), row} end)
-
-    reconciled =
-      Map.new(socket.assigns.unit_controls, fn {token, control} ->
-        {token, reconcile_control(control, Map.get(rows_by_token, token))}
-      end)
-
-    assign(socket, :unit_controls, reconciled)
+    rows = Map.new(unit_rows(catalog), &{UnitsPresenter.row_token(&1), &1})
+    assign(socket, :unit_controls, UnitControls.reconcile(socket.assigns.unit_controls, &Map.get(rows, &1)))
   end
-
-  defp reconcile_control(control, row) do
-    if UnitsControlPolicy.settled?(control) or not stale_control_row?(row) do
-      control
-    else
-      Map.put(control, :status, :state_changed)
-    end
-  end
-
-  defp stale_control_row?(nil), do: true
-
-  defp stale_control_row?(row),
-    do: Map.get(row, :terminal?) == true or Map.get(row, :replacement_boundary?) == true
 
   defp unit_rows(%{snapshot: %{rows: rows}}) when is_list(rows), do: rows
   defp unit_rows(_catalog), do: []

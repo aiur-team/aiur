@@ -27,6 +27,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureComment do
     "CI failed on PR ##{result[:pr_number]} head `#{result[:head_sha]}`, so this ticket moved to rework.\n\nFailing checks:\n" <> checks
   end
 
+  defp check_line(%{name: name, url: url, pr_caused?: true}) when is_binary(url) and url != "", do: "- [#{name}](#{url}) (new failure on PR head)"
+  defp check_line(%{name: name, pr_caused?: true}), do: "- #{name} (new failure on PR head)"
   defp check_line(%{name: name, url: url}) when is_binary(url) and url != "", do: "- [#{name}](#{url})"
   defp check_line(check), do: "- #{Map.get(check, :name, "unnamed check")}"
 end

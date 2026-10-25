@@ -252,6 +252,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       passed_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
+      ci_observed_at_ms: state.ci_lifecycle |> Map.get(:ci_observed_at_ms, %{}) |> Map.take(Map.keys(poll_cache)),
       poll_cache: poll_cache,
       rewakes: %{},
       # The dashboard does not render the one-shot CI retry marker, so keep its

@@ -4,12 +4,13 @@ import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { checkDocsProse, markdownFiles, proseBeforeTables, sentenceCount } from '../../scripts/check-docs-prose.mjs'
-import { assertSyntheticContent, assertSyntheticMeters } from '../scripts/dashboard-capture-safety.mjs'
+import { assertSyntheticContent, assertSyntheticMeters, assertSyntheticUsage, expectedUsage } from '../scripts/dashboard-capture-safety.mjs'
 
 // Each surface's screenshot belongs on the page that explains that surface. The
 // GUI guide keeps exactly one, so it stays a short index rather than a
 // duplicate of Concepts.
 const surfacePages = {
+  'build': 'docs-app/concepts/build-history.md',
   'units': 'docs-app/concepts/units.md',
   'commands': 'docs-app/concepts/commands.md',
   'build-orders': 'docs-app/concepts/build-orders.md',
@@ -58,7 +59,8 @@ test('the GUI guide keeps exactly one screenshot', async () => {
   const imagePaths = imagePathsIn(guide)
 
   expect(guide).toContain('# GUI')
-  expect(imagePaths).toEqual(['/images/dashboard/units-dark.png'])
+  // The guide's one image shows the page operators land on: the Build home `/`.
+  expect(imagePaths).toEqual(['/images/dashboard/build-dark.png'])
 
   const bytes = await readFile(path.join(websiteRoot, 'public', imagePaths[0]))
   expect(bytes.byteLength).toBeGreaterThan(1_000)
@@ -99,6 +101,8 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(config).toContain("{ text: 'GUI', link: '/guide/gui' }")
   expect(config).toContain("{ text: 'Stream Deck', link: '/guide/stream-deck' }")
   expect(dashboard).toContain('| **Build** | `/`')
+  expect(dashboard).toContain('[Continuous build history](/concepts/build-history)')
+  expect(dashboard).not.toContain('| **Units** | `/`')
   expect(dashboard).toContain('| **Units** (rollback) | `/units`')
   expect(dashboard).toContain('| **Commands** | `/commands`')
   expect(dashboard).toContain('| **Build Order** | `/build-orders`')
@@ -177,6 +181,13 @@ test('capture inputs and checked-in assets stay example-only', async () => {
   // Build Order and Stream Deck render from fixture data, never a live source.
   expect(fixture).toContain('build_order_planning_pack')
   expect(fixture).toContain('streamdeck_snapshot_fun')
+  // The Build home page renders the frozen design dataset, never the History store.
+  expect(fixture).toContain('build_data_source')
+  expect(fixture).toContain('FixtureSource')
+  // The design data has a "retries" agent state the daemon never emits; the docs image must not show it.
+  expect(fixture).toContain('defp emitted(%{"agent" => %{"state" => "retries"}}')
+  expect(captureScript).toContain('assertSyntheticUsage')
+  expect(captureScript).toContain('readySelector')
 
   expect(captureScript).toContain('allocatePort')
   expect(captureScript).toContain('assertSyntheticContent')
@@ -223,10 +234,45 @@ test('capture safety rejects operator-shaped data', () => {
     '<div class="rs-model"><span class="rs-name">Codex</span><i style="width:61%"></i><i style="width:47%"></i></div>',
     '<div class="rs-model"><span class="rs-name">Claude</span><i style="width:34%"></i><i style="width:58%"></i></div>'
   ]
+  // Build has no "example" text, so it names its own markers; every one must be present.
+  const build = { ...synthetic, html: '<main>Flaky websocket reconnect Rate-limit backoff ceiling</main>', markers: ['Flaky websocket reconnect', 'Rate-limit backoff ceiling'] }
+  expect(() => assertSyntheticContent(build)).not.toThrow()
+  expect(() => assertSyntheticContent({ ...build, html: '<main>Flaky websocket reconnect</main>' })).toThrow('synthetic fixture markers are missing')
+  expect(() => assertSyntheticContent({ ...build, markers: [] })).toThrow('synthetic fixture markers are missing')
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows, required: true })).not.toThrow()
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows: [], required: false })).not.toThrow()
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows: [], required: true })).toThrow('Codex model meter does not match')
   expect(() => assertSyntheticMeters({ url: synthetic.url, modelRows: [modelRows[0], modelRows[1].replace('58%', '57%')], required: true })).toThrow('Claude model meter does not match')
+})
+
+test('usage-strip safety rejects non-fixture meters', () => {
+  const url = 'http://127.0.0.1:4099/'
+  const usage = {
+    apis: [{ name: 'GitHub', lines: [{ acc: [5] }, { acc: [0] }] }],
+    providers: [
+      { name: 'Claude', session: { acc: [1, 3] }, weekly: { acc: [96, 86] } },
+      { name: 'Codex', session: { acc: [0] }, weekly: { acc: [0] } },
+      { name: 'DeepSeek', credits: { pct: 2 } }
+    ]
+  }
+  // Zero readings prove nothing: a defaulted meter also draws 0%.
+  const expected = expectedUsage(usage)
+  expect(expected).toEqual([
+    { name: 'GitHub', used: [5] },
+    { name: 'Claude', used: [1, 3, 96, 86] },
+    { name: 'DeepSeek', used: [2] }
+  ])
+  const rows = [
+    { name: 'GitHub', widths: ['5%', '0%'] },
+    { name: 'Claude', widths: ['1%', '3%', '96%', '86%'] },
+    { name: 'Codex', widths: ['0%', '0%'] },
+    { name: 'DeepSeek', widths: ['2%'] }
+  ]
+  expect(() => assertSyntheticUsage({ url, rows, expected })).not.toThrow()
+  expect(() => assertSyntheticUsage({ url, rows: [], expected })).toThrow('GitHub usage meter does not match')
+  expect(() => assertSyntheticUsage({ url, rows: rows.filter((row) => row.name !== 'DeepSeek'), expected })).toThrow('DeepSeek usage meter does not match')
+  expect(() => assertSyntheticUsage({ url, rows: rows.map((row) => row.name === 'Claude' ? { ...row, widths: ['1%', '3%', '95%', '86%'] } : row), expected })).toThrow('Claude usage meter does not match')
+  expect(() => assertSyntheticUsage({ url, rows, expected: [] })).toThrow('no non-zero usage readings')
 })
 
 test('docs group operator surfaces and API guidance without dense prose', async () => {

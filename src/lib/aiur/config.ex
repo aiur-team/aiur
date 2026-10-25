@@ -169,7 +169,26 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "The `voice.conversation` settings, with a relative `roles_dir` resolved against the config file."
+  @spec voice_conversation() :: Schema.VoiceConversation.t()
+  def voice_conversation do
+    Schema.VoiceConversation.resolve_roles_dir(settings!().voice.conversation, Workflow.workflow_file_path())
+  end
+
   defdelegate tracker_kind(), to: Aiur.Config.TrackerSettings
+  @spec instance_role() :: String.t()
+  def instance_role, do: settings!().instance.role
+
+  @spec instance_mode() :: String.t()
+  def instance_mode, do: settings!().instance.mode
+
+  # The role the repository-global services were gated on at boot; a hot reload does not re-gate them.
+  @spec booted_instance_role() :: String.t()
+  def booted_instance_role, do: Application.get_env(:aiur, :booted_instance_role) || instance_role()
+
+  # Hosted safety is evaluated against the mode selected at boot; reloads may not cross this boundary.
+  @spec booted_instance_mode() :: String.t()
+  def booted_instance_mode, do: Application.get_env(:aiur, :booted_instance_mode) || instance_mode()
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
@@ -241,11 +260,15 @@ defmodule Aiur.Config do
   defdelegate max_concurrent_agents_for_state(state_name), to: Aiur.Config.CapacitySettings
   defdelegate usage_ledger_durability_timeout(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_agents(), to: Aiur.Config.CapacitySettings
-  defdelegate default_max_concurrent_agents(schedulers \\ System.schedulers_online()), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers), to: Aiur.Config.CapacitySettings
+  defdelegate default_max_concurrent_agents(schedulers, memory_max_bytes), to: Aiur.Config.CapacitySettings
+  defdelegate default_agent_memory_estimate_mb(), to: Aiur.Config.CapacitySettings
   defdelegate run_queue_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate max_concurrent_builds(), to: Aiur.Config.CapacitySettings
   defdelegate build_start_stagger_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate min_free_memory_mb(), to: Aiur.Config.CapacitySettings
+  defdelegate cgroup_memory_threshold(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_max_hold_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate build_gate_retain_seconds(), to: Aiur.Config.CapacitySettings
   defdelegate mix_scheduler_cap(), to: Aiur.Config.CapacitySettings
@@ -371,6 +394,14 @@ defmodule Aiur.Config do
 
   @doc false
   @spec format_config_error(term()) :: String.t()
+  def format_config_error({:instance_mode_change_requires_restart, booted, configured}) do
+    "instance.mode cannot change from #{booted} to #{configured} while Aiur is running; restart the daemon"
+  end
+
+  def format_config_error({:unsafe_hosted_mode, violations}) do
+    "Hosted mode safety checks failed:\n- #{Enum.join(violations, "\n- ")}"
+  end
+
   def format_config_error(reason) do
     label = config_file_label()
 

@@ -17,11 +17,14 @@ defmodule AiurWeb.Components.VoiceInput do
   attr(:id, :string, required: true, doc: "prefix reserved for ids rendered by the component")
   attr(:legacy_conversation, :boolean, default: true, doc: "render the interactive voice chat button")
   attr(:status_copy, :string, default: @default_status_copy)
+  attr(:capabilities, :map, default: %{}, doc: "`voice.*` capability report entries; only `voice.stt` is rendered, as data attributes")
 
   @spec voice_input(map()) :: Phoenix.LiveView.Rendered.t()
   def voice_input(assigns) do
+    assigns = assign(assigns, :stt, Map.get(assigns.capabilities, "voice.stt", %{}))
+
     ~H"""
-    <div class="agent-voice-tools">
+    <div class="agent-voice-tools" data-voice-stt-state={@stt[:state]} data-voice-stt-reason={@stt[:reason]}>
       <div class="agent-voice-controls">
         <button
           class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"

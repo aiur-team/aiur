@@ -40,12 +40,16 @@
   ],
   "owns": {
     "config": [
+      "dashboard_auth",
       "observability",
       "server"
     ],
     "env": [
       "AIUR_DASHBOARD_PASSWORD",
-      "AIUR_DASHBOARD_USERNAME"
+      "AIUR_DASHBOARD_USERNAME",
+      "AIUR_GOOGLE_CLIENT_ID",
+      "AIUR_GOOGLE_CLIENT_SECRET",
+      "AIUR_SECRET_KEY_BASE"
     ],
     "state": [],
     "capabilities": []
@@ -63,12 +67,16 @@
     "guide/gui.md"
   ],
   "config": [
+    "dashboard_auth",
     "observability",
     "server"
   ],
   "env": [
     "AIUR_DASHBOARD_PASSWORD",
-    "AIUR_DASHBOARD_USERNAME"
+    "AIUR_DASHBOARD_USERNAME",
+    "AIUR_GOOGLE_CLIENT_ID",
+    "AIUR_GOOGLE_CLIENT_SECRET",
+    "AIUR_SECRET_KEY_BASE"
   ],
   "capabilities": []
 }

@@ -49,6 +49,7 @@ defmodule Aiur.Env.Schema do
       voice: "Optional - Voice. Mic input and spoken replies on dashboard and Stream Deck.",
       dashboard: "Optional - Aiur dashboard. Web UI at :4000; CLI and TUI work without it.",
       decision_api: "Optional - Supervisor Decision API. Dedicated bearer credential for Executor automation.",
+      coordination: "Optional - Shared PostgreSQL instance coordination for multi-instance dispatch.",
       provider_keys: "Optional - Provider API keys. Named by agent.backend_configs.<backend>.api_key_env.",
       runtime: "Runtime - launcher-managed. Normally set by `aiur` itself, not by hand.",
       dev: "Development and debugging.",
@@ -92,6 +93,13 @@ defmodule Aiur.Env.Schema do
         one_of: [],
         missing_message: fn missing ->
           "Dashboard credentials are partially configured; missing #{Enum.join(missing, ", ")}. Set both or neither."
+        end
+      },
+      google: %{
+        members: ["AIUR_GOOGLE_CLIENT_ID", "AIUR_GOOGLE_CLIENT_SECRET"],
+        one_of: [],
+        missing_message: fn missing ->
+          "Google sign-in credentials are partially configured; missing #{Enum.join(missing, ", ")}. Set both or neither."
         end
       }
     }
@@ -164,6 +172,13 @@ defmodule Aiur.Env.Schema do
     # --- Dashboard ---
     {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/gui"},
     {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/gui"},
+    {"AIUR_GOOGLE_CLIENT_ID", type: :string, group: :dashboard, purpose: "Google OAuth client id for dashboard browser sign-in; pair with the client secret.", fetch: "Google Cloud -> OAuth client"},
+    {"AIUR_GOOGLE_CLIENT_SECRET", type: :secret, group: :dashboard, purpose: "Google OAuth client secret for dashboard browser sign-in.", fetch: "Google Cloud -> OAuth client"},
+    {"AIUR_SECRET_KEY_BASE", type: :secret, group: :dashboard, purpose: "Optional persistent dashboard signing key; otherwise Aiur stores one per instance.", fetch: "openssl rand -base64 48"},
+
+    # --- Multi-instance coordination ---
+    {"AIUR_LEASE_DATABASE_URL",
+     type: :secret, group: :coordination, purpose: "PostgreSQL URL shared by instances; enables atomic ticket leases and live-instance heartbeats.", fetch: "configure a TLS PostgreSQL connection URL"},
 
     # --- Supervisor Decision API ---
     {"AIUR_SUPERVISOR_TOKEN",
@@ -177,7 +192,9 @@ defmodule Aiur.Env.Schema do
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},
 
     # --- Runtime (launcher-managed) ---
+    {"AIUR_SECRETS_FROM_ENV", type: :boolean, group: :runtime, purpose: "Disable dotenv files so hosted secrets must be supplied by the daemon environment."},
     {"AIUR_BG_STATE_DIR", type: :path, group: :runtime, purpose: "Directory for cookie, state and per-instance files.", default: "~/.config/aiur"},
+    {"AIUR_STATE_PERSISTENT", type: :boolean, group: :runtime, purpose: "Declare that the hosted state directory survives daemon restarts; otherwise env-only mode requires AIUR_SECRET_KEY_BASE."},
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},
     {"AIUR_TMUX_SESSION", type: :string, group: :runtime, purpose: "tmux session name the launcher uses."},
     {"AIUR_TMUX_SOCKET", type: :string, group: :runtime, purpose: "tmux socket name the launcher uses."},
@@ -210,6 +227,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},
     {"AIUR_REAL_GIT", type: :path, validate: false, example: false, group: :runtime, purpose: "Real git binary behind the agent git shim; idle dependent restacks run it directly."},
+    {"ERL_EPMD_PORT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Erlang EPMD listener port used to verify the local distribution listener; defaults to 4369."},
 
     # --- Development and debugging ---
     {"AIUR_DEBUG", type: :boolean, group: :dev, default: false, purpose: "Enable debug logging (1 / true / yes)."},
@@ -228,6 +246,7 @@ defmodule Aiur.Env.Schema do
     {"USER", type: :string, validate: false, example: false, group: :ambient, purpose: "OS user identity recorded as the actor for operator workspace recovery audits."},
     {"PATH", type: :path, validate: false, example: false, group: :ambient, purpose: "Executable search path inherited by child processes."},
     {"HOME", type: :path, validate: false, example: false, group: :ambient, purpose: "Home directory for user-scoped state."},
+    {"HOSTNAME", type: :string, validate: false, example: false, group: :ambient, purpose: "System host name used by the default instance identity."},
     {"COLUMNS", type: :integer, validate: false, example: false, group: :ambient, default: 80, purpose: "Terminal width for the agent list renderer."},
     {"LINES", type: :integer, validate: false, example: false, group: :ambient, default: 24, purpose: "Terminal height for the agent list renderer."},
     {"COLORTERM", type: :string, validate: false, example: false, group: :ambient, purpose: "Terminal color capability for the agent list renderer."},
@@ -279,7 +298,8 @@ defmodule Aiur.Env.Schema do
 
   @doc "The spec for `name`, or `nil` when it is not declared."
   @spec spec_for(String.t()) :: spec() | nil
-  def spec_for(name), do: Enum.find_value(@validated_specs, fn {n, spec} -> if n == name, do: spec end)
+  def spec_for(name),
+    do: Enum.find_value(@validated_specs, fn {n, spec} -> if n == name, do: spec end)
 
   @doc "Specs whose value should be rendered in `.env.example` (non-ambient, non-launcher-internal)."
   @spec example_specs() :: [{String.t(), spec()}]

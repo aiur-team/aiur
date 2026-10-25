@@ -5,6 +5,7 @@ defmodule Aiur.Extensions.HttpServerTest do
 
   import Aiur.ExtensionsTestSupport
   alias Aiur.ExtensionsTestSupport.StaticOrchestrator
+  alias Phoenix.Socket.Transport
 
   setup do
     linear_client_module = Application.get_env(:aiur, :linear_client_module)
@@ -94,6 +95,30 @@ defmodule Aiur.Extensions.HttpServerTest do
 
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
+
+    foreign_host_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [{"host", "attacker.example"}])
+    assert foreign_host_response.status == 403
+
+    cross_origin_socket_conn =
+      Plug.Test.conn(:get, "/live")
+      |> then(&%{&1 | host: "127.0.0.1", port: port})
+      |> Plug.Conn.put_req_header("origin", "https://attacker.example")
+      |> Transport.check_origin(nil, AiurWeb.Endpoint, [])
+
+    assert cross_origin_socket_conn.status == 403
+
+    tailnet_socket_conn =
+      Plug.Test.conn(:get, "/live/websocket")
+      |> then(&%{&1 | host: "127.0.0.1", port: port})
+      |> Plug.Conn.put_req_header("origin", "https://orangekid.tailnet-name.ts.net:4001")
+      |> Transport.check_origin(nil, AiurWeb.Endpoint, [])
+
+    refute tailnet_socket_conn.halted
+
+    foreign_socket_response =
+      Req.get!("http://127.0.0.1:#{port}/live/websocket", headers: [{"host", "attacker.example"}])
+
+    assert foreign_socket_response.status == 403
 
     # Regression guard: router auth still returns 401 if the static directory registration is removed.
     for asset_path <- [
@@ -187,6 +212,35 @@ defmodule Aiur.Extensions.HttpServerTest do
 
     start_supervised!({HttpServer, port: 0, dashboard_writable: false})
     assert is_integer(wait_for_bound_port())
+  end
+
+  test "headless dashboard startup publishes its bound URL to the configured tmux socket" do
+    owner = self()
+    previous_socket = System.get_env("AIUR_TMUX_SOCKET")
+    System.put_env("AIUR_TMUX_SOCKET", "aiur-headless-test")
+
+    on_exit(fn -> restore_env("AIUR_TMUX_SOCKET", previous_socket) end)
+
+    orchestrator_name = Module.concat(__MODULE__, :HeadlessUrlOrchestrator)
+    start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: static_snapshot(), refresh: %{}})
+
+    start_supervised!(
+      {HttpServer,
+       host: "127.0.0.1",
+       port: 0,
+       orchestrator: orchestrator_name,
+       dashboard_writable: false,
+       tmux_command_fun: fn executable, args ->
+         send(owner, {:tmux_url_publish, executable, args})
+         {"", 0}
+       end}
+    )
+
+    port = wait_for_bound_port()
+    url = HttpServer.base_url()
+
+    assert_received {:tmux_url_publish, "tmux", ["-L", "aiur-headless-test", "set-option", "-g", "@aiur_control_url", ^url]}
+    assert url == "http://127.0.0.1:#{port}"
   end
 
   defp restore_endpoint_config(nil), do: Application.delete_env(:aiur, AiurWeb.Endpoint)
