@@ -48,4 +48,22 @@ defmodule Aiur.TestRunIsolationTest do
     refute install_script =~ "live-bot-token"
     refute install_script =~ "chmod 600 \"$HOME/.aiur/github-budget/agent-token\""
   end
+
+  test "ordinary shell bootstrap preserves injected budget and credential paths" do
+    budget_root = Path.join(System.tmp_dir!(), "aiur-6193-budget")
+    credential_file = Path.join(budget_root, "agent-token")
+    prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/6193", base_branch: "main")
+
+    assert {output, 0} =
+             System.cmd("bash", ["-c", "#{prefix}; printf '%s\\n%s\\n' \"$AIUR_GITHUB_BUDGET_ROOT\" \"$AIUR_GITHUB_CREDENTIAL_FILE\""],
+               env: [
+                 {"AIUR_DEV_TEST_TICKET_IDS", nil},
+                 {"AIUR_DEV_TEST_RUN_ID", nil},
+                 {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                 {"AIUR_GITHUB_CREDENTIAL_FILE", credential_file}
+               ]
+             )
+
+    assert String.split(output, "\n", trim: true) == [budget_root, credential_file]
+  end
 end

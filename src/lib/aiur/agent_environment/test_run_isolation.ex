@@ -14,10 +14,13 @@ defmodule Aiur.AgentEnvironment.TestRunIsolation do
           "export AIUR_GITHUB_CREDENTIAL_FILE=\"$AIUR_GITHUB_BUDGET_ROOT/agent-token\"\n"
 
       _ordinary_run ->
-        "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
-          "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
-          "export AIUR_GITHUB_CREDENTIAL_FILE='~/.aiur/github-budget/agent-token'\n" <>
-          "AIUR_GITHUB_CREDENTIAL_FILE=\"$HOME/${AIUR_GITHUB_CREDENTIAL_FILE#\\~/}\"\nexport AIUR_GITHUB_CREDENTIAL_FILE\n"
+        "if [ -z \"${AIUR_GITHUB_BUDGET_ROOT:-}\" ]; then\n" <>
+          "  AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
+          "  AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\n" <>
+          "fi\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
+          "if [ -z \"${AIUR_GITHUB_CREDENTIAL_FILE:-}\" ]; then\n" <>
+          "  AIUR_GITHUB_CREDENTIAL_FILE=\"$AIUR_GITHUB_BUDGET_ROOT/agent-token\"\n" <>
+          "fi\nexport AIUR_GITHUB_CREDENTIAL_FILE\n"
     end
   end
 end
