@@ -61,6 +61,10 @@ test('ticket cancel reserves exit evidence for an observed process exit', () => 
   const invented = structuredClone(fixture);
   invented.process.status = 'queued';
   assert.equal(validate(invented), false);
+
+  const unboundedReason = structuredClone(fixture);
+  unboundedReason.process.exit_status = 'arbitrary_runtime_term';
+  assert.equal(validate(unboundedReason), false);
 });
 
 test('status accepts nullable polling and structured CI results emitted by the presenter', () => {

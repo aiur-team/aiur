@@ -362,7 +362,7 @@ export interface TicketCancel {
 export interface TicketCancelExitedProcess {
   handle: string;
   status: "exited";
-  exit_status: string;
+  exit_status: "normal" | "shutdown" | "killed" | "noproc" | "unknown";
   exited_at: string;
   observed_at: string;
   [k: string]: unknown;

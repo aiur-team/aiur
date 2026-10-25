@@ -9,29 +9,35 @@ defmodule Aiur.Orchestrator.Cancellation.Client do
 
   @spec cancel_agent(GenServer.server(), String.t()) ::
           {:ok, Observation.result()} | {:error, term()}
-  def cancel_agent(server, identifier) when is_binary(identifier) and identifier != "" do
+  def cancel_agent(server, identifier), do: cancel_agent(server, identifier, [])
+
+  @doc false
+  @spec cancel_agent(GenServer.server(), String.t(), keyword()) ::
+          {:ok, Observation.result()} | {:error, term()}
+  def cancel_agent(server, identifier, opts)
+      when is_binary(identifier) and identifier != "" and is_list(opts) do
     server
     |> call_server({:cancel_agent, identifier})
-    |> finish_cancel_call(server)
+    |> finish_cancel_call(server, opts)
   end
 
-  def cancel_agent(_server, _identifier), do: {:error, :invalid_identifier}
+  def cancel_agent(_server, _identifier, _opts), do: {:error, :invalid_identifier}
 
-  defp finish_cancel_call({:cancel_tracker_io, identifier, stage, %Issue{} = issue}, server) do
+  defp finish_cancel_call({:cancel_tracker_io, identifier, stage, %Issue{} = issue}, server, opts) do
     issue_key = to_string(issue.identifier || issue.id)
     tracker_result = write_tracker_cancel(issue_key, issue)
 
-    finish_tracker_result(server, identifier, stage, tracker_result)
+    finish_tracker_result(server, identifier, stage, tracker_result, opts)
   end
 
-  defp finish_cancel_call(reply, _server), do: reply
+  defp finish_cancel_call(reply, _server, _opts), do: reply
 
-  defp finish_tracker_result(server, identifier, stage, :ok) do
+  defp finish_tracker_result(server, identifier, stage, :ok, opts) do
     monitor = Process.monitor(stage.pid)
 
     case call_server(server, {:cancel_tracker_result, identifier, stage, :ok}) do
       {:cancel_observe, ^identifier, ^stage, stop_result} ->
-        outcome = Observation.observe_exit(monitor, stage.pid, stage.handle, identifier, stop_result, [])
+        outcome = Observation.observe_exit(monitor, stage.pid, stage, identifier, stop_result, opts)
         reconcile_observation(server, stage, outcome)
 
       reply ->
@@ -40,7 +46,7 @@ defmodule Aiur.Orchestrator.Cancellation.Client do
     end
   end
 
-  defp finish_tracker_result(server, identifier, stage, tracker_result),
+  defp finish_tracker_result(server, identifier, stage, tracker_result, _opts),
     do: call_server(server, {:cancel_tracker_result, identifier, stage, tracker_result})
 
   defp reconcile_observation(server, stage, outcome) do

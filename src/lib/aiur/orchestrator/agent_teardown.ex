@@ -114,8 +114,16 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
   defp cleanup_repl_session(running_entry, :inline), do: kill_repl_session(running_entry)
 
-  defp cleanup_repl_session(running_entry, :supervised) do
-    cleanup = fn -> kill_repl_session(running_entry) end
+  defp cleanup_repl_session(running_entry, :supervised),
+    do: schedule_cancelled_shell_cleanup(running_entry)
+
+  @doc false
+  @spec schedule_cancelled_shell_cleanup(map()) :: :ok
+  def schedule_cancelled_shell_cleanup(running_entry) when is_map(running_entry) do
+    cleanup = fn ->
+      _ = reap_orphaned_agent_shell(running_entry)
+      kill_repl_session(running_entry)
+    end
 
     case start_repl_cleanup(cleanup) do
       {:ok, _pid} ->

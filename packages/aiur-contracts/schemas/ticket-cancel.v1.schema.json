@@ -33,7 +33,9 @@
       "properties": {
         "handle": { "type": "string", "minLength": 1 },
         "status": { "const": "exited" },
-        "exit_status": { "type": "string", "minLength": 1 },
+        "exit_status": {
+          "enum": ["normal", "shutdown", "killed", "noproc", "unknown"]
+        },
         "exited_at": { "type": "string" },
         "observed_at": { "type": "string" }
       },

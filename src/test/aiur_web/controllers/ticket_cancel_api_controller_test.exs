@@ -66,7 +66,7 @@ defmodule AiurWeb.TicketCancelApiControllerTest do
              Jason.decode!(response.resp_body)
   end
 
-  test "precondition failures never claim process exit" do
+  test "a known ticket without a running agent returns 409" do
     orchestrator = start_cancel_orchestrator({:error, :no_running_agent})
     EndpointStubs.put(orchestrator: orchestrator, dashboard_writable: true)
 
@@ -80,6 +80,47 @@ defmodule AiurWeb.TicketCancelApiControllerTest do
                "message" => "Agent is not currently running"
              }
            }
+  end
+
+  test "an unknown ticket returns 404" do
+    orchestrator = start_cancel_orchestrator({:error, :issue_not_found})
+    EndpointStubs.put(orchestrator: orchestrator, dashboard_writable: true)
+
+    response = request(:post)
+
+    assert response.status == 404
+
+    assert Jason.decode!(response.resp_body) == %{
+             "error" => %{
+               "code" => "issue_not_found",
+               "message" => "Issue not found"
+             }
+           }
+  end
+
+  test "the cancellation route requires dashboard authentication" do
+    orchestrator = start_cancel_orchestrator({:ok, cancel_result("exited", "killed")})
+    EndpointStubs.put(orchestrator: orchestrator, dashboard_writable: true)
+
+    response = request(:post, authorization: nil)
+
+    assert response.status == 401
+    refute_received {:cancelled, "NUC-42"}
+
+    authenticated = request(:post)
+    assert authenticated.status == 200
+    assert_received {:cancelled, "NUC-42"}
+  end
+
+  test "the cancellation route is forbidden in read-only mode" do
+    orchestrator = start_cancel_orchestrator({:ok, cancel_result("exited", "killed")})
+    EndpointStubs.put(orchestrator: orchestrator, dashboard_writable: false)
+
+    response = request(:post)
+
+    assert response.status == 403
+    assert Jason.decode!(response.resp_body) == %{"error" => "dashboard is read-only"}
+    refute_received {:cancelled, "NUC-42"}
   end
 
   test "operational failures return standard 503 errors without process evidence" do
@@ -118,17 +159,30 @@ defmodule AiurWeb.TicketCancelApiControllerTest do
     start_supervised!({CancelOrchestrator, owner: self(), result: result})
   end
 
-  defp request(method) do
-    method
-    |> conn(@path)
-    |> Map.put(:secret_key_base, String.duplicate("s", 64))
-    |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
-    |> AiurWeb.Session.call(@session_options)
-    |> fetch_session()
-    |> put_req_header("authorization", Plug.BasicAuth.encode_basic_auth("operator", "secret"))
-    |> put_req_header("origin", "http://127.0.0.1")
-    |> put_req_header("x-aiur-request", "1")
-    |> Router.call(Router.init([]))
+  defp request(method, opts \\ []) do
+    authorization =
+      Keyword.get(
+        opts,
+        :authorization,
+        Plug.BasicAuth.encode_basic_auth("operator", "secret")
+      )
+
+    connection =
+      method
+      |> conn(@path)
+      |> Map.put(:secret_key_base, String.duplicate("s", 64))
+      |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
+      |> AiurWeb.Session.call(@session_options)
+      |> fetch_session()
+      |> put_req_header("origin", "http://127.0.0.1")
+      |> put_req_header("x-aiur-request", "1")
+
+    connection =
+      if authorization,
+        do: put_req_header(connection, "authorization", authorization),
+        else: connection
+
+    Router.call(connection, Router.init([]))
   end
 
   defp cancel_result(status, exit_status) do

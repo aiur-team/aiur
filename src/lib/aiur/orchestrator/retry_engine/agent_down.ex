@@ -20,7 +20,13 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
   alias Aiur.Orchestrator.TokenAccounting
 
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
-  def handle_agent_down(%State{running: running} = state, ref, reason) do
+  def handle_agent_down(state, ref, reason),
+    do: handle_agent_down(state, ref, reason, [])
+
+  @doc false
+  @spec handle_agent_down(State.t(), reference(), term(), keyword()) ::
+          {:noreply, State.t()}
+  def handle_agent_down(%State{running: running} = state, ref, reason, opts) do
     case State.find_issue_id_for_ref(running, ref) do
       nil ->
         {:noreply, state}
@@ -29,7 +35,12 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
         running_entry = running |> Map.fetch!(issue_id) |> clear_completed_fallback_replacement()
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
-        state = state |> maybe_reap_orphaned_agent_shell(running_entry) |> LifecycleFenceExpiry.recover_terminated_input(running_entry)
+
+        state =
+          state
+          |> maybe_reap_orphaned_agent_shell(running_entry, opts)
+          |> LifecycleFenceExpiry.recover_terminated_input(running_entry)
+
         session_id = State.running_entry_session_id(running_entry)
         state = handle_running_agent_down(state, issue_id, running_entry, reason, session_id)
 
@@ -200,11 +211,13 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
     |> Map.put(:last_failure_at, get_in(running_entry, [:runtime_terminal_failure, :observed_at]))
   end
 
-  defp maybe_reap_orphaned_agent_shell(state, running_entry) do
-    if State.completed_running_entry?(running_entry) or Map.get(running_entry, :cancel_requested) == true do
+  defp maybe_reap_orphaned_agent_shell(state, running_entry, opts) do
+    if State.completed_running_entry?(running_entry) do
       state
     else
-      case AgentTeardown.reap_orphaned_agent_shell(running_entry) do
+      reap_fun = Keyword.get(opts, :reap_fun, &AgentTeardown.reap_orphaned_agent_shell/1)
+
+      case reap_fun.(running_entry) do
         :reaped ->
           count = Map.get(state, :orphaned_agent_reap_count, 0) + 1
           identifier = Map.get(running_entry, :identifier)

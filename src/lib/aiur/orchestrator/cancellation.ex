@@ -22,6 +22,11 @@ defmodule Aiur.Orchestrator.Cancellation do
   defdelegate cancel_agent(server, identifier), to: Client
 
   @doc false
+  @spec cancel_agent(GenServer.server(), String.t(), keyword()) ::
+          {:ok, result()} | {:error, term()}
+  defdelegate cancel_agent(server, identifier, opts), to: Client
+
+  @doc false
   @spec cancel_agent_call(State.t(), String.t()) :: {:reply, term(), State.t()}
   def cancel_agent_call(%State{} = state, identifier) when is_binary(identifier) do
     PauseResume.guard_control_call(state, :cancel, identifier, fn ->
@@ -31,13 +36,20 @@ defmodule Aiur.Orchestrator.Cancellation do
             issue_id: issue_id,
             pid: pid,
             ref: Map.get(entry, :ref),
-            handle: process_handle(entry, identifier, pid)
+            handle: process_handle(entry, identifier, pid),
+            repl_pane_id: Map.get(entry, :repl_pane_id),
+            repl_os_pid: Map.get(entry, :repl_os_pid),
+            headless_os_pid: Map.get(entry, :headless_os_pid),
+            headless_process_group_id: Map.get(entry, :headless_process_group_id)
           }
 
           {:reply, {:cancel_tracker_io, identifier, stage, issue}, state}
 
         {:ok, _issue_id, _entry} ->
           {:reply, {:error, :no_running_agent}, state}
+
+        {:error, :no_running_agent} ->
+          {:reply, {:error, missing_entry_reason(state, identifier)}, state}
 
         {:error, reason} ->
           {:reply, {:error, reason}, state}
@@ -85,7 +97,14 @@ defmodule Aiur.Orchestrator.Cancellation do
   @doc false
   @spec cancel_observation_call(State.t(), map(), result()) ::
           {:reply, {:ok, result()}, State.t()}
-  def cancel_observation_call(%State{} = state, stage, %{process: %{status: "exited"}} = outcome) do
+  def cancel_observation_call(state, stage, outcome),
+    do: cancel_observation_call(state, stage, outcome, [])
+
+  @doc false
+  @spec cancel_observation_call(State.t(), map(), result(), keyword()) ::
+          {:reply, {:ok, result()}, State.t()}
+
+  def cancel_observation_call(%State{} = state, stage, %{process: %{status: "exited"}} = outcome, _opts) do
     next =
       case Map.get(state.running, stage.issue_id) do
         %{pid: pid, ref: ref} when pid == stage.pid and ref == stage.ref ->
@@ -98,7 +117,14 @@ defmodule Aiur.Orchestrator.Cancellation do
     {:reply, {:ok, outcome}, next}
   end
 
-  def cancel_observation_call(%State{} = state, _stage, outcome),
+  def cancel_observation_call(%State{} = state, stage, %{process: %{status: status}} = outcome, opts)
+      when status in ["still_running", "kill_failed"] do
+    cleanup_fun = Keyword.get(opts, :cleanup_fun, &AgentTeardown.schedule_cancelled_shell_cleanup/1)
+    _ = request_cleanup(cleanup_fun, stage)
+    {:reply, {:ok, outcome}, state}
+  end
+
+  def cancel_observation_call(%State{} = state, _stage, outcome, _opts),
     do: {:reply, {:ok, outcome}, state}
 
   @doc false
@@ -120,6 +146,26 @@ defmodule Aiur.Orchestrator.Cancellation do
       [] -> {:error, :no_running_agent}
       _many -> {:error, :ambiguous_identifier}
     end
+  end
+
+  defp known_issue?(%State{last_polled_issues: issues}, identifier) when is_map(issues) do
+    Enum.any?(issues, fn
+      {issue_id, %Issue{} = issue} ->
+        identifier in [to_string(issue_id), to_string(issue.id), to_string(issue.identifier)]
+
+      _other ->
+        false
+    end)
+  end
+
+  defp missing_entry_reason(state, identifier) do
+    if known_issue?(state, identifier), do: :no_running_agent, else: :issue_not_found
+  end
+
+  defp request_cleanup(cleanup_fun, stage) do
+    cleanup_fun.(stage)
+  catch
+    _kind, _reason -> :ok
   end
 
   defp process_handle(entry, identifier, pid) do

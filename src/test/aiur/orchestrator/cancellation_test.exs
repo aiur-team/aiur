@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.CancellationTest do
 
   alias Aiur.{Issue, Tracker, Workflow}
   alias Aiur.Orchestrator.{Calls, Cancellation, RetryEngine, State}
+  alias Aiur.Orchestrator.RetryEngine.AgentDown
 
   @now ~U[2026-10-24 18:30:00Z]
 
@@ -35,7 +36,10 @@ defmodule Aiur.Orchestrator.CancellationTest do
 
     state = %State{
       running: %{
-        issue.id => running_entry(issue.id, issue.identifier, pid, make_ref(), "42:attempt-api")
+        issue.id =>
+          issue.id
+          |> running_entry(issue.identifier, pid, make_ref(), "42:attempt-api")
+          |> Map.put(:headless_os_pid, 42_424)
       },
       claimed: MapSet.new([issue.id])
     }
@@ -51,7 +55,12 @@ defmodule Aiur.Orchestrator.CancellationTest do
                 status: "exited",
                 exit_status: "killed"
               }
-            }} = Cancellation.cancel_agent(server, "42")
+            }} =
+             Cancellation.cancel_agent(server, "42",
+               reap_fun: fn _stage -> :reaped end,
+               shell_alive_fun: fn _stage -> false end,
+               os_exit_timeout_ms: 0
+             )
 
     refute Map.has_key?(:sys.get_state(server).running, issue.id)
     assert {:ok, [%Issue{state: "cancelled"}]} = Tracker.fetch_issue_states_by_ids([issue.id])
@@ -73,6 +82,18 @@ defmodule Aiur.Orchestrator.CancellationTest do
 
     assert Process.alive?(first)
     assert Process.alive?(second)
+  end
+
+  test "an unknown ticket is distinct from a known ticket without a running agent" do
+    known = %Issue{id: "issue-42", identifier: "42", state: "todo"}
+    known_state = %State{last_polled_issues: %{known.id => known}}
+    unknown_state = %State{}
+
+    assert {:reply, {:error, :no_running_agent}, ^known_state} =
+             Cancellation.cancel_agent_call(known_state, "42")
+
+    assert {:reply, {:error, :issue_not_found}, ^unknown_state} =
+             Cancellation.cancel_agent_call(unknown_state, "42")
   end
 
   test "a tracker callback never stops a replacement generation" do
@@ -137,6 +158,52 @@ defmodule Aiur.Orchestrator.CancellationTest do
     refute Map.has_key?(next.running, issue_id)
     refute Map.has_key?(next.retry_attempts, issue_id)
     refute MapSet.member?(next.claimed, issue_id)
+  end
+
+  test "a cancelled runner exit still reaps its orphaned shell" do
+    issue_id = "issue-42"
+    ref = make_ref()
+    pid = start_test_process(fn -> ignore_stop() end)
+
+    entry =
+      issue_id
+      |> running_entry("42", pid, ref, "42:attempt-reap-on-down")
+      |> Map.put(:cancel_requested, true)
+
+    state = %State{running: %{issue_id => entry}, claimed: MapSet.new([issue_id])}
+    owner = self()
+
+    assert {:noreply, next} =
+             AgentDown.handle_agent_down(state, ref, :killed,
+               reap_fun: fn selected ->
+                 send(owner, {:orphan_reap, selected.telemetry_attempt_id})
+                 :gone
+               end
+             )
+
+    assert_receive {:orphan_reap, "42:attempt-reap-on-down"}, 100
+    refute Map.has_key?(next.running, issue_id)
+  end
+
+  test "a non-exit result schedules another shell cleanup attempt" do
+    pid = start_test_process(fn -> ignore_stop() end)
+    state = %State{running: %{"issue-42" => running_entry("issue-42", "42", pid, make_ref(), "42:attempt-reap")}}
+
+    assert {:reply, {:cancel_tracker_io, "42", stage, %Issue{}}, ^state} =
+             Cancellation.cancel_agent_call(state, "42")
+
+    outcome = Cancellation.result("42", stage.handle, :still_running, nil, @now)
+    owner = self()
+
+    assert {:reply, {:ok, ^outcome}, ^state} =
+             Cancellation.cancel_observation_call(state, stage, outcome,
+               cleanup_fun: fn selected ->
+                 send(owner, {:cleanup_retried, selected.handle})
+                 :ok
+               end
+             )
+
+    assert_receive {:cleanup_retried, "42:attempt-reap"}, 100
   end
 
   test "a tracker failure leaves the selected process and running state unchanged" do
