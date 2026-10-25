@@ -102,7 +102,7 @@ jobs:
         run: |
           npm run test:visual:docker
       - name: Export six desktop docs goldens (temporary)
-        if: github.event.pull_request.number == 6285
+        if: github.event.pull_request.number == 6285 || github.event_name == 'workflow_dispatch'
         timeout-minutes: 3
         run: |
           rm -- tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-index-dark-desktop.png \
@@ -115,7 +115,7 @@ jobs:
             mcr.microsoft.com/playwright:v1.61.1-noble npm run test:visual -- \
             --update-snapshots=missing -g 'desktop (docs-index|docs-quick-start|docs product switcher open)$'
       - name: Upload six desktop docs goldens (temporary)
-        if: always() && github.event.pull_request.number == 6285
+        if: always() && (github.event.pull_request.number == 6285 || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: desktop-docs-goldens-4282
@@ -136,7 +136,7 @@ jobs:
           path: website/test-results/
           retention-days: 7
       - name: Post-deploy docs smoke check
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/aiur/4282-stop-repeat-conflicts-one'
         env:
           DEPLOYED_SHA: ${{ inputs.deployed_sha }}
         # Pushes do not deploy. Dispatch after a manual production publish,
