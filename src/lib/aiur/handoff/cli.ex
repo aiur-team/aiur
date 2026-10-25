@@ -1,0 +1,147 @@
+defmodule Aiur.Handoff.CLI do
+  @moduledoc "CLI boundary for handoff preflight, outcomes and provider identity."
+  import Aiur.ControlCLI.Protocol, only: [guarded: 2, exit_marker: 1, error_marker: 0]
+  alias Aiur.Handoff.Report
+
+  @agents_contract "aiur.agents"
+  @contract_version 1
+
+  # Keep this below the 120s shell RPC envelope in engine/handoff.sh so the
+  # daemon can report the blocked control RPC before the launcher times out.
+  # Leave the prepare's 100s budget inside the shell's 120s RPC envelope.
+  @preflight_snapshot_timeout_ms 10_000
+
+  @spec print_latest(keyword()) :: :ok
+  def print_latest(opts \\ []) do
+    case Report.latest(opts) do
+      {:ok, report} -> print(report)
+      :none -> print(nil)
+      {:error, reason} -> IO.puts("HANDOFF unavailable: #{inspect(reason)}")
+    end
+  end
+
+  @spec prepare(keyword()) :: :ok
+  def prepare(opts \\ []) do
+    guarded("restart --keep-agents", fn ->
+      timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, @preflight_snapshot_timeout_ms)
+
+      case Aiur.Orchestrator.snapshot(Aiur.Orchestrator, timeout_ms) do
+        :timeout ->
+          failure("running daemon did not answer the handoff query within #{Aiur.ControlCLI.Protocol.format_timeout_budget(timeout_ms)} (control RPC blocked); retry the restart")
+
+        :unavailable ->
+          failure("orchestrator is not running")
+
+        snapshot ->
+          prepare_snapshot(snapshot)
+      end
+    end)
+  end
+
+  defp prepare_snapshot(snapshot) do
+    capable = Enum.any?(snapshot.running, &(&1[:backend] in ["codex", "claude", "claude-repl"]))
+
+    if snapshot.running == [] or capable do
+      prepare_running()
+    else
+      failure("no running agent supports handoff")
+    end
+  end
+
+  defp prepare_running do
+    case Aiur.AgentControlCLI.prepare_handoff() do
+      {:ok, result} ->
+        IO.puts("__AIUR_HANDOFF__:#{result.handoff_id}")
+
+        if result.skipped != [],
+          do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
+
+        for agent <- result.agents, reason = agent["fallback_reason"], not is_nil(reason) do
+          IO.puts("Handoff ticket fallback: #{agent["identifier"]} (#{reason})")
+        end
+
+        exit_marker(0)
+
+      {:error, reason} ->
+        failure("handoff preflight failed: #{inspect(reason)}")
+    end
+  end
+
+  @spec report(keyword()) :: :ok
+  def report(opts \\ []) do
+    guarded("status --handoff", fn ->
+      deadline = System.monotonic_time(:millisecond) + Keyword.get(opts, :wait_ms, 0)
+
+      case await_report(opts, deadline) do
+        {:ok, report} ->
+          print(report, opts)
+          exit_marker(0)
+
+        :none ->
+          print(nil, opts)
+          exit_marker(0)
+
+        {:error, reason} ->
+          failure("handoff report unavailable: #{inspect(reason)}")
+      end
+    end)
+  end
+
+  @spec agents(keyword()) :: :ok
+  def agents(opts \\ []) do
+    guarded("agents --json", fn ->
+      snapshot = Keyword.get_lazy(opts, :snapshot, &Aiur.Orchestrator.snapshot/0)
+      IO.puts(Jason.encode!(agents_payload(snapshot)))
+      exit_marker(0)
+    end)
+  end
+
+  defp agents_payload(%{running: running}) when is_list(running) do
+    rows = Enum.map(running, &Map.take(&1, [:identifier, :issue_id, :session_id, :provider_pid, :codex_app_server_pid, :adopted_from]))
+    rows = Enum.map(rows, &Map.put(&1, :provider_pid, Report.provider_pid(&1[:provider_pid] || &1[:codex_app_server_pid])))
+    %{contract: @agents_contract, contract_version: @contract_version, running: rows}
+  end
+
+  @spec print(map() | nil, keyword()) :: :ok
+  def print(report, opts \\ []) do
+    cond do
+      Keyword.get(opts, :json, false) ->
+        IO.puts(Jason.encode!(report))
+
+      is_nil(report) ->
+        IO.puts("HANDOFF none")
+
+      true ->
+        IO.puts("HANDOFF #{report.handoff_id} at=#{report.completed_at || "unknown"} adopted=#{length(report.adopted)} fallback=#{length(report.fallback)} gap=#{report.gap_ms || "unknown"}ms")
+
+        for agent <- report.adopted,
+            do: IO.puts("#{agent["identifier"]} adopted pid=#{agent["provider_pid_after"]} session=#{agent["session_id_after"]}")
+
+        for agent <- report.fallback,
+            do: IO.puts("#{agent["identifier"]} fallback #{agent["reason"]}")
+    end
+
+    :ok
+  end
+
+  defp await_report(opts, deadline) do
+    result = Report.latest(opts)
+    expected = Keyword.get(opts, :expected_id)
+
+    if is_nil(expected) or match?({:ok, %{handoff_id: ^expected}}, result) do
+      result
+    else
+      if System.monotonic_time(:millisecond) < deadline do
+        Process.sleep(100)
+        await_report(opts, deadline)
+      else
+        {:error, :adoption_report_timeout}
+      end
+    end
+  end
+
+  defp failure(message) do
+    IO.puts(error_marker() <> message)
+    exit_marker(1)
+  end
+end

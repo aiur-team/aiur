@@ -2,11 +2,18 @@ defmodule AiurWeb.BuildLiveTest do
   use Aiur.TestSupport
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
+  alias Aiur.TestSupport.BuildHome.IndexParts
+  alias Aiur.TestSupport.LiveViewAsync
+  alias AiurWeb.Build.{DataSource, Index, IndexSource}
   alias AiurWeb.{BuildLive, Endpoint}
   @endpoint Endpoint
 
   defmodule Spy do
     @behaviour AiurWeb.Build.DataSource
+    alias Aiur.TestSupport.BuildHome.FixtureSource
+    @impl true
+    def ticket(id, opts), do: FixtureSource.ticket(id, opts)
+
     @impl true
     def subscribe(opts) do
       send(opts[:test_pid], :subscribe)
@@ -69,6 +76,7 @@ defmodule AiurWeb.BuildLiveTest do
     assert length(Floki.find(root, ".bd-skel-lanes > i.bd-skel-i:first-child")) == 1
     assert length(Floki.find(root, "#bd-vp > .bd-skel > i")) == 16
     assert length(Floki.find(root, "#bd-vp > .bd-loading > span.bd-spin")) == 1
+    assert Floki.attribute(root, ".bd-loading", "role") == ["status"]
     assert Floki.find(root, ".bd-loading") |> Floki.text() |> String.trim() == "Loading build timeline…"
   end
 
@@ -79,17 +87,25 @@ defmodule AiurWeb.BuildLiveTest do
     {:ok, view, _} = live(build_conn(), "/build")
     assert_receive :subscribe, 1_000
     assert_receive {:snapshot, _}, 1_000
-    assert render_async(view) =~ ~s(data-build-state="ready")
+    assert LiveViewAsync.render_when_complete(view) =~ ~s(data-build-state="ready")
     refute has_element?(view, "#build-root[data-build-reason]")
     assert :sys.get_state(view.pid).socket.assigns.build_snapshot == %{"meta" => %{"now" => 1_791_408_000_000}, "writable" => true}
     refute_receive {:snapshot, _}, 100
   end
 
   test "source errors render unavailable with a cause-neutral tag" do
-    for {error, tag} <- [{:boom, "unknown"}, {:not_wired, "not_wired"}, {:timeout, "timeout"}] do
+    for {error, tag} <- [
+          {:boom, "unknown"},
+          {:not_wired, "not_wired"},
+          {:timeout, "timeout"},
+          {:epic_config_unavailable, "epic_config_unavailable"},
+          {:settings_loading, "settings_loading"},
+          {:index_not_running, "index_not_running"},
+          {:read_failed, "read_failed"}
+        ] do
       source(result: {:error, error})
       {:ok, view, _} = live(build_conn(), "/build")
-      render_async(view)
+      LiveViewAsync.render_when_complete(view)
       assert has_element?(view, ~s(#build-root[data-build-state=unavailable][data-build-reason="#{tag}"]))
     end
   end
@@ -97,7 +113,7 @@ defmodule AiurWeb.BuildLiveTest do
   test "source crash renders unavailable" do
     source(result: :crash)
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert has_element?(view, "#build-root[data-build-state=unavailable][data-build-reason=crashed]")
   end
 
@@ -107,7 +123,7 @@ defmodule AiurWeb.BuildLiveTest do
     assert_receive {:snapshot, task}, 1_000
     monitor = Process.monitor(task)
     send(view.pid, :build_snapshot_timeout)
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     assert_receive {:DOWN, ^monitor, :process, ^task, _}, 1_000
     assert has_element?(view, "#build-root[data-build-state=unavailable][data-build-reason=timeout]")
     socket = %Phoenix.LiveView.Socket{assigns: %{build_state: {:unavailable, "timeout"}}}
@@ -117,22 +133,28 @@ defmodule AiurWeb.BuildLiveTest do
 
   test "a timeout after ready is ignored" do
     {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
+    LiveViewAsync.render_when_complete(view)
     send(view.pid, :build_snapshot_timeout)
     assert render(view) =~ ~s(data-build-state="ready")
   end
 
-  test "default source is not wired" do
+  test "default source reads the supervised ticket index" do
     Application.delete_env(:aiur, :build_data_source)
-    {:ok, view, _} = live(build_conn(), "/build")
-    render_async(view)
-    assert has_element?(view, "#build-root[data-build-state=unavailable][data-build-reason=not_wired]")
+    assert DataSource.source() == IndexSource
+
+    pid =
+      start_supervised!(
+        {Index, name: nil, subscribe: fn -> :ok end, read: fn _, _, _ -> IndexParts.parts([IndexParts.row(7)]) end, daemon_read: fn _ -> %{state: "unknown", heartbeat_at: nil, observed_at: nil} end}
+      )
+
+    assert {:ok, snapshot} = DataSource.call(DataSource.source(), :snapshot, [[server: pid, financial: :locked]])
+    assert Enum.map(snapshot.sections.hist, & &1.num) == [7]
   end
 
   test "subscription failure still loads the snapshot" do
     source(subscription: {:error, :boom})
     {:ok, view, _} = live(build_conn(), "/build")
-    assert render_async(view) =~ ~s(data-build-state="ready")
+    assert LiveViewAsync.render_when_complete(view) =~ ~s(data-build-state="ready")
   end
 
   test "modal frame is an ignored sibling of the shell" do

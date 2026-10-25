@@ -4,25 +4,21 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.Accounts
-  alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
-  alias Aiur.AgentChat
 
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.Conversation.History, as: ConversationHistory
-  alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.ProviderMeterRefresh
   alias Aiur.TrackerIdentity
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
-  alias AiurWeb.DashboardLive.{Controls, Summaries, UnitsPanel}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel, Voice}
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
 
@@ -31,6 +27,7 @@ defmodule AiurWeb.DashboardLive do
     AddAgentSubmission,
     AgentLogModal,
     CapacityPresenter,
+    CodexHeadroomPresenter,
     ConversationDrawer,
     CurrentRunOutcomesPresenter,
     DashboardShell,
@@ -39,6 +36,7 @@ defmodule AiurWeb.DashboardLive do
     DecisionPath,
     History,
     NavState,
+    OperatorSend,
     Overview,
     PayloadLoader,
     ProviderMeterSource,
@@ -86,7 +84,7 @@ defmodule AiurWeb.DashboardLive do
     socket = AiurWeb.RefreshSubscriptions.dashboard(socket)
     if connected, do: subscribe_ticket_context_resets()
 
-    payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
+    payload = PayloadLoader.load(if connected, do: :join, else: :cached)
 
     socket =
       socket
@@ -94,7 +92,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:now, DateTime.utc_now())
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
-      |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
+      |> Voice.assign_voice()
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:pending_message_ids, %{})
@@ -103,7 +101,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
       |> assign(:payload_reload_mode, :cached)
-      |> assign(:writable, dashboard_writable?())
+      |> assign(%{writable: dashboard_writable?(), live_connected: connected})
       |> assign(:decision_filter, :all)
       |> assign(:decision_page, empty_decision_page())
       |> assign(:decision_query, %{})
@@ -147,7 +145,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:selected_decision_status, :none)
       |> assign(:selected_decision_health, nil)
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
-      |> PayloadLoader.mark_loaded()
+      |> PayloadLoader.mark_joined(connected)
 
     if connected do
       schedule_runtime_tick()
@@ -165,7 +163,7 @@ defmodule AiurWeb.DashboardLive do
 
     {:noreply,
      socket
-     |> assign(:decision_filter, filter)
+     |> assign(%{units_base_path: if(conversation_route?, do: "/units", else: URI.parse(uri).path), decision_filter: filter})
      |> assign(:table_sort, UnitsPanel.normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
      |> assign(:conversation_from_route?, conversation_route?)
@@ -218,7 +216,7 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:elevenlabs_quota_tick, socket) do
     schedule_elevenlabs_quota_tick()
-    {:noreply, assign(socket, :elevenlabs_quota, elevenlabs_quota_snapshot())}
+    {:noreply, Voice.assign_voice(socket)}
   end
 
   @impl true
@@ -358,8 +356,6 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("search-commands", _params, socket), do: {:noreply, socket}
-
-  def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
 
   def handle_event("table-sort-changed", %{"sort" => sort}, socket),
     do: {:noreply, assign(socket, :table_sort, UnitsPanel.normalize_table_sort(sort))}
@@ -616,13 +612,7 @@ defmodule AiurWeb.DashboardLive do
       when is_map(modal) do
     handle_writable_event(socket, fn ->
       if Map.get(modal, :writable_target?) == true do
-        {:noreply,
-         send_operator_message(
-           socket,
-           agent_log_target(modal),
-           agent_log_key(modal),
-           String.trim(message)
-         )}
+        {:noreply, send_operator_message(socket, modal, String.trim(message))}
       else
         {:noreply, put_chat_error(socket, agent_log_key(modal), :ambiguous_identifier)}
       end
@@ -757,22 +747,13 @@ defmodule AiurWeb.DashboardLive do
         &Map.put_new(
           &1,
           :provider_meters_view,
-          ProviderMetersPresenter.present(
-            financial_data_capability(&1),
-            %{},
-            UsageReadings.snapshot(
-              "claude",
-              case Accounts.configured_names() do
-                [] -> ["default"]
-                names -> names
-              end
-            )
-          )
+          CodexHeadroomPresenter.provider_meters_view(financial_data_capability(&1), %{})
         )
       )
       |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
+      |> Map.put_new(:voice_capabilities, %{})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -783,7 +764,7 @@ defmodule AiurWeb.DashboardLive do
       routes={RouteRegistry.routes(@payload.analytics)}
       tracker_kind={tracker_kind()}
       agent_kind={agent_kind()}
-      nav_counts={UnitsPanel.nav_counts(@units_view, @retained_counts)}
+      nav_counts={AiurWeb.OperatorControlCenter.AwaitingCommands.nav_counts(@retained_counts || %{})}
       nav_collapsed={@nav_collapsed}
       globally_paused={Controls.global_pause_state(@payload)}
       writable={@writable}
@@ -816,7 +797,7 @@ defmodule AiurWeb.DashboardLive do
           now={@now}
           history={@payload.history}
           action_states={@decision_actions}
-          writable={@writable}
+          writable={@writable} live_connected={Map.get(assigns, :live_connected, true)}
           provider_health={page_provider_health(@decision_page)}
           retained_counts={@retained_counts}
           page={@decision_page}
@@ -833,7 +814,7 @@ defmodule AiurWeb.DashboardLive do
           expanded_decision={@selected_decision}
           history={@payload.history}
           action_state={history_action_state(@decision_actions, @selected_decision_id)}
-          writable={@writable}
+          writable={Map.get(assigns, :writable, false)} live_connected={Map.get(assigns, :live_connected, true)}
           filter={@decision_filter}
           query={@decision_query}
           time_zone={@time_zone}
@@ -911,6 +892,7 @@ defmodule AiurWeb.DashboardLive do
         usage_snapshot={@conversation_usage_snapshot}
         usage_error={@conversation_usage_error}
         context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
+        voice_capabilities={@voice_capabilities}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
@@ -1020,7 +1002,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp normalize_filter(_filter), do: :all
-  defp dashboard_writable?, do: Endpoint.config(:dashboard_writable) == true
+  defp dashboard_writable?, do: EndpointConfig.get(:dashboard_writable) == true
 
   # The browser reports its IANA timezone through the LiveSocket connect params.
   # Fall back to UTC when it is missing (initial render, fixture, or a browser
@@ -1185,7 +1167,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp schedule_usage_summary_flush do
-    case Endpoint.config(:usage_summary_flush_timer) do
+    case EndpointConfig.get(:usage_summary_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_usage_summary, @usage_summary_flush_ms)
       _other -> Process.send_after(self(), :flush_usage_summary, @usage_summary_flush_ms)
     end
@@ -1393,18 +1375,7 @@ defmodule AiurWeb.DashboardLive do
   defp apply_provider_meters(socket) do
     capability = financial_data_capability(socket.assigns)
 
-    view =
-      ProviderMetersPresenter.present(
-        capability,
-        socket.assigns.provider_meter_snapshots,
-        UsageReadings.snapshot(
-          "claude",
-          case Accounts.configured_names() do
-            [] -> ["default"]
-            names -> names
-          end
-        )
-      )
+    view = CodexHeadroomPresenter.provider_meters_view(capability, socket.assigns.provider_meter_snapshots)
 
     socket
     |> assign(:provider_meters_view, view)
@@ -1416,14 +1387,14 @@ defmodule AiurWeb.DashboardLive do
   defp reload_provider_meters(context, message), do: provider_meter_source().reload(context, message)
 
   defp provider_meter_source do
-    case Endpoint.config(:provider_meter_source) do
+    case EndpointConfig.get(:provider_meter_source) do
       module when is_atom(module) and not is_nil(module) -> module
       _other -> ProviderMeterSource
     end
   end
 
   defp schedule_provider_meters_flush do
-    case Endpoint.config(:provider_meters_flush_timer) do
+    case EndpointConfig.get(:provider_meters_flush_timer) do
       timer when is_function(timer, 3) -> timer.(self(), :flush_provider_meters, @provider_meters_flush_ms)
       _other -> Process.send_after(self(), :flush_provider_meters, @provider_meters_flush_ms)
     end
@@ -1529,7 +1500,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp subscribe_ticket_context_resets do
     _result =
-      case Endpoint.config(:ticket_context_reset_subscribe_fun) do
+      case EndpointConfig.get(:ticket_context_reset_subscribe_fun) do
         fun when is_function(fun, 0) -> fun.()
         _fun -> subscribe_default_ticket_context_resets()
       end
@@ -1566,7 +1537,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp call_context(config_key, default, identity) do
-    fun = Endpoint.config(config_key) || default
+    fun = EndpointConfig.get(config_key) || default
     fun.(identity)
   rescue
     _error -> {:error, :unavailable}
@@ -1694,7 +1665,7 @@ defmodule AiurWeb.DashboardLive do
     {usage_snapshot, usage_error} =
       case Map.get(row, :identity) do
         %TrackerIdentity{} = identity ->
-          usage_snapshot_fun = Endpoint.config(:usage_snapshot_fun) || (&UsageSnapshotService.current/2)
+          usage_snapshot_fun = EndpointConfig.get(:usage_snapshot_fun) || (&UsageSnapshotService.current/2)
 
           case usage_snapshot_fun.(identity.identifier || "current agent", usage_opts) do
             {:ok, usage} -> {usage, nil}
@@ -1845,7 +1816,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp call_conversation(config_key, default, handle) do
-    fun = Endpoint.config(config_key) || default
+    fun = EndpointConfig.get(config_key) || default
     fun.(handle)
   rescue
     _error -> {:error, :unavailable}
@@ -2214,9 +2185,7 @@ defmodule AiurWeb.DashboardLive do
   defp schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)
   defp schedule_elevenlabs_quota_tick, do: Process.send_after(self(), :elevenlabs_quota_tick, @elevenlabs_quota_tick_ms)
 
-  defp github_quota_snapshot, do: GitHubQuota.snapshot()
-
-  defp elevenlabs_quota_snapshot, do: Aiur.Voice.quota_snapshot()
+  defp github_quota_snapshot, do: GitHubQuotaSnapshot.read()
 
   defp clear_chat_state(socket, identifier) do
     socket
@@ -2229,51 +2198,30 @@ defmodule AiurWeb.DashboardLive do
     assign(socket, :chat_errors, Map.put(socket.assigns.chat_errors, identifier, AgentLogModal.format_error(reason)))
   end
 
-  defp send_operator_message(socket, _target, _key, ""), do: socket
+  defp send_operator_message(socket, _modal, ""), do: socket
 
-  # Each Send press is one user action with its own message id (#2717). When
-  # the daemon does not answer in time, the outcome is unknown: the id and the
-  # draft are kept, so pressing Send again with the same text retries this
-  # send and cannot queue a copy. Success clears both. A changed draft is a
-  # new message and gets a new id.
-  defp send_operator_message(socket, target, key, text) do
-    message_id = message_id_for_send(socket, key, text)
+  # OperatorSend owns the #2717 rule; the drawer keeps the draft only when the
+  # outcome is unknown, so a retry with the same text reuses the message id.
+  defp send_operator_message(socket, modal, text) do
+    key = agent_log_key(modal)
 
-    case send_agent_message(target, text, message_id) do
-      {:ok, _request_id} ->
-        clear_chat_state(socket, key)
+    case OperatorSend.send(modal, text, socket.assigns.pending_message_ids) do
+      {:ok, _request_id, _message_id, pending} ->
+        socket |> assign(:pending_message_ids, pending) |> clear_chat_state(key)
 
-      {:error, {:outcome_unknown, _info} = reason} ->
+      {:error, {:outcome_unknown, _info} = reason, _message_id, pending} ->
         socket
-        |> assign(:pending_message_ids, Map.put(socket.assigns.pending_message_ids, key, {message_id, text}))
+        |> assign(:pending_message_ids, pending)
         |> assign(:drafts, Map.put(socket.assigns.drafts, key, text))
         |> put_chat_error(key, reason)
 
-      {:error, reason} ->
+      {:error, reason, _message_id, pending} ->
         socket
-        |> assign(:pending_message_ids, Map.delete(socket.assigns.pending_message_ids, key))
+        |> assign(:pending_message_ids, pending)
         |> put_chat_error(key, reason)
     end
   end
 
-  defp message_id_for_send(socket, key, text) do
-    case Map.get(socket.assigns.pending_message_ids, key) do
-      {message_id, ^text} -> message_id
-      _new_action -> "dashboard-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    end
-  end
-
-  defp send_agent_message(target, text, message_id) do
-    case Endpoint.config(:agent_chat_send_fun) do
-      fun when is_function(fun, 3) -> fun.(target, text, message_id: message_id)
-      fun when is_function(fun, 2) -> fun.(target, text)
-      _fun -> AgentChat.send(target, text, message_id: message_id)
-    end
-  end
-
-  defp agent_log_target(%{tracker_identity: %TrackerIdentity{} = identity}), do: identity
-  defp agent_log_target(%{issue_identifier: identifier}), do: to_string(identifier)
-
-  defp agent_log_key(%{target_key: key}) when is_binary(key), do: key
-  defp agent_log_key(%{issue_identifier: identifier}), do: to_string(identifier)
+  defp agent_log_target(modal), do: OperatorSend.target(modal)
+  defp agent_log_key(modal), do: OperatorSend.key(modal)
 end

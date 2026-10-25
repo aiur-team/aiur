@@ -16,7 +16,7 @@ defmodule Aiur.DecisionStore.Persistence do
   alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.Journal
   alias Aiur.Signal
 
@@ -89,7 +89,7 @@ defmodule Aiur.DecisionStore.Persistence do
   def build_and_append_event(type, decision, data, occurred_at, state) do
     with {:ok, event_id} <- state.event_id_reserver.(),
          {:ok, event} <-
-           DecisionEvent.new(type, decision.decision_id, lifecycle_version(decision, data), data,
+           DecisionEvent.new(type, decision.decision_id, lifecycle_version(type, decision, data), data,
              event_id: event_id,
              run_id: Boot.run_id(),
              now: occurred_at
@@ -192,20 +192,24 @@ defmodule Aiur.DecisionStore.Persistence do
     repair_projection(next_state)
   end
 
-  defp lifecycle_version(_decision, %DecisionAnswer{decision_version: version}), do: version
-  defp lifecycle_version(_decision, %DecisionRevision{decision_version: version}), do: version
+  defp lifecycle_version(_type, _decision, %DecisionAnswer{decision_version: version}), do: version
+  defp lifecycle_version(_type, _decision, %DecisionRevision{decision_version: version}), do: version
 
-  defp lifecycle_version(decision, %{action_id: action_id}) do
+  defp lifecycle_version(:authority_reclassified, decision, %{expected_version: version})
+       when version == decision.version,
+       do: version + 1
+
+  defp lifecycle_version(_type, decision, %{action_id: action_id}) do
     case Decision.answer_for_action(decision, action_id) do
       %DecisionAnswer{decision_version: version} -> version
       nil -> decision.version
     end
   end
 
-  defp lifecycle_version(decision, %{actor: _actor}), do: decision.version
-  defp lifecycle_version(decision, %{reason_class: _reason_class}), do: decision.version
+  defp lifecycle_version(_type, decision, %{actor: _actor}), do: decision.version
+  defp lifecycle_version(_type, decision, %{reason_class: _reason_class}), do: decision.version
 
-  defp lifecycle_version(decision, _data), do: Decision.active_answer(decision).decision_version
+  defp lifecycle_version(_type, decision, _data), do: Decision.active_answer(decision).decision_version
 
   @spec validate_transition(term(), term()) :: term()
   def validate_transition(decision, event) do
@@ -219,7 +223,7 @@ defmodule Aiur.DecisionStore.Persistence do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{Requests.lifecycle_slug(event.type)}"
 
     try do
-      Publisher.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id, digest_source: :orchestrator)
+      Events.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id, digest_source: :orchestrator)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end

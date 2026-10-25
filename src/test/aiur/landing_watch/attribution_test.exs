@@ -28,13 +28,13 @@ defmodule Aiur.LandingWatch.AttributionTest do
       end
     end
 
-    assert {:ok, {:ai_attribution, detail}} = Attribution.pull_request_clean?(17, request_fun: request)
+    assert {:ok, {:ai_attribution, detail}} = Attribution.pull_request_clean?(17, token: "test-gh-token", request_fun: request)
     assert detail =~ "Co-authored-by: Codex"
     assert_received {:requested, "https://api.github.com/repos/owner/repo/pulls/17/commits?per_page=100"}
     assert_received {:requested, ^next}
   end
 
   test "pagination failures fail closed before landing" do
-    assert {:error, _reason} = Attribution.pull_request_clean?(17, request_fun: fn _ -> {:error, :timeout} end)
+    assert {:error, _reason} = Attribution.pull_request_clean?(17, token: "test-gh-token", request_fun: fn _ -> {:error, :timeout} end)
   end
 end

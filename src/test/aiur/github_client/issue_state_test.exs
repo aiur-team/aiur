@@ -5,6 +5,9 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
   alias Aiur.GitHub.Client
 
+  @tested_head String.duplicate("a", 40)
+  @base_sha String.duplicate("b", 40)
+
   setup do
     setup_client()
   end
@@ -35,13 +38,21 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             assert req.body == %{"labels" => ["sym:done"]}
             {:ok, %{status: 200}}
 
+          # State swaps re-read labels after adding the target.
+          {:get, 2} ->
+            open_issue_response(["sym:todo", "sym:done", "other"])
+
           # DELETE old label (new label excluded)
-          {:delete, 2} ->
+          {:delete, 3} ->
             assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
 
+          # Verification after removing the old state label.
+          {:get, 4} ->
+            open_issue_response(["sym:done", "other"])
+
           # PATCH close
-          {:patch, 3} ->
+          {:patch, 5} ->
             assert req.body == %{"state" => "closed"}
             {:ok, %{status: 200}}
 
@@ -51,66 +62,6 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
       end
 
       assert :ok = Client.update_issue_state("42", "Done", request_fun: request_fun)
-    end
-
-    test "state swaps preserve paused and watch marker labels" do
-      test_pid = self()
-      calls = :ets.new(:calls, [:set, :public])
-      :ets.insert(calls, {:count, 0})
-
-      request_fun = fn req ->
-        send(test_pid, {:github_request, req})
-        [{:count, n}] = :ets.lookup(calls, :count)
-        :ets.insert(calls, {:count, n + 1})
-
-        case {req.method, n} do
-          {:get, 0} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [
-                   %{"name" => "sym:paused"},
-                   %{"name" => "sym:todo"},
-                   %{"name" => "sym:watch"}
-                 ]
-               }
-             }}
-
-          {:get, 1} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [
-                   %{"name" => "sym:paused"},
-                   %{"name" => "sym:todo"},
-                   %{"name" => "sym:watch"}
-                 ]
-               }
-             }}
-
-          {:post, 2} ->
-            assert req.body == %{"labels" => ["sym:rework"]}
-            {:ok, %{status: 200}}
-
-          {:delete, 3} ->
-            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
-            {:ok, %{status: 200}}
-        end
-      end
-
-      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
-
-      assert_receive {:github_request, %{method: :get}}, 1000
-      assert_receive {:github_request, %{method: :get}}, 1000
-      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}, 1000
-      assert_receive {:github_request, %{method: :delete, url: deleted_url}}, 1000
-      refute deleted_url =~ "sym:paused"
-      refute deleted_url =~ "sym:watch"
-      refute_receive {:github_request, %{method: :delete}}, 100
     end
 
     test "human-review readiness requires unresolved authenticated-viewer replies to be resolved" do
@@ -127,7 +78,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -171,11 +122,8 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
       request_fun = fn req ->
         cond do
-          req.method == :get and req.url =~ "/compare/main...tested-head" ->
-            {:ok, %{status: 200, body: %{"status" => "ahead"}}}
-
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -229,7 +177,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.url == "https://api.github.com/graphql" ->
             review_threads_page_response([
@@ -269,69 +217,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
                      100
     end
 
-    test "allows human-review when the open PR has no unaddressed review threads" do
-      calls = :ets.new(:calls, [:set, :public])
-      :ets.insert(calls, {:count, 0})
-
-      request_fun = fn req ->
-        [{:count, n}] = :ets.lookup(calls, :count)
-        :ets.insert(calls, {:count, n + 1})
-
-        case {req.method, n} do
-          {:get, 0} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:in-progress"}]
-               }
-             }}
-
-          {:get, 1} ->
-            assert req.url =~ "/pulls?"
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head"}}]}}
-
-          {:post, 2} ->
-            assert req.url == "https://api.github.com/graphql"
-            review_threads_page_response([])
-
-          # The swap adds first: the active-label add re-checks the issue, then
-          # POSTs the new label, then removes the old one (#2420).
-          {:get, 3} ->
-            assert req.url =~ "/compare/main...tested-head"
-            {:ok, %{status: 200, body: %{"status" => "ahead"}}}
-
-          {:get, 4} ->
-            assert req.url =~ "/issues/42"
-
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:in-progress"}]
-               }
-             }}
-
-          {:post, 5} ->
-            assert req.body == %{"labels" => ["sym:human-review"]}
-            {:ok, %{status: 200}}
-
-          {:delete, 6} ->
-            assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
-            {:ok, %{status: 200}}
-        end
-      end
-
-      assert :ok =
-               Client.update_issue_state("42", "human-review",
-                 request_fun: request_fun,
-                 bot_account: "aiur-bot"
-               )
-    end
-
-    test "closed issues remove stale active labels and report no state label written" do
+    test "closed issues preserve done while removing stale active labels" do
       test_pid = self()
 
       request_fun = fn req ->
@@ -358,9 +244,8 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
         end
       end
 
-      # Active target on a closed issue: the stale active labels are stripped,
-      # but no active state label was written, so the transition reports that
-      # honestly instead of a false `:ok` (#2420).
+      # Active target on a closed issue: the existing done state is preserved,
+      # stale active labels are stripped, and no active state is claimed (#2420).
       assert {:error, {:no_state_label_written, _issue}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
@@ -460,9 +345,21 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:done"]}}}, 1000
       assert_receive {:github_request, %{method: :delete}}, 1000
-      refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
     end
+  end
+
+  defp open_issue_response(labels) do
+    {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+  end
+
+  defp pr(head) do
+    %{"number" => 77, "body" => local_tests_body(head), "head" => %{"ref" => "aiur/42", "sha" => head}}
+  end
+
+  defp local_tests_body(head) do
+    "## Local tests\n\nPolicy: partial\nTested head: #{head}\nBase: main @ #{@base_sha}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
   end
 end

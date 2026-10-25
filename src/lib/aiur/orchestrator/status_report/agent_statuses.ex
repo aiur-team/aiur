@@ -43,27 +43,34 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
+    # Resolve every row from one batch; per-row reads multiply status RPC work by ticket count.
+    decision_counts = status_decision_counts(state)
+
     statuses =
-      (running_statuses(state, now) ++
-         retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
+      (running_statuses(state, now, decision_counts) ++
+         retry_statuses(state) ++
+         idle_statuses(state, running_by_identifier, prewarm_phase, decision_counts))
       |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
 
     {statuses, state}
   end
 
-  defp running_statuses(%State{} = state, %DateTime{} = now) do
+  defp running_statuses(%State{} = state, %DateTime{} = now, decision_counts) do
     Enum.map(state.running, fn {issue_id, entry} ->
-      running_status(state, issue_id, entry, now)
+      running_status(state, issue_id, entry, now, decision_counts)
     end)
   end
 
-  defp running_status(%State{} = state, issue_id, entry, now) do
+  defp running_status(%State{} = state, issue_id, entry, now, decision_counts) do
     identifier = Map.get(entry, :identifier) || issue_id
     issue = Map.get(entry, :issue) || %{}
     work_state = startup_work_state(entry)
     capabilities = OM.issue_control_capabilities(state, identifier, entry)
     pause_reason = Map.get(entry, :paused_reason)
-    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
+
+    {open_decision_count, open_decision_count_health} =
+      Map.get(decision_counts, identifier, {0, :unavailable})
+
     stale_for_seconds = stale_for_seconds(entry, now)
 
     waiting_reason =
@@ -84,7 +91,9 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       state: if(work_state == :paused, do: :paused, else: :running),
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
+      labels: Map.get(issue, :labels, []),
       tracker_paused: Issue.paused?(issue),
+      executor_owner: Issue.executor_owner(issue),
       tag: State.issue_tag(issue),
       title: Map.get(issue, :title),
       url: Map.get(issue, :url),
@@ -126,7 +135,9 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         state: :paused,
         work_state: :retrying,
         tracker_state: Map.get(issue || %{}, :state),
+        labels: issue_labels(issue),
         tracker_paused: tracker_paused,
+        executor_owner: status_executor_owner(issue),
         tag: State.issue_tag(issue),
         title: Map.get(issue || %{}, :title),
         url: Map.get(issue || %{}, :url),
@@ -162,6 +173,11 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
     end)
   end
 
+  defp status_executor_owner(%Issue{} = issue), do: Issue.executor_owner(issue)
+  defp status_executor_owner(_issue), do: nil
+
+  defp issue_labels(issue), do: Map.get(issue || %{}, :labels, [])
+
   defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
   defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
   defp tracker_paused?(_issue), do: false
@@ -172,7 +188,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # serialized inside this handle_call. That is why `status` and `agents` were
   # slow (and `alerts`, which never touches the orchestrator, was not) — #1684.
   # Read it once per snapshot.
-  defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
+  defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase, decision_counts) do
     max_dispatches = Config.agent_max_dispatches_per_ticket()
 
     idle_issues =
@@ -192,14 +208,25 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
         issue,
         prewarm_phase,
         max_dispatches,
-        Map.get(latch_statuses, issue_id, :none)
+        Map.get(latch_statuses, issue_id, :none),
+        decision_counts
       )
     end)
   end
 
-  defp idle_status(%State{} = state, issue, prewarm_phase, max_dispatches, latch_status) do
+  defp idle_status(
+         %State{} = state,
+         issue,
+         prewarm_phase,
+         max_dispatches,
+         latch_status,
+         decision_counts
+       ) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
-    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
+
+    {open_decision_count, open_decision_count_health} =
+      Map.get(decision_counts, identifier, {0, :unavailable})
+
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
     prewarm_blocked? = prewarm_blocked?(prewarm_phase)
 
@@ -207,7 +234,15 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
     pause_reason = idle_issue_pause_reason(issue)
     release = Map.get(state.released_claims, Map.get(issue, :id))
 
-    idle_evidence = idle_evidence(state, issue, latch_status, open_decision_count, System.monotonic_time(:millisecond))
+    idle_evidence =
+      idle_evidence(
+        state,
+        issue,
+        latch_status,
+        open_decision_count,
+        System.monotonic_time(:millisecond)
+      )
+
     waiting_reason = idle_evidence_waiting_reason(idle_evidence, release)
 
     %{
@@ -217,7 +252,9 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       state: if(work_state == :paused, do: :paused, else: :idle),
       work_state: work_state,
       tracker_state: Map.get(issue, :state),
+      labels: Map.get(issue, :labels, []),
       tracker_paused: Issue.paused?(issue),
+      executor_owner: Issue.executor_owner(issue),
       tag: State.issue_tag(issue),
       title: Map.get(issue, :title),
       url: Map.get(issue, :url),
@@ -234,9 +271,14 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       claim_release_cause: release && release.cause,
       reason:
         idle_reason(waiting_reason, identifier, fn ->
-          if waiting_reason in [:optimistic_share, :queue_set_order],
-            do: QueueSetSlots.waiting_reason(waiting_reason, issue.id, state),
-            else:
+          cond do
+            waiting_reason in [:optimistic_share, :queue_set_order] ->
+              QueueSetSlots.waiting_reason(waiting_reason, issue.id, state)
+
+            owner = Issue.executor_owner(issue) ->
+              {:executor_owned, owner}
+
+            true ->
               idle_status_reason(
                 work_state,
                 pause_reason,
@@ -247,6 +289,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
                 release && release.cause,
                 idle_evidence.auto_resume_retry_in_ms
               )
+          end
         end),
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
@@ -262,21 +305,45 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
     |> WaitingReason.attach(state)
   end
 
+  defp status_decision_counts(state) do
+    running =
+      Enum.map(state.running, fn {issue_id, entry} -> Map.get(entry, :identifier) || issue_id end)
+
+    retrying =
+      Enum.map(state.retry_attempts, fn {issue_id, retry} ->
+        Map.get(retry, :identifier) || issue_id
+      end)
+
+    idle =
+      visible_polled_issues(state)
+      |> Map.values()
+      |> Enum.map(&(Map.get(&1, :identifier) || Map.get(&1, :id)))
+
+    open_decision_counts(running ++ retrying ++ idle)
+  end
+
   # A claim-shaped waiting reason IS the reason to show: the row has no live
   # agent and naming why beats re-deriving it from work state. Everything else
   # falls through to the ordinary reason ladder, which the caller passes as a
   # thunk so it is only computed when it is needed.
-  @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting, :workspace_retained]
+  @claim_shaped_waiting_reasons [
+    :orphaned_claim,
+    :stale_claim,
+    :workspace_ownership_waiting,
+    :workspace_retained
+  ]
 
-  defp idle_reason(reason, identifier, _fallback) when reason in [:workspace_ownership_waiting, :workspace_retained] do
+  defp idle_reason(reason, identifier, _fallback)
+       when reason in [:workspace_ownership_waiting, :workspace_retained] do
     case HoldStatus.for_ticket(identifier) do
       %{generation: generation, proof: proof} -> {reason, identifier, generation, proof}
       nil -> reason
     end
   end
 
-  defp idle_reason(waiting_reason, _identifier, _fallback) when waiting_reason in @claim_shaped_waiting_reasons,
-    do: waiting_reason
+  defp idle_reason(waiting_reason, _identifier, _fallback)
+       when waiting_reason in @claim_shaped_waiting_reasons,
+       do: waiting_reason
 
   defp idle_reason(_waiting_reason, _identifier, fallback), do: fallback.()
 
@@ -295,7 +362,7 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
       waiting_reason:
         WaitingReason.for_idle(
           Map.get(issue, :state),
-          DispatchPolicy.todo_issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
+          DispatchPolicy.issue_held_by_dependency?(issue, DispatchPolicy.terminal_state_set()),
           open_decision_count,
           queue_set_order?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :queue_set_order,
           optimistic_share?: Map.get(state.dispatch_declines, Map.get(issue, :id)) == :optimistic_share,
@@ -305,7 +372,12 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
           dispatch_hold_reason: dispatch_hold_reason,
           capacity_hold_active?: capacity_hold_active?,
           workspace_retained?: not is_nil(Retention.for_ticket(Map.get(issue, :identifier) || Map.get(issue, :id))),
-          workspace_recovery?: WaitingReason.workspace_recovery?(state, Map.get(issue, :id), Map.get(issue, :identifier)),
+          workspace_recovery?:
+            WaitingReason.workspace_recovery?(
+              state,
+              Map.get(issue, :id),
+              Map.get(issue, :identifier)
+            ),
           startup_reconciliation_complete?: state.startup_claim_reconciliation_complete?
         )
     }
@@ -318,7 +390,8 @@ defmodule Aiur.Orchestrator.StatusReport.AgentStatuses do
   # `reason` (`StatusReason.render`) and `claim_release_cause`.
   @doc false
   @spec idle_evidence_waiting_reason(map(), map() | nil) :: atom()
-  def idle_evidence_waiting_reason(_evidence, %{cause: cause}) when not is_nil(cause), do: :claim_released
+  def idle_evidence_waiting_reason(_evidence, %{cause: cause}) when not is_nil(cause),
+    do: :claim_released
 
   def idle_evidence_waiting_reason(%{waiting_reason: fallback}, _release), do: fallback
 

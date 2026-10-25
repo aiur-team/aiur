@@ -2,7 +2,7 @@ defmodule Aiur.Experiments.Auto.Notifier do
   @moduledoc false
   use GenServer
   require Logger
-  alias Aiur.Events.Publisher
+  alias Aiur.Events
   alias Aiur.Experiments.Paths
   alias Aiur.JsonStore
 
@@ -78,7 +78,7 @@ defmodule Aiur.Experiments.Auto.Notifier do
   end
 
   defp publish(topic, payload) do
-    case Publisher.publish(topic, Map.put(payload, :source, :system)) do
+    case Events.publish(topic, Map.put(payload, :source, :system)) do
       {:ok, _id, _subscribers} -> :ok
       error -> {:error, error}
     end

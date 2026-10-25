@@ -89,13 +89,12 @@ Only an explicit operator exclusion leaves filed work outside the build: park it
 with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
 in the ledger under the convergence policy above.
 
-“Prioritize” means place the work ahead of the previous next-up using priority
-labels and queue ordering, then report what it displaced. A label alone is not
-placement. Verify the collection, projected labels, prerequisites, membership,
-and effective start order before reporting intake complete.
+“Prioritize” means place the work ahead of the previous next-up using priority labels and queue ordering, then report what it displaced. A label alone is not placement. Verify the collection, projected labels, prerequisites, membership, and effective start order before reporting intake complete.
 
 Use `agent:queued` in the same creation request for executable members; the queue
 promotes ready members to `agent:todo`. Never create first and label later.
+
+**Give every new ticket a home-page epic.** After issue creation returns its number, run `aiur epic list` for the configured general keys, then `aiur epic set <epic> <ids…>` once per epic (up to 200 ids). Defaults are `bugs`, `design`, `infra`, `docs`; repositories can change them. An unknown key is refused with the list of valid keys; read it rather than guess. For feature members, use `aiur feature add <slug> <ids…>` instead. If unsure, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. Epic assignment is local Aiur state; if it fails, report the failure and continue filing. When promoting or retro-classifying many tickets, group ids by epic. If feature ownership conflicts, use `aiur feature add <slug> <ids…> --move` only when the ticket really changed feature.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
@@ -266,6 +265,7 @@ count detached from ready work.
 
 ## Recovery ladder
 
+Prefer `aiurdev restart --keep-agents` for fleet upgrades. Save `aiurdev agents --json` before; afterward compare `aiurdev status --handoff --json`: every issue is adopted with the same provider pid and session id, or has a fallback reason. Verify `aiurdev alerts` records `system.restart.handoff.completed`, adopted tickets have no startup-claim release, and a ready ticket dispatches within one poll interval. [Restart semantics](../../../../website/docs-app/reference/cli.md#restart-semantics) cover failed-build recovery.
 A fleet-wide quiet board is a blockage, not idleness, and none of its causes
 log anything. Clear the fleet-level gates before triaging any single agent: run
 bare `aiurdev resume` first, because the global pause switch survives daemon
@@ -276,9 +276,7 @@ prewarm record `~/.aiur/repo/<owner>/<repo>/base-record.json` matches the
 every dispatch tick silently (issue #1404); and allow for the post-restart
 dispatch ramp.
 
-Alerts persist across daemon restarts and tokens (#1231), so the actionable list
-keeps naming long-merged tickets. Check alert timestamps and trust the live
-state table over the alert list.
+Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
 
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`

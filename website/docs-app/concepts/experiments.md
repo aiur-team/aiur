@@ -1,11 +1,8 @@
 # Experiments
 
-Experiments record a hypothesis, comparison design, metrics and expected directions.
-A **before/after** experiment names a change line (`type`, `ref`, UTC `time`);
-an **A/B** experiment names at least two cohorts and a control cohort.
+Experiments record a hypothesis, comparison design, metrics and expected directions. A **before/after** experiment names a change line (`type`, `ref`, UTC `time`); an **A/B** experiment names at least two cohorts and a control cohort.
 
-Cohort predicates use `eq`, `neq`, `in`, `prefix`, `exists`, `all`, `any` and `not`
-over recorded attributes such as backend, model, complexity or `tags.team`.
+Cohort predicates use `eq`, `neq`, `in`, `prefix`, `exists`, `all`, `any` and `not` over recorded attributes such as backend, model, complexity or `tags.team`.
 
 Load the consumer pack below, then create and inspect experiments through the daemon:
 
@@ -19,41 +16,22 @@ aiur experiments create --from spec.json
 cat spec.json | aiur experiments create --from -
 ```
 
-Specs include owner, hypothesis, origin, metrics, minimum sample counts,
-windows, filters, stratification keys, tags and notes. Before/after windows
-default to 14 days before the change and an open-ended window after it.
-The default minimum is 15 samples per arm.
+Specs include owner, hypothesis, origin, metrics, minimum sample counts, windows, filters, stratification keys, tags and notes. Before/after windows default to 14 days before the change and an open-ended window after it. The default minimum is 15 samples per arm.
 
-Creation and metric amendments reject references absent from the catalog. Stored
-specs remain readable if a pack disappears; evaluation reports those metrics as
-`unavailable`.
+Creation and metric amendments reject references absent from the catalog. Stored specs remain readable if a pack disappears; evaluation reports those metrics as `unavailable`.
 
-Before/after creation freezes the before window immediately;
-`--no-freeze` opts out. Creation prints its window, observation count and
-per-metric coverage; JSON includes `frozen_snapshot`. A refused baseline leaves
-no new experiment, so the same ID can be retried.
+Before/after creation freezes the before window immediately; `--no-freeze` opts out. Creation prints its window, observation count and per-metric coverage; JSON includes `frozen_snapshot`. A refused baseline leaves no new experiment, so the same ID can be retried.
 
-Stored statuses are `draft`, `active`, `report_due`, `reported`, `cancelled`,
-`concluded` and `abandoned`. Drafts do
-not register automatically when the change time passes.
+Stored statuses are `draft`, `active`, `report_due`, `reported`, `cancelled`, `concluded` and `abandoned`. Drafts do not register automatically when the change time passes.
 
-The phase is derived from the change time and window end: `awaiting_change`,
-`collecting` or `window_closed`. A deterministic optional `key` makes repeated
-creation return the existing experiment.
+The phase is derived from the change time and window end: `awaiting_change`, `collecting` or `window_closed`. A deterministic optional `key` makes repeated creation return the existing experiment.
 
-The state node at `~/.aiur/repo/<owner>/<repo>/experiments/<id>/` holds
-`spec.json`, append-only `journal.ndjson`, `annotations.ndjson` and `report/`.
-The root `index.json` is a rebuildable cache. One daemon process serializes
-writes; reads access the files directly. Corrupt specs appear as unreadable
-rows without hiding other experiments.
+The state node at `~/.aiur/repo/<owner>/<repo>/experiments/<id>/` holds `spec.json`, append-only `journal.ndjson`, `annotations.ndjson` and `report/`. The root `index.json` is a rebuildable cache. One daemon process serializes
+writes; reads access the files directly. Corrupt specs appear as unreadable rows without hiding other experiments.
 
-Evaluation runs separately, with one
-job at a time and a two-minute deadline. Concurrent evaluations return
-`evaluation_busy`; retry after the current job finishes. Amendments remain
-available, but invalidate any prepared evidence based on the old spec.
+Evaluation runs separately, with one job at a time and a two-minute deadline. Concurrent evaluations return `evaluation_busy`; retry after the current job finishes. Amendments remain available, but invalidate any prepared evidence based on the old spec.
 
-Files carry `schema_version`. Readers upgrade the previous version; specs from
-a newer version remain readable and all edits are refused. `registered_at`
+Files carry `schema_version`. Readers upgrade the previous version; specs from a newer version remain readable and all edits are refused. `registered_at`
 records pre-registration. Later edits remain allowed and journal their field
 diff with `post_registration: true`; annotations preserve deploys, confounders,
 excluded units and notes.
@@ -117,7 +95,7 @@ Pack ids cannot shadow built-ins, including
 
 Each metric declares its label, unit, unit of analysis, kind (`duration`,
 `count`, `binary`, `rate` or `bucketed`), preferred direction, group and
-required capture facts.
+required capture facts. Optional treatment-affected attribute metadata is documented in the [stratification reference](../reference/experiment-statistics.md#stratification).
 
 Sources are `event_interval` (first start and first
 subsequent end per unit), `event_count` (matches per unit or hour/day),
@@ -240,6 +218,28 @@ as hooks; they are not sandboxed against filesystem access.
 Stdout and stderr share the bounded script stream. A nonzero exit reports the
 first non-JSON diagnostic line; this can be a stdout diagnostic if one precedes
 stderr.
+
+## How analysis runs
+
+`aiur experiments analyze <id>` creates or reuses one open analysis request and fleet ticket; it defaults to spec before registration, otherwise report.
+
+Feature creation requests a spec; the sample guard requests an interim report, and the registered planned count requests a confirmatory report.
+
+The component subscribes to X3 notifications and reconciles each minute, recovering armed feature drafts and checking live minimum/planned counts across every cohort.
+
+Confirmatory supersedes interim on the same open request; completed trigger points are remembered across restarts.
+
+Tickets carry `agent:todo`, `experiment-analysis`, complexity 2 (3 for confirmatory), and a request/nonce marker at creation.
+
+`--local` prints the same brief without filing a ticket; park any existing ticket before running one local analyst.
+
+Briefs expose the spec, metric definitions, baseline and counts; they exclude after-period values. Follow the analyst skill's baseline-planning availability checks before registering.
+
+A matching stored submission fulfills its request; interim results leave confirmatory requests open (CLI exits 1). Closed or done tickets without a matching submission become `failed` with attention; manual analyze opens a new request.
+
+Ticket and routing writes back off and alert after three failures. After backoff, uncertain creates reconcile by nonce in the creation-time window; only a complete lookup proving absence permits another POST with the same nonce. Closure requires a complete listing begun after ticket attachment.
+
+Set `experiments.analyst.auto_request: false` for CLI-only requests; disabled telemetry starts no experiment workers.
 
 ## When the report is written
 
@@ -372,39 +372,38 @@ The pack exposes these delivery metrics.
 | cost_quality | `tokens_per_merged_ticket` | count | Ticket-attributed input and output tokens, including cache/reasoning. |
 | cost_quality | `main_red_events` | bucketed | Default-branch CI failures per day; not captured yet. |
 | cost_quality | `reverts` | bucketed | Revert merges per day; not captured yet. |
+| ci_stability | `ci_run_failure_rate` | binary | Failed/successful pull-request and merge-group workflow runs. |
+| ci_stability | `ci_rerun_rate` | binary | CI runs with run attempt greater than one. |
+| ci_stability | `merge_group_failure_rate` | binary | Failed/successful merge-group runs. |
+| ci_stability | `pr_ci_wall_time` | duration | Decided PR CI run duration, in ms. |
+| ci_stability | `ci_queue_wait` | duration | Job created to started duration, in ms; sampled when job limits apply. |
+| ci_stability | `feature_merge_share` | bucketed | Daily share of merged PRs classified as feature work. |
+| ci_stability | `innocent_dequeues` | count | Merged PRs removed from queue and later merged with the same head. |
+| ci_stability | `flaky_failure_rate` | rate | Failed test-jobs with known flaky or base-failing evidence. |
+| ci_stability | `flake_issues_filed` | bucketed | Daily issues filed with `flake` or `main-fix` labels. |
 
-Durations, counts and spend prefer lower values; throughput and utilization
-prefer higher values. `binding_gate` has no preferred direction. Every metric
-reference begins with `delivery-speed/`.
+Durations, counts and spend prefer lower values; throughput and utilization prefer higher values. `binding_gate` has no preferred direction. Every metric reference begins with `delivery-speed/`.
 
 Ticket units are `ticket:<number>`, assigned at first dispatch, with complexity
 and dispatch-time cohort attributes. Redispatch and restarts create no second
 unit. Merge, review-round and cost metrics exclude unmerged tickets (`filtered`).
 
-`finished_at` and `censored` are observation attributes. Open PR/review durations
-are censored at window end. Missing PR-open evidence on merged tickets is
-excluded and reports partial capture, never a censored open ticket.
+Dispatch cohorts also capture `tags.work_kind` (`feature`, `test_ci`, `tooling`,
+or `other`), using issue labels first and title rules as fallback.
 
-`not_captured` means a required capture fact is absent, with no observations.
-It never means zero. Legacy data may lack source PR times, dispatch blockers/epic
-or review-thread evidence. CI wait, ready-queue depth, gate reason, main-red and
-revert facts remain uncaptured; lifecycle labels are not substitutes.
+`finished_at` and `censored` are observation attributes. Open PR/review durations are censored at window end. Missing PR-open evidence on merged tickets is excluded and reports partial capture, never a censored open ticket.
 
-Disabled telemetry reports `unavailable/telemetry_disabled`; missing telemetry
-reports `unavailable/telemetry_missing`. Corrupt summaries and fleet sample gaps report `partial`.
+`not_captured` means a required capture fact is absent, with no observations. It never means zero. Legacy data may lack source PR times, dispatch blockers/epic or review-thread evidence. CI wait, ready-queue depth, gate reason, main-red and revert facts remain uncaptured; lifecycle labels are not substitutes.
+
+Disabled telemetry reports `unavailable/telemetry_disabled`; missing telemetry reports `unavailable/telemetry_missing`. Corrupt summaries and fleet sample gaps report `partial`.
 
 Experiment telemetry uses one streaming reader for JSON summaries and live NDJSON.
 Callers that supply known boot intervals can skip non-overlapping sources before
 opening.
 
-The delivery pack has no boot-range index and does not claim this
-optimization: it reads retained summaries independently and caches each small
-projection by path, size and modification time. Live data is not cached.
+The delivery pack has no boot-range index and does not claim this optimization: it reads retained summaries independently and caches each small projection by path, size and modification time. Live data is not cached.
 
-Earlier lifecycle and fleet evidence preserves first dispatch and prerequisite
-merges. A large or incomplete boot cannot exhaust another boot's read budget.
-Truncated boot prefixes remain usable within the memory bound and report `partial`;
-complete summaries and live observations remain available.
+Earlier lifecycle and fleet evidence preserves first dispatch and prerequisite merges. A large or incomplete boot cannot exhaust another boot's read budget. Truncated boot prefixes remain usable within the memory bound and report `partial`; complete summaries and live observations remain available.
 
 Each retained summary has its own limits: 100,000 record envelopes, 32 MiB input
 and a 4 MiB projection, plus 1 MiB tokens and 16 nesting levels. Derived actor/ticket maps are discarded after fleet samples are extracted.

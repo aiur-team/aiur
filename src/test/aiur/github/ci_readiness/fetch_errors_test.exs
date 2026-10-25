@@ -114,7 +114,7 @@ defmodule Aiur.GitHub.CiReadiness.FetchErrorsTest do
     request_fun = fn _request -> exit(:boom) end
 
     assert {:error, {:github, :transport, _detail}} =
-             CiReadiness.check(repo: "owner/repo", base_branch: "develop", request_fun: request_fun, timeout_ms: 500)
+             CiReadiness.check(repo: "owner/repo", base_branch: "develop", token: "test-gh-token", request_fun: request_fun, timeout_ms: 500)
   end
 
   test "immediately times out when the inspection deadline has already passed" do
@@ -124,6 +124,7 @@ defmodule Aiur.GitHub.CiReadiness.FetchErrorsTest do
              CiReadiness.check(
                repo: "owner/repo",
                base_branch: "develop",
+               token: "test-gh-token",
                request_fun: request_fun,
                timeout_ms: 1,
                deadline_at_ms: System.monotonic_time(:millisecond) - 100

@@ -5,7 +5,7 @@ defmodule Aiur.PostDeployChecklist do
   require Logger
 
   alias Aiur.{Config, JsonStore}
-  alias Aiur.Events.Exchange
+  alias Aiur.Events
 
   @filename "post_deploy_checks.json"
 
@@ -28,9 +28,9 @@ defmodule Aiur.PostDeployChecklist do
   @impl true
   def init(opts) do
     path = Keyword.get(opts, :path) || state_path()
-    exchange = Keyword.get(opts, :exchange, Exchange)
+    exchange = Keyword.get(opts, :exchange, Events.exchange_server())
 
-    if Keyword.get(opts, :subscribe?, true), do: :ok = Exchange.subscribe("ticket.*.pr.merged", exchange)
+    if Keyword.get(opts, :subscribe?, true), do: :ok = Events.subscribe("ticket.*.pr.merged", exchange)
 
     with path when is_binary(path) <- path,
          {:ok, records} when is_list(records) <- JsonStore.read(path, []),

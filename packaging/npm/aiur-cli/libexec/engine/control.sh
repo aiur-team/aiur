@@ -68,6 +68,9 @@ load_aiur_instance_record() {
   AIUR_RECORD_WORKSPACE_ROOT_FILE=""
   AIUR_RECORD_PROJECT_ROOT=""
   AIUR_RECORD_PROJECT_ROOT_SOURCE=""
+  AIUR_RECORD_TEST_TICKET_IDS=""
+  AIUR_RECORD_TEST_STATE_DIR=""
+  AIUR_RECORD_GITHUB_BUDGET_DIR=""
   [ -r "$file" ] || return 1
   # Records are written by this engine as KEY=%q lines under the user's state dir.
   # shellcheck disable=SC1090
@@ -129,6 +132,7 @@ $root
     match_socket="$AIUR_RECORD_SOCKET"
     match_root="$root"
     match_source="$AIUR_RECORD_PROJECT_ROOT_SOURCE"
+    AIUR_CONTROL_RECORD_TEST_TICKET_IDS="$AIUR_RECORD_TEST_TICKET_IDS"
   done
 
   [ "$match_count" -eq 1 ] || return 0
@@ -137,10 +141,11 @@ $root
   AIUR_INSTANCE_KEY="$match_key"
   AIUR_PROJECT_ROOT="$match_root"
   AIUR_PROJECT_ROOT_SOURCE="$match_source"
+  AIUR_RECORD_TEST_TICKET_IDS="$AIUR_CONTROL_RECORD_TEST_TICKET_IDS"
   AIUR_ADOPTED_TMUX_SESSION="$match_session"
   AIUR_ADOPTED_TMUX_SOCKET="$match_socket"
   export AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_PROJECT_ROOT AIUR_PROJECT_ROOT_SOURCE \
-    AIUR_ADOPTED_TMUX_SESSION AIUR_ADOPTED_TMUX_SOCKET
+    AIUR_ADOPTED_TMUX_SESSION AIUR_ADOPTED_TMUX_SOCKET AIUR_RECORD_TEST_TICKET_IDS
   RELEASE_NODE="$AIUR_RELEASE_NODE"
   export RELEASE_NODE
   AIUR_CONTROL_ADOPTED_RECORD=1
@@ -324,35 +329,44 @@ run_control_rpc() {
 
 run_control_rpc_dispatch() {
   local expression="$1"
-  resolve_release || return $?
-  prepare_distribution || die "distribution setup failed; cannot contact aiur"
-  resolve_control_identity_from_records
-  if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
-    prepare_distribution || die "distribution setup failed; cannot contact aiur"
-  fi
-
   local marker="__AIUR_CONTROL_EXIT__:" error_marker="__AIUR_CONTROL_ERROR__:"
   local output status exit_code=0 saw_marker=0 saw_error=0 saw_output=0 line partial_suffix=""
 
-  set +e
-  run_release_rpc_with_timeout "$expression"
-  status=$?
-  output="$AIUR_CONTROL_RPC_OUTPUT"
-  set -e
+  if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    AIUR_CONTROL_RPC_OUTPUT=""
+    set +e
+    run_remote_rpc_with_timeout "$expression"
+    status=$?
+    output="${AIUR_CONTROL_RPC_OUTPUT:-}"
+    set -e
+    [ "$status" -eq 0 ] || return "$status"
+  else
+    resolve_release || return $?
+    prepare_distribution || die "distribution setup failed; cannot contact aiur"
+    resolve_control_identity_from_records
+    if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
+      prepare_distribution || die "distribution setup failed; cannot contact aiur"
+    fi
 
-  if [ "$status" -ne 0 ] && [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ] && \
-    { [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ] || [ ! -r "$release_dir/releases/start_erl.data" ]; }; then
-    control_release_retry
-    return $?
-  fi
+    set +e
+    run_release_rpc_with_timeout "$expression"
+    status=$?
+    output="$AIUR_CONTROL_RPC_OUTPUT"
+    set -e
 
-  if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
-    [ -n "$output" ] && partial_suffix="; partial output was discarded"
-    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown${partial_suffix}.$(control_attempt_sentence) Commonly one blocked process inside the daemon, not host load."
-    return 124
-  fi
+    if [ "$status" -ne 0 ] && [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ] && \
+      { [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ] || [ ! -r "$release_dir/releases/start_erl.data" ]; }; then
+      control_release_retry
+      return $?
+    fi
 
-  if [ "$status" -ne 0 ]; then
+    if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
+      [ -n "$output" ] && partial_suffix="; partial output was discarded"
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown${partial_suffix}.$(control_attempt_sentence) Commonly one blocked process inside the daemon, not host load."
+      return 124
+    fi
+
+    if [ "$status" -ne 0 ]; then
     # A non-zero exit here is the rpc transport failing — application-level
     # outcomes ride the marker path below. `bin/aiur rpc` (Elixir --rpc-eval)
     # reports a genuinely-down node and a live-but-unreachable one identically
@@ -392,7 +406,8 @@ run_control_rpc_dispatch() {
         fi
         ;;
     esac
-    return 1
+      return 1
+    fi
   fi
 
   while IFS= read -r line; do

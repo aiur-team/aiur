@@ -176,7 +176,7 @@ defmodule Aiur.AgentRunner.ToolExecutor.DecisionRequestsTest do
       assert Jason.decode!(second["output"])["result"]["status"] == "duplicate"
     end
 
-    test "the trusted session and tool-call id deduplicate retries without agent source_id" do
+    test "the trusted session deduplicates retries and identical questions across tool calls" do
       identifier = "TE-decision-trusted-dedup-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier}
       executor = ToolExecutor.build(issue, nil, nil, %{thread_id: "thread-abc"})
@@ -198,8 +198,8 @@ defmodule Aiur.AgentRunner.ToolExecutor.DecisionRequestsTest do
       assert first_result["status"] == "accepted"
       assert retry_result["status"] == "duplicate"
       assert retry_result["decision_id"] == first_result["decision_id"]
-      assert distinct_result["status"] == "accepted"
-      refute distinct_result["decision_id"] == first_result["decision_id"]
+      assert distinct_result["status"] == "duplicate"
+      assert distinct_result["decision_id"] == first_result["decision_id"]
     end
 
     test "trusted identity overwrites atom-keyed agent source_id values" do

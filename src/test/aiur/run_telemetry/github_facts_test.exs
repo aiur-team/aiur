@@ -102,7 +102,7 @@ defmodule Aiur.RunTelemetry.GitHubFactsTest do
     end
 
     assert {:ok, %{pr_number: 4010}} =
-             GitHubFacts.fetch("3797", repo: "aiur-team/aiur", request_fun: request, branch_lookup: fn 3797 -> %{ref: "refs/heads/aiur/3797-exp-x1-4-capture", sha: "abc"} end)
+             GitHubFacts.fetch("3797", repo: "aiur-team/aiur", token: "test-gh-token", request_fun: request, branch_lookup: fn 3797 -> %{ref: "refs/heads/aiur/3797-exp-x1-4-capture", sha: "abc"} end)
 
     assert_receive {:branch_query, "aiur/3797-exp-x1-4-capture"}, 500
   end
@@ -117,7 +117,7 @@ defmodule Aiur.RunTelemetry.GitHubFactsTest do
     end
 
     ticket = %{identifier: "3797", branch_name: "aiur/3797-existing-title"}
-    assert {:ok, %{pr_number: 4010}} = GitHubFacts.fetch(ticket, repo: "aiur-team/aiur", request_fun: request, allowed_fun: fn _ -> false end)
+    assert {:ok, %{pr_number: 4010}} = GitHubFacts.fetch(ticket, repo: "aiur-team/aiur", token: "test-gh-token", request_fun: request, allowed_fun: fn _ -> false end)
     assert_receive {:request, req}, 500
     assert req.caller == "analytics_facts"
     assert req.body["variables"]["branch"] == ticket.branch_name
@@ -125,6 +125,6 @@ defmodule Aiur.RunTelemetry.GitHubFactsTest do
     refute req.body["query"] =~ "body"
     refute_receive {:request, _}, 10
     hold = {:aiur, :locally_held, %{retry_after_ms: 5_000}}
-    assert {:error, ^hold} = GitHubFacts.fetch(3797, repo: "aiur-team/aiur", request_fun: fn _ -> {:error, hold} end)
+    assert {:error, ^hold} = GitHubFacts.fetch(3797, repo: "aiur-team/aiur", token: "test-gh-token", request_fun: fn _ -> {:error, hold} end)
   end
 end

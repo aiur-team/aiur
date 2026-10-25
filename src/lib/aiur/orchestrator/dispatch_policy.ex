@@ -5,8 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.BuildQueue.Hints
-  alias Aiur.{Issue, MergePolicy, SystemCpu, SystemFileDescriptors}
+  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, SystemCpu, SystemFileDescriptors, Tracker}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
@@ -77,14 +76,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defdelegate issue_not_paused?(issue), to: Eligibility
   @spec issue_not_parked?(Issue.t()) :: boolean()
   defdelegate issue_not_parked?(issue), to: Eligibility
+  @spec issue_not_executor_owned?(Issue.t()) :: boolean()
+  defdelegate issue_not_executor_owned?(issue), to: Eligibility
   @spec issue_routable_to_worker?(term()) :: boolean()
   defdelegate issue_routable_to_worker?(issue), to: Eligibility
   @spec issue_dispatch_authorized?(term()) :: boolean()
   defdelegate issue_dispatch_authorized?(issue), to: Eligibility
   @spec issue_dispatch_authorization_deferred?(term()) :: boolean()
   defdelegate issue_dispatch_authorization_deferred?(issue), to: Eligibility
-  @spec todo_issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
-  defdelegate todo_issue_held_by_dependency?(issue, terminal_states), to: Eligibility
+  @spec issue_held_by_dependency?(term(), MapSet.t()) :: boolean()
+  defdelegate issue_held_by_dependency?(issue, terminal_states), to: Eligibility
   @spec holding_blockers(term(), MapSet.t()) :: [term()]
   defdelegate holding_blockers(issue, terminal_states), to: Eligibility
   @spec optimistic_blockers(Issue.t()) :: [String.t()]
@@ -128,10 +129,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
         {downstream_rank, position} = Hints.sort_key(issue.id)
-        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), downstream_rank, priority_rank(issue.priority), position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), priority_rank(issue.priority), downstream_rank, position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
 
       _ ->
-        {1, 0, priority_rank(nil), 0, issue_created_at_sort_key(nil), ""}
+        {1, priority_rank(nil), 0, 0, issue_created_at_sort_key(nil), ""}
     end)
   end
 
@@ -166,6 +167,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :unauthorized
           | :paused
           | :parked
+          | :executor_owned
           | :inactive_state
           | :no_agent_work_state
           | :terminal_state
@@ -197,6 +199,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     :unauthorized,
     :paused,
     :parked,
+    :executor_owned,
     :inactive_state,
     :no_agent_work_state,
     :terminal_state,
@@ -241,7 +244,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           :dispatch | {:skip, dispatch_decline_reason()}
   def dispatch_decision(issue, %State{} = state, active_states, terminal_states, blocked_ticket_ids) do
     case dispatch_candidate_decision(issue, state, active_states, terminal_states, blocked_ticket_ids) do
-      :dispatch -> if(Slots.available_slots(state) > 0, do: :dispatch, else: {:skip, :fleet_capacity})
+      :dispatch -> if(Slots.dispatch_slots_available?(issue, state), do: :dispatch, else: {:skip, :fleet_capacity})
       {:skip, _reason} = declined -> declined
     end
   end
@@ -262,7 +265,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            state.blocked_ticket_ids
          ) do
       :dispatch ->
-        if State.active_running_count(state.running) < Slots.max_concurrent_agent_limit(state),
+        if Slots.active_slots(state) < Slots.max_concurrent_agent_limit(state),
           do: :dispatch,
           else: {:skip, :fleet_capacity}
 
@@ -366,13 +369,22 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   defp issue_identity_decision(%Issue{} = issue) do
     cond do
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      foreign_tracker_state_label?(issue) -> {:skip, :inactive_state}
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}
       not issue_not_parked?(issue) -> {:skip, :parked}
+      not issue_not_executor_owned?(issue) -> {:skip, :executor_owned}
       true -> :dispatch
     end
   end
+
+  defp foreign_tracker_state_label?(%Issue{labels: labels})
+       when is_list(labels) and labels != [] do
+    Config.tracker_kind() == "github" and Tracker.foreign_state_label?(labels)
+  end
+
+  defp foreign_tracker_state_label?(_issue), do: false
 
   defp issue_state_decision(%Issue{} = issue, active_states, terminal_states) do
     cond do
@@ -397,7 +409,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        ) do
     cond do
       blocked_on_decision?(issue, blocked_ticket_ids) -> {:skip, :blocked_on_decision}
-      todo_issue_held_by_dependency?(issue, terminal_states) -> {:skip, :dependency}
+      issue_held_by_dependency?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
       Map.has_key?(state.auto_resume, issue.id) -> {:skip, :auto_resume_pending}
       MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
@@ -464,6 +476,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
-      not todo_issue_held_by_dependency?(issue, terminal_states)
+      not issue_held_by_dependency?(issue, terminal_states)
   end
 end

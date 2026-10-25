@@ -5,8 +5,8 @@ defmodule AiurWeb.Build.Payload do
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
-  features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index),
+  features, order, counts (whole-index totals or nil), feature_progress (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation time; plan version and extras), sections (hist/now/plan/nq),
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
@@ -30,7 +30,9 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retries, command, paused, parked, or nil |
+  | agent.state | active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
+  | agent.pause | usage_limit_exhausted, ci_wait, or nil |
+  | agent.resume_at | usage limit reset milliseconds or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
   | added / deps / children | boolean / blocker identifiers / dependent identifiers |
@@ -52,19 +54,22 @@ defmodule AiurWeb.Build.Payload do
 
   History requires nullable from/total/undated, boolean more and string tz.
   Sources each require state (ok/stale/incomplete/unavailable/disabled), nullable
-  observed_at milliseconds and nullable reason text. Daemon requires state
+  observed_at milliseconds and nullable reason text. Open tickets also allow unsupported
+  and require truncated (boolean). Daemon requires state
   (live/stale/offline/unknown) and nullable heartbeat_at/observed_at milliseconds.
 
   Authorized usage requires observed_at (ms or nil), apis and providers. Each
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
-  and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
+  and boolean none. Windows require nullable 0..100 `acc` values representing
+  percent remaining, nullable `reset_at`
   milliseconds and nullable string win. Optional row fields carry lines (tagged
-  windows with tip pairs and nullable hold_until), icon, stale, observed_at and
-  note. Credits require nullable pct, string left and
+  windows with tip pairs and nullable hold_until), icon, stale, observed_at,
+  snapshot_observed_at and note. Credits require nullable pct, string left and
   two-string tip pairs. Unavailable usage requires observed_at and reason.
   Locked usage requires only state/accessible_name/authentication_path/reason.
-  Repo is nil or a url string; writable is boolean.
+  Repo is nil or a url string; writable is boolean. Capacity requires positive max or nil,
+  observed_at milliseconds or nil and nullable stale boolean; it follows the runtime agent cap.
 
   Diff: envelope plus upsert/remove/set. Set replaces whole blocks, never merges
   deeply; history_meta is translated to the socket's history block. Hist upserts
@@ -96,6 +101,12 @@ defmodule AiurWeb.Build.Payload do
 
   @spec earlier(map(), String.t(), non_neg_integer()) :: map()
   def earlier(page, epoch, generation), do: page |> scrub() |> Map.merge(envelope("earlier", epoch, generation))
+
+  @spec ticket(map() | nil, String.t(), non_neg_integer()) :: map()
+  def ticket(row, epoch, generation) do
+    message = envelope("ticket", epoch, generation)
+    if row == nil, do: message, else: Map.put(message, "row", scrub(row))
+  end
 
   @spec error(atom()) :: map()
   def error(reason), do: %{"v" => @version, "kind" => "error", "reason" => Atom.to_string(reason)}

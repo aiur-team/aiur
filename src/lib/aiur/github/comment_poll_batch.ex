@@ -22,10 +22,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   What this module still answers, and why each has to stay here:
 
-    * `:open_pull_request` — the number, head/base refs, `reviewDecision` and
-      head commit date. REST has no single call that returns review decision,
-      and branch-to-PR discovery over REST is a `?head=` query plus a paginated
-      scan of every open pull request when the branch is not the legacy one.
+    * `:open_pull_request` — the number, head/base refs, review and merge
+      readiness, ready-for-review time, and head commit date. These facts are
+      stored in the existing branch-PR cache for the Executor sweep. REST has
+      no single call that returns review decision, and branch-to-PR discovery
+      over REST is a `?head=` query plus a paginated scan of every open pull
+      request when the branch is not the legacy one.
     * `:review_thread_comments` — resolution state per inline thread, which the
       REST review-comment endpoints do not expose. Emitted only for a target
       whose threads were actually part of the query; a target discovered
@@ -65,7 +67,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   require Logger
 
   alias Aiur.GitHub.CommentPollBatch.Query
-  alias Aiur.GitHub.{DeliveredPullRequest, GraphQLCost, PollSnapshots, ResourceStore, ReviewThreads, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, ExecutorSweepPRCache, GraphQLCost, PollSnapshots, ResourceStore, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -361,6 +363,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp target_batch(entry, _direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
 
+    if is_map(pull_request), do: ExecutorSweepPRCache.capture(entry.repo_identity, entry.target, pull_request_payload(pull_request))
+
     cond do
       cached_threads_match?(entry, pull_request) ->
         Map.put(batch, :review_thread_comments, ReviewThreads.unaddressed_thread_comments(entry.cached_threads, opts))
@@ -415,34 +419,30 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 
   defp normalize_pull_request(pull_request, threads_included?) do
-    %{
-      :kind => :pull_request,
-      :threads_included? => threads_included?,
-      "number" => Map.get(pull_request, "number"),
-      "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
-      "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
-      "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
-      # The draft flag feeds poll-side draft-to-ready detection (#2707). A
-      # scalar on a node the query already selects adds no rate-limit points.
-      "draft" => Map.get(pull_request, "isDraft"),
-      # Review-staleness context for the rework gate (#1756). `reviewDecision`
-      # is nil until the first review lands; `head_committed_at` is the commit
-      # date of the head commit the reviews are (or are not) talking about.
-      # Both stay on the identity field set, so a branch-discovered pull request
-      # keeps full review-freshness context and the gate never goes inert
-      # because of the comment inversion.
-      "review_decision" => Map.get(pull_request, "reviewDecision"),
-      "head_committed_at" => head_committed_at(pull_request),
-      review_threads: review_thread_nodes(pull_request),
-      review_threads_page_info: review_thread_page_info(pull_request)
-    }
-  end
-
-  defp head_committed_at(pull_request) do
-    case get_in(pull_request, ["commits", "nodes"]) do
-      [_ | _] = nodes -> nodes |> List.last() |> get_in(["commit", "committedDate"])
-      _other -> nil
-    end
+    Map.merge(
+      %{
+        :kind => :pull_request,
+        :threads_included? => threads_included?,
+        "number" => Map.get(pull_request, "number"),
+        "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
+        "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
+        "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
+        # The draft flag feeds poll-side draft-to-ready detection (#2707). A
+        # scalar on a node the query already selects adds no rate-limit points.
+        "draft" => Map.get(pull_request, "isDraft"),
+        # Review-staleness context for the rework gate (#1756). `reviewDecision`
+        # is nil until the first review lands; `head_committed_at` is the commit
+        # date of the head commit the reviews are (or are not) talking about.
+        # Both stay on the identity field set, so a branch-discovered pull request
+        # keeps full review-freshness context and the gate never goes inert
+        # because of the comment inversion.
+        "review_decision" => Map.get(pull_request, "reviewDecision"),
+        "head_committed_at" => ExecutorSweepPRCache.head_committed_at(pull_request),
+        review_threads: review_thread_nodes(pull_request),
+        review_threads_page_info: review_thread_page_info(pull_request)
+      },
+      ExecutorSweepPRCache.normalize(pull_request)
+    )
   end
 
   defp review_thread_nodes(pull_request) do

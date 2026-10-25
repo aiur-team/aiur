@@ -81,6 +81,16 @@ defmodule Aiur.BuildOrder.FeatureStatsTest do
     end
   end
 
+  test "an unknown or missing join date makes the spark unknown, not a series" do
+    for unknown <- [:unknown, nil] do
+      owners = %{1 => %{feature: "f", joined_at: DateTime.from_unix!(@now - @day, :millisecond)}, 2 => %{feature: "f", joined_at: unknown}}
+      result = stats(%{}, %{registry([]) | owners: owners})
+      assert result.spark == nil
+      assert result.total == 2
+      assert Stats.to_json(result)["spark"] == nil
+    end
+  end
+
   test "every registry feature gets figures independently of a loaded window" do
     r = %{features: Map.new(1..9, &{"f#{&1}", %{baseline: :none}}), also: %{}, owners: Map.new(1..2000, &{&1, %{feature: "f#{rem(&1, 8) + 1}", joined_at: DateTime.from_unix!(@now, :millisecond)}})}
     all = Stats.compute_all(r, Map.new(1..2000, &{&1, fact(:done)}), now: @now)

@@ -17,7 +17,7 @@ function resolve(name, theme, seen = new Set()) {
   return target ? resolve(target, theme, seen) : value;
 }
 
-const tokens = Object.fromEntries(['light', 'dark'].map(theme =>
+export const tokens = Object.fromEntries(['light', 'dark'].map(theme =>
   [theme, Object.fromEntries(names.map(name => [name, resolve(name, theme)]))]));
 const breakpoints = { shell: 960, features2: 720, features1: 440 };
 const substitutions = Object.entries(definitions).filter(([, definition]) => definition.textPair);

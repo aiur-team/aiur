@@ -1,0 +1,9 @@
+{
+  "from": "voice-stt",
+  "to_module": "Aiur.Init.ResumeSummary",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/voice.ex"
+  ],
+  "reason": "MP-R5-C2-T02 reuses the saved voice summary until C3 relocates it"
+}

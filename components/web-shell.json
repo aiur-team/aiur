@@ -10,6 +10,7 @@
     "src/lib/aiur_web/controllers/*api*.ex",
     "src/lib/aiur_web/controllers/observability*.ex",
     "src/lib/aiur_web/endpoint.ex",
+    "src/lib/aiur_web/endpoint_config.ex",
     "src/lib/aiur_web/financial_data_access.ex",
     "src/lib/aiur_web/router.ex",
     "src/lib/aiur_web/routes/api.ex",
@@ -27,10 +28,12 @@
     "web-kit"
   ],
   "optional": [
+    "accounting",
     "build-orders",
     "commands",
     "conversations",
     "dashboard-ui",
+    "experiments-page",
     "github-listeners",
     "pairing-discovery",
     "streamdeck-server",
@@ -38,12 +41,16 @@
   ],
   "owns": {
     "config": [
+      "dashboard_auth",
       "observability",
       "server"
     ],
     "env": [
       "AIUR_DASHBOARD_PASSWORD",
-      "AIUR_DASHBOARD_USERNAME"
+      "AIUR_DASHBOARD_USERNAME",
+      "AIUR_GOOGLE_CLIENT_ID",
+      "AIUR_GOOGLE_CLIENT_SECRET",
+      "AIUR_SECRET_KEY_BASE"
     ],
     "state": [],
     "capabilities": []
@@ -61,12 +68,16 @@
     "guide/gui.md"
   ],
   "config": [
+    "dashboard_auth",
     "observability",
     "server"
   ],
   "env": [
     "AIUR_DASHBOARD_PASSWORD",
-    "AIUR_DASHBOARD_USERNAME"
+    "AIUR_DASHBOARD_USERNAME",
+    "AIUR_GOOGLE_CLIENT_ID",
+    "AIUR_GOOGLE_CLIENT_SECRET",
+    "AIUR_SECRET_KEY_BASE"
   ],
   "capabilities": []
 }

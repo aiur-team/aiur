@@ -3,47 +3,84 @@ defmodule Aiur.Orchestrator.EventTopics do
   Parses and classifies orchestrator event bus topics.
   """
 
-  alias Aiur.Orchestrator.{BlockerPropagation, CiLifecycle, CommentWake, Dispatcher, Lifecycle, MergeOrderAudit, OptimisticEvents, OptimisticGuardEffects, PushRouting, RestackScheduler, State}
+  alias Aiur.Orchestrator.{
+    BlockerPropagation,
+    CiLifecycle,
+    CommentWake,
+    Dispatcher,
+    Lifecycle,
+    MergedTicketReconciler.StrandedWork,
+    MergeOrderAudit,
+    OptimisticEvents,
+    OptimisticGuardEffects,
+    PushRouting,
+    RestackScheduler,
+    ReviewLandingWithdrawal,
+    State
+  }
 
-  @spec route(State.t(), map()) :: State.t()
-  def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
-    route_classified(state, classify_event_topic(topic), event)
-  end
+  alias Aiur.AlertFeed
+  alias Aiur.Alerts
+  alias Aiur.Commands
 
-  defp route_classified(state, {:pr_review_comment, identifier}, event),
-    do: CommentWake.maybe_reactivate_on_comment(state, identifier, "PR review comment", event)
+  @spec route(State.t(), map(), keyword()) :: State.t()
+  def route(state, event, opts \\ [])
 
-  defp route_classified(state, {:issue_commented, identifier}, event),
+  def route(%State{} = state, %{topic: topic} = event, opts) when is_binary(topic),
+    do: route_classified(state, classify_event_topic(topic), event, opts)
+
+  defp route_classified(state, :nomatch, _event, _opts), do: state
+
+  defp route_classified(state, {:pr_review_comment, identifier}, event, _opts),
+    do:
+      state
+      |> ReviewLandingWithdrawal.changes_requested(identifier, event)
+      |> CommentWake.maybe_reactivate_on_comment(identifier, "PR review comment", event)
+
+  defp route_classified(state, {:issue_commented, identifier}, event, _opts),
     do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
 
-  defp route_classified(state, {:pr_merged, identifier}, event),
+  defp route_classified(state, {:pr_merged, identifier}, event, _opts),
     do:
       state
       |> OptimisticEvents.merged(identifier, event)
-      |> CommentWake.mark_pr_merged_issue_done(identifier, pr_merged_opts(event))
+      |> StrandedWork.mark_merged(identifier, pr_merged_opts(event))
       |> RestackScheduler.merged(identifier, event)
       |> MergeOrderAudit.merged(identifier, event)
 
-  defp route_classified(state, {:optimistic_blocker_changed, identifier}, _event),
+  defp route_classified(state, {:optimistic_blocker_changed, identifier}, _event, _opts),
     do: OptimisticGuardEffects.reconcile(state, force_blocker: identifier)
 
-  defp route_classified(state, {:ci_failed, identifier}, _event),
+  defp route_classified(state, {:ci_failed, identifier}, _event, _opts),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :failed)
 
-  defp route_classified(state, {:ci_passed, identifier}, _event),
+  defp route_classified(state, {:ci_passed, identifier}, _event, _opts),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :passed)
 
-  defp route_classified(state, {:pause_request, identifier}, event),
+  defp route_classified(state, {:pause_request, identifier}, event, _opts),
     do: PushRouting.maybe_pause_on_request(state, identifier, event)
+
+  defp route_classified(state, {:agent_progress, identifier}, event, opts),
+    do: resolve_stalled_alert(state, identifier, event, opts)
 
   # Answering a blocking Command releases the dispatch gate in DecisionStore.
   # Refresh the local gate for control calls, then wake the poll to reclaim a worker that
   # reconciliation stopped while the Command was open. The dispatch poll still
   # applies tracker, capacity, and other open-Command guards.
-  defp route_classified(state, {:decision_answered, _identifier}, _event),
-    do: state |> Dispatcher.refresh_blocked_ticket_ids() |> Lifecycle.wake_tick()
+  defp route_classified(state, {:decision_answered, _identifier}, _event, opts) do
+    decision_store = Keyword.get(opts, :decision_store, Commands.default_store())
 
-  defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic} = event) do
+    state
+    |> Dispatcher.refresh_blocked_ticket_ids(decision_store)
+    |> Lifecycle.wake_tick()
+  end
+
+  defp route_classified(
+         state,
+         {:agent_unblocked, blocker_identifier},
+         %{topic: topic} = event,
+         _opts
+       ) do
     cond do
       provisional_unblock?(event) ->
         state
@@ -56,18 +93,30 @@ defmodule Aiur.Orchestrator.EventTopics do
     end
   end
 
-  defp route_classified(state, {:optimistic_integrated, identifier}, event), do: OptimisticEvents.integrated(state, identifier, event)
+  defp route_classified(state, {:optimistic_integrated, identifier}, event, _opts),
+    do: OptimisticEvents.integrated(state, identifier, event)
 
-  defp route_classified(state, {:branch_push, blocker_identifier}, event) do
-    if Map.get(Map.get(event, :payload, event), :superseded, false),
-      do: state,
-      else: state |> PushRouting.record_blocker_branch_push(blocker_identifier, event) |> OptimisticEvents.pushed(blocker_identifier, event) |> BlockerPropagation.pushed(blocker_identifier, event)
+  defp route_classified(state, {:branch_push, blocker_identifier}, event, opts) do
+    payload = Map.get(event, :payload) || Map.get(event, "payload") || event
+
+    if Map.get(payload, :superseded, Map.get(payload, "superseded", false)) do
+      state
+    else
+      state = PushRouting.check_pr_body_head(state, blocker_identifier, event, opts)
+
+      if PushRouting.validated_unblock_metadata(blocker_identifier, event) do
+        state
+        |> PushRouting.record_blocker_branch_push(blocker_identifier, event)
+        |> OptimisticEvents.pushed(blocker_identifier, event)
+        |> BlockerPropagation.pushed(blocker_identifier, event)
+      else
+        state
+      end
+    end
   end
 
-  defp route_classified(state, {:system_branch_push, branch}, event),
+  defp route_classified(state, {:system_branch_push, branch}, event, _opts),
     do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
-
-  defp route_classified(state, :nomatch, _event), do: state
 
   @doc """
   What the merged-PR route reads off a `ticket.<id>.pr.merged` event.
@@ -84,7 +133,11 @@ defmodule Aiur.Orchestrator.EventTopics do
 
     opts = [
       merged_by_login: get_in(pr, ["merged_by", "login"]),
-      pr_body: Map.get(pr, "body")
+      pr_body: Map.get(pr, "body"),
+      commit_messages: Map.get(pr, "commit_messages", []),
+      pr_url: Map.get(pr, "html_url"),
+      repository: Map.get(event, :repository) || get_in(pr, ["base", "repo", "full_name"]),
+      head_sha: get_in(pr, ["head", "sha"])
     ]
 
     if Map.has_key?(pr, "number"), do: Keyword.put(opts, :pr_number, pr["number"]), else: opts
@@ -187,6 +240,7 @@ defmodule Aiur.Orchestrator.EventTopics do
          :nomatch <- tag_topic(:ci_failed, parse_ci_failed_topic(topic)),
          :nomatch <- tag_topic(:ci_passed, parse_ci_passed_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
+         :nomatch <- tag_topic(:agent_progress, parse_agent_progress_topic(topic)),
          :nomatch <- tag_topic(:decision_answered, parse_decision_answered_topic(topic)),
          :nomatch <- tag_topic(:agent_unblocked, parse_agent_unblocked_topic(topic)),
          :nomatch <- tag_topic(:optimistic_integrated, parse_optimistic_integrated_topic(topic)),
@@ -194,6 +248,62 @@ defmodule Aiur.Orchestrator.EventTopics do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
     end
   end
+
+  @spec parse_agent_progress_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_agent_progress_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.progress(?:\.(?:checkin|phase))?\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
+  defp resolve_stalled_alert(state, identifier, event, opts) do
+    case retry_with_stalled_alert(state, identifier) do
+      nil ->
+        state
+
+      {issue_id, running_entry} ->
+        resolve_stalled_alert_for_running_entry(state, identifier, issue_id, running_entry, event, opts)
+    end
+  end
+
+  defp resolve_stalled_alert_for_running_entry(state, identifier, issue_id, running_entry, event, opts) do
+    alert_state = Keyword.get(opts, :stalled_alert_state, &AlertFeed.condition_state/1).("ticket.#{identifier}.agent.stalled")
+
+    case alert_state do
+      :firing -> emit_stalled_resolution(state, identifier, issue_id, running_entry, event, opts)
+      :resolved -> clear_running_stalled_alert(state, issue_id, running_entry)
+      :unknown -> state
+    end
+  end
+
+  defp emit_stalled_resolution(state, identifier, issue_id, running_entry, event, opts) do
+    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+
+    result =
+      emitter.("ticket.#{identifier}.agent.stalled.resolved",
+        message: "Agent reported progress after the stalled worker was retried.",
+        issue: event_issue(event) || Map.get(running_entry, :issue),
+        reason: "The retried agent reported progress.",
+        needs_attention: false,
+        severity: "info",
+        durable: true
+      )
+
+    if result == :ok, do: clear_running_stalled_alert(state, issue_id, running_entry), else: state
+  end
+
+  defp retry_with_stalled_alert(state, identifier) do
+    Enum.find(state.running, fn {_issue_id, entry} ->
+      Map.get(entry, :identifier) == identifier and Map.get(entry, :stalled_alert_outstanding) == true
+    end)
+  end
+
+  defp clear_running_stalled_alert(state, issue_id, running_entry) do
+    Lifecycle.StalledAlert.clear_retry_marker(state, issue_id, running_entry)
+  end
+
+  defp event_issue(event), do: Map.get(event, :issue, Map.get(event, "issue"))
 
   @spec parse_optimistic_blocker_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_optimistic_blocker_topic(topic) do

@@ -64,6 +64,7 @@ defmodule Aiur.TestSupport.WebhookPollFixture do
       GithubCommentsPoller.poll([ticket],
         since: "2026-06-24T11:00:00Z",
         repo: @repo,
+        token: "test-gh-token",
         request_fun: request_fun,
         comment_batch: %{ticket => %{open_pull_request: nil}}
       )
@@ -100,6 +101,7 @@ defmodule Aiur.TestSupport.WebhookPollFixture do
       GithubCommentsPoller.poll([ticket],
         since: "2026-06-24T11:00:00Z",
         repo: @repo,
+        token: "test-gh-token",
         request_fun: request_fun,
         comment_batch: %{
           ticket => %{

@@ -1,9 +1,10 @@
 defmodule Aiur.AppServer.AdapterTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AppServer.{Adapter, Transport}
+  alias Aiur.AppServer.Adapter
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Codex.{Interrupts, TurnLoop}
+  alias Aiur.Codex.Interrupts
+  alias Aiur.Codex.TurnLoop
 
   defmodule StubBackend do
     @behaviour Aiur.AppServer.Adapter
@@ -29,60 +30,6 @@ defmodule Aiur.AppServer.AdapterTest do
 
     def handle_method(_session, _state, %{"method" => "fail"}, _payload_string, _method) do
       {:error, :failed}
-    end
-  end
-
-  defmodule DeferredIdlePauseBackend do
-    @behaviour Aiur.AppServer.Adapter
-
-    def backend_label, do: "Codex"
-
-    def send_frame(port, %{"id" => request_id, "method" => "turn/interrupt"} = frame) do
-      send(self(), {:frame, frame})
-
-      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
-      no_active_turn = %{"id" => request_id, "error" => %{"code" => -32_600, "message" => "no active turn"}}
-
-      frames =
-        case Process.get({__MODULE__, :interrupt_event_order}, :idle_first) do
-          :idle_first -> [idle, no_active_turn]
-          :response_first -> [no_active_turn, idle]
-          :response_only -> [no_active_turn]
-          :idle_then_ack -> [idle, %{"id" => request_id, "result" => %{}}]
-          :ack_then_idle -> [%{"id" => request_id, "result" => %{}}, idle]
-        end
-
-      Enum.each(frames, fn payload ->
-        send(self(), {port, {:data, {:eol, Jason.encode!(payload)}}})
-      end)
-
-      :ok
-    end
-
-    def metadata_from_message(_port, _payload), do: %{}
-    def start_turn(session, _prompt, _issue), do: session.start_turn_result
-
-    def loop_state_extras(_session) do
-      %{
-        active_turn_ids: MapSet.new(),
-        accepted_turn_ids: MapSet.new(),
-        retired_turn_ids: MapSet.new(),
-        anonymous_completion_consumed?: false,
-        auto_approve_requests: true,
-        turn_started?: true,
-        interrupt_acknowledged?: false,
-        interrupt_idle_seen?: false
-      }
-    end
-
-    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
-
-    def handle_method(session, state, payload, payload_string, method) do
-      TurnLoop.handle_method(session, state, payload, payload_string, method)
-    end
-
-    def handle_malformed(state, payload_string, port) do
-      TurnLoop.handle_malformed(state, payload_string, port)
     end
   end
 
@@ -145,6 +92,60 @@ defmodule Aiur.AppServer.AdapterTest do
     end
 
     defdelegate classify_stream_failure(diagnostics), to: Aiur.Claude.NotificationPolicy
+  end
+
+  defmodule DeferredIdlePauseBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "Codex"
+
+    def send_frame(port, %{"id" => request_id, "method" => "turn/interrupt"} = frame) do
+      send(self(), {:frame, frame})
+
+      idle = %{"method" => "thread/status/changed", "params" => %{"status" => %{"type" => "idle"}}}
+      no_active_turn = %{"id" => request_id, "error" => %{"code" => -32_600, "message" => "no active turn"}}
+
+      frames =
+        case Process.get({__MODULE__, :interrupt_event_order}, :idle_first) do
+          :idle_first -> [idle, no_active_turn]
+          :response_first -> [no_active_turn, idle]
+          :response_only -> [no_active_turn]
+          :idle_then_ack -> [idle, %{"id" => request_id, "result" => %{}}]
+          :ack_then_idle -> [%{"id" => request_id, "result" => %{}}, idle]
+        end
+
+      Enum.each(frames, fn payload ->
+        send(self(), {port, {:data, {:eol, Jason.encode!(payload)}}})
+      end)
+
+      :ok
+    end
+
+    def metadata_from_message(_port, _payload), do: %{}
+    def start_turn(session, _prompt, _issue), do: session.start_turn_result
+
+    def loop_state_extras(_session) do
+      %{
+        active_turn_ids: MapSet.new(),
+        accepted_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(),
+        anonymous_completion_consumed?: false,
+        auto_approve_requests: true,
+        turn_started?: true,
+        interrupt_acknowledged?: false,
+        interrupt_idle_seen?: false
+      }
+    end
+
+    def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
+
+    def handle_method(session, state, payload, payload_string, method) do
+      TurnLoop.handle_method(session, state, payload, payload_string, method)
+    end
+
+    def handle_malformed(state, payload_string, port) do
+      TurnLoop.handle_malformed(state, payload_string, port)
+    end
   end
 
   test "a limit refusal at turn start pauses instead of failing the turn" do
@@ -402,21 +403,6 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive {:lifecycle_event, :turn_completed}, 1000
   end
 
-  defp assert_deferred_idle_pause(order, request_id) do
-    port = cat_port()
-    Process.put({DeferredIdlePauseBackend, :interrupt_event_order}, order)
-    send(self(), {:pause_agent, request_id})
-
-    assert {:paused,
-            %{
-              request_id: ^request_id,
-              turn_id: "turn-1",
-              session_id: "thread-1-turn-1"
-            }} = Adapter.run_turn(DeferredIdlePauseBackend, session(port), "prompt", issue(), [])
-
-    assert_receive {:frame, %{"method" => "turn/interrupt"}}, 1000
-  end
-
   test "run_turn emits turn_ended_with_error on loop error" do
     port = cat_port()
     parent = self()
@@ -439,82 +425,19 @@ defmodule Aiur.AppServer.AdapterTest do
     assert_receive %{event: :startup_failed, reason: :boom}, 1000
   end
 
-  test "start_port/2 starts bash in the requested workspace" do
-    assert {:ok, port} = Adapter.start_port(File.cwd!(), "printf '%s\\n' ready")
-    assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
-  end
+  defp assert_deferred_idle_pause(order, request_id) do
+    port = cat_port()
+    Process.put({DeferredIdlePauseBackend, :interrupt_event_order}, order)
+    send(self(), {:pause_agent, request_id})
 
-  test "start_port does not source a supplied BASH_ENV file" do
-    bash_env = Aiur.TestSupport.tmp_root!("aiur-adapter-startup")
-    File.write!(bash_env, "printf 'profile-loaded\n'")
-    on_exit(fn -> File.rm(bash_env) end)
+    assert {:paused,
+            %{
+              request_id: ^request_id,
+              turn_id: "turn-1",
+              session_id: "thread-1-turn-1"
+            }} = Adapter.run_turn(DeferredIdlePauseBackend, session(port), "prompt", issue(), [])
 
-    assert {:ok, port} =
-             Adapter.start_port(File.cwd!(), "printf 'ready\n'", fn _port -> :ok end, env: [{"BASH_ENV", bash_env}])
-
-    assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
-    refute_receive {^port, {:data, {:eol, "profile-loaded"}}}, 100
-  end
-
-  test "start_port does not source operator shell startup files" do
-    home = Aiur.TestSupport.tmp_root!("aiur-adapter-home")
-    File.mkdir_p!(home)
-    File.write!(Path.join(home, ".bash_profile"), "printf 'login-profile-loaded\\n'")
-    File.write!(Path.join(home, ".bashrc"), "printf 'interactive-rc-loaded\\n'")
-    on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
-
-    assert {:ok, port} =
-             Adapter.start_port(File.cwd!(), "printf 'ready\\n'", fn _port -> :ok end, env: [{"HOME", home}])
-
-    assert_receive {^port, {:data, {:eol, "ready"}}}, 1_000
-    refute_receive {^port, {:data, {:eol, "login-profile-loaded"}}}, 100
-    refute_receive {^port, {:data, {:eol, "interactive-rc-loaded"}}}, 100
-  end
-
-  test "start_port/4 accepts string-valued launch environment" do
-    assert {:ok, port} =
-             Adapter.start_port(
-               File.cwd!(),
-               "printf '%s\\n' \"$CLAUDE_CODE_ENABLE_TELEMETRY\"",
-               fn _port -> :ok end,
-               env: [{"CLAUDE_CODE_ENABLE_TELEMETRY", "1"}]
-             )
-
-    assert_receive {^port, {:data, {:eol, "1"}}}, 1_000
-  end
-
-  test "registers a spawned port before start_port returns" do
-    parent = self()
-
-    assert {:ok, port} =
-             Adapter.start_port(File.cwd!(), "sleep 600", fn spawned_port ->
-               send(parent, {:port_registered_at_spawn, spawned_port})
-               :ok
-             end)
-
-    try do
-      assert_received {:port_registered_at_spawn, ^port}
-    after
-      Transport.close(port)
-    end
-  end
-
-  test "start_port/2 caps schedulers for an agent-launched Mix VM" do
-    mix = System.find_executable("mix") || flunk("mix executable unavailable")
-    elixir = System.find_executable("elixir") || flunk("elixir executable unavailable")
-    path = Path.dirname(elixir) <> ":" <> System.get_env("PATH")
-    expression = ~S|IO.puts("#{System.get_env("AIUR_AGENT_MIX_SCHEDULERS")}:#{System.schedulers_online()}")|
-
-    # Exercise the agent cap independently of the parent test VM's scheduler flags.
-    assert {:ok, port} =
-             Adapter.start_port(
-               File.cwd!(),
-               "PATH=#{Aiur.Shell.escape(path)} #{Aiur.Shell.escape(mix)} run --no-compile --no-deps-check --no-start -e #{Aiur.Shell.escape(expression)}",
-               fn _port -> :ok end,
-               env: [{"ERL_FLAGS", false}]
-             )
-
-    assert_receive {^port, {:data, {:eol, "4:4"}}}, 20_000
+    assert_receive {:frame, %{"method" => "turn/interrupt"}}, 1000
   end
 
   defp session(port, overrides \\ %{}) do

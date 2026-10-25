@@ -6,7 +6,7 @@ import { dashboardCredentials } from './layout-worker.mjs'
 // that opts into `writable` cannot leak into whichever test runs after it.
 export async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/auth/read_only')
-  await page.goto('/')
+  await page.goto('/route-shell')
   await page.context().setHTTPCredentials(dashboardCredentials)
   const control = await page.goto(`/streamdeck-control/${mode}`)
   expect(control.status()).toBe(200)
@@ -34,11 +34,14 @@ export async function anchor(locator) {
   })
 }
 
-export async function openUnits(page, path = '/units') {
+export async function openUnits(page, path = '/units-fixture') {
   await page.goto('/auth/read_only')
   await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  // The socket connects before the view joins. A row click before the connected
+  // render is dropped, so the later remove has no selection and changes nothing.
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 export async function dragDialThroughAngles(page, dial, angles) {

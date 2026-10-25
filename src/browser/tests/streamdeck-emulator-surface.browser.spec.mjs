@@ -152,10 +152,10 @@ test('touch strip renders two provider meters and design segment geometry', asyn
     await expect(provider.locator('.sd-mini')).toHaveCount(2)
   }
 
-  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="session"]')).toContainText('30% · 22m')
-  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="weekly"]')).toContainText('47% · Thu 6PM')
-  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="session"]')).toContainText('50% · 1h')
-  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="weekly"]')).toContainText('75% · Fri 8PM')
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="session"]')).toContainText('70% left · 22m')
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="weekly"]')).toContainText('53% left · Thu 6PM')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="session"]')).toContainText('50% left · 1h')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="weekly"]')).toContainText('25% left · Fri 8PM')
 
   const pagerDots = page.locator('[data-segment="pager"] .sd-pager-dot')
   const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
@@ -292,14 +292,24 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
 
   const darkSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
     const style = getComputedStyle(document.querySelector(selector))
-    return [selector, style.backgroundImage, style.borderColor, style.boxShadow]
+    return [selector, style.backgroundImage, style.borderColor, style.boxShadow, style.color]
   }))
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   const lightSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
     const style = getComputedStyle(document.querySelector(selector))
-    return [selector, style.backgroundImage, style.borderColor, style.boxShadow]
+    return [selector, style.backgroundImage, style.borderColor, style.boxShadow, style.color]
   }))
   expect(lightSurface).toEqual(darkSurface)
+  const chassisTokens = ['--fg', '--muted', '--accent', '--accent-ink', '--attention', '--attention-ink', '--blocking-ink', '--blocking-soft', '--good', '--good-ink', '--super', '--ack']
+  const readTokens = () => page.evaluate((tokens) => {
+    const style = getComputedStyle(document.querySelector('.sd-device'))
+    return tokens.map((token) => style.getPropertyValue(token).trim())
+  }, chassisTokens)
+  await page.locator('html').evaluate((html) => { html.setAttribute('data-palette', 'gruvbox'); html.setAttribute('data-theme', 'dark') })
+  const gruvboxDarkTokens = await readTokens()
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  expect(await readTokens()).toEqual(gruvboxDarkTokens)
+  await page.locator('html').evaluate((html) => html.removeAttribute('data-palette'))
   await device.screenshot({ path: testInfo.outputPath('streamdeck-desktop-light.png') })
 
   await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'))

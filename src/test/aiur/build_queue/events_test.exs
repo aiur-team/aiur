@@ -93,12 +93,17 @@ defmodule Aiur.BuildQueue.EventsTest do
   test "saved item and queue releases emit a release only when a hold clears", %{document: document, id: id} do
     held = %{document | queues: Enum.map(document.queues, &%{&1 | held: true})}
     observations = %{id => %{labels: []}}
-    {:ok, released} = Bookkeeping.release(held, "q-0001", observations, 1_000, "agent:todo")
+    {:ok, released, []} = Bookkeeping.release(held, "q-0001", observations, 1_000, "agent:todo")
     :ok = Events.saved(held, released)
     event(id, "released", "operator")
     :ok = Events.saved(released, released)
     barrier()
     topic = "ticket.#{id}.queue.released"
+    refute_received {:event, %{topic: ^topic}}
+
+    {:ok, unobserved_release, [^id]} = Bookkeeping.release(document, "q-0001", %{}, 1_000, "agent:todo")
+    :ok = Events.saved(document, unobserved_release)
+    barrier()
     refute_received {:event, %{topic: ^topic}}
   end
 

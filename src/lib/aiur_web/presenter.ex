@@ -21,6 +21,10 @@ defmodule AiurWeb.Presenter do
   alias Aiur.{Commands, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
 
   @recent_merge_limit 50
+  @status_contract "aiur.status"
+  @ticket_contract "aiur.ticket"
+  @contract_version 1
+
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -29,11 +33,15 @@ defmodule AiurWeb.Presenter do
     |> orchestrator_payload(snapshot_timeout_ms)
     |> Map.put(:generated_at, generated_at)
     |> Map.merge(auxiliary_payload(opts))
+    |> version(@status_contract)
   end
 
-  @doc "Returns the current dashboard navigation contract for telemetry analytics."
+  @doc "Returns the current dashboard navigation contract and optional page capabilities."
   @spec analytics_navigation(keyword()) :: map()
-  def analytics_navigation(opts \\ []), do: analytics_payload(opts)
+  def analytics_navigation(opts \\ []) do
+    report = Aiur.Capabilities.report(opts)
+    Map.put(analytics_payload(opts), :experiments_available?, get_in(report, [:capabilities, "experiments", :state]) in [:available, :degraded])
+  end
 
   defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
     case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
@@ -91,7 +99,7 @@ defmodule AiurWeb.Presenter do
     %{
       decision_history: decision_history_payload(opts),
       recent_merges: recent_merges_payload(opts),
-      analytics: analytics_payload(opts)
+      analytics: analytics_navigation(opts)
     }
   end
 
@@ -117,16 +125,18 @@ defmodule AiurWeb.Presenter do
     case safe_call(provider) do
       {:ok, %{merges: merges, health: health, reconciliation: reconciliation}}
       when is_list(merges) and is_map(reconciliation) ->
+        public_health = recent_merge_health(health)
+
         %{
-          status: if(health == :writable, do: :available, else: :degraded),
+          status: if(public_health == :writable, do: :available, else: :degraded),
           entries:
             merges
             |> Enum.map(&recent_merge_payload/1)
             |> Enum.reject(&is_nil/1)
             |> Enum.take(@recent_merge_limit),
-          health: health,
+          health: public_health,
           reconciliation: reconciliation,
-          message: recent_merge_message(health)
+          message: recent_merge_message(public_health)
         }
 
       _other ->
@@ -163,6 +173,23 @@ defmodule AiurWeb.Presenter do
 
   defp recent_merge_payload(_merge), do: nil
 
+  # RecentMergeStore reports health as an atom or a tagged tuple; tuples are not
+  # JSON-encodable, so map each tuple to a status/reason/detail object (#4647).
+  defp recent_merge_health(health) when is_atom(health), do: health
+
+  defp recent_merge_health({:corrupt, line, reason}) when is_integer(line),
+    do: %{status: "corrupt", line: line, reason: json_term(reason)}
+
+  defp recent_merge_health({status, {reason, detail}}) when is_atom(status) and is_atom(reason),
+    do: %{status: json_term(status), reason: json_term(reason), detail: json_term(detail)}
+
+  defp recent_merge_health({status, reason}) when is_atom(status), do: %{status: json_term(status), reason: json_term(reason)}
+  defp recent_merge_health(other), do: %{status: "unknown", reason: inspect(other)}
+
+  defp json_term(term) when is_atom(term), do: Atom.to_string(term)
+  defp json_term(term) when is_binary(term), do: if(String.valid?(term), do: term, else: inspect(term))
+  defp json_term(term), do: inspect(term)
+
   defp recent_merge_message(:writable), do: nil
 
   defp recent_merge_message(_health) do
@@ -190,11 +217,7 @@ defmodule AiurWeb.Presenter do
   end
 
   defp analytics_unavailable do
-    %{
-      available?: false,
-      path: nil,
-      message: "Telemetry analytics are available after a run telemetry run."
-    }
+    %{available?: false, path: nil, message: "Telemetry analytics are available after a run telemetry run."}
   end
 
   defp safe_call(fun) when is_function(fun, 0) do
@@ -272,7 +295,11 @@ defmodule AiurWeb.Presenter do
     }
     |> maybe_put_tracker_identity(tracker_identity)
     |> maybe_put_idle_payload(idle)
+    |> version(@ticket_contract)
   end
+
+  defp version(payload, contract),
+    do: Map.merge(payload, %{contract: contract, contract_version: @contract_version})
 
   defp issue_id_from_entries(running, retry, idle),
     do: (running && running.issue_id) || (retry && retry.issue_id) || (idle && idle.issue_id)

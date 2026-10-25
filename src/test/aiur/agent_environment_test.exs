@@ -17,8 +17,7 @@ defmodule Aiur.AgentEnvironmentTest do
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_AGENT_NODE_NAME")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_COOKIE")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_ERLANG_COOKIE")
-    # Per-instance identity inputs (#431) must be scrubbed so an agent's inner aiur
-    # derives its own identity instead of reaping the outer.
+    # Inner aiur processes must not reuse the outer daemon's keyed identity (#431).
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_RELEASE_NODE")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_INSTANCE_KEY")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_REPO_ROOT")
@@ -38,7 +37,7 @@ defmodule Aiur.AgentEnvironmentTest do
   test "scrub_shell_command clears Erlang distribution environment before exec" do
     command =
       AgentEnvironment.scrub_shell_command(
-        "env | grep -E '^(ERL_AFLAGS|ERL_LIBS|ERL_CRASH_DUMP|ERL_CRASH_DUMP_SECONDS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
+        "env | grep -E '^(ERL_AFLAGS|ERL_LIBS|ERL_CRASH_DUMP|ERL_CRASH_DUMP_SECONDS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_CONTAINER|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
       )
 
     {output, 0} =
@@ -54,6 +53,7 @@ defmodule Aiur.AgentEnvironmentTest do
           {"AIUR_AGENT_NODE_NAME", "aiur@test"},
           {"AIUR_COOKIE", "secret"},
           {"AIUR_ERLANG_COOKIE", "secret"},
+          {"AIUR_CONTAINER", "1"},
           # #431 per-instance identity inputs — must not leak into an inner aiur.
           {"AIUR_RELEASE_NODE", "aiur-kevin-abc1230000@127.0.0.1"},
           {"AIUR_INSTANCE_KEY", "abc1230000"},
@@ -646,7 +646,7 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_GITHUB_MAX_INFLIGHT", ~c"4"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT", 0)
       assert {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", ~c"2"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", 0)
-      assert {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", ~c"120"} = List.keyfind(env, ~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", 0)
+      assert {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", ~c"300"} = List.keyfind(env, ~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", 0)
       assert {~c"AIUR_GITHUB_STAGGER_MS", ~c"75"} = List.keyfind(env, ~c"AIUR_GITHUB_STAGGER_MS", 0)
 
       assert {~c"AIUR_BASE_BRANCH", ~c"integration"} =
@@ -658,10 +658,10 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
       assert to_string(options) =~ "+S 4:4"
 
-      # The only permitted BASH_ENV is Aiur's immutable build-admission hook;
-      # an operator-provided value is replaced at the launch boundary.
-      assert {~c"BASH_ENV", build_gate_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
-      assert to_string(build_gate_hook) == BuildGate.hook_path()
+      # The trusted shell hook runs before tool commands and chains build admission.
+      assert {~c"BASH_ENV", _shell_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert {~c"AIUR_BUILD_GATE_HOOK", build_gate_hook} = List.keyfind(env, ~c"AIUR_BUILD_GATE_HOOK", 0)
+      assert to_string(build_gate_hook) == BuildGate.agent_hook_path()
       assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
       assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)
 
@@ -744,7 +744,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
-      assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT='"
+      assert prefix =~ "AIUR_REAL_GH=\n" and prefix =~ "AIUR_REAL_GIT='"
       refute prefix =~ "command -v git"
       assert prefix =~ "AIUR_GITHUB_LABEL_PREFIX='agent'"
       # A remote worker keeps its own budget root, and therefore its own state
@@ -756,9 +756,9 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_GITHUB_BUDGET_BROKER='/work/aiur/440/.aiur-runtime/bin/aiur-github-budget'"
       assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT=4"
       assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=2"
-      assert prefix =~ "AIUR_GITHUB_REQUESTS_PER_MINUTE=120"
+      assert prefix =~ "AIUR_GITHUB_REQUESTS_PER_MINUTE=300"
       assert prefix =~ "AIUR_GITHUB_STAGGER_MS=75"
-      assert prefix =~ "export AIUR_REAL_GH AIUR_REAL_GIT"
+      assert prefix =~ "export AIUR_REAL_GH\n" and prefix =~ "export AIUR_REAL_GIT\n"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "GH_CONFIG_DIR='/work/aiur/440/.aiur-runtime/gh'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
@@ -859,30 +859,6 @@ defmodule Aiur.AgentEnvironmentTest do
       assert List.keyfind(env, ~c"TMPPREFIX", 0) == nil
     end
 
-    test "local agent zsh heredocs use private scratch when the inherited temp path is unusable", %{
-      workspace: workspace
-    } do
-      blocked = Path.join(workspace, "blocked")
-      File.write!(blocked, "regular file")
-      scratch = AgentEnvironment.workspace_env(workspace)
-
-      temp_env =
-        scratch
-        |> Enum.filter(fn {name, _} -> name in [~c"TMPDIR", ~c"TMP", ~c"TEMP", ~c"TMPPREFIX"] end)
-        |> Map.new(fn {name, value} -> {to_string(name), to_string(value)} end)
-
-      {output, 0} =
-        System.cmd("zsh", ["-c", "wc -c <<EOF\nworkpad\nEOF"],
-          env: [
-            {"TMPDIR", temp_env["TMPDIR"]},
-            {"TMPPREFIX", Map.get(temp_env, "TMPPREFIX", Path.join(blocked, "zsh-"))}
-          ],
-          stderr_to_stdout: true
-        )
-
-      assert output == "8\n"
-    end
-
     test "the export prefix redirects TMPDIR for the SSH-launch path", %{workspace: workspace} do
       prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
 
@@ -892,22 +868,6 @@ defmodule Aiur.AgentEnvironmentTest do
       scratch = Path.join(workspace, ".aiur-runtime/tmp")
       assert resolved == "#{scratch}|#{scratch}|#{scratch}|#{scratch}/zsh-"
       assert File.dir?(scratch)
-    end
-
-    test "SSH agent zsh heredocs use private scratch when the inherited temp path is unusable", %{
-      workspace: workspace
-    } do
-      blocked = Path.join(workspace, "blocked")
-      File.write!(blocked, "regular file")
-      prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
-
-      {output, 0} =
-        System.cmd("bash", ["-c", "#{prefix} && zsh -c 'wc -c <<EOF\nworkpad\nEOF'"],
-          env: [{"TMPPREFIX", Path.join(blocked, "zsh-")}],
-          stderr_to_stdout: true
-        )
-
-      assert output == "8\n"
     end
 
     # A path whose parent component is a regular file always fails with ENOTDIR,

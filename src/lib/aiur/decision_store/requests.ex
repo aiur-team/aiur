@@ -3,12 +3,13 @@ defmodule Aiur.DecisionStore.Requests do
 
   require Logger
 
+  alias Aiur.DecisionProjection.AuthorityReclassification
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
   alias Aiur.DecisionStore.Dedup
   alias Aiur.DecisionStore.Persistence
   alias Aiur.DecisionValidation
-  alias Aiur.Events.IdGenerator
+  alias Aiur.Events
   alias Aiur.ExecutorCommandAttention
   alias Aiur.ExecutorEvents
 
@@ -28,6 +29,59 @@ defmodule Aiur.DecisionStore.Requests do
       false -> {:reply, {:error, :invalid_expected_version}, state}
       nil -> {:reply, {:error, :invalid_escalation}, state}
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
+    end
+  end
+
+  @spec handle_authority_reclassification(term(), term(), term()) :: term()
+  def handle_authority_reclassification(decision_id, payload, state) do
+    expected_version = Map.get(payload, :expected_version, Map.get(payload, "expected_version"))
+    executor_id = present_executor_field(payload, :executor_id)
+    rationale = present_executor_field(payload, :rationale)
+
+    with true <- is_integer(expected_version) and expected_version > 0,
+         executor_id when is_binary(executor_id) <- executor_id,
+         rationale when is_binary(rationale) <- rationale,
+         {:ok, decision} <- Answers.fetch_decision(state, decision_id),
+         :ok <- validate_reclassification(decision, expected_version),
+         {:ok, next_state, updated} <- persist_reclassification(state, decision, executor_id, rationale) do
+      {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+    else
+      false -> {:reply, {:error, :invalid_expected_version}, state}
+      nil -> {:reply, {:error, :invalid_reclassification}, state}
+      {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
+    end
+  end
+
+  defp validate_reclassification(decision, expected_version) do
+    cond do
+      decision.version != expected_version ->
+        {:error, {:stale_version, expected_version, decision.version}}
+
+      decision.authority != :human_required ->
+        {:error, {:not_human_required, decision.authority}}
+
+      not AuthorityReclassification.reclassifiable?(decision) ->
+        {:error, :human_required_basis_cannot_be_reclassified}
+
+      is_nil(decision.answer) and decision.decision_status in [:open, :deferred] ->
+        :ok
+
+      true ->
+        {:error, {:not_open, decision.decision_status}}
+    end
+  end
+
+  defp persist_reclassification(state, decision, executor_id, rationale) do
+    data = %{
+      actor: %{kind: :executor, id: executor_id},
+      authority: :supervisor_allowed,
+      detail: rationale,
+      expected_version: decision.version
+    }
+
+    case Persistence.build_and_persist_event(:authority_reclassified, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} -> {:ok, next_state, updated}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -126,9 +180,33 @@ defmodule Aiur.DecisionStore.Requests do
   @spec evaluate_and_apply(term(), term(), term()) :: term()
   def evaluate_and_apply(decision, requested_version, state) do
     case evaluate(decision, requested_version, state) do
-      {:duplicate, existing} -> {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
-      {:reject, reason} -> {:reply, {:error, {:conflict, reason}}, state}
-      {:accept, decision} -> accept(decision, state)
+      {:duplicate, existing} ->
+        {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
+
+      {:reject, reason} ->
+        {:reply, {:error, {:conflict, reason}}, state}
+
+      {:accept, decision} ->
+        accept(decision, state)
+
+      {:supersede_expired, decision, expired} ->
+        accept_expired_reraise(decision, expired, state)
+    end
+  end
+
+  # Persist and publish the replacement before retiring the old expired row.
+  # If the replacement append fails, the existing answerable record stays
+  # available for an Executor instead of being lost to a premature moot.
+  defp accept_expired_reraise(decision, expired, state) do
+    case accept(decision, state) do
+      {:reply, {:ok, result}, accepted_state} ->
+        case Dedup.moot_expired_reraise(accepted_state, expired, decision) do
+          {:ok, next_state} -> {:reply, {:ok, result}, next_state}
+          {:error, reason} -> {:reply, {:ok, result}, Persistence.journal_failure_state(accepted_state, reason)}
+        end
+
+      other ->
+        other
     end
   end
 
@@ -147,8 +225,16 @@ defmodule Aiur.DecisionStore.Requests do
   # the new one as a duplicate of the existing Command rather than appending it.
   defp evaluate_fresh(decision, 1, state) do
     case Dedup.find_creation_duplicate(decision, state) do
-      nil -> {:accept, %{decision | version: 1}}
-      existing -> {:duplicate, existing}
+      nil ->
+        decision = %{decision | version: 1}
+
+        case Dedup.find_expired_reraise_duplicate(decision, state) do
+          nil -> {:accept, decision}
+          expired -> {:supersede_expired, decision, expired}
+        end
+
+      existing ->
+        {:duplicate, existing}
     end
   end
 
@@ -156,15 +242,27 @@ defmodule Aiur.DecisionStore.Requests do
     do: {:reject, {:version_gap, requested_version, nil}}
 
   defp evaluate_against_existing(decision, requested_version, existing) do
+    case identical_expired_retry(decision, requested_version, existing) do
+      true -> {:accept, %{decision | version: existing.version + 1}}
+      false -> evaluate_existing_version(decision, requested_version, existing)
+    end
+  end
+
+  defp identical_expired_retry(decision, requested_version, existing) do
+    expired_unanswered_blocking?(existing) and requested_version == existing.version and
+      decision.content_hash == existing.content_hash
+  end
+
+  defp evaluate_existing_version(decision, requested_version, existing) do
     cond do
+      requested_version == existing.version + 1 ->
+        {:accept, %{decision | version: requested_version}}
+
       requested_version == existing.version and decision.content_hash == existing.content_hash ->
         {:duplicate, existing}
 
       requested_version == existing.version ->
         {:reject, {:idempotency_conflict, requested_version}}
-
-      requested_version == existing.version + 1 ->
-        {:accept, %{decision | version: requested_version}}
 
       requested_version < existing.version ->
         {:reject, {:stale_version, requested_version, existing.version}}
@@ -174,9 +272,13 @@ defmodule Aiur.DecisionStore.Requests do
     end
   end
 
+  defp expired_unanswered_blocking?(decision) do
+    decision.decision_status == :expired and decision.blocking and is_nil(decision.answer)
+  end
+
   @spec accept(term(), term()) :: term()
   def accept(decision, state) do
-    case IdGenerator.reserve_durable_id() do
+    case Events.reserve_durable_id() do
       {:ok, event_id} -> Persistence.persist_and_notify(decision, event_id, state)
       {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
     end
@@ -241,11 +343,15 @@ defmodule Aiur.DecisionStore.Requests do
 
   @spec lifecycle_slug(term()) :: term()
   def lifecycle_slug(:answer_recorded), do: "answered"
+  def lifecycle_slug(:pending_for_session), do: "pending-for-session"
+  def lifecycle_slug(:session_started), do: "session-started"
+  def lifecycle_slug(:answer_comment_published), do: "answer-comment-published"
   def lifecycle_slug(:decision_expired), do: "expired"
   def lifecycle_slug(:decision_mooted), do: "mooted"
   def lifecycle_slug(:decision_dismissed), do: "dismissed"
   def lifecycle_slug(:decision_deferred), do: "deferred"
   def lifecycle_slug(:executor_escalated), do: "executor-escalated"
+  def lifecycle_slug(:authority_reclassified), do: "authority-reclassified"
   def lifecycle_slug(:enriched), do: "enriched"
   def lifecycle_slug(:revision_recorded), do: "revision-recorded"
   def lifecycle_slug(:dispatch_queued), do: "queued"

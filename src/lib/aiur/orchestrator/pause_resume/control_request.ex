@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   """
 
   alias Aiur.AgentPubSub
-  alias Aiur.Events.IdGenerator
+  alias Aiur.Events
   alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.ControlLifecycleStore
@@ -85,8 +85,8 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   def submit_resume_control_request(%State{} = state, running_entry, requester, request_id \\ nil) do
     if Map.get(running_entry, :control, %{}) |> Map.get(:status, :working) == :paused do
       cond do
-        State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
-          {{:error, :max_concurrent_agents_reached}, state}
+        not Slots.resume_fleet_slot_available?(state, running_entry) ->
+          {{:error, capacity_reason(state, running_entry, requester)}, state}
 
         not DispatchPolicy.state_slots_available?(Map.get(running_entry, :issue), state) ->
           {{:error, :max_concurrent_agents_reached}, state}
@@ -115,6 +115,10 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
       )
     end
   end
+
+  # Operators get the counter that refused; automatic callers match the bare atom.
+  defp capacity_reason(state, running_entry, :operator), do: {:max_concurrent_agents_reached, Slots.fleet_capacity_detail(state, running_entry)}
+  defp capacity_reason(_state, _running_entry, _requester), do: :max_concurrent_agents_reached
 
   @doc false
   @spec submit_control_request(State.t(), term(), term(), term(), term(), term()) :: term()
@@ -252,7 +256,7 @@ defmodule Aiur.Orchestrator.PauseResume.ControlRequest do
   defp arm_pause_containment(_request, _issue_identifier), do: :ok
 
   defp next_control_request_id do
-    case IdGenerator.reserve_durable_id() do
+    case Events.reserve_durable_id() do
       {:ok, request_id} -> {:ok, request_id}
       {:error, :not_durable} -> {:error, :control_id_unavailable}
     end

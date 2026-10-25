@@ -30,6 +30,7 @@ defmodule Aiur.BuildPriorityTest do
       File.chmod(lock, 0o755)
       Aiur.TestCleanup.rm_rf!(lock)
       Aiur.TestCleanup.rm_rf!(gate)
+      Aiur.TestCleanup.rm_rf!(gate <> ".hooks")
     end)
 
     {output, status} =

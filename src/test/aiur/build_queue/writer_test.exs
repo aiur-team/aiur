@@ -189,6 +189,23 @@ defmodule Aiur.BuildQueue.WriterTest do
     assert failed.document.intents == []
   end
 
+  test "marker attempt retains pre-existing todo provenance from its queue request", %{document: document} do
+    request = %Model.Intent{
+      id: "queue-add-marker-request",
+      issue_id: "1",
+      action: :mark,
+      target_labels: ~w(agent:queued agent:todo),
+      recorded_at_ms: 900,
+      preexisting_todo?: true,
+      outcome: nil
+    }
+
+    result = run(%{document | intents: [request]}, [{:mark, "1"}])
+
+    assert [%{id: "queue-add-marker-request", preexisting_todo?: true}, %{action: :mark, outcome: :ok, preexisting_todo?: true}] =
+             result.document.intents
+  end
+
   test "reconciliation during backoff does not retry early", %{document: document} do
     Fake.put(:result, {:error, :unavailable})
     first = run(document, [{:promote, "1"}])

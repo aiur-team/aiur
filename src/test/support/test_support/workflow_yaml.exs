@@ -25,6 +25,7 @@ defmodule Aiur.TestSupport.WorkflowYaml do
           tracker_planning_page_budget: 4,
           tracker_planning_call_budget: 4,
           tracker_base_branch: "main",
+          instance_mode: nil,
           max_vertical_panes: 3,
           pre_warmed_sessions: 3,
           agent_kind: "codex",
@@ -75,6 +76,7 @@ defmodule Aiur.TestSupport.WorkflowYaml do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     tracker_base_branch = Keyword.get(config, :tracker_base_branch)
+    instance_mode = Keyword.get(config, :instance_mode)
     tracker_terminal_fence_grace_seconds = Keyword.get(config, :tracker_terminal_fence_grace_seconds)
     agent_kind = Keyword.get(config, :agent_kind)
     agent_routing = Keyword.get(config, :agent_routing)
@@ -175,6 +177,7 @@ defmodule Aiur.TestSupport.WorkflowYaml do
 
     sections =
       [
+        instance_mode && "instance:\n  mode: #{yaml_value(instance_mode)}",
         "max_vertical_panes: #{yaml_value(max_vertical_panes)}",
         "pre_warmed_sessions: #{yaml_value(pre_warmed_sessions)}",
         tracker_section,
@@ -214,7 +217,8 @@ defmodule Aiur.TestSupport.WorkflowYaml do
           opencode_model_prefix
         ),
         alerts_yaml(overrides),
-        pr_watch_yaml(overrides)
+        pr_watch_yaml(overrides),
+        pr_health_yaml(overrides)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
 

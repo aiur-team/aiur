@@ -167,7 +167,9 @@ defmodule Aiur.DecisionAttentionSignals do
   defp merge_results(_first, {:error, _reason} = error), do: error
 
   defp classification_topic(decision), do: attention_topic(decision, "decision-classification")
-  defp stale_topic(decision), do: attention_topic(decision, "decision-stale")
+  @doc false
+  @spec stale_topic(Decision.t()) :: String.t()
+  def stale_topic(decision), do: attention_topic(decision, "decision-stale")
   defp expired_topic(decision), do: attention_topic(decision, "decision-expired-unanswerable")
 
   defp expiry_topic(decision, :stale_blocking), do: stale_topic(decision)

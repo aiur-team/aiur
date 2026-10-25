@@ -28,6 +28,102 @@ defmodule Aiur.Events.GithubCIPollerEvaluationTest do
              poll(["42"], ci_batch: batch, required_check_fetcher: fn _ -> {:error, :denied} end)
   end
 
+  test "approved PRs stay in ci-wait while queued and fail when the queue marks them unmergeable" do
+    required = [%{name: "test", app_id: 15_368}]
+    green = %{"name" => "test", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15_368}}
+
+    for {entry, expected} <- [
+          {%{"id" => "queue-entry", "state" => "AWAITING_CHECKS"}, %{decision: :pending, pending_reason: :merge_queue}},
+          {%{"id" => "queue-entry", "state" => "UNMERGEABLE"}, %{decision: :failed, pending_reason: :merge_queue_failed}}
+        ] do
+      pr = %{
+        "number" => 71,
+        "head" => pr_head("aiur/42", "current-head"),
+        "base" => %{"ref" => "main"},
+        "merge_queue" => %{
+          draft?: false,
+          review_decision: "APPROVED",
+          mergeable: "MERGEABLE",
+          merge_state_status: "BLOCKED",
+          auto_merge_request: nil,
+          merge_queue_entry: entry
+        }
+      }
+
+      batch = %{"42" => %{pull_request: pr, check_runs: [green], commit_status: %{"statuses" => []}}}
+
+      assert {:ok, %{results: [result]}} =
+               poll(["42"], ci_batch: batch, required_check_fetcher: fn _ -> {:ok, required} end)
+
+      assert Map.take(result, Map.keys(expected)) == expected
+    end
+
+    auto_merge_pr = %{
+      "number" => 72,
+      "head" => pr_head("aiur/42", "auto-merge-head"),
+      "base" => %{"ref" => "main"},
+      "merge_queue" => %{
+        draft?: false,
+        review_decision: "APPROVED",
+        mergeable: "MERGEABLE",
+        merge_state_status: "BLOCKED",
+        auto_merge_request: %{"enabledAt" => "2026-10-14T00:00:00Z"},
+        merge_queue_entry: nil
+      }
+    }
+
+    batch = %{"42" => %{pull_request: auto_merge_pr, check_runs: [green], commit_status: %{"statuses" => []}}}
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :merge_queue}]}} =
+             poll(["42"], ci_batch: batch, required_check_fetcher: fn _ -> {:ok, required} end)
+  end
+
+  test "an all-cancelled workflow behind a failed gate remains pending even when the queue is unmergeable" do
+    required = [%{name: "test", app_id: 15_368}]
+
+    checks = [
+      %{"name" => "test", "status" => "completed", "conclusion" => "cancelled", "app" => %{"id" => 15_368}},
+      %{"name" => "lint", "status" => "completed", "conclusion" => "cancelled", "app" => %{"id" => 15_368}},
+      %{"name" => "ci gate", "status" => "completed", "conclusion" => "failure", "app" => %{"id" => 15_368}}
+    ]
+
+    pr = %{
+      "number" => 71,
+      "head" => pr_head("aiur/42", "current-head"),
+      "base" => %{"ref" => "main"},
+      "merge_queue" => %{
+        draft?: false,
+        review_decision: "APPROVED",
+        mergeable: "MERGEABLE",
+        merge_state_status: "BLOCKED",
+        auto_merge_request: nil,
+        merge_queue_entry: %{"id" => "queue-entry", "state" => "UNMERGEABLE"}
+      }
+    }
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :ci_cancelled}]}} =
+             poll(["42"],
+               ci_batch: %{"42" => %{pull_request: pr, check_runs: checks, commit_status: %{"statuses" => []}}},
+               required_check_fetcher: fn _ -> {:ok, required} end
+             )
+
+    superseded = List.replace_at(checks, 2, %{"name" => "ci gate", "status" => "completed", "conclusion" => "cancelled"})
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :ci_cancelled}]}} =
+             poll(["42"],
+               ci_batch: %{"42" => %{pull_request: pr, check_runs: superseded, commit_status: %{"statuses" => []}}},
+               required_check_fetcher: fn _ -> {:ok, required} end
+             )
+
+    mixed = List.replace_at(checks, 1, %{"name" => "lint", "status" => "completed", "conclusion" => "failure", "app" => %{"id" => 15_368}})
+
+    assert {:ok, %{results: [%{decision: :failed}]}} =
+             poll(["42"],
+               ci_batch: %{"42" => %{pull_request: pr, check_runs: mixed, commit_status: %{"statuses" => []}}},
+               required_check_fetcher: fn _ -> {:ok, required} end
+             )
+  end
+
   test "returns pending for no observed checks or in-progress work" do
     assert %{decision: :pending, failures: []} = GithubCIPoller.evaluate_for_test([], %{"statuses" => []})
 
@@ -36,6 +132,18 @@ defmodule Aiur.Events.GithubCIPollerEvaluationTest do
                [%{"name" => "test", "status" => "in_progress", "conclusion" => nil}],
                %{"statuses" => []}
              )
+  end
+
+  test "a failed run that predates the last reopen is ignored, and later PR activity does not hide a real failure" do
+    failed = %{"name" => "ci gate", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-10-16T07:40:00Z", "completed_at" => "2026-10-16T07:41:00Z"}
+    pr = %{"number" => 71, "head" => pr_head("aiur/42", "current-head"), "base" => %{"ref" => "main"}, "draft" => false}
+    poll_with = fn pr -> poll(["42"], ci_batch: %{"42" => %{pull_request: pr, check_runs: [failed], commit_status: %{"statuses" => []}}}) end
+
+    assert {:ok, %{results: [%{decision: :pending, pending_reason: :stale_ci_evidence}]}} = poll_with.(Map.put(pr, "reopened_at", "2026-10-16T07:54:00Z"))
+
+    # A comment, label or review moves `updatedAt` but is not a reopen.
+    assert {:ok, %{results: [%{decision: :failed}]}} = poll_with.(Map.put(pr, "updated_at", "2026-10-16T08:00:00Z"))
+    assert {:ok, %{results: [%{decision: :failed}]}} = poll_with.(Map.put(pr, "reopened_at", "2026-10-16T07:30:00Z"))
   end
 
   test "uses the combined-status aggregate when contexts are absent" do

@@ -116,7 +116,9 @@ defmodule Aiur.AppServer.RelayReaperTest do
     assert {:ok, %{"child" => child, "pgid" => pgid}} = Jason.decode(line)
     assert pgid == metadata.pgid
     assert live?(child)
-    refute child in ProcessTree.process_tree(metadata.relay_pid)
+    refute child in ProcessTree.process_tree(metadata.provider_pid)
+    # The relay is a child subreaper, so it adopts the orphan instead of init (#4730).
+    assert child in ProcessTree.process_tree(metadata.relay_pid)
 
     on_exit(fn ->
       ProcessTree.graceful_kill_tree(metadata.relay_pid)

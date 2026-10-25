@@ -54,7 +54,7 @@ the change falsifies before writing anything new.
 
 | Change | Page |
 |--------|------|
-| Config key | `website/docs-app/reference/configuration.md`, `configuration-agent.md` or `configuration-build-order.md` (one entry per key, on exactly one of the three, defaults included) |
+| Config key | `website/docs-app/reference/configuration.md`, `configuration-agent.md`, `configuration-build-order.md` or `configuration-voice.md` (one entry per key, on exactly one of them, defaults included) |
 | CLI command or flag | `website/docs-app/reference/cli.md` |
 | Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
 | Model or behavior explanation | `website/docs-app/concepts/` |
@@ -63,13 +63,12 @@ the change falsifies before writing anything new.
 A genuinely new page must also be added to the sidebar in
 `website/docs-app/.vitepress/config.ts`, or nobody can reach it.
 
-Only one row above is machine-checked. `scripts/check-config-docs.py` resolves
-every config key to its full dotted path and fails the required `lint` job when
-one is missing from the configuration reference; `scripts/test-check-config-docs.sh`
-guards that checker. **Every other row is enforced by review alone** — nothing
-will stop a CLI flag or a dashboard page from merging undocumented, so a
-reviewer treating a missing doc as a blocking finding is the only mechanism
-there is.
+The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
+config keys; missing entries fail `lint`. `scripts/test-check-config-docs.sh` guards
+that checker. The `lint` job runs `website/docs-app/scripts/check-cli-reference.sh`
+and its self-test, as does website guards for docs-only changes. Keep
+`reference/cli.md` at 500 lines or fewer; consolidate added rows in the same change. The file-size gate exempts skills and third-party vendored directories.
+Other rows remain enforced by review alone.
 
 ## Layout
 
@@ -210,7 +209,8 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
+from the environment. GitHub uses the App when configured; local fallback is `GITHUB_TOKEN` or `gh` keyring, while hosted/container requires the App unless
+`AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. On a run,
 credential precedence is: an already-exported environment value, then
 `./.env` in the current repository, then `~/.aiur/.env`. Each dotenv file only
 fills unset names, blank values count for nothing, and GitHub credentials
@@ -219,11 +219,14 @@ sets any of them. The Supervisor Decision API uses `AIUR_SUPERVISOR_TOKEN`;
 generate one with `openssl rand -base64 32`. The value must be at least 32
 bearer-safe bytes with no surrounding whitespace. An absent or empty value
 disables the API, while a present non-empty unusable value aborts startup.
-Provider keys use
+Google browser sign-in uses `AIUR_GOOGLE_CLIENT_ID` / `AIUR_GOOGLE_CLIENT_SECRET` from dotenv and requires the machine Basic Auth credentials. Restart after changing `dashboard_auth`. Provider keys use
 `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
 `OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
-Keep the global per-user file outside Git trees and never commit either dotenv
-file. `aiur init` also reads `.env` for the GitHub token during setup.
+`AIUR_SECRET_KEY_BASE` (64+ bytes) overrides dashboard signing; otherwise Aiur stores a mode-0600 key per instance under `~/.aiur/instances/`. Hosted mode can set `AIUR_SECRETS_FROM_ENV=1` to disable dotenv; startup and `aiur status` list missing credential names only. Set `AIUR_STATE_PERSISTENT=1` only when state survives restarts; otherwise set `AIUR_SECRET_KEY_BASE`.
+`AIUR_LEASE_DATABASE_URL` optionally configures the shared PostgreSQL coordination store for multi-instance ticket leases and instance heartbeats. Every participating instance must use the same TLS PostgreSQL URL; new dispatch and live-instance reads fail closed when the configured store is unreachable. The credential is removed from agent environments.
+`aiur run --container` requires `AIUR_ERLANG_COOKIE` (at least 16 letters, digits, `_` or `-`) or a mounted `AIUR_COOKIE_FILE`; it never reads `releases/COOKIE`, and `docker exec` control commands must use the same cookie. See [the CLI reference](website/docs-app/reference/cli.md) for details.
+Dashboard Host/origin checks use the public URL and loopback; loopback listeners also accept `*.ts.net` Hosts and HTTPS origins while they remain loopback-bound. `server.allowed_hosts` adds Host names.
+Keep the global per-user file outside Git trees and never commit either dotenv file. `aiur init` also reads `.env` for the GitHub token during setup.
 
 `ERL_CRASH_DUMP` and `ERL_CRASH_DUMP_SECONDS` optionally override the daemon's
 durable BEAM dump path and bounded write time. They apply only to the Aiur
@@ -231,9 +234,8 @@ daemon: agent and build children have both variables removed from their
 environment so they cannot overwrite daemon evidence or inherit its dump
 policy.
 
-GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
-for git pushes/PRs. Verify with `gh auth status` in the same shell that
-will run the agent.
+Use `gh auth setup-git` for git pushes/PRs, and verify with `gh auth status` in
+the same shell that will run the agent.
 
 Agent processes do **not** inherit `GITHUB_TOKEN`/`GH_TOKEN`: the daemon
 scrubs them from every agent environment and the `gh` guard injects the
@@ -243,8 +245,8 @@ speaks HTTP directly is metered by GitHub's anonymous limit, not by Aiur's
 guard — the ledger counts governed `gh`/`git` calls, and only those.
 
 **Before changing anything that talks to GitHub — polling, budgets, the read
-cache, webhooks, credentials — read
-[`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is
+cache, webhooks, credentials — read the GitHub API docs index and topic pages
+in `website/docs-app/apis/`.** It is
 the source of truth for how Aiur uses the GitHub API: what it polls and how
 often, how the Core/GraphQL budgets are metered and attributed, how to read
 `aiur github-cost` without misinterpreting it, which reads the cache refuses on
@@ -333,6 +335,10 @@ discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
 
+A fixed fixture date must never meet the real clock: inject `now`, or date the
+fixture relative to `DateTime.utc_now()`. CI's affected-tests job reruns dated
+tests with every date literal 35 days older (`scripts/check-test-time-bombs.py`).
+
 ## Computed ages and collapsed causes — author-side checks
 
 Two more dashboard rules recur in review — an age computed but never rendered,
@@ -370,7 +376,7 @@ A PR claiming a quota, latency, or cost saving must state, in the PR body:
    never produces. `aiur github-cost` gives per-caller points, calls, and
    rate; the local ledger and the App-token `/rate_limit` give the
    credential-side view. Read
-   [`website/docs-app/apis/github.md`](website/docs-app/apis/github.md)
+   [`website/docs-app/apis/github-budgets.md`](website/docs-app/apis/github-budgets.md)
    ("Reading these numbers without fooling yourself") before measuring.
 3. **What must be true at merge for the saving to occur.** If the saving needs
    a config change, ship that change in the PR — or say plainly that the

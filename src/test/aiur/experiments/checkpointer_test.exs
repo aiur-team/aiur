@@ -14,7 +14,7 @@ defmodule Aiur.Experiments.CheckpointerTest do
     end)
 
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-    unless Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     %{id: write_spec("checkpoint-fixture")}
   end
 

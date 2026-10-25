@@ -3,8 +3,7 @@
     constructor(hook) {
       this.hook = hook;
       this.generation = 0;
-      this.columns = new Array(120).fill(null).map(() => ({ min: 0, max: 0 }));
-      this.pending = [];
+      this.waveform = window.AiurVoiceCapture && new window.AiurVoiceCapture.WaveformBuffer();
       this.onMicClick = () => this.toggle("dictation");
       this.onConversationClick = () => this.toggle("conversation");
       this.onDeviceChange = () => this.rememberDevice();
@@ -17,7 +16,10 @@
 
       if (!window.isSecureContext) {
         this.disable("Microphone access requires HTTPS or localhost. This dashboard origin is not secure.");
-      } else if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
+      } else if (
+        !navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode ||
+        !window.AiurVoiceCapture || !window.AiurVoiceTransport
+      ) {
         this.disable("This browser does not support microphone dictation with the Web Audio API.");
       } else {
         this.refreshDevices();
@@ -55,14 +57,12 @@
     }
 
     rememberDevice() {
-      try {
-        window.localStorage.setItem("aiur-dashboard-microphone-device", this.device?.value || "");
-      } catch (_error) {}
+      window.AiurVoiceCapture.rememberDevice(this.device?.value);
     }
 
     disable(reason) {
       this.unavailableReason = reason;
-      this.setStatus(reason);
+      this.setStatus(reason, true);
       this.syncElements();
     }
 
@@ -74,6 +74,8 @@
         );
         this.mic.setAttribute("aria-pressed", this.recording ? "true" : "false");
         this.mic.setAttribute("aria-label", this.recording ? "Stop dictation" : "Dictate message");
+        this.mic.classList.toggle("rec", this.recording && this.captureMode === "dictation");
+        if (this.unavailableReason) this.mic.title = this.unavailableReason;
       }
       if (this.conversation) {
         this.conversation.disabled = Boolean(
@@ -97,20 +99,21 @@
         this.input.setAttribute("aria-readonly", composerLocked ? "true" : "false");
       }
       if (this.send) this.send.disabled = composerLocked;
-      if (this.status && this.statusMessage) this.status.textContent = this.statusMessage;
+      if (this.status && this.statusMessage) {
+        this.status.textContent = this.statusMessage;
+        this.status.hidden = false;
+        this.status.classList.toggle("bad", this.statusFailed === true);
+      }
       this.drawWaveform();
     }
 
     async refreshDevices() {
       if (!this.device || !navigator.mediaDevices?.enumerateDevices) return;
 
-      let selected = "";
-      try {
-        selected = window.localStorage.getItem("aiur-dashboard-microphone-device") || "";
-      } catch (_error) {}
+      const selected = window.AiurVoiceCapture.recalledDevice();
 
       try {
-        const microphones = (await navigator.mediaDevices.enumerateDevices()).filter((item) => item.kind === "audioinput");
+        const microphones = await window.AiurVoiceCapture.listMicrophones();
         const options = [{ deviceId: "", label: "Default microphone" }, ...microphones];
         this.device.replaceChildren(...options.map((item, index) => {
           const option = document.createElement("option");
@@ -150,18 +153,18 @@
           this.playbackContext ||= new window.AudioContext();
           await this.playbackContext.resume();
         }
-        const deviceId = this.device?.value || "";
-        const audio = deviceId ? { deviceId: { exact: deviceId } } : true;
-        const stream = await navigator.mediaDevices.getUserMedia({ audio });
+        const stream = await window.AiurVoiceCapture.requestMicrophone(this.device?.value || "");
         if (!this.current(generation)) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
-        this.stream = stream;
+        const capture = new window.AiurVoiceCapture.Capture(stream, (samples) => this.handleSamples(samples));
+        this.capture = capture;
+        const live = () => this.current(generation) && this.capture === capture;
         await this.openChannel(generation, mode);
-        if (!this.current(generation)) return;
-        await this.openCapture(stream, generation);
-        if (!this.current(generation)) return;
+        if (!live()) return;
+        await capture.start(live);
+        if (!live()) return;
 
         this.recording = true;
         this.baseText = mode === "conversation" ? "" : (this.input?.value || "").trim();
@@ -192,69 +195,46 @@
       return this.generation === generation && this.hook.el.isConnected;
     }
 
-    async openCapture(stream, generation) {
-      const context = new window.AudioContext();
-      this.context = context;
-      await context.resume();
-      if (!this.current(generation)) return;
-      await context.audioWorklet.addModule("/voice-capture-worklet.js");
-      if (!this.current(generation)) return;
-      const source = context.createMediaStreamSource(stream);
-      const worklet = new window.AudioWorkletNode(context, "aiur-voice-capture");
-      const mute = context.createGain();
-      mute.gain.value = 0;
-      source.connect(worklet).connect(mute).connect(context.destination);
-      worklet.port.onmessage = (event) => this.handleSamples(event.data);
-      this.source = source;
-      this.worklet = worklet;
-      this.mute = mute;
-    }
-
     openChannel(generation, mode) {
-      return new Promise((resolve, reject) => {
-        const VoiceSocket = window.AiurVoiceSocket || window.Phoenix?.Socket;
-        if (!VoiceSocket) return reject(new Error("Dashboard voice connection is unavailable."));
-
-        const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content");
-        const socket = new VoiceSocket("/voice", { params: { _csrf_token: csrfToken } });
-        socket.connect();
-        const channel = socket.channel(mode === "conversation" ? "voice:conversation" : "voice:dictation", {});
-        const current = () => this.current(generation) && this.channel === channel;
-        channel.on("transcript", (payload) => current() && this.applyTranscript(payload));
-        channel.on("error", (payload) => current() && this.handleTransportFailure(payload?.reason || "Speech-to-text failed.", generation, channel));
-        channel.on("stopped", () => {
-          if (!current()) return;
-          this.clearFinishTimer();
-          this.finishing = false;
-          if (this.captureMode === "conversation") {
-            this.submitConversationTurn();
-          } else {
-            this.setStatus("Dictation ready. Review the text, then press Send.");
+      let transport;
+      const current = () => this.current(generation) && this.channel === transport.channel;
+      const fail = (message) => this.handleTransportFailure(message, generation, transport.channel);
+      transport = window.AiurVoiceTransport.open({
+        topic: mode === "conversation" ? "voice:conversation" : "voice:dictation",
+        handlers: {
+          transcript: (payload) => current() && this.applyTranscript(payload),
+          error: (payload) => current() && fail(payload?.reason || "Speech-to-text failed."),
+          stopped: () => {
+            if (!current()) return;
+            this.clearFinishTimer();
+            this.finishing = false;
+            if (this.captureMode === "conversation") {
+              this.submitConversationTurn();
+            } else {
+              this.setStatus("Dictation ready. Review the text, then press Send.");
+              this.closeChannel();
+            }
+            this.syncElements();
+          },
+          audio: (payload) => current() && this.playAudio(payload),
+          audio_done: () => {
+            if (!current()) return;
+            this.finishPlaybackWhenAudible();
+          },
+          audio_error: (payload) => {
+            if (!current()) return;
+            this.resetConversationState();
             this.closeChannel();
+            this.setStatus(payload?.reason || "Voice playback failed.");
+            this.syncElements();
           }
-          this.syncElements();
-        });
-        channel.on("audio", (payload) => current() && this.playAudio(payload));
-        channel.on("audio_done", () => {
-          if (!current()) return;
-          this.finishPlaybackWhenAudible();
-        });
-        channel.on("audio_error", (payload) => {
-          if (!current()) return;
-          this.resetConversationState();
-          this.closeChannel();
-          this.setStatus(payload?.reason || "Voice playback failed.");
-          this.syncElements();
-        });
-        channel.onError(() => this.handleTransportFailure("Speech-to-text connection was lost. Try dictation again.", generation, channel));
-        channel.onClose(() => this.handleTransportFailure("Speech-to-text connection closed. Try dictation again.", generation, channel));
-        this.socket = socket;
-        this.channel = channel;
-        channel.join()
-          .receive("ok", resolve)
-          .receive("error", (reason) => reject(new Error(reason?.reason || "Speech-to-text could not start.")))
-          .receive("timeout", () => reject(new Error("Speech-to-text connection timed out.")));
+        },
+        onError: () => fail("Speech-to-text connection was lost. Try dictation again."),
+        onClose: () => fail("Speech-to-text connection closed. Try dictation again.")
       });
+      this.socket = transport.socket;
+      this.channel = transport.channel;
+      return transport.joined;
     }
 
     stop() {
@@ -271,57 +251,26 @@
       }, 5000);
     }
 
-    handleSamples(payload) {
-      if (!this.recording || !payload?.samples || !payload?.sampleRate) return;
-      const samples = this.downsample(payload.samples, payload.sampleRate, 16000);
-      if (!samples.length) return;
+    handleSamples(samples) {
+      if (!this.recording) return;
       this.pushWaveform(samples);
-      const pcm = new Uint8Array(samples.length * 2);
-      const view = new DataView(pcm.buffer);
-      samples.forEach((sample, index) => {
-        const bounded = Math.max(-1, Math.min(1, sample));
-        view.setInt16(index * 2, bounded < 0 ? bounded * 32768 : bounded * 32767, true);
-      });
-      let binary = "";
-      for (const byte of pcm) binary += String.fromCharCode(byte);
-      this.channel?.push("audio", { data: window.btoa(binary) });
-    }
-
-    downsample(input, sourceRate, targetRate) {
-      if (sourceRate === targetRate) return input;
-      const outputLength = Math.max(1, Math.round(input.length * targetRate / sourceRate));
-      const output = new Float32Array(outputLength);
-      const ratio = sourceRate / targetRate;
-      for (let index = 0; index < outputLength; index += 1) {
-        const start = Math.floor(index * ratio);
-        const end = Math.max(start + 1, Math.min(input.length, Math.floor((index + 1) * ratio)));
-        let total = 0;
-        for (let cursor = start; cursor < end; cursor += 1) total += input[cursor];
-        output[index] = total / (end - start);
-      }
-      return output;
+      this.channel?.push("audio", { data: window.AiurVoiceCapture.encodePcm16Base64(samples) });
     }
 
     pushWaveform(samples) {
-      for (const sample of samples) {
-        this.pending.push(sample);
-        if (this.pending.length !== 800) continue;
-        this.columns.push({ min: Math.min(...this.pending), max: Math.max(...this.pending) });
-        this.columns.shift();
-        this.pending = [];
-      }
+      this.waveform.push(samples);
       this.drawWaveform();
     }
 
     resetWaveform() {
-      this.columns = new Array(120).fill(null).map(() => ({ min: 0, max: 0 }));
-      this.pending = [];
+      this.waveform.reset();
       this.drawWaveform();
     }
 
     drawWaveform() {
       const context = this.canvas?.getContext("2d");
-      if (!this.canvas || !context || !this.columns) return;
+      const columns = this.waveform?.columns;
+      if (!this.canvas || !context || !columns) return;
       const style = window.getComputedStyle(this.hook.el);
       const middle = this.canvas.height / 2;
       context.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -331,10 +280,10 @@
       context.lineTo(this.canvas.width, middle + 0.5);
       context.stroke();
       context.strokeStyle = style.getPropertyValue("--accent").trim() || "#3ba55d";
-      context.lineWidth = Math.max(1, this.canvas.width / this.columns.length * 0.7);
+      context.lineWidth = Math.max(1, this.canvas.width / columns.length * 0.7);
       const scale = this.canvas.height * 0.43;
-      this.columns.forEach((column, index) => {
-        const x = (index + 0.5) * this.canvas.width / this.columns.length;
+      columns.forEach((column, index) => {
+        const x = (index + 0.5) * this.canvas.width / columns.length;
         context.beginPath();
         context.moveTo(x, middle - column.max * scale);
         context.lineTo(x, middle - column.min * scale);
@@ -445,11 +394,11 @@
 
     explainFailure(error) {
       if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
-        this.setStatus("Microphone permission was denied for this origin. Allow it in site settings, then try again.");
+        this.setStatus("Microphone permission was denied for this origin. Allow it in site settings, then try again.", true);
       } else if (error?.name === "NotFoundError") {
-        this.setStatus("No microphone is available. Connect one or choose a different browser microphone.");
+        this.setStatus("No microphone is available. Connect one or choose a different browser microphone.", true);
       } else {
-        this.setStatus(error?.message || "Microphone dictation could not start.");
+        this.setStatus(error?.message || "Microphone dictation could not start.", true);
       }
     }
 
@@ -458,7 +407,7 @@
       this.clearFinishTimer();
       this.finishing = false;
       this.resetConversationState();
-      this.setStatus(message);
+      this.setStatus(message, true);
       this.disposeCapture();
       this.closeChannel();
       this.syncElements();
@@ -498,18 +447,19 @@
       }
     }
 
-    setStatus(message) {
+    setStatus(message, failed = false) {
       this.statusMessage = message;
-      if (this.status) this.status.textContent = message;
+      this.statusFailed = failed;
+      if (this.status) {
+        this.status.textContent = message;
+        this.status.hidden = !message;
+        this.status.classList.toggle("bad", failed);
+      }
     }
 
     disposeCapture() {
-      this.worklet?.disconnect();
-      this.source?.disconnect();
-      this.mute?.disconnect();
-      this.stream?.getTracks().forEach((track) => track.stop());
-      this.context?.close();
-      this.worklet = this.source = this.mute = this.stream = this.context = null;
+      this.capture?.stop();
+      this.capture = null;
       this.recording = false;
       this.syncElements();
     }

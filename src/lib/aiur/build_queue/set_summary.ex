@@ -1,10 +1,13 @@
 defmodule Aiur.BuildQueue.SetSummary do
   @moduledoc "Set counts and admission state from reconciled item evidence."
   @terminal [:completed, :cancelled, :removed]
+  alias Aiur.BuildQueue.Ordering
 
   @spec decorate([map()], [String.t()]) :: [map()]
   def decorate(queues, unavailable) do
-    queues = queues |> Enum.sort_by(&{&1.set_rank, &1.queue_id}) |> Enum.map(&counts(&1, unavailable))
+    queues =
+      queues |> Enum.sort_by(&{&1.set_rank, &1.queue_id}) |> Enum.map(&counts(&1, unavailable))
+
     states(queues, :unavailable)
   end
 
@@ -27,15 +30,42 @@ defmodule Aiur.BuildQueue.SetSummary do
   defp counts(queue, unavailable) do
     counts =
       if queue.queue_id in unavailable or Enum.any?(queue.items, &(&1.state == :unknown)) do
-        %{ready: nil, started: nil, done: nil}
+        %{ready: nil, startable: nil, started: nil, done: nil}
       else
-        %{ready: Enum.count(queue.items, &ready?/1), started: Enum.count(queue.items, &(&1.state == :claimed)), done: Enum.count(queue.items, &(&1.state in @terminal))}
+        %{
+          ready: Enum.count(queue.items, &ready?/1),
+          startable: Enum.count(queue.items, &startable?/1),
+          started: Enum.count(queue.items, &(&1.state == :claimed)),
+          done: Enum.count(queue.items, &(&1.state in @terminal))
+        }
       end
 
-    Map.put(queue, :counts, counts)
+    queue
+    |> Map.put(:counts, counts)
+    |> Map.put(:critical_path, critical_path(queue.items, Map.get(queue, :edges, []), Map.get(queue, :open_member_ids, [])))
   end
 
   defp ready?(item), do: item.state in [:ready, :promoted, :overridden] and item.verdict == :ready
+
+  defp startable?(item),
+    do: ready?(item) and not Enum.any?(item.prerequisites, &(&1.verdict in [:pending, :unknown]))
+
+  defp critical_path(items, edges, open_member_ids) do
+    ids = Enum.map(items, &to_string(&1.number))
+    ranks = Ordering.downstream_open(edges, open_member_ids)
+
+    edges
+    |> Enum.filter(&(&1.source == :native and &1.dependent in ids))
+    |> Enum.map(fn edge ->
+      {String.to_integer(edge.prerequisite), Map.get(ranks, edge.prerequisite, 0)}
+    end)
+    |> Enum.max_by(&elem(&1, 1), fn -> nil end)
+    |> case do
+      nil -> nil
+      {number, count} -> %{number: number, gates: count}
+    end
+  end
+
   defp admission_reason(%{reason: "queue_set_order:" <> _ = reason}), do: reason
   defp admission_reason(_), do: nil
 
@@ -51,7 +81,8 @@ defmodule Aiur.BuildQueue.SetSummary do
   end
 
   defp waiting_reason(queue, next_set) do
-    Enum.find_value(queue.items, &admission_reason/1) || dispatch_wait(queue.counts.ready, next_set)
+    Enum.find_value(queue.items, &admission_reason/1) ||
+      dispatch_wait(queue.counts.ready, next_set)
   end
 
   defp dispatch_wait(0, _next_set), do: "no ready tickets"

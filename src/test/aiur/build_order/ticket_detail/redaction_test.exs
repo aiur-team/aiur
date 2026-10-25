@@ -31,6 +31,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:error, %Failure{kind: :schema}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "pull_request", %{})}} end
              )
   end
@@ -41,18 +42,21 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:ok, %Snapshot{description: nil}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", nil)}} end
              )
 
     assert {:error, %Failure{kind: :schema}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.delete(issue(42, "I42"), "body")}} end
              )
 
     assert {:error, %Failure{kind: :validation}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", 42)}} end
              )
   end
@@ -68,6 +72,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:ok, %Snapshot{description: description}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}} end
              )
 
@@ -89,6 +94,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:ok, %Snapshot{description: description}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request ->
                  {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}}
                end
@@ -118,6 +124,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:ok, %Snapshot{description: description}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}} end
              )
 
@@ -164,6 +171,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:ok, %Snapshot{description: description}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request ->
                  {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}}
                end
@@ -196,6 +204,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
              fetch(identity,
                configured_repo: @configured,
                max_description_bytes: 32,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}} end
              )
   end
@@ -225,6 +234,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:ok, %Snapshot{description: description}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request -> {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}} end
              )
 
@@ -266,6 +276,7 @@ defmodule Aiur.BuildOrder.TicketDetailRedactionTest do
     assert {:ok, %Snapshot{description: description}} =
              fetch(identity,
                configured_repo: @configured,
+               token: "test-gh-token",
                request_fun: fn _request ->
                  {:ok, %{status: 200, body: Map.put(issue(42, "I42"), "body", body)}}
                end

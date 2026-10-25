@@ -3,6 +3,8 @@
 from datetime import datetime
 import math
 
+from .stratification import declaration, partition
+
 KINDS = {"duration", "count", "binary", "rate", "bucketed"}
 DIRECTIONS = {"lower_is_better", "higher_is_better", "decrease", "increase", "none"}
 
@@ -50,13 +52,16 @@ def normalize(snapshot, spec, annotations):
     alpha = number(spec.get("alpha", .05), "alpha")
     if not 0 < alpha < 1:
         raise ValueError("alpha must be between zero and one")
-    settings = {"alpha": alpha, "min_samples": positive_integer(spec.get("min_samples", 10), "min_samples"),
+    settings = {"alpha": alpha, "fdr_q": number(spec.get("fdr_q", alpha), "fdr_q"), "min_samples": positive_integer(spec.get("min_samples", 10), "min_samples"),
                 "power_target": number(spec.get("power_target", .8), "power_target"),
                 "bootstrap_primary": positive_integer(spec.get("bootstrap_primary", 10_000), "bootstrap_primary", 2),
                 "bootstrap_exploratory": positive_integer(spec.get("bootstrap_exploratory", 2_000), "bootstrap_exploratory", 2),
                 "permutation_resamples": positive_integer(spec.get("permutation_resamples", 20_000), "permutation_resamples")}
+    if not 0 < settings["fdr_q"] < 1:
+        raise ValueError("fdr_q must be between zero and one")
     if not 0 < settings["power_target"] < 1:
         raise ValueError("power_target must be between zero and one")
+    strata_fields = declaration(spec)
     flags, exclusions = annotations.get("flags", []), annotations.get("exclusions", [])
     if not isinstance(flags, list) or not isinstance(exclusions, list):
         raise ValueError("annotation flags and exclusions must be arrays")
@@ -101,9 +106,19 @@ def normalize(snapshot, spec, annotations):
             warnings.append(f"{metric_id}: added after frozen_at; exploratory")
         metric = {**definition, "id": metric_id, "kind": kind, "direction": direction,
                   "mde": number(definition.get("mde", .2), "mde"), "primary": primary}
+        metadata = snapshot.get("metric_metadata", {})
+        if not isinstance(metadata, dict) or not isinstance(metadata.get(metric_id, {}), dict):
+            raise ValueError("metric_metadata must map metric IDs to objects")
+        strata_metadata = definition.get("strata_metadata", metadata.get(metric_id, {}).get("strata_metadata", {}))
+        if (not isinstance(strata_metadata, dict)
+                or any(not isinstance(value, dict) or not isinstance(value.get("post_treatment"), bool)
+                       for value in strata_metadata.values())):
+            raise ValueError("strata_metadata must map attributes to post_treatment booleans")
+        metric["strata_metadata"] = strata_metadata
         grouped = {g: [] for g in groups}
         counts = {g: 0 for g in groups}
         censored = {g: 0 for g in groups}
+        follow_up, censoring_unknown = {g: [] for g in groups}, False
         rows = evidence.get("rows", [])
         if not isinstance(rows, list):
             raise ValueError(f"{metric_id}: rows must be an array")
@@ -115,21 +130,31 @@ def normalize(snapshot, spec, annotations):
             if unit in units:
                 raise ValueError(f"{metric_id}: duplicate unit_id {unit}")
             units.add(unit)
-            value = number(row.get("value"), f"{metric_id}.value")
-            if kind == "binary" and value not in (0, 1):
-                raise ValueError("binary observations must be zero or one")
             if not isinstance(row.get("censored", False), bool):
                 raise ValueError("censored must be boolean")
+            # A censored row without elapsed time means X1 could not supply a start time.
+            unknown = row.get("censored", False) and row.get("value") is None and kind == "duration"
+            value = None if unknown else number(row.get("value"), f"{metric_id}.value")
+            if kind == "binary" and value not in (0, 1):
+                raise ValueError("binary observations must be zero or one")
             if unit in excluded:
                 counts[group] += 1
             elif row.get("censored", False):
                 if kind != "duration":
                     raise ValueError("only duration rows can be censored")
                 censored[group] += 1
+                censoring_unknown = censoring_unknown or unknown
+                if not unknown:
+                    follow_up[group].append({"unit_id": unit, "value": value, "censored": True})
             else:
                 grouped[group].append((unit, value))
+                follow_up[group].append({"unit_id": unit, "value": value, "censored": False})
         metric.update(values={g: [v for _, v in sorted(grouped[g])] for g in groups},
                       excluded=counts, censored=censored)
+        if kind == "duration" and any(censored.values()) and not censoring_unknown:
+            metric["survival_rows"] = {g: sorted(follow_up[g], key=lambda r: r["unit_id"]) for g in groups}
+        if censoring_unknown:
+            metric["censoring_unknown"] = True
         if kind == "rate":
             if exclusions:
                 raise ValueError("aggregate rate exclusions require per-unit exposure evidence")
@@ -143,6 +168,13 @@ def normalize(snapshot, spec, annotations):
                     raise ValueError("exposure must be positive")
                 n = positive_integer(data.get("n"), "rate independent-unit n", 0)
                 metric["rates"][group] = {"events": events, "exposure": exposure, "n": n}
+        if strata_fields and (kind == "rate" or censoring_unknown):
+            metric["stratification_unavailable"] = True
+            reason = "aggregate rate evidence" if kind == "rate" else "unknown censoring evidence"
+            warnings.append(f"{metric_id}: {reason} cannot be stratified")
+        if strata_fields and kind != "rate" and not censoring_unknown:
+            metric["strata_rows"] = partition(rows, strata_fields, excluded, groups)
+            metric["strata_fields"] = strata_fields
         metrics.append(metric)
     if set(primaries) - seen:
         raise ValueError("primary_metrics IDs must exist in spec.metrics")

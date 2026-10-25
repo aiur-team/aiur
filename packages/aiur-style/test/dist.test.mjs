@@ -3,7 +3,7 @@ import path from 'path';
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { tmpdir } from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,8 +14,12 @@ const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
 
 describe('dist/ validation', () => {
   test('all export targets exist', () => {
+    // A fresh Node resolver verifies the installed-package boundary, not physical dist paths.
+    execFileSync(process.execPath, ['--input-type=module', '-e',
+      "import { initBanner } from 'aiur-style'; import { initBanner as subpath } from 'aiur-style/banner'; if (typeof initBanner !== 'function' || initBanner !== subpath) process.exit(1);",
+    ], { cwd: packageRoot });
     assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(),
-      ['.', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css'].sort());
+      ['.', './react', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css', './vitepress.css', './fonts.css', './fonts/*', './assets/*'].sort());
     const targets = Object.values(pkgJson.exports).flatMap(value =>
       typeof value === 'object' ? Object.values(value) : [value]);
     for (const target of targets) {
@@ -65,7 +69,7 @@ describe('dist/ validation', () => {
     };
     walk(distDir);
 
-    const licenseFiles = files.filter(f => f.toLowerCase().includes('license'));
+    const licenseFiles = files.filter(f => f.toLowerCase().includes('license') || f.endsWith('-OFL.txt') || f.endsWith('SOURCES.md'));
     const otherFiles = files.filter(f => !licenseFiles.includes(f));
 
     otherFiles.forEach(filePath => {

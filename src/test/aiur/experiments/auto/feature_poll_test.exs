@@ -71,6 +71,7 @@ defmodule Aiur.Experiments.Auto.FeaturePollTest do
       creator: creator,
       notifier: notifier,
       managed_repo: "owner/repo",
+      token: "test-gh-token",
       request_fun: request,
       recent_merges: [],
       clock: fn -> Agent.get(upstream, & &1.now) end

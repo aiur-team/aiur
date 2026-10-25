@@ -11,6 +11,34 @@
 
 [Capabilities](/concepts/capabilities) describes how clients discover available instance features.
 
+## Hosted execution safety
+
+Set `instance.mode: hosted` only when every dispatchable backend has explicit,
+safe permission, network, and credential boundaries. Aiur checks the complete
+backend set and every registered agent-environment contributor before starting
+supervision and again before dispatch after a config reload. Missing or unknown
+declarations are unsafe.
+
+Hosted mode also rejects Remote Control (`agent.remote_control`, `+remote`
+routes, and `model:remote` labels), foreground tmux panes, tmux-backed REPL
+agents, and the test harness's `--allow-remote` bypass.
+
+Hosted mode requires bounded agent permissions, network access denied by
+default, and credentials kept in trusted daemon-side components. Codex must
+use an approval policy other than `never`, a bounded thread sandbox, and a
+bounded per-turn sandbox with network access disabled.
+
+The current production backends each expose at least one agent-side boundary,
+so no production backend can pass hosted startup until the hosted-safe backend
+work lands in #5701. Local mode remains the default and preserves existing
+execution behavior without running hosted-only registry or
+environment-contributor checks.
+
+The mode is immutable for a running daemon. Editing `instance.mode` on reload
+is rejected in either direction; restart Aiur to change it. A rejection lists
+the backend or environment contributor and the unsafe boundary, never a secret
+value.
+
 ## Hourly meta-check
 
 `aiur-run` arms `aiur-meta` **before dispatching** and repeats it hourly.
@@ -19,7 +47,7 @@ The timer keeps the audit from being lost during a busy merge queue.
 
 | Check | What it catches |
 | --- | --- |
-| Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
+| Build home, Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
 | Interactive CLI timing | Empty or timed-out responses hidden by static status. |
 | Host pressure | CPU PSI and free memory against configured admission thresholds; load is the PSI-unavailable fallback. |
 | PR backlog | Review, conflict, and merge-queue snags. |
@@ -103,12 +131,14 @@ Use `aiur usage` for session-observed model headroom; see [GitHub](/apis/github)
 
 A restart that cannot read persisted global-pause state starts paused rather than releasing work.
 
-An `in-progress` ticket with no worker is checked on startup and each candidate
-poll. After 60 seconds without ownership, Aiur releases it to `todo` if it has
-no open PR, `rework` for conflicts, a stale review base or findings on the current head, or
-`human-review` otherwise. It comments with the reason and wakes the Executor.
+After 60 seconds, an unowned `in-progress` ticket goes to `todo` without a PR,
+`rework` for conflicts or findings, and `human-review` otherwise. Mergeable
+stale PRs stay reviewable; overlap alone creates no rework. In `human-review`
+and `ci-wait`, update the base only for GitHub `CONFLICTING` or reviewer
+request. The queue tests the current base.
 
-A never-reviewed PR goes to `human-review`. For a stale base, the comment says integrating it is the only work.
+A never-reviewed PR goes to `human-review`. A conflicting PR goes to `rework`
+so its conflict can be resolved before review.
 
 Live workspace leases, scheduled retries, `agent:paused` and `agent:parked`
 protect the claim; unavailable PR evidence retains it for later polls. Budget-held writes

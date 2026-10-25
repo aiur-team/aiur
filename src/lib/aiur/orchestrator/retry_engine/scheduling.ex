@@ -8,8 +8,10 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   alias Aiur.Config
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.RetryEngine.Exhaustion
+  alias Aiur.Orchestrator.RetryEngine.HoldStreak
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{TicketTransition, TrackerTasks}
 
   @continuation_retry_delay_ms 1_000
 
@@ -102,7 +104,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
-      due_at_ms = System.monotonic_time(:millisecond) + delay_ms
+      # `:now_ms` lets tests drive the hold-streak clock (#4693).
+      now_ms = metadata[:now_ms] || System.monotonic_time(:millisecond)
+      due_at_ms = now_ms + delay_ms
 
       timer_ref = Process.send_after(self(), {:retry_issue, issue_id, retry_token}, delay_ms)
 
@@ -116,39 +120,70 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
         error_suffix
       )
 
-      %{
-        state
-        | retry_attempts:
-            Map.put(state.retry_attempts, issue_id, %{
-              attempt: next_attempt,
-              timer_ref: timer_ref,
-              retry_token: retry_token,
-              due_at_ms: due_at_ms,
-              identifier: identifier,
-              error: error,
-              last_failure_at: last_failure_at,
-              transient_reason: transient_reason,
-              retry_poll_failures: retry_poll_failures,
-              prior_work: prior_work?,
-              worker_host: worker_host,
-              workspace_path: workspace_path,
-              tracker_identity: tracker_identity,
-              priority: priority,
-              issue_state: issue_state,
-              rework_head_sha: rework_head_sha,
-              terminal_membership_pending?: metadata[:terminal_membership_pending?] == true,
-              # Persisted so the non-consuming classification is observable and
-              # asserted directly: a `:local_budget_hold` retry is bounded by
-              # the hold's own `reset_at` and never advances toward give-up
-              # (#2429 rework round 2). `pop_retry_attempt_state/3` deliberately
-              # does not round-trip it — the retry path reclassifies the failure
-              # it sees at dispatch time rather than trusting stale metadata.
-              delay_type: metadata[:delay_type],
-              local_budget_hold: metadata[:local_budget_hold]
-            })
-      }
+      next_state =
+        %{
+          state
+          | retry_attempts:
+              Map.put(state.retry_attempts, issue_id, %{
+                attempt: next_attempt,
+                timer_ref: timer_ref,
+                retry_token: retry_token,
+                due_at_ms: due_at_ms,
+                identifier: identifier,
+                error: error,
+                last_failure_at: last_failure_at,
+                transient_reason: transient_reason,
+                retry_poll_failures: retry_poll_failures,
+                prior_work: prior_work?,
+                worker_host: worker_host,
+                workspace_path: workspace_path,
+                tracker_identity: tracker_identity,
+                priority: priority,
+                issue_state: issue_state,
+                handoff_fallback: metadata[:handoff_fallback] == true,
+                rework_head_sha: rework_head_sha,
+                terminal_membership_pending?: metadata[:terminal_membership_pending?] == true,
+                # Persisted so the non-consuming classification is observable and
+                # asserted directly: a `:local_budget_hold` retry is bounded by
+                # the hold's own `reset_at` and never advances toward give-up
+                # (#2429 rework round 2). `pop_retry_attempt_state/3` deliberately
+                # does not round-trip it — the retry path reclassifies the failure
+                # it sees at dispatch time rather than trusting stale metadata.
+                delay_type: metadata[:delay_type],
+                local_budget_hold: metadata[:local_budget_hold],
+                stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true,
+                retry_label?: failure_retry?(metadata)
+              })
+        }
+        |> record_hold_deferral(issue_id, identifier, metadata, now_ms)
+
+      # Continuation and wait retries are routine; only a failure back-off is `agent:retrying`.
+      if failure_retry?(metadata), do: schedule_retry_reason_label(next_state, identifier), else: next_state
     end
   end
+
+  defp schedule_retry_reason_label(state, identifier) do
+    TrackerTasks.chain(
+      state,
+      {:runtime_reason_labels, identifier},
+      fn -> TicketTransition.write_reason_modifier(identifier, :add, "retrying", writer: :retry_engine) end,
+      &handle_retry_reason_label_result(&1, &2, identifier)
+    )
+  end
+
+  defp handle_retry_reason_label_result(state, :ok, _identifier), do: state
+
+  defp handle_retry_reason_label_result(state, {:error, reason}, identifier) do
+    Logger.warning("retrying reason label update failed: issue=#{identifier} reason=#{inspect(reason)}")
+    state
+  end
+
+  # A hold retry never consumes the failure budget, so a hold that never clears is surfaced by duration instead (#4693).
+  defp record_hold_deferral(state, issue_id, identifier, %{delay_type: :local_budget_hold, local_budget_hold: %{} = hold}, now_ms),
+    do: HoldStreak.record(state, issue_id, identifier, hold, now_ms)
+
+  # Any other retry means the hold lifted, so the streak ends; a later hold starts a fresh one.
+  defp record_hold_deferral(state, issue_id, _identifier, _metadata, _now_ms), do: HoldStreak.clear(state, issue_id)
 
   @spec failure_retry?(map()) :: boolean()
   def failure_retry?(metadata) when is_map(metadata) do
@@ -180,8 +215,11 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
           tracker_identity: Map.get(retry_entry, :tracker_identity),
           priority: Map.get(retry_entry, :priority),
           issue_state: Map.get(retry_entry, :issue_state),
+          handoff_fallback: Map.get(retry_entry, :handoff_fallback, false),
           terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false),
-          rework_head_sha: Map.get(retry_entry, :rework_head_sha)
+          rework_head_sha: Map.get(retry_entry, :rework_head_sha),
+          stalled_alert_outstanding: Map.get(retry_entry, :stalled_alert_outstanding, false),
+          retry_label?: Map.get(retry_entry, :retry_label?, false)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}

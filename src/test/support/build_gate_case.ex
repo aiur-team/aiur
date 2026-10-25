@@ -50,6 +50,7 @@ defmodule Aiur.TestSupport.BuildGateCase do
       File.chmod(lock_dir, 0o755)
       Aiur.TestCleanup.rm_rf!(gate_dir)
       Aiur.TestCleanup.rm_rf!(lock_dir)
+      Aiur.TestCleanup.rm_rf!(gate_dir <> ".hooks")
     end)
 
     %{

@@ -1,14 +1,14 @@
 defmodule Aiur.BuildQueue.ListCommands do
   @moduledoc false
-  alias Aiur.BuildQueue.{ListMutations, Model.Intent, QueueTriggers, Reconcile, Settings}
+  alias Aiur.BuildQueue.{ListMutations, Model.Intent, Observer, QueueTriggers, Reconcile, Settings}
 
-  @spec prepare(map(), tuple()) :: {:ok, map(), list(), map()} | {:error, term()}
+  @spec prepare(map(), tuple()) :: {:ok, map(), list(), map(), [String.t()]} | {:error, term()}
   def prepare(state, command) do
     observations = Reconcile.observations(state)
 
     with {:ok, document, actions} <- edit(state.document, command, state.clock.()),
-         {:ok, current_labels} <- open_members(state, command) do
-      {:ok, record(state, document, actions, observations, current_labels), actions, observations}
+         {:ok, current_labels, missing} <- open_members(state, command) do
+      {:ok, record(state, document, actions, observations, current_labels), actions, observations, missing}
     end
   end
 
@@ -52,11 +52,13 @@ defmodule Aiur.BuildQueue.ListCommands do
     case state.tracker.open_issue_labels(max_age) do
       {:ok, labels, observed_at} ->
         now = state.clock.()
+        missing = Enum.reject(ids, &Map.has_key?(labels, &1))
 
         cond do
           observed_at > now or now - observed_at > max_age -> {:error, :inputs_unavailable}
-          Enum.any?(ids, &(not Map.has_key?(labels, &1))) -> {:error, :closed}
-          true -> {:ok, labels}
+          # The listing holds only open issues, so only a closure read tells a closed issue from one not yet polled.
+          Enum.any?(missing, &match?({:ok, %{open?: false}}, Observer.closure(state, &1))) -> {:error, :closed}
+          true -> {:ok, labels, missing}
         end
 
       _ ->
@@ -64,7 +66,7 @@ defmodule Aiur.BuildQueue.ListCommands do
     end
   end
 
-  defp open_members(_state, _command), do: {:ok, %{}}
+  defp open_members(_state, _command), do: {:ok, %{}, []}
 
   defp intent({action, id}, observations, current_labels, state) do
     marker = "#{state.settings.tracker.github.label_prefix}:queued"

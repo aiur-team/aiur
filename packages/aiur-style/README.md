@@ -38,7 +38,7 @@ import 'aiur-style/aiur-style.css';
 
 ### JavaScript
 
-Theme behaviors are exported from the package root.
+Theme and banner behaviors are exported from the package root.
 
 ```javascript
 import { getTheme, setTheme, onThemeChange, initThemeToggle } from 'aiur-style';
@@ -88,6 +88,25 @@ bind once; the first call's `{destroy}` removes the listeners and permits
 initialization again. Supply `type="button"`, an accessible label, and
 `aria-hidden="true"` on decorative icons in your markup.
 
+## Announcement banner
+
+Use `markup/banner.html` as the server-rendered pattern and load the shared CSS.
+Match its `data-aiur-banner` campaign id to the initializer's `data-banner`.
+Initialize it from an external module:
+
+```javascript
+import { initBanner } from 'aiur-style/banner';
+const banner = initBanner(document.querySelector('[data-aiur="banner"]'));
+// When the element is removed:
+banner.destroy();
+```
+
+Alternatively, load `dist/js/auto.js` as an external module to initialize
+`data-aiur="banner"` elements. Closing saves `aiur-banner:<id>=dismissed`,
+hides the banner, moves focus to the next control (or `main`/`body`), and
+emits a bubbling `aiur:bannerdismiss` event. Storage failures still allow
+closing for the current page. Choose a new campaign id to show a new message.
+
 ## Tokens
 
 `src/tokens/tokens.json` is the source for `dist/tokens.css`, `dist/tokens.js`,
@@ -129,7 +148,9 @@ sample in either theme. `?theme=system` previews the system preference.
 
 See the aiur-style plan: [docs/aiur-style/plan.md](../../docs/aiur-style/plan.md).
 
-To build locally:
+`dist/` is generated and is not committed. The `prepare` lifecycle builds it
+when the package is installed from this repository and when npm packs it for
+publication. To build locally:
 
 ```bash
 npm run build        # Compile TypeScript and concatenate CSS
@@ -141,3 +162,34 @@ npm run test:visual:docker # Run visual tests in the pinned CI container
 ## License
 
 MIT
+
+## React
+
+React 18+ is an optional peer. Vanilla imports do not load React. Import CSS
+explicitly; these components render the same markup contracts as the vanilla gallery.
+
+```tsx
+import { AiurShell, PageFrame, ThemeToggle, Button } from 'aiur-style/react';
+import 'aiur-style/aiur-style.css';
+
+<AiurShell navItems={[{ href: '/channels', label: 'Channels', current: true }]}
+  brand="Aiur" controls={<ThemeToggle />}>
+  <PageFrame title="Channels" description="Choose a channel">
+    <Button as="a" href="/channels/new">New channel</Button>
+  </PageFrame>
+</AiurShell>
+```
+
+`collapsed` and `onCollapsedChange` provide controlled navigation; omit `collapsed`
+for stored state with an optional `defaultCollapsed`. `mode="hosted-content"`
+renders only `.aiur-shell-content-root`, with `data-theme` from the host's
+`theme` port or the vanilla theme controller. Khala's `navigation`, `actions`,
+`headerContent`, `sidebar`, `brandHref`, and PageFrame `model` props are accepted.
+`mobileControls` overrides the controls shown in the mobile pill.
+
+`Button` accepts `variant="primary|ghost|danger|tool"`, `size="sm|md|lg"`,
+`shape="pill|rounded|icon"`, native element props, and `as` (default `button`).
+`ThemeToggle` initializes and destroys the vanilla controller on mount/unmount.
+The package build bundles `gallery/react.tsx` with esbuild into the ignored
+`gallery/dist/`; `test/react.visual.spec.ts` compares it directly with the vanilla
+shell in both themes, at desktop/tablet/mobile sizes, with a 0.001 pixel ratio limit.

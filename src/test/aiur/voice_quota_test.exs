@@ -61,14 +61,16 @@ defmodule Aiur.VoiceQuotaTest do
     Application.put_env(:aiur, :voice_provider, Provider)
     assert Voice.quota_snapshot().window.used_percent == 10
     assert render_quota() =~ "Credits"
-    assert render_quota() =~ "width:10.0%"
+    assert render_quota() =~ "width:90%"
+    assert render_quota() =~ "90% left"
   end
 
   test "voice children retain the quota boot position and disappear without a provider" do
     Application.delete_env(:aiur, :voice_provider)
     children = children()
     index = Enum.find_index(children, &(&1 == Aiur.GitHub.BudgetBroker))
-    assert Enum.at(children, index - 1) == Aiur.GitHub.BrokerTimeout
+    assert Enum.at(children, index - 2) == Aiur.GitHub.BrokerTimeout
+    assert Enum.at(children, index - 1) == Aiur.GitHub.HoldPressure
     assert Enum.at(children, index + 1) == Aiur.ElevenLabs.Quota
 
     Application.put_env(:aiur, :voice_provider, Provider)

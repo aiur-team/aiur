@@ -59,11 +59,19 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
     if IssueSync.owned_or_scheduled?(state, id) do
       :claimed
     else
-      case Map.get(state.dispatch_declines, id) do
-        :queue_set_order -> {:declined, {:queue_set_order, QueueSetSlots.waiting(id, state)}}
-        nil -> :unclaimed
-        reason -> {:declined, reason}
+      case Map.get(state.last_polled_issues, id) do
+        %{dispatch_authorization: :deferred} -> :authorization_pending
+        _ -> classify_decline(state, id)
       end
+    end
+  end
+
+  defp classify_decline(state, id) do
+    case Map.get(state.dispatch_declines, id) do
+      :unauthorized -> {:declined, :unauthorized}
+      nil -> :unclaimed
+      :queue_set_order -> {:declined, {:queue_set_order, QueueSetSlots.waiting(id, state)}}
+      reason -> {:declined, reason}
     end
   end
 end

@@ -1,0 +1,70 @@
+@layer aiur {
+  .aiur-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding-block: 32px;
+    border-top: 1px solid var(--aiur-color-line);
+    font-family: var(--aiur-font-mono);
+  }
+
+  .aiur-footer__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--aiur-color-fg);
+    font-size: 12px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+  }
+
+  .aiur-footer__dot {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--aiur-color-accent);
+    box-shadow: 0 0 10px var(--aiur-color-accent);
+  }
+
+  .aiur-footer__links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 24px;
+    font-size: 13px;
+  }
+
+  .aiur-footer__links a {
+    color: var(--aiur-color-muted);
+    text-decoration: none;
+  }
+
+  .aiur-footer__links a:hover {
+    color: var(--aiur-color-fg);
+  }
+
+  .aiur-footer__credit {
+    margin: 0;
+    font-size: 12px;
+    /* Solid muted meets 4.5:1 in both themes; 78% opacity does not. */
+    color: var(--aiur-color-muted);
+  }
+
+  .aiur-footer__credit a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .aiur-footer__credit a:hover {
+    color: var(--aiur-color-accent);
+  }
+
+  .aiur-footer a:focus-visible {
+    outline: 2px solid var(--aiur-color-accent);
+    outline-offset: 4px;
+  }
+}

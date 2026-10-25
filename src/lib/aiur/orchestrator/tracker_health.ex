@@ -9,9 +9,11 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.{Alerts, Config}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
+  alias Aiur.GitHub.Listeners
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.ToolchainPreflight
   alias Aiur.PollCadence
   alias Aiur.Webhooks
   alias Aiur.Webhooks.IntervalPolicy
@@ -23,6 +25,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source),
         github_poll_delays: Map.delete(state.github_poll_delays, source)
     }
+    |> update_comment_backoff()
   end
 
   @doc false
@@ -54,6 +57,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       | github_connectivity: streaks,
         github_poll_delays: Map.put(state.github_poll_delays, source, backoff_ms)
     }
+    |> update_comment_backoff()
   end
 
   # A local budget hold is not connectivity: it must not ride the transport
@@ -94,10 +98,15 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   @spec note_github_poll_interval(State.t(), atom(), pos_integer() | nil) :: State.t()
   def note_github_poll_interval(%State{} = state, source, seconds)
       when is_integer(seconds) and seconds > 0 do
-    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)}
+    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)} |> update_comment_backoff()
   end
 
   def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
+
+  defp update_comment_backoff(state) do
+    Listeners.update_backoff(github_next_poll_delay_ms(state))
+    state
+  end
 
   # GitHub's delays are floors, not targets: `X-Poll-Interval` says "do not poll
   # faster than this" and a connectivity backoff says "wait at least this long".
@@ -369,17 +378,14 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   @spec tracker_preflight() :: :ok | {:error, term()}
   def tracker_preflight do
-    case Config.validate!() do
-      :ok ->
-        case Config.tracker_kind() do
-          "github" -> GitHubTracker.ensure_auth_preflight()
-          _ -> :ok
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+    with :ok <- Config.validate!(),
+         :ok <- ToolchainPreflight.check() do
+      tracker_auth_preflight(Config.tracker_kind())
     end
   end
+
+  defp tracker_auth_preflight("github"), do: GitHubTracker.ensure_auth_preflight()
+  defp tracker_auth_preflight(_kind), do: :ok
 
   # `ensure_auth_preflight/0`, not `auth_preflight/0`: this runs on every poll
   # cycle, and re-proving a credential that has not changed cost 12 billed REST
@@ -391,6 +397,9 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def log_tracker_preflight_error({:github_auth_preflight_failed, _diagnostic} = reason) do
     Logger.error(GitHubClient.format_auth_preflight_error(reason))
   end
+
+  def log_tracker_preflight_error({:toolchain_missing, detail}),
+    do: Logger.error("Dispatch held: #{detail}")
 
   def log_tracker_preflight_error(:missing_linear_api_token),
     do: Logger.error("Linear API token missing in .aiur/config")

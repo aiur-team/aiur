@@ -141,6 +141,42 @@ defmodule Aiur.Orchestrator.ReconcilerRefreshTest do
       assert event["reason"] =~ "local=working tracker=agent:paused"
     end
 
+    test "parking an active ticket stops its worker" do
+      identifier = "parked-active-worker-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: identifier, identifier: identifier, title: "Parked worker", state: "in-progress", parked: true, dispatch_authorized?: true}
+
+      state = %State{
+        running: %{
+          issue.id => %{
+            identifier: issue.identifier,
+            issue: %{issue | parked: false, paused: false, dispatch_authorized?: true},
+            pid: self(),
+            ref: make_ref(),
+            control: %{
+              status: :working,
+              can_interrupt: true,
+              safe_checkpoints: [:notification],
+              application_confirmation: :confirmed,
+              generation: 1,
+              version: 0
+            }
+          }
+        }
+      }
+
+      {_next, effects} =
+        Reconciler.reconcile_issue_effects(
+          issue,
+          state,
+          MapSet.new(["in-progress"]),
+          MapSet.new(["done"]),
+          fn _, _ -> :ok end,
+          fn _ -> :ok end
+        )
+
+      assert {:terminate, issue.id, false} in effects
+    end
+
     test "reports a duration pause while the tracker remains active" do
       Publisher.set_tracked_fn(fn _ -> true end)
       :ok = Exchange.subscribe("ticket.I-duration.agent.attention.state_divergence")

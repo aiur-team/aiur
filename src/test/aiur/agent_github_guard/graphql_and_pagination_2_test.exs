@@ -340,8 +340,6 @@ defmodule Aiur.AgentGitHubGuard.GraphqlAndPagination2Test do
     assert %{"admissions" => [%{}, %{}, %{}]} = Jason.decode!(snapshot)
   end
 
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "a broker failure refuses the real gh command", context do
     budget_root = Path.join(context.state_path, "host-budget")
 

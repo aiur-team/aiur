@@ -1,7 +1,7 @@
 defmodule Aiur.TestReset do
   @moduledoc """
   Implements the `aiur --test` reset workflow for the 3-ticket events
-  sandbox. Four required safety guards:
+  sandbox. Five required safety guards:
 
     1. **Pinned ticket IDs** — every action gated on
        `.aiur-test-tickets.json#tickets`. If empty, abort with a clear
@@ -11,7 +11,9 @@ defmodule Aiur.TestReset do
     3. **Expected remote** — `git remote get-url origin` must match
        `expected_remote` in the tickets file; `--allow-remote`
        overrides.
-    4. **Dry-run by default** — without `--confirm`, prints the plan
+    4. **Hosted isolation** — `--allow-remote` is always refused when
+       `instance.mode` is `hosted`.
+    5. **Dry-run by default** — without `--confirm`, prints the plan
        and exits 0.
 
   ## What it does
@@ -37,6 +39,7 @@ defmodule Aiur.TestReset do
 
   alias Aiur.GitHub.HostCommand
   alias Aiur.JsonStore
+  alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.TestReset.{Cleanup, Tickets}
 
   @tickets_file ".aiur-test-tickets.json"
@@ -52,6 +55,7 @@ defmodule Aiur.TestReset do
           optional(:confirm) => boolean(),
           optional(:force) => boolean(),
           optional(:allow_remote) => boolean(),
+          optional(:instance_mode) => String.t(),
           optional(:single) => boolean(),
           optional(:repo_root) => Path.t()
         }
@@ -63,6 +67,7 @@ defmodule Aiur.TestReset do
     opts = normalize_opts(opts)
 
     with :ok <- guard_not_running_in_agent_workspace(opts),
+         :ok <- guard_hosted_allow_remote(opts),
          {:ok, tickets_data} <- read_tickets_file(opts.repo_root) do
       dispatch_reset(tickets_data, opts)
     end
@@ -125,9 +130,25 @@ defmodule Aiur.TestReset do
       confirm: Map.get(opts, :confirm, false),
       force: Map.get(opts, :force, false),
       allow_remote: Map.get(opts, :allow_remote, false),
+      instance_mode: Map.get(opts, :instance_mode),
       single: Map.get(opts, :single, false),
       repo_root: Map.get(opts, :repo_root, File.cwd!())
     }
+  end
+
+  defp guard_hosted_allow_remote(%{allow_remote: false}), do: :ok
+
+  defp guard_hosted_allow_remote(opts) do
+    mode = opts.instance_mode || Aiur.Config.instance_mode()
+
+    case HostedModeCheck.validate_allow_remote(mode) do
+      :ok ->
+        :ok
+
+      {:error, message} ->
+        abort(message)
+        {:error, :hosted_allow_remote_forbidden}
+    end
   end
 
   defp read_tickets_file(repo_root) do
@@ -315,8 +336,8 @@ defmodule Aiur.TestReset do
 
         abort(
           "sandbox ticket(s) must be open before reset: #{inspect(blocked, charlists: :as_lists)}. " <>
-            "Reopen them or update #{@tickets_file}; closed tickets were skipped and " <>
-            "any detected automation labels were removed."
+            "They could not be made open (see the warnings above); run `gh issue reopen #{Enum.join(blocked, " ")}` or update " <>
+            "#{@tickets_file}. Detected automation labels were removed."
         )
 
         {:error, {:tickets_not_open, blocked}}
@@ -362,7 +383,7 @@ defmodule Aiur.TestReset do
     say("  - Close any open PR from aiur/<id>")
     say("  - Delete agent-workpad comments (`## Agent Workpad` bodies) on the issue")
     say("  - If open: strip every agent:* label, re-add agent:todo")
-    say("  - If closed: remove detected agent:*/model:* labels and abort before launch")
+    say("  - If closed: remove detected agent:*/model:* labels and reopen (abort if that fails)")
     say("\nAlways:")
     say("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "))
     say("  - Preserve event-id.json (IdGenerator counter)")

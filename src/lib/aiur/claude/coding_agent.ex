@@ -18,6 +18,19 @@ defmodule Aiur.Claude.CodingAgent do
   alias Aiur.Config
   alias Aiur.ProcessTree
 
+  @doc false
+  @spec restore_handoff_session(map(), Aiur.Issue.t(), GenServer.server()) :: map()
+  def restore_handoff_session(session, _issue, server) do
+    binding = AccountGeneration.new_binding(server)
+
+    Map.merge(session, %{
+      account_generation_binding: binding.binding,
+      account_generation_authority: binding.authority,
+      account_generation_context: binding.context,
+      account_generation_topic: binding.topic
+    })
+  end
+
   @thread_start_id 2
   @turn_start_id 3
 
@@ -287,8 +300,11 @@ defmodule Aiur.Claude.CodingAgent do
 
   @impl Aiur.AppServer.Adapter
   @doc false
-  @spec handle_interrupt_error(map(), term()) :: {:error, term()}
-  def handle_interrupt_error(_state, error), do: {:error, {:turn_interrupt_failed, error}}
+  @spec handle_interrupt_error(map(), term()) ::
+          {:ok, :turn_completed} | {:paused, map()} | {:continue, map()} | {:error, term()}
+  # aiur-claude answers "No active turn to interrupt." when the turn ended first;
+  # that is a pause boundary, not a worker failure (#4696).
+  defdelegate handle_interrupt_error(state, error), to: Aiur.Codex.Interrupts
 
   @impl Aiur.AppServer.Adapter
   @doc false

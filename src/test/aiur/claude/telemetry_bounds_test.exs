@@ -55,7 +55,7 @@ defmodule Aiur.Claude.TelemetryBoundsTest do
       assert submit(server, authorization(launch), compatible).status == 200
       assert_receive {:claude_usage, envelope}, 2_000
       assert envelope.occurred_at == nil
-      refute inspect(envelope) =~ "1970-01-01"
+      Aiur.TestSupport.refute_leak(envelope, "1970-01-01")
 
       assert_receive {:claude_usage_coverage, %{class: :optional_field_absent, field: :occurred_at}},
                      2_000
@@ -76,7 +76,7 @@ defmodule Aiur.Claude.TelemetryBoundsTest do
     assert_receive {:claude_usage_coverage, %{class: :unsupported_source_revision, field: :source_version} = unsupported_coverage},
                    2_000
 
-    refute inspect(unsupported_coverage) =~ "2.1.211"
+    Aiur.TestSupport.refute_leak(unsupported_coverage, "2.1.211")
 
     assert submit(server, authorization, missing).status == 400
 

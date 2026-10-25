@@ -65,6 +65,10 @@ defmodule Aiur.Orchestrator.Deactivate.ReviewReactivationTest do
         {:noreply, next} = Orchestrator.handle_info({:event, event}, state)
 
         entry = Map.fetch!(next.running, issue_id)
+        # The wake spawns a real agent runner that later runs before_run with
+        # whatever config is global then — another test's hook once it starts (#4935).
+        assert is_pid(entry.pid)
+        on_exit(fn -> stop_woken_worker(entry.pid) end)
         refute get_in(entry, [:control, :status]) == :deactivated
 
         # The guarded claim makes the live worker visible as in-progress. It
@@ -306,5 +310,11 @@ defmodule Aiur.Orchestrator.Deactivate.ReviewReactivationTest do
         File.rm_rf(test_root)
       end
     end
+  end
+
+  defp stop_woken_worker(pid) do
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    receive_barrier({:DOWN, ^ref, :process, ^pid, _reason})
   end
 end

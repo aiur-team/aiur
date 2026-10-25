@@ -121,7 +121,7 @@ defmodule Aiur.Claude.Repl.HookTurn do
   # response/session in `acc`), `{:paused, _}`, or `{:error, reason}`.
   defp await_hook_turn(loop, deadline, acc) do
     cond do
-      not Reaper.pane_alive?(loop.session) ->
+      Reaper.pane_liveness(loop.session) == :gone ->
         {:error, :repl_gone}
 
       System.monotonic_time(:millisecond) >= deadline ->
@@ -141,7 +141,8 @@ defmodule Aiur.Claude.Repl.HookTurn do
             await_hook_turn(loop, deadline, acc)
 
           {:handoff_snapshot, from, ref} ->
-            Handoff.capture(loop.session, %{repl_acc: acc}, from, ref)
+            session = Handoff.capture(loop.session, %{repl_acc: acc}, from, ref)
+            await_hook_turn(%{loop | session: session}, deadline, acc)
 
           {:claude_hook_available, _identifier} ->
             replay_hooks(loop.identifier)

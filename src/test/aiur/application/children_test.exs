@@ -57,6 +57,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.DecisionMetrics.Writer,
       Aiur.DecisionMetrics,
       Aiur.GitHub.CodeOwners,
+      Aiur.GitHub.HoldPressure,
       Aiur.RecentMergeStore,
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
@@ -66,6 +67,7 @@ defmodule Aiur.Application.ChildrenTest do
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
       Aiur.DaemonHeartbeatWriter,
+      Aiur.ExecutorSweep,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -88,6 +90,20 @@ defmodule Aiur.Application.ChildrenTest do
       end
     end
 
+    test "secondary instance omits repository global services and retains ticket workers" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Orchestrator in mods
+      assert Aiur.PRLifecycle.HealthScanner in mods
+    end
+
+    test "primary instance starts repository global services when GitHub is configured" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
+
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: assert(child in mods)
+    end
+
     test "interactive run starts the full UI stack" do
       mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true))
 
@@ -99,6 +115,14 @@ defmodule Aiur.Application.ChildrenTest do
 
       for child <- @terminal_only ++ @dashboard, do: refute(child in mods, "lean background should skip #{inspect(child)}")
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
+    end
+
+    test "headless dashboard run starts the HTTP server without terminal pane services" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
+
+      assert Aiur.HttpServer in mods
+      refute Aiur.PaneManager in mods
+      refute Aiur.AgentList.App in mods
     end
 
     test "headless boots measurably fewer children than interactive" do
@@ -347,6 +371,7 @@ defmodule Aiur.Application.ChildrenTest do
       # The flake this guards (#1745): a live ticker replaces the singleton
       # BranchRefStore's refs mid-test, so a synthetic ref recorded by one test
       # vanishes before that test asserts on it.
+      assert :ok = Aiur.TestSupport.ensure_branch_ref_store_running()
       assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
       refute Process.whereis(Aiur.Events.LsRemoteTicker)
     end

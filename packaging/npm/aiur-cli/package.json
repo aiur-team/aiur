@@ -24,8 +24,10 @@
     "libexec/aiur-epic.sh",
     "libexec/aiur-feature.sh",
     "libexec/aiur-capabilities.sh",
+    "libexec/aiur-executor-session.sh",
     "libexec/aiur-experiments.sh",
     "libexec/aiur-pane-ctrlc",
+    "libexec/aiur-mise-doctor",
     "scripts/postinstall.mjs",
     "share/aiur.tmux.conf"
   ],

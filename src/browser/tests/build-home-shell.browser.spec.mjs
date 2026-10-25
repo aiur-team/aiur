@@ -2,6 +2,7 @@
 import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
+// Shell lifecycle cases share one live fixture to verify transitions across mounts.
 const pageErrors = new WeakMap()
 test.beforeEach(({ page }) => { const errors = []; pageErrors.set(page, errors); page.on('pageerror', error => errors.push(error.message)) })
 test.afterEach(({ page }) => { expect(pageErrors.get(page), 'uncaught browser errors').toEqual([]) })
@@ -74,6 +75,18 @@ async function ready(page) {
   await open(page)
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
 }
+async function pauseHistory(page) {
+  // Stop new near-top pages, then drain any reply already repainting the board.
+  await page.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
+  await expect(page.locator('#build-root')).toHaveAttribute('data-bd-paging', 'idle')
+}
+async function isolateScrollbar(page) {
+  await pauseHistory(page)
+  await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    ctx.L = null; ctx.vp.replaceChildren()
+  })
+}
 const state = page => page.evaluate(async () => {
   const { S, ctx } = await import('/build-home/state.js')
   return { loading: S.loading, view: S.view, generation: ctx.proto.generation }
@@ -93,12 +106,12 @@ test('B1 skeleton stays past the design timer until a payload arrives', async ({
 
 test('B2 unavailable state and error replies remove the spinner', async ({ page }) => {
   await open(page, 'unavailable')
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · build index read failed')
   await patch(page)
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause (unknown)')
   await expect(page.locator('.bd-spin, #bd-content, .bd-mk.empty')).toHaveCount(0)
   await page.evaluate(async () => (await import('/build-home/hook.js')).receive({ v: 1, kind: 'error', reason: 'unavailable' }))
-  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · source unavailable')
+  await expect(page.locator('.bd-loading')).toHaveText('Build timeline unavailable · unknown cause (unavailable)')
   expect((await state(page)).loading).toBe(true)
 })
 
@@ -146,6 +159,7 @@ test('B5 gaps single-flight; B6 invalid diff leaves all data unchanged', async (
 
 test('B7 reconnect requests new epoch and repaints without viewport', async ({ page }) => {
   await ready(page)
+  await pauseHistory(page)
   const epoch = await page.locator('#build-root').getAttribute('data-build-epoch')
   await page.evaluate(async () => {
     const { fx } = await import('/build-home/state.js'); window.paint = { viewport: 0, relayout: 0 }
@@ -206,19 +220,23 @@ test('B11 remount resets state and disposes old listeners and intervals', async 
   expect(await page.evaluate(() => window.buildIntervals.size)).toBe(0)
   await page.evaluate(() => window.liveSocket.main.pushLinkPatch(new Event('click'), '/build?view=list', null))
   await expect(page.locator('#build-root')).toHaveAttribute('data-build-home-hook', 'mounted')
+  // The initial snapshot creates the viewport and clears its lock after mounting.
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
   expect((await state(page)).view).toBe('list')
   await page.evaluate(async () => {
     const { ctx, fx } = await import('/build-home/state.js'); ctx.lockId = '1'; window.unlocks = 0; fx.unlock = () => window.unlocks++
   })
   await page.keyboard.press('Escape')
-  expect(await page.evaluate(() => ({ unlocks: window.unlocks, intervals: window.buildIntervals.size }))).toEqual({ unlocks: 1, intervals: 2 })
+  expect(await page.evaluate(() => ({ unlocks: window.unlocks, intervals: window.buildIntervals.size }))).toEqual({ unlocks: 1, intervals: 3 })
 })
 
 for (const event of ['pointercancel', 'lostpointercapture']) test(`B12 ${event} ends drag`, async ({ page }) => {
   await ready(page)
+  await isolateScrollbar(page)
   expect(await page.evaluate(async event => {
     const { ctx } = await import('/build-home/state.js'), { syncSB } = await import('/build-home/shell.js')
     ctx.vp.append(Object.assign(document.createElement('div'), { style: 'height:4000px' })); syncSB()
+    ctx.vp.scrollTop = 0
     const th = document.querySelector('#bd-sb i'); th.setPointerCapture = () => {}
     th.dispatchEvent(new PointerEvent('pointerdown', { clientY: 60, pointerId: 1 }))
     th.dispatchEvent(new PointerEvent(event)); th.dispatchEvent(new PointerEvent('pointermove', { clientY: 160 }))
@@ -275,7 +293,10 @@ test('B18 disconnect releases in-flight guard and ignores old reply', async ({ p
 })
 
 test('B19 scrollbar geometry, track click, active timer and drag', async ({ page }) => {
-  await ready(page); await page.clock.install(); await page.clock.pauseAt(new Date())
+  // Install before mount: a native sb-active timeout from a pre-install scroll can't be cleared by the fake clock.
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') })
+  await ready(page); await isolateScrollbar(page)
+  await page.clock.pauseAt(new Date('2030-01-02T00:00:00Z'))
   const measure = () => page.evaluate(async () => {
     const { ctx } = await import('/build-home/state.js'); (await import('/build-home/shell.js')).syncSB()
     const sb = document.querySelector('#bd-sb'), th = sb.querySelector('i')
@@ -320,7 +341,10 @@ test('store moves rows, removes ids, replaces blocks and merges older pages with
 })
 
 test('destroy cancels timers, frames and late replies without mutating a new mount', async ({ page }) => {
-  await ready(page); await page.clock.install(); await page.clock.pauseAt(new Date())
+  // Install before mount so the shell's setInterval is fake and dispose() can clear it (#5189).
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') })
+  await ready(page); await isolateScrollbar(page)
+  await page.clock.pauseAt(new Date('2030-01-02T00:00:00Z'))
   expect(await page.evaluate(async () => {
     const { ctx, resetState } = await import('/build-home/state.js'), { resync, createBuildHomeHook } = await import('/build-home/hook.js')
     const { createLife } = await import('/build-home/life.js'); let resolve, calls = 0
@@ -331,6 +355,8 @@ test('destroy cancels timers, frames and late replies without mutating a new mou
     window.destroyProbeCalls = () => calls
     return { snap: ctx.snap, disposed: old.disposed }
   })).toEqual({ snap: null, disposed: true })
+  // Outlast the shell's 500 ms interval in real time; a leaked native timer throws on the null root.
+  await page.waitForTimeout(600)
   await page.clock.runFor(100)
   expect(await page.evaluate(() => window.destroyProbeCalls())).toBe(0)
 })

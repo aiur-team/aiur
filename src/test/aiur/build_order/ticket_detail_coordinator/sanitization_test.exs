@@ -62,6 +62,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorSanitizationTest do
           TicketDetail.fetch(requested_identity,
             configured_repo: @configured,
             relationship_reader: &no_linked_pull_requests/2,
+            token: "test-gh-token",
             request_fun: fn _request ->
               {:ok, %{status: 200, body: detail_issue(requested_identity, body)}}
             end
@@ -138,6 +139,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorSanitizationTest do
           TicketDetail.fetch(requested_identity,
             configured_repo: @configured,
             relationship_reader: &no_linked_pull_requests/2,
+            token: "test-gh-token",
             request_fun: fn _request ->
               {:ok, %{status: 200, body: detail_issue(requested_identity, body)}}
             end
@@ -183,6 +185,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorSanitizationTest do
           TicketDetail.fetch(requested_identity,
             configured_repo: @configured,
             relationship_reader: &no_linked_pull_requests/2,
+            token: "test-gh-token",
             request_fun: fn _request ->
               {:ok, %{status: 200, body: detail_issue(requested_identity, body)}}
             end

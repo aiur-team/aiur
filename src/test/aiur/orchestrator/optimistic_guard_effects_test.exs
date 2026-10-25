@@ -267,6 +267,38 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffectsTest do
     refute_received {:effect, :comment}
   end
 
+  test "closed blockers guardedly requeue a parked dependent with one state label", %{opts: opts} do
+    state = OptimisticGuardEffects.execute(running(), @park, opts)
+    assert_complete()
+    owner = self()
+
+    opts =
+      remote_options(opts, ["agent:parked", "agent:in-progress", "agent:queued"])
+      |> Keyword.put(:blocked_by, fn "11" -> {:ok, ["10"]} end)
+      |> Keyword.put(:observe, fn _records, now, _opts ->
+        %{
+          "10" => %{confirmed?: true, observed_at_ms: now, issue_open?: false, state_reason: :completed, pr_merged: false, pr_state: "closed", any_open_pr?: false},
+          dependents: %{"11" => remote_issue("11", ["agent:parked", "agent:in-progress", "agent:queued"])}
+        }
+      end)
+      |> Keyword.put(:update_state_fun, fn id, target, expected ->
+        send(owner, {:recovery_state, id, target, expected})
+        :ok
+      end)
+      |> Keyword.put(:remove_marker_fun, fn id, marker ->
+        send(owner, {:recovery_marker, id, marker})
+        :ok
+      end)
+
+    OptimisticGuardEffects.reconcile(state, opts)
+    assert_receive {:recovery_state, "11", "todo", "in-progress"}, 1_000
+    assert_receive {:recovery_marker, "11", "agent:parked"}, 1_000
+    assert {:ok, row} = OptimisticLedger.get("11")
+    assert row["status"] == "running"
+    assert row["counters"]["resumes_after_park"] == 1
+    assert_received {:event, %{topic: "#{@topic}.resolved"}}
+  end
+
   test "explicit unpark schedules attention cleanup outside the orchestrator", %{opts: opts} do
     state = OptimisticGuardEffects.execute(running(), @park, opts)
     assert_received {:event, %{topic: @topic}}
@@ -283,6 +315,9 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffectsTest do
     [ref] = Map.keys(state.tracker_tasks)
     assert_receive {^ref, observations}, 1_000
     assert {:handled, state} = TrackerTasks.result(state, ref, observations)
+    [recovery_ref] = Map.keys(state.tracker_tasks)
+    assert_receive {^recovery_ref, :ok}, 1_000
+    assert {:handled, state} = TrackerTasks.result(state, recovery_ref, :ok)
     assert [%{key: {:optimistic_attention, "11"}}] = Map.values(state.tracker_tasks)
     assert_receive {:cleanup_owner, task}, 1_000
     refute task == owner

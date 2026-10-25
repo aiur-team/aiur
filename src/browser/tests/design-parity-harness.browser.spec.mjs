@@ -72,6 +72,12 @@ test('mutation: catches changed API count text', async ({ browser }) => {
   await pair.product.getByText('2 APIs', { exact: true }).evaluate(e => { e.textContent = '3 APIs' })
   await pixelFailure(pair, { name: 'api-count' })
 })
+test('mutation: parity screenshot style preserves overflowing layout differences', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.design.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; }' })
+  await pair.product.addStyleTag({ content: 'html { scrollbar-color: transparent transparent !important; } *::-webkit-scrollbar-thumb { background: transparent !important; } #build-root { width: calc(100% + 1px) !important; }' })
+  await pixelFailure(pair, { name: 'overflow-layout', fullPage: false })
+})
 test('mutation: palette swap fails', async ({ browser }) => {
   const other = { ...cell, palette: 'aiur' }
   const pair = { design: await pageFor(browser), product: await pageFor(browser, other), cell, allowlist: [] }
@@ -163,29 +169,55 @@ test('loading phase holds the skeleton', async ({ browser }) => {
   await delay(1000)
   expect((await page.screenshot({ animations: 'disabled', scale: 'device' })).equals(a)).toBe(true)
 })
+// Synthetic captures: a real page.screenshot here can hit the same Chromium transient on the retry (#4054).
 test('settle guard survives a transient capture failure', async () => {
   let n = 0
+  let calls = 0
+  let failed = false
   const target = { screenshot: async () => {
-    if (++n === 4) {
+    calls++
+    if (n === 3 && !failed) {
+      failed = true
       throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
     }
-    return Buffer.from([n])
+    return Buffer.from([n++])
   } }
   await expect(captureStable(target, { scale: 'device' })).rejects.toThrow('design did not settle after 10 captures')
-  expect(n).toBe(11)
+  expect(n).toBe(10)
+  expect(calls).toBe(11)
 })
-test('stable capture recovers from a transient capture failure', async ({ page }) => {
-  await page.setContent('<div>stable</div>')
+test('stable capture recovers from a transient capture failure', async () => {
   const opts = { scale: 'device' }
-  const expected = await page.screenshot(opts)
+  const expected = Buffer.from('stable')
   let calls = 0
   const target = { screenshot: async options => {
-    expect(options).toBe(opts)
+    expect(options).toMatchObject(opts)
+    expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
     if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
-    return page.screenshot(options)
+    return Buffer.from('stable')
   } }
   expect((await captureStable(target, opts)).equals(expected)).toBe(true)
   expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
+})
+test('stable clipped capture includes thumb-hiding style without mutating caller options', async () => {
+  const opts = { scale: 'device' }
+  const expected = Buffer.from('stable')
+  let calls = 0
+  const target = { boundingBox: async () => ({ x: 10, y: 20, width: 30, height: 40 }) }
+  const page = {
+    evaluate: async () => ({ x: 2, y: 3 }),
+    screenshot: async options => {
+      expect(options).toMatchObject(opts)
+      expect(options.style).toContain('*::-webkit-scrollbar-thumb { background: transparent !important; }')
+      expect(options).toMatchObject({ fullPage: true, clip: { x: 12, y: 23, width: 30, height: 40 } })
+      if (++calls === 1) throw new Error('page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot')
+      return Buffer.from('stable')
+    }
+  }
+  expect((await captureStable(target, opts, page)).equals(expected)).toBe(true)
+  expect(calls).toBe(3)
+  expect(opts).toEqual({ scale: 'device' })
 })
 for (const [name, message, attempts] of [
   ['persistent capture failure', 'page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot', 2],
@@ -216,6 +248,8 @@ const defects = {
   'unexpected css': e => { e.css = 'html {color:red}' },
   'wrong status spelling': e => { e.approval.status = 'pending-signoff' },
   'missing property': e => { e.kind = 'property' },
+  'empty spec': e => { e.spec = '' },
+  'wildcard spec': e => { e.spec = '*.browser.spec.mjs' },
   'missing rule': e => { e.kind = 'axe' },
   'missing path': e => { e.kind = 'motion' },
   'approved false': e => { e.approved = false }
@@ -229,6 +263,18 @@ for (const [name, mutate] of Object.entries(defects)) {
 test('stale allowlist entry', async ({ browser }) => {
   const pair = await designPair(browser)
   await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }])).rejects.toThrow('stale allowlist entry demo')
+})
+test('allowlist scopes capabilities and specs without hiding stale targets', async ({ browser }) => {
+  const pair = await designPair(browser)
+  const conditional = { ...entry, selector: '.missing', productWhen: '.missing' }
+  await expect(applyAllowlist(pair, cell, [conditional])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...conditional, productWhen: 'html' }])).rejects.toThrow('stale allowlist entry demo')
+  const scoped = { ...entry, selector: '.missing', spec: 'build-home-chains-parity.browser.spec.mjs' }
+  await expect(applyAllowlist(pair, cell, [scoped])).resolves.toEqual({ designMask: [], productMask: [] })
+  await expect(applyAllowlist(pair, cell, [{ ...scoped, spec: 'design-parity-harness.browser.spec.mjs' }]))
+    .rejects.toThrow('stale allowlist entry demo')
+  await expect(applyAllowlist(pair, cell, [{ ...entry, selector: '.missing' }]))
+    .rejects.toThrow('stale allowlist entry demo')
 })
 test('allowlist removal applies', async ({ browser }) => {
   const pair = await designPair(browser)
@@ -280,6 +326,26 @@ test('design route containment', async ({ browser }) => {
   const response = await page.goto('http://design.parity.invalid/%2e%2e%2fmix.exs')
   expect(response.status()).toBe(404)
 })
+for (const [designPath, productPath] of [
+  ['/assets/deepseek-logo.png', '/build-home/logos/deepseek-logo.png'],
+  ['/assets/codex-color.svg', '/provider-assets/codex-color.svg']
+]) {
+  test(`design logo route uses served product bytes: ${designPath}`, async ({ browser, request }) => {
+    const page = await pageFor(browser)
+    await routeDesign(page)
+    await page.goto('http://design.parity.invalid/blank')
+    const designBytes = await page.evaluate(async asset => {
+      const response = await fetch(asset)
+      if (!response.ok) throw new Error(`design asset returned ${response.status}`)
+      return [...new Uint8Array(await response.arrayBuffer())]
+    }, designPath)
+    const product = await request.get(productPath)
+    expect(product.ok()).toBe(true)
+    expect(Buffer.from(designBytes).equals(await product.body()), 'design and product logo response bytes match').toBe(true)
+    await verifyDesignSource()
+    checkPage(page)
+  })
+}
 test('page error guard', async ({ browser }) => {
   const page = await pageFor(browser)
   await openDesign(page, cell)
@@ -303,6 +369,14 @@ test('shell phase and query are available to consumers', async ({ browser }) => 
 
 test('visual route seeds the optional palette', async ({ page }) => {
   const { openVisualRoute } = await import('../support/visual.mjs')
-  await openVisualRoute(page, { theme: 'dark', palette: 'aiur', route: '/build-orders' })
+  await openVisualRoute(page, { theme: 'dark', palette: 'aiur', route: '/analytics' })
   expect(await page.evaluate(() => localStorage.getItem('aiur-palette'))).toBe('aiur')
+})
+
+// Explicit viewport captures must not scroll an offscreen region into view.
+test('viewport clipping preserves scroll without animation preservation', async ({ browser }) => {
+  const pair = { design: await pageFor(browser), product: await pageFor(browser), cell, allowlist: [] }
+  for (const page of [pair.design, pair.product]) await page.setContent('<style>body{margin:0;height:3000px}#region{position:absolute;top:2000px;left:50px;width:80px;height:80px;background:red}</style><div id="region"></div>')
+  await compareParityPixels(pair, { name: 'viewport-clip-scroll', region: '#region', viewportClip: true })
+  for (const page of [pair.design, pair.product]) expect(await page.evaluate(() => scrollY)).toBe(0)
 })

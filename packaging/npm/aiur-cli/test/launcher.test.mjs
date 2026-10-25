@@ -5,6 +5,8 @@ import {
   readFileSync,
   existsSync,
   chmodSync,
+  readdirSync,
+  symlinkSync,
   realpathSync,
 } from "node:fs";
 import path from "node:path";
@@ -64,6 +66,28 @@ test("tmux absent is fatal", () => {
   const result = runShim({ fakeBin, env: { PATH: fakeBin } });
   expect(result.status).not.toBe(0);
   expect(result.stderr).toContain("tmux is required");
+});
+
+test("container launch skips interactive tool preflight", () => {
+  const { fakeBin } = setupPackage({ tmuxVersion: null, withOpencode: false });
+  const pathWithoutTmux = path.join(root, "path-without-tmux");
+  mkdirSync(pathWithoutTmux);
+  for (const name of readdirSync("/usr/bin")) {
+    if (name === "tmux") continue;
+    try {
+      symlinkSync(path.join("/usr/bin", name), path.join(pathWithoutTmux, name));
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+  const result = runShim({
+    args: ["run", "--container"],
+    fakeBin,
+    env: { PATH: `${fakeBin}:${pathWithoutTmux}` },
+  });
+  expect(result.status).toBe(0);
+  expect(readFileSync(captureFile, "utf8")).toContain("ARGS:run --container");
+  expect(result.stderr).not.toContain("tmux is required");
 });
 
 test("opencode absent warns but still runs the launcher", () => {
@@ -132,7 +156,7 @@ const nonLaunchCommands = [
   "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
   "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
-  "executor-answer", "executor-escalate", "executor-moot", "listen", "executor-listen", "executor-wait",
+  "executor-answer", "executor-escalate", "executor-reclassify", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
   "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
 ];

@@ -17,3 +17,62 @@
 @import url("home/16-list-models.css");
 @import url("home/17-responsive-light.css");
 @import url("home/18-palette-fixes.css");
+@import url("home/19-modal-doc.css");
+
+/* MP-E8-C10-T04: states the design lacks */
+.ax-seg.none { background: none; border: 1px dashed var(--line-strong); box-sizing: border-box; }
+.ax-r2.stale .ax-lns, .ax-ln.stale { opacity: .55; }
+span.ax-cnt { display: inline-block; }
+#ax-cnt { cursor: default; }
+span.ax-cnt:hover { color: var(--muted); background: none; }
+.ax-usage.locked { grid-template-columns: 1fr; }
+.ax-uc.lock p { margin: 0; font: .68rem/1.4 "JetBrains Mono", monospace; }
+.ax-uc.lock p b { color: var(--muted); font-weight: 600; }
+
+/* MP-E8 additions: states the design does not show (C9-T05; S-17, EC-08; S-13 sizes: C9-T06) */
+.bd-cx.unk, html[data-theme="light"] .bd-cx.unk { color: var(--faint) !important; }
+.bd-card.np .bd-in { border-color: color-mix(in srgb, var(--block-line) 45%, var(--line)); }
+.bd-card.np .bd-status { color: var(--muted); }
+.bd-card.bar.np .bd-in { background: color-mix(in srgb, var(--block) 35%, var(--faint)); }
+
+.bd-ag > .ax-mono { width: 100%; height: 100%; border-radius: 50%; font-size: .57em; }
+.bd-card.line .bd-lg.ax-mono { width: 1.75em; height: 1.75em; flex: none; border-radius: 50%; font-size: .6em; }
+
+/* list (C9-T12; S-17, S-13, S-12, S-9) */
+.lst.st-np { border-color: color-mix(in srgb, var(--block-line) 45%, var(--line)); color: var(--muted); }
+.lst.st-np u { background: color-mix(in srgb, var(--block) 45%, var(--faint)); }
+.c-ag .ax-mono { width: 15px; height: 15px; font-size: .5rem; }
+.lr[data-id]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lh[data-st] em { white-space: normal; }
+
+/* #5175: Live retrying group, which the design lacks */
+.bd-now-st button.queued i, .bd-now-sum .queued { background: var(--attn); }
+
+.bm-agent .ax-mono { display: inline-grid; width: 16px; height: 16px; border-radius: 50%; font-size: .6rem; }
+@media (max-width: 720px) { .bm-agent .ax-mono { display: none; } }
+.bm-tt h3:focus { outline: none; }
+
+/* H:154: preserve the design gutter when the ticket modal locks body scrolling. */
+html:has(#build-root):has(#tk-backdrop.show) { scrollbar-gutter: stable; scrollbar-width: auto; }
+
+/* MP-E8-C11-T07: button states the design does not draw (C:153 disabled look). */
+.bm-ib[aria-disabled="true"] { opacity: .4; cursor: default; }
+.bm-ib[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.bm-ib.bad { color: var(--block-ink); } .bm-ib.warn { color: var(--attn-ink); }
+/* MP-E8-C11-T06: composer send states the design lacks (S-7 default, pending sign-off) */
+.cv-in-st { margin: -.6rem 1rem .8rem 1.85rem; font: .68rem "JetBrains Mono", monospace; color: var(--muted); }
+.cv-in-st.bad { color: var(--block-ink); }
+.cv-in-st[hidden] { display: none; }
+.cv-send:disabled { opacity: .5; cursor: default; }
+
+/* MP-E8-C11-T08 command card state line: not in the design, S-42 default pending the owner's sign-off */
+.cv-cmd .st { margin: .5rem 0 0; font: .72rem "JetBrains Mono", monospace; color: var(--muted); }
+.cv-cmd .st.bad { color: var(--block-ink); }
+.bd-opt > .ax-mono { width: 14px; height: 14px; border-radius: 50%; font-size: .5rem; }
+
+/* C:232 keeps inner color/border transitions under reduced motion; outer card fades stay disabled. */
+@media (prefers-reduced-motion: reduce) {
+  .bd-root.rm .bd-in { transition-duration: .14s, .14s, .14s, .14s !important; }
+}
+/* Keep C:142's phone filter scrolling above later desktop overflow overrides. */
+@container bd (max-width: 640px) { .bd-toolbar .bd-filters { overflow-x: auto !important; } }

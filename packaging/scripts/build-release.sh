@@ -12,6 +12,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 elixir_dir="$repo_root/src"
 mix_env="${MIX_ENV:-prod}"
+. "$repo_root/scripts/lib/layout-assets.sh"
+build_layout_assets "$repo_root"
 
 cd "$elixir_dir"
 

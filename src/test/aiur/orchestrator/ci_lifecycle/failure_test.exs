@@ -42,9 +42,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-      assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
-      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
+      assert_received {:recorded, _position, {:tracker_comment, ^identifier, comment}}
+      assert comment =~ "PR #942 head `failed-head`"
+      assert comment =~ "- lint\n- coverage"
+      assert_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      assert_received {:recorded, _position, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, _position, {:resume_agent, _request_id, 101}}
 
       assert next.running[identifier].issue.state == "rework"
       assert next.running[identifier].control.status == :paused
@@ -55,6 +58,76 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       assert Enum.map(event.checks, & &1.name) == ["lint", "coverage"]
       assert event.failure_excerpt == "lint failed"
       assert event.message =~ "CI failed: lint, coverage"
+    end
+
+    test "failing CI does not dispatch an approved current head that is queued or auto-merging" do
+      identifier = unique_identifier("ci-approved-queued")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(
+          state,
+          issue,
+          %{
+            decision: :failed,
+            head_sha: "approved-head",
+            pr_number: 942,
+            failures: [%{name: "lint", result: "failure"}],
+            review_decision: "APPROVED",
+            auto_merge_request: nil,
+            merge_queue_entry: %{"id" => "queue-entry"}
+          },
+          ci_recovery: fn _issue, result, _opts -> result end,
+          request_fun: fn _request -> flunk("approved landing guard must use the CI batch") end
+        )
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _, {:tracker_update, ^identifier, "rework", _}}
+      refute_received {:recorded, _, {:resume_agent, _, _}}
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.running[identifier].paused_reason == :ci_wait
+    end
+
+    test "failing CI does not dispatch an approved current head with auto-merge armed" do
+      identifier = unique_identifier("ci-approved-auto-merge")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(
+          state,
+          issue,
+          %{
+            decision: :failed,
+            head_sha: "approved-head",
+            pr_number: 943,
+            failures: [%{name: "lint", result: "failure"}],
+            review_decision: "APPROVED",
+            auto_merge_request: %{"enabledAt" => "2026-10-16T00:00:00Z"},
+            merge_queue_entry: nil
+          },
+          ci_recovery: fn _issue, result, _opts -> result end,
+          request_fun: fn _request -> flunk("approved landing guard must use the CI batch") end
+        )
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _, {:tracker_update, ^identifier, "rework", _}}
+      refute_received {:recorded, _, {:resume_agent, _, _}}
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.running[identifier].paused_reason == :ci_wait
     end
 
     test "a head that actually passed CI reworks on a later failure after handoff and reload" do
@@ -99,13 +172,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       start_recorder()
       ResourceStore.reset()
       on_exit(&ResourceStore.reset/0)
-      previous_token = :persistent_term.get({Aiur.GitHub.Config, :resolved_token}, :unset)
-      :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, "test-token")
+      previous_token = :persistent_term.get({Aiur.GitHub.Access.Token, :resolved_token}, :unset)
+      :persistent_term.put({Aiur.GitHub.Access.Token, :resolved_token}, "test-token")
 
       on_exit(fn ->
         if previous_token == :unset,
-          do: :persistent_term.erase({Aiur.GitHub.Config, :resolved_token}),
-          else: :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, previous_token)
+          do: :persistent_term.erase({Aiur.GitHub.Access.Token, :resolved_token}),
+          else: :persistent_term.put({Aiur.GitHub.Access.Token, :resolved_token}, previous_token)
       end)
 
       labels = :ets.new(:ci_labels, [:set, :private])
@@ -131,7 +204,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       assert state.running == %{}
       next = poll_ci(state, issue, %{decision: :failed, draft?: true, head_sha: "reviewed-head", pr_number: 3095, failures: [%{name: "lint", result: "failure"}]})
 
-      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework"]}]
+      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework", "agent:ci-red"]}]
       assert next.ci_lifecycle.approved_heads == %{}
     end
 
@@ -295,15 +368,18 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
                  pr_number: nil,
                  head_sha: "same-head",
                  draft?: false,
+                 auto_merge_request: nil,
+                 merge_queue_entry: nil,
                  review_decision: nil,
                  recovery: nil,
                  failures: [],
+                 check_runs: [],
                  tracker_state: "ci-wait"
                }
              }
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
-               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
     end
 
     test "a pre-existing operator pause does not arm the CI fallback" do

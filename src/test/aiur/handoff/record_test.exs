@@ -52,7 +52,8 @@ defmodule Aiur.Handoff.RecordTest do
     assert :none = Record.read(opts)
     assert {:error, :already_consumed} = Record.consume(%{"3844" => "fallback"}, opts)
     assert {:ok, archived} = JsonStore.read(Record.path(opts) <> ".consumed")
-    assert archived == Map.put(record, "outcome", outcome)
+    assert Map.delete(archived, "completed_at") == Map.put(record, "outcome", outcome)
+    assert {:ok, _, _} = DateTime.from_iso8601(archived["completed_at"])
   end
 
   test "records older than the relay orphan timeout are stale", %{opts: opts} do

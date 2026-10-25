@@ -32,14 +32,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
   # raised a false `state-label-missing-no-evidence` attention (#2610).
   # `agent:queued` likewise parks marker-only work until the queue releases it.
   @doc false
-  @spec heal_or_leave_missing_state_label(Issue.t(), State.t(), (String.t(), String.t() -> :ok | {:error, term()})) :: {Issue.t() | nil, State.t()}
+  @spec heal_or_leave_missing_state_label(Issue.t(), State.t(), (String.t(), String.t() ->
+                                                                   :ok | {:error, term()})) ::
+          {Issue.t() | nil, State.t()}
   def heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     cond do
-      Issue.paused?(issue) or Issue.parked?(issue) or Issue.queued?(issue) or parked_marker?(issue) ->
-        {issue, state}
-
-      restore_target_for(issue, state) == nil and not workflow_evidence?(state, issue) ->
-        alert_missing_state_label_no_evidence(issue, state)
+      Issue.held?(issue) or Issue.paused?(issue) or
+        Issue.queued?(issue) or parked_marker?(issue) ->
         {issue, state}
 
       restore_target_for(issue, state) == nil ->
@@ -55,7 +54,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   defp heal_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     if TrackerTasks.owner?(state) do
-      LabelWrites.schedule_label_heal(state, issue, restore_target_for(issue, state) || "todo", update_state_fun, &heal_missing_state_label_sync/3)
+      LabelWrites.schedule_label_heal(
+        state,
+        issue,
+        restore_target_for(issue, state) || "todo",
+        update_state_fun,
+        &heal_missing_state_label_sync/3
+      )
     else
       heal_missing_state_label_sync(issue, state, update_state_fun)
     end
@@ -95,8 +100,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
   # `%{issue: %{}}`) or a prior polled copy (`%Issue{}` or `%{}`). Running
   # entries wrap the issue under `:issue`; a polled copy is the issue itself.
   defp workflow_state_from(%{issue: issue}) when is_map(issue), do: workflow_state_from(issue)
-  defp workflow_state_from(%Issue{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
-  defp workflow_state_from(%{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
+
+  defp workflow_state_from(%Issue{state: state_name})
+       when is_binary(state_name) and state_name != "", do: state_name
+
+  defp workflow_state_from(%{state: state_name}) when is_binary(state_name) and state_name != "",
+    do: state_name
+
   defp workflow_state_from(_entry), do: nil
 
   # The state to restore a stranded ticket to. Only a non-terminal state is a
@@ -122,8 +132,7 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   # Positive evidence the ticket was in the agent workflow: a live running
   # entry, a released claim (a claim was dropped), or a prior polled copy
-  # carrying a state. A ticket with none of these has never entered the
-  # workflow and is untriaged parking, not a strand (#2420).
+  # carrying a state. No evidence means there is no Executor wake (#4610).
   @doc false
   @spec workflow_evidence?(State.t(), Issue.t()) :: boolean()
   def workflow_evidence?(%State{} = state, %Issue{id: issue_id} = issue) do
@@ -151,31 +160,6 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   defp parked_marker_label?(_label), do: false
 
-  # A zero-label ticket with no prior workflow record is surfaced with a
-  # needs-attention alert but NOT rewritten: stamping `agent:todo` on a ticket
-  # whose history shows no prior state is a guess that would reverse deliberate
-  # parking (#2420). The active-attention check keeps the alert to one per
-  # ticket instead of one per poll.
-  defp alert_missing_state_label_no_evidence(%Issue{} = issue, %State{} = state) do
-    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
-
-    unless TransitionAlerts.active_attention?(state, topic) do
-      Alerts.emit_system(topic,
-        issue: issue.identifier,
-        message:
-          "Ticket #{issue.identifier} has no agent state label and no record of prior agent workflow membership; " <>
-            "left as-is pending triage.",
-        reason:
-          "Ticket #{issue.identifier} carries zero agent:* state labels with no prior running/last-known state and no " <>
-            "parking marker; left as-is pending triage — alerting without writing agent:todo so deliberate parking is not " <>
-            "reversed (#2420).",
-        needs_attention: true,
-        severity: "warning",
-        central: true
-      )
-    end
-  end
-
   @doc false
   @spec resolve_missing_state_label_alert(term(), State.t()) :: State.t()
   def resolve_missing_state_label_alert(%Issue{state_labels: [_ | _]} = issue, %State{} = state) do
@@ -189,8 +173,11 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
              severity: "info",
              central: true
            ) do
-        :ok -> %{state | active_attention_topics: MapSet.delete(state.active_attention_topics, topic)}
-        {:error, _reason} -> state
+        :ok ->
+          %{state | active_attention_topics: MapSet.delete(state.active_attention_topics, topic)}
+
+        {:error, _reason} ->
+          state
       end
     else
       state

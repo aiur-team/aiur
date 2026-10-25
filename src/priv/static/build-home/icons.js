@@ -1,4 +1,4 @@
-const sv = (p, sw) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 2) + '" stroke-linecap="round" stroke-linejoin="round">' + p + "</svg>";
+export const sv = (p, sw) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 2) + '" stroke-linecap="round" stroke-linejoin="round">' + p + "</svg>";
 export const I = {
   bug: sv('<path d="M9 7.5V6a3 3 0 0 1 6 0v1.5"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6z"/><path d="M12 20v-8M6 13H2.5M21.5 13H18M6.3 9 3.5 7.5M17.7 9l2.8-1.5M6.3 17.5 3.5 19M17.7 17.5l2.8 1.5"/>'),
   feature: sv('<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>'),
@@ -8,6 +8,7 @@ export const I = {
   server: sv('<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>'),
   layers: sv('<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>'),
   unsorted: sv('<rect x="4" y="4" width="16" height="16" rx="3" stroke-dasharray="3 3"/>'),
+  squares: sv('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4M6.5 10v4"/>'),
   lock: sv('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
   chev: sv('<path d="m6 9 6 6 6-6"/>', 2.4),
   x: sv('<path d="M18 6 6 18M6 6l12 12"/>', 2.4),
@@ -40,3 +41,15 @@ export const I = {
   dCard: sv('<rect x="3" y="3" width="8" height="18" rx="2"/><rect x="13" y="3" width="8" height="18" rx="2"/><path d="M6 7h2M16 7h2"/>'),
   bars: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>',
 };
+
+export const MI = {
+    mic: sv('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+    send: sv('<path d="M5 12h14M13 6l6 6-6 6"/>', 2.2),
+    expand: sv('<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>'),
+    review: sv('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+    prog: sv('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
+    tool: sv('<path d="m8 8-5 4 5 4M16 8l5 4-5 4"/>'),
+    pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    down: sv('<path d="M12 5v14M5 12l7 7 7-7"/>', 2.4),
+  };

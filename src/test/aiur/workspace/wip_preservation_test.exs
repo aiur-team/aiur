@@ -290,4 +290,28 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert snapshot(workspace) == before
     end
   end
+
+  describe "skill mounts" do
+    # #4557: the fresh workspace materializes the skill link the saved patch adds.
+    test "a patch that adds a materialized skill link restores over the link", %{test_root: test_root} do
+      workspace = cloned_workspace!(test_root, "SKILL-1")
+      link = ".codex/skills/aiur-agent"
+      Aiur.AgentSkills.install(workspace)
+      target = File.read_link!(Path.join(workspace, link))
+      git!(["-C", workspace, "add", "--force", link])
+      File.write!(Path.join(workspace, "README.md"), "initial\nwith a skill link\n")
+
+      assert {:ok, _} = Remove.remove(workspace, nil, ticket: "SKILL-1")
+      assert [artifact] = WipPreservation.pending_notices(workspace, "SKILL-1")
+      assert link in artifact["tracked_files"]
+
+      clone_at!(test_root, workspace)
+      Aiur.AgentSkills.install(workspace)
+      assert File.read_link!(Path.join(workspace, link)) == target
+
+      run_restore!(artifact)
+      assert File.read_link!(Path.join(workspace, link)) == target
+      assert File.read!(Path.join(workspace, "README.md")) == "initial\nwith a skill link\n"
+    end
+  end
 end

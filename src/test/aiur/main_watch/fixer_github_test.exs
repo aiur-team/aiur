@@ -17,7 +17,7 @@ defmodule Aiur.MainWatch.FixerGitHubTest do
       end
     end
 
-    assert {:ok, [issue]} = FixerGitHub.open("main-fix", request_fun: request)
+    assert {:ok, [issue]} = FixerGitHub.open("main-fix", token: "test-gh-token", request_fun: request)
     assert issue["number"] == 1
     assert MainFixer.marker(issue["body"]) != nil
     assert issue["body"] =~ "new failing test"
@@ -37,7 +37,7 @@ defmodule Aiur.MainWatch.FixerGitHubTest do
       {:ok, %{status: 201, body: body}}
     end
 
-    assert {:ok, %{"number" => 7, "body" => @marker}} = FixerGitHub.create(%{"body" => @marker, "labels" => labels}, request_fun: request)
+    assert {:ok, %{"number" => 7, "body" => @marker}} = FixerGitHub.create(%{"body" => @marker, "labels" => labels}, token: "test-gh-token", request_fun: request)
 
     for label <- labels do
       assert_received {:request, %{method: :post, body: %{"name" => ^label}}}
@@ -49,9 +49,9 @@ defmodule Aiur.MainWatch.FixerGitHubTest do
   end
 
   test "transport, status and label errors propagate instead of pretending to file" do
-    assert {:error, :offline} = FixerGitHub.open("main-fix", request_fun: fn _ -> {:error, :offline} end)
-    assert {:error, _reason} = FixerGitHub.open("main-fix", request_fun: fn _ -> {:ok, %{status: 503}} end)
-    assert {:error, :offline} = FixerGitHub.create(%{"labels" => []}, request_fun: fn _ -> {:error, :offline} end)
-    assert {:error, _reason} = FixerGitHub.create(%{"labels" => ["main-fix"]}, request_fun: fn _ -> {:ok, %{status: 422}} end)
+    assert {:error, :offline} = FixerGitHub.open("main-fix", token: "test-gh-token", request_fun: fn _ -> {:error, :offline} end)
+    assert {:error, _reason} = FixerGitHub.open("main-fix", token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 503}} end)
+    assert {:error, :offline} = FixerGitHub.create(%{"labels" => []}, token: "test-gh-token", request_fun: fn _ -> {:error, :offline} end)
+    assert {:error, _reason} = FixerGitHub.create(%{"labels" => ["main-fix"]}, token: "test-gh-token", request_fun: fn _ -> {:ok, %{status: 422}} end)
   end
 end

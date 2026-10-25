@@ -7,16 +7,72 @@ defmodule Aiur.TestSupport.AiurdevCase do
   @script Path.expand("../../../scripts/aiurdev", __DIR__)
   def script, do: @script
 
+  # Shell fixtures in this module model ordinary machines where the temporary
+  # directory is outside the agent workspace. The live workspace may set
+  # TMPDIR beneath `aiur-workspaces`, which intentionally activates shim safety
+  # behavior and changes those fixture semantics.
+  def isolated_tmp_root do
+    key = {__MODULE__, :isolated_tmp_root}
+
+    case Process.get(key) || caller_tmp_root(key) do
+      nil ->
+        root = Path.join("/tmp", "aiur-test-tmp-#{System.pid()}-#{System.unique_integer([:positive])}")
+        File.mkdir_p!(root)
+        Process.put(key, root)
+        on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+        root
+
+      root ->
+        Process.put(key, root)
+        root
+    end
+  end
+
+  defp caller_tmp_root(key) do
+    Process.get(:"$callers", [])
+    |> Enum.find_value(&tmp_root_for_process(&1, key))
+  end
+
+  defp tmp_root_for_process(pid, key) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} -> dictionary_tmp_root(dictionary, key)
+      nil -> nil
+    end
+  end
+
+  defp dictionary_tmp_root(dictionary, key) do
+    case List.keyfind(dictionary, key, 0) do
+      {^key, root} -> root
+      nil -> nil
+    end
+  end
+
   # The shim sources scripts/lib/aiurdev-*.sh next to itself, so copies need them.
   def copy_shim_libs!(dir), do: File.cp_r!(Path.join(Path.dirname(@script), "lib"), Path.join(dir, "lib"))
 
   # A fake repo root whose engine just echoes how the shim invoked it, so we can
   # assert on AIUR_RELEASE_DIR + forwarded args without building a real release.
-  def fake_repo(root \\ Aiur.TestSupport.tmp_root!("aiurdev-shim")) do
+  def fake_repo(root \\ nil) do
+    root = root || Path.join(isolated_tmp_root(), "aiurdev-shim-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(isolated_tmp_root())
     libexec = Path.join([root, "packaging", "npm", "aiur-cli", "libexec"])
     File.mkdir_p!(libexec)
     # `--test` resets the sandbox from $repo_root/src; the dir must exist to cd into.
     File.mkdir_p!(Path.join(root, "src"))
+    File.write!(Path.join(root, "src/mix.lock"), "%{}\n")
+    File.touch!(Path.join(root, "src/mix.lock"), {{2000, 1, 1}, {0, 0, 0}})
+    browser = Path.join(root, "src/browser")
+    File.mkdir_p!(browser)
+    # chmod on the fake launcher rounds its mtime to seconds; seed inputs older.
+    for file <- ["package.json", "package-lock.json"] do
+      File.write!(Path.join(browser, file), "{}")
+      File.touch!(Path.join(browser, file), {{2000, 1, 1}, {0, 0, 0}})
+    end
+
+    assets = Path.join(root, "src/priv/static/vendor/elk/0.11.1")
+    File.mkdir_p!(assets)
+    for file <- ["elk-worker.min.js", "aiur-layout-worker.js", "aiur-layout-client.js", "manifest.json"], do: File.write!(Path.join(assets, file), "fixture")
+    File.touch!(Path.join(assets, "manifest.json"), {{2000, 1, 1}, {0, 0, 0}})
     File.write!(Path.join(root, ".aiur-test-tickets.json"), ~s({"tickets":[99,100,101]}))
     engine = Path.join(libexec, "aiur-engine.sh")
 
@@ -30,6 +86,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
         "    echo \"ENGINE_ARGS: $*\"\n" <>
         "    echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "    echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
+        "    echo \"AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}\"\n" <>
         "    echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "    echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "    echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -58,6 +115,8 @@ defmodule Aiur.TestSupport.AiurdevCase do
         "echo \"AIUR_DEBUG: ${AIUR_DEBUG:-}\"\n" <>
         "echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
+        "echo \"AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}\"\n" <>
+        "echo \"AIUR_RECORD_TEST_TICKET_IDS: ${AIUR_RECORD_TEST_TICKET_IDS:-}\"\n" <>
         "echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -77,11 +136,11 @@ defmodule Aiur.TestSupport.AiurdevCase do
   def fake_agent_repo(issue) do
     root =
       Path.join([
-        System.tmp_dir!(),
+        isolated_tmp_root(),
         "aiur-workspaces",
         "repo",
         to_string(issue),
-        Aiur.TestSupport.tmp_root!("aiurdev-shim")
+        "aiurdev-shim-#{System.unique_integer([:positive])}"
       ])
 
     fake_repo(root)
@@ -111,6 +170,8 @@ defmodule Aiur.TestSupport.AiurdevCase do
     File.write!(Path.join(release_vsn_dir, "start_clean.boot"), "")
     File.write!(Path.join(release_vsn_dir, "vm.args"), "")
     File.write!(Path.join(release_vsn_dir, "sys.config"), "")
+    lock_sha = src |> Path.join("mix.lock") |> File.read!() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+    File.write!(Path.join([src, "_build", "dev", "aiurdev-deps-lock-sha"]), lock_sha <> "\n")
 
     # A real build stamps the release with the commit it came from. These fake
     # roots live outside any git repo, so "unknown" is exactly what the shim
@@ -121,9 +182,11 @@ defmodule Aiur.TestSupport.AiurdevCase do
   end
 
   def stamp_release(root, sha \\ "unknown") do
+    lock_sha = root |> Path.join("src/mix.lock") |> File.read!() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+
     File.write!(
       release_stamp_path(root),
-      "repo_root=#{root}\nsource_sha=#{sha}\ndirty=unknown\nbuilt_at=1970-01-01T00:00:00Z\n"
+      "repo_root=#{root}\nsource_sha=#{sha}\ndeps_lock_sha=#{lock_sha}\ndirty=unknown\nbuilt_at=1970-01-01T00:00:00Z\n"
     )
   end
 
@@ -168,15 +231,36 @@ defmodule Aiur.TestSupport.AiurdevCase do
       echo "MISE: $*"
       echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
       echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
+      echo "MISE_AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}"
+      echo "MISE_AIUR_GITHUB_BUDGET_DIR: ${AIUR_GITHUB_BUDGET_DIR:-}"
+      echo "MISE_AIUR_DEV_TEST_RUN_ID: ${AIUR_DEV_TEST_RUN_ID:-}"
+      echo "MISE_AIUR_DEV_TEST_STATE_DIR: ${AIUR_DEV_TEST_STATE_DIR:-}"
       echo "MISE_AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}"
       echo "MISE_XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}"
       echo "MISE_XDG_STATE_HOME: ${XDG_STATE_HOME:-}"
       echo "MISE_XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}"
       echo "MISE_AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}"
+      if [ "${1:-}" = "exec" ] && [ "${3:-}" = "npm" ]; then
+        [ -z "${AIUR_FAKE_NPM_LOG:-}" ] || echo "${*:3}" >> "$AIUR_FAKE_NPM_LOG"
+        [ "${AIUR_FAKE_NPM_FAIL:-}" != "${4:-}" ] || exit 8
+        if [ "${4:-}" = "run" ]; then
+          mkdir -p ../priv/static/vendor/elk/0.11.1
+          for file in elk-worker.min.js aiur-layout-worker.js aiur-layout-client.js; do
+            echo generated > "../priv/static/vendor/elk/0.11.1/$file"
+          done
+        fi
+        exit 0
+      fi
       if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--" ] && [ "${3:-}" = "mix" ]; then
         case "${4:-}" in
           deps.get|compile)
             mkdir -p deps _build
+            if [ -n "${AIUR_FAKE_MISE_ORDER_LOG:-}" ]; then
+              echo "${4:-}" >> "$AIUR_FAKE_MISE_ORDER_LOG"
+            fi
+            if [ "${4:-}" = "deps.get" ] && [ -n "${AIUR_FAKE_MISE_DEPS_LOG:-}" ]; then
+              echo "deps.get $*" >> "$AIUR_FAKE_MISE_DEPS_LOG"
+            fi
             if [ "${4:-}" = "compile" ] && [ -n "${AIUR_FAKE_MISE_COMPILE_LOG:-}" ]; then
               echo "compile $*" >> "$AIUR_FAKE_MISE_COMPILE_LOG"
             fi
@@ -187,30 +271,32 @@ defmodule Aiur.TestSupport.AiurdevCase do
             fi
             ;;
           release)
+            release_path="${7:-_build/dev/rel/aiur}"
+            launcher_path="${AIUR_MIX_CLI_LAUNCHER_PATH:-bin/aiur}"
             if [ -n "${AIUR_FAKE_MISE_RELEASE_LOG:-}" ]; then
               echo "release start $$" >> "$AIUR_FAKE_MISE_RELEASE_LOG"
             fi
             if [ -n "${AIUR_FAKE_MISE_RELEASE_SLEEP:-}" ]; then
               sleep "$AIUR_FAKE_MISE_RELEASE_SLEEP"
             fi
-            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/lib/aiur-0.0.3/ebin _build/dev/rel/aiur/releases/0.0.3 _build/dev/rel/aiur/erts-16.4/bin
-            echo '#!/usr/bin/env bash' > bin/aiur
-            echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/bin/aiur
-            echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/erts-16.4/bin/epmd
-            chmod +x bin/aiur _build/dev/rel/aiur/bin/aiur _build/dev/rel/aiur/erts-16.4/bin/epmd
-            echo '16.4 0.0.3' > _build/dev/rel/aiur/releases/start_erl.data
-            : > _build/dev/rel/aiur/releases/0.0.3/start_clean.boot
-            : > _build/dev/rel/aiur/releases/0.0.3/vm.args
-            : > _build/dev/rel/aiur/releases/0.0.3/sys.config
+            mkdir -p "$(dirname "$launcher_path")" "$release_path/bin" "$release_path/lib/aiur-0.0.3/ebin" "$release_path/releases/0.0.3" "$release_path/erts-16.4/bin"
+            printf '#!/usr/bin/env bash\nrelease_root="%s"\n' "${AIUR_MIX_RELEASE_FINAL_DIR:-_build/dev/rel/aiur}" > "$launcher_path"
+            echo '#!/usr/bin/env bash' > "$release_path/bin/aiur"
+            echo '#!/usr/bin/env bash' > "$release_path/erts-16.4/bin/epmd"
+            chmod +x "$launcher_path" "$release_path/bin/aiur" "$release_path/erts-16.4/bin/epmd"
+            echo '16.4 0.0.3' > "$release_path/releases/start_erl.data"
+            : > "$release_path/releases/0.0.3/start_clean.boot"
+            : > "$release_path/releases/0.0.3/vm.args"
+            : > "$release_path/releases/0.0.3/sys.config"
             if [ -f _build/dev/lib/aiur/ebin/schema.beam ] && [ -f _build/dev/lib/aiur/ebin/consumer.beam ]; then
-              cp _build/dev/lib/aiur/ebin/schema.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/schema.beam
-              cp _build/dev/lib/aiur/ebin/consumer.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/consumer.beam
+              cp _build/dev/lib/aiur/ebin/schema.beam "$release_path/lib/aiur-0.0.3/ebin/schema.beam"
+              cp _build/dev/lib/aiur/ebin/consumer.beam "$release_path/lib/aiur-0.0.3/ebin/consumer.beam"
             fi
             if [ "${AIUR_FAKE_MISE_FAIL_RELEASE:-}" = "1" ]; then
               exit 9
             fi
-            echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/releases/0.0.3/elixir
-            chmod +x _build/dev/rel/aiur/releases/0.0.3/elixir
+            echo '#!/usr/bin/env bash' > "$release_path/releases/0.0.3/elixir"
+            chmod +x "$release_path/releases/0.0.3/elixir"
             ;;
         esac
       fi
@@ -230,7 +316,7 @@ defmodule Aiur.TestSupport.AiurdevCase do
 
   # Throwaway HOME keeps log-clearing tests away from real run evidence.
   def sandbox_home do
-    home = Aiur.TestSupport.tmp_root!("aiurdev-home")
+    home = Path.join(isolated_tmp_root(), "aiurdev-home-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join([home, ".aiur", "logs", "old-session"]))
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(home) end)
     home
@@ -245,11 +331,23 @@ defmodule Aiur.TestSupport.AiurdevCase do
       {"AIUR_OPENCODE_BRIDGE_PORT", nil}
     ]
 
-    System.cmd("bash", [Keyword.get(opts, :script, @script) | args],
-      env: base_env ++ env,
-      cd: Keyword.get(opts, :cd, System.tmp_dir!()),
+    cwd = Keyword.get(opts, :cd, isolated_cwd())
+    File.mkdir_p!(cwd)
+
+    script = Keyword.get(opts, :script, @script)
+
+    System.cmd("bash", ["-c", "cd -P -- \"$1\" && shift && exec bash \"$@\"", "aiurdev-test", cwd, script | args],
+      env: base_env ++ env ++ [{"PWD", cwd}],
       stderr_to_stdout: true
     )
+  end
+
+  # Agent workspaces commonly live under /.../aiur-workspaces/..., which the
+  # dev shim intentionally recognizes as an agent workspace even when its
+  # marker is cleared. Keep tests for ordinary temporary directories outside
+  # that host path; tests for workspace detection pass their own explicit cwd.
+  defp isolated_cwd do
+    isolated_tmp_root()
   end
 
   # A fake root that also looks like a CHECKOUT from the outside — the three

@@ -6,8 +6,53 @@ defmodule Aiur.GitHub.PullRequests do
   alias Aiur.Codeowners
   alias Aiur.GitHub.{ChangedPaths, Comments, Errors, ResourceFetch, ResourceStore, Transport}
   alias Aiur.GitHub.PullRequests.{BaseBranch, OpenPullRequests}
+  alias Aiur.GitHub.PullRequests.CommitCiStatus
+  alias Aiur.GitHub.ReadCache
 
   @issue_events_page 100
+
+  @doc "Fetches commit messages for a pull request, across all pages, cached by its head SHA."
+  @spec fetch_pull_request_commits(pos_integer(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_pull_request_commits(number, opts \\ [])
+
+  def fetch_pull_request_commits(number, opts) when is_integer(number) and number > 0 do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      fetch = fn ->
+        request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+        url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{number}/commits?per_page=100"
+        fetch_commit_messages(request_fun, token, url, 0, [])
+      end
+
+      ReadCache.pull_request_commits("#{owner}/#{repo}", number, Keyword.get(opts, :head_sha), fetch)
+    end
+  end
+
+  def fetch_pull_request_commits(_number, _opts), do: {:error, :invalid_pull_request_number}
+
+  defp fetch_commit_messages(_request_fun, _token, _url, 100, _acc), do: {:error, :pull_request_commit_list_too_large}
+
+  defp fetch_commit_messages(request_fun, token, url, page, acc) do
+    with {:ok, %{status: 200, body: commits} = response} <- request_fun.(%{method: :get, url: url, token: token, caller: "pull_request_commits"}),
+         true <- is_list(commits),
+         {:ok, messages} <- commit_messages(commits) do
+      case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        nil -> {:ok, acc ++ messages}
+        next -> fetch_commit_messages(request_fun, token, next, page + 1, acc ++ messages)
+      end
+    else
+      {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
+      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      false -> {:error, :invalid_pull_request_commit}
+    end
+  end
+
+  defp commit_messages(commits) do
+    messages = Enum.map(commits, &get_in(&1, ["commit", "message"]))
+    if Enum.all?(messages, &is_binary/1), do: {:ok, messages}, else: {:error, :invalid_pull_request_commit}
+  end
+
+  defdelegate update_body(number, body, opts \\ []), to: Aiur.GitHub.PullRequests.BodyUpdater
 
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
@@ -144,6 +189,10 @@ defmodule Aiur.GitHub.PullRequests do
           {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   defdelegate fetch_open_pull_request_for_branch_conditional(issue_number, opts \\ []), to: OpenPullRequests
 
+  @spec fetch_open_pull_requests_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  defdelegate fetch_open_pull_requests_conditional(opts \\ []), to: OpenPullRequests
+
   @doc """
   Fetches the GitHub check runs and legacy combined commit status for `sha`.
 
@@ -162,14 +211,7 @@ defmodule Aiur.GitHub.PullRequests do
       encoded_sha = URI.encode(sha)
       base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{encoded_sha}"
 
-      with {:ok, check_runs} <-
-             fetch_check_runs(request_fun, token, base_url <> "/check-runs?filter=latest&per_page=100"),
-           {:ok, commit_status} when is_map(commit_status) <-
-             Transport.fetch_json_map(request_fun, token, base_url <> "/status", caller: "commit_ci_status") do
-        {:ok, %{check_runs: check_runs, commit_status: commit_status}}
-      else
-        {:error, _reason} = error -> error
-      end
+      CommitCiStatus.fetch(owner, repo, sha, base_url, request_fun, token)
     end
   end
 
@@ -199,25 +241,6 @@ defmodule Aiur.GitHub.PullRequests do
     case value && DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> datetime
       _ -> nil
-    end
-  end
-
-  defp fetch_check_runs(request_fun, token, url, acc \\ []) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
-      {:ok, %{status: 200, body: %{"check_runs" => check_runs}} = response} when is_list(check_runs) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, acc ++ check_runs}
-          next -> fetch_check_runs(request_fun, token, next, acc ++ check_runs)
-        end
-
-      {:ok, %{status: 200}} ->
-        {:error, :invalid_ci_status_response}
-
-      {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
-
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
     end
   end
 

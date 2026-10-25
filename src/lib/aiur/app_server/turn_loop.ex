@@ -4,11 +4,20 @@ defmodule Aiur.AppServer.TurnLoop do
   """
 
   alias Aiur.AgentRunner.Handoff
-  alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, TurnState}
+  alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   @spec receive_loop(map(), map()) :: term()
+  def receive_loop(%{port: port} = session, %{relay_manual_ack_port: port} = state) do
+    receive_or_replay(session, state)
+  end
+
   def receive_loop(session, state) do
+    :ok = Transport.manual_acknowledgements(session.port)
+    receive_or_replay(session, Map.put(state, :relay_manual_ack_port, session.port))
+  end
+
+  defp receive_or_replay(session, state) do
     case Process.get(:handoff_replay_frames, []) do
       [frame | rest] ->
         Process.put(:handoff_replay_frames, rest)
@@ -33,16 +42,24 @@ defmodule Aiur.AppServer.TurnLoop do
         Process.delete(:handoff_hold)
         receive_loop(session, state)
 
+      {:handoff_abort, from, ref} ->
+        Process.delete(:handoff_hold)
+        send(from, {:handoff_aborted, ref})
+        receive_loop(session, state)
+
       :handoff_hold ->
         Process.put(:handoff_hold, true)
         receive_loop(session, state)
 
       {:handoff_snapshot, from, ref} ->
-        Handoff.capture(session, state, from, ref)
+        session |> Handoff.capture(state, from, ref) |> receive_loop(state)
 
       {^port, {:data, {:eol, chunk}}} ->
         complete_line = state.pending_line <> to_string(chunk)
-        continue_or_return(session, handle_incoming(session, %{state | pending_line: ""}, complete_line))
+        # Callbacks may wait for nested RPC responses from this same relay.
+        :ok = Transport.acknowledge(port)
+        result = handle_incoming(session, %{state | pending_line: ""}, complete_line)
+        continue_or_return(session, result)
 
       {^port, {:data, {:noeol, chunk}}} ->
         receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})

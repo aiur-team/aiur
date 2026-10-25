@@ -9,16 +9,24 @@ from .methods import infer
 from .multiplicity import adjust
 from .ranks import min_achievable_p
 from .rng import seed_from
+from .power_result import attach
 from .summary_text import summarize
+from .stratification import stratify, submetric
+from .survival import censored_inference
 
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"
 
 
 def _metric(metric, groups, annotations, settings, seed):
     flags = [] if metric["primary"] else ["exploratory"]
+    if metric.get("stratification_unavailable"):
+        flags.append("stratification_unavailable")
     if metric["kind"] == "bucketed":
         flags.append("autocorrelated_units")
-    if any(metric["censored"].values()):
+    follow_up = metric.get("survival_rows")
+    if metric.get("censoring_unknown"):
+        flags.append("censoring_unknown")
+    if any(metric["censored"].values()) and not follow_up:
         flags.append("censoring_ignored")
     analyst = [dict(f) for f in annotations.get("flags", []) if f["metric"] in ("*", metric["id"])]
     flags.extend(f["flag"] for f in analyst)
@@ -28,8 +36,9 @@ def _metric(metric, groups, annotations, settings, seed):
                         for g in groups}
     for g in groups:
         descriptives[g]["n_censored"] = metric["censored"][g]
-    sizes = [descriptives[g]["n"] for g in groups]
-    minimum_p = min_achievable_p(*sizes) if all(sizes) and metric["kind"] != "rate" else None
+    sizes = [len(follow_up[g]) if follow_up else descriptives[g]["n"] for g in groups]
+    minimum_p = (min_achievable_p(*sizes) if all(sizes) and metric["kind"] != "rate" and not follow_up
+                 else None)
     if minimum_p is not None and minimum_p > settings["alpha"]:
         flags.append("cannot_reach_significance")
     result = {"kind": metric["kind"], "groups": descriptives,
@@ -39,7 +48,19 @@ def _metric(metric, groups, annotations, settings, seed):
               "adjustment": "holm" if metric["primary"] else "bh"}
     if min(sizes) < settings["min_samples"]:
         return result
-    tests, effects, primary_effect, p = infer(metric, groups, seed, settings)
+    if follow_up:
+        resamples = settings["bootstrap_primary" if metric["primary"] else "bootstrap_exploratory"]
+        tests, effects, survival, extra, p = censored_inference(follow_up, groups, seed, resamples)
+        result["survival"] = survival
+        result["flags"] = sorted(set(result["flags"] + extra))
+        primary_effect = "median_difference"
+        if all(len(metric["values"][g]) >= 2 for g in groups):
+            # Completed-only rank test: biased toward fast tickets, kept for comparison.
+            done = infer(metric, groups, seed, settings)
+            result["sensitivity"] = {"method": "completed_only", "tests": done[0], "effects": done[1],
+                                     "primary_effect": done[2], "p_raw": done[3]}
+    else:
+        tests, effects, primary_effect, p = infer(metric, groups, seed, settings)
     for effect in effects.values():
         effect["unbounded"] = [key for key in ("estimate", "lo", "hi")
                                if effect.get(key) is not None and not isfinite(effect[key])]
@@ -52,6 +73,9 @@ def _metric(metric, groups, annotations, settings, seed):
 def _label(result, metric, alpha):
     if "p_raw" not in result:
         return
+    if not result.get("primary_effect"):
+        result["status"] = "significant" if result["p_adj"] < alpha else "inconclusive"
+        return
     effect = result["effects"][result["primary_effect"]]
     lo, hi, estimate = effect["lo"], effect["hi"], effect["estimate"]
     null = effect["null"]
@@ -62,7 +86,7 @@ def _label(result, metric, alpha):
     if result["kind"] == "binary":
         baseline = metric["values"]
         baseline = next(iter(baseline.values()))
-        baseline = sum(baseline) / len(baseline)
+        baseline = effect.get("baseline", sum(baseline) / len(baseline))
     margin = metric["mde"] if relative else metric["mde"] * (baseline or 0)
     equivalent = (relative or result["kind"] == "binary") and bounded and margin > 0 and lo >= null - margin and hi <= null + margin
     result["status"] = ("significant" if result["p_adj"] < alpha else
@@ -71,6 +95,8 @@ def _label(result, metric, alpha):
         lower_better = metric["direction"] in ("lower_is_better", "decrease")
         improved = (estimate < null) == lower_better
         result["direction"] = "improved" if improved else "regressed"
+    if "survival" in result and "median_not_reached" in result["flags"]:
+        result["status"] = "inconclusive"
 
 
 def analyze(snapshot, spec, annotations=None):
@@ -82,7 +108,14 @@ def analyze(snapshot, spec, annotations=None):
     results = {}
     for metric in metrics:
         seed = seed_from(experiment_id, metric["id"], "pooled", inputs["snapshot_sha256"])
-        results[metric["id"]] = _metric(metric, groups, annotations, settings, seed)
+        if "strata_rows" in metric:
+            # Stratified censored metrics keep their own pooled log-rank path.
+            metric.pop("survival_rows", None)
+        result = _metric(metric, groups, annotations, settings, seed)
+        if "strata_rows" in metric:
+            stratify(result, metric, groups, annotations, settings, seed, _metric)
+        attach(result, metric, groups, settings, snapshot, spec, inputs["snapshot_sha256"])
+        results[metric["id"]] = result
     for primary, method in ((True, "holm"), (False, "bh")):
         # Guarded hypotheses remain in the family as p=1, but have no test result.
         family = {m["id"]: results[m["id"]].get("p_raw", 1.0)
@@ -91,10 +124,24 @@ def analyze(snapshot, spec, annotations=None):
         for key, value in adjusted.items():
             if "p_raw" in results[key]:
                 results[key]["p_adj"] = value
+    strata_family = {(m["id"], name): child.get("p_raw", 1.0)
+                     for m in metrics for name, child in results[m["id"]].get("strata", {}).items()}
+    for (metric_id, name), p in adjust(strata_family, "bh").items():
+        child = results[metric_id]["strata"][name]
+        if "p_raw" in child:
+            child["p_adj"] = p
     for metric in metrics:
         result = results[metric["id"]]
+        for name, child in result.get("strata", {}).items():
+            # Binary equivalence needs this stratum's baseline, not the pooled one.
+            rows = metric["strata_rows"][name]
+            definition = submetric(metric, rows, groups)
+            attach(child, definition, groups, settings, snapshot, spec, inputs["snapshot_sha256"])
+            _label(child, definition, settings["alpha"])
+            child = result["strata"][name] = rounded(child)
+            child["summary_text"] = summarize(child, definition, groups)
         # Classify at full precision; serialize and summarize at the published precision.
-        _label(result, metric, settings["alpha"])
+        _label(result, metric, settings["alpha" if metric["primary"] else "fdr_q"])
         result = results[metric["id"]] = rounded(result)
         result["summary_text"] = summarize(result, metric, groups)
     primaries = {m["id"]: results[m["id"]]["status"] for m in metrics if m["primary"]}

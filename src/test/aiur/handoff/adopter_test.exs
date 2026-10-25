@@ -2,7 +2,7 @@ defmodule Aiur.Handoff.AdopterTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.Handoff, as: Runner
-  alias Aiur.Handoff.{Adopter, Compatibility, Record}
+  alias Aiur.Handoff.{Adopter, Compatibility, Record, Report}
   alias Aiur.Orchestrator.{OrphanedWorkers, StartupClaimReconciler, State, StatusReport}
 
   setup do
@@ -19,7 +19,7 @@ defmodule Aiur.Handoff.AdopterTest do
     parent = self()
 
     runner = fn _agent, 2, recipient, _opts ->
-      send(recipient, {:handoff_adopted, self(), {:ok, %{}}})
+      send(recipient, {:handoff_adopted, self(), {:ok, %{metadata: %{codex_app_server_pid: "123"}}}})
 
       receive do
         :handoff_continue -> send(parent, {:continued, self()})
@@ -35,6 +35,11 @@ defmodule Aiur.Handoff.AdopterTest do
     on_exit(fn -> send(pid, :stop) end)
     assert state.running["one"].pid == pid
     assert state.running["one"].adopted_from == "restart"
+    assert {:ok, %{adopted: [outcome], fallback: []}} = Report.latest(dir: dir)
+    assert outcome["provider_pid_before"] == "123"
+    assert outcome["provider_pid_after"] == "123"
+    assert outcome["session_id_before"] == "session-one"
+    assert outcome["session_id_after"] == "session-one"
     assert state.running["one"].agent_total_tokens == 27
     assert State.effective_runtime_seconds(state.running["one"], DateTime.utc_now()) >= 119
     assert state.claimed == MapSet.new(["one"])
@@ -66,11 +71,14 @@ defmodule Aiur.Handoff.AdopterTest do
     assert_receive {:stopped, "one"}, 1000
     assert_receive {:stopped, "two"}, 1000
     assert_receive {:alert, "system.handoff.incompatible"}, 1000
+    assert_received {:alert, "system.restart.handoff.completed"}
+    assert_received {:alert, "system.restart.handoff.fallback"}
     refute_receive {:alert, _}, 20
     assert {:ok, %{"outcome" => outcomes}} = Aiur.JsonStore.read(Record.path(dir: dir) <> ".consumed")
     assert Enum.map(outcomes, & &1["reason"]) == [":schema", ":schema"]
     Adopter.adopt(%State{}, opts)
     refute_receive {:stopped, _}, 20
+    refute_received {:alert, _}
   end
 
   test "config changes and missing relays fall back independently", %{dir: dir} do
@@ -92,16 +100,146 @@ defmodule Aiur.Handoff.AdopterTest do
       end
     end
 
-    state = Adopter.adopt(%State{}, options(dir, runner: runner, stop_agent: fn a -> send(parent, {:stopped, a["identifier"]}) end))
+    state =
+      Adopter.adopt(
+        %State{},
+        options(dir,
+          runner: runner,
+          stop_agent: fn a -> send(parent, {:stopped, a["identifier"]}) end,
+          issue_state_fetcher: fn ids ->
+            send(parent, {:fallback_batch, ids})
+            {:ok, Enum.map(ids, &%Aiur.Issue{id: &1, identifier: &1, title: "existing", state: "in-progress"})}
+          end
+        )
+      )
+
     assert Map.keys(state.running) == ["good"]
     assert_receive {:continued, pid}, 1000
     send(pid, :stop)
     assert_receive {:stopped, "changed"}, 1000
     assert_receive {:stopped, "gone"}, 1000
+    assert_receive {:fallback_batch, ["changed", "gone"]}, 1000
     assert {:ok, %{"outcome" => [changed, gone, good]}} = Aiur.JsonStore.read(Record.path(dir: dir) <> ".consumed")
     assert changed["reason"] == ":config_changed"
     assert gone["reason"] == ":relay_gone"
     assert good["status"] == "adopted"
+  end
+
+  test "an agent past the slot cap falls back instead of being adopted (#4683)", %{dir: dir} do
+    assert :ok = Record.write(record([agent(dir, "kept"), agent(dir, "over")]), dir: dir)
+    parent = self()
+
+    runner = fn _, _, recipient, _ ->
+      send(recipient, {:handoff_adopted, self(), {:ok, %{}}})
+
+      receive do
+        :handoff_continue -> send(parent, {:continued, self()})
+      end
+
+      receive do
+        :stop -> :ok
+      end
+    end
+
+    issues = Enum.map(["kept", "over"], &%Aiur.Issue{id: &1, identifier: &1, title: "existing", state: "in-progress"})
+    fetch = fn ids -> {:ok, Enum.filter(issues, &(&1.id in ids))} end
+
+    state =
+      Adopter.adopt(
+        %State{max_concurrent_agents: 1},
+        options(dir,
+          runner: runner,
+          stop_agent: fn a -> send(parent, {:stopped, a["identifier"]}) end,
+          issue_state_fetcher: fetch
+        )
+      )
+
+    assert Map.keys(state.running) == ["kept"]
+    assert_receive {:continued, pid}, 1000
+    send(pid, :stop)
+    assert_receive {:stopped, "over"}, 1000
+    assert state.retry_attempts["over"]
+    assert {:ok, %{"outcome" => [_kept, over]}} = Aiur.JsonStore.read(Record.path(dir: dir) <> ".consumed")
+    assert over["reason"] == ":max_concurrent_agents_reached"
+  end
+
+  test "fallback re-reads ticket state and skips tickets that moved to ci-wait", %{dir: dir} do
+    pending = agent(dir, "pending")
+    issue = %Aiur.Issue{id: "pending", identifier: "pending", title: "existing", state: "ci-wait"}
+    pending = Map.put(pending, "issue", %{"state" => "in-progress"})
+    assert :ok = Record.write(record([pending]), dir: dir)
+    parent = self()
+
+    runner = fn _, _, recipient, _ ->
+      send(recipient, {:handoff_adopted, self(), {:error, :mergeability_unknown}})
+    end
+
+    state =
+      Adopter.adopt(
+        %State{},
+        options(dir,
+          runner: runner,
+          issue_state_fetcher: fn ["pending"] ->
+            send(parent, :state_refetched)
+            {:ok, [issue]}
+          end,
+          stop_agent: fn _ -> send(parent, :provider_stopped) end
+        )
+      )
+
+    assert_receive :state_refetched, 1000
+    assert_receive :provider_stopped, 1000
+
+    assert {:ok, %{"outcome" => [%{"status" => "fallback", "reason" => ":mergeability_unknown"}]}} =
+             Aiur.JsonStore.read(Record.path(dir: dir) <> ".consumed")
+
+    refute Map.has_key?(state.retry_attempts, "pending")
+    assert state.claimed == MapSet.new()
+    assert {:ok, %{fallback: [%{"reason" => ":mergeability_unknown"}]}} = Report.latest(dir: dir)
+  end
+
+  test "fallback does not redispatch when the current ticket state cannot be fetched", %{dir: dir} do
+    agent = agent(dir, "unavailable")
+    assert :ok = Record.write(record([agent]), dir: dir)
+    parent = self()
+    runner = fn _, _, recipient, _ -> send(recipient, {:handoff_adopted, self(), {:error, :mergeability_unknown}}) end
+
+    state =
+      Adopter.adopt(
+        %State{},
+        options(dir,
+          runner: runner,
+          stop_agent: fn _ -> send(parent, :provider_stopped) end,
+          issue_state_fetcher: fn _ ->
+            send(parent, :state_refetched)
+            {:error, :offline}
+          end
+        )
+      )
+
+    assert_receive :state_refetched, 1000
+    assert_receive :provider_stopped, 1000
+    refute Map.has_key?(state.retry_attempts, "unavailable")
+    assert state.claimed == MapSet.new()
+  end
+
+  test "fallback seeds retry capacity from the freshly fetched state", %{dir: dir} do
+    stale = Map.put(agent(dir, "one"), "issue", %{"state" => "in-progress"})
+    current = %Aiur.Issue{id: "one", identifier: "one", title: "existing", state: "todo"}
+    assert :ok = Record.write(record([stale]), dir: dir)
+    runner = fn _, _, recipient, _ -> send(recipient, {:handoff_adopted, self(), {:error, :relay_gone}}) end
+
+    state =
+      Adopter.adopt(
+        %State{},
+        options(dir,
+          runner: runner,
+          stop_agent: fn _ -> :ok end,
+          issue_state_fetcher: fn ["one"] -> {:ok, [current]} end
+        )
+      )
+
+    assert state.retry_attempts["one"].issue_state == "todo"
   end
 
   test "consume failure stops staged runners before they resume", %{dir: dir} do
@@ -118,7 +256,18 @@ defmodule Aiur.Handoff.AdopterTest do
       end
     end
 
-    state = Adopter.adopt(%State{}, options(dir, runner: runner, stop_agent: fn _ -> :ok end))
+    issue = %Aiur.Issue{id: "one", identifier: "one", title: "existing", state: "in-progress"}
+
+    state =
+      Adopter.adopt(
+        %State{},
+        options(dir,
+          runner: runner,
+          stop_agent: fn _ -> :ok end,
+          issue_state_fetcher: fn ["one"] -> {:ok, [issue]} end
+        )
+      )
+
     assert_receive {:staged, pid}, 1000
     refute Process.alive?(pid)
     assert state.running == %{}
@@ -142,6 +291,7 @@ defmodule Aiur.Handoff.AdopterTest do
         dir: dir,
         generation: 2,
         config_fingerprint: "config",
+        emit_alert: fn _name, _options -> :ok end,
         relay_probe: fn
           "missing" -> {:error, :enoent}
           _ -> {:ok, hello()}
@@ -155,7 +305,7 @@ defmodule Aiur.Handoff.AdopterTest do
 
   defp agent(dir, id) do
     issue = %Aiur.Issue{id: id, identifier: id, title: "existing", state: "in-progress"}
-    entry = %{identifier: id, issue: issue, started_at: DateTime.add(DateTime.utc_now(), -120), agent_total_tokens: 27, worker_host: nil, turn_count: 2}
+    entry = %{identifier: id, session_id: "session-#{id}", issue: issue, started_at: DateTime.add(DateTime.utc_now(), -120), agent_total_tokens: 27, worker_host: nil, turn_count: 2}
 
     %{
       "issue_id" => id,

@@ -417,7 +417,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     refute legacy_out =~ "basename:"
   end
 
-  test "usage describes init and no longer lists sweep" do
+  test "usage describes init and the Executor sweep" do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
     assert out =~ "aiur --todo <ids...> [--only]"
@@ -426,9 +426,15 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     assert out =~ "aiur findings --digest [--scope aiur|repo]"
     assert out =~ "aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]"
     assert out =~ "aiur asks [--open|--all] [--json]"
-    assert out =~ "aiur run [--bg] [--no-dashboard] [--executor] [--debug]"
+    assert out =~ "aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--executor] [--debug]"
-    refute out =~ "sweep"
+    assert out =~ "aiur executor-sweep [--json] [--apply]"
+  end
+
+  test "executor-sweep routes through its guarded RPC entry point" do
+    {out, 0} = run_sourced_engine(~S|run_control_rpc() { echo "$1"; }; cmd_executor_sweep --json|, [])
+
+    assert out =~ "Aiur.AgentControlCLI.executor_sweep([json: true])"
   end
 
   # #2717. `--message-id` names one send, so the retry the CLI prints after an

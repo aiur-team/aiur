@@ -49,9 +49,11 @@ defmodule Aiur.ConfigurationReferenceTest do
     tracker.linear.assignee
     workspace.root
     agent.max_concurrent_agents
+    agent.synthetic_load_process_cap
     agent.rate_limit_primary
     alerts.alerts_file
     server.host
+    server.allowed_hosts
     build_queue.observation_max_age_seconds
     build_order.ticket_detail_freshness_ms
     build_order.graph_catalog_refresh_ms

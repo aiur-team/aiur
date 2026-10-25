@@ -6,6 +6,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
   import Phoenix.ChannelTest
 
   alias Aiur.{AgentEvents, DecisionValidation, IssueLog, StreamdeckFleetFixture}
+  alias Aiur.TestSupport.{EndpointStubs, RuntimeChildren}
   alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckSocket}
 
   @endpoint Endpoint
@@ -14,6 +15,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
     quote do
       import Phoenix.ChannelTest
       import Aiur.TestSupport, only: [receive_barrier: 1]
+      use Aiur.TestScopeGuard
 
       import Plug.Conn, only: [put_req_header: 3]
       import Plug.Test
@@ -89,6 +91,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
       "question" => "Ship the change?",
       "blocking" => true,
       "authority" => "human_required",
+      "context" => %{"authority_basis" => "product"},
       "reversibility" => "reversible",
       "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
     }
@@ -103,6 +106,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
   end
 
   def setup_channel do
+    :ok = RuntimeChildren.ensure_financial_data_running()
     original_config = Application.get_env(:aiur, Endpoint, [])
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
@@ -127,6 +131,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
         streamdeck_transcript_flush_ms: 20
       )
 
+    config = EndpointStubs.scope(config)
     Application.put_env(:aiur, Endpoint, config)
 
     Aiur.TestSupport.start_owned_endpoint!()
@@ -143,7 +148,7 @@ defmodule AiurWeb.StreamdeckChannelCase do
 
   def put_endpoint_config(extra) do
     previous = Application.get_env(:aiur, Endpoint, [])
-    config = Keyword.merge(previous, extra)
+    config = previous |> Keyword.merge(extra) |> EndpointStubs.scope()
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous)

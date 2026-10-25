@@ -1,0 +1,2 @@
+# rule	target_module	reason
+R-private	Aiur.Claude.Telemetry.UsageAdapter.Relationship	MP-R1-C11-T03 separate accounting and experiment usage reads from harness implementation details

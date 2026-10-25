@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.QueueSetSlots
+  alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   require Logger
 
@@ -27,6 +28,7 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   def resume_decline_reason(:unauthorized, _issue, _state, _opts), do: :dispatch_not_authorized
   def resume_decline_reason(:paused, _issue, _state, _opts), do: :pause_override_still_present
   def resume_decline_reason(:parked, _issue, _state, _opts), do: :ticket_parked
+  def resume_decline_reason(:executor_owned, _issue, _state, _opts), do: :ticket_executor_owned
 
   def resume_decline_reason(reason, issue, _state, _opts)
       when reason in [:inactive_state, :no_agent_work_state, :terminal_state],
@@ -53,7 +55,9 @@ defmodule Aiur.Orchestrator.PauseResume.DeclineReason do
   def resume_decline_reason(:queue_set_order, issue, state, _opts), do: QueueSetSlots.waiting(issue.id, state)
   def resume_decline_reason(:optimistic_share, _issue, state, _opts), do: {:optimistic_share, OptimisticSlots.status(state)}
   def resume_decline_reason(:worker_capacity, _issue, _state, _opts), do: :no_worker_capacity
-  def resume_decline_reason(:fleet_capacity, _issue, _state, _opts), do: :max_concurrent_agents_reached
+
+  def resume_decline_reason(:fleet_capacity, issue, state, _opts),
+    do: {:max_concurrent_agents_reached, Slots.fleet_capacity_detail(state, %{issue: issue})}
 
   def resume_decline_reason(reason, issue, _state, _opts) do
     Logger.warning("Resume declined with an untranslated dispatch reason: issue_id=#{inspect(Map.get(issue || %{}, :id))} reason=#{inspect(reason)}")

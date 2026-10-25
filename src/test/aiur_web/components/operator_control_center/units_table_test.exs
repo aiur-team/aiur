@@ -75,8 +75,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
       })
 
     assert html =~ "No recent activity"
-    assert html =~ "Turns —"
-    assert html =~ "Context —"
+    assert html =~ "Turns no attempt"
+    assert html =~ "Context no attempt"
     # Unknown progress facts are omitted rather than labelled "Unavailable"/"Unknown".
     refute html =~ "Progress source"
     refute html =~ "Latest evidence"
@@ -103,6 +103,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
 
     assert html =~ "Turns 0"
     assert html =~ "Context 50k/? ctx"
+  end
+
+  test "a running unit without turn or context measurements says not reported and why" do
+    row = %{row() | turn_count: nil, context_usage: nil, backend: "claude"}
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    assert html =~ ~s(title="The claude backend has not reported a turn count for this attempt">Turns not reported<)
+    assert html =~ ~s(title="The claude backend has not reported context occupancy for this attempt">Context not reported<)
+    refute html =~ "Turns —"
+    refute html =~ "Context —"
+    refute html =~ "Turns 0"
+    refute html =~ ~r/Context 0[^%]/
   end
 
   test "marks measured zero and completion without semantic recoloring" do
@@ -190,7 +207,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
-    assert filtered =~ ~s(class="btn ghost units-reset")
+    assert filtered =~ ~s(class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost units-reset")
     # A stale catalog no longer prints a dedicated banner; the last-known-good
     # rows render directly without the noisy "Stale Units catalog" notice.
     refute stale =~ "Stale Units catalog"
@@ -240,6 +257,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # dashed-border `empty-state` surface.
     assert html =~ ~s(class="units-state empty-state")
     assert html =~ "No live units."
+  end
+
+  test "marks a usage-limit pause as not holding a fleet slot, and only that pause" do
+    limited = Map.put(row_with_tone(:paused), :reasons, %{waiting: :provider_limited, blocking: nil, alert: nil, pause: :usage_limit_exhausted, stuck: nil})
+    render = fn row -> render_component(&UnitsTable.units_table/1, %{view: view([row]), now: ~U[2026-07-17 12:00:00Z]}) end
+
+    assert render.(limited) =~ "Slot released"
+    refute render.(row_with_tone(:paused)) =~ "Slot released"
   end
 
   test "withholds the zero-unit sentence from the statuses that already account for themselves" do

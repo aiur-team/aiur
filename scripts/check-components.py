@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate the component manifest and ownership of tracked source files."""
+# Cohesion: this CLI coordinates manifest, ownership, and reference checks.
 import argparse
 import json
 import os
@@ -8,10 +9,12 @@ import re
 import subprocess
 import sys
 import time
-from components.reference_rules import RULES, STRICT_RULES, edge_rules, report_cycles, seam_rules
+from components.reference_rules import RULES, STRICT_RULES, edge_rules, module_matches, namespace_private, report_cycles, seam_rules
 from components.ratchet import growth_errors, stale_entries, write_summary
+from components.promotion_report import run as report_component_debt, validate_options as validate_report_options
 from components.manifest import read_manifest, write_manifest
 from components.docs_rules import check_docs
+from components.declaration_ownership import declaration_ownership
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
 from import_rules import client_imports, reverse_resources
@@ -116,6 +119,10 @@ def validate(value, schema, document, pointer=''):
 def load_manifest(root):
     document = json.loads((root / 'components.schema.json').read_text())
     manifest = read_manifest(root)
+    # Seam entries remain independent files so concurrent additions do not conflict.
+    files = sorted((root / 'scripts/components/seams').glob('*.json'))
+    if files:
+        manifest['seams'] = manifest.get('seams', []) + [json.loads(path.read_text()) for path in files]
     return validate_manifest(manifest, document)
 
 
@@ -255,7 +262,7 @@ def ownership(manifest, files):
     return problems, counts, file_owners
 
 
-def module_violations(root, manifest, file_owners):
+def module_violations(root, manifest, file_owners, include_modules=False):
     walker = Path(__file__).parent / 'components/module_references.exs'
     files = sorted(path for path in file_owners if path.startswith('src/lib/') and path.endswith('.ex'))
     started = time.monotonic()
@@ -265,13 +272,14 @@ def module_violations(root, manifest, file_owners):
         raise ValueError('Elixir missing; install via mise') from error
     if result.returncode:
         raise ValueError(f'module walker failed: {result.stderr.strip()}')
-    modules, references = {}, []
+    modules, module_paths, references = {}, {}, []
     for row in result.stdout.splitlines():
         fields = row.split('\t')
         if len(fields) == 3 and fields[0] == 'M':
             _, path, module = fields
             if path in file_owners:
                 modules[module] = file_owners[path]
+                module_paths[module] = path
         elif len(fields) == 6 and fields[0] == 'R':
             references.append(fields)
         else:
@@ -279,6 +287,14 @@ def module_violations(root, manifest, file_owners):
     components = {c['id']: c for c in manifest['components']}
     graph = {cid: set() for cid in components}
     violations, unresolved = {}, set()
+    event_bus_boundary_paths = {
+        path for path, owner in file_owners.items()
+        if owner == 'event-bus' and path.endswith('.ex')
+        and '# aiur:event-bus-boundary-member' in (root / path).read_text()
+    }
+    event_bus_boundary_modules = {
+        module for module, path in module_paths.items() if path in event_bus_boundary_paths
+    }
     for _, path, source_module, target, kind, line in references:
         # Match ownership's tracked-file boundary, including in dirty worktrees.
         if path not in file_owners:
@@ -289,8 +305,22 @@ def module_violations(root, manifest, file_owners):
                                   'reference' if kind in ('alias', 'literal') else kind, path)
         for rule in strict:
             violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
-        # Preserve the structural graph's exclusion of declarations and literals.
-        if kind in ('alias', 'literal'):
+        is_boundary_target = target.startswith('Aiur.') or target == 'Phoenix.PubSub'
+        if source == 'event-bus' and path in event_bus_boundary_paths and is_boundary_target:
+            destination = modules.get(target)
+            # `__MODULE__.Nested` references resolve beneath their owning module
+            # even though the walker only indexes the file's primary module.
+            same_component = target in event_bus_boundary_modules or target.startswith(source_module + '.')
+            allowed_reference = any(module_matches(pattern, target)
+                                    for pattern in component.get('boundary_reference_allowlist', []))
+            if not same_component and not allowed_reference:
+                violations.setdefault(('R-forbid', source, target), f'{path}:{line} ({source_module})')
+        # Namespace privacy also covers aliases/literals and composition-root wiring.
+        destination = modules.get(target)
+        if destination is not None and source != destination and namespace_private(components[destination], target):
+            violations.setdefault(('R-private', source, target), f'{path}:{line} ({source_module})')
+        # Declarations and literals stay outside the structural graph.
+        if kind == 'literal' or (kind == 'alias' and source != 'event-bus'):
             continue
         if target not in modules:
             if target.startswith(('Aiur.', 'AiurWeb.')):
@@ -311,7 +341,7 @@ def module_violations(root, manifest, file_owners):
     print(f'components: Elixir: {len(modules)} modules, {len(references)} references; '
           f'{len(unresolved)} unresolved internal targets; {time.monotonic() - started:.3f} s')
     largest_scc = report_cycles(graph)
-    return violations, largest_scc
+    return (violations, largest_scc, modules) if include_modules else (violations, largest_scc)
 
 
 def read_allowlist(root, manifest):
@@ -364,42 +394,6 @@ def check_references(root, manifest, file_owners, baseline, rules, prune=False, 
     write_summary(violations, allowed, stale, rules, largest_scc, time.monotonic() - started)
     return bool(violations.keys() - allowed or stale or growth_failed)
 
-
-def declaration_ownership(root, manifest):
-    # Keep these literal matchers aligned with check-config-docs.py.
-    config = (root / 'src/lib/aiur/config/schema.ex').read_text()
-    sections = re.findall(r"^\s*embeds_(?:one|many)\(\s*:([a-zA-Z0-9_]+)\s*,\s*[A-Za-z0-9_.]+", config, re.MULTILINE)
-    fields = re.findall(r"^\s*field\(\s*:([a-zA-Z0-9_]+)", config, re.MULTILINE)
-    env = re.findall(r'^\s*\{"([A-Z][A-Z0-9_]+)",',
-                     (root / 'src/lib/aiur/env/schema.ex').read_text(), re.MULTILINE)
-    state_sources = [root / path for path in ('src/lib/aiur/config/paths.ex', 'src/lib/aiur/repo_base.ex')]
-    state = [name for path in state_sources if path.exists()
-             for name in re.findall(r'^\s*def\s+([a-z][a-z0-9_]*(?:_dir|_path))\b', path.read_text(), re.MULTILINE)]
-    inventories = {'config': sections + fields, 'env': env, 'state': state}
-    for kind, names in inventories.items():
-        if not names or (kind == 'config' and not sections):
-            raise InvalidManifest(f'O-{kind}: matcher is broken, not the schema (zero matches)')
-    problems = []
-    for kind, names in inventories.items():
-        owners = {}
-        for component in manifest['components']:
-            for name in component['owns'][kind]:
-                owners.setdefault(name, []).append(component['id'])
-        noun = {'config': 'section/field', 'env': 'env var', 'state': 'state path'}[kind]
-        for name in sorted(set(names) | owners.keys()):
-            assigned = owners.get(name, [])
-            if name not in names:
-                problems.append((f'O-{kind}', f"{noun} '{name}' is stale ({', '.join(assigned)})"))
-            elif not assigned:
-                problems.append((f'O-{kind}', f"{noun} '{name}' has no owner"))
-            elif len(assigned) > 1:
-                problems.append((f'O-{kind}', f"{noun} '{name}' owned twice: {', '.join(assigned)}"))
-    return problems, {'sections': len(sections), 'fields': len(fields),
-                      'env vars': len(env), 'state paths': len(state)}
-
-
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--docs', action='store_true', help='validate public docs references without source checks')
@@ -409,6 +403,8 @@ def main():
     parser.add_argument('--format', action='store_true')
     parser.add_argument('--prune', action='store_true', help='remove only stale allowlist entries')
     parser.add_argument('--growth-base', help='require ticket reasons for allowlist additions since this SHA')
+    parser.add_argument('--component', help='scope a promotion-debt report to one component')
+    parser.add_argument('--report', action='store_true', help='report live/stale debt; deleted targets are attributed to their source component')
     args = parser.parse_args()
     rules = RULES if args.rules in ('all', 'elixir', 'ownership') else tuple('R-' + rule for rule in args.rules.split(','))
     if not rules or any(rule not in RULES for rule in rules) or len(rules) != len(set(rules)):
@@ -419,9 +415,14 @@ def main():
         parser.error('--prune cannot be combined with --write-baseline')
     if args.rules == 'ownership' and (args.prune or args.growth_base):
         parser.error('--prune/--growth-base require reference checks')
+    validate_report_options(parser, args)
     root = Path(os.environ.get('AIUR_COMPONENTS_ROOT', Path(__file__).resolve().parent.parent)).resolve()
     try:
         manifest = load_manifest(root)
+        if args.report:
+            report_component_debt(root, manifest, args.component, rules, source_files, ownership,
+                                  module_violations, read_allowlist)
+            return 0
         if args.docs or (args.rules == 'all' and not args.format):
             docs_problems = check_docs(root, manifest)
             for message in docs_problems:
@@ -433,11 +434,14 @@ def main():
                 return 0
         files = source_files(root)
         if args.format:
-            write_manifest(root, manifest)
+            # Seam files are the source of truth; keep formatting from inlining them.
+            formatted = dict(manifest)
+            formatted.pop('seams', None)
+            write_manifest(root, formatted)
         problems, counts, file_owners = ownership(manifest, files)
         declaration_counts = {}
         if args.rules in ('all', 'ownership'):
-            declaration_problems, declaration_counts = declaration_ownership(root, manifest)
+            declaration_problems, declaration_counts = declaration_ownership(root, manifest, InvalidManifest)
             problems.extend(declaration_problems)
         if args.rules == 'all' and not args.format:
             problems += client_imports(root) + reverse_resources(root, files)

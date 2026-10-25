@@ -25,6 +25,12 @@ defmodule Aiur.Config.Paths do
 
   @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
+  @doc false
+  @spec dashboard_secret_root() :: Path.t()
+  def dashboard_secret_root do
+    Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+  end
+
   @doc """
   Returns the per-launch log directory. Defaults to `<cwd>/log` when no
   `--logs-root` was set. It does not survive a daemon restart.
@@ -60,9 +66,10 @@ defmodule Aiur.Config.Paths do
   """
   @spec decision_state_dir() :: {:ok, Path.t()} | {:error, atom()}
   def decision_state_dir do
-    case Application.get_env(:aiur, :decision_state_dir) do
-      path when is_binary(path) and path != "" -> {:ok, path}
-      _ -> resolve_decision_state_dir()
+    case Aiur.TestRunState.decision_state_override(Application.get_env(:aiur, :decision_state_dir)) do
+      {:ok, path} -> {:ok, path}
+      :resolve -> resolve_decision_state_dir()
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -114,6 +121,15 @@ defmodule Aiur.Config.Paths do
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "progress-retention")}
         end
+    end
+  end
+
+  @doc "Resolves the durable estimate overrides beneath the decision state root."
+  @spec build_estimates_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def build_estimates_state_dir do
+    case Application.get_env(:aiur, :build_estimates_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "build-estimates")}
     end
   end
 
@@ -458,10 +474,7 @@ defmodule Aiur.Config.Paths do
   end
 
   defp decision_state_root do
-    case System.get_env("AIUR_BG_STATE_DIR") do
-      root when is_binary(root) and root != "" -> root
-      _ -> Path.join(File.cwd!(), ".aiur-state")
-    end
+    Aiur.TestRunState.decision_state_root(Path.join(File.cwd!(), ".aiur-state"))
   end
 
   defp contain_within_root(root, candidate) do

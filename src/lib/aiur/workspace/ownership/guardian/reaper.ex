@@ -14,7 +14,7 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
     do: {:release, state}
 
   def maybe_release_or_reap(%{provider: nil, provider_expected?: true, release_requested?: true} = state) do
-    if local_provider_exited_after_reboot?(state), do: {:release, state}, else: {:wait, Receipt.update_phase(Retention.mark(state), :reaping)}
+    if local_provider_exited_after_reboot?(state), do: {:release, state}, else: {:wait, Retention.mark(state)}
   end
 
   def maybe_release_or_reap(%{provider: nil, provider_expected?: true} = state) do
@@ -27,10 +27,10 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
 
         {:error, reason} ->
           Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{state.lease.generation} reason=#{inspect(reason)}")
-          {:wait, Receipt.update_phase(Retention.mark(state, "recovery_audit_failed"), :reaping)}
+          {:wait, Retention.mark(state, "recovery_audit_failed")}
       end
     else
-      {:wait, Receipt.update_phase(Retention.mark(state), :reaping)}
+      {:wait, Retention.mark(state)}
     end
   end
 
@@ -44,7 +44,7 @@ defmodule Aiur.Workspace.Ownership.Guardian.Reaper do
   # A remote provider has no local PID or reaper; time passing cannot prove its cwd is unused.
   # Retain its generation after abrupt local-owner death rather than letting a retry remove that cwd.
   def maybe_release_or_reap(%{provider: %{remote: true}} = state),
-    do: {:wait, Receipt.update_phase(Retention.mark(state), :reaping)}
+    do: {:wait, Retention.mark(state)}
 
   # An in-process session (an OpenAI-compatible HTTP agent) has no OS process to
   # reap: it is a child of the runner and dies with it. Release the lease on

@@ -33,7 +33,7 @@ Wakes for non-Executor topics that arrive while the Executor listener is down ar
 
 | Name | Operator meaning |
 | --- | --- |
-| `progress` / `progress.checkin` | Current completion estimate for the Units progress bar. |
+| `progress` / `progress.checkin` | Current completion estimate for the Units progress bar and Build page Live cards. |
 | `progress.<slug>` | A named milestone inside the ticket. |
 | `decision.<slug>` | A ticket-level decision or design choice. |
 | `decision.acknowledged` | The target began applying a durable Executor answer. |

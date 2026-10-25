@@ -27,6 +27,20 @@ defmodule Aiur.Application.ChildrenOrderTest do
       end
     end
 
+    test "the ActiveTurns table owner starts before agent tasks in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        active_turns = Enum.find_index(mods, &(&1 == Aiur.Opencode.ActiveTurns))
+
+        for later <- [Task.Supervisor, Aiur.Orchestrator] do
+          assert active_turns < Enum.find_index(mods, &(&1 == later)), "ActiveTurns must precede #{inspect(later)} for #{inspect(opts)}"
+        end
+      end
+    end
+
     test "current-run projections have one runtime owner in every run shape" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],

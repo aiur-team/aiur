@@ -6,11 +6,13 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, DispatchCandidates, Dispatcher, DispatchPolicy, PauseResume, QueueSetSlots, Slots, State, StatusReport, TrackerTasks}
 
   setup do
+    test_pid = self()
     path = Workflow.workflow_file_path()
     original = File.read!(path)
     configure()
     :ets.new(Hints.table_name(), [:named_table, :set])
     on_exit(fn -> File.write!(path, original) end)
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
     :ok
   end
 
@@ -35,8 +37,6 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     def notify_demand(_), do: :ok
   end
 
-  # Flaky in merge groups; fix tracked in #4463.
-  @tag :quarantine
   test "CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks" do
     {document, issues, _} = fixture()
     start_supervised!({Agent, fn -> document end}, id: :rank_store) |> Process.register(QueueBoundary)
@@ -70,7 +70,8 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert Enum.map(Agent.get(QueueBoundary, & &1.queues), &{&1.name, &1.rank}) == [{"set 2", 0}, {"set 1", 1}, {"set 0", 2}]
     assert Enum.sort(Map.keys(dispatch(issues).running)) == ~w(10 11 12 3 8 9)
     output = capture_io(fn -> assert Aiur.BuildQueueCLI.run(verb: :order, server: pid, caller_agent_workspace: "/caller") == 0 end)
-    assert output == "0  set 2\n1  set 1\n2  set 0\n"
+    assert output =~ "queue order  actual set 2 > set 1 > set 0  declared unavailable"
+    assert output =~ "0  set 2\n1  set 1\n2  set 0\n"
     output = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, claim_probe: QueueBoundary) end)
     assert output =~ "NEXT  set 2  rank 0"
     json = capture_io(fn -> Aiur.BuildQueueCLI.run(server: pid, json: true, claim_probe: QueueBoundary) end) |> Jason.decode!()
@@ -85,6 +86,21 @@ defmodule Aiur.Orchestrator.QueueSetsDispatchTest do
     assert Slots.available_slots(final) == 0
     ordered = DispatchCandidates.order(Enum.reverse(issues), DispatchPolicy.terminal_state_set())
     assert Enum.map(ordered, & &1.id) == Enum.map(issues, & &1.id)
+  end
+
+  test "an unprioritized flake ticket waits behind every startable build-order list member" do
+    {document, issues, projections} = fixture()
+    queues = Enum.with_index(document.queues) |> Enum.map(fn {queue, rank} -> %{queue | kind: :build_order, root: 1600 + rank} end)
+    items = Enum.map(document.items, &%{&1 | position: nil})
+    document = %{document | queues: queues, items: items}
+    publish(document, projections)
+    flake = %Issue{id: "flake", identifier: "repo#flake", title: "Flaky test: example", state: "todo", priority: nil, blocked_by: []}
+
+    ordered = DispatchCandidates.order(issues ++ [flake], DispatchPolicy.terminal_state_set())
+
+    # Future regression guard: unlisted/default-priority tickets remain after all ranked queue members.
+    assert MapSet.new(Enum.map(Enum.take(ordered, length(issues)), & &1.id)) == MapSet.new(Enum.map(issues, & &1.id))
+    assert List.last(ordered).id == "flake"
   end
 
   test "max one active set starts only A and reports B waiting with four slots free" do
