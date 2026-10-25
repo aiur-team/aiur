@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.Access.WrapperTest do
 
   @moduletag :tmp_dir
 
+  # Future regression guard: resolving the existing location must survive the boundary refactor.
   test "installer and host commands resolve the same configured wrapper", %{tmp_dir: root} do
     previous = Application.fetch_env(:aiur, :host_guard_bin_dir)
     on_exit(fn -> Aiur.TestSupport.restore_app_env([{:host_guard_bin_dir, previous}]) end)
