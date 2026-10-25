@@ -336,6 +336,8 @@ workflow); deliberately parked findings carry `needs-triage` or `human:todo`
 with the reason in the body. The meta epic is an explicitly named container and
 remains undispatched.
 
+**Give every new ticket a home-page epic.** Use `aiur epic set <epic> <ids…>` (keys from `aiur epic list`) or `aiur feature add <slug> <ids…>` for feature members; meta findings usually fit `infra` or `bugs`; never use epic labels. Follow the [full category and fallback rule](../aiur-run/references/executor.md) for label matching, Unsorted, batching and failures.
+
 Include the evidence that would let someone else confirm it without repeating the
 investigation: the command, its output, file:line, the screenshot.
 

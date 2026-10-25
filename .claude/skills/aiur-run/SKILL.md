@@ -221,13 +221,11 @@ Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
 authority.
 
-Every authorized feature, epic, bug batch, or experiment joins the continuous build.
-Use `agent:queued` in the same creation request; the queue promotes ready members to `agent:todo`.
-Follow [continuous-build intake](references/continuous-build-intake.md): collection, labels, native blockers, queue, read-back.
-“Prioritize” means labels and queue order before the previous next-up; report what it displaced.
-New features create collections, never roots. Only explicit exclusion parks filed work with
-`needs-triage`/`human:todo` and a reason. Preserve finite scope and deferred findings.
-Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.
+Every authorized feature, epic, bug batch, or experiment joins the continuous build. Use `agent:queued` in the same creation request; the queue promotes ready members to `agent:todo`. Follow [continuous-build intake](references/continuous-build-intake.md): collection, labels, native blockers, queue, read-back. “Prioritize” means labels and queue order before the previous next-up; report what it displaced. New features create collections, never roots. Only explicit exclusion parks filed work with `needs-triage`/`human:todo` and a reason. Preserve finite scope and deferred findings. Act on authorized reversible fixes and report; escalate irreversible actions, spend, external publication and product direction.
+
+**Give every new ticket a home-page epic.** Use `aiur epic set <epic> <ids…>` (keys from `aiur epic list`) or `aiur feature add <slug> <ids…>` for feature members; never use epic labels. Follow the [full category and fallback rule](references/executor.md) for label matching, Unsorted, batching and failures.
+
+**Leave the estimate alone unless you have a strong, specific reason for an estimate override.** Planned estimates come from complexity (1, 2, 4, 7, 11 hours for complexities 1–5). For bigger or more uncertain work, fix the complexity label or split the ticket. Override only duration complexity does not capture, such as human review rounds, outside waits, or a long migration: `aiur ticket estimate <id> <hours> --reason "<cause> — from <old>h to <new>h"`. The operator sees the reason word for word on the planned card and in the ticket modal: write one line, at most 500 characters, that they can check. Undo with `aiur ticket estimate <id> --clear --reason "<why>"`. Only the Executor changes estimates; issue workers have no estimate tool.
 
 ### Goal text you recommend
 
