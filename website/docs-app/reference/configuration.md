@@ -38,6 +38,9 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 ## executor takeover alerts
 | `executor.sweep.unreviewed_pr_minutes` | integer | 10 | Minutes an open, non-draft PR may wait without a review on its current head before the Executor sweep reports it, whatever its ticket state; the finding names that state. Must be positive. |
 ## executor
+| `executor.relay_operator_answers` | boolean | false | Allows an attended Executor to record already-given operator answers, including human-only Commands. |
+
+Enable this only to authorize quoted relays through `operator-relay-answer`; enabling emits an info alert. Each answer retains an `operator_relayed` actor, quote, relayer and timestamp, and raises an alert. Disable to revoke recording; existing answers remain correctable or mootable. Executor authority floors remain unchanged.
 
 Aiur watches nonterminal tickets in the run scope and, once a ticket's **convergence age** crosses a configurable threshold, raises an advisory `needs_attention` alert visible in `aiurdev alerts --needs-attention` and the watch actionable section. The alerts are advisory takeover prompts — they never perform a takeover automatically.
 
@@ -392,18 +395,6 @@ An unavailable or unparseable Tailscale status raises `system.build_order_funnel
 The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential. Generate it with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the repository `.env` (project-local).
 
 An exported value wins, followed by the global file and then the repository file. The value must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup; an absent or empty value leaves the API disabled.
-
-## executor
-
-| Key | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `executor.relay_operator_answers` | boolean | false | Allows an attended Executor to record an operator's already-given answer through `operator-relay-answer`, including `human_required` Commands. |
-
-Enable this only when you authorize your Executor to relay your answers. Each relay records a distinct `operator_relayed` actor, verbatim quote, relayer identity and acceptance timestamp, and emits an informational alert.
-
-This does not grant the Executor authority to choose an answer; `executor-answer` retains its authority and reversibility floors.
-
-Disable the key to revoke further recording. Existing relay answers remain in history and can be revised or mooted through the dashboard's existing operator flows.
 
 ## decisions
 
