@@ -415,7 +415,4 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
 
     assert output == "GH_TOKEN=gh-token\nGITHUB_TOKEN=tracker-token\n"
   end
-
-  defp restore_env(name, nil), do: System.delete_env(name)
-  defp restore_env(name, value), do: System.put_env(name, value)
 end

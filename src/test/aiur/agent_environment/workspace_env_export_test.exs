@@ -171,7 +171,4 @@ defmodule Aiur.AgentEnvironment.WorkspaceEnvExportTest do
       assert resolved == "/tmp"
     end
   end
-
-  defp restore_env(name, nil), do: System.delete_env(name)
-  defp restore_env(name, value), do: System.put_env(name, value)
 end
