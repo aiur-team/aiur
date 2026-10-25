@@ -102,7 +102,8 @@ restart_release_snapshot() {
   [ -n "$release_dir" ] && [ -d "$release_dir" ] || return 0
   source_sha="$(sed -n 's/^source_sha=//p' "$release_dir/AIUR_BUILD_STAMP" 2>/dev/null | head -n 1)"
   RESTART_PREVIOUS_SHA="${source_sha:-unknown}"
-  RESTART_SNAPSHOT_DIR="$(mktemp -d "$(dirname "$release_dir")/.aiur-previous-release.XXXXXX")" || return 1
+  RESTART_SNAPSHOT_DIR="$(mktemp -d "$(dirname "$release_dir")/.aiur-previous-release.XXXXXX" 2>/dev/null)" ||
+    RESTART_SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aiur-previous-release.XXXXXX")" || return 1
   if ! cp -a "$release_dir/." "$RESTART_SNAPSHOT_DIR/"; then
     rm -rf "$RESTART_SNAPSHOT_DIR"
     RESTART_SNAPSHOT_DIR=""
