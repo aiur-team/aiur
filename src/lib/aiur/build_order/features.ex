@@ -60,11 +60,17 @@ defmodule Aiur.BuildOrder.Features do
     context = %{now: state.clock.(), general_epics: state.general_epics}
 
     case Operations.events(op, slug, input, meta, state.projection, context) do
-      {:ok, []} -> {:reply, {:ok, Reads.changed([], state)}, state}
-      {:ok, events} -> persist(events, meta, context.now, state)
+      {:ok, events, kept} -> events |> apply_events(meta, context.now, state) |> with_kept(kept)
+      {:ok, events} -> apply_events(events, meta, context.now, state)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
+
+  defp apply_events([], _meta, _now, state), do: {:reply, {:ok, Reads.changed([], state)}, state}
+  defp apply_events(events, meta, now, state), do: persist(events, meta, now, state)
+
+  defp with_kept({:reply, {:ok, result}, state}, kept), do: {:reply, {:ok, Map.put(result, :kept, kept)}, state}
+  defp with_kept(reply, _kept), do: reply
 
   defp persist(events, meta, now, state) do
     record = %{v: 1, seq: state.projection.seq + 1, recorded_at: now, source: meta[:source], actor: meta[:actor], events: events}

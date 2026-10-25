@@ -9,7 +9,7 @@ Label projection runs separately; `show` reports its state, including `unknown` 
 | Syntax | Behavior | Runnable example |
 | --- | --- | --- |
 | `aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]… [--as <who>] [--json]` | Creates a collection; matching requests are unchanged. Default epic: `f-<slug>`. | `aiur feature create intake --label "Intake" --hue 145 --json` |
-| `aiur feature add <slug> <ids…> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. | `aiur feature add intake 412 413 --move --json` |
+| `aiur feature add <slug> <ids…> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. Backfill skips owned IDs (`kept`) and refuses `--move`. | `aiur feature add intake 412 413 --move --json` |
 | `aiur feature remove <slug> <ids…> [--as <who>] [--json]` | Removes owning memberships; absent memberships are unchanged. | `aiur feature remove intake 412 --json` |
 | `aiur feature also <slug> <ids…> [--remove] [--as <who>] [--json]` | Adds or removes also-affects links. Owners cannot also affect the same feature. | `aiur feature also intake 420 --json` |
 | `aiur feature baseline <slug> [--replace] [--as <who>] [--json]` | Records original scope. Existing baselines require `--replace`; replacement reports the previous time and count. | `aiur feature baseline intake --json` |
@@ -39,7 +39,7 @@ Overrides are local: these commands never write GitHub labels or report effectiv
 | `aiur epic show [<ids…>] [--json]` | Shows stored epic, actor, source, confirmation and time. Removed keys are ignored; unreadable config gives `epic_known: null`. | `aiur epic show 142 --json` |
 | `aiur epic list [--json]` | Lists configured keys and labels in order. Config errors refuse writes and list without defaults. | `aiur epic list --json` |
 
-Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same epic, source and confirmation is unchanged; changed results and the journal retain the prior assignment.
+Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same epic, source and confirmation is unchanged; changed results and the journal retain the prior assignment. Backfill writes preserve overrides from other sources with `status: kept_existing` and no journal entry.
 
 Recovery: unsafe journals remain unavailable. Move corrupt `epic-overrides.json` aside in the instance’s `epic-overrides` directory, then restart; GitHub cannot rebuild overrides.
 

@@ -25,6 +25,7 @@ defmodule Aiur.BuildOrder.Epic do
     acc = %{ignored: [], gaps: []}
 
     with {:next, acc} <- feature(owner, features, override, acc),
+         {:next, acc} <- unconfirmed_label(ticket, override, general, acc),
          {:next, acc} <- override(override, general, acc),
          {:next, acc} <- labels(ticket, general, acc) do
       fallback(acc)
@@ -54,6 +55,15 @@ defmodule Aiur.BuildOrder.Epic do
     acc = if is_map(override), do: ignore(acc, :override_outside_feature), else: acc
     {:done, resolution(key, "feature", acc)}
   end
+
+  defp unconfirmed_label(ticket, %{confirmed: false}, general, acc) do
+    case labels(ticket, general, acc) do
+      {:done, result} -> {:done, %{result | ignored: result.ignored ++ [:override_unconfirmed_below_label]}}
+      {:next, _} -> {:next, acc}
+    end
+  end
+
+  defp unconfirmed_label(_ticket, _override, _general, acc), do: {:next, acc}
 
   defp override(:unknown, _general, acc), do: {:next, gap(acc, :override)}
   defp override(:none, _general, acc), do: {:next, acc}

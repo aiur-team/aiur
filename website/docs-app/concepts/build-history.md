@@ -35,9 +35,10 @@ Each ticket appears under exactly one epic column, resolved in this order:
 | Step | Source |
 | --- | --- |
 | 1 | The owning feature's epic. |
-| 2 | A local override set with [`aiur epic set`](/reference/build-history-commands#epics). |
+| 2 | A confirmed local override set with [`aiur epic set`](/reference/build-history-commands#epics). |
 | 3 | The first configured general epic whose labels match the ticket. |
-| 4 | **Unsorted**. |
+| 4 | An unconfirmed backfill override, if no label matches. |
+| 5 | **Unsorted**. |
 
 General epics come from `build_order.general_epics`; see
 [General epics](/reference/configuration-build-order#general-epics) for the

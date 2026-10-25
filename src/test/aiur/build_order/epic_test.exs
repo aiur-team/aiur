@@ -47,7 +47,7 @@ defmodule Aiur.BuildOrder.EpicTest do
   end
 
   test "V-7 general override precedes labels, preserving actor" do
-    assert resolve(%{override: %{epic: "infra", actor: "agent-1", confirmed: false}, labels: ["bug"]}) == result("infra", "override:agent-1")
+    assert resolve(%{override: %{epic: "infra", actor: "agent-1", confirmed: true}, labels: ["bug"]}) == result("infra", "override:agent-1")
   end
 
   test "V-8 removed override falls through with a reason" do
