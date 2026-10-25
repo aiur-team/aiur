@@ -42,6 +42,32 @@ end
 defmodule AiurWeb.PublicHealthController do
   use Phoenix.Controller, formats: [:text]
 
+  alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.TrackerHealth
+
   @spec live(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def live(conn, _params), do: send_resp(conn, :ok, "ok\n")
+
+  @spec ready(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def ready(conn, _params) do
+    if ready?(), do: send_resp(conn, :ok, "ready\n"), else: send_resp(conn, :service_unavailable, "not ready\n")
+  end
+
+  defp ready? do
+    case Application.get_env(:aiur, :health_ready_fun) do
+      fun when is_function(fun, 0) -> fun.() == :ok
+      _ -> is_pid(orchestrator_pid()) and TrackerHealth.tracker_preflight() == :ok
+    end
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
+  end
+
+  defp orchestrator_pid do
+    case Application.get_env(:aiur, :health_orchestrator_pid_fun) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> Process.whereis(Orchestrator)
+    end
+  end
 end

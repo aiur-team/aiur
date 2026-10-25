@@ -486,7 +486,7 @@ defmodule Aiur.Config.Paths do
   end
 
   defp decision_state_root do
-    Aiur.TestRunState.decision_state_root(Path.join(state_root(), "state"))
+    Aiur.TestRunState.decision_state_root(Path.join(File.cwd!(), ".aiur-state"))
   end
 
   defp contain_within_root(root, candidate) do

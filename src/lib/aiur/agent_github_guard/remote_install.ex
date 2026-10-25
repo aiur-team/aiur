@@ -69,15 +69,15 @@ defmodule Aiur.AgentGitHubGuard.RemoteInstall do
         token = Aiur.Shell.escape(token)
 
         [
-          "mkdir -p \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget\"",
-          "printf '%s\\n' #{token} > \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget/agent-token\"",
-          "chmod 600 \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget/agent-token\""
+          "mkdir -p \"$HOME/.aiur/github-budget\"",
+          "printf '%s\\n' #{token} > \"$HOME/.aiur/github-budget/agent-token\"",
+          "chmod 600 \"$HOME/.aiur/github-budget/agent-token\""
         ]
         |> Enum.join("\n")
 
       _no_credential ->
         if remote_install?(opts) do
-          "rm -f \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget/agent-token\" 2>/dev/null || true\n"
+          "rm -f \"$HOME/.aiur/github-budget/agent-token\" 2>/dev/null || true\n"
         else
           "# no GitHub credential available; leaving the host credential file untouched\n"
         end

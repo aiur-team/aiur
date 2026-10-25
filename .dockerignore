@@ -5,6 +5,8 @@
 # Aiur.AgentSkills embeds these at compile time, so the build context must keep them.
 !.claude/skills
 .codex
+.aiur-runtime
+**/.aiur-runtime
 .compound-engineering/config.local.yaml
 .compound-engineering/*.local.yaml
 .env
@@ -13,6 +15,8 @@
 AGENTS.local.md
 logs
 **/logs
+!src/lib/aiur/logs/
+!src/lib/aiur/logs/**
 src/_build
 src/deps
 src/cover
