@@ -5,10 +5,11 @@ direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The production
 sidecar opens the device, connects to the authenticated Aiur Phoenix channel,
 renders live fleet/provider state, and routes physical key controls through the
 same AgentChat facade as the browser emulator. It renews its short-lived socket
-token after disconnects and retains hotplug/suspend recovery — the token expiry
-bounds the socket, not the deck's authority: the sidecar stores the dashboard
-credentials and re-mints the token itself, so a plugged-in deck is a
-permanently-authorized operator client. Terminal end-to-end
+token after disconnects and retains hotplug/suspend recovery. When configured,
+`AIUR_CLIENT_TOKEN` is sent as a bearer credential rather than exchanged from
+stored dashboard credentials. Its scope sets the sidecar's API access, and
+revocation prevents it from obtaining further channel tokens. Dashboard
+username/password remain a loopback migration fallback. Terminal end-to-end
 proof remains tracked in
 [#1358](https://github.com/aiur-team/aiur/issues/1358).
 
