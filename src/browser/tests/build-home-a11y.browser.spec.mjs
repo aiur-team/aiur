@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import AxeBuilder from '@axe-core/playwright'
 import { measureGlyphContrast, expectGlyphContrast } from './support/build-home-glyph-contrast.mjs'
 import { boardAudit, contrastRatio } from './support/build-home-a11y-audit.mjs'
@@ -33,12 +34,21 @@ test('cards expose complete names and a single roving button stop', async ({ pag
       region: [ctx.vp.getAttribute('role'), ctx.vp.getAttribute('aria-label'), ctx.vp.tabIndex],
       stops: cards.filter(card => card.tabIndex === 0).length,
       label: live?.getAttribute('aria-label'),
+      complexityNames: cards.filter(card => card.querySelector('.bd-cx')).map(card => ({
+        hidden: card.querySelector('.bd-cx').getAttribute('aria-hidden'),
+        label: card.getAttribute('aria-label'), cx: ctx.D.byId[card.dataset.id].cx
+      })),
       unknown: a11y.cardLabel(row, { ...ctx.D, children: {} }, current),
       pack: a11y.cardLabel(pack, { ...ctx.D, children: {} }, current)
     }
   })
   expect(result.region).toEqual(['region', 'Build timeline', -1])
   expect(result.stops).toBe(1)
+  expect(result.complexityNames.length).toBeGreaterThan(0)
+  for (const row of result.complexityNames) {
+    expect(row.hidden).toBe('true')
+    expect(row.label).toContain(Number.isInteger(row.cx) && row.cx >= 1 && row.cx <= 5 ? 'Complexity ' + row.cx + ' of 5' : 'complexity unknown')
+  }
   expect(result.label).toMatch(/^#\d+ .+\. Agent .+: .+\./)
   expect(result.unknown).toContain('progress unknown')
   expect(result.unknown).toContain('complexity unknown')
@@ -172,15 +182,9 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         await open(page, dataset, view, mode)
         await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)
         await settleAnimations(page, '#build-root')
-        const audit = await new AxeBuilder({ page }).include('#bd-vp').analyze()
+        const audit = await new AxeBuilder({ page }).include('#bd-vp').exclude('.bd-cx[aria-hidden="true"]').analyze()
         await test.info().attach('axe-audit', { body: JSON.stringify(audit), contentType: 'application/json' })
-        const glyphs = audit.incomplete.filter(result => result.id === 'color-contrast')
-          .flatMap(result => result.nodes).filter(node => node.any.some(check => check.data?.messageKey === 'nonBmp'))
-          .map(node => node.target.join(''))
-        const measurements = await measureGlyphContrast(page, glyphs)
-        await test.info().attach('glyph-contrast', { body: JSON.stringify(measurements), contentType: 'application/json' })
-        expectGlyphContrast(measurements)
-        expectAuditClean(boardAudit(audit, new Set(measurements.map(item => item.selector))))
+        expectAuditClean(boardAudit(audit))
       })
     }
   }
@@ -202,20 +206,24 @@ for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']
   })
 }
 
-test('rendered glyph contrast rejects a colour below its size-class threshold', async ({ page }) => {
-  await open(page)
-  const glyph = page.locator('.bd-cx').first()
-  await glyph.evaluate(element => { element.id = 'contrast-glyph-probe' })
-  const original = await measureGlyphContrast(page, ['#contrast-glyph-probe'])
-  expect(original).toHaveLength(1)
-  expect(original[0].minimum).toBe(4.5)
-  expectGlyphContrast(original)
-  await glyph.evaluate(element => {
-    element.style.setProperty('color', getComputedStyle(element.closest('.bd-in')).backgroundColor, 'important')
+const glyphBaselines = JSON.parse(readFileSync(new URL('./fixtures/build-home-glyph-contrast.json', import.meta.url), 'utf8'))
+for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']) {
+  test(`future regression guard: decorative glyph contrast, ${theme}, ${palette}`, async ({ page }) => {
+    await open(page)
+    await page.locator('html').evaluate((html, values) => Object.assign(html.dataset, values), { theme, palette })
+    const selectors = await page.locator('.bd-card .bd-cx').evaluateAll(glyphs => [...new Set(glyphs.map(glyph =>
+      '.bd-card[data-id=' + JSON.stringify(glyph.closest('.bd-card').dataset.id) + '] .bd-cx'))])
+    const baseline = glyphBaselines[theme][palette]
+    const measurements = await measureGlyphContrast(page, selectors)
+    expect(measurements.length).toBeGreaterThan(0)
+    expectGlyphContrast(measurements, baseline)
+    // A deliberately invisible glyph must fail the same arithmetic guard.
+    const selector = selectors[0]
+    await page.locator(selector).evaluate(glyph => {
+      glyph.style.setProperty('color', getComputedStyle(glyph.closest('.bd-in')).backgroundColor, 'important')
+    })
+    const degraded = await measureGlyphContrast(page, [selector])
+    expect(degraded[0].ratio).toBeLessThan(baseline[selector])
+    expect(() => expectGlyphContrast(degraded, baseline)).toThrow()
   })
-  const degraded = await measureGlyphContrast(page, ['#contrast-glyph-probe'])
-  expect(degraded[0].ratio).toBeLessThan(degraded[0].minimum)
-  expect(() => expectGlyphContrast(degraded)).toThrow()
-  await glyph.evaluate(element => { element.style.fontSize = '24px' })
-  expect((await measureGlyphContrast(page, ['#contrast-glyph-probe']))[0].minimum).toBe(3)
-})
+}

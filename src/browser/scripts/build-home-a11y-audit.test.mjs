@@ -13,8 +13,6 @@ test('only overlap-caused contrast incompletes are exempted', () => {
   for (const key of ['bgColor', 'fgColor', 'nonBmp', 'imgNode', undefined]) {
     assert.throws(() => expectAuditClean(boardAudit(audit(key))))
   }
-  expectAuditClean(boardAudit(audit('nonBmp'), new Set(['.bd-cx'])))
-  assert.throws(() => expectAuditClean(boardAudit(audit('nonBmp'), new Set(['.unrelated']))))
   const pseudo = audit('pseudoContent')
   pseudo.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#bd-now'] }]
   expectAuditClean(boardAudit(pseudo))
@@ -23,6 +21,12 @@ test('only overlap-caused contrast incompletes are exempted', () => {
   const edges = audit('imgNode')
   edges.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['#bd-edges'] }]
   expectAuditClean(boardAudit(edges))
+  // Future regression guard for the existing short-text/edge diagnostic.
+  const short = structuredClone(edges)
+  short.incomplete[0].nodes[0].any[0].data.messageKey = 'shortTextContent'
+  expectAuditClean(boardAudit(short))
+  short.incomplete[0].nodes[0].any[0].relatedNodes.push({ target: ['#unrelated'] })
+  assert.throws(() => expectAuditClean(boardAudit(short)))
   const image = structuredClone(edges)
   image.incomplete[0].nodes[0].any[0].relatedNodes.push({ target: ['#unrelated-image'] })
   assert.throws(() => expectAuditClean(boardAudit(image)))
@@ -42,4 +46,21 @@ test('token arithmetic distinguishes AA failures from passing text pairs', () =>
   assert.ok(Math.abs(contrastRatio('#777269', '#ffffff') - 4.7778337244) < 0.000001)
   assert.equal(contrastRatio('#777269', '#ffffff'), contrastRatio('#ffffff', '#777269'))
   assert.throws(() => contrastRatio('transparent', '#ffffff'))
+})
+
+test('partial obscuring accepts only card-over-lane provenance', () => {
+  const partial = audit('elmPartiallyObscured')
+  partial.incomplete[0].nodes[0].target = ['div[title="Bugs"] > span']
+  const check = partial.incomplete[0].nodes[0].any[0]
+  check.relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['div[data-id="1260"] > .bd-in'] }]
+  expectAuditClean(boardAudit(partial))
+  for (const target of ['#unrelated', '.bd-in', 'div[data-id="1260"] > .unrelated']) {
+    const extra = structuredClone(partial)
+    extra.incomplete[0].nodes[0].any[0].relatedNodes.push({ target: [target] })
+    assert.throws(() => expectAuditClean(boardAudit(extra)))
+  }
+  check.relatedNodes = [{ target: ['div[data-id="1260"] > .bd-in'] }]
+  assert.throws(() => expectAuditClean(boardAudit(partial)))
+  check.relatedNodes = [{ target: ['#bd-lanes'] }]
+  assert.throws(() => expectAuditClean(boardAudit(partial)))
 })

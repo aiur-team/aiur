@@ -57,7 +57,7 @@ function complexity(t) {
   const cx = finite(t.cx, 1, 5), known = cx !== null && Number.isInteger(cx);
   const points = finite(t.pts) === null ? 'points unknown' : t.pts + ' pts';
   return '<span class="bd-cx' + (known ? '" style="--cxh:' + CXH[cx - 1] : ' unk') + '" title="' +
-    (known ? 'Complexity ' + cx + '/5' : 'Complexity unknown') + ' · ' + points + '">' + (known ? CX[cx - 1] : '—') + '</span>';
+    (known ? 'Complexity ' + cx + '/5' : 'Complexity unknown') + ' · ' + points + '" aria-hidden="true">' + (known ? CX[cx - 1] : '—') + '</span>';
 }
 function planContent(t, points) {
   const c = t.cue || {}, cues = [];

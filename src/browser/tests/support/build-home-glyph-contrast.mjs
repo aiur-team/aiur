@@ -1,7 +1,9 @@
 import { expect } from '@playwright/test'
 import { contrastRatio } from './build-home-a11y-audit.mjs'
 
-// Measure the existing DOM glyphs, including their opacity/filter and both
+// Supplementary glyph regression guard; these are excluded from text contrast.
+// Ancestor dim/hdim opacity is outside this at-rest fixture census; glyph-level
+// opacity/filter and background layers are included. Measure both
 // ends of progress washes, stripes and the grid. Never substitute a token for a missing colour.
 export async function measureGlyphContrast(page, selectors) {
   const measurements = await page.evaluate(selectors => {
@@ -63,8 +65,10 @@ export async function measureGlyphContrast(page, selectors) {
   }))
 }
 
-export function expectGlyphContrast(measurements) {
+export function expectGlyphContrast(measurements, baseline) {
   for (const measurement of measurements) {
-    expect(measurement.ratio, JSON.stringify(measurement)).toBeGreaterThanOrEqual(measurement.minimum)
+    const floor = baseline[measurement.selector]
+    expect(floor, 'Missing decorative glyph baseline: ' + measurement.selector).toBeGreaterThan(1)
+    expect(measurement.ratio, JSON.stringify(measurement)).toBeGreaterThanOrEqual(floor)
   }
 }

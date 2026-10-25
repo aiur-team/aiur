@@ -7,19 +7,23 @@ function overlapCheck(check) {
   if (check.data?.messageKey === 'bgOverlap') return true
   const key = check.data?.messageKey
   const related = (check.relatedNodes ?? []).map(node => node.target.join(''))
+  if (key === 'elmPartiallyObscured') {
+    const card = target => /^div\[data-id="[^"]+"\] > \.bd-in$/.test(target)
+    return related.includes('#bd-lanes') && related.some(card) && related.every(target => target === '#bd-lanes' || card(target))
+  }
   if (key === 'pseudoContent') return related.length > 0 && related.every(target => target === '#bd-now')
   if (!['imgNode', 'shortTextContent'].includes(key)) return false
   const targets = (check.relatedNodes ?? []).map(node => node.target.join(''))
   return targets.includes('#bd-edges') && targets.every(target => ['#bd-edges', '#bd-lanes'].includes(target))
 }
-export function boardAudit(audit, measuredGlyphs = new Set()) {
+export function boardAudit(audit) {
   return {
     ...audit,
     incomplete: audit.incomplete.map(result => result.id !== 'color-contrast' ? result : {
       ...result,
       nodes: result.nodes.filter(node => {
         const checks = [...node.any, ...node.all, ...node.none]
-        return !checks.length || !checks.every(check => overlapCheck(check) || (check.data?.messageKey === 'nonBmp' && measuredGlyphs.has(node.target.join(''))))
+        return !checks.length || !checks.every(overlapCheck)
       })
     })
   }

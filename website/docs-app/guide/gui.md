@@ -106,6 +106,8 @@ or ticket-state presets. The hook bridge replaces the current history entry.
 
 Tab to the Build timeline to reach one ticket card. Use the arrow keys, Home, and End to move through cards in reading order; Enter opens its ticket. Space also opens a ticket, or locks/unlocks its dependency chain when the hidden `?trees=1` mode is active. Escape closes the ticket or tree layer and returns focus to the board.
 
+Card names include complexity. The circled complexity glyphs are decorative.
+
 Each page renders a durable concept whose detail lives in Concepts.
 
 | Page | Concept detail |
