@@ -47,6 +47,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
         %{
           question: "Keep the palette?",
           authority: "human_required",
+          context: %{authority_basis: "product"},
           reversibility: reversibility,
           blocking: true,
           source_id: "relay-palette",
