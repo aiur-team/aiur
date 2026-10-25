@@ -14,8 +14,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
   alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.ReviewHandoff
-  alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
-  alias Aiur.Orchestrator.CiLifecycle.Transition
+  alias Aiur.Orchestrator.CiLifecycle.{TerminalEvent, TerminalPR, Transition}
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HumanReview
@@ -33,7 +32,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
   @active_handoff_state "in-progress"
 
   defp apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
-    Aiur.Orchestrator.CiLifecycle.TerminalPR.route(state, issue, result, fn ->
+    TerminalPR.route(state, issue, result, fn ->
       cond do
         CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
           reconcile_ci_wait_reason(state, issue, result)

@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{CIPollBatchReadyReview, DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
+  alias Aiur.GitHub.{CIPollBatchReadyReview, CIPollBatchTerminal, DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -41,18 +41,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   # still asked of GitHub on every cycle, because a CI verdict served from a
   # cache at any age is precisely what `Aiur.GitHub.ReadCache.Policy` refuses.
   #
-  # A target whose CI a **webhook check-run delivery already answered** is
-  # dropped from the document entirely (#2310): `PollSnapshots.ci_contexts`
-  # answers when a complete snapshot the poll established has been advanced by
-  # a delivery on the same head within the delivery-fresh window — "deposited
-  # since the last read". The batch entry is then served from the delivery,
-  # never as a verdict. `GithubCIPoller` carries the served entry through as
-  # inert and the lifecycle makes no transition on it, because a CI verdict is
-  # never answered from a held body at any age (R10); the real verdict comes
-  # from the next non-displaced read. An unknown or unmatched check-run id
-  # marked the snapshot incomplete (`PollSnapshots.merge_check_run`), so
-  # `ci_contexts` answers `:miss` and the target keeps its place in the
-  # document: this displacement fails toward polling, which is the #2276 lesson.
+  # A complete snapshot advanced by a check-run delivery can serve its observed
+  # contexts (#2310); unknown or unmatched IDs mark it incomplete and fail
+  # toward polling (#2276). Served entries never answer a CI verdict (R10).
   @targets_per_query 50
   @pull_requests_per_branch 2
 
@@ -305,7 +296,7 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  defp open_pull_request_node?(node), do: Aiur.GitHub.CIPollBatchTerminal.open?(node)
+  defp open_pull_request_node?(node), do: CIPollBatchTerminal.open?(node)
 
   defp candidate_connections(entry, repository, index) do
     connections =
@@ -320,7 +311,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   # Prefer an open PR; select a terminal PR only when every candidate page is complete.
   defp match_candidates(acc, entry, connections) do
-    case Aiur.GitHub.CIPollBatchTerminal.select(connections) do
+    case CIPollBatchTerminal.select(connections) do
       :none ->
         [connection | _rest] = connections
         put_entry_result(acc, entry, [], Map.get(connection, "pageInfo") || %{})

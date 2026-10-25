@@ -10,17 +10,23 @@ defmodule Aiur.GitHub.CIPollBatchTerminal do
 
     case Enum.find(nodes, &open?/1) do
       nil ->
-        if Enum.any?(connections, &(get_in(&1, ["pageInfo", "hasNextPage"]) == true)) do
-          :incomplete
-        else
-          case List.first(nodes) do
-            nil -> :none
-            node -> {:terminal, node}
-          end
-        end
+        terminal_or_incomplete(nodes, connections)
 
       node ->
         {:open, node}
+    end
+  end
+
+  defp terminal_or_incomplete(nodes, connections) do
+    cond do
+      Enum.any?(connections, &(get_in(&1, ["pageInfo", "hasNextPage"]) == true)) ->
+        :incomplete
+
+      node = List.first(nodes) ->
+        {:terminal, node}
+
+      true ->
+        :none
     end
   end
 end
