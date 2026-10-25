@@ -417,7 +417,7 @@ defmodule Aiur.MainWatch do
   end
 
   defp emit(topic, payload) do
-    Aiur.Alerts.emit_system(topic,
+    Aiur.Signal.alert(topic,
       message: "Base-branch CI: #{topic}",
       durable: true,
       needs_attention: attention?(topic, payload),

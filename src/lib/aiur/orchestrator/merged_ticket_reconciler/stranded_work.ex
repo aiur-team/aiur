@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Tracker}
+  alias Aiur.{Config, Signal, Tracker}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.LocalHold
   alias Aiur.Orchestrator.{CommentWake, State, TicketTransition, TrackerTasks}
@@ -112,7 +112,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
   defp apply_check(state, identifier, {:error, reason}, opts) do
     Logger.warning("stranded-work check failed: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
-    Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2).(
+    Keyword.get(opts, :emit_alert_fun, &Signal.alert/2).(
       "ticket.#{identifier}.agent.attention.merged_with_stranded_work",
       issue: identifier,
       message: "The PR for ##{identifier} merged, but Aiur could not check the worker's checkout for unmerged commits (#{inspect(reason)})",
@@ -175,7 +175,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler.StrandedWork do
           {"#{held}; Aiur reopened the ticket but could not set it in-progress (#{inspect(error)})", "The issue is open but keeps its pre-merge label. Remedy: set the ticket in-progress.", true}
       end
 
-    Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2).(
+    Keyword.get(opts, :emit_alert_fun, &Signal.alert/2).(
       "ticket.#{identifier}.agent.attention.merged_with_stranded_work",
       issue: identifier,
       message: message,
