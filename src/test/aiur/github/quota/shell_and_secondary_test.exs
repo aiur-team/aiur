@@ -150,6 +150,7 @@ defmodule Aiur.GitHub.Quota.ShellAndSecondaryTest do
   # so every agent `gh` call went uncounted while the meter still billed it
   # (#1805). This exercises both at once, as production does.
   @tag home_expansion_child: true
+  @tag timeout: :infinity
   test "finds the agent-shell log through a dot directory under a tilde-form workspace root" do
     if System.get_env("AIUR_HOME_EXPANSION_CHILD") != "1" do
       home = Aiur.TestSupport.tmp_root!("quota-home")

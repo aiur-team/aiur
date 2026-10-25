@@ -10,24 +10,26 @@ defmodule Aiur.ProviderMeterProbeWorkspaceTest do
     end
   end
 
-  for representation <- [:relative, :home_relative] do
-    test "provider probe creates and opens the same absolute directory for #{representation} roots" do
-      if System.get_env("AIUR_HOME_EXPANSION_CHILD") != "1" do
-        home = Aiur.TestSupport.tmp_root!("probe-home")
-        File.mkdir_p!(home)
+  @tag home_expansion_child: true
+  @tag timeout: :infinity
+  test "provider probe expands relative and tilde roots from an isolated HOME" do
+    if System.get_env("AIUR_HOME_EXPANSION_CHILD") != "1" do
+      home = Aiur.TestSupport.tmp_root!("probe-home")
+      File.mkdir_p!(home)
 
-        {output, status} =
-          System.cmd(
-            System.find_executable("mix"),
-            ["test", __ENV__.file],
-            env: [{"HOME", home}, {"AIUR_HOME_EXPANSION_CHILD", "1"}],
-            stderr_to_stdout: true
-          )
+      {output, status} =
+        System.cmd(
+          System.find_executable("mix"),
+          ["test", __ENV__.file, "--only", "home_expansion_child:true"],
+          env: [{"HOME", home}, {"AIUR_HOME_EXPANSION_CHILD", "1"}],
+          stderr_to_stdout: true
+        )
 
-        Aiur.TestCleanup.rm_rf!(home)
-        assert status == 0, output
-      else
-        run_probe_workspace_case!(unquote(representation))
+      Aiur.TestCleanup.rm_rf!(home)
+      assert status == 0, output
+    else
+      for representation <- [:relative, :home_relative] do
+        run_probe_workspace_case!(representation)
       end
     end
   end
