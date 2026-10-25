@@ -132,6 +132,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                SessionOptions.deployment_auth_env("codex", "consumer", inherited)
 
       assert [] = SessionOptions.deployment_auth_env("codex", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "consumer", inherited, false)
     end
 
     test "a generic codex tag reaches the backend as the newest version in that family" do

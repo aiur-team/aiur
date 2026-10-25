@@ -124,18 +124,23 @@ defmodule Aiur.CodingAgent.RouteFailure do
 
   defp emit(:auth_rejected, issue, route, _reason, opts) do
     backend = ModelAvailability.backend_key(route)
-    availability_opts = Keyword.get(opts, :availability_opts, [])
-    fingerprint = ProviderCredential.fingerprint(backend, Aiur.Config.settings!(), System.get_env()) || "unavailable"
-
     settings = Aiur.Config.settings!()
-    path = if settings.instance.mode == "hosted", do: Path.join(System.get_env("AIUR_BG_STATE_DIR") || Path.expand("~/.config/aiur"), "model-usage.json"), else: ModelAvailability.path()
+
+    availability_opts = Keyword.get(opts, :availability_opts, [])
+    fingerprint = ProviderCredential.fingerprint(backend, settings, System.get_env()) || "unavailable"
+
+    path =
+      if settings.instance.mode == "hosted",
+        do: Path.join(System.get_env("AIUR_BG_STATE_DIR") || Path.expand("~/.config/aiur"), "model-usage.json"),
+        else: ModelAvailability.path()
+
     availability_opts = Keyword.put_new(availability_opts, :path, path)
 
     case ModelAvailability.auth_rejected_alert_once(backend, fingerprint, availability_opts) do
       {:ok, :first} ->
         Signal.alert("system.provider.auth_rejected.#{backend}",
           reason:
-            "The #{backend} provider rejected its credential (HTTP 401). Dispatch is paused for this backend until its credential is changed. Update the key or login, then restart Aiur. Other configured backends remain available.",
+            "The #{backend} provider rejected its credential (HTTP 401). Dispatch is paused for this backend until its credential changes or Aiur restarts without a fingerprintable login. Other configured backends remain available.",
           needs_attention: true,
           severity: "critical"
         )
