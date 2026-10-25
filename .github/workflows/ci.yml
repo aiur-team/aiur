@@ -28,11 +28,7 @@ jobs:
       - { name: Set up Elixir for selection, uses: ./.github/actions/setup-elixir }
       - name: Classify the changed paths
         id: classify
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+        env: { GH_TOKEN: "${{ github.token }}", EVENT_NAME: "${{ github.event_name }}", REPO: "${{ github.repository }}", PR_NUMBER: "${{ github.event.pull_request.number }}" }
         run: bash scripts/classify-ci-changes.sh
   pre-handoff:
     needs: changes
@@ -160,8 +156,7 @@ jobs:
     permissions: { actions: read, contents: read }
     strategy:
       fail-fast: false
-      matrix:
-        partition: [1, 2, 3, 4]
+      matrix: { partition: [1, 2, 3, 4] }
     defaults: { run: { working-directory: src } }
     steps:
       - name: Checkout
@@ -331,7 +326,8 @@ jobs:
     timeout-minutes: 5
     permissions: { contents: read }
     steps:
-      - { name: Checkout, uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd } # v6.0.2
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
@@ -380,7 +376,8 @@ jobs:
           { shard: 5, visual_regression: second },
           { shard: 2, upload_evidence: true }, { shard: 5, upload_evidence: true }, { shard: 8, upload_evidence: true }]
     steps:
-      - { name: Checkout, uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd } # v6.0.2
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         working-directory: .
@@ -468,7 +465,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - { name: Checkout, uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd } # v6.0.2
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
@@ -493,7 +491,8 @@ jobs:
     timeout-minutes: 2
     permissions: { actions: write, contents: read }
     steps:
-      - { name: Checkout, uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd } # v6.0.2
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
