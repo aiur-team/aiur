@@ -153,6 +153,49 @@ Their draft 2020-12 schemas and generated TypeScript types (`FleetStatus`,
 additive fields; clients should ignore fields they do not recognize. A breaking
 shape change uses a new contract version and schema beside v1.
 
+### Ticket cancellation API
+
+`POST /api/v1/<issue_identifier>/cancel` cancels exactly one running ticket and
+waits a bounded time for both its selected runner and tracked OS process or
+process group to exit. It uses dashboard
+Basic Auth and the normal API-write protections: writable dashboard mode, an
+accepted `Origin`, and `X-Aiur-Request: 1`.
+
+A `200` response always carries `contract: "aiur.ticket_cancel"`,
+`contract_version: 1`, `tracker_state: "cancelled"`, and a `process` object with
+an opaque `handle`, `status: "exited"`, bounded `exit_status` (`normal`,
+`shutdown`, `killed`, `noproc`, or `unknown`), `exited_at`, and
+`observed_at`.
+
+The schema and generated `TicketCancel` type are in `@aiur/contracts`.
+
+Changing the tracker state alone is not success. If the selected process does
+not exit before the bound, the same versioned body returns with `409` and
+`process.status` set to `still_running` or `kill_failed`; both exit fields are
+`null`.
+
+The tracker remains cancelled, and Aiur schedules another bounded shell
+cleanup attempt; a later runner exit is terminal and is never retried as agent
+work.
+
+A replacement agent generation produces `generation_changed` without
+stopping the replacement. An ambiguous identifier also returns `409` before
+any tracker or process mutation.
+
+Precondition and tracker failures use the standard
+`{"error":{"code":…,"message":…}}` envelope and never claim process-exit
+evidence.
+
+| HTTP | Code or body | Meaning |
+| --- | --- | --- |
+| `200` | versioned cancel result | The named process exited. |
+| `404` | `issue_not_found` | The named ticket does not exist in the current tracker snapshot. |
+| `409` | versioned cancel result | The process did not exit, or its generation changed. |
+| `409` | `agent_not_running`, `ambiguous_identifier` | No unique running process can be selected. |
+| `422` | `invalid_identifier` | The identifier is invalid. |
+| `503` | `orchestrator_unavailable`, `cancel_failed` | Cancellation could not be completed or confirmed. |
+| `405` | `method_not_allowed` | The cancellation route only accepts `POST`. |
+
 ### Per-ticket usage API
 
 `GET /api/v1/<ticket>/usage` returns versioned JSON with

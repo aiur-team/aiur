@@ -79,6 +79,8 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/experiments/:id", Phoenix.LiveView.Plug, :experiment, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:post, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :refresh, [:client_token_write, :api_write, :require_writable], :debug},
     {:*, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :cancel, [:client_token_write, :api_write, :require_writable], :debug},
+    {:*, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
     {:post, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :send_message, [:client_token_write, :api_write, :require_writable], :debug},
     {:*, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write, :require_writable], :debug},
     {:post, "/api/v1/:issue_identifier/pause", AiurWeb.ObservabilityApiController, :pause, [:client_token_write, :api_write, :require_writable], :debug},

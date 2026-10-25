@@ -1,7 +1,9 @@
 defmodule Aiur.Orchestrator.AgentTeardown do
   @moduledoc """
-  Owns orchestrator AgentTeardown behavior.
-  All functions execute inside the orchestrator GenServer process.
+  Owns orchestrator teardown behavior.
+
+  State-mutating functions execute inside the orchestrator GenServer process.
+  Supervised shell cleanup helpers may be scheduled by an API observer.
   """
 
   require Logger
@@ -45,6 +47,16 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   @doc false
   @spec terminate_running_issue(State.t(), String.t(), boolean()) :: State.t()
   def terminate_running_issue(%State{} = state, issue_id, cleanup_workspace) do
+    terminate_running_issue(state, issue_id, cleanup_workspace, :inline)
+  end
+
+  @doc false
+  @spec terminate_cancelled_issue(State.t(), String.t()) :: State.t()
+  def terminate_cancelled_issue(%State{} = state, issue_id) do
+    terminate_running_issue(state, issue_id, true, :supervised)
+  end
+
+  defp terminate_running_issue(%State{} = state, issue_id, cleanup_workspace, repl_cleanup) do
     state = CiLifecycle.cancel_ci_wait_rewake(state, issue_id)
     state = clear_transient_reason_labels(state, issue_id)
 
@@ -59,7 +71,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # `terminate_task/1` brutally kills the runner task, skipping the
         # `after stop_session` cleanup — kill the tracked REPL pane + pid
         # here so neither orphans on abort/terminal-state teardown.
-        kill_repl_session(running_entry)
+        cleanup_repl_session(running_entry, repl_cleanup)
 
         # Close any open chat-completion SSE streams BEFORE killing the
         # task. `terminate_task/1` brutally kills the AgentRunner,
@@ -100,6 +112,35 @@ defmodule Aiur.Orchestrator.AgentTeardown do
       _ ->
         RetryEngine.release_issue_claim(state, issue_id)
     end
+  end
+
+  defp cleanup_repl_session(running_entry, :inline), do: kill_repl_session(running_entry)
+
+  defp cleanup_repl_session(running_entry, :supervised),
+    do: schedule_cancelled_shell_cleanup(running_entry)
+
+  @doc false
+  @spec schedule_cancelled_shell_cleanup(map()) :: :ok
+  def schedule_cancelled_shell_cleanup(running_entry) when is_map(running_entry) do
+    cleanup = fn ->
+      _ = reap_orphaned_agent_shell(running_entry)
+      kill_repl_session(running_entry)
+    end
+
+    case start_repl_cleanup(cleanup) do
+      {:ok, _pid} ->
+        :ok
+
+      _unavailable ->
+        _ = Task.start(cleanup)
+        :ok
+    end
+  end
+
+  defp start_repl_cleanup(cleanup) do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, cleanup)
+  catch
+    :exit, _reason -> {:error, :unavailable}
   end
 
   # Mirrors `terminate_running_issue/3`'s task-teardown half (kill the
@@ -223,6 +264,17 @@ defmodule Aiur.Orchestrator.AgentTeardown do
   end
 
   def terminate_task(_pid), do: :ok
+
+  @doc false
+  @spec request_task_stop(term()) :: :ok | {:error, term()}
+  def request_task_stop(pid) when is_pid(pid) do
+    Process.exit(pid, :kill)
+    :ok
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  def request_task_stop(_pid), do: {:error, :invalid_pid}
 
   defp maybe_preserve_completed_provenance(entry, true) do
     entry
