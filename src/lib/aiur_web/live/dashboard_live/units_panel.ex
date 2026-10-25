@@ -2,10 +2,10 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
-  import Phoenix.LiveView, only: [push_patch: 2]
+  import Phoenix.LiveView, only: [push_patch: 2, start_async: 3]
 
   alias Aiur.OpenTicketSource
-  alias AiurWeb.DashboardLive
+  alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.DashboardLive.Controls
   alias AiurWeb.OperatorControlCenter.{AddAgentSubmission, AgentRoutingPreview, TicketsPresenter, UnitsPresenter, UnitsURL}
 
@@ -202,7 +202,7 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
   defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
     OpenTicketSource.refresh()
     Aiur.Orchestrator.request_refresh(Controls.capacity_orchestrator())
-    DashboardLive.reload_after_action(socket)
+    Commands.reload_after_action(socket)
   rescue
     _error -> socket
   catch
@@ -246,5 +246,41 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
       1 -> "1 unit"
       count -> "#{count} units"
     end
+  end
+
+  @doc false
+  @spec on_open_add_agent(String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  def on_open_add_agent(token, socket) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  @doc false
+  @spec on_confirm_add_agent(map(), map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
+  def on_confirm_add_agent(params, modal, socket) do
+    modal =
+      if Map.has_key?(params, "backend") do
+        change_add_agent(modal, params)
+      else
+        modal
+      end
+
+    orchestrator = Controls.capacity_orchestrator()
+
+    {:noreply,
+     socket
+     |> assign(:add_agent_pending, modal)
+     |> assign(:add_agent_modal, Map.put(modal, :pending?, true))
+     |> start_async(:add_agent_submission, fn ->
+       result = AddAgentSubmission.run(modal)
+
+       if match?(%{error: nil, authorization: :authorized, state: "todo"}, result) do
+         Aiur.Orchestrator.note_queued_demand(orchestrator, [modal.identifier])
+       end
+
+       result
+     end)}
   end
 end

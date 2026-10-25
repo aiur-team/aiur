@@ -6,7 +6,8 @@ defmodule AiurWeb.DashboardLive.Controls do
 
   alias Aiur.AgentPubSub
   alias Aiur.Orchestrator.Slots
-  alias AiurWeb.{DashboardLive, EndpointConfig}
+  alias AiurWeb.DashboardLive.Commands
+  alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{PauseState, UnitControls, UnitsControlPolicy, UnitsPresenter}
 
   @doc false
@@ -15,7 +16,7 @@ defmodule AiurWeb.DashboardLive.Controls do
     socket
     |> assign(:globally_paused, global_pause_state(socket.assigns.payload))
     |> PauseState.toggle()
-    |> DashboardLive.reload_after_action()
+    |> Commands.reload_after_action()
   end
 
   @doc false
@@ -62,7 +63,7 @@ defmodule AiurWeb.DashboardLive.Controls do
       end
 
     socket
-    |> DashboardLive.reload_after_action()
+    |> Commands.reload_after_action()
     |> assign(:capacity_feedback, %{kind: kind, max: new_max})
   end
 
