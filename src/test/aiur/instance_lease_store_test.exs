@@ -33,6 +33,16 @@ defmodule Aiur.Instance.LeaseStoreTest do
     assert {:error, :invalid_ticket_key} = LeaseStore.ticket_key(%{"number" => 42, "repository" => "acme/widgets/extra"})
   end
 
+  test "leader claim and renew return store_unavailable when the store server is down" do
+    dead_server = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_server)
+    assert_receive {:DOWN, ^ref, :process, ^dead_server, :normal}
+
+    for result <- [LeaseStore.claim_leader("owner/repo", server: dead_server), LeaseStore.renew_leader("owner/repo", server: dead_server)] do
+      assert {:error, {:store_unavailable, _reason}} = result
+    end
+  end
+
   test "an unavailable PostgreSQL store leaves its supervisor and sibling services alive" do
     parent = self()
     previous = Application.get_env(:aiur, :lease_database_url)

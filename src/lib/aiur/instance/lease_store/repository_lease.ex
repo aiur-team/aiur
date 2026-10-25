@@ -17,6 +17,8 @@ defmodule Aiur.Instance.LeaseStore.RepositoryLease do
   def claim_for_store(action, repository, opts, server) do
     instance_id = Keyword.get_lazy(opts, :instance_id, fn -> GenServer.call(server, :instance_id) end)
     call(action, repository, Keyword.put(opts, :instance_id, instance_id))
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
   end
 
   @spec leader(String.t(), keyword()) :: map() | :unheld | :disabled | :unknown
