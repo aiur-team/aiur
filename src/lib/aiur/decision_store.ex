@@ -107,6 +107,16 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:answer, decision_id, payload, opts}, timeout)
   end
 
+  @doc false
+  @spec consume_pending_for_session(String.t(), String.t(), [String.t()], GenServer.server()) :: :ok
+  def consume_pending_for_session(ticket_identifier, session_id, action_ids, server \\ __MODULE__) do
+    GenServer.call(server, {:consume_pending_for_session, ticket_identifier, session_id, action_ids}, @request_timeout)
+  end
+
+  @doc false
+  @spec consume_pending_for_session_async(String.t(), String.t(), [String.t()], GenServer.server()) :: :ok
+  defdelegate consume_pending_for_session_async(ticket_identifier, session_id, action_ids, server), to: Aiur.DecisionStore.Async
+
   @doc """
   Durably records that the Executor deferred one still-undecided Command to
   the operator, then opens the keyed operator attention.
@@ -318,9 +328,8 @@ defmodule Aiur.DecisionStore do
   end
 
   @spec list(GenServer.server()) :: [Decision.t()]
-  def list(server \\ __MODULE__) do
-    GenServer.call(server, :list)
-  end
+  @spec list(GenServer.server(), timeout()) :: [Decision.t()]
+  def list(server \\ __MODULE__, timeout \\ @request_timeout), do: GenServer.call(server, :list, timeout)
 
   @doc "Returns one exact retained Decision and its health from one serialized store snapshot."
   @spec retained_lookup(String.t(), GenServer.server()) ::

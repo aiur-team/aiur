@@ -104,6 +104,19 @@ defmodule Aiur.RecentMerge.ClosingReferences do
 
   @reference_regex ~r/(?:^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?|[,;][ \t]*|\band[ \t]+)(?:refs?|mentions?|related[ \t]+to)[ \t]+(?<repository>[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)?\#(?<number>\d+)\b/im
 
+  @doc "Returns same-repository identifiers named by a reference or closing keyword in arbitrary text."
+  @spec linked_identifiers_in_text(term(), String.t() | nil) :: [String.t()]
+  def linked_identifiers_in_text(text, repository) when is_binary(text) do
+    text
+    |> quotable_text()
+    |> then(fn quotable ->
+      referenced_identifiers_in_body(quotable, repository) ++ identifiers_in_body(quotable, repository)
+    end)
+    |> Enum.uniq()
+  end
+
+  def linked_identifiers_in_text(_, _), do: []
+
   @spec referenced_identifiers_in_body(String.t() | nil, String.t() | nil) :: [String.t()]
   def referenced_identifiers_in_body(body, repository) when is_binary(body) do
     body
