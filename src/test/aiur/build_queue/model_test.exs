@@ -47,6 +47,11 @@ defmodule Aiur.BuildQueue.ModelTest do
     end
   end
 
+  test "older intents default preexisting todo provenance to false" do
+    legacy = update_in(encoded(), ["intents"], fn intents -> Enum.map(intents, &Map.delete(&1, "preexisting_todo?")) end)
+    assert {:ok, %{intents: [%Intent{preexisting_todo?: false}]}} = Model.decode(legacy)
+  end
+
   test "rejects version 2 and every other version" do
     for version <- [2, 0, nil, "1", %{}, []] do
       assert Model.decode(Map.put(encoded(), "version", version)) == {:error, {:unsupported_version, version}}

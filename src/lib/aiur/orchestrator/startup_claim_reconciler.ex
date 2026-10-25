@@ -9,10 +9,18 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
+  alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.StartupClaimReconciler.{BootMarker, Observation, Release}
 
   @max_release_attempts 3
+  @ancestry_backoff_ms 30_000
+  @ancestry_backoff_cap_ms 600_000
+  # Some ancestry failures never clear (a diff of 300+ files or over 100 commits), so alert once after this long.
+  @ancestry_persistent_ms 3_600_000
+  # A cold-start budget hold usually clears within seconds and the next candidate
+  # poll retries it, so it alerts only once it has lasted this long.
+  @hold_persistent_ms 600_000
 
   @spec reconcile(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
   def reconcile(state, issues, opts \\ [])
@@ -95,13 +103,20 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     {%{state | startup_claim_reconciliation_complete?: not unsettled?}, Enum.reject(issues, &is_nil/1)}
   end
 
+  # Another instance's claim is not an orphan of this daemon (#5803).
   defp reconcile_issue(%State{} = state, %Issue{identifier: identifier} = issue, live_identifiers, opts)
        when is_binary(identifier) do
-    cond do
-      DispatchPolicy.state_slug(issue.state) != "in-progress" ->
-        {:ok, resolve_release_failure(state, issue, opts), issue}
+    if Aiur.Instance.skip?(identifier, issue.labels, :orphan_claim), do: {:ok, state, issue}, else: reconcile_owned(state, issue, live_identifiers, opts)
+  end
 
-      not Map.has_key?(state.orphaned_claim_since, identifier) ->
+  defp reconcile_issue(state, issue, _live_identifiers, _opts), do: {:ok, state, issue}
+
+  defp reconcile_owned(state, %Issue{identifier: identifier} = issue, live_identifiers, opts) do
+    cond do
+      approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) ->
+        release_orphaned_claim(state, issue, Keyword.put(opts, :forced_target, "ci-wait"))
+
+      not recoverable_claim?(state, issue, identifier) ->
         {:ok, resolve_release_failure(state, issue, opts), issue}
 
       not Observation.expired?(state, issue, opts) ->
@@ -113,6 +128,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
       TrackerTasks.issue_pending?(state, issue.id) ->
         {:retry, state, nil}
 
+      backing_off?(state, issue, opts) ->
+        {:retry, state, issue}
+
       retry_exhausted?(state, issue) ->
         # Already latched this boot: leave the claim in place and never
         # re-attempt it, and do not block pass completion.
@@ -123,7 +141,16 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     end
   end
 
-  defp reconcile_issue(state, issue, _live_identifiers, _opts), do: {:ok, state, issue}
+  defp recoverable_claim?(state, issue, identifier) do
+    DispatchPolicy.state_slug(issue.state) == "in-progress" and
+      not CiLifecycle.approved_and_armed?(state, issue) and Map.has_key?(state.orphaned_claim_since, identifier)
+  end
+
+  defp approved_armed_orphan?(state, issue, identifier, live_identifiers, opts) do
+    DispatchPolicy.state_slug(issue.state) == "in-progress" and CiLifecycle.approved_and_armed?(state, issue) and
+      Map.has_key?(state.orphaned_claim_since, identifier) and Observation.expired?(state, issue, opts) and
+      not MapSet.member?(live_identifiers, identifier) and not TrackerTasks.issue_pending?(state, issue.id)
+  end
 
   # Positive current-generation liveness. A live Task pid protects its claim; a
   # parked/staged entry (`pid: nil` — a rate-limit-fallback redispatch or a
@@ -166,15 +193,18 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     case Release.run(issue, opts) do
       {:ok, target} ->
         Logger.warning("Released orphaned startup claim to #{target}; no live runtime owns it #{State.issue_context(issue)}")
-        emit_released_alert(issue, target, opts)
+        if release_changes_state?(issue, target), do: emit_released_alert(issue, target, opts)
+        if DispatchPolicy.state_slug(target) == "human-review", do: TransitionAlerts.publish_human_review_handoff(issue, opts)
         state = resolve_release_failure(state, issue, opts)
         state = %{state | claimed: MapSet.delete(state.claimed, issue.id), orphaned_claim_since: Map.delete(state.orphaned_claim_since, issue.identifier)}
         {:ok, state, %{issue | state: target, state_labels: [target]}}
 
       {:defer, reason} ->
-        attempts = get_in(state.startup_claim_reconciliation_failures, [issue.identifier, :attempts]) || 0
-        emit_release_failed(state, issue, reason, attempts, opts)
-        failures = Map.put(state.startup_claim_reconciliation_failures, issue.identifier, %{reason: reason, attempts: attempts})
+        entry = Map.get(state.startup_claim_reconciliation_failures, issue.identifier, %{})
+        attempts = Map.get(entry, :attempts, 0)
+        emit_release_failed(state, issue, reason, attempts, opts, true)
+        entry = entry |> quiet_entry(reason) |> deferred_entry(reason, attempts, opts) |> alert_persistent(issue, opts)
+        failures = Map.put(state.startup_claim_reconciliation_failures, issue.identifier, entry)
         {:retry, %{state | startup_claim_reconciliation_failures: failures}, issue}
 
       {:error, reason} ->
@@ -201,17 +231,18 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     end
   end
 
-  defp emit_release_failed(%State{} = state, %Issue{} = issue, reason, attempts, opts) do
+  defp emit_release_failed(%State{} = state, %Issue{} = issue, reason, attempts, opts, deferred? \\ false) do
     Logger.error(
       "Failed to release orphaned startup claim: #{inspect(reason)}; " <>
-        if(attempts >= @max_release_attempts,
-          do: "attempts exhausted; Executor intervention required ",
-          else: "retry #{attempts}/#{@max_release_attempts} on a later candidate poll "
-        ) <>
+        cond do
+          deferred? -> "deferred to a later candidate poll without using an attempt "
+          attempts >= @max_release_attempts -> "attempts exhausted; Executor intervention required "
+          true -> "retry #{attempts}/#{@max_release_attempts} on a later candidate poll "
+        end <>
         "#{State.issue_context(issue)}"
     )
 
-    if attempts >= @max_release_attempts or not Map.has_key?(state.startup_claim_reconciliation_failures, issue.identifier) do
+    if alert_release_failed?(state, issue, reason, attempts, deferred?) do
       emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
 
       emit_alert_fun.(
@@ -224,11 +255,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
           ),
         reason:
           "Ticket #{issue.identifier} has no live runtime, but its guarded update from in-progress to its recovery state failed " <>
-            "(#{inspect(reason)}); " <>
-            if(attempts >= @max_release_attempts,
-              do: "no further release attempts will run within this boot.",
-              else: "it will be retried up to #{@max_release_attempts} times within this boot."
-            ),
+            "(#{inspect(reason)}); " <> retry_outlook(reason, attempts, deferred?),
         needs_attention: true,
         severity: "warning",
         central: true,
@@ -237,6 +264,25 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     end
 
     :ok
+  end
+
+  defp alert_release_failed?(_state, _issue, _reason, attempts, _deferred?) when attempts >= @max_release_attempts, do: true
+
+  defp alert_release_failed?(state, issue, reason, _attempts, deferred?) do
+    entry = Map.get(state.startup_claim_reconciliation_failures, issue.identifier)
+    not (deferred? and budget_hold?(reason)) and (is_nil(entry) or Map.get(entry, :quiet, false))
+  end
+
+  defp retry_outlook(:review_base_ancestry_unavailable, _attempts, true),
+    do: "it will be retried with backoff (up to every #{div(@ancestry_backoff_cap_ms, 60_000)} min) without using up release attempts."
+
+  defp retry_outlook(_reason, _attempts, true), do: "it will be retried on a later candidate poll without using up release attempts."
+  defp retry_outlook(_reason, attempts, false) when attempts >= @max_release_attempts, do: "no further release attempts will run within this boot."
+  defp retry_outlook(_reason, _attempts, false), do: "it will be retried up to #{@max_release_attempts} times within this boot."
+
+  defp release_changes_state?(%Issue{} = issue, target) do
+    DispatchPolicy.state_slug(issue.state) != DispatchPolicy.state_slug(target) and
+      DispatchPolicy.state_slug(target) != "human-review"
   end
 
   defp emit_released_alert(%Issue{} = issue, target, opts) do
@@ -261,6 +307,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
       {nil, _failures} ->
         state
 
+      {%{quiet: true}, failures} ->
+        %{state | startup_claim_reconciliation_failures: failures}
+
       {_entry, failures} ->
         emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
 
@@ -277,6 +326,92 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         %{state | startup_claim_reconciliation_failures: failures}
     end
   end
+
+  # Ancestry reads retry with exponential backoff rather than on every candidate poll.
+  defp deferred_entry(entry, :review_base_ancestry_unavailable = reason, attempts, opts) do
+    defers = Map.get(entry, :defers, 0)
+    delay = min(@ancestry_backoff_ms * Integer.pow(2, defers), @ancestry_backoff_cap_ms)
+    now = now_ms(opts)
+    Map.merge(entry, %{reason: reason, attempts: attempts, defers: defers + 1, retry_at: now + delay, since: Map.get(entry, :since, now)})
+  end
+
+  defp deferred_entry(entry, reason, attempts, opts),
+    do: Map.merge(entry, %{reason: reason, attempts: attempts, since: Map.get(entry, :since, now_ms(opts))})
+
+  # `quiet` marks an entry that has raised no alert yet, so its recovery stays silent too.
+  defp quiet_entry(entry, reason) do
+    if budget_hold?(reason) and (entry == %{} or Map.get(entry, :quiet, false)),
+      do: Map.put(entry, :quiet, true),
+      else: Map.delete(entry, :quiet)
+  end
+
+  defp budget_hold?({:github, kind, _detail}) when kind in [:local_hold, :rate_limited], do: true
+  defp budget_hold?({:aiur, :locally_held, _hold}), do: true
+  defp budget_hold?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}), do: true
+  defp budget_hold?(_reason), do: false
+
+  defp alert_persistent(%{reason: reason, since: since} = entry, issue, opts) when not is_map_key(entry, :persistent_alerted) do
+    cond do
+      reason == :review_base_ancestry_unavailable -> alert_persistent_ancestry(entry, issue, opts)
+      budget_hold?(reason) and now_ms(opts) - since >= @hold_persistent_ms -> alert_persistent_hold(entry, issue, opts)
+      true -> entry
+    end
+  end
+
+  defp alert_persistent(entry, _issue, _opts), do: entry
+
+  defp alert_persistent_hold(entry, issue, opts) do
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    minutes = div(@hold_persistent_ms, 60_000)
+
+    emit_alert_fun.(
+      failure_topic(issue),
+      issue: issue,
+      message: "Startup reconciliation has not released ticket #{issue.identifier} for over #{minutes} min: GitHub admission stays held.",
+      reason:
+        "Ticket #{issue.identifier} has no live runtime, but every release attempt for the last #{minutes} min " <>
+          "was refused by a GitHub budget hold (#{inspect(entry.reason)}). Retries continue on each candidate poll without another alert.",
+      needs_attention: true,
+      severity: "warning",
+      central: true,
+      durable: true
+    )
+
+    entry |> Map.delete(:quiet) |> Map.put(:persistent_alerted, true)
+  end
+
+  defp alert_persistent_ancestry(%{since: since} = entry, issue, opts) do
+    if now_ms(opts) - since >= @ancestry_persistent_ms do
+      emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+
+      emit_alert_fun.(
+        failure_topic(issue),
+        issue: issue,
+        message: "Startup reconciliation has not released ticket #{issue.identifier} for over an hour: its review-base ancestry stays unavailable.",
+        reason:
+          "Ticket #{issue.identifier} has no live runtime, but the review-base ancestry check for its PR has failed for over " <>
+            "#{div(@ancestry_persistent_ms, 60_000)} min. This usually does not clear on its own: the PR diff has 300 or more files " <>
+            "or over 100 commits since its merge base. Relabel the ticket by hand; backoff retries continue without another alert.",
+        needs_attention: true,
+        severity: "warning",
+        central: true,
+        durable: true
+      )
+
+      Map.put(entry, :persistent_alerted, true)
+    else
+      entry
+    end
+  end
+
+  defp backing_off?(%State{} = state, %Issue{identifier: identifier}, opts) do
+    case Map.get(state.startup_claim_reconciliation_failures, identifier) do
+      %{retry_at: retry_at} -> now_ms(opts) < retry_at
+      _other -> false
+    end
+  end
+
+  defp now_ms(opts), do: Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
 
   defp retry_exhausted?(%State{} = state, %Issue{identifier: identifier}) do
     case Map.get(state.startup_claim_reconciliation_failures, identifier) do

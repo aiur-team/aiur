@@ -1,6 +1,7 @@
 defmodule Aiur.BuildOrder.History.Timing do
   @moduledoc "Derives honest Gantt intervals from journaled history facts."
   alias Aiur.BuildOrder.History.Row
+  alias Aiur.BuildOrder.SourceFreshness
 
   # ponytail: fixed five-minute clock tolerance; revisit if the feed measures larger skew.
   @skew_ms 300_000
@@ -32,7 +33,7 @@ defmodule Aiur.BuildOrder.History.Timing do
 
   @spec to_payload(Row.t()) :: map()
   def to_payload(row) do
-    %{start: milliseconds(row.start), end: milliseconds(row.end), start_src: if(match?(%DateTime{}, row.start), do: Atom.to_string(row.start_source), else: "unknown")}
+    %{start: SourceFreshness.ms(row.start), end: SourceFreshness.ms(row.end), start_src: if(match?(%DateTime{}, row.start), do: Atom.to_string(row.start_source), else: "unknown")}
   end
 
   defp pick_end(%{merged_at: %DateTime{} = at}), do: at
@@ -69,7 +70,4 @@ defmodule Aiur.BuildOrder.History.Timing do
       _value, old -> old
     end)
   end
-
-  defp milliseconds(%DateTime{} = at), do: DateTime.to_unix(at, :millisecond)
-  defp milliseconds(_unknown), do: nil
 end

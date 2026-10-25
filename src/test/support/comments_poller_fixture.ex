@@ -2,14 +2,55 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
   @moduledoc false
   import Aiur.TestSupport
   import Aiur.TestSupport.EventTicket
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.{CodeOwners, ResourceStore}
   alias Aiur.Workflow
+
+  # Shared `setup` for every comments-poller test file.
+  def comments_poller_env(_context) do
+    prev_token = System.get_env("GITHUB_TOKEN")
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "aiur"
+    )
+
+    Publisher.set_tracked_fn(fn _ -> true end)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      restore_env("GITHUB_TOKEN", prev_token)
+      Publisher.set_tracked_fn(fn _ -> true end)
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+
+      # This suite publishes reviews and comments through the shared
+      # `Publisher`, which marks them in `ResourceStore` and records their
+      # dedup keys in the volatile `Publisher.Dedup` window. Neither is cleared
+      # per test anywhere else, so a sibling suite that publishes the same
+      # review ids (e.g. `WebhookPollReconciliationTest`) would be silently
+      # suppressed by the leaked marks/keys when this suite runs first. Clean
+      # both up so the shared state is self-contained per module.
+      ResourceStore.reset()
+
+      case :ets.whereis(Aiur.Events.Publisher.Dedup) do
+        :undefined -> :ok
+        table -> :ets.delete_all_objects(table)
+      end
+    end)
+
+    :ok
+  end
 
   def ensure_codeowners!(contents) do
     case Process.whereis(CodeOwners) do
       pid when is_pid(pid) ->
         previous_allowlist = CodeOwners.snapshot(pid)
         :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(["its-everdred"])})
+        ExUnit.Callbacks.on_exit(fn -> restore_allowlist(pid, previous_allowlist) end)
 
         %{pid: pid, path: nil, owned?: false, previous_allowlist: previous_allowlist}
 
@@ -38,11 +79,13 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
         end)
 
         :ok = CodeOwners.refresh(pid)
+        ExUnit.Callbacks.on_exit(fn -> restore_state(pid, previous_state) end)
 
         %{pid: pid, path: path, owned?: false, previous_state: previous_state}
 
       nil ->
         {:ok, pid} = CodeOwners.start_link(path: path, refresh_seconds: 3600)
+
         %{pid: pid, path: path, owned?: true}
     end
   end
@@ -64,16 +107,21 @@ defmodule Aiur.TestSupport.CommentsPollerFixture do
   end
 
   def stop_codeowners(%{pid: pid, path: path, owned?: false, previous_state: previous_state}) do
-    if Process.alive?(pid) do
-      :sys.replace_state(pid, fn _state -> previous_state end)
-    end
-
+    if Process.alive?(pid), do: :sys.replace_state(pid, fn _state -> previous_state end)
     File.rm(path)
   end
 
   def stop_codeowners(%{pid: pid, path: path, owned?: true}) do
     Aiur.TestSupport.safe_stop(pid)
     File.rm(path)
+  end
+
+  defp restore_allowlist(pid, allowlist) do
+    if Process.alive?(pid), do: :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new(allowlist)})
+  end
+
+  defp restore_state(pid, state) do
+    if Process.alive?(pid), do: :sys.replace_state(pid, fn _current -> state end)
   end
 
   def empty_review_threads_response, do: review_threads_response([])

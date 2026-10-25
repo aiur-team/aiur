@@ -9,9 +9,8 @@ defmodule Aiur.DecisionRevisionDispatch do
   for a permanent outcome.
   """
 
+  alias Aiur.Commands.DeliveryTarget
   alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy}
-  alias Aiur.Orchestrator.OperatorMessages
 
   @max_message_chars 7_800
 
@@ -108,8 +107,8 @@ defmodule Aiur.DecisionRevisionDispatch do
   defp send_revision(decision, revision, target, opts) do
     attempt_id = Keyword.fetch!(opts, :attempt_id)
     retry_failed = Keyword.get(opts, :retry_failed, false)
-    server = Keyword.get(opts, :operator_messages, Aiur.Orchestrator)
-    send_fun = Keyword.get(opts, :send_fun, &OperatorMessages.send_correlated_operator_message/3)
+    server = Keyword.get(opts, :operator_messages)
+    send_fun = Keyword.get(opts, :send_fun, &send_through_target/3)
 
     correlation = %{
       decision_id: decision.decision_id,
@@ -181,12 +180,16 @@ defmodule Aiur.DecisionRevisionDispatch do
   defp classify_revalidation({:skip, :missing}, _terminal_states), do: {:no_longer_applicable, :missing}
 
   defp classify_revalidation({:skip, %Issue{} = issue}, terminal_states) do
-    if DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
+    if DeliveryTarget.impl().terminal_issue_state?(issue.state, terminal_states) do
       {:no_longer_applicable, {:terminal, issue.state}}
     else
       {:ok, issue}
     end
   end
+
+  # An unbound target is not a tracker fault: the transient
+  # `target_revalidation_failed` would retry a missing binding.
+  defp classify_revalidation({:error, :delivery_target_unbound} = error, _terminal_states), do: error
 
   defp classify_revalidation({:error, reason}, _terminal_states) do
     {:error, {:target_revalidation_failed, reason}}
@@ -218,7 +221,7 @@ defmodule Aiur.DecisionRevisionDispatch do
   end
 
   defp terminal_states(opts) do
-    states = Keyword.get_lazy(opts, :terminal_states, &DispatchPolicy.terminal_state_set/0)
+    states = Keyword.get_lazy(opts, :terminal_states, fn -> DeliveryTarget.impl().terminal_state_set() end)
 
     if is_struct(states, MapSet) do
       {:ok, states}
@@ -228,9 +231,15 @@ defmodule Aiur.DecisionRevisionDispatch do
   end
 
   defp revalidate_fun(opts) do
-    case Keyword.get(opts, :revalidate_fun, &Dispatcher.revalidate_issue_for_dispatch/3) do
+    case Keyword.get(opts, :revalidate_fun, &revalidate_through_target/3) do
       fun when is_function(fun, 3) -> {:ok, fun}
       _other -> {:error, {:target_revalidation_context, :invalid_revalidator}}
     end
   end
+
+  defp send_through_target(server, ticket_identifier, payload),
+    do: DeliveryTarget.impl().send_correlated(server, ticket_identifier, payload)
+
+  defp revalidate_through_target(issue, issue_fetcher, terminal_states),
+    do: DeliveryTarget.impl().revalidate_issue(issue, issue_fetcher, terminal_states)
 end

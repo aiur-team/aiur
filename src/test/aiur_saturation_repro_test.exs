@@ -104,7 +104,7 @@ defmodule AiurSaturationReproTest do
 
     File.chmod!(Path.join(dir, "aiur"), 0o755)
     File.chmod!(Path.join(dir, "epmd"), 0o755)
-    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(on_exit_dir) end)
+    ExUnit.Callbacks.on_exit(fn -> Aiur.TestCleanup.rm_rf!(on_exit_dir) end)
     dir
   end
 
@@ -157,7 +157,7 @@ defmodule AiurSaturationReproTest do
   defp watch(stub_daemon_state, dump_setup \\ "") do
     dir = Aiur.TestSupport.tmp_root!("aiur-repro-watch")
     File.mkdir_p!(dir)
-    ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(dir) end)
+    ExUnit.Callbacks.on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     sourced("""
     resolved_dump="#{dir}/erl_crash.dump"

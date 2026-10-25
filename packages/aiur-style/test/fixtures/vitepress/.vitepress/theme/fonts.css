@@ -1,0 +1,10 @@
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('../../../../../gallery/assets/SpaceGrotesk-Variable.woff2') format('woff2');
+  font-weight: 300 700;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../../../../../gallery/assets/JetBrainsMono-Variable.woff2') format('woff2');
+  font-weight: 100 800;
+}

@@ -154,7 +154,7 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
 
   test "history snapshot carries the repository used to reject foreign parents" do
     dir = Aiur.TestSupport.tmp_root!("root-import-history")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     pid = start_supervised!({History, name: :root_import_history_repository, repository: "aiur-team/aiur", state_dir: dir})
     assert {:ok, snapshot} = History.snapshot(server: pid)
     assert snapshot.repository == "aiur-team/aiur"
@@ -164,7 +164,7 @@ defmodule Aiur.BuildOrder.Features.RootImportTest do
 
   defp store do
     dir = Aiur.TestSupport.tmp_root!("root-import-features")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     pid = start_supervised!({Features, name: nil, state_dir: dir, general_epics: [], filesystem_sync_fun: fn -> :ok end, alert_fun: fn _, _, _ -> :ok end})
     {pid, fn op, args -> apply(Features, op, List.update_at(args, -1, &Keyword.put(&1, :server, pid))) end}
   end

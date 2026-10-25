@@ -34,7 +34,7 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
     reviews = [review("owner", "APPROVED")]
     ResourceStore.put_resource(key, reviews, source: :webhook)
 
-    assert {:error, {:github, :timeout, %{reason: :timeout}}} = HumanReviewGate.approved_pull_request?(77, request_fun: fn _req -> {:error, :timeout} end)
+    assert {:error, {:github, :timeout, %{reason: :timeout}}} = HumanReviewGate.approved_pull_request?(77, token: "test-gh-token", request_fun: fn _req -> {:error, :timeout} end)
     assert ResourceStore.data(key) == reviews
   end
 
@@ -50,7 +50,7 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
       {:ok, %{status: 304, headers: [{"etag", ~s("reviews-v1")}], body: nil}}
     end
 
-    assert {:ok, true} = HumanReviewGate.approved_pull_request?(77, request_fun: request_fun)
+    assert {:ok, true} = HumanReviewGate.approved_pull_request?(77, token: "test-gh-token", request_fun: request_fun)
     assert_received {:requested, ~s("reviews-v1")}
   end
 
@@ -63,7 +63,7 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
       {:ok, %{status: 200, body: [review("owner", "APPROVED")]}}
     end
 
-    assert {:ok, %{pr_number: 88, stage: :pr_approved, head_sha: "head"}} = BlockerProgress.approval("12", nil, request_fun: request)
+    assert {:ok, %{pr_number: 88, stage: :pr_approved, head_sha: "head"}} = BlockerProgress.approval("12", nil, token: "test-gh-token", request_fun: request)
     assert_received {:request, url}
     assert url =~ "/pulls/88/reviews?per_page=100"
     refute_received {:request, _second}
@@ -77,9 +77,9 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
       {:error, :not_allowed}
     end
 
-    for _ <- 1..2, do: assert({:ok, nil} == BlockerProgress.approval("12", nil, request_fun: request))
+    for _ <- 1..2, do: assert({:ok, nil} == BlockerProgress.approval("12", nil, token: "test-gh-token", request_fun: request))
     hold_pr("owner/repo", true)
-    assert {:ok, nil} = BlockerProgress.approval("12", nil, request_fun: request)
+    assert {:ok, nil} = BlockerProgress.approval("12", nil, token: "test-gh-token", request_fun: request)
     refute_received :unexpected_request
   end
 
@@ -92,7 +92,7 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
       {:error, :not_allowed}
     end
 
-    assert {:ok, nil} = BlockerProgress.approval("12", nil, request_fun: request)
+    assert {:ok, nil} = BlockerProgress.approval("12", nil, token: "test-gh-token", request_fun: request)
     refute_received :unexpected_request
   end
 
@@ -105,7 +105,7 @@ defmodule Aiur.GitHub.HumanReviewApprovalTest do
   end
 
   defp approval(reviews) do
-    HumanReviewGate.approved_pull_request?(77, request_fun: fn _req -> {:ok, %{status: 200, body: reviews}} end)
+    HumanReviewGate.approved_pull_request?(77, token: "test-gh-token", request_fun: fn _req -> {:ok, %{status: 200, body: reviews}} end)
   end
 
   defp review(login, state, submitted_at \\ "2026-08-10T11:00:00Z") do

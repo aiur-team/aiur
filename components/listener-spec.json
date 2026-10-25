@@ -1,0 +1,31 @@
+{
+  "id": "listener-spec",
+  "name": "Shared listener specification",
+  "layer": 5,
+  "kind": "package",
+  "paths": [],
+  "facades": [
+    "*"
+  ],
+  "facade_pending": "MP-R1-C1-T02",
+  "requires": [],
+  "optional": [],
+  "owns": {
+    "config": [],
+    "env": [],
+    "state": [],
+    "capabilities": []
+  },
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Defines message delivery modes and examples shared with Khala.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-E7"
+}

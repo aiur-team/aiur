@@ -49,7 +49,7 @@ This runbook keeps the AC12 acceptance procedure beside the measurement steps it
 
 ## Executor collection
 
-Read [GitHub accounting guidance](../../website/docs-app/apis/github.md#reading-these-numbers-without-fooling-yourself)
+Read [GitHub accounting guidance](../../website/docs-app/apis/github-budgets.md#reading-these-numbers-without-fooling-yourself)
 first. Run from the Executor checkout, never an issue workspace. Use the
 launched instance's identity for every control command. Preserve evidence
 outside the logs that `--test3` clears, **before launching AC12**:
@@ -62,7 +62,7 @@ tmux -L queue-cost-driver new-session -d -s queue-cost-driver -x 220 -y 60 \
   "bash -c 'unset TMUX; exec mise exec -- ./scripts/aiurdev --test3 --max-agents 1' 2>&1 | tee '$measurement_dir/startup.log'; sleep 3600"
 ```
 
-Follow the canonical wrapper-tmux recipe in [AGENTS.md](../../AGENTS.md#driving-the-tui-from-a-non-tty-agent-environment):
+Follow the canonical wrapper-tmux recipe in [docs/manual-testing.md](../manual-testing.md#driving-the-tui-from-a-non-tty-agent-environment):
 read `aiur foreground tmux socket …, session …` from this startup log, wait for
 a running row, open its chat pane, send input and capture rendered output.
 Do not use HTTP/log inspection as proof of AC12. Back up the repository request
@@ -142,7 +142,9 @@ Queue-owned label requests use `build_queue_label_post` and
 `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`.
 Closure reads retain `build_queue_observe`; native dependency reads retain
 `build_queue_blocked_by`. Cached reads produce no HTTP request/ledger row.
-Shared open-list/catalog reads are shared cost, not exclusively queue cost.
+The queue's own stale-snapshot listing (#3946) uses `build_queue_open_issue_list`
+and is queue cost; the counting script below includes it. Other shared
+open-list/catalog reads are shared cost, not exclusively queue cost.
 
 The durable TSV has no header: columns 1–13 are `ts` (Unix seconds), `pid`,
 `consumer`, `caller`, `method`, `host`, `path`, `status`, `resource`, `direction`,
@@ -213,6 +215,26 @@ print({"samples": len(rows),
        "peak_ready_backlog": max((r["ready"] for r in rows), default=None)})
 PY
 ```
+
+## Stalled dispatch poll (#3946)
+
+During the 2026-10-09 acceptance run, after `saturation_sentinel entered
+load1=25.02`, the daemon made no `open_issue_list*` request for ten minutes and
+queue freshness stayed `unknown` for six. A non-empty queue now requests its own
+listing (`build_queue_open_issue_list`) once its snapshot is older than the
+observation age, at most once per observation age and never while the previous
+one is still running. The listing is conditional on its own page cache, so an
+unchanged page answers `304`; that rate is not measured live. The AC12 sequence
+above is unchanged.
+
+`src/test/aiur/build_queue/refresh_test.exs` reproduces the stall
+deterministically: no dispatch poll ever lists, and the queue recovers a fresh
+observation and promotes. It covers a stalled or delayed dispatch poll cycle
+while the daemon still schedules the queue server. It does not cover a host that
+cannot schedule the daemon at all, or a listing that fails or times out; the
+same test's first refresh fails and freshness stays `unknown`. The fix has not
+been measured under real host load, and each refresh is an added read, not a
+saving.
 
 ## Results — pending Executor measurement
 

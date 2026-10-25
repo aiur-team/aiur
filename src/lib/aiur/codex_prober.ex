@@ -9,6 +9,7 @@ defmodule Aiur.CodexProber do
 
   require Logger
 
+  alias Aiur.AppServer.Transport
   alias Aiur.Codex.{AppServerPort, Handshake}
   alias Aiur.{Config, ModelAvailability, Workspace}
 
@@ -23,6 +24,18 @@ defmodule Aiur.CodexProber do
   """
   @spec probe_async(String.t(), keyword()) :: :ok
   def probe_async(backend, opts \\ []) when is_binary(backend) do
+    if probe_async_enabled?(opts) do
+      do_probe_async(backend, opts)
+    else
+      :ok
+    end
+  end
+
+  defp probe_async_enabled?(opts) do
+    Keyword.get(opts, :enabled?, Application.get_env(:aiur, :codex_usage_probe_async?, true))
+  end
+
+  defp do_probe_async(backend, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     path = Keyword.get(opts, :path, ModelAvailability.path())
 
@@ -101,7 +114,7 @@ defmodule Aiur.CodexProber do
 
   defp try_probe_port(port, opts) do
     os_pid =
-      case is_port(port) && Port.info(port, :os_pid) do
+      case (is_port(port) or is_pid(port)) && Transport.os_pid(port) do
         {:os_pid, pid} -> pid
         _ -> nil
       end
@@ -120,6 +133,7 @@ defmodule Aiur.CodexProber do
   defp flush_probe_exit(port) do
     receive do
       {:EXIT, ^port, _reason} -> :ok
+      {:DOWN, _ref, :port, ^port, _reason} -> :ok
     after
       0 -> :ok
     end

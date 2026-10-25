@@ -40,6 +40,11 @@ every blocker push is an integration signal.
    After every rewrite, recheck every still-unmerged blocker SHA against HEAD
    using step 1 and reintegrate missing heads before recording or validation:
    a plain rebase can drop merges or rewrite another blocker's commits.
+   Emit `optimistic.integrated` once for each attempted blocker SHA, with
+   `payload: {blocker: "N", sha: "<new>", conflict: <boolean>, non_ff: <boolean>}`.
+   Set `conflict` if merge/rebase conflicted (even if resolved or aborted), and
+   `non_ff` if the old blocker SHA was not an ancestor of the new SHA. Emit after
+   the attempt, before tests or parking; the publisher scopes it to your ticket.
 3. **Record, validate and publish.** After successful integration, record the
    new integrated SHA immediately, with validation pending; this boundary must
    match HEAD even if tests fail. Inspect `git -C "$workspace" diff <old> <new>`

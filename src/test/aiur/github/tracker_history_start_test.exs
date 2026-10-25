@@ -15,7 +15,7 @@ defmodule Aiur.GitHub.TrackerHistoryStartTest do
     Application.put_env(:aiur, :github_client_module, Client)
     on_exit(fn -> if prior, do: Application.put_env(:aiur, :github_client_module, prior), else: Application.delete_env(:aiur, :github_client_module) end)
     dir = Aiur.TestSupport.tmp_root!("tracker-history")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir}
   end
 

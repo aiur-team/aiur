@@ -7,11 +7,11 @@ defmodule Aiur.Regression.DoneAgentDetachTest do
   showing that agent is closed.
   """
 
-  @attach_pool_source Path.expand("../../../lib/aiur/opencode/attach_pool.ex", __DIR__)
+  @attach_pool_source Enum.flat_map(~w(attach_pool.ex attach_pool/*.ex), &Path.wildcard(Path.expand("../../../lib/aiur/opencode/" <> &1, __DIR__)))
   @pane_manager_source Path.expand("../../../lib/aiur/pane_manager.ex", __DIR__)
 
   test "AttachPool broadcasts :agent_inactive when seed drops an identifier" do
-    source = File.read!(@attach_pool_source)
+    source = Enum.map_join(@attach_pool_source, "\n", &File.read!/1)
 
     assert source =~ ~r/broadcast_event\(\{:agent_inactive,/,
            """

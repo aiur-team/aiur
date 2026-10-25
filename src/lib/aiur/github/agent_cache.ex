@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.AgentCache do
   @moduledoc """
   The daemon's half of the agent `gh` state cache (#2073 U6).
 
-  `priv/github_quota_guard.sh` serves agent reads from a directory of replayed
+  `priv/github_guard/gh/` serves agent reads from a directory of replayed
   `gh` responses beside the budget broker's database. This module is how the
   daemon tells that store something changed.
 
@@ -132,7 +132,7 @@ defmodule Aiur.GitHub.AgentCache do
   `Aiur.GitHub.ResourceStore` key rather than strings: a shell reader and an
   Elixir writer that disagree on where a resource lives produce a cache that is
   always cold and always looks healthy. One function derives the path, and
-  `Aiur.AgentGitHubGuardTest` asserts it against the directory the wrapper
+  the agent guard state-cache tests assert it against the directory the wrapper
   actually created for the same resource.
   """
   @spec resource_dir(ResourceStore.key() | nil, keyword()) :: Path.t() | nil

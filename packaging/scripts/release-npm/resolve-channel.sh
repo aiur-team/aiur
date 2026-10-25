@@ -3,8 +3,6 @@
 set -euo pipefail
 if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
   channel=stable
-elif [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
-  channel=nightly
 else
   channel="${INPUT_CHANNEL:-dry-run}"
 fi

@@ -7,14 +7,19 @@ defmodule Aiur.Commands do
   arities stay together so the public delegation contract is easy to audit.
   """
 
-  @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate agent_lifecycle(type, payload, opts), to: Aiur.DecisionStore
 
-  @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate agent_lifecycle(type, payload, opts, server), to: Aiur.DecisionStore
 
   @spec all_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate all_asks(repo), to: Aiur.Asks, as: :all
+
+  @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate get(decision_id, opts \\ []), to: Aiur.DecisionQuery
 
   @spec answer(String.t(), map()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload), to: Aiur.DecisionStore
@@ -22,19 +27,23 @@ defmodule Aiur.Commands do
   @spec answer(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload, opts), to: Aiur.DecisionStore
 
-  @spec answer(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  @spec answer(String.t(), map(), keyword(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload, opts, server), to: Aiur.DecisionStore
 
-  @spec answer(String.t(), map(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec answer(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate answer(decision_id, payload, opts, server, timeout), to: Aiur.DecisionStore
 
-  @spec attention_correlation(Aiur.Issue.t(), String.t()) :: {:ok, %{source_id: String.t(), legacy_attention: map()}} | {:error, term()}
+  @spec attention_correlation(Aiur.Issue.t(), String.t()) ::
+          {:ok, %{source_id: String.t(), legacy_attention: map()}} | {:error, term()}
   defdelegate attention_correlation(issue, slug), to: Aiur.DecisionAttention, as: :correlation
 
   @spec blocked_ticket_ids() :: {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
   defdelegate blocked_ticket_ids(), to: Aiur.DecisionStore
 
-  @spec blocked_ticket_ids(GenServer.server()) :: {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
+  @spec blocked_ticket_ids(GenServer.server()) ::
+          {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
   defdelegate blocked_ticket_ids(server), to: Aiur.DecisionStore
 
   @spec classify_supervisor_token(term()) :: Aiur.SupervisorToken.classification()
@@ -42,6 +51,9 @@ defmodule Aiur.Commands do
 
   @spec create_ask(String.t(), map()) :: {:ok, Aiur.Asks.ask()} | {:error, term()}
   defdelegate create_ask(repo, attrs), to: Aiur.Asks, as: :create
+
+  @spec decision_stale_topic(Aiur.Decision.t()) :: String.t()
+  defdelegate decision_stale_topic(decision), to: Aiur.DecisionAttentionSignals, as: :stale_topic
 
   @spec default_api() :: module()
   defdelegate default_api(), to: Aiur.Commands.Defaults
@@ -64,7 +76,8 @@ defmodule Aiur.Commands do
   @spec defer(String.t(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   defdelegate defer(decision_id, opts, server), to: Aiur.DecisionStore
 
-  @spec defer(String.t(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec defer(String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate defer(decision_id, opts, server, timeout), to: Aiur.DecisionStore
 
   @spec deliver_pending_answers(String.t()) :: :ok
@@ -82,19 +95,23 @@ defmodule Aiur.Commands do
   @spec dismiss(String.t(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   defdelegate dismiss(decision_id, opts, server), to: Aiur.DecisionStore
 
-  @spec dismiss(String.t(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec dismiss(String.t(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate dismiss(decision_id, opts, server, timeout), to: Aiur.DecisionStore
 
   @spec enrich_attention(map()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
   defdelegate enrich_attention(payload), to: Aiur.DecisionStore
 
-  @spec enrich_attention(map(), keyword()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
+  @spec enrich_attention(map(), keyword()) ::
+          {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
   defdelegate enrich_attention(payload, opts), to: Aiur.DecisionStore
 
-  @spec enrich_attention(map(), keyword(), GenServer.server()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
+  @spec enrich_attention(map(), keyword(), GenServer.server()) ::
+          {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
   defdelegate enrich_attention(payload, opts, server), to: Aiur.DecisionStore
 
-  @spec enrich_attention(map(), keyword(), GenServer.server(), timeout()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
+  @spec enrich_attention(map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
   defdelegate enrich_attention(payload, opts, server, timeout), to: Aiur.DecisionStore
 
   @spec errors(map()) :: [String.t()]
@@ -103,29 +120,63 @@ defmodule Aiur.Commands do
   @spec escalate_executor_command(String.t(), map()) :: {:ok, map()} | {:error, term()}
   defdelegate escalate_executor_command(decision_id, payload), to: Aiur.DecisionStore
 
-  @spec escalate_executor_command(String.t(), map(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  @spec escalate_executor_command(String.t(), map(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate escalate_executor_command(decision_id, payload, server), to: Aiur.DecisionStore
 
-  @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
-  defdelegate escalate_executor_command(decision_id, payload, server, timeout), to: Aiur.DecisionStore
+  @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate escalate_executor_command(decision_id, payload, server, timeout),
+    to: Aiur.DecisionStore
+
+  @spec reclassify_authority(String.t(), map(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate reclassify_authority(decision_id, payload, server), to: Aiur.DecisionStore
 
   @spec handle_revision_follow_up(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   defdelegate handle_revision_follow_up(decision_id, action_id), to: Aiur.DecisionStore
 
-  @spec handle_revision_follow_up(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec handle_revision_follow_up(String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate handle_revision_follow_up(decision_id, action_id, opts), to: Aiur.DecisionStore
 
-  @spec handle_revision_follow_up(String.t(), String.t(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
-  defdelegate handle_revision_follow_up(decision_id, action_id, opts, server), to: Aiur.DecisionStore
+  @spec handle_revision_follow_up(String.t(), String.t(), keyword(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate handle_revision_follow_up(decision_id, action_id, opts, server),
+    to: Aiur.DecisionStore
 
-  @spec handle_revision_follow_up(String.t(), String.t(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
-  defdelegate handle_revision_follow_up(decision_id, action_id, opts, server, timeout), to: Aiur.DecisionStore
+  @spec handle_revision_follow_up(
+          String.t(),
+          String.t(),
+          keyword(),
+          GenServer.server(),
+          timeout()
+        ) :: {:ok, map()} | {:error, term()}
+  defdelegate handle_revision_follow_up(decision_id, action_id, opts, server, timeout),
+    to: Aiur.DecisionStore
 
   @spec history() :: [map()]
   defdelegate history(), to: Aiur.DecisionHistory, as: :list
 
   @spec history(keyword()) :: [map()]
   defdelegate history(opts), to: Aiur.DecisionHistory, as: :list
+
+  @spec list_decisions() :: [Aiur.Decision.t()]
+  defdelegate list_decisions(), to: Aiur.DecisionStore, as: :list
+
+  @spec list_decisions(GenServer.server()) :: [Aiur.Decision.t()]
+  defdelegate list_decisions(server), to: Aiur.DecisionStore, as: :list
+
+  @doc false
+  @spec list_decisions(GenServer.server(), timeout()) :: [Aiur.Decision.t()]
+  defdelegate list_decisions(server, timeout), to: Aiur.DecisionStore, as: :list
+
+  @spec consume_pending_for_session(String.t(), String.t(), [String.t()], GenServer.server()) :: :ok
+  defdelegate consume_pending_for_session(ticket_identifier, session_id, action_ids, server), to: Aiur.DecisionStore
+
+  @doc false
+  @spec consume_pending_for_session_async(String.t(), String.t(), [String.t()], GenServer.server()) :: :ok
+  defdelegate consume_pending_for_session_async(ticket_identifier, session_id, action_ids, server), to: Aiur.DecisionStore
 
   @spec metrics_snapshot(String.t()) :: {:ok, map()} | {:error, :not_found}
   defdelegate metrics_snapshot(decision_id), to: Aiur.DecisionMetrics, as: :snapshot
@@ -148,42 +199,96 @@ defmodule Aiur.Commands do
   @spec moot(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
   defdelegate moot(decision_id, payload, opts, server), to: Aiur.DecisionStore
 
-  @spec moot(String.t(), map(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec moot(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate moot(decision_id, payload, opts, server, timeout), to: Aiur.DecisionStore
 
   @spec nonblocking_question_pause?(String.t()) :: {:ok, boolean()} | {:error, :store_unavailable}
   defdelegate nonblocking_question_pause?(ticket_identifier), to: Aiur.DecisionStore
 
-  @spec nonblocking_question_pause?(String.t(), GenServer.server()) :: {:ok, boolean()} | {:error, :store_unavailable}
+  @spec nonblocking_question_pause?(String.t(), GenServer.server()) ::
+          {:ok, boolean()} | {:error, :store_unavailable}
   defdelegate nonblocking_question_pause?(ticket_identifier, server), to: Aiur.DecisionStore
 
-  @spec nonblocking_question_pause?(String.t(), GenServer.server(), timeout()) :: {:ok, boolean()} | {:error, :store_unavailable}
-  defdelegate nonblocking_question_pause?(ticket_identifier, server, timeout), to: Aiur.DecisionStore
+  @spec nonblocking_question_pause?(String.t(), GenServer.server(), timeout()) ::
+          {:ok, boolean()} | {:error, :store_unavailable}
+  defdelegate nonblocking_question_pause?(ticket_identifier, server, timeout),
+    to: Aiur.DecisionStore
 
   @spec open_asks(String.t()) :: {:ok, [Aiur.Asks.ask()]} | {:error, term()}
   defdelegate open_asks(repo), to: Aiur.Asks, as: :open
 
-  @spec open_attention_with_decision(Aiur.Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t(), keyword()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
-  defdelegate open_attention_with_decision(issue, workspace, worker_host, slug, question, opts), to: Aiur.DecisionAttention, as: :open_with_decision
+  @spec open_attention_with_decision(
+          Aiur.Issue.t(),
+          Path.t() | nil,
+          String.t() | nil,
+          String.t(),
+          String.t(),
+          keyword()
+        ) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
+  defdelegate open_attention_with_decision(issue, workspace, worker_host, slug, question, opts),
+    to: Aiur.DecisionAttention,
+    as: :open_with_decision
 
-  @spec open_attention_with_decision(GenServer.server(), Aiur.Issue.t(), Path.t() | nil, String.t() | nil, String.t(), String.t(), keyword()) ::
+  @spec open_attention_with_decision(
+          GenServer.server(),
+          Aiur.Issue.t(),
+          Path.t() | nil,
+          String.t() | nil,
+          String.t(),
+          String.t(),
+          keyword()
+        ) ::
           {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
-  defdelegate open_attention_with_decision(server, issue, workspace, worker_host, slug, question, opts), to: Aiur.DecisionAttention, as: :open_with_decision
+  defdelegate open_attention_with_decision(
+                server,
+                issue,
+                workspace,
+                worker_host,
+                slug,
+                question,
+                opts
+              ), to: Aiur.DecisionAttention, as: :open_with_decision
 
-  @spec open_blocking_decision_ids([String.t()]) :: {:ok, [String.t()]} | {:error, :store_unavailable}
+  @spec open_blocking_decision_ids([String.t()]) ::
+          {:ok, [String.t()]} | {:error, :store_unavailable}
   defdelegate open_blocking_decision_ids(ticket_identifiers), to: Aiur.DecisionStore
 
-  @spec open_blocking_decision_ids([String.t()], GenServer.server()) :: {:ok, [String.t()]} | {:error, :store_unavailable}
+  @spec open_blocking_decision_ids([String.t()], GenServer.server()) ::
+          {:ok, [String.t()]} | {:error, :store_unavailable}
   defdelegate open_blocking_decision_ids(ticket_identifiers, server), to: Aiur.DecisionStore
 
-  @spec open_blocking_decision_ids([String.t()], GenServer.server(), timeout()) :: {:ok, [String.t()]} | {:error, :store_unavailable}
-  defdelegate open_blocking_decision_ids(ticket_identifiers, server, timeout), to: Aiur.DecisionStore
+  @spec open_blocking_decision_ids([String.t()], GenServer.server(), timeout()) ::
+          {:ok, [String.t()]} | {:error, :store_unavailable}
+  defdelegate open_blocking_decision_ids(ticket_identifiers, server, timeout),
+    to: Aiur.DecisionStore
+
+  @spec open_blocking_decision_ids_by_ticket([String.t()]) ::
+          {:ok, %{optional(String.t()) => [String.t()]}} | {:error, :store_unavailable}
+  defdelegate open_blocking_decision_ids_by_ticket(ticket_identifiers), to: Aiur.DecisionStore
+
+  @spec open_blocking_decision_ids_by_ticket([String.t()], GenServer.server()) ::
+          {:ok, %{optional(String.t()) => [String.t()]}} | {:error, :store_unavailable}
+  defdelegate open_blocking_decision_ids_by_ticket(ticket_identifiers, server),
+    to: Aiur.DecisionStore
+
+  @spec open_blocking_decision_ids_by_ticket([String.t()], GenServer.server(), timeout()) ::
+          {:ok, %{optional(String.t()) => [String.t()]}} | {:error, :store_unavailable}
+  defdelegate open_blocking_decision_ids_by_ticket(ticket_identifiers, server, timeout),
+    to: Aiur.DecisionStore
+
+  @spec open?(Aiur.Decision.t()) :: boolean()
+  defdelegate open?(decision), to: Aiur.DecisionStore.RetainedIndex
 
   @spec print_projection_status() :: :ok
-  defdelegate print_projection_status(), to: Aiur.DecisionStore.ProjectionRecovery, as: :print_status
+  defdelegate print_projection_status(),
+    to: Aiur.DecisionStore.ProjectionRecovery,
+    as: :print_status
 
   @spec print_projection_status(GenServer.server()) :: :ok
-  defdelegate print_projection_status(store), to: Aiur.DecisionStore.ProjectionRecovery, as: :print_status
+  defdelegate print_projection_status(store),
+    to: Aiur.DecisionStore.ProjectionRecovery,
+    as: :print_status
 
   @spec query_counts() :: {:ok, map()}
   defdelegate query_counts(), to: Aiur.DecisionQuery, as: :counts
@@ -230,7 +335,8 @@ defmodule Aiur.Commands do
   @spec record_delivery(map()) :: {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
   defdelegate record_delivery(item), to: Aiur.DecisionStore
 
-  @spec record_delivery(map(), GenServer.server()) :: {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
+  @spec record_delivery(map(), GenServer.server()) ::
+          {:ok, :accepted | :duplicate | :ignored} | {:error, term()}
   defdelegate record_delivery(item, server), to: Aiur.DecisionStore
 
   @spec record_transport_batch_async(:restored | :consumed | :failed, [map()]) :: :ok
@@ -239,7 +345,12 @@ defmodule Aiur.Commands do
   @spec record_transport_batch_async(:restored | :consumed | :failed, [map()], term()) :: :ok
   defdelegate record_transport_batch_async(type, items, reason), to: Aiur.DecisionStore
 
-  @spec record_transport_batch_async(:restored | :consumed | :failed, [map()], term(), GenServer.server()) :: :ok
+  @spec record_transport_batch_async(
+          :restored | :consumed | :failed,
+          [map()],
+          term(),
+          GenServer.server()
+        ) :: :ok
   defdelegate record_transport_batch_async(type, items, reason, server), to: Aiur.DecisionStore
 
   @spec request(map()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
@@ -248,16 +359,19 @@ defmodule Aiur.Commands do
   @spec request(map(), keyword()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
   defdelegate request(payload, opts), to: Aiur.DecisionStore
 
-  @spec request(map(), keyword(), GenServer.server()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
+  @spec request(map(), keyword(), GenServer.server()) ::
+          {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
   defdelegate request(payload, opts, server), to: Aiur.DecisionStore
 
-  @spec request(map(), keyword(), GenServer.server(), timeout()) :: {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
+  @spec request(map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, Aiur.DecisionStore.accept_result()} | {:error, term()}
   defdelegate request(payload, opts, server, timeout), to: Aiur.DecisionStore
 
   @spec resolve_ask(String.t(), String.t()) :: {:ok, Aiur.Asks.ask()} | {:error, term()}
   defdelegate resolve_ask(repo, id), to: Aiur.Asks, as: :resolve
 
-  @spec resolve_ask(String.t(), String.t(), String.t() | nil) :: {:ok, Aiur.Asks.ask()} | {:error, term()}
+  @spec resolve_ask(String.t(), String.t(), String.t() | nil) ::
+          {:ok, Aiur.Asks.ask()} | {:error, term()}
   defdelegate resolve_ask(repo, id, note), to: Aiur.Asks, as: :resolve
 
   @spec resolve_attention(Aiur.Issue.t(), String.t()) :: :ok
@@ -266,10 +380,12 @@ defmodule Aiur.Commands do
   @spec resolve_attention(GenServer.server(), Aiur.Issue.t(), String.t()) :: :ok
   defdelegate resolve_attention(server, issue, slug), to: Aiur.DecisionAttention, as: :resolve
 
-  @spec retry_dispatch(String.t(), String.t()) :: {:ok, :scheduled | :already_dispatching} | {:error, term()}
+  @spec retry_dispatch(String.t(), String.t()) ::
+          {:ok, :scheduled | :already_dispatching} | {:error, term()}
   defdelegate retry_dispatch(decision_id, action_id), to: Aiur.DecisionStore
 
-  @spec retry_dispatch(String.t(), String.t(), GenServer.server()) :: {:ok, :scheduled | :already_dispatching} | {:error, term()}
+  @spec retry_dispatch(String.t(), String.t(), GenServer.server()) ::
+          {:ok, :scheduled | :already_dispatching} | {:error, term()}
   defdelegate retry_dispatch(decision_id, action_id, server), to: Aiur.DecisionStore
 
   @spec revise(String.t(), map()) :: {:ok, map()} | {:error, term()}
@@ -278,10 +394,12 @@ defmodule Aiur.Commands do
   @spec revise(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate revise(decision_id, payload, opts), to: Aiur.DecisionStore
 
-  @spec revise(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  @spec revise(String.t(), map(), keyword(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate revise(decision_id, payload, opts, server), to: Aiur.DecisionStore
 
-  @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec revise(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate revise(decision_id, payload, opts, server, timeout), to: Aiur.DecisionStore
 
   @spec sanitize_actor(map() | term()) :: %{kind: term()} | nil
@@ -291,7 +409,9 @@ defmodule Aiur.Commands do
   defdelegate sanitize_artifacts(artifacts), to: Aiur.DecisionSanitizer, as: :artifacts
 
   @spec sanitize_dispatch_attempt(map() | term()) :: map()
-  defdelegate sanitize_dispatch_attempt(attempt), to: Aiur.DecisionSanitizer, as: :dispatch_attempt
+  defdelegate sanitize_dispatch_attempt(attempt),
+    to: Aiur.DecisionSanitizer,
+    as: :dispatch_attempt
 
   @spec sanitize_follow_ups(map()) :: map()
   defdelegate sanitize_follow_ups(follow_ups), to: Aiur.DecisionSanitizer, as: :follow_ups
@@ -317,10 +437,12 @@ defmodule Aiur.Commands do
   @spec supersede(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate supersede(decision_id, payload, opts), to: Aiur.DecisionStore
 
-  @spec supersede(String.t(), map(), keyword(), GenServer.server()) :: {:ok, map()} | {:error, term()}
+  @spec supersede(String.t(), map(), keyword(), GenServer.server()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate supersede(decision_id, payload, opts, server), to: Aiur.DecisionStore
 
-  @spec supersede(String.t(), map(), keyword(), GenServer.server(), timeout()) :: {:ok, map()} | {:error, term()}
+  @spec supersede(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
   defdelegate supersede(decision_id, payload, opts, server, timeout), to: Aiur.DecisionStore
 
   @spec validate_asks([map()]) :: :ok | {:error, {pos_integer(), term()}}
@@ -329,7 +451,8 @@ defmodule Aiur.Commands do
   @spec validate_delivery(map()) :: {:ok, :accepted | :ignored} | {:error, term()}
   defdelegate validate_delivery(item), to: Aiur.DecisionStore
 
-  @spec validate_delivery(map(), GenServer.server()) :: {:ok, :accepted | :ignored} | {:error, term()}
+  @spec validate_delivery(map(), GenServer.server()) ::
+          {:ok, :accepted | :ignored} | {:error, term()}
   defdelegate validate_delivery(item, server), to: Aiur.DecisionStore
   @spec capability_ids() :: [String.t()]
   defdelegate capability_ids(), to: Aiur.DecisionStore.CapabilityProvider

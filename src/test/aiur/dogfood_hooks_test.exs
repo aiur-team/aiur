@@ -21,7 +21,7 @@ defmodule Aiur.DogfoodHooksTest do
   setup do
     test_root = Aiur.TestSupport.tmp_root!("aiur-dogfood-hooks")
     File.mkdir_p!(test_root)
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(test_root) end)
 
     {:ok, origin: origin, seed: seed} = create_origin!(test_root)
     {:ok, test_root: test_root, origin: origin, seed: seed}
@@ -35,6 +35,10 @@ defmodule Aiur.DogfoodHooksTest do
     hooks = dogfood_hooks!()
     assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}")
     assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}")
+    assert hooks["before_run"] =~ ~s(git fetch origin "$base_branch")
+    assert hooks["before_run"] =~ ~s(git ls-remote --exit-code --heads origin "$AIUR_TICKET_BRANCH")
+    assert hooks["before_run"] =~ ~s(git fetch origin "$AIUR_TICKET_BRANCH")
+    refute hooks["before_run"] =~ ~s(git fetch origin\n)
     refute File.read!(@hooks_path) =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     refute File.read!(@hooks_path) =~ "logs_backup="
     refute File.read!(@hooks_path) =~ "origin/v2"
@@ -51,6 +55,7 @@ defmodule Aiur.DogfoodHooksTest do
   test "checked-in hooks use the repository state node for package-manager caches" do
     hooks = File.read!(@hooks_path)
     assert hooks =~ "AIUR_REPO_STATE_PATH"
+    assert hooks =~ ~r/AIUR_BUILD_GATE_TIMEOUT_SECONDS=0 \\\n\s+HEX_HOME=/
     assert hooks =~ "meta/retros"
     assert hooks =~ "meta/findings.ndjson"
     refute hooks =~ "HEX_HOME=\"$PWD/.aiur-hex\""
@@ -62,7 +67,6 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
-
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
     assert File.dir?(Path.join([cache_root(workspace), "meta", "retros"]))

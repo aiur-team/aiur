@@ -6,7 +6,10 @@ defmodule Aiur.Orchestrator.StatusReason do
           | :prewarm_blocked
           | :orphaned_claim
           | :stale_claim
+          | :workspace_retained
+          | {:workspace_retained, String.t(), pos_integer(), atom()}
           | :workspace_ownership_waiting
+          | {:executor_owned, String.t()}
           | {:workspace_ownership_waiting, String.t(), pos_integer(), atom()}
           | {:latched, non_neg_integer(), non_neg_integer()}
           | {:claim_released, atom() | String.t(), non_neg_integer() | nil}
@@ -39,9 +42,11 @@ defmodule Aiur.Orchestrator.StatusReason do
   def render(:prewarm_blocked), do: "prewarm-blocked"
   def render(:orphaned_claim), do: "orphaned claim: no live agent"
   def render(:stale_claim), do: "stale in-progress claim: no live agent"
+  def render(:workspace_retained), do: "workspace retained; awaiting safe release"
   def render(:workspace_ownership_waiting), do: "workspace ownership held; awaiting safe release"
+  def render({:executor_owned, owner}), do: "Executor-owned by #{owner}; no fleet slot"
 
-  def render({:workspace_ownership_waiting, ticket, generation, proof}) do
+  def render({reason, ticket, generation, proof}) when reason in [:workspace_ownership_waiting, :workspace_retained] do
     detail =
       case proof do
         :same_boot ->
@@ -63,7 +68,8 @@ defmodule Aiur.Orchestrator.StatusReason do
           "tracked provider still reaping"
       end
 
-    "workspace ownership held (generation #{generation}): #{detail}"
+    prefix = if reason == :workspace_retained, do: "workspace retained", else: "workspace ownership held"
+    "#{prefix} (generation #{generation}): #{detail}"
   end
 
   def render({:latched, lifetime, maximum}), do: "latched #{lifetime}/#{maximum}"

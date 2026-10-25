@@ -2,17 +2,69 @@ defmodule AiurWeb.Build.SeamTest do
   use ExUnit.Case, async: true
 
   @root Path.expand("../../..", __DIR__)
-  # C3-T02 uses Endpoint only for dashboard_writable; C3-T03 adds legacy Units decoding.
+  # C3-T02 uses Endpoint (read through EndpointConfig) only for dashboard_writable; C3-T03 adds legacy Units decoding.
   # C8-T01 Now-band rows read the Units catalog through its policy, tracker identity, and pause-reason facades;
   # components.json declares these (dashboard-ui requires projections, kernel and orchestration).
-  @allowed ~w(AiurWeb.BuildLive AiurWeb.Endpoint Aiur.BuildQueue Aiur.AgentChat AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State)
-  @shell ~w(UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry)
+  # MP-E8-C8-T04 reads C8-T01 Units through the existing shared payload cache.
+  # #5998 reads Build Order packs for feature progress through the existing pack loader.
+  @allowed ~w(AiurWeb.OperatorControlCenter.PayloadLoader AiurWeb.BuildOrder.PlanningSource.PackLoader AiurWeb.BuildLive AiurWeb.Endpoint AiurWeb.EndpointConfig Aiur.BuildQueue Aiur.AgentChat Aiur.AgentPubSub AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State AiurWeb.RemainingMeter)
+  @usage_facades [
+    # Authorized usage reads configured Claude account labels.
+    "Aiur.Accounts",
+    # Account windows come from the existing in-memory observation store.
+    "Aiur.Accounts.UsageReadings",
+    # Provider families and credential metadata come from the registry.
+    "Aiur.CodingAgent",
+    # ElevenLabs reads its supervised quota snapshot; it does not issue requests.
+    "Aiur.ElevenLabs.Quota",
+    # GitHub reads its supervised quota snapshot and existing resource holds.
+    "Aiur.GitHub.Quota",
+    # Durable previous-boot readings come from the existing local ledger file.
+    "Aiur.ModelAvailability",
+    # Watch events register the socket pid with the existing focused polling service.
+    "Aiur.ProviderMeterRefresh",
+    # The payload-free financial facade update identifies the coalesced reload.
+    "AiurWeb.FinancialData",
+    # Provider visibility reuses the registry credential filter without exporting keys.
+    "AiurWeb.OperatorControlCenter.ModelProviders",
+    # Credit balances reuse the existing amount formatter.
+    "AiurWeb.OperatorControlCenter.Money",
+    # Protected meter reads and subscriptions remain behind the financial facade.
+    "AiurWeb.OperatorControlCenter.ProviderMeterSource",
+    # Meter states and windows reuse the existing redacted presenter.
+    "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+    # Build and Stream Deck share the same pure window classification.
+    "AiurWeb.ProviderMeterWindows"
+  ]
+  # MP-E8-C11-T06 sends through the drawer's shared operator-message helper (AgentChat underneath).
+  # MP-E8-C11-T09 reads only the provider-neutral voice availability seam.
+  @shell ~w(AgentLogModal UnitControls UnitsRow UnitsControlPolicy UnitsPresentation DecisionCommands DashboardShell NavState AwaitingCommands RouteRegistry OperatorSend)
 
   test "web side references only the seam (future regression guard)" do
     files = [Path.join(@root, "lib/aiur_web/live/build_live.ex")] ++ Path.wildcard(Path.join(@root, "lib/aiur_web/build/**/*.ex"))
     assert [_ | _] = files
     assert Enum.all?(files, &File.regular?/1)
-    assert offenders(files, &allowed?/1) == []
+    # C8-T03 reads the existing nonblocking snapshot facade with cadence-aware tolerance.
+    # Keep these reader dependencies confined to Freshness, not the rest of the web seam.
+    freshness = Path.join(@root, "lib/aiur_web/build/freshness.ex")
+    # MP-E8-C11-T03 confines workspace, snapshot and live-history reads to the
+    # replaceable wave-0b adapter; controllers still use ConversationSource.
+    conversation = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b.ex")
+    adapter_facades = ~w(Aiur.Conversation.History Aiur.Workspace.Layout Aiur.Config Aiur.Orchestrator Aiur.Tracker)
+    # MP-E8-C11-T04 confines the event-row reads (ticket log, merges, Commands,
+    # history subscription) to the same wave-0b adapter, which C14-T01 replaces.
+    events = Path.join(@root, "lib/aiur_web/build/conversation_source/wave0b_events.ex")
+    event_facades = ~w(Aiur.AgentEventFeed Aiur.Commands Aiur.RecentMergeStore Aiur.SecretRedactor Aiur.PubSub Aiur.Tracker)
+    # C11-T02 confines issue identity lookup to the open-ticket snapshot facade;
+    # only the document presenter subscribes to detail updates and renders Markdown.
+    document = Path.join(@root, "lib/aiur_web/build/ticket_doc.ex")
+    identity = Path.join(@root, "lib/aiur_web/build/ticket_doc_identity.ex")
+    assert offenders(files -- [freshness, conversation, events, document, identity], &allowed?/1) == []
+    assert offenders([document], &(allowed?(&1) or &1 in ~w(Aiur.PubSub AiurWeb.Markdown))) == []
+    assert offenders([identity], &(allowed?(&1) or &1 == "Aiur.OpenTicketSource")) == []
+    assert offenders([conversation], &(allowed?(&1) or &1 in adapter_facades)) == []
+    assert offenders([events], &(allowed?(&1) or &1 in event_facades)) == []
+    assert offenders([freshness], &(allowed?(&1) or &1 in ~w(Aiur.Orchestrator Aiur.PollCadence))) == []
   end
 
   test "stores do not reference AiurWeb (future regression guard)" do
@@ -63,7 +115,7 @@ defmodule AiurWeb.Build.SeamTest do
   end
 
   defp allowed?(module) do
-    module in @allowed or module == "AiurWeb.Build" or String.starts_with?(module, "AiurWeb.Build.") or
+    module in @allowed or module in @usage_facades or module == "Aiur.Voice" or module == "AiurWeb.Build" or String.starts_with?(module, "AiurWeb.Build.") or
       String.starts_with?(module, "Aiur.BuildOrder.") or
       Enum.any?(@shell, fn name ->
         base = "AiurWeb.OperatorControlCenter." <> name

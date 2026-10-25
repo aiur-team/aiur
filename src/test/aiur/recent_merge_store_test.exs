@@ -7,7 +7,7 @@ defmodule Aiur.RecentMergeStoreTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("aiur-recent-merges")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     %{dir: dir}
   end
 
@@ -56,6 +56,23 @@ defmodule Aiur.RecentMergeStoreTest do
 
     %File.Stat{mode: mode} = File.stat!(Path.join(dir, "recent_merges.ndjson"))
     assert Bitwise.band(mode, 0o777) == 0o600
+  end
+
+  test "reference triage survives store restart with the merge record", %{dir: dir} do
+    merge = merge_for_number(1)
+    pid = start_store!(dir)
+
+    assert {:ok, %{status: :accepted}} = RecentMergeStore.upsert(merge, pid)
+    assert :ok = RecentMergeStore.mark_ticket_reconciled(merge.id, "ticket-1", pid)
+    assert RecentMergeStore.ticket_reconciled?(merge.id, "ticket-1", pid)
+    assert {:ok, %{status: :duplicate}} = RecentMergeStore.upsert(merge, pid)
+    assert RecentMergeStore.ticket_reconciled?(merge.id, "ticket-1", pid)
+    GenServer.stop(pid)
+
+    replayed = start_store!(dir)
+    assert RecentMergeStore.ticket_reconciled?(merge.id, "ticket-1", replayed)
+    assert [%RecentMerge{reconciled_ticket_ids: ["ticket-1"]}] = RecentMergeStore.list(replayed)
+    GenServer.stop(replayed)
   end
 
   test "a backfilled repository merge makes no ticket, agent, or run claim", %{dir: dir} do
@@ -118,13 +135,20 @@ defmodule Aiur.RecentMergeStoreTest do
   end
 
   test "ignores a closing keyword buried in prose" do
-    assert closing_identifiers_for("See also closed #55 last week") == []
+    assert closing_identifiers_for("See also closed #55 last week") == ["55"]
   end
 
   test "accepts the documented keyword set, list items, and owner/repo references" do
     assert closing_identifiers_for("- fixed #1\n* Resolve #2\n1. CLOSE #3") == ["1", "2", "3"]
     assert closing_identifiers_for("Closes owner/repo#1570") == ["1570"]
     assert closing_identifiers_for("Closes other/repo#1570") == []
+    assert closing_identifiers_for("Closes: #4\nfixes: #5") == ["4", "5"]
+  end
+
+  test "requires a whole closing keyword and a separator before the issue reference" do
+    for body <- ["This was disclosed #42", "enclosed #42", "close#42", "Closes aiur-team/aiur/42"] do
+      assert closing_identifiers_for(body) == []
+    end
   end
 
   # #2609: the live merged route has a raw PR body and no stored merge record,
@@ -142,6 +166,23 @@ defmodule Aiur.RecentMergeStoreTest do
     # rather than guessing that a qualified reference is local.
     assert RecentMerge.closing_issue_identifiers_in_body("Closes owner/repo#176") == []
     assert RecentMerge.closing_issue_identifiers_in_body("Closes #176", nil) == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("fixes: #176", "owner/repo") == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("It does not close #176 yet.", "owner/repo") == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("Closes https://github.com/owner/repo/issues/176", "owner/repo") == ["176"]
+  end
+
+  test "reads explicit Refs lines for non-closing merge triage" do
+    assert RecentMerge.referenced_issue_identifiers_in_body("Refs #176", "owner/repo") == ["176"]
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "issue 177", repository: "owner/repo")) == []
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "handle issue 2", repository: "owner/repo")) == []
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "issue #178", repository: "owner/repo")) == []
+    assert RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: "`issue 179`", repository: "owner/repo")) == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("Part of #176\nimplementation details", "owner/repo") == ["176"]
+    assert RecentMerge.referenced_issue_identifiers_in_body("Part of other/repo#176", "owner/repo") == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("Context\nPart of #176", "owner/repo") == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("Refs other/repo#176", "owner/repo") == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("> Refs #176", "owner/repo") == []
+    assert RecentMerge.referenced_issue_identifiers_in_body("Refs #176", nil) == ["176"]
   end
 
   test "retains closing references beyond the bounded merged PR summary" do
@@ -157,6 +198,13 @@ defmodule Aiur.RecentMergeStoreTest do
     assert RecentMerge.closing_issue_identifiers(merge) == ["1570"]
   end
 
+  test "retains a same-repository Refs line beyond the bounded merged PR summary" do
+    event = merged_event(%{"payload" => %{"pull_request" => merged_pr(%{"body" => String.duplicate("x", 600) <> "\nRefs #1570"})}})
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    assert String.length(merge.summary) <= 500
+    assert RecentMerge.referenced_issue_identifiers_in_body(merge.summary, "owner/repo") == ["1570"]
+  end
+
   test "each reference retained past the summary bound keeps its own keyword" do
     body = String.duplicate("x", 600) <> "\nCloses #1570\nCloses #1571"
 
@@ -166,6 +214,14 @@ defmodule Aiur.RecentMergeStoreTest do
     assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
     assert String.length(merge.summary) <= 500
     assert RecentMerge.closing_issue_identifiers(merge) == ["1570", "1571"]
+  end
+
+  test "retains closing references beyond the bounded commit message" do
+    message = String.duplicate("x", 600) <> "\nCloses #1572"
+    event = merged_event(%{"payload" => %{"pull_request" => merged_pr(%{"commit_messages" => [message]})}})
+
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    assert RecentMerge.closing_issue_identifiers(merge) == ["1572"]
   end
 
   test "repeated rows dedupe while a later live observation appends one enriched snapshot", %{dir: dir} do

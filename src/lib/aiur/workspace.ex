@@ -4,7 +4,7 @@ defmodule Aiur.Workspace do
   """
 
   require Logger
-  alias Aiur.Alerts
+  alias Aiur.Signal
   alias Aiur.Workspace.{Checkout, Context, GitMetadata, Hooks, Layout, Provisioner, Reconstruction, Refresh, Remove}
 
   @type worker_host :: String.t() | nil
@@ -79,7 +79,8 @@ defmodule Aiur.Workspace do
              worker_host,
              issue_context.pr_head_ref,
              issue_context.branch_name,
-             lifecycle
+             lifecycle,
+             issue_context.start_point
            ),
          :ok <- Provisioner.ensure_workspace_usable(workspace, worker_host, created?),
          bootstrap? <- Provisioner.bootstrap_required?(workspace, worker_host, created?),
@@ -208,7 +209,7 @@ defmodule Aiur.Workspace do
     issue_context = Context.build(issue_or_identifier)
     identifier = issue_context.issue_identifier
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.workspace.#{kind}",
       message,
       issue: identifier,

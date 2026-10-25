@@ -25,7 +25,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
 
     on_exit(fn ->
       restore_env("GITHUB_TOKEN", prev_token)
-      File.rm_rf!(tmp_dir)
+      Aiur.TestCleanup.rm_rf!(tmp_dir)
     end)
 
     %{tmp_dir: tmp_dir, path: path}

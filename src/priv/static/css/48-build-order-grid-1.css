@@ -1,0 +1,387 @@
+/* ==========================================================================
+   Build Order spatial grid (epic columns × execution-wave rows)
+   ========================================================================== */
+
+.bo-grid-root {
+  display: block;
+  margin: 1.25rem 0;
+}
+
+/* The graph is its own section-card pane now; the pane's padding replaces the
+   graph's own vertical breathing room so the card stays tight. */
+.bo-graph-pane .bo-grid-root {
+  margin: 0;
+}
+
+/* --- wave-progress header strip --- */
+.bo-waves-head {
+  margin-bottom: 1rem;
+}
+
+.bo-waves-caption {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.bo-waves-asof {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--attention-ink);
+}
+
+/* A saved plan's percentages are real numbers about a moment that has passed,
+   so they carry a second marker besides the dateline above them. It has to be
+   a marker that does not touch luminance: --muted sits at 5.79:1 on --surface
+   with no headroom to spend, and an earlier opacity: 0.6 here blended it down
+   to 2.96:1 and failed the axe smoke. Italics differentiate for free. */
+.bo-waves-head.is-stale .bo-wave-seg-pct {
+  font-style: italic;
+}
+
+/* The meter is aria-hidden decoration duplicating the percentage text beside
+   it, so dimming the bar itself carries no contrast obligation. */
+.bo-waves-head.is-stale .bo-wave-seg-meter {
+  opacity: 0.6;
+}
+
+.bo-waves-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.bo-wave-seg-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+
+.bo-wave-seg-label {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+
+.bo-wave-seg-pct {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Aggregates carried by retained readings say so under the meter, so a bar
+   that owes part of its fill to paused agents reads as last known, not live. */
+.bo-wave-seg-note,
+.bo-epic-note {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.bo-epic-count[data-progress-freshness="last_known"] {
+  color: var(--attention-ink);
+}
+
+.bo-wave-seg-meter {
+  display: block;
+  height: var(--progress-bar-height);
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.bo-wave-seg-meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+/* Preserve an unresolved label rather than shrinking it to a misleading zero.
+   On phones, arrange the wave summaries in two columns so those honest labels
+   remain inside the document instead of widening the page. */
+@media (max-width: 480px) {
+  .bo-waves-strip {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bo-wave-seg {
+    min-width: 0;
+  }
+}
+
+/* --- toolbar (legend + zoom) --- */
+.bo-grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.bo-grid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.bo-grid-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.bo-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.bo-legend-swatch.is-working {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-line);
+}
+
+.bo-legend-swatch.is-merged {
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
+}
+
+.bo-legend-line {
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--good);
+}
+
+.bo-legend-line.is-blocking {
+  border-top-style: solid;
+  border-top-color: var(--blocking);
+}
+
+.bo-grid-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bo-grid-zbtn {
+  position: relative;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* Keep the compact 32px zoom chrome but guarantee a 44px pointer target with a
+   transparent centered overlay (same pattern as .units-icon-action) so touch
+   input never falls below the WCAG target size on narrow viewports. */
+.bo-grid-zbtn::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+.bo-grid-zbtn:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.bo-grid-zbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.bo-grid-zval {
+  min-width: 3.2rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* --- viewport / scale / stage --- */
+.bo-grid-viewport {
+  position: relative;
+  max-height: min(78vh, 780px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: auto;
+  /* Always reserve the vertical scrollbar gutter so clientWidth stays constant;
+     otherwise a fit that adds/removes the bar re-measures and flickers. */
+  scrollbar-gutter: stable;
+  cursor: grab;
+  background:
+    radial-gradient(circle at center, var(--hairline) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--surface);
+}
+
+.bo-grid-viewport.is-grabbing {
+  cursor: grabbing;
+}
+
+.bo-grid-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.bo-grid-scale {
+  transform-origin: 0 0;
+  width: max-content;
+  min-width: 100%;
+  /* The stage is scaled by transform (which leaves its layout box unscaled);
+     the hook sizes this layer to the scaled dimensions, so clip the leftover
+     unscaled overflow to stop the viewport scrolling past the visible graph. */
+  overflow: hidden;
+}
+
+.bo-grid-stage {
+  position: relative;
+  width: max-content;
+  padding: 0 0.8rem 1rem;
+}
+
+/* --- epic header row (sticky) --- */
+.bo-grid-lanes {
+  display: grid;
+  gap: 0 8px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 0.6rem 0;
+  background: var(--surface);
+}
+
+.bo-epic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.bo-epic-ic {
+  display: inline-flex;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--accent-ink);
+  flex: none;
+}
+
+.bo-epic-ic svg {
+  width: 100%;
+  height: 100%;
+}
+
+.bo-epic-label {
+  background: transparent;
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bo-epic-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* A last-known annotation is metadata for this fixed-width graph column, not
+   a reason to widen the grid beyond its own scroll viewport. Keep it on its
+   own line and let it wrap on phone-sized columns. */
+.bo-epic-note {
+  flex: 1 0 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* --- body + wave rows --- */
+.bo-grid-body {
+  position: relative;
+}
+
+.bo-grid-edges {
+  position: absolute;
+  inset: 0;
+  /* Dependency lines belong behind the ticket cards they connect; the wave
+     rows (and their cards) sit at z-index 2/3 above this background layer. */
+  z-index: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.bo-grid-wave-row {
+  display: grid;
+  gap: 0 8px;
+  position: relative;
+  z-index: 2;
+  padding: 0.35rem 0;
+  align-items: start;
+}
+
+.bo-wave {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-top: 0.15rem;
+  background: linear-gradient(90deg, var(--surface) 70%, transparent);
+}
+
+.bo-wave-n {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+
+.bo-wave-note {
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.bo-cell {
+  display: flex;
+  flex-flow: row wrap;
+  align-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+

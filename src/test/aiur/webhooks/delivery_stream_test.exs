@@ -14,7 +14,7 @@ defmodule Aiur.Webhooks.DeliveryStreamTest do
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("aiur-webhook-stream")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
     name = :"stream_delivery_log_#{System.unique_integer([:positive])}"
     store = start_supervised!({DeliveryLog, name: name, state_dir: dir, alert_fun: fn _t, _m, _o -> :ok end})

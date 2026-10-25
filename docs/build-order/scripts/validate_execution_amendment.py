@@ -17,6 +17,7 @@ from execution_amendment_live import (
     ExecutionReader,
     verify_live_execution_amendment,
 )
+import skill_publication_path  # noqa: F401
 from publication_common import Report
 from publication_receipt_authority import (
     ReceiptAuthority,

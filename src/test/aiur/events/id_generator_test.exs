@@ -10,7 +10,7 @@ defmodule Aiur.Events.IdGeneratorTest do
     tmp_dir = Aiur.TestSupport.tmp_root!("aiur_idgen_test")
     File.mkdir_p!(tmp_dir)
     path = Path.join(tmp_dir, "event_id")
-    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(tmp_dir) end)
     %{tmp_dir: tmp_dir, path: path}
   end
 
@@ -95,6 +95,32 @@ defmodule Aiur.Events.IdGeneratorTest do
   end
 
   describe "cold-boot fallback (missing file)" do
+    test "cold boot seeds above the highest id in injected floor files", %{tmp_dir: tmp_dir, path: path} do
+      journal = Path.join(tmp_dir, "journal.ndjson")
+      lower = Path.join(tmp_dir, "lower.ndjson")
+      high = 9_000_000_000_000_000
+      File.write!(journal, Jason.encode!(%{id: high}) <> "\n")
+      File.write!(lower, Jason.encode!(%{id: high - 100}) <> "\n")
+
+      {:ok, pid} =
+        IdGenerator.start_link(
+          name: nil,
+          path: path,
+          clock: fn -> 1 end,
+          floor_files: fn -> [journal, Path.join(tmp_dir, "missing"), lower] end
+        )
+
+      assert IdGenerator.next_id(pid) == high + 1_000_001
+      GenServer.stop(pid)
+    end
+
+    test "a raising floor provider falls back to the clock", %{path: path} do
+      {:ok, pid} = IdGenerator.start_link(name: nil, path: path, clock: fn -> 1 end, floor_files: fn -> raise "unavailable" end)
+
+      assert IdGenerator.next_id(pid) == 1_000_002
+      GenServer.stop(pid)
+    end
+
     test "seeds from system_time(:microsecond)", %{path: path} do
       # File doesn't exist
       {:ok, pid} = IdGenerator.start_link(name: nil, path: path)

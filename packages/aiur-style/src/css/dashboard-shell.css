@@ -1,0 +1,171 @@
+/* Dashboard variant: current draggable rail and settings menu. */
+@layer aiur.components {
+.aiur-shell.aiur-shell--dashboard { display: block; max-width: none; margin: 0; padding: 0; min-width: 0; }
+/* Reset properties supplied by the original shell when both variants are bundled. */
+.aiur-shell--dashboard .aiur-shell__topbar { flex-wrap: nowrap; }
+.aiur-shell--dashboard .aiur-shell__logo { filter: none; object-fit: fill; }
+.aiur-shell--dashboard .aiur-shell__item { min-height: 0; line-height: inherit; }
+.aiur-shell--dashboard .aiur-shell__count { display: inline; height: auto; margin-left: 0; }
+.aiur-shell--dashboard .aiur-shell__state { margin-left: 0; }
+/* Shell (ported from design build.css v10) */
+.aiur-shell--dashboard .aiur-page { display: grid; gap: 1rem; min-width: 0; }
+.aiur-shell--dashboard .aiur-page > * { min-width: 0; }
+.aiur-shell--dashboard .aiur-shell__body { display: grid; grid-template-columns: 224px minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.aiur-shell--dashboard .aiur-shell__sidebar { position: sticky; top: 1.1rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.aiur-shell--dashboard .aiur-shell__nav { display: flex; flex-direction: column; gap: 0.15rem; }
+.aiur-shell--dashboard .aiur-shell__item { position: relative; display: flex; align-items: center; gap: 0.7rem; width: 100%; padding: 0.62rem 0.72rem; border: 0; border-radius: 10px; background: transparent; color: var(--aiur-shell-muted, var(--aiur-color-muted-app)); cursor: pointer; font: inherit; font-size: 0.9rem; font-weight: 600; text-align: left; transition: background 0.15s ease, color 0.15s ease; }
+.aiur-shell--dashboard .aiur-shell__item:hover { background: var(--aiur-shell-surface-2, var(--aiur-color-surface-2)); color: var(--aiur-shell-fg, var(--aiur-color-fg)); }
+.aiur-shell--dashboard .aiur-shell__item[aria-current="page"] { background: var(--aiur-shell-accent-soft, var(--aiur-color-accent-soft)); color: var(--aiur-shell-accent-ink, var(--aiur-color-accent-ink)); }
+.aiur-shell--dashboard .aiur-shell__icon { display: inline-flex; flex: 0 0 auto; }
+.aiur-shell--dashboard .aiur-shell__icon svg { width: 18px; height: 18px; }
+.aiur-shell--dashboard .aiur-shell__label { flex: 1 1 auto; }
+.aiur-shell--dashboard .aiur-shell__count { font-family: "JetBrains Mono", monospace; font-size: 0.7rem; font-weight: 700; min-width: 1.4rem; text-align: center; padding: 0.08rem 0.42rem; border-radius: 999px; background: var(--aiur-shell-surface-3, var(--aiur-color-surface-3)); color: var(--aiur-shell-muted, var(--aiur-color-muted-app)); }
+.aiur-shell--dashboard .aiur-shell__item[aria-current="page"] .aiur-shell__count { background: var(--aiur-shell-surface, var(--aiur-color-surface)); color: var(--aiur-shell-accent-ink, var(--aiur-color-accent-ink)); }
+.aiur-shell--dashboard .aiur-shell__count.attn { background: var(--aiur-shell-attn-soft, var(--aiur-color-attention-soft)); color: var(--aiur-shell-attn-ink, var(--aiur-color-attention-ink)); }
+.aiur-shell--dashboard .aiur-shell__state { font-family: "JetBrains Mono", monospace; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.12rem 0.42rem; border-radius: 999px; border: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); color: var(--aiur-shell-faint, var(--aiur-color-faint)); }
+.aiur-shell--dashboard .aiur-shell__item.is-soon { color: var(--aiur-shell-faint, var(--aiur-color-faint)); }
+.aiur-shell--dashboard .aiur-shell__item.is-soon .aiur-shell__icon { opacity: 0.7; }
+.aiur-shell--dashboard .aiur-shell__foot { margin-top: 0.4rem; padding: 0.35rem 0.4rem 0; border-top: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); display: flex; }
+
+@media (max-width: 960px) {
+.aiur-shell--dashboard .aiur-shell__body { grid-template-columns: 1fr; gap: 1rem; }
+.aiur-shell--dashboard .aiur-shell__sidebar { position: fixed; bottom: 0; left: 0; right: 0; top: auto; z-index: 60; flex-direction: row; gap: 0.15rem; padding: 0.35rem 0.5rem calc(0.35rem + env(safe-area-inset-bottom, 0px)); background: var(--aiur-shell-surface, var(--aiur-color-surface)); border-top: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); box-shadow: 0 -6px 20px rgba(0,0,0,0.16); }
+.aiur-shell--dashboard .aiur-shell__nav { flex-direction: row; flex: 1 1 auto; gap: 0.15rem; }
+.aiur-shell--dashboard .aiur-shell__item { flex-direction: column; gap: 0.2rem; padding: 0.45rem 0.3rem; font-size: 0.66rem; font-weight: 600; justify-content: center; text-align: center; }
+.aiur-shell--dashboard .aiur-shell__label { flex: 0 0 auto; }
+.aiur-shell--dashboard .aiur-shell__count:not(.attn) { display: none; }
+.aiur-shell--dashboard .aiur-shell__count.attn { position: absolute; top: 2px; left: 50%; margin-left: 3px; min-width: 0; padding: 0 0.32rem; font-size: 0.58rem; background: var(--aiur-shell-attn, var(--aiur-color-attention)); color: #fff; }
+.aiur-shell--dashboard .aiur-shell__state { position: absolute; top: 2px; left: 50%; margin-left: 3px; padding: 0 0.3rem; font-size: 0.5rem; }
+}
+.aiur-shell--dashboard .aiur-shell__theme-icon { display: inline-flex; align-items: center; justify-content: center; }
+.aiur-shell--dashboard .aiur-shell__theme-icon svg { display: block; }
+.aiur-shell--dashboard .aiur-shell__theme-icon .aiur-shell__moon { display: none; }
+html[data-theme="light"] .aiur-shell--dashboard .aiur-shell__theme-icon .aiur-shell__sun { display: none; }
+html[data-theme="light"] .aiur-shell--dashboard .aiur-shell__theme-icon .aiur-shell__moon { display: inline; }
+
+/* ---------- shell ---------- */
+.aiur-shell--dashboard .aiur-shell__topbar { position: sticky; top: 0; z-index: 70; height: 56px; display: flex; align-items: center; gap: .7rem; padding: 0 1rem; border-bottom: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); background: color-mix(in srgb, var(--aiur-shell-bg, var(--aiur-color-bg-app)) 88%, transparent); backdrop-filter: blur(8px); }
+.aiur-shell--dashboard .aiur-shell__topbar .aiur-shell__logo { height: 30px; width: auto; display: block; }
+.aiur-shell--dashboard .aiur-shell__topbar .aiur-shell__wordmark { font-family: "Bungee", sans-serif; font-size: 1.05rem; line-height: 1; color: var(--aiur-shell-fg, var(--aiur-color-fg)); text-transform: uppercase; letter-spacing: .01em; }
+.aiur-shell--dashboard .aiur-shell__icon-button { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--aiur-shell-line-strong, var(--aiur-color-line-strong)); background: var(--aiur-shell-surface, var(--aiur-color-surface)); color: var(--aiur-shell-muted, var(--aiur-color-muted-app)); cursor: pointer; padding: 0; transition: color .15s, border-color .15s, background .15s; }
+.aiur-shell--dashboard .aiur-shell__icon-button:hover { color: var(--aiur-shell-fg, var(--aiur-color-fg)); border-color: var(--aiur-shell-faint, var(--aiur-color-faint)); }
+.aiur-shell--dashboard .aiur-shell__icon-button svg { width: 15px; height: 15px; }
+.aiur-shell--dashboard .aiur-shell__icon-button.on { color: var(--aiur-shell-attn-ink, var(--aiur-color-attention-ink)); border-color: var(--aiur-shell-attn-line, var(--aiur-color-attention-line)); background: var(--aiur-shell-attn-soft, var(--aiur-color-attention-soft)); }
+.aiur-shell--dashboard .aiur-shell__paused { display: none; font: 700 .64rem "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--aiur-shell-attn-ink, var(--aiur-color-attention-ink)); padding: .2rem .5rem; border-radius: 999px; border: 1px solid var(--aiur-shell-attn-line, var(--aiur-color-attention-line)); background: var(--aiur-shell-attn-soft, var(--aiur-color-attention-soft)); }
+.aiur-shell--dashboard .aiur-shell__paused.show { display: inline-flex; }
+.aiur-shell--dashboard .aiur-shell__body { grid-template-columns: 230px minmax(0, 1fr); gap: 0; transition: grid-template-columns .22s ease; }
+.aiur-shell--dashboard .aiur-shell__sidebar { top: 56px; height: calc(100vh - 56px); box-sizing: border-box; padding: .9rem .8rem 1rem 0; gap: .2rem; }
+.aiur-shell--dashboard .aiur-shell__sidebar .aiur-shell__item { border-radius: 0 10px 10px 0; padding: .66rem .8rem .66rem 1rem; }
+.aiur-shell--dashboard .aiur-shell__toggle { position: absolute; top: 1.05rem; right: -.6rem; z-index: 3; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--aiur-shell-line-strong, var(--aiur-color-line-strong)); background: var(--aiur-shell-bg-2, var(--aiur-color-bg-2)); color: var(--aiur-shell-muted, var(--aiur-color-muted-app)); cursor: pointer; padding: 0; }
+.aiur-shell--dashboard .aiur-shell__toggle:hover { color: var(--aiur-shell-fg, var(--aiur-color-fg)); }
+.aiur-shell--dashboard .aiur-shell__toggle svg { width: 15px; height: 15px; }
+.aiur-shell--dashboard .aiur-page { padding: 1.3rem 1.6rem 4rem; max-width: 1560px; box-sizing: border-box; width: 100%; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__body { grid-template-columns: 68px minmax(0, 1fr); }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__label, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__state { display: none; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__sidebar .aiur-shell__item { justify-content: center; padding-left: .8rem; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__count { position: absolute; top: 3px; right: 6px; min-width: 0; padding: 0 .3rem; font-size: .56rem; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__toggle svg { transform: scaleX(-1); }
+
+@media (max-width: 960px) {
+.aiur-shell--dashboard .aiur-shell__body, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__body { grid-template-columns: 1fr; }
+.aiur-shell--dashboard .aiur-shell__sidebar { top: auto; height: auto; padding: .35rem .5rem calc(.35rem + env(safe-area-inset-bottom, 0px)); }
+.aiur-shell--dashboard .aiur-shell__sidebar .aiur-shell__item { border-radius: 10px; padding: .45rem .3rem; }
+  /* The design has five items; a sixth fits a 390px bar only without gaps (#4827). */
+.aiur-shell--dashboard .aiur-shell__nav:has(> .aiur-shell__item:nth-child(6)) { gap: 0; }
+.aiur-shell--dashboard .aiur-shell__toggle { display: none; }
+.aiur-shell--dashboard .aiur-page { padding: 1rem .9rem 5.5rem; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__label { display: inline; }
+}
+
+/* ---------- v10: shell — brand column, page title in top bar, settings menu ---------- */
+.aiur-shell--dashboard .aiur-shell__sidebar { border-right: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); }
+.aiur-shell--dashboard .aiur-shell__topbar { padding: 0 1rem 0 0; gap: 0; }
+.aiur-shell--dashboard .aiur-shell__brand { flex: none; width: 230px; box-sizing: border-box; height: 100%; display: flex; align-items: center; gap: .6rem; padding: 0 .7rem 0 1rem; border-right: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); transition: width .22s ease; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__brand { width: 68px; padding: 0 .5rem; justify-content: center; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__brand .aiur-shell__wordmark, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__settings { display: none; }
+.aiur-shell--dashboard .aiur-shell__settings { position: relative; margin-left: auto; }
+.aiur-shell--dashboard .aiur-shell__cog { width: 32px; height: 32px; }
+.aiur-shell--dashboard .aiur-shell__settings.open .aiur-shell__cog { color: var(--aiur-shell-fg, var(--aiur-color-fg)); }
+.aiur-shell--dashboard .aiur-shell__menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 80; min-width: 210px; padding: .3rem; border-radius: 12px; background: var(--aiur-shell-surface-2, var(--aiur-color-surface-2)); box-shadow: 0 14px 34px rgba(0,0,0,.4), inset 0 1px 0 color-mix(in srgb, var(--aiur-shell-fg, var(--aiur-color-fg)) 8%, transparent);
+  display: flex; flex-direction: column; gap: 2px; opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .12s, transform .14s; }
+.aiur-shell--dashboard .aiur-shell__settings.open .aiur-shell__menu { opacity: 1; transform: none; pointer-events: auto; }
+.aiur-shell--dashboard .aiur-shell__menu-item { display: flex; align-items: center; gap: .6rem; width: 100%; height: 34px; padding: 0 .6rem; border: 0; border-radius: 8px; background: none; color: var(--aiur-shell-fg, var(--aiur-color-fg)); font: 500 .82rem "Space Grotesk", system-ui, sans-serif; text-align: left; cursor: pointer; }
+.aiur-shell--dashboard .aiur-shell__menu-item:hover { background: var(--aiur-shell-surface-3, var(--aiur-color-surface-3)); }
+.aiur-shell--dashboard .aiur-shell__menu-item > svg, .aiur-shell--dashboard .aiur-shell__menu-item .aiur-shell__theme-icon svg { width: 15px; height: 15px; flex: none; color: var(--aiur-shell-muted, var(--aiur-color-muted-app)); }
+.aiur-shell--dashboard .aiur-shell__menu-item .aiur-shell__theme-icon { display: inline-grid; width: 15px; height: 15px; }
+.aiur-shell--dashboard .aiur-shell__menu-item span:not(.aiur-shell__theme-icon) { flex: 1; }
+.aiur-shell--dashboard .aiur-shell__switch { width: 26px; height: 15px; border-radius: 999px; background: var(--aiur-shell-surface-3, var(--aiur-color-surface-3)); position: relative; flex: none; transition: background .15s; }
+.aiur-shell--dashboard .aiur-shell__switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--aiur-shell-muted, var(--aiur-color-muted-app)); transition: transform .15s, background .15s; }
+/* Menu checkboxes use aria-checked to preserve their accessible state. */
+.aiur-shell--dashboard .aiur-shell__menu-item[aria-checked="true"] .aiur-shell__switch { background: var(--aiur-shell-attn-soft, var(--aiur-color-attention-soft)); }
+.aiur-shell--dashboard .aiur-shell__menu-item[aria-checked="true"] .aiur-shell__switch::after { transform: translateX(11px); background: var(--aiur-shell-attn, var(--aiur-color-attention)); }
+.aiur-shell--dashboard .aiur-page__header { display: flex; align-items: center; gap: .6rem; padding-left: 1.4rem; min-width: 0; }
+.aiur-shell--dashboard .aiur-page__header b { font-family: "Bungee", sans-serif; font-weight: 400; font-size: 1.1rem; line-height: 1; letter-spacing: .01em; text-transform: uppercase; color: var(--aiur-shell-fg, var(--aiur-color-fg)); white-space: nowrap; }
+.aiur-shell--dashboard .aiur-shell__topbar .aiur-shell__paused { margin-left: auto; }
+/* commands: red dot instead of a count */
+.aiur-shell--dashboard .aiur-shell__count.attn { font-size: 0; min-width: 0; width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: var(--aiur-shell-block, var(--aiur-color-blocking)); box-shadow: 0 0 0 3px var(--aiur-shell-block-soft, var(--aiur-color-blocking-soft)), 0 0 8px color-mix(in srgb, var(--aiur-shell-block, var(--aiur-color-blocking)) 60%, transparent); }
+.aiur-shell--dashboard .aiur-shell__count.attn[hidden] { display: none; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__count.attn { top: 8px; right: 12px; width: 7px; height: 7px; padding: 0; }
+@media (max-width: 960px) {
+.aiur-shell--dashboard .aiur-shell__brand { width: auto; border-right: 0; }
+.aiur-shell--dashboard .aiur-shell__sidebar { border-right: 0; } }
+html[data-theme="light"] .aiur-shell--dashboard .aiur-shell__menu { background: var(--aiur-shell-surface, var(--aiur-color-surface)); box-shadow: 0 12px 30px rgba(40, 32, 20, .16), 0 0 0 1px var(--aiur-shell-line, var(--aiur-color-line)); }
+
+/* ---------- draggable nav (icons ↔ icon + label), tighter spacing, centred content ---------- */
+.aiur-shell--dashboard { --aiur-dashboard-nav-w: 188px; }
+html.nav-collapsed .aiur-shell--dashboard { --aiur-dashboard-nav-w: 60px; }
+@media (min-width: 961px) {
+.aiur-shell--dashboard .aiur-shell__body, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__body { grid-template-columns: var(--navw, var(--aiur-dashboard-nav-w)) minmax(0, 1fr); transition: grid-template-columns .26s cubic-bezier(.22,1,.36,1); }
+.aiur-shell--dashboard .aiur-shell__brand, html.nav-collapsed .aiur-shell--dashboard .aiur-shell__brand { width: var(--navw, var(--aiur-dashboard-nav-w)); transition: width .26s cubic-bezier(.22,1,.36,1); }
+html.nav-drag .aiur-shell--dashboard .aiur-shell__body, html.nav-drag .aiur-shell--dashboard .aiur-shell__brand { transition: none; }
+html.nav-drag, html.nav-drag * { cursor: col-resize !important; user-select: none; }
+.aiur-shell--dashboard .aiur-shell__toggle { display: none !important; }
+.aiur-shell--dashboard .aiur-shell__sidebar { position: sticky; padding: .6rem .45rem .8rem 0; gap: 1px; overflow: visible; }
+.aiur-shell--dashboard .aiur-shell__sidebar .aiur-shell__item { padding: .5rem .6rem .5rem .8rem; gap: .6rem; border-radius: 0 9px 9px 0; }
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__sidebar .aiur-shell__item { padding: .55rem 0; justify-content: center; border-radius: 9px; margin: 0 .35rem 0 .35rem; }
+}
+.aiur-shell--dashboard .aiur-shell__label { white-space: nowrap; overflow: hidden; transition: opacity .18s; }
+@media (max-width: 960px) {
+.aiur-shell--dashboard .aiur-shell__nav { min-width: 0; overflow-x: auto; }
+}
+@media (max-width: 480px) {
+.aiur-shell--dashboard .aiur-shell__menu-item { height: auto; min-height: 34px; }
+.aiur-shell--dashboard .aiur-shell__menu-item span:not(.aiur-shell__theme-icon) { min-width: 0; }
+}
+.aiur-shell--dashboard .aiur-shell__drag { position: absolute; top: 0; bottom: 0; right: -5px; width: 10px; z-index: 5; cursor: col-resize; }
+.aiur-shell--dashboard .aiur-shell__drag::after { content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: var(--aiur-shell-accent, var(--aiur-color-accent)); opacity: 0; transition: opacity .15s; }
+.aiur-shell--dashboard .aiur-shell__drag:hover::after, html.nav-drag .aiur-shell--dashboard .aiur-shell__drag::after { opacity: .6; }
+@media (max-width: 960px) {
+.aiur-shell--dashboard .aiur-shell__drag { display: none; } }
+.aiur-shell--dashboard .aiur-page { margin-left: auto; margin-right: auto; max-width: 1720px; padding: 1.1rem 1.2rem 3rem; }
+.aiur-shell--dashboard .aiur-shell__topbar { background: color-mix(in srgb, var(--aiur-shell-bg, var(--aiur-color-bg-app)) 70%, transparent) !important; backdrop-filter: blur(8px); }
+html[data-palette="gruvbox"][data-theme="light"] .aiur-shell--dashboard .aiur-shell__topbar { background: color-mix(in srgb, var(--aiur-shell-bg, var(--aiur-color-bg-app)) 85%, transparent) !important; }
+
+/* Preserve the product's read-only pause treatment. */
+.aiur-shell--dashboard .aiur-shell__menu-item[disabled] { opacity: 0.5; cursor: not-allowed; }
+/* Product routes are links rather than design buttons. */
+.aiur-shell--dashboard a.aiur-shell__item { text-decoration: none; }
+/* Keep the existing detail-page back control in the top-bar title. */
+.aiur-shell--dashboard .aiur-page__back { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1.5em; height: 1.5em; border-radius: 0.42em; background: var(--aiur-shell-surface-2, var(--aiur-color-surface-2)); border: 1px solid var(--aiur-shell-line, var(--aiur-color-line)); color: var(--aiur-shell-accent-ink, var(--aiur-color-accent-ink)); text-decoration: none; }
+.aiur-shell--dashboard .aiur-page__back svg { display: block; width: 0.82em; height: 0.82em; }
+.aiur-shell--dashboard .aiur-page__back:hover { background: var(--aiur-shell-surface-3, var(--aiur-color-surface-3)); border-color: var(--aiur-shell-line-strong, var(--aiur-color-line-strong)); }
+/* Product detail titles can exceed the design's short tab names. */
+.aiur-shell--dashboard .aiur-page__header b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Collapsed routes retain their names for assistive technology. */
+@media (min-width: 961px) {
+html.nav-collapsed .aiur-shell--dashboard .aiur-shell__label { display: block; position: absolute; width: 1px; height: 1px; clip-path: inset(50%); } }
+
+/* Reserve phone navigation space when operators enlarge the text. */
+@media (max-width: 960px) {
+.aiur-shell--dashboard .aiur-page { padding-bottom: 6.5rem; } }
+/* The rail spans the page so its border reaches the bottom; only the links stay pinned (#4886). */
+@media (min-width: 961px) {
+.aiur-shell--dashboard .aiur-shell__sidebar { position: relative; top: auto; align-self: stretch; height: auto; min-height: calc(100vh - 56px); }
+.aiur-shell--dashboard .aiur-shell__nav { position: sticky; top: calc(56px + .6rem); }
+}
+@media (max-width: 360px) {
+.aiur-shell--dashboard .aiur-shell__menu { position: fixed; left: 1rem; top: 56px; max-width: calc(100vw - 2rem); } }
+@media (max-width: 480px) {
+.aiur-shell--dashboard .aiur-shell__menu-item span:not(.aiur-shell__theme-icon) { overflow-wrap: break-word; } }
+}

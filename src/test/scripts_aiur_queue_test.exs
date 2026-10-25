@@ -38,6 +38,24 @@ defmodule Aiur.ScriptsQueueTest do
     for verb <- ["hold", "release"], do: assert({_, 0} = command([verb, "--queue", "paseo"]))
   end
 
+  test "order read and mutation and creation ranks are validated and encoded" do
+    assert {output, 0} = command(["order"], [{"AIUR_AGENT_WORKSPACE", "/caller"}])
+    assert output =~ "verb: :order"
+    assert {output, 0} = command(["order", "a\"; raise :bad", "--to", "2"])
+    assert output =~ "to: 2"
+    refute output =~ "raise :bad"
+    assert {_, 64} = command(["order", "wave", "--to", "0"], [{"AIUR_AGENT_WORKSPACE", "/caller"}])
+    assert {output, 0} = command(["add", "1", "--queue", "wave", "--rank", "0"])
+    assert output =~ "rank: 0"
+    assert {output, 0} = command(["add", "--build-order", "9", "--queue", "wave", "--rank", "1"])
+    assert output =~ "rank: 1"
+
+    for args <- [["order", "wave"], ["order", "--to", "1"], ["order", "wave", "--to", "-1"], ["add", "1", "--rank", "0"], ["add", "1", "--queue", "wave", "--rank", "-1"]] do
+      assert {output, 64} = command(args)
+      refute output =~ "RPC:"
+    end
+  end
+
   test "a failed or timed-out RPC exits non-zero" do
     assert {_, 1} = command(["add", "1"], [{"TEST_QUEUE_RPC_STATUS", "1"}])
     assert {output, 124} = command(["remove", "1"], [{"TEST_QUEUE_RPC_STATUS", "124"}])

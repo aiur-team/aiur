@@ -20,7 +20,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     File.mkdir_p!(dir)
 
     on_exit(fn ->
-      File.rm_rf!(dir)
+      Aiur.TestCleanup.rm_rf!(dir)
       Enum.each([:issue, :issue_labels, :issue_dependency, :sub_issue], &ResourceStore.clear(&1, "acme", repo))
       Supervisor.restart_child(Aiur.Supervisor, Feeder)
     end)
@@ -34,8 +34,8 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     start_supervised!({History, name: @store, repository: ctx.full, state_dir: ctx.dir, flush_ms: 60_000})
 
     if complete do
-      History.apply([], ctx.opts ++ [checkpoint: {:backfill, %{"started_at" => DateTime.to_iso8601(@t)}}])
-      History.mark_complete(ctx.opts)
+      assert {:ok, _result} = History.apply([], ctx.opts ++ [checkpoint: {:backfill, %{"started_at" => DateTime.to_iso8601(@t)}}])
+      assert :ok = History.mark_complete(ctx.opts)
     end
   end
 
@@ -124,6 +124,26 @@ defmodule Aiur.BuildOrder.History.FeederTest do
   defp after_feed(fun, _attempts \\ 0) do
     settle()
     assert fun.()
+  end
+
+  defp await_catch_up_processed_down(pid, deadline) do
+    state = :sys.get_state(pid)
+
+    if is_nil(state.catch_task) do
+      state
+    else
+      assert System.monotonic_time(:millisecond) < deadline,
+             "feeder did not process catch-up task DOWN before the deadline"
+
+      receive do
+      after
+        1 -> await_catch_up_processed_down(pid, deadline)
+      end
+    end
+  end
+
+  defp await_catch_up_processed_down(pid) do
+    await_catch_up_processed_down(pid, System.monotonic_time(:millisecond) + 5_000)
   end
 
   test "closed delivery batches issue and labels into one change, duplicates stay quiet", ctx do
@@ -283,9 +303,25 @@ defmodule Aiur.BuildOrder.History.FeederTest do
 
   test "task crash reports failed and not-running is explicit", ctx do
     store(ctx, true)
-    feeder(ctx, graphql_fun: fn _, _, _, _, _ -> exit(:query_crashed) end)
-    after_feed(fn -> Feeder.catch_up_status().status == :failed end)
-    assert Feeder.catch_up_status().reason == {:task_down, :query_crashed}
+    owner = self()
+
+    feeder(ctx,
+      graphql_fun: fn _, _, _, _, _ ->
+        send(owner, {:catch_up_started, self()})
+        Aiur.TestSupport.receive_barrier({:crash_catch_up, ^owner})
+        exit(:query_crashed)
+      end
+    )
+
+    assert_receive {:catch_up_started, task}, 5_000
+    feeder_pid = Process.whereis(Feeder)
+    assert is_reference(:sys.get_state(feeder_pid).catch_task)
+    assert Feeder.catch_up_status().status == :running
+    send(task, {:crash_catch_up, self()})
+    state = await_catch_up_processed_down(feeder_pid)
+    assert state.catch_task == nil
+    assert state.status.status == :failed
+    assert state.status.reason == {:task_down, :query_crashed}
     stop_supervised!(Feeder)
     assert Feeder.catch_up_status() == {:error, :not_running}
   end

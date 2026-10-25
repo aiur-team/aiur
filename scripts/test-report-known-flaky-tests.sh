@@ -69,6 +69,12 @@ printf '%s\n' \
 summary="$test_dir/summary.md"
 output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/sample.log" "$summary" "$test_dir/list.txt")"
 
+
+assert_contains 'known test annotation contract' \
+  '::error title=aiur-test-failure,file=src/test/aiur/known_flake_fixture_test.exs,line=585::known-flake :: Aiur.KnownFlakeFixtureTest :: a listed flake standing in for a quarantine entry' "$output"
+assert_contains 'new test annotation contract' \
+  '::error title=aiur-test-failure,file=src/test/aiur/some_new_test.exs,line=10::new-failure :: Aiur.SomeNewTest :: a genuinely new failure the change broke' "$output"
+
 assert_contains 'mixed run counts two known and one new' 'classified known=2 new=1' "$output"
 assert_file_contains 'listed fixture test is classified as a known flake' \
   'Aiur.KnownFlakeFixtureTest :: a listed flake standing in for a quarantine entry — **known flake**' "$summary"
@@ -105,6 +111,23 @@ output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/no-failures.log" 
 assert_file_contains 'a log with no ExUnit failures invents no classification' \
   'No failing ExUnit tests detected in the log' "$no_failures_summary"
 
+if grep -q '^::error' <<<"$output"; then
+  echo 'no failures must emit no annotations' >&2
+  exit 1
+fi
+
+for n in $(seq 1 15); do
+  printf '  %s) test failure %s (Aiur.CapFixtureTest)\n' "$n" "$n"
+done > "$test_dir/capped.log"
+output="$(bash "$reporter" "$test_dir/capped.log" "$test_dir/capped.md" "$test_dir/list.txt")"
+[[ "$(grep -c '^::error title=aiur-test-failure::' <<<"$output")" == 10 ]]
+assert_contains 'overflow is explicit' '::error title=aiur-test-failure::truncated :: and 6 more' "$output"
+
+printf '  1) test value :: 100%% (Aiur.EscapeFixtureTest)\n' > "$test_dir/escaped.log"
+output="$(bash "$reporter" "$test_dir/escaped.log" "$test_dir/escaped.md" "$test_dir/list.txt")"
+assert_contains 'percent escaped and colons preserved' \
+  '::error title=aiur-test-failure::new-failure :: Aiur.EscapeFixtureTest :: value :: 100%25' "$output"
+
 # A missing known-flaky list must classify every failure as NEW and say so.
 cat >"$test_dir/new-only.log" <<'LOG'
   1) test something else entirely (Aiur.AnotherTest)
@@ -126,7 +149,7 @@ output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/not-there.log" "$
 assert_contains 'a missing log is a no-op' 'test log not found' "$output"
 
 workflow="$root/.github/workflows/ci.yml"
-coverage_partition_job="$(sed -n '/^  coverage-partition:$/,/^  coverage:$/p' "$workflow")"
+coverage_partition_job="$(sed -n '/^  coverage-partition:$/,/^  test:$/p' "$workflow")"
 
 # Scope every assertion to the reporter step itself, and assert the semantics
 # of its gate rather than the whole `if:` line (#docs-only CI).
@@ -149,8 +172,8 @@ if [[ -z "$reporter_step" ]]; then
   exit 1
 fi
 
-if ! grep -Eq '^        if: .*failure\(\)' <<<"$reporter_step"; then
-  echo "the known-flaky reporter step must still be gated on failure()" >&2
+if ! grep -Fq "steps.partition-tests.outcome == 'failure'" <<<"$reporter_step"; then
+  echo "the known-flaky reporter step must still run for a failed partition" >&2
   exit 1
 fi
 
@@ -158,6 +181,25 @@ assert_contains 'reporter step invokes the script' 'run: bash scripts/report-kno
 
 if [[ "$(grep -Fc 'report-known-flaky-tests.sh' "$workflow")" -lt 1 ]]; then
   echo "workflow must wire the known-flaky reporter" >&2
+  exit 1
+fi
+
+# OrchestratorGuard fails the suite after "0 failures" and names the last-finished test in a
+# RuntimeError (shape of main run 39126982641). That name is timing, not cause (#5114): it must
+# reach only the guard annotation, never a quarantinable aiur-test-failure.
+cat >"$test_dir/guard.log" <<'LOG'
+....Aiur.Orchestrator was down before Aiur.FixtureNeighbourTest: test notices a dead orchestrator; last finished test: AiurWeb.FixtureGuardLeakTest: test uses poll labels without waiting, and drops stale labels
+9 properties, 4946 tests, 0 failures, 5 skipped (10 excluded)
+** (RuntimeError) plain ExUnit tests broke Aiur.Orchestrator: AiurWeb.FixtureGuardLeakTest: test uses poll labels without waiting, and drops stale labels (down), Aiur.FixtureStandInTest: test holds the name (held by a stand-in #PID<0.123.0>)
+    test/support/test_support/orchestrator_guard.exs:57: Aiur.TestSupport.OrchestratorGuard.verify_suite!/0
+LOG
+guard_output="$(GITHUB_WORKSPACE="$root" bash "$reporter" "$test_dir/guard.log" "$test_dir/guard-summary.md" "$test_dir/list.txt")"
+assert_contains 'guard failure carries the named test as evidence' \
+  '::error title=aiur-guard-failure::orchestrator-guard :: AiurWeb.FixtureGuardLeakTest: test uses poll labels without waiting, and drops stale labels (down)' "$guard_output"
+assert_contains 'every guard name is reported' \
+  '::error title=aiur-guard-failure::orchestrator-guard :: Aiur.FixtureStandInTest: test holds the name (held by a stand-in #PID<0.123.0>)' "$guard_output"
+if grep -Fq 'title=aiur-test-failure' <<<"$guard_output"; then
+  echo "ASSERTION FAILED: a guard-named test must not become a quarantinable test failure" >&2
   exit 1
 fi
 

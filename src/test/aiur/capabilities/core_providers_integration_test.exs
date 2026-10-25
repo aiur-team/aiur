@@ -9,7 +9,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
   test "executor: roster read does not record an observation" do
     path = Path.join(Aiur.TestSupport.tmp_root!("core-provider-claims"), "claims.json")
     File.mkdir_p!(Path.dirname(path))
-    on_exit(fn -> File.rm_rf!(Path.dirname(path)) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(path)) end)
     now = DateTime.utc_now()
     assert {:ok, _claim} = Claims.claim("owner", path: path, now: now)
     Roster.build(path: path, now: now, cursor: 0, pending_count: 0)
@@ -29,6 +29,7 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
     end)
 
     Aiur.TestSupport.start_owned_endpoint!()
+    assert Application.fetch_env!(:aiur, AiurWeb.Endpoint)[:server] == false
     assert Provider.http(%{run_shape: %{http_listener: true}}) == %{state: :unavailable, reason: :not_running}
     spec = Supervisor.child_spec({Bandit, plug: AiurWeb.Endpoint, port: 0}, id: {AiurWeb.Endpoint, :http})
     assert {:ok, _server} = Supervisor.start_child(AiurWeb.Endpoint, spec)
@@ -73,8 +74,8 @@ defmodule Aiur.Capabilities.CoreProvidersIntegrationTest do
 
     for id <- ~w(commands.supervisor_api tracker.github tracker.linear), do: refute(Map.get(caps[id], :reason) == :not_installed)
     refute Enum.any?(warnings, &match?({:failed, _}, &1))
+    on_exit(fn -> assert :ok = Aiur.TestSupport.ensure_orchestrator_running() end)
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Orchestrator)
-    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Aiur.Orchestrator) end)
     assert Process.whereis(Aiur.Orchestrator) == nil
     {after_stop, _warnings} = Collector.collect([])
     assert after_stop.capabilities["orchestration"] == %{state: :unavailable, reason: :not_running}

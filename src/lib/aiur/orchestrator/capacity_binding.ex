@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
           :tracker_preflight
           | :dispatch_selection
           | :stale_poll
+          | :dispatch_cycle_stalled
           | :awaiting_dispatch
           | :admission
           | :ticket_supply
@@ -57,6 +58,9 @@ defmodule Aiur.Orchestrator.CapacityBinding do
 
   def binding(%{dispatch_hold: %{held?: true, reason: :tracker_preflight} = hold}, _polling, _now),
     do: {:tracker_preflight, hold}
+
+  def binding(%{dispatch_cycle_stalled?: true} = capacity, _polling, _now),
+    do: {:dispatch_cycle_stalled, %{started_at_ms: Map.get(capacity, :dispatch_cycle_started_at_ms), stage: Map.get(capacity, :dispatch_cycle_stage)}}
 
   def binding(%{capacity_hold: %{} = hold}, polling, now),
     do: {:admission, mark_stale_sample(hold, polling, now)}
@@ -227,6 +231,18 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   def short_label({:admission, %{signal: signal}}), do: "admission: #{signal}"
   def short_label({:admission, _hold}), do: "admission"
 
+  @spec dispatch_cycle_stalled_label(integer(), String.t() | nil) :: String.t()
+  def dispatch_cycle_stalled_label(started_at_ms, stage) do
+    started = DateTime.from_unix!(started_at_ms, :millisecond) |> DateTime.to_iso8601()
+    "dispatch cycle stalled since #{started} at #{stage || "unknown stage"}"
+  end
+
+  @spec dispatch_cycle_stalled_label(map()) :: String.t()
+  def dispatch_cycle_stalled_label(%{started_at_ms: started, stage: stage}) when is_integer(started),
+    do: dispatch_cycle_stalled_label(started, stage)
+
+  def dispatch_cycle_stalled_label(_detail), do: "dispatch cycle stalled"
+
   @doc """
   A slot-free, unconstrained fleet's effective ceiling provenance.
 
@@ -236,6 +252,9 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   config-sourced rather than as the operator's last command (#2138).
   """
   @spec ceiling_label(map()) :: String.t()
+  def ceiling_label(%{effective: effective, max: max}) when is_integer(effective) and effective < max,
+    do: "AIMD envelope #{effective}"
+
   def ceiling_label(%{session_override?: true}), do: "session max_concurrent_agents"
   def ceiling_label(_capacity), do: "config max_concurrent_agents"
 
