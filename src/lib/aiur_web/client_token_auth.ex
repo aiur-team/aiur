@@ -68,6 +68,4 @@ defmodule AiurWeb.ClientTokenAuth do
         conn |> send_resp(401, "unauthorized") |> halt()
     end
   end
-
-  defp authenticate(conn, _, _), do: conn |> send_resp(401, "unauthorized") |> halt()
 end
