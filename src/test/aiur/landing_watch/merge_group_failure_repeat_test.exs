@@ -271,6 +271,23 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRepeatTest do
     refute File.exists?(path)
   end
 
+  test "the cancelled incident job shape is requeued without sending its PR to rework" do
+    parent = self()
+    path = journal_path()
+
+    jobs =
+      [%{"id" => 1, "name" => "changes", "conclusion" => "success"}, %{"id" => 2, "name" => "soak", "conclusion" => "skipped"}, %{"id" => 3, "name" => "quarantined tests", "conclusion" => "skipped"}] ++
+        for(index <- 1..27, do: %{"id" => 3 + index, "name" => "test (#{index}/27)", "conclusion" => "cancelled"}) ++
+        [%{"id" => 31, "name" => "ci gate", "conclusion" => "failure"}]
+
+    assert :ok =
+             process_failure(40_053_094_689, [], path, parent, jobs_fun: fn _, _ -> {:ok, jobs} end)
+
+    assert_received {:enqueue, 17}
+    refute_received {:rework, 17}
+    Aiur.TestCleanup.rm_rf!(path)
+  end
+
   defp process_failure(run_id, tests, journal, parent, extra_opts \\ []) do
     run = failed_run(run_id, "failure")
     log = failure_log(tests)
