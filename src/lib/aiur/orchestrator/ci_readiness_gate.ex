@@ -3,11 +3,11 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
   Advisory CI readiness checks for dispatch.
   """
 
-  alias Aiur.Alerts
   alias Aiur.CodeHost
   alias Aiur.CodeHost.CiReadiness
   alias Aiur.Config
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000
@@ -85,7 +85,7 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
         state
 
       result ->
-        accept_cached_ci_readiness_result(state, result, &Alerts.emit_system/2)
+        accept_cached_ci_readiness_result(state, result, &Signal.alert/2)
     end
   end
 
@@ -116,7 +116,7 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
         %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token, ci_readiness_check_provider: provider, ci_readiness_retry_at_ms: nil}
 
       {:error, reason} ->
-        record_ci_readiness_result(state, {:error, reason}, &Alerts.emit_system/2, provider)
+        record_ci_readiness_result(state, {:error, reason}, &Signal.alert/2, provider)
     end
   end
 
@@ -127,7 +127,7 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
 
     state
     |> clear_ci_readiness_check()
-    |> record_ci_readiness_result(result, &Alerts.emit_system/2, provider)
+    |> record_ci_readiness_result(result, &Signal.alert/2, provider)
   end
 
   def handle_ci_readiness_result(state, _token, _result), do: state
@@ -141,7 +141,7 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
 
     state
     |> clear_ci_readiness_check()
-    |> record_ci_readiness_result({:error, :timeout}, &Alerts.emit_system/2, provider)
+    |> record_ci_readiness_result({:error, :timeout}, &Signal.alert/2, provider)
   end
 
   def handle_ci_readiness_timeout(state, _token), do: state

@@ -454,6 +454,7 @@ when their condition clears, teardown runs (except `blocked`), or CI transitions
 | `agent:done` | Ticket work is complete | Merge lifecycle completes |
 | `agent:error` | Automated work stopped after an unrecoverable failure | Retry exhaustion or terminal dispatch failure |
 | `agent:cancelled` / `agent:canceled` | Ticket was explicitly cancelled | Tracker records cancellation |
+| `agent:budget-exhausted` | Ticket reached its configured spend cap and stopped | Durable spend-cap enforcement completes |
 | `agent:paused` | Existing workflow state is suppressed from dispatch | Operator adds or removes the pause override |
 | `agent:parked` | Ticket is deliberately held outside normal dispatch | Operator parks the ticket |
 | `agent:queued` | Ticket is waiting in an explicit build queue | Build queue adds or removes the queue marker |

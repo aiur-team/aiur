@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Orchestrator.CommentWake.Dispatch
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   @doc false
@@ -176,7 +176,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
         :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
       "Comment on idle issue #{issue_number} was not acted on (#{inspect(reason)})",
       issue: to_string(issue_number),
@@ -190,7 +190,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   defp emit_idle_comment_refusal(_issue_number, _reason), do: :ok
 
   defp emit_comment_rework_refusal(issue_number, suffix, message, reason, remedy) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue_number}.agent.attention.#{suffix}",
       message,
       issue: to_string(issue_number),

@@ -80,7 +80,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTransition do
   defp failure_details(result), do: {{:unexpected_outcome, result}, :unknown}
 
   defp alert(context, reason) do
-    emit = Keyword.get(context.opts, :emit_alert_fun, &Aiur.Alerts.emit_system/2)
+    emit = Keyword.get(context.opts, :emit_alert_fun, &Aiur.Signal.alert/2)
 
     emit.("ticket.#{context.issue.identifier}.agent.rate_limit_fallback_write_failed",
       issue: context.issue,
