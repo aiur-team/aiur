@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/status.v1.schema.json",
+  "title": "FleetStatus",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "const": "aiur.status" },
+    "contract_version": { "const": 1 },
+    "generated_at": { "type": "string" },
+    "counts": { "$ref": "#/$defs/counts" },
+    "running": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/runningAgent" }
+    },
+    "retrying": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/retryingAgent" }
+    },
+    "idle": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/idleAgent" }
+    },
+    "agent_totals": { "type": "object", "additionalProperties": true },
+    "capacity": { "type": ["object", "null"], "additionalProperties": true },
+    "capacity_hold": { "type": "object", "additionalProperties": true },
+    "dispatch_hold": { "type": "object", "additionalProperties": true },
+    "polling": { "type": ["object", "null"], "additionalProperties": true },
+    "globally_paused": { "type": "boolean" },
+    "observations": { "type": ["object", "null"], "additionalProperties": true },
+    "daemon_started_at": { "type": ["string", "null"] },
+    "snapshot_freshness": { "$ref": "#/$defs/snapshotFreshness" },
+    "decision_history": { "type": "object", "additionalProperties": true },
+    "recent_merges": { "type": "object", "additionalProperties": true },
+    "analytics": { "type": "object", "additionalProperties": true },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "generated_at",
+    "decision_history",
+    "recent_merges",
+    "analytics"
+  ],
+  "oneOf": [
+    {
+      "required": [
+        "counts",
+        "running",
+        "retrying",
+        "idle",
+        "agent_totals",
+        "capacity",
+        "capacity_hold",
+        "dispatch_hold",
+        "polling",
+        "globally_paused",
+        "observations",
+        "daemon_started_at",
+        "snapshot_freshness"
+      ],
+      "not": { "required": ["error"] }
+    },
+    {
+      "required": ["error"],
+      "not": { "required": ["counts"] }
+    }
+  ],
+  "$defs": {
+    "counts": {
+      "title": "FleetStatusCounts",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "running": { "type": "integer", "minimum": 0 },
+        "retrying": { "type": "integer", "minimum": 0 },
+        "idle": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["running", "retrying", "idle"]
+    },
+    "runningAgent": {
+      "title": "FleetRunningAgent",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "issue_id": { "type": "string" },
+        "issue_identifier": { "type": "string" },
+        "session_id": { "type": ["string", "null"] },
+        "state": { "type": "string" },
+        "started_at": { "type": ["string", "null"] },
+        "runtime_seconds": { "type": ["integer", "null"], "minimum": 0 },
+        "turn_count": { "type": "integer", "minimum": 0 },
+        "queue_depth": { "type": "integer", "minimum": 0 },
+        "workspace_path": { "type": ["string", "null"] },
+        "worker_host": { "type": ["string", "null"] },
+        "tag": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "adopted_from": { "type": ["string", "null"] },
+        "repl_attach_command": { "type": ["string", "null"] },
+        "live_conversation": { "type": ["object", "null"], "additionalProperties": true },
+        "capabilities": { "type": ["object", "null"], "additionalProperties": true },
+        "tracker_paused": { "type": "boolean" },
+        "last_event": { "type": ["string", "null"] },
+        "last_message": { "type": ["string", "null"] },
+        "last_event_at": { "type": ["string", "null"] },
+        "stale_for_seconds": { "type": ["integer", "null"], "minimum": 0 },
+        "waiting": { "type": ["object", "null"], "additionalProperties": true },
+        "open_decision_count": { "type": "integer", "minimum": 0 },
+        "open_decision_count_health": { "type": "string" },
+        "review": { "type": "string" },
+        "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
+        "waiting_reason": { "type": ["string", "null"] },
+        "work_state": { "type": ["string", "null"] }
+      },
+      "required": ["issue_id", "issue_identifier", "state", "turn_count", "queue_depth"]
+    },
+    "retryingAgent": {
+      "title": "FleetRetryingAgent",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "issue_id": { "type": "string" },
+        "issue_identifier": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "due_at": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] },
+        "last_failure_at": { "type": ["string", "null"] },
+        "worker_host": { "type": ["string", "null"] },
+        "workspace_path": { "type": ["string", "null"] },
+        "state": { "type": ["string", "null"] },
+        "tag": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "runtime_seconds": { "type": "integer", "minimum": 0 },
+        "work_state": { "type": "string" },
+        "tracker_paused": { "type": "boolean" },
+        "waiting_reason": { "type": "string" },
+        "waiting": { "type": ["object", "null"], "additionalProperties": true },
+        "open_decision_count": { "type": "integer", "minimum": 0 },
+        "open_decision_count_health": { "type": "string" },
+        "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
+        "review": { "type": "string" },
+        "tracker_identity": { "type": "object", "additionalProperties": true }
+      },
+      "required": [
+        "issue_id",
+        "issue_identifier",
+        "attempt",
+        "due_at",
+        "error",
+        "runtime_seconds",
+        "work_state",
+        "tracker_paused",
+        "waiting_reason",
+        "open_decision_count",
+        "open_decision_count_health",
+        "ci",
+        "review"
+      ]
+    },
+    "idleAgent": {
+      "title": "FleetIdleAgent",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "issue_id": { "type": "string" },
+        "issue_identifier": { "type": "string" },
+        "state": { "type": "string" },
+        "tag": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "runtime_seconds": { "type": "integer", "minimum": 0 },
+        "work_state": { "type": "string" },
+        "tracker_paused": { "type": "boolean" },
+        "queue_depth": { "type": "integer", "minimum": 0 },
+        "waiting_reason": { "type": "string" },
+        "waiting": { "type": ["object", "null"], "additionalProperties": true },
+        "open_decision_count": { "type": "integer", "minimum": 0 },
+        "open_decision_count_health": { "type": "string" },
+        "ci": { "oneOf": [{ "$ref": "#/$defs/ci" }, { "type": "null" }] },
+        "review": { "type": "string" },
+        "tracker_identity": { "type": "object", "additionalProperties": true }
+      },
+      "required": [
+        "issue_id",
+        "issue_identifier",
+        "state",
+        "runtime_seconds",
+        "work_state",
+        "tracker_paused",
+        "queue_depth",
+        "waiting_reason",
+        "open_decision_count",
+        "open_decision_count_health",
+        "ci",
+        "review"
+      ]
+    },
+    "snapshotFreshness": {
+      "title": "FleetSnapshotFreshness",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["current", "stale"] },
+        "observed_at": { "type": ["string", "null"] },
+        "age_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "age_seconds": { "type": ["integer", "null"], "minimum": 0 },
+        "freshness_window_ms": { "type": "integer", "minimum": 0 },
+        "orchestrator_mailbox_depth": { "type": ["integer", "null"], "minimum": 0 },
+        "reason": { "type": ["string", "null"] }
+      },
+      "required": ["status", "observed_at", "age_ms", "age_seconds", "freshness_window_ms"]
+    },
+    "ci": {
+      "title": "FleetCiStatus",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "decision": { "type": ["string", "null"] },
+        "pr_number": { "type": ["integer", "null"] },
+        "head_sha": { "type": ["string", "null"] },
+        "draft?": { "type": "boolean" }
+      },
+      "required": ["decision", "pr_number", "head_sha", "draft?"]
+    },
+    "error": {
+      "title": "FleetStatusError",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "required": ["code", "message"]
+    }
+  }
+}

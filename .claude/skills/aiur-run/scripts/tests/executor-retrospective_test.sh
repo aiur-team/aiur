@@ -53,13 +53,31 @@ process_start_identity() {
   printf 'ps:%s\n' "$identity"
 }
 
-if AIUR_EXECUTOR_STATE_DIR="$state_root" "$script" due >"$state_root/missing-run.out" 2> "$state_root/missing-run.err"; then
-  fail "missing run ID was accepted"
-else
-  missing_run_status=$?
-fi
-[ "$missing_run_status" -eq 68 ] || fail "missing run ID did not return its distinct precondition status (got $missing_run_status)"
-grep -q 'AIUR_EXECUTOR_RUN_ID is required' "$state_root/missing-run.err" || fail "missing run ID did not print the stderr precondition line"
+default_run_root="$state_root/default-run-id"
+env -u AIUR_EXECUTOR_RUN_ID -u AIUR_TMUX_SOCKET AIUR_TMUX_SESSION=stale-session \
+  AIUR_EXECUTOR_STATE_DIR="$default_run_root" "$script" due >/dev/null
+[ -s "$default_run_root/default/retrospective-state.json" ] ||
+  fail "missing run ID did not use the documented default"
+[ ! -e "$default_run_root/stale-session/retrospective-state.json" ] ||
+  fail "stale tmux session name was used outside a live Aiur tmux session"
+
+tmux_stub_dir="$state_root/tmux-bin"
+mkdir -p "$tmux_stub_dir"
+cat > "$tmux_stub_dir/tmux" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$TMUX_TEST_SESSION_ID"
+EOF
+chmod +x "$tmux_stub_dir/tmux"
+session_state_root="$state_root/session-run-id"
+for session_id in '$7' '$7' '$8'; do
+  TMUX_TEST_SESSION_ID="$session_id" PATH="$tmux_stub_dir:$PATH" \
+    AIUR_EXECUTOR_STATE_DIR="$session_state_root" AIUR_TMUX_SOCKET=aiur-test \
+    AIUR_TMUX_SESSION=aiur-test-default env -u AIUR_EXECUTOR_RUN_ID "$script" due >/dev/null
+done
+[ -s "$session_state_root/tmux-aiur-test-7/retrospective-state.json" ] ||
+  fail "live tmux session ID was not used as the retrospective identity"
+[ -s "$session_state_root/tmux-aiur-test-8/retrospective-state.json" ] ||
+  fail "a recreated tmux session reused the previous retrospective identity"
 
 mkdir -p "$state_root/invalid-run-id"
 for invalid_run_id in . ..; do
@@ -311,7 +329,15 @@ jq -e '.type == "hourly_retrospective"' "$missing_capture_out" >/dev/null || fai
 # it does on a bare CI runner.
 empty_socket_dir="$state_root/empty-sockets"
 mkdir -p "$empty_socket_dir"
+url_missing_tmux_bin="$state_root/url-missing-tmux-bin"
+mkdir -p "$url_missing_tmux_bin"
+cat > "$url_missing_tmux_bin/tmux" <<'EOF'
+#!/usr/bin/env sh
+exit 0
+EOF
+chmod +x "$url_missing_tmux_bin/tmux"
 url_missing_retro="$state_root/url-missing-retrospective.md"
+PATH="$url_missing_tmux_bin:$PATH" \
 AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=url-missing \
   AIUR_EXECUTOR_RETRO_FILE="$url_missing_retro" \
@@ -355,7 +381,7 @@ grep -q 'Overall:.*attention' "$state_root/empty-capture-retrospective.md" ||
 
 # The missing password is the third precondition, with its own code (69), its
 # own stderr line, and a did-not-run verdict — distinct from a missing URL (67)
-# or a missing run ID (68). Without the daemon environment fallback it is a
+# or an invalid run ID (68). Without the daemon environment fallback it is a
 # hard failure: a capture that cannot authenticate must never look like one
 # that ran.
 password_missing_retro="$state_root/password-missing-retrospective.md"
@@ -390,6 +416,7 @@ jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition |
 # redirected log is never silently empty next to a bare exit code.
 record_precondition_retro="$state_root/record-precondition-retrospective.md"
 set +e
+PATH="$url_missing_tmux_bin:$PATH" \
 AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=record-precondition \
   AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
@@ -449,6 +476,10 @@ case "${1:-}" in
     exit 0
     ;;
   list-panes)
+    case " $* " in
+      *" -a "*) ;;
+      *) exit 1 ;;
+    esac
     printf '%s\n' "${FAKE_TMUX_PANE_PID:-1}"
     exit 0
     ;;

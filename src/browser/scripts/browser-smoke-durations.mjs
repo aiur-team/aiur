@@ -12,6 +12,8 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
+  // 18 functional cases: 2.4m plus six units and startup margin (2026-10-24).
+  'test:build-home-features': 160,
   // #3166 local run (2026-10-21): six control cases 36.6s; four parity cells 133.1s.
   // Include startup margin; refresh these provisional bounds from the first CI shard log.
   'test:browser-suite -- build-home-agent-control': 50,
@@ -49,6 +51,8 @@ export const recordedSeconds = {
   'test:build-modal-motion': 26,
   // Same run, shard 7/job 119192841077: all 14 conversation cases passed; 163.6s wall time.
   'test:build-home-conversation': 165,
+  // Local complete run for the new Fit endpoint check took 17s; reserve 25s for fixture variance.
+  'test:browser-suite -- build-home-chains-fit-endpoints': 25,
   // node --test, 7 cases in 0.4s locally (#3163); rounded up.
   'test:build-home-conversation-events-unit': 1,
   // Governed core commands (2026-10-18): 31 cases in 518s; 32 cases on 2ed995a67 in 445s.
@@ -137,4 +141,10 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-phone': 330,
   'test:browser-suite -- build-home-states': 9,
   'test:browser-suite -- build-home-states-e2e': 15,
+  // Local functional harness timing (2026-10-18): 130.4s.
+  'test:build-home-filters': 131,
+  // Seven-case local JSON report (2026-10-23, b33f2f685): 417.6s, excluding build-gate wait; round up.
+  'test:build-home-filters-parity': 418,
+  // Scoped desktop/reduced/mobile filter motion: local harness 49.3s (2026-10-18).
+  'test:build-home-filters-motion': 50,
 }

@@ -107,6 +107,8 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 Governed `gh` calls run for at most 120 seconds. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower the cap. On timeout, the supervisor terminates child processes and exits 124; `gh run watch` and `gh pr checks --watch` share the limit. It sources its body from an anonymous pipe, so caller-writable `TMPDIR` cannot replace it.
 
+Before handoff, if the PR body has stale or invalid local-test evidence, the daemon checks `.aiur-runtime/tmp/pr.md` in the agent workspace. A regular file no larger than 1 MB is accepted only when it passes the PR body lint for the current PR head. Aiur applies it with the daemon credential and verifies the stored body before allowing handoff.
+
 Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
 reads.

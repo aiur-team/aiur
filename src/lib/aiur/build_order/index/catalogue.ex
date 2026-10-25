@@ -25,13 +25,35 @@ defmodule Aiur.BuildOrder.Index.Catalogue do
 
     features =
       Map.new(sorted, fn {slug, f} ->
-        {slug, %{key: slug, label: f.label, hue: f.hue, epics: Enum.map(f.epics, & &1.key), from: SourceFreshness.ms(f.from), to: SourceFreshness.ms(f.to), stats: FeatureStats.to_json(stats[slug])}}
+        {slug,
+         %{
+           key: slug,
+           label: f.label,
+           hue: f.hue,
+           epics: Enum.map(f.epics, & &1.key),
+           from: SourceFreshness.ms(f.from),
+           to: SourceFreshness.ms(f.to),
+           oldest: oldest(slug, registry, rows),
+           stats: FeatureStats.to_json(stats[slug])
+         }}
       end)
 
     epics = Map.new(general, fn e -> {e.key, e |> Map.take([:key, :label, :hue, :icon]) |> Map.put(:general, true)} end)
     feature_epics = for {slug, f} <- sorted, e <- f.epics, into: %{}, do: {e.key, %{key: e.key, label: e.label, hue: f.hue, icon: "layers", feature: slug, temp: true}}
     order = Enum.map(general, & &1.key) ++ Enum.flat_map(sorted, fn {_, f} -> Enum.map(f.epics, & &1.key) end) ++ ["unsorted"]
     %{features: features, epics: epics |> Map.merge(feature_epics) |> Map.put("unsorted", Epic.unsorted()), order: order}
+  end
+
+  defp oldest(slug, registry, rows) do
+    rows
+    |> Map.values()
+    |> Enum.filter(fn row ->
+      owner = Map.get(registry.owners, row.num)
+      row.sec == "hist" and ((not is_nil(owner) and owner.feature == slug) or slug in Map.get(registry.also, row.num, []))
+    end)
+    |> Enum.map(& &1.end)
+    |> Enum.filter(&is_integer/1)
+    |> Enum.min(fn -> nil end)
   end
 
   defp include_undated(facts, parts) do

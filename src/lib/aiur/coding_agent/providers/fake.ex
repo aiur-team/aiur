@@ -15,6 +15,7 @@ defmodule Aiur.CodingAgent.Providers.Fake do
       models: ["fake-1"],
       model_aliases: :native,
       efforts: [],
+      hosted_execution: %{permission_boundary: :enforced, network_boundary: :denied, credential_boundary: :daemon},
       can_interrupt: false,
       safe_checkpoints: [],
       control_application_confirmation: :confirmed,
