@@ -133,6 +133,16 @@ test("github-cost keeps its ranked reader and options during deprecation", () =>
   );
 });
 
+test("help keeps the deprecated github-cost budget and format options visible", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {}, ["--help"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain(
+    "aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]",
+  );
+});
+
 test("github-cost reports a stopped daemon instead of falling back to an empty local meter", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(launcher, releaseDir, {
