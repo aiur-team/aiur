@@ -37,6 +37,8 @@ instance:
   mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
   # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # primary | secondary; one primary per repository
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
   #   tickets: []                     # ids handed over mid-flight

@@ -2,6 +2,7 @@ defmodule Aiur.InstanceTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.Instance
   alias Aiur.Config.Schema.Instance.Ignore
   alias Aiur.Instance
   alias Aiur.Instance.Identity
@@ -30,6 +31,48 @@ defmodule Aiur.InstanceTest do
 
     assert {:error, {:invalid_workflow_config, _}} =
              Schema.parse(%{"instance" => %{"ignore" => %{"tickets" => ["x"]}}})
+  end
+
+  test "ownership config accepts label and ticket rules and rejects malformed rules" do
+    assert {:ok, defaults} = Schema.parse(%{})
+    assert defaults.instance.owns == []
+    assert defaults.instance.pool
+
+    assert {:ok, parsed} =
+             Schema.parse(%{"instance" => %{"owns" => [%{"label" => "build-lane:voice"}, %{"ticket" => 4121}], "pool" => false}})
+
+    assert parsed.instance.owns == [%{"label" => "build-lane:voice"}, %{"ticket" => 4121}]
+    refute parsed.instance.pool
+
+    for invalid <- [[%{"ticket" => 0}], [%{"ticket" => "4121"}], [%{"label" => " "}], [%{"label" => "a", "ticket" => 4}]] do
+      assert {:error, {:invalid_workflow_config, _}} = Schema.parse(%{"instance" => %{"owns" => invalid}})
+    end
+  end
+
+  test "live ownership reserves matches, shares unmatched tickets, and releases on pause or expiry" do
+    roster = [
+      %{instance_id: "nuc", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "build-lane:voice"}, %{"ticket" => 73}], "pool" => true, "dispatching" => true}}},
+      %{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}
+    ]
+
+    voice = %Aiur.Issue{id: "41", labels: ["build-lane:voice"]}
+    other = %Aiur.Issue{id: "42", labels: ["build-lane:docs"]}
+    ticket = %Aiur.Issue{id: "73", identifier: "73", labels: []}
+
+    assert Instance.eligible?(voice, "nuc", roster)
+    refute Instance.eligible?(voice, "pc", roster)
+    assert Instance.eligible?(other, "pc", roster)
+    assert Instance.eligible?(ticket, "nuc", roster)
+
+    paused_roster = put_in(roster, [Access.at(0), :metadata, "data", "dispatching"], false)
+    assert Instance.eligible?(voice, "pc", paused_roster)
+
+    ownerless_roster = Enum.drop(roster, 1)
+    assert Instance.eligible?(voice, "pc", ownerless_roster)
+
+    closed_pool = put_in(roster, [Access.at(1), :metadata, "data", "pool"], false)
+    refute Instance.eligible?(other, "pc", closed_pool)
+    refute Instance.eligible?(%Aiur.Issue{id: "44", labels: nil}, "pc", roster)
   end
 
   test "configured instance id is optional and derived ids are stable per host and state directory" do
@@ -196,16 +239,18 @@ defmodule Aiur.InstanceTest do
              tickets: [4121],
              labels: ["lane:nuc"],
              label_prefixes: [],
+             owns: [],
+             pool: true,
+             live_instances: :disabled,
              ignored_since_boot: 3
            }) ==
-             "INSTANCE IGNORE tickets=[4121] labels=[lane:nuc] label_prefixes=[] ignored_since_boot=3"
+             "INSTANCE IGNORE tickets=[4121] labels=[lane:nuc] label_prefixes=[] owns=[] pool=true live=[disabled] ignored_since_boot=3"
 
     write_workflow_file!(Aiur.Workflow.workflow_file_path())
     ignore!("    tickets: [4121]\n")
     Instance.ignored(4121, :test)
 
-    assert Instance.status_line() =~
-             "tickets=[4121] labels=[] label_prefixes=[] ignored_since_boot=#{Instance.ignored_count()}"
+    assert Instance.status_line() =~ "tickets=[4121] labels=[] label_prefixes=[] owns=[] pool=true"
 
     assert Instance.ignored_count() > 0
   end

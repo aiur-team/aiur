@@ -3,7 +3,7 @@ Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file
 
 Runtime overrides set with `aiur set` are operator-owned and stored per instance without changing this YAML. The daemon cooperatively refuses mutations when raw caller path evidence matches its configured or live agent workspaces; #6075 tracks authenticated operator-token enforcement.
 
-Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`. Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
+Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`. Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
 
 ## Environment variables
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
@@ -26,6 +26,8 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 | `instance.id` | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
+| `instance.owns` | array of maps | `[]` | Ticket rules reserved for this live instance. Each entry has exactly one `label` or positive `ticket`; matching rules apply only while this instance is dispatching. Requires the shared lease store to coordinate live instances. Hot-reloadable. |
+| `instance.pool` | boolean | `true` | Whether this instance may dispatch tickets that no live, dispatching instance reserves with `instance.owns`. Hot-reloadable. |
 | `instance.ignore.label_prefixes` | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.ignore.labels` | array of strings | `[]` | Exact labels marking tickets another instance owns. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.ignore.tickets` | array of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |

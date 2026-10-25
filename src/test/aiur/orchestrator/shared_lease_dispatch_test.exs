@@ -150,6 +150,62 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
     refute MapSet.member?(state.claimed, issue.id)
   end
 
+  test "an owned ticket reaches the lease only on its live owner" do
+    parent = self()
+
+    roster = [
+      %{instance_id: "nuc", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "build-lane:voice"}], "pool" => true, "dispatching" => true}}},
+      %{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}
+    ]
+
+    issue = %{lease_issue("voice-42") | labels: ["build-lane:voice"]}
+
+    for instance_id <- ["nuc", "pc"] do
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        ownership_instance_id: instance_id,
+        ownership_live_instances_fun: fn -> {:ok, roster} end,
+        lease_claim_fun: fn _ ->
+          send(parent, {:lease_attempt, instance_id})
+          :acquired
+        end,
+        runner: fn _, _, _ -> :ok end
+      )
+    end
+
+    assert_receive {:lease_attempt, "nuc"}, 1_000
+    refute_receive {:lease_attempt, "pc"}, 100
+  end
+
+  test "an unknown live roster blocks before attempting the shared lease" do
+    parent = self()
+    issue = %{lease_issue("voice-43") | labels: ["build-lane:voice"]}
+
+    state =
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        ownership_live_instances_fun: fn -> {:error, :offline} end,
+        lease_claim_fun: fn _ ->
+          send(parent, :lease_attempt)
+          :acquired
+        end,
+        runner: fn _, _, _ ->
+          send(parent, :runner_started)
+          :ok
+        end
+      )
+
+    refute_receive :lease_attempt, 0
+    refute_receive :runner_started, 0
+    refute MapSet.member?(state.claimed, issue.id)
+  end
+
   test "a lease acquired for a launch that cannot start is released" do
     parent = self()
 
