@@ -1,0 +1,19 @@
+tracker:
+  kind: memory
+  base_branch: main
+  active_states: []
+  terminal_states: []
+workspace:
+  root: /data/workspaces
+agent:
+  priority: []
+  max_concurrent_agents: 1
+  max_agent_duration_minutes: 30
+
+server:
+  public_url: "https://smoke.example.invalid"
+dashboard_auth:
+  browser_basic_auth: false
+  google:
+    allowed_emails:
+      - smoke@example.invalid

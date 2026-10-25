@@ -15,6 +15,7 @@ defmodule Aiur.LandingWatch.ConflictUpdate do
   `git merge-tree`, for the rebase-only rework comment.
   """
 
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.{CIRecovery, Transport}
   alias Aiur.LandingWatch.{Classifier, Journal, TicketLookup}
 
@@ -243,7 +244,7 @@ defmodule Aiur.LandingWatch.ConflictUpdate do
 
   defp default_cache do
     {:ok, {owner, repo}} = Transport.parse_repo()
-    Path.expand("~/.aiur/repo/#{owner}/#{repo}/conflict-files.git")
+    Path.join([Paths.state_root(), "repo", owner, repo, "conflict-files.git"])
   end
 
   defp key(observation), do: "#{observation.number}:#{observation.head}"

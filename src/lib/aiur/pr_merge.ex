@@ -1,5 +1,6 @@
 defmodule Aiur.PrMerge do
   @moduledoc "Standalone, operator-only merge or merge-queue enqueue with policy gates."
+  alias Aiur.Config.Paths
   alias Aiur.PrMerge.{Client, Facts, Gate, Identity, MergeResult, Queue, Record}
 
   @spec run(map(), keyword()) :: non_neg_integer()
@@ -41,7 +42,7 @@ defmodule Aiur.PrMerge do
         :ok
 
       true ->
-        root = Keyword.get(deps, :log_root, Path.expand("~/.aiur/logs/pr-merge"))
+        root = Keyword.get(deps, :log_root, Path.join(Paths.state_root(), "logs/pr-merge"))
 
         record = %{
           repo: settings.tracker.github.repo,
@@ -102,7 +103,7 @@ defmodule Aiur.PrMerge do
     repo = settings.tracker.github.repo
     encoded = Base.encode64("x-access-token:" <> token)
     env = [{"GIT_CONFIG_COUNT", "1"}, {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"}, {"GIT_CONFIG_VALUE_0", "AUTHORIZATION: basic " <> encoded}, {"GIT_TERMINAL_PROMPT", "0"}]
-    options = [repo: Path.expand("~/.aiur/repo/#{repo}/pr-merge.git"), remote: "https://github.com/#{repo}.git", env: env, puts: puts]
+    options = [repo: Path.join([Paths.state_root(), "repo", repo, "pr-merge.git"]), remote: "https://github.com/#{repo}.git", env: env, puts: puts]
     Keyword.get(deps, :merge_result, &MergeResult.check/3).(pr, settings, options)
   end
 
@@ -112,7 +113,7 @@ defmodule Aiur.PrMerge do
   end
 
   defp finish(api, pr, settings, opts, deps, puts, user) do
-    root = Keyword.get(deps, :log_root, Path.expand("~/.aiur/logs/pr-merge"))
+    root = Keyword.get(deps, :log_root, Path.join(Paths.state_root(), "logs/pr-merge"))
     repo = settings.tracker.github.repo
 
     with :ok <- File.mkdir_p(root),

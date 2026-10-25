@@ -3,7 +3,7 @@ defmodule Aiur.Config.Paths do
   Canonical path-resolution helpers shared across modules that persist
   per-issue or repo-scoped state.
 
-  Single source of truth for:
+  Shared path helpers for:
 
     * `log_root_dir/0` — the per-launch directory under which
       `<repo>.<id>.log` and other run logs live. Respects
@@ -17,18 +17,32 @@ defmodule Aiur.Config.Paths do
       values from external sources (label slugs, repo names) can't escape
       filesystem boundaries.
 
-  Consumers: `Aiur.IssueLog`, `Aiur.LogFile`, and the durable stores that
-  adopt their per-launch files through `Aiur.LaunchStateAdoption`.
   """
 
   alias Aiur.PathSafety
 
   @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
-  @doc false
+  @doc "Root for durable daemon state; `AIUR_STATE_DIR` replaces `~/.aiur`."
+  @spec state_root() :: Path.t()
+  def state_root do
+    case Process.get({__MODULE__, :state_root_override}) do
+      path when is_binary(path) and path != "" -> Path.expand(path)
+      _ -> state_root(System.get_env())
+    end
+  end
+
+  @spec state_root(map()) :: Path.t()
+  def state_root(env) when is_map(env) do
+    case env["AIUR_STATE_DIR"] do
+      path when is_binary(path) and path != "" -> Path.expand(path)
+      _ -> Path.join(env["HOME"] || System.user_home!(), ".aiur")
+    end
+  end
+
   @spec dashboard_secret_root() :: Path.t()
   def dashboard_secret_root do
-    Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+    Application.get_env(:aiur, :dashboard_secret_root, state_root())
   end
 
   @doc """
@@ -44,18 +58,16 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
-  Resolves the owner-only Decision state directory.
-
-  An `Application` env override (tests, and any future explicit
-  configuration) wins outright and skips validation below — it is a
+  Resolves the owner-only Decision state directory. An explicit
+  `Application` env override wins and skips validation below — it is a
   trusted, explicit value. Otherwise the directory is built from
   `AIUR_BG_STATE_DIR`, the `AIUR_INSTANCE_KEY` (already a truncated
   sha256 of the launcher-resolved project root — see
   `aiur-engine.sh`'s `aiur_instance_key`), and the tracker project
   identity.
 
-  Fails closed instead of silently sharing state across instances or
-  projects: an empty `AIUR_INSTANCE_KEY` (the explicit shared-identity
+  Fails closed instead of sharing state across instances or projects: an
+  empty `AIUR_INSTANCE_KEY` (the explicit shared-identity
   override `aiur-engine.sh` still honors) or an unavailable/default
   project identity would leave `repo_name/0`'s last-path-segment
   fallback as the only discriminator, which collapses when two
@@ -382,7 +394,7 @@ defmodule Aiur.Config.Paths do
   @doc "Absolute root beneath which every per-repository state node lives."
   @spec repo_state_root() :: Path.t()
   def repo_state_root do
-    Application.get_env(:aiur, :repo_base_root) || Path.expand("~/.aiur/repo")
+    Application.get_env(:aiur, :repo_base_root) || Path.join(state_root(), "repo")
   end
 
   @doc "Absolute path of the per-repository state node for `repo_url`."

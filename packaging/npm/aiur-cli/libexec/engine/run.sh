@@ -306,7 +306,7 @@ run_session_prepare_env() {
   # removes its startup tempfile. Minting it here and exporting it makes the
   # shell and the BEAM (Aiur.LogFile honors AIUR_LOGS_ROOT) agree on one dir.
   if [ -z "${AIUR_LOGS_ROOT:-}" ]; then
-    AIUR_LOGS_ROOT="$(printf '%s/%s-%s' "$HOME/.aiur/logs" "$(date -u +%Y%m%dT%H%M%SZ)" "$$")"
+    AIUR_LOGS_ROOT="$(printf '%s/logs/%s-%s' "${AIUR_STATE_DIR:-$HOME/.aiur}" "$(date -u +%Y%m%dT%H%M%SZ)" "$$")"
     export AIUR_LOGS_ROOT
   fi
 

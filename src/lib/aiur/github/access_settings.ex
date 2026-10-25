@@ -3,6 +3,7 @@ defmodule Aiur.GitHub.AccessSettings do
   @behaviour Aiur.GitHub.Access.SettingsProvider
 
   alias Aiur.Config
+  alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Agent
   alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.AuthPolicy
@@ -78,7 +79,7 @@ defmodule Aiur.GitHub.AccessSettings do
     if String.trim(path) != "", do: Path.expand(path), else: default_budget_dir(nil)
   end
 
-  defp default_budget_dir(_path), do: Path.join(System.user_home!(), ".aiur/github-budget")
+  defp default_budget_dir(_path), do: Path.join(Paths.state_root(), "github-budget")
 
   defp decision_root do
     case Config.Paths.decision_state_dir() do

@@ -95,7 +95,7 @@ defmodule AiurWeb.Router do
   GithubWebhook.receiver()
 
   get("/healthz", AiurWeb.PublicHealthController, :live)
-  get("/readyz", AiurWeb.PublicHealthController, :live)
+  get("/readyz", AiurWeb.PublicHealthController, :ready)
 
   scope "/auth" do
     pipe_through(:auth_session)

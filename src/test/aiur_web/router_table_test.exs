@@ -24,7 +24,7 @@ defmodule AiurWeb.RouterTableTest do
   @expected [
     {:post, "/api/v1/github/webhook", AiurWeb.GithubWebhookController, :create, [:github_webhook], false},
     {:get, "/healthz", AiurWeb.PublicHealthController, :live, [], :debug},
-    {:get, "/readyz", AiurWeb.PublicHealthController, :live, [], :debug},
+    {:get, "/readyz", AiurWeb.PublicHealthController, :ready, [], :debug},
     {:get, "/auth/login", AiurWeb.DashboardAuthController, :login, [:auth_session], :debug},
     {:get, "/auth/google", AiurWeb.DashboardAuthController, :google, [:auth_session], :debug},
     {:get, "/auth/google/callback", AiurWeb.DashboardAuthController, :google_callback, [:auth_session], :debug},

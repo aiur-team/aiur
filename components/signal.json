@@ -15,6 +15,7 @@
   ],
   "facade_pending": null,
   "requires": [
+    "config",
     "event-bus",
     "kernel"
   ],

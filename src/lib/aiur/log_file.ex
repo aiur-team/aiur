@@ -17,6 +17,8 @@ defmodule Aiur.LogFile do
 
   require Logger
 
+  alias Aiur.Config.Paths
+
   @handler_id :aiur_file_log
   @default_log_relative_path "log/aiur.log"
 
@@ -81,7 +83,7 @@ defmodule Aiur.LogFile do
         if Application.get_env(:aiur, :env) == :test do
           nil
         else
-          Path.join(Path.expand("~/.aiur/logs"), session_id())
+          Path.join([Paths.state_root(), "logs", session_id()])
         end
     end
   end

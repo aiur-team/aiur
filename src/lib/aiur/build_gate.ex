@@ -11,6 +11,7 @@ defmodule Aiur.BuildGate do
 
   alias Aiur.BuildGate.{HookSnapshot, PidStatus, Status}
   alias Aiur.Config
+  alias Aiur.Config.Paths
   alias Aiur.PathSafety
 
   @default_timeout_seconds 900
@@ -89,7 +90,7 @@ defmodule Aiur.BuildGate do
   def gate_dir do
     case Application.get_env(:aiur, :build_gate_dir_override) do
       path when is_binary(path) and path != "" -> Path.expand(path)
-      _ -> Path.join(System.user_home!(), ".aiur/build-gate")
+      _ -> Path.join(Paths.state_root(), "build-gate")
     end
   end
 

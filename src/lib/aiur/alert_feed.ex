@@ -220,7 +220,7 @@ defmodule Aiur.AlertFeed do
     roots =
       case configured_roots do
         list when is_list(list) -> list
-        _ -> [configured_workspace_root(), Path.join(user_home(), ".aiur/workspaces")]
+        _ -> [configured_workspace_root(), Path.join(Paths.state_root(), "workspaces")]
       end
 
     roots
@@ -237,7 +237,7 @@ defmodule Aiur.AlertFeed do
   end
 
   defp configured_project_roots do
-    [configured_workspace_root(), Path.join(user_home(), ".aiur/workspaces")]
+    [configured_workspace_root(), Path.join(Paths.state_root(), "workspaces")]
     |> Enum.filter(&is_binary/1)
     |> Enum.map(&project_root/1)
     |> Enum.reject(&is_nil/1)
@@ -279,10 +279,6 @@ defmodule Aiur.AlertFeed do
     Paths.log_root_dir()
   rescue
     _ -> nil
-  end
-
-  defp user_home do
-    System.user_home() || "."
   end
 
   defp alert_log_paths(root) do
