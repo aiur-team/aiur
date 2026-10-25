@@ -94,6 +94,16 @@ defmodule Aiur.EnvStartupChecksTest do
     refute message =~ "pat-secret"
   end
 
+  test "environment-only GitHub startup names the App and PAT opt-in before generic secret checks" do
+    settings = %{tracker: %{kind: "github"}}
+    env = %{"AIUR_SECRETS_FROM_ENV" => "1"}
+
+    error = assert_raise ArgumentError, fn -> StartupChecks.validate_auth_before_secrets!(settings, env) end
+    message = Exception.message(error)
+    assert message =~ "GITHUB_APP_ID"
+    assert message =~ "AIUR_GITHUB_ALLOW_PAT=1"
+  end
+
   test "hosted GitHub startup permits the opted-in PAT fallback" do
     settings = %{tracker: %{kind: "github"}, instance: %{mode: "hosted"}}
     env = %{"GITHUB_TOKEN" => "pat-secret", "AIUR_GITHUB_ALLOW_PAT" => "1"}

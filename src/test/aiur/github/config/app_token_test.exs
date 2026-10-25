@@ -159,6 +159,24 @@ defmodule Aiur.GitHub.Config.AppTokenTest do
                "hosted-pat"
     end
 
+    test "public token access refuses a hosted PAT without opt-in and allows it with opt-in" do
+      Enum.each(@app_env_keys, &System.delete_env/1)
+      System.put_env("AIUR_SECRETS_FROM_ENV", "1")
+      System.delete_env("AIUR_STATE_PERSISTENT")
+      System.put_env("GITHUB_TOKEN", "hosted-pat")
+      System.delete_env("AIUR_GITHUB_ALLOW_PAT")
+      :persistent_term.erase(@cache_key)
+      :persistent_term.erase(@source_cache_key)
+
+      assert Config.token() == nil
+      assert Config.token_source() == :none
+
+      System.put_env("AIUR_GITHUB_ALLOW_PAT", "1")
+
+      assert Config.token() == "hosted-pat"
+      assert Config.token_source() == :env
+    end
+
     test "validate!/0 names the App credentials when configured but the token is unavailable" do
       put_app_credentials()
 

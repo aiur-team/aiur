@@ -19,15 +19,11 @@ defmodule Aiur.Application.StartupChecks do
       :ok
     else
       settings = Aiur.Config.settings_uncached()
+      env = System.get_env()
 
-      validate_secrets!(settings, System.get_env())
+      validate_auth_before_secrets!(settings, env)
 
-      case validate_github_auth(settings, System.get_env()) do
-        :ok -> :ok
-        {:error, message} -> raise ArgumentError, message: message
-      end
-
-      Aiur.Env.validate_startup!(System.get_env(), require_github_credential: github_tracker?(settings))
+      Aiur.Env.validate_startup!(env, require_github_credential: github_tracker?(settings))
       Aiur.Env.warn_disabled_integrations()
       Aiur.Env.warn_precedence_conflicts()
     end
@@ -42,6 +38,17 @@ defmodule Aiur.Application.StartupChecks do
   end
 
   def validate_github_auth(_settings, _env), do: :ok
+
+  @doc false
+  @spec validate_auth_before_secrets!(term(), map()) :: :ok
+  def validate_auth_before_secrets!(settings, env) do
+    case validate_github_auth(settings, env) do
+      :ok -> :ok
+      {:error, message} -> raise ArgumentError, message: message
+    end
+
+    validate_secrets!(settings, env)
+  end
 
   @doc "Validates the secrets required by the active hosted configuration."
   @spec validate_secrets(term(), map()) :: :ok | {:error, [String.t()]}

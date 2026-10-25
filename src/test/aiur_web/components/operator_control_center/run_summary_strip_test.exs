@@ -129,6 +129,26 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "Attributed"
   end
 
+  test "unknown GitHub auth mode stays unknown when a quota snapshot omits it" do
+    github_quota = %{
+      state: :observed,
+      windows: %{},
+      attribution: []
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters_view(),
+        github_quota: github_quota,
+        now: @now
+      })
+
+    assert html =~ "Auth unknown"
+    refute html =~ "GitHub App"
+  end
+
   test "renders the primary GitHub windows and omits separately keyed credentials" do
     github_quota = %{
       state: :observed,
