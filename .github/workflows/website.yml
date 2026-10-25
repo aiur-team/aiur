@@ -101,6 +101,33 @@ jobs:
         timeout-minutes: 8
         run: |
           npm run test:visual:docker
+      - name: Export six desktop docs goldens (temporary)
+        if: github.event.pull_request.number == 6285
+        timeout-minutes: 3
+        run: |
+          rm -- tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-index-dark-desktop.png \
+            tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-index-light-desktop.png \
+            tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-quick-start-dark-desktop.png \
+            tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-quick-start-light-desktop.png \
+            tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-switcher-open-dark-desktop.png \
+            tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-switcher-open-light-desktop.png
+          docker run --rm --ipc=host -v "$PWD/..:/repo" -w /repo/website \
+            mcr.microsoft.com/playwright:v1.61.1-noble npm run test:visual -- \
+            --update-snapshots=missing -g 'desktop (docs-index|docs-quick-start|docs product switcher open)$'
+      - name: Upload six desktop docs goldens (temporary)
+        if: always() && github.event.pull_request.number == 6285
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-docs-goldens-4282
+          path: |
+            website/tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-index-dark-desktop.png
+            website/tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-index-light-desktop.png
+            website/tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-quick-start-dark-desktop.png
+            website/tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-quick-start-light-desktop.png
+            website/tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-switcher-open-dark-desktop.png
+            website/tests/visual.spec.ts-snapshots/linux/visual.spec.ts-docs-switcher-open-light-desktop.png
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload visual test results on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
