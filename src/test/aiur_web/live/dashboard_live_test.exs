@@ -549,9 +549,8 @@ defmodule AiurWeb.DashboardLiveTest do
       now: DateTime.utc_now(),
       netlify_dashboard: %{enabled?: false, snapshot: %{provider: :netlify, state: :unavailable, fields: %{}}},
       time_zone: "Etc/UTC",
-      # This helper renders DashboardLive directly, bypassing mount/3, so it has
-      # to seed every assign mount/3 seeds — including the server-owned sidebar
-      # collapse state the shell reads.
+      # Direct renders bypass mount/3, so seed every mount assign, including
+      # the server-owned sidebar collapse state.
       nav_collapsed: false,
       agent_log_modal: nil,
       drafts: %{},

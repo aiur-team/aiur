@@ -2,7 +2,6 @@
 Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below. Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
 Runtime overrides set with `aiur set` are operator-owned and stored per instance without changing this YAML. The daemon cooperatively refuses mutations when raw caller path evidence matches its configured or live agent workspaces; #6075 tracks authenticated operator-token enforcement.
-
 Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`.
 
 Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
@@ -289,6 +288,7 @@ The `aiur run` upgrade-version notice is optional and opt-out: it caches with a 
 
 `AIUR_UPGRADE_CHECK_DISABLED` (and the legacy `AIUR_NO_UPDATE_NOTIFIER`) are the
 environment-variable equivalents; the check also stays silent in CI runs.
+
 ## alerts
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-13 -->
 | --- | --- | --- | --- |
@@ -296,6 +296,7 @@ environment-variable equivalents; the check also stays silent in CI runs.
 | `alerts.enabled` | boolean | true | Master alert-sound switch. |
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
+
 
 ## usage
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
