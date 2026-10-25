@@ -40,7 +40,7 @@ run_session_container() {
   sweep_orphan_test_private_dirs || true
 
   set_container_cleanup_context "$session" "$socket" "$launch_lock"
-  trap 'session_cleanup' EXIT
+  install_session_exit_trap
   trap 'container_shutdown' TERM INT HUP
   start_container_daemon
   wait_container_startup || { status=$?; return "$status"; }
