@@ -5,9 +5,10 @@ defmodule Aiur.GitHub.AccessSettings do
   alias Aiur.Config
   alias Aiur.Config.Schema.Agent
   alias Aiur.GitHub.Access.Settings
+  alias Aiur.GitHub.AuthPolicy
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Credential
-  alias Aiur.GitHub.{AuthPolicy, HoldPressure, QueueCost}
+  alias Aiur.GitHub.{HoldPressure, QueueCost}
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
 
