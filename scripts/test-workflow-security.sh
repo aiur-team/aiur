@@ -108,6 +108,7 @@ workflows = (
     Path(".github/workflows/ci.yml"),
     Path(".github/workflows/website.yml"),
     Path(".github/workflows/release-npm.yml"),
+    Path(".github/actions/layout-release/action.yml"),
 )
 expected = 4
 found = 0
