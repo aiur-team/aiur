@@ -3,7 +3,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
 
   alias Aiur.ModelCatalog
   alias Aiur.ProviderMeterProbe
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @spec headless() :: Aiur.CodingAgent.Backend.capabilities()
   def headless do
@@ -25,6 +25,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       install_hint: "install it with: npm install -g aiur-claude",
       # app-server stdio; OperatorDelivery serializes turns; CodingAgent exposes dynamic tools.
       delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
+      hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [:notification],
       control_application_confirmation: :confirmed,
@@ -75,7 +76,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       },
       usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
       meter_probe: &ProviderMeterProbe.probe_usage_api/3,
-      run_telemetry: &Lifecycle.decode_claude_operation/1,
+      run_telemetry: &Signal.decode_claude_operation/1,
       account_generation: %{
         backends: [:app_server],
         trusted_sources: [:claude_app_server],
@@ -111,6 +112,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # OperatorInject types into the live pane; Command has no MCP binding;
       # HookSettings wires UserPromptSubmit, PostToolUse and Stop/StopFailure.
       delivery: %{transport: :tmux_pane, mid_turn_inject: :native, pull_tool: false, hook_boundaries: [:prompt, :tool, :stop], native_question: :none},
+      hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},
       immediate_delivery: true,
       control_application_confirmation: :confirmed,
       remote_control: true,
@@ -119,7 +121,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # backend. Declared here so the fallback never lives in a
       # dispatch `case`.
       fallback_backend: "claude",
-      run_telemetry: &Lifecycle.decode_claude_operation/1,
+      run_telemetry: &Signal.decode_claude_operation/1,
       # Only the hook-driven RC REPL needs the pane display tailer; every
       # other backend streams its own rich transcript.
       rc_display_tail: true,

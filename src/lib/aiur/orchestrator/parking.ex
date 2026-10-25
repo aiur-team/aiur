@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.Parking do
   @moduledoc false
 
-  alias Aiur.{Alerts, Config, Issue}
+  alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, ControlLifecycle, PauseResume, State, TicketTransition, TrackerTasks}
   require Logger
 
@@ -143,7 +143,7 @@ defmodule Aiur.Orchestrator.Parking do
       {_latest, {:error, reason}} ->
         Logger.warning("Could not park #{issue.identifier}: #{inspect(reason)}")
 
-        Alerts.emit_custom("ticket.#{issue.identifier}.agent.attention.park_failed", "Could not park #{issue.identifier}; its paused reservation remains held.",
+        Signal.agent_alert("ticket.#{issue.identifier}.agent.attention.park_failed", "Could not park #{issue.identifier}; its paused reservation remains held.",
           issue: issue.identifier,
           reason: "The parked marker could not be written: #{inspect(reason)}",
           needs_attention: true,

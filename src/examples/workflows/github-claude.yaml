@@ -55,7 +55,11 @@ tracker:
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
 instance:
-  role: primary                       # primary | secondary; one primary per repository
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
+  role: primary                       # eligible primary candidates share leader election; secondary never leads
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
   #   tickets: []                     # ids handed over mid-flight
@@ -117,6 +121,7 @@ executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 server:
   # public_url: https://aiur.example.com
+  # trusted_proxies: [10.0.0.0/8]
   # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
 # dashboard_auth: {google: {allowed_emails: [operator@example.com]}, passkeys: false, session_max_age_days: 30, browser_basic_auth: true}
@@ -155,11 +160,19 @@ agent:
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
   # max_repeated_identical_commands: 5
+  # local_gate_wait_steer_minutes: 20
+  # local_gate_wait_stop_minutes: 30
+  # local_gate_ci_max_age_minutes: 15
   # max_commands_per_turn: 1000
   # max_input_tokens_per_turn: 20000000
 claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md
+
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false
 
 # Build queue (GitHub only; defaults shown except opt-in set ordering).
 # build_queue:

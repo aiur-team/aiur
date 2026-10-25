@@ -1,6 +1,6 @@
 defmodule AiurWeb.RefreshSubscriptions do
   @moduledoc false
-  alias Aiur.{AgentPubSub, Commands, CurrentRunMembership, CurrentRunOutcomeSnapshot, CurrentRunSummary, OpenTicketSource, TicketActivity}
+  alias Aiur.{AgentPubSub, Commands, CurrentRunMembership, CurrentRunOutcomeSnapshot, CurrentRunProjections, CurrentRunSummary, OpenTicketSource, TicketActivity}
   alias Aiur.ProviderMeters.Events
   alias AiurWeb.{ObservabilityPubSub, RefreshRelay}
   alias Phoenix.LiveView.Socket
@@ -13,6 +13,7 @@ defmodule AiurWeb.RefreshSubscriptions do
         :ok = ObservabilityPubSub.subscribe()
         :ok = Commands.subscribe()
         :ok = CurrentRunMembership.subscribe()
+        :ok = CurrentRunProjections.subscribe()
         :ok = CurrentRunSummary.subscribe()
         :ok = CurrentRunOutcomeSnapshot.subscribe()
         :ok = TicketActivity.subscribe()

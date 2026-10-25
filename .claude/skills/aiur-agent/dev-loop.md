@@ -153,11 +153,26 @@ blocking finding is the only enforcement they have.
 ## The loop
 
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
-`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
-into the PR body; it records the merged `origin/main` SHA and each gate result.
-It never pushes and refuses a dirty checkout. Once a PR exists it rewrites the
-body's `Tested head:` and `Base:` lines; with no PR yet it skips that. So the
-order is: push, `gh pr create`, `aiur pre-pr` again, then hand off;
+`aiurdev pre-pr`) from the branch checkout. It runs only selected or matching
+reader tests locally; CI owns the full coverage partitions. Paste its complete
+result block into the PR body; it records the merged `origin/main` SHA and
+each gate result. It never pushes and refuses a dirty checkout. When a PR is
+open, it rewrites the body's `Tested head:` and `Base:` lines. With no PR yet
+it skips body refresh. So the order is: push, `gh pr create`, `aiur pre-pr`
+again, then hand off;
+
+During a turn, Aiur watches transcript events for prolonged waiting on or
+polling local test/gate commands. If the daemon's recent CI cache says the
+current PR head is green, Aiur steers at the configured threshold to stop the
+local gate, refresh the PR body and mark the PR ready. This cached-CI rule only
+applies to tickets already polled in `ci-wait` or `human-review`; it does not
+expand GitHub polling to `in-progress` or `rework` tickets. The main time saving
+for those tickets comes from `pre-pr` leaving full coverage partitions to CI.
+The rule therefore covers workers waiting locally after handoff while their PR
+already has green required CI. If polling continues to the stop threshold, Aiur
+pauses the worker. Pending, red, stale or unavailable CI never triggers this
+rule. `pre-pr` also omits the architectural guard tests from its local gate;
+CI continues to run them in coverage.
 `aiur_set_ticket_state` refuses `ci-wait`/`human-review` while the body fails `mix pr_body.check` at the PR head.
 If `Tested head` is stale, the refusal names both the body SHA and live PR head;
 rerun the touched tests at the pushed head and update the evidence before handback.
@@ -425,6 +440,11 @@ The Elixir examples below apply only to Aiur's Elixir core.
       repair loop.
       If the only failure is a flaky test unrelated to your change, file the
       flake as its own ticket with the CI run id (or link its existing ticket).
+      File flake and other non-feature follow-ups with `needs-triage` and the
+      instance's parked label (`agent:parked`, or `nuc:parked` on NUC); never
+      include a dispatch state label such as `agent:todo` or `nuc:todo`. New
+      non-feature tickets wait for operator triage unless they block merging.
+      Quarantine-first applies to tests that fail on `main` or in a merge group.
       NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
       A flaky test blocks CI, not the ticket's implementation. State in the PR
       that the only failure is the known flake, link the flake ticket and CI run,

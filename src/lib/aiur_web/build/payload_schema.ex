@@ -72,10 +72,40 @@ defmodule AiurWeb.Build.PayloadSchema do
            "epics" => list(:string),
            "from" => nullable(:integer),
            "to" => nullable(:integer),
+           "oldest" => nullable(:integer),
            "stats" => nullable(object(feature_stats()))
          })},
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
+      "feature_progress" =>
+        object(%{
+          "features" =>
+            {:dictionary,
+             object(%{
+               "feature" => :string,
+               "label" => nullable(:string),
+               "closed" => nullable(:nonnegative),
+               "open" => nullable(:nonnegative),
+               "ci_wait" => nullable(:nonnegative),
+               "unpublished" => nullable(:nonnegative),
+               "total" => nullable(:nonnegative),
+               "observed_at" => nullable(:integer),
+               "wave" => nullable(:string),
+               "summary" => nullable(:string),
+               "icon" => nullable(:string),
+               "code" => nullable(:string),
+               "plan_version" => nullable(:string),
+               "extras" => nullable(:nonnegative),
+               "root_number" => nullable(:positive),
+               "root_title" => nullable(:string),
+               "start_date" => nullable(:string),
+               "reason" => nullable(:string)
+             })},
+          "observed_at" => nullable(:integer),
+          "plan_version" => nullable(:string),
+          "extras" => nullable(:nonnegative),
+          "reason" => nullable(:string)
+        }),
       "history" => object(history()),
       "sources" => object(sources()),
       "usage" => :usage,
@@ -184,11 +214,11 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source())})
-    Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean)))
+    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source(), ["stale_after_ms"])})
+    Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean), ["stale_after_ms"]))
   end
 
-  defp source, do: %{"state" => enum(~w(ok stale incomplete unavailable disabled unsupported)), "observed_at" => nullable(:integer), "reason" => nullable(:string)}
+  defp source, do: %{"state" => enum(~w(ok stale incomplete unavailable disabled unsupported)), "observed_at" => nullable(:integer), "reason" => nullable(:string), "stale_after_ms" => :positive}
 
   defp cue,
     do: %{

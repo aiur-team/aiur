@@ -113,6 +113,11 @@ the existing workspace rather than restart setup.
 
 If the only failure is a flaky test unrelated to your change, file the
 flake as its own ticket with the CI run id (or link its existing ticket).
+File flake and other non-feature follow-ups with `needs-triage` and the
+instance's parked label (`agent:parked`, or `nuc:parked` on NUC); never include
+a dispatch state label such as `agent:todo` or `nuc:todo`. New non-feature
+tickets wait for operator triage unless they block merging. Quarantine-first
+applies to tests that fail on `main` or in a merge group.
 NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
 A flaky test blocks CI, not the ticket's implementation. State in the PR
 that the only failure is the known flake, link the flake ticket and CI run,
@@ -177,6 +182,11 @@ calls, the blocker → stub-then-fetch flow, and attentions.
 cross-ticket event** — don't rely on memory for the allowlisted names; the skill
 fails loud with the valid forms if you guess wrong. Two reflexes override normal
 work ordering, so they're worth stating up front:
+
+When a governed GitHub command fails with a guard diagnostic, include that exact
+diagnostic in any alert or decision about the failure. The guard's stderr is the
+source of the broker, hold, or deadline reason; do not replace it with a generic
+"GitHub is stuck" summary.
 
 - **Blocking another agent is your highest priority.** If another ticket is
   paused on a decision or stub from you (you've been declared a blocker via

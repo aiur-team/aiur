@@ -16,8 +16,17 @@ const outputs = [
       'agents.v1.schema.json',
       'status.v1.schema.json',
       'ticket.v1.schema.json',
+      'ticket-cancel.v1.schema.json',
       'ticket-usage.v1.schema.json',
       'ticket-progress.v1.schema.json',
+    ],
+  },
+  {
+    name: 'TicketSpendCapContract',
+    target: new URL('../src/spend-cap.generated.ts', import.meta.url),
+    refs: [
+      'ticket-spend-cap.v1.schema.json',
+      'ticket-spend-cap-reached.v1.schema.json',
     ],
   },
 ];

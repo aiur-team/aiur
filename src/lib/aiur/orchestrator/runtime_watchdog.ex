@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue}
+  alias Aiur.{Config, Issue, Signal}
   alias Aiur.Orchestrator.{AgentTeardown, CiLifecycle, PauseResume, RetryEngine, State}
 
   @interrupted_turn_grace_ms 30_000
@@ -213,7 +213,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   defp restart_unhealthy_issue(state, issue_id, running_entry, reason, alert_slug, opts) do
     identifier = Map.get(running_entry, :identifier, issue_id)
-    emit_alert = Keyword.get(opts, :emit_alert, &Alerts.emit_custom/3)
+    emit_alert = Keyword.get(opts, :emit_alert, &Signal.agent_alert/3)
 
     _ =
       emit_alert.(
@@ -331,13 +331,14 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       identifier = Map.get(running_entry, :identifier, issue_id)
       session_id = State.running_entry_session_id(running_entry)
       backend = get_in(running_entry, [:session_execution, :backend]) || "agent"
+      command = stalled_command(backend)
 
       Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
 
       _ =
-        Alerts.emit_custom(
+        Signal.agent_alert(
           "ticket.#{identifier}.agent.stalled",
-          "#{backend} command made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
+          "#{backend} backend command (#{command}) made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
           issue: Map.get(running_entry, :issue),
           workspace: Map.get(running_entry, :workspace_path),
           worker_host: Map.get(running_entry, :worker_host),
@@ -363,6 +364,14 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     else
       state
     end
+  end
+
+  defp stalled_command(backend) do
+    configured = Aiur.Config.backend_config(backend)["command"]
+    default = get_in(Aiur.CodingAgent.backends(), [backend, :default_command])
+    configured || default || "#{backend}"
+  rescue
+    _ -> "#{backend}"
   end
 
   defp stall_elapsed_ms(running_entry, now) do

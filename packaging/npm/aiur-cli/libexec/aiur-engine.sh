@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run processes reap instance session remote control commands executor_commands report_commands test-private-state lifecycle handoff upgrade pre_pr history ticket ticket_usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -72,9 +72,10 @@ unset __aiur_engine_module
 usage() {
   cat <<'EOF'
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
-       aiur --instance <name> <command>  run a supported control command against a named remote instance
-       aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
+       aiur --instance <name|all> <command>  run a supported control command against one or every remote instance
+       aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]  explicit launch form
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
+       aiur usage [<provider>] [--json]  show shared usage or one provider
        aiur login <harness> <name> [--dir <path>]  sign in to a supported backend account
        aiur accounts [<harness>] [--json]  list registered accounts
        aiur logout <harness> <name> [--purge]  remove a backend account
@@ -84,6 +85,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -106,15 +108,15 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur feature edit <slug> [--label <text>] [--hue <0-359>] [--end now|<ISO-8601>] [--add-epic <key>=<label>]... [--as <who>] [--json]
        aiur feature show [<slug>] [--json]
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
-       aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
+       aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  deprecated; rank GitHub API spend by call site
        aiur experiments list [--status <status>] [--kind before_after|ab] [--json]
        aiur experiments abandon <id> --reason <text> --confirm [--json]
        aiur experiments show <id> [--json] | freeze <id> [--window before|after|observation] [--reason <text>] [--json]
        aiur experiments events <id> [--json] [--refresh]
        aiur experiments create --from <file|-> | --title <title> --line <type>:<ref>[@time] --metric <pack>/<metric>[:direction] [--draft] [--no-freeze] [--json]
        aiur capabilities [--json]  read-only instance capability report
-       aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
-       aiur ticket-usage <ticket> [--json]  one ticket's model usage per session, model and provider
+       aiur github-usage [--json]  deprecated GitHub usage alias
+       aiur ticket-usage <ticket> [--json]  deprecated ticket usage alias
        aiur alerts [--needs-attention] [--limit <n> | --all] | ack ticket.<id>.agent.attention.duplicate-dispatch --executor-id <id>  show or acknowledge duplicate-dispatch alerts
        aiur executor-sweep [--json] [--apply]  inspect local Executor findings
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
@@ -130,7 +132,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
        aiur executor-release [--as <id>]  give up this consumer's claim
        aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
-       aiur set max-agents <n>   change the concurrent-agent cap at runtime
+       aiur set <key> <json> | --list [--json] | --unset <key>   manage persistent runtime settings
+       aiur set max-agents <n>   change the session concurrent-agent cap
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
@@ -162,7 +165,11 @@ dispatch_run() {
   reject_legacy_config "$@"
 
   for arg in "$@"; do
-    if [ "$arg" = "--bg" ]; then
+    if [ "$arg" = "--container" ]; then
+      [ "$mode" != "background" ] || die "--container cannot be combined with --bg"
+      mode="container"
+    elif [ "$arg" = "--bg" ]; then
+      [ "$mode" != "container" ] || die "--container cannot be combined with --bg"
       mode="background"
     else
       args+=("$arg")
@@ -186,6 +193,7 @@ aiur_engine_main() {
       ;;
     --instance=*)
       export AIUR_REMOTE_INSTANCE="${1#--instance=}"
+      [ -n "$AIUR_REMOTE_INSTANCE" ] || { echo "aiur: --instance requires a name" >&2; return 64; }
       shift
       ;;
   esac
@@ -196,6 +204,7 @@ aiur_engine_main() {
   AIUR_CONTROL_COMMAND="${cmd:-run}"
   if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
     validate_remote_instance_name || return $?
+    [ "$AIUR_REMOTE_INSTANCE" != all ] || ensure_remote_all_read_command "$@" || return $?
     ensure_remote_command_allowed "$@" || return $?
   fi
   case "$cmd" in
@@ -221,10 +230,7 @@ aiur_engine_main() {
     login)
       run_account_login "$@"
       ;;
-    accounts)
-      shift
-      cmd_accounts "$@"
-      ;;
+    accounts) shift; usage_alias accounts "$@" ;;
     logout)
       run_local_cli "$@"
       ;;
@@ -269,6 +275,11 @@ aiur_engine_main() {
       shift
       cmd_commands "$@"
       ;;
+    # @cli-reference aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1
+    operator-relay-answer)
+      shift
+      cmd_operator_relay_answer "$@"
+      ;;
     executor-answer)
       shift
       cmd_executor_answer "$@"
@@ -306,15 +317,12 @@ aiur_engine_main() {
       ;;
     history) shift; cmd_history "$@" ;;
     analytics) shift; cmd_analytics "$@" ;;
-    github-cost) shift; cmd_github_cost "$@" ;;
+    github-cost) shift; usage_alias github-cost "$@" ;;
     experiments) shift; cmd_experiments "$@" ;;
     capabilities)
       shift; cmd_capabilities "$@" ;;
-    ticket-usage) shift; cmd_ticket_usage "$@" ;;
-    github-usage)
-      shift
-      cmd_github_usage "$@"
-      ;;
+    ticket-usage) shift; usage_alias ticket-usage "$@" ;;
+    github-usage) shift; usage_alias github-usage "$@" ;;
     alerts)
       shift
       cmd_alerts "$@"

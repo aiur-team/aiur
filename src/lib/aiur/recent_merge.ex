@@ -6,11 +6,13 @@ defmodule Aiur.RecentMerge do
   A merge can be backfilled from GitHub's bounded Events API window,
   observed live by the current BEAM run, or both. `observed_run_id` means
   only that the run saw the live GitHub event; it never claims that the run,
-  an Aiur agent, or a ticket caused the merge. Ticket linkage is derived only
-  from a canonical `aiur/<number>[-slug]` head branch.
+  an Aiur agent, or a ticket caused the merge. The implementing ticket id is
+  derived only from a canonical `aiur/<number>[-slug]` head branch; PR body and
+  commit references remain separate links used by ticket reconciliation.
   """
 
   alias Aiur.RecentMerge.ClosingReferences
+  alias Aiur.RecentMerge.CommitMessages
   alias Aiur.{SecretRedactor, TicketBranch}
 
   @schema_version 1
@@ -27,6 +29,7 @@ defmodule Aiur.RecentMerge do
           number: pos_integer(),
           title: String.t() | nil,
           summary: String.t() | nil,
+          commit_messages: [String.t()],
           url: String.t(),
           head_ref: String.t() | nil,
           head_sha: String.t() | nil,
@@ -63,6 +66,7 @@ defmodule Aiur.RecentMerge do
                 schema_version: @schema_version,
                 title: nil,
                 summary: nil,
+                commit_messages: [],
                 head_ref: nil,
                 head_sha: nil,
                 merge_commit_sha: nil,
@@ -93,7 +97,7 @@ defmodule Aiur.RecentMerge do
 
   @doc """
   Returns same-repository issue identifiers named by GitHub closing keywords in
-  a merged pull request body.
+  a merged pull request body or its commit messages.
 
   Detection is deliberately no wider than GitHub's documented rule, and in two
   places it is deliberately narrower. A false positive here force-closes a
@@ -119,11 +123,11 @@ defmodule Aiur.RecentMerge do
   retain their original content hashes.
   """
   @spec closing_issue_identifiers(t()) :: [String.t()]
-  def closing_issue_identifiers(%__MODULE__{summary: summary, repository: repository}) when is_binary(summary) do
-    closing_issue_identifiers_in_body(summary, repository)
+  def closing_issue_identifiers(%__MODULE__{summary: summary, repository: repository, commit_messages: messages}) do
+    (closing_issue_identifiers_in_body(summary, repository) ++
+       Enum.flat_map(messages, &closing_issue_identifiers_in_body(&1, repository)))
+    |> Enum.uniq()
   end
-
-  def closing_issue_identifiers(%__MODULE__{}), do: []
 
   @doc """
   `closing_issue_identifiers/1` against a raw pull request body.
@@ -150,6 +154,14 @@ defmodule Aiur.RecentMerge do
     ClosingReferences.referenced_identifiers_in_body(body, repository)
   end
 
+  @doc "Returns linked issue identifiers from the PR body and its commit messages."
+  @spec linked_issue_identifiers(t()) :: [String.t()]
+  def linked_issue_identifiers(%__MODULE__{} = merge) do
+    body_ids = ClosingReferences.linked_identifiers_in_text(merge.summary, merge.repository)
+    commit_ids = Enum.flat_map(merge.commit_messages, &ClosingReferences.linked_identifiers_in_text(&1, merge.repository))
+    Enum.uniq(body_ids ++ commit_ids)
+  end
+
   defp normalize_github_merge(event, pull, opts) do
     live? = Keyword.get(opts, :live?, false) == true
     now = Keyword.get(opts, :now, DateTime.utc_now())
@@ -160,6 +172,7 @@ defmodule Aiur.RecentMerge do
          {:ok, url} <- normalize_url(Map.get(pull, "html_url"), repository, number),
          {:ok, title} <- optional_text(Map.get(pull, "title"), @title_max, :title),
          {:ok, summary} <- normalized_summary(Map.get(pull, "body"), repository),
+         {:ok, commit_messages} <- normalized_commit_messages(Map.get(pull, "commit_messages", [])),
          {:ok, head_ref} <- optional_text(get_in(pull, ["head", "ref"]), @ref_max, :head_ref),
          {:ok, head_sha} <- optional_text(get_in(pull, ["head", "sha"]), @identity_max, :head_sha),
          {:ok, merge_sha} <-
@@ -177,6 +190,7 @@ defmodule Aiur.RecentMerge do
         number: number,
         title: title,
         summary: summary,
+        commit_messages: commit_messages,
         url: url,
         head_ref: head_ref,
         head_sha: head_sha,
@@ -208,6 +222,7 @@ defmodule Aiur.RecentMerge do
         existing
         | title: prefer(incoming.title, existing.title),
           summary: prefer(incoming.summary, existing.summary),
+          commit_messages: if(incoming.commit_messages == [], do: existing.commit_messages, else: incoming.commit_messages),
           head_ref: prefer(incoming.head_ref, existing.head_ref),
           head_sha: prefer(incoming.head_sha, existing.head_sha),
           merge_commit_sha: prefer(incoming.merge_commit_sha, existing.merge_commit_sha),
@@ -238,6 +253,7 @@ defmodule Aiur.RecentMerge do
       "number" => merge.number,
       "title" => merge.title,
       "summary" => merge.summary,
+      "commit_messages" => merge.commit_messages,
       "url" => merge.url,
       "head_ref" => merge.head_ref,
       "head_sha" => merge.head_sha,
@@ -267,6 +283,7 @@ defmodule Aiur.RecentMerge do
          {:ok, url} <- normalize_url(Map.get(raw, "url"), repository, number),
          {:ok, title} <- optional_text(Map.get(raw, "title"), @title_max, :title),
          {:ok, summary} <- optional_text(Map.get(raw, "summary"), @summary_max, :summary),
+         {:ok, commit_messages} <- normalized_commit_messages(Map.get(raw, "commit_messages", [])),
          {:ok, head_ref} <- optional_text(Map.get(raw, "head_ref"), @ref_max, :head_ref),
          {:ok, head_sha} <- optional_text(Map.get(raw, "head_sha"), @identity_max, :head_sha),
          {:ok, merge_sha} <-
@@ -294,6 +311,7 @@ defmodule Aiur.RecentMerge do
         number: number,
         title: title,
         summary: summary,
+        commit_messages: commit_messages,
         url: url,
         head_ref: head_ref,
         head_sha: head_sha,
@@ -402,6 +420,18 @@ defmodule Aiur.RecentMerge do
     with {:ok, summary} <- optional_text(body, @summary_max, :summary) do
       summary = ClosingReferences.preserve(summary, ClosingReferences.references(body), @summary_max)
       {:ok, ClosingReferences.preserve_references(summary, body, repository, @summary_max)}
+    end
+  end
+
+  defp normalized_commit_messages(messages) when is_list(messages) do
+    CommitMessages.normalize(messages, &normalize_commit_message/1)
+  end
+
+  defp normalized_commit_messages(_), do: {:error, {:commit_messages, :invalid_type}}
+
+  defp normalize_commit_message(message) do
+    with {:ok, text} <- optional_text(message, 500, :commit_message) do
+      {:ok, ClosingReferences.preserve(text, ClosingReferences.references(message), 500)}
     end
   end
 
