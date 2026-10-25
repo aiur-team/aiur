@@ -401,9 +401,18 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   defp issue_classification_facts(_issue), do: %{}
 
   defp cached_ci_result(%State{} = state, identifier) do
-    state.ci_lifecycle
-    |> Map.get(:poll_cache, %{})
-    |> Map.get(identifier)
+    result =
+      state.ci_lifecycle
+      |> Map.get(:poll_cache, %{})
+      |> Map.get(identifier)
+
+    case result do
+      result when is_map(result) ->
+        Map.put(result, :observed_at_ms, get_in(state.ci_lifecycle, [:ci_observed_at_ms, identifier]))
+
+      _missing ->
+        nil
+    end
   end
 
   @spec next_poll_in_ms(integer() | nil, integer()) :: non_neg_integer() | nil
