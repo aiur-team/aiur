@@ -136,7 +136,12 @@ export default withMermaid(defineConfig({
           text: 'Interfaces',
           items: [
             { text: 'TUI', link: '/guide/tui' },
-            { text: 'CLI', link: '/reference/cli' },
+            { text: 'CLI', link: '/reference/cli', items: [
+              { text: 'Launch and setup', link: '/reference/cli-launch' },
+              { text: 'Operations', link: '/reference/cli-operations' },
+              { text: 'Decisions and Executor events', link: '/reference/cli-decisions' },
+              { text: 'Development commands', link: '/reference/cli-development' }
+            ] },
             { text: 'Build History Commands', link: '/reference/build-history-commands' },
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
@@ -181,7 +186,11 @@ export default withMermaid(defineConfig({
         {
           text: 'Reference',
           items: [
-            { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Configuration', link: '/reference/configuration', items: [
+              { text: 'Daemon', link: '/reference/configuration-daemon' },
+              { text: 'Tracker and polling', link: '/reference/configuration-tracker' },
+              { text: 'Integrations', link: '/reference/configuration-integrations' }
+            ] },
             { text: 'Configuration: agent', link: '/reference/configuration-agent' },
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
             { text: 'Configuration: voice', link: '/reference/configuration-voice' },

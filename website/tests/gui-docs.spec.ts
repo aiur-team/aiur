@@ -33,6 +33,14 @@ function headingSlugs(markdown: string): string[] {
   )
 }
 
+async function referenceText(websiteRoot: string, name: 'cli' | 'configuration'): Promise<string> {
+  const directory = path.join(websiteRoot, 'docs-app/reference')
+  const pages = (await readdir(directory)).filter((file) =>
+    file.startsWith(`${name}-`) && file.endsWith('.md')
+  ).sort()
+  return (await Promise.all([`${name}.md`, ...pages].map((file) => readFile(path.join(directory, file), 'utf8')))).join('\n')
+}
+
 test('every dashboard surface screenshot is published on the page that explains it', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
 
@@ -90,7 +98,7 @@ test('parity guides are linked and contain their operational contracts', async (
     readFile(path.join(websiteRoot, 'docs-app/guide/gui.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/stream-deck.md'), 'utf8'),
     readFile(path.join(websiteRoot, '../packages/streamdeck/README.md'), 'utf8'),
-    readFile(path.join(websiteRoot, 'docs-app/reference/cli.md'), 'utf8'),
+    referenceText(websiteRoot, 'cli'),
     readFile(path.join(websiteRoot, 'docs-app/concepts/operating-aiur.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/.vitepress/config.ts'), 'utf8')
   ])
@@ -281,7 +289,7 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   const markdown = await Promise.all(markdownPaths.map(async (file) => [file, await readFile(file, 'utf8')] as const))
   const byRelativePath = new Map(markdown.map(([file, contents]) => [path.relative(docsRoot, file), contents]))
   const sidebar = await readFile(path.join(docsRoot, '.vitepress/config.ts'), 'utf8')
-  const configuration = byRelativePath.get('reference/configuration.md') ?? ''
+  const configuration = await referenceText(websiteRoot, 'configuration')
   const github = byRelativePath.get('apis/github.md') ?? ''
   const githubPolling = byRelativePath.get('apis/github-polling.md') ?? ''
   const githubBudgets = byRelativePath.get('apis/github-budgets.md') ?? ''

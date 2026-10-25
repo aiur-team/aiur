@@ -127,10 +127,10 @@ Documentation is part of the change, not a follow-up ticket. Update
 Aiur's `website/docs-app/` **in this PR** when your Aiur work:
 
 - adds or changes a **config key** (`.aiur/config`, `Aiur.Config.Schema.*`) →
-  `reference/configuration.md`, plus the `.aiur/examples/` and
+  `reference/configuration-*.md` topic pages, plus the `.aiur/examples/` and
   `src/examples/workflows/` templates
 - adds or changes a **CLI command or flag** (`aiur`, `aiurdev`) →
-  `reference/cli.md`
+  `reference/cli-*.md` topic pages
 - adds or changes an **environment variable an operator would set**
 - adds a **new user-facing surface** — a dashboard page, a TUI view, a Stream
   Deck mode, a new panel → `guide/`
