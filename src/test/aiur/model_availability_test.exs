@@ -91,6 +91,14 @@ defmodule Aiur.ModelAvailabilityTest do
     assert ModelAvailability.available?("claude", state: %{"backends" => %{"claude" => %{}}})
   end
 
+  test "clears an unavailable-fingerprint auth hold when no stable credential is exposed", %{path: path} do
+    assert {:ok, :first} = ModelAvailability.mark_auth_rejected("codex", "unavailable", path: path)
+    refute ModelAvailability.available?("codex", path: path)
+
+    assert :ok = ModelAvailability.clear_changed_auth_hold("codex", nil, path: path)
+    assert ModelAvailability.available?("codex", path: path)
+  end
+
   test "normalizes the claude remote-control transport backend", %{path: path} do
     assert ModelAvailability.backend_key("claude-repl") == "claude"
     assert ModelAvailability.backend_key("claude") == "claude"

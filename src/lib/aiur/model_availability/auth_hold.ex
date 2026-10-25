@@ -38,7 +38,10 @@ defmodule Aiur.ModelAvailability.AuthHold do
       backends = Map.get(state, "backends", %{})
       entry = Map.get(backends, backend, %{})
 
-      if entry["auth_rejected"] == true and is_binary(fingerprint) and fingerprint != entry["auth_fingerprint"] do
+      changed? = is_binary(fingerprint) and fingerprint != entry["auth_fingerprint"]
+      unknown_recovered? = is_nil(fingerprint) and entry["auth_fingerprint"] == "unavailable"
+
+      if entry["auth_rejected"] == true and (changed? or unknown_recovered?) do
         updated = Map.drop(entry, ["auth_rejected", "auth_fingerprint", "auth_rejected_at"])
         write(path, Map.put(state, "backends", Map.put(backends, backend, updated)))
       else

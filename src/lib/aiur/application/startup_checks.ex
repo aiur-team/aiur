@@ -156,7 +156,7 @@ defmodule Aiur.Application.StartupChecks do
     |> Enum.uniq()
   end
 
-  defp clear_rotated_provider_auth_holds(%{instance: %{mode: "hosted"}, agent: agent} = settings, env) do
+  defp clear_rotated_provider_auth_holds(%{agent: agent} = settings, env) do
     agent
     |> configured_routes()
     |> Enum.map(&RoutingValue.routing_backend/1)
