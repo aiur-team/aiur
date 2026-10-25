@@ -176,6 +176,11 @@ run_session() {
     exit 1
   fi
 
+  # A restart may need to publish its rollback alert from the still-running
+  # parent shell. Preserve the successful daemon's resolved ledger path too;
+  # the failed release may have crashed before writing its path handoff.
+  preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
+
   printf 'ready\n' >>"$supervisor_file"
   write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
   release_aiur_launch_lock "$launch_lock"
