@@ -80,6 +80,7 @@
     "Aiur.Webhooks.ModePresenter",
     "Aiur.Webhooks.ModeRegistry",
     "Aiur.Webhooks.ModeRegistry.Policy",
+    "Aiur.Webhooks.ModeTable",
     "AiurWeb.GithubWebhook",
     "AiurWeb.GithubWebhookController",
     "AiurWeb.Routes.GithubWebhook"
