@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
   @moduledoc false
   alias Aiur.BuildGate
+  alias Aiur.BuildStatus
   alias Aiur.Config
   alias Aiur.ExecutorListener
   alias Aiur.GitHub.CiReadiness
@@ -248,6 +249,18 @@ defmodule Aiur.Orchestrator.StatusCLI.Diagnostics do
         IO.puts("SUPERVISION unavailable")
         1
     end
+  end
+
+  @doc false
+  @spec print_build_status() :: :ok
+  @spec print_build_status((-> String.t())) :: :ok
+  def print_build_status(status_fun \\ fn -> BuildStatus.current() |> BuildStatus.render() end) do
+    IO.puts(status_fun.())
+    :ok
+  rescue
+    _ -> IO.puts("BUILD unavailable (build metadata could not be read)")
+  catch
+    :exit, _ -> IO.puts("BUILD unavailable (build metadata could not be read)")
   end
 
   @doc false

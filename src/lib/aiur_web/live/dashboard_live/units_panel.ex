@@ -82,6 +82,14 @@ defmodule AiurWeb.DashboardLive.UnitsPanel do
     |> assign_tickets_panel_view()
   end
 
+  @doc false
+  @spec assign_units_header(map()) :: map()
+  def assign_units_header(assigns) do
+    assigns
+    |> Map.put_new(:units_count_label, units_count_label(assigns.units_view))
+    |> Map.put_new(:build_status, Aiur.BuildStatus.current())
+  end
+
   # The unfiltered projection stays in `tickets_view` and the panel renders the
   # searched one. Lookups — the add-agent modal, the ticket-context refresh —
   # then keep resolving a row the current query happens to hide, so a ticket

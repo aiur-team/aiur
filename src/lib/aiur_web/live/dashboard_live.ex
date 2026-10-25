@@ -725,7 +725,7 @@ defmodule AiurWeb.DashboardLive do
         UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
       )
       |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
-      |> then(&Map.put_new(&1, :units_count_label, UnitsPanel.units_count_label(&1.units_view)))
+      |> UnitsPanel.assign_units_header()
       |> Map.put_new(:tickets_view, TicketsPresenter.normalize(Map.get(assigns.payload, :tickets)))
       |> Map.put_new(:tickets_visible, TicketsPresenter.initial_reveal())
       |> Map.put_new(:tickets_query, "")
@@ -849,7 +849,7 @@ defmodule AiurWeb.DashboardLive do
           />
           <div class="rs-group-head units-group-head">
             <span class="rs-group-title" id="units-title">Units</span>
-            <span class="rs-group-count">{@units_count_label}</span>
+            <span class="rs-group-count">{@units_count_label}</span> · <span class="rs-group-count" id="build-status">{Aiur.BuildStatus.render(@build_status)}</span>
           </div>
           <UnitsFilters.units_filters
             selection={@units_selection}
