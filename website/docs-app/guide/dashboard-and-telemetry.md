@@ -185,9 +185,13 @@ Reads and writes use the repository-qualified tracker identity, so a same-number
 
 The read payload uses `contract: "aiur.ticket_spend_cap"` and `contract_version: 1`. It reports decimal-string `cap_amount`, known `spent_amount`, non-negative `remaining_amount`, pricing coverage and authority, and effect status.
 
-Spend is the known USD API-equivalent amount from the same usage aggregate as the usage API. With partial pricing coverage, enforcement continues against known spend, the read payload reports `coverage.status: "partial"`, and Aiur opens an operator attention; unknown cost is never turned into zero. The cap is therefore not a guaranteed hard ceiling until coverage becomes complete.
+Spend is the known USD API-equivalent amount from the same usage aggregate as the usage API. With partial pricing coverage, enforcement continues against known spend, the read payload reports `coverage.status: "partial"`, and Aiur opens an operator attention.
 
-If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce the cap again. Aiur does not stop an already-running agent merely because accounting became unavailable and has no cap-specific grace timer for that case; the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
+Unknown cost is never turned into zero, so the cap is not a guaranteed hard ceiling until coverage becomes complete.
+
+If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce the cap again. Aiur does not stop an already-running agent merely because accounting became unavailable.
+
+There is no cap-specific grace timer for that case; the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
 
 When known spend reaches the cap, Aiur persists `state` and `end_state` as `budget_exhausted` before stopping that ticket's agent. It then publishes `ticket.<id>.usage.spend_cap_reached` with contract `aiur.ticket_spend_cap_reached` version 1 and transitions the ticket to terminal state `agent:budget-exhausted`.
 
