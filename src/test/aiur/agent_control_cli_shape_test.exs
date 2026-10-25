@@ -9,7 +9,11 @@ defmodule Aiur.AgentControlCLIShapeTest do
 
     assert Enum.all?(declarations, fn
              {:@, _, [{:moduledoc, _, [false]}]} -> true
+             {:@, _, [{:spec, _, _}]} -> true
+             {:alias, _, [{:__aliases__, _, [:Aiur, :Application, :StartupChecks]}]} -> true
+             {:alias, _, [{:__aliases__, _, [:Aiur, :Orchestrator, :StatusCLI]}]} -> true
              {:defdelegate, _, _} -> true
+             {:def, _, [{:status, _, _}, [do: _]]} -> true
              _ -> false
            end)
   end

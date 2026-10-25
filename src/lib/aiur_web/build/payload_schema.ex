@@ -72,6 +72,7 @@ defmodule AiurWeb.Build.PayloadSchema do
            "epics" => list(:string),
            "from" => nullable(:integer),
            "to" => nullable(:integer),
+           "oldest" => nullable(:integer),
            "stats" => nullable(object(feature_stats()))
          })},
       "order" => list(:string),

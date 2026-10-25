@@ -6,6 +6,7 @@ defmodule Aiur.HttpServer do
   require Logger
 
   alias Aiur.{Commands, Config, Orchestrator}
+  alias Aiur.Config.Paths
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
@@ -60,6 +61,7 @@ defmodule Aiur.HttpServer do
 
   defp configure_endpoint(opts, host, ip, port, dashboard_writable) do
     settings = Config.settings!().server
+    session_max_age_days = Config.settings!().dashboard_auth.session_max_age_days
     public_url = settings.public_url
     endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
@@ -78,6 +80,7 @@ defmodule Aiur.HttpServer do
       orchestrator: Keyword.get(opts, :orchestrator, Orchestrator),
       snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
       dashboard_writable: dashboard_writable,
+      browser_basic_auth: Config.settings!().dashboard_auth.browser_basic_auth,
       dashboard_auth_required: dashboard_writable or not loopback?(ip),
       dashboard_pages: Keyword.get(opts, :dashboard_pages?, true),
       decision_api: Keyword.get(opts, :decision_api, Commands.default_api()),
@@ -90,7 +93,7 @@ defmodule Aiur.HttpServer do
       session_options: [
         secure: public_url_https?(public_url),
         same_site: "Lax",
-        max_age: 31_536_000,
+        max_age: session_max_age_days * 86_400,
         encryption_salt: "aiur-session-encryption"
       ]
     ]
@@ -113,7 +116,36 @@ defmodule Aiur.HttpServer do
     if address_in_use?(reason), do: port_conflict(opts, host, ip, port), else: error
   end
 
+  defp handle_endpoint_start({:ok, _pid} = result, opts, _host, _ip, _port) do
+    publish_control_url(opts)
+    result
+  end
+
   defp handle_endpoint_start(other, _opts, _host, _ip, _port), do: other
+
+  defp publish_control_url(opts) do
+    with socket when is_binary(socket) and socket != "" <- System.get_env("AIUR_TMUX_SOCKET"),
+         url when is_binary(url) and url != "" <- base_url() do
+      command_fun = Keyword.get(opts, :tmux_command_fun, fn command, args -> System.cmd(command, args, stderr_to_stdout: true) end)
+
+      case command_fun.("tmux", ["-L", socket, "set-option", "-g", "@aiur_control_url", url]) do
+        {_output, 0} ->
+          :ok
+
+        {output, status} ->
+          Logger.warning("Aiur could not publish dashboard URL to tmux (exit #{status}): #{String.trim(output)}")
+
+        other ->
+          Logger.warning("Aiur could not publish dashboard URL to tmux: #{inspect(other)}")
+      end
+    else
+      _ -> :ok
+    end
+  rescue
+    error ->
+      Logger.warning("Aiur could not publish dashboard URL to tmux: #{inspect(error)}")
+      :ok
+  end
 
   # An `aiurdev --test` run shares the host with the live daemon, so it takes a
   # free port rather than running without a dashboard (#5121).
@@ -357,8 +389,7 @@ defmodule Aiur.HttpServer do
         {:error, :instance_key_invalid} -> raise "invalid Aiur instance key for dashboard secret path"
       end
 
-    root = Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
-    Path.join([root, "instances", instance, "secret_key_base"])
+    Path.join([Paths.dashboard_secret_root(), "instances", instance, "secret_key_base"])
   end
 
   defp public_url_https?(url) when is_binary(url), do: URI.parse(url).scheme == "https"

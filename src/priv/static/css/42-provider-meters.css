@@ -188,6 +188,14 @@
   transition: width 0.3s ease;
 }
 
+.provider-meter-fill.is-warning {
+  background: var(--warning, #d29922);
+}
+
+.provider-meter-fill.is-critical {
+  background: var(--danger, #f85149);
+}
+
 .provider-meter-account-usage {
   margin-top: 0.75rem;
 }
@@ -226,6 +234,9 @@
   height: 100%;
   background: var(--accent);
 }
+
+.provider-meter-account-fill.is-warning { background: var(--warning, #d29922); }
+.provider-meter-account-fill.is-critical { background: var(--danger, #f85149); }
 
 .provider-meter-account-labels {
   display: flex;
@@ -278,4 +289,3 @@
     background: currentColor;
   }
 }
-

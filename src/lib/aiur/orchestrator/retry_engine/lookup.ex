@@ -34,21 +34,28 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
     expected = {Map.get(state.retry_attempts, issue_id), MapSet.member?(state.claimed, issue_id)}
 
     next =
-      TrackerTasks.run(state, {:retry_poll, issue_id}, fn -> fetch_retry_poll(issue_id, opts) end, fn current, result ->
+      TrackerTasks.run(state, {:retry_poll, issue_id}, fn -> fetch_retry_poll(issue_id, metadata, opts) end, fn current, result ->
         apply_current_retry_poll(current, expected, issue_id, attempt, metadata, opts, result)
       end)
 
     {:noreply, next}
   end
 
-  defp fetch_retry_poll(issue_id, opts) do
+  defp fetch_retry_poll(issue_id, metadata, opts) do
     candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &Tracker.fetch_candidate_issues/0)
     fetch_by_id = Keyword.get(opts, :fetch_issue_states_by_ids_fun, &Tracker.fetch_issue_states_by_ids/1)
 
+    fetch_retry_issue_poll(issue_id, metadata, opts, candidates, fetch_by_id)
+  end
+
+  defp fetch_retry_issue_poll(issue_id, %{handoff_fallback: true}, opts, _candidates, fetch_by_id) do
+    with :ok <- retry_tracker_preflight(opts), do: fetch_retry_issue_by_id(issue_id, fetch_by_id)
+  end
+
+  defp fetch_retry_issue_poll(issue_id, _metadata, opts, candidates, fetch_by_id) do
     with :ok <- retry_tracker_preflight(opts),
-         {:ok, issues} <- candidates.() do
-      fetch_retry_issue(issues, issue_id, fetch_by_id)
-    end
+         {:ok, issues} <- candidates.(),
+         do: fetch_retry_issue(issues, issue_id, fetch_by_id)
   end
 
   defp retry_tracker_preflight(opts) do
@@ -133,20 +140,32 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
   @spec fetch_retry_issue(
           [term()],
           String.t(),
-          ([String.t()] -> {:ok, [term()]} | {:error, term()})
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          boolean()
         ) :: {:ok, Issue.t() | nil} | {:error, term()}
-  def fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun)
+  def fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun, prefer_fresh? \\ false)
+
+  def fetch_retry_issue(_candidate_issues, issue_id, fetch_issue_states_by_ids_fun, true)
+      when is_binary(issue_id) and is_function(fetch_issue_states_by_ids_fun, 1) do
+    fetch_retry_issue_by_id(issue_id, fetch_issue_states_by_ids_fun)
+  end
+
+  def fetch_retry_issue(candidate_issues, issue_id, fetch_issue_states_by_ids_fun, false)
       when is_list(candidate_issues) and is_binary(issue_id) and is_function(fetch_issue_states_by_ids_fun, 1) do
     case find_issue_by_id(candidate_issues, issue_id) do
       %Issue{} = issue ->
         {:ok, issue}
 
       nil ->
-        case fetch_issue_states_by_ids_fun.([issue_id]) do
-          {:ok, issues} when is_list(issues) -> {:ok, find_issue_by_id(issues, issue_id)}
-          {:error, reason} -> {:error, reason}
-          result -> {:error, {:invalid_retry_issue_lookup, result}}
-        end
+        fetch_retry_issue_by_id(issue_id, fetch_issue_states_by_ids_fun)
+    end
+  end
+
+  defp fetch_retry_issue_by_id(issue_id, fetch_issue_states_by_ids_fun) do
+    case fetch_issue_states_by_ids_fun.([issue_id]) do
+      {:ok, issues} when is_list(issues) -> {:ok, find_issue_by_id(issues, issue_id)}
+      {:error, reason} -> {:error, reason}
+      result -> {:error, {:invalid_retry_issue_lookup, result}}
     end
   end
 
@@ -325,7 +344,8 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
       next_state =
         dispatch.(state, issue, attempt, metadata[:worker_host],
           prior_work: prior_work?,
-          rework_head_sha: metadata[:rework_head_sha]
+          rework_head_sha: metadata[:rework_head_sha],
+          stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true
         )
 
       {:noreply, ensure_active_retry_started(next_state, issue, attempt, metadata, opts)}
@@ -373,7 +393,8 @@ defmodule Aiur.Orchestrator.RetryEngine.Lookup do
         prior_work: metadata[:prior_work] == true,
         worker_host: metadata[:worker_host],
         workspace_path: metadata[:workspace_path],
-        rework_head_sha: metadata[:rework_head_sha]
+        rework_head_sha: metadata[:rework_head_sha],
+        stalled_alert_outstanding: metadata[:stalled_alert_outstanding] == true
       })
     end
   end

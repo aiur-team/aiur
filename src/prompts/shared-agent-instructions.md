@@ -93,6 +93,22 @@ tests in a new test file. Never grow the oversized file.
 These checks supplement the scoped compile, format, and affected-test gate; CI still runs the authoritative
 full required-check set. Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
 
+### Slow shared build gate
+
+The shared build gate serializes expensive commands and reports queue position
+and progress. A command waiting or running slowly at that gate is not a failure:
+keep waiting for it to finish instead of retrying it, ending the session, or
+setting `agent:error`. Use `agent:error` only for a real blocker that prevents
+the work from continuing.
+
+If a genuine time limit means you must stop before validation finishes, preserve
+the workspace and hand the ticket back through its resume path. With an open PR,
+use `aiur_set_ticket_state({"state": "rework"})`. Without a PR, do not change
+the ticket to an error state: end the turn with the workspace and workpad intact
+so Aiur's normal continuation/recycle path can resume it. Never set
+`agent:error` just because time ran out; the next dispatch should continue from
+the existing workspace rather than restart setup.
+
 ### Unrelated CI flakes
 
 If the only failure is a flaky test unrelated to your change, file the
@@ -161,6 +177,11 @@ calls, the blocker → stub-then-fetch flow, and attentions.
 cross-ticket event** — don't rely on memory for the allowlisted names; the skill
 fails loud with the valid forms if you guess wrong. Two reflexes override normal
 work ordering, so they're worth stating up front:
+
+When a governed GitHub command fails with a guard diagnostic, include that exact
+diagnostic in any alert or decision about the failure. The guard's stderr is the
+source of the broker, hold, or deadline reason; do not replace it with a generic
+"GitHub is stuck" summary.
 
 - **Blocking another agent is your highest priority.** If another ticket is
   paused on a decision or stub from you (you've been declared a blocker via

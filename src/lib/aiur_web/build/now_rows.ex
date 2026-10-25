@@ -51,11 +51,11 @@ defmodule AiurWeb.Build.NowRows do
   def build(catalog, opts \\ []) do
     case repository(Keyword.get(opts, :repository)) do
       nil -> unavailable("repository_unknown")
-      repo -> project(catalog, repo)
+      repo -> project(catalog, repo, Keyword.get(opts, :todo_ids, MapSet.new()))
     end
   end
 
-  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo) when status in [:ready, :empty, :stale] and is_list(rows) do
+  defp project(%{status: status, snapshot: %{rows: rows} = snapshot} = catalog, repo, todo_ids) when status in [:ready, :empty, :stale] and is_list(rows) do
     source = %{
       state: if(status == :stale, do: "stale", else: "ok"),
       observed_at: timestamp(get_in(snapshot, [:freshness, :status]) |> observed_at()),
@@ -68,10 +68,10 @@ defmodule AiurWeb.Build.NowRows do
         end
     }
 
-    %{rows: rows |> Enum.filter(&band?(&1, repo)) |> Map.new(&{&1.identity.identifier, facts(&1)}), source: source}
+    %{rows: rows |> Enum.map(&mark_todo_starting(&1, todo_ids)) |> Enum.filter(&band?(&1, repo)) |> Map.new(&{&1.identity.identifier, facts(&1)}), source: source}
   end
 
-  defp project(_catalog, _repo), do: unavailable("fleet_unavailable")
+  defp project(_catalog, _repo, _todo_ids), do: unavailable("fleet_unavailable")
   defp unavailable(reason), do: %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: reason}}
   defp observed_at(%{observed_at: time}), do: time
   defp observed_at(_freshness), do: nil
@@ -87,6 +87,7 @@ defmodule AiurWeb.Build.NowRows do
     TrackerIdentity.joinable?(identity) and repository({identity.owner, identity.repository}) == repo and
       not UnitsPolicy.condition?(:finished, row) and row[:replacement_boundary?] != true and
       (UnitsPolicy.in_scope?(row, :live) or get_in(row, [:runtime, :bucket]) == :retrying) and
+      not todo_starting?(row) and
       get_in(row, [:reasons, :waiting]) != :latched_lifetime
   end
 
@@ -140,11 +141,20 @@ defmodule AiurWeb.Build.NowRows do
     work_state = get_in(row, [:runtime, :work_state])
 
     cond do
+      todo_starting?(row) -> "queued"
       is_binary(runtime_reason_state(row)) -> runtime_reason_state(row)
       pause_state(paused?, pause) -> pause_state(paused?, pause)
       UnitsPolicy.in_scope?(row, :live) and work_state in [:starting, :allocated, :working] -> "active"
       true -> nil
     end
+  end
+
+  defp todo_starting?(row), do: get_in(row, [:runtime, :todo_starting?]) == true
+
+  defp mark_todo_starting(row, todo_ids) do
+    identity = Map.get(row, :identity)
+    todo_starting? = get_in(row, [:runtime, :work_state]) == :starting and is_map(identity) and MapSet.member?(todo_ids, Map.get(identity, :identifier))
+    update_in(row, [:runtime], &Map.put(&1, :todo_starting?, todo_starting?))
   end
 
   defp pause_state(row) do

@@ -6,6 +6,7 @@ defmodule Aiur.AgentEnvironment do
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
   alias Aiur.AgentEnvironment.{Contributor, CredentialScrub}
   alias Aiur.AgentEnvironment.GitHubPath
+  alias Aiur.AgentEnvironment.SchedulerOptions
   alias Aiur.Config.Paths
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -27,7 +28,7 @@ defmodule Aiur.AgentEnvironment do
   # own.
   @restart_build_env_names ~w(AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_RECEIPT AIUR_RESTART_BUILD_VERIFIES)
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
-  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE)
+  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE AIUR_LEASE_DATABASE_URL)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY(?:__[A-Z0-9_-]+)?\z/
   # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
@@ -54,7 +55,6 @@ defmodule Aiur.AgentEnvironment do
   # `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` returns nothing even when the
   # daemon's own environment carries it.
   @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN)
-  @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -131,6 +131,7 @@ defmodule Aiur.AgentEnvironment do
        Enum.join(
          @erlang_distribution_env_names ++
            @daemon_dump_env_names ++
+           ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
            @restart_build_env_names ++
            @parent_log_env_names ++
            @operator_only_env_names ++
@@ -253,6 +254,7 @@ defmodule Aiur.AgentEnvironment do
       Enum.map(
         @erlang_distribution_env_names ++
           @daemon_dump_env_names ++
+          ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
           @restart_build_env_names ++
           @parent_log_env_names ++
           @operator_only_env_names ++
@@ -465,7 +467,7 @@ defmodule Aiur.AgentEnvironment do
 
     [
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
-      {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
+      {"ELIXIR_ERL_OPTIONS", SchedulerOptions.build(cap)}
     ]
   end
 
@@ -514,13 +516,5 @@ defmodule Aiur.AgentEnvironment do
       url when is_binary(url) and url != "" -> url
       _ -> neutral_repo_url()
     end
-  end
-
-  defp scheduler_options(cap) do
-    System.get_env("ELIXIR_ERL_OPTIONS", "")
-    |> then(&Regex.replace(@scheduler_option, &1, ""))
-    |> String.split()
-    |> Kernel.++(["+S", "#{cap}:#{cap}"])
-    |> Enum.join(" ")
   end
 end
