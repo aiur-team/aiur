@@ -339,9 +339,8 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  # Build admission is the sole permitted BASH_ENV hook in an agent workspace:
-  # it is an Aiur-owned absolute path, replaces (rather than inherits) the
-  # operator value, and is only present when admission is enabled.
+  # Build admission alone supplies an Aiur-owned absolute BASH_ENV hook; it
+  # replaces the operator value and exists only when admission is enabled.
   defp replace_bash_env(startup_env, build_gate_env) do
     case List.keyfind(build_gate_env, "BASH_ENV", 0) do
       {"BASH_ENV", _hook_path} ->
