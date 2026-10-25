@@ -8,7 +8,7 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
 
   setup do
     FinancialDataAccess.Generation.invalidate()
-    Aiur.TestSupport.start_owned_endpoint!()
+    endpoint = Aiur.TestSupport.start_owned_endpoint!()
     directory = Aiur.TestSupport.tmp_root!("planning-document")
     File.mkdir_p!(Path.join(directory, "tickets"))
     path = Path.join(directory, "build-order.json")
@@ -34,7 +34,7 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
       Aiur.TestCleanup.rm_rf!(directory)
     end)
 
-    %{directory: directory}
+    %{directory: directory, endpoint: endpoint}
   end
 
   test "future regression guard: full draft document requires dashboard authentication" do
@@ -80,6 +80,11 @@ defmodule AiurWeb.PlanningDocumentControllerTest do
       assert response.status == 404
       assert response.resp_body == "Planning document unavailable"
     end
+  end
+
+  test "owned endpoint binds an ephemeral loopback port", %{endpoint: _endpoint} do
+    assert {:ok, {_address, port}} = AiurWeb.Endpoint.server_info(:http)
+    assert port > 0
   end
 
   defp request(path, authenticated? \\ true) do

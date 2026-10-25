@@ -190,7 +190,7 @@ defmodule Aiur.TestSupport.Processes do
   def start_owned_endpoint! do
     refuse_global_endpoint_stubs!()
 
-    case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []}) do
+    case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, endpoint_start_options()}) do
       {:ok, pid} ->
         pid
 
@@ -201,6 +201,8 @@ defmodule Aiur.TestSupport.Processes do
         raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
     end
   end
+
+  defp endpoint_start_options, do: [http: [ip: {127, 0, 0, 1}, port: 0], server: true]
 
   # Every test that renders a dashboard reads the global env, so a stub there
   # is called by foreign tests (#4908).
