@@ -1,25 +1,15 @@
 defmodule Aiur.ExecutorSweep.CacheFreshness do
   @moduledoc false
 
-  @runner_queue_bound 10
-  @actions_status_url "https://www.githubstatus.com/#components"
-
   @spec stale_merge_groups(map(), DateTime.t(), pos_integer(), pos_integer()) :: [map()]
   def stale_merge_groups(snapshot, now, stale_minutes, max_age_ms) do
     groups = Map.get(snapshot, :merge_groups, [])
-    queued = Enum.filter(groups, &(group_state(&1) == "queued"))
-    running_count = Enum.count(groups, &(group_state(&1) == "in_progress"))
-    oldest_queued_age = queued |> Enum.map(&group_age(&1, now)) |> Enum.max(fn -> 0 end)
-
-    queue_pressure? = running_count == 0 or length(queued) > running_count * 2
-
-    starvation_evidence? =
-      length(queued) > @runner_queue_bound or oldest_queued_age >= stale_minutes * 60_000
 
     starvation =
-      if queued != [] and queue_pressure? and starvation_evidence?,
-        do: [runner_starvation(queued, running_count, oldest_queued_age, snapshot, max_age_ms)],
-        else: []
+      case Aiur.GitHub.RunnerStarvation.diagnose(groups, DateTime.to_unix(now, :millisecond), stale_minutes) do
+        nil -> []
+        diagnosis -> [runner_starvation(diagnosis, groups, snapshot, max_age_ms)]
+      end
 
     stale_groups =
       Enum.flat_map(groups, fn group ->
@@ -30,22 +20,26 @@ defmodule Aiur.ExecutorSweep.CacheFreshness do
     starvation ++ stale_groups
   end
 
-  defp runner_starvation(queued, running_count, oldest_age, snapshot, max_age_ms) do
+  defp runner_starvation(diagnosis, groups, snapshot, max_age_ms) do
+    queued = Enum.filter(groups, &(group_state(&1) == "queued"))
     cache_ages = Enum.map(queued, &cache_age(snapshot, value(&1, :id, nil)))
     verified? = Enum.all?(cache_ages, &(is_integer(&1) and &1 <= max_age_ms))
     verification = if verified?, do: "verified", else: "unverified"
+    oldest_age = diagnosis.age_ms
+    queued_count = diagnosis.queued_runs
+    running_count = diagnosis.running_runs
 
     %{
       kind: "runner_starvation",
       priority: 2,
       age_ms: oldest_age,
-      queued_runs: length(queued),
+      queued_runs: queued_count,
       running_runs: running_count,
-      status_url: @actions_status_url,
+      status_url: diagnosis.status_url,
       verification: verification,
       action: "Check GitHub Actions component status and runner availability; #{verification} queue evidence.",
       message:
-        "GitHub runner starvation: #{length(queued)} merge-group runs queued, #{running_count} running; oldest queued #{duration(oldest_age)}. GitHub Actions status: #{@actions_status_url} (#{verification})."
+        "GitHub runner starvation: #{queued_count} merge-group runs queued, #{running_count} running; oldest queued #{duration(oldest_age)}. GitHub Actions status: #{diagnosis.status_url} (#{verification})."
     }
   end
 
