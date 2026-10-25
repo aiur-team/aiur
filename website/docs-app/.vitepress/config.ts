@@ -136,7 +136,7 @@ export default withMermaid(defineConfig({
           text: 'Interfaces',
           items: [
             { text: 'TUI', link: '/guide/tui' },
-            { text: 'CLI', link: '/reference/cli', items: [
+            { text: 'CLI', link: '/reference/cli', collapsed: true, items: [
               { text: 'Launch and setup', link: '/reference/cli-launch' },
               { text: 'Operations', link: '/reference/cli-operations' },
               { text: 'Decisions and Executor events', link: '/reference/cli-decisions' },
@@ -186,7 +186,7 @@ export default withMermaid(defineConfig({
         {
           text: 'Reference',
           items: [
-            { text: 'Configuration', link: '/reference/configuration', items: [
+            { text: 'Configuration', link: '/reference/configuration', collapsed: true, items: [
               { text: 'Daemon', link: '/reference/configuration-daemon' },
               { text: 'Tracker and polling', link: '/reference/configuration-tracker' },
               { text: 'Integrations', link: '/reference/configuration-integrations' }
