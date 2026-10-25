@@ -26,7 +26,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.TelemetryCohort
   alias Aiur.Orchestrator.TodoDispatchClaim
   alias Aiur.Orchestrator.TrackerTasks
-  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.Signal
   alias Aiur.Tracker
 
@@ -217,7 +216,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         do: Enum.map(issue.optimistic_start.blockers, & &1.identifier),
         else: []
 
-    if TelemetryLifecycle.enabled?() do
+    if Signal.lifecycle_enabled?() do
       TelemetryCohort.record_dispatch(issue, lifecycle_attempt_id, %{
         outcome: :requested,
         complexity: CodingAgent.complexity_level(issue),

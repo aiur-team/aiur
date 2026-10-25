@@ -1,6 +1,5 @@
 defmodule Aiur.Orchestrator.OptimisticLedgerTelemetry do
   @moduledoc "Lifecycle points for persisted optimistic attempt transitions."
-  alias Aiur.RunTelemetry.Lifecycle
 
   @spec record_changes(map(), map()) :: :ok
   def record_changes(previous, current) do
@@ -47,11 +46,11 @@ defmodule Aiur.Orchestrator.OptimisticLedgerTelemetry do
 
   defp record_evidence(old, row) do
     for evidence <- Map.get(row, "observed_pushes", []) -- Map.get(old, "observed_pushes", []) do
-      Lifecycle.record(row["ticket"], row["attempt_id"], :blocker_push, :point, %{blocker: evidence["blocker"], source_id: "push:#{evidence["blocker"]}:#{evidence["sha"]}"})
+      Signal.lifecycle(row["ticket"], row["attempt_id"], :blocker_push, :point, %{blocker: evidence["blocker"], source_id: "push:#{evidence["blocker"]}:#{evidence["sha"]}"})
     end
 
     for evidence <- Map.get(row, "integration_reports", []) -- Map.get(old, "integration_reports", []) do
-      Lifecycle.record(row["ticket"], row["attempt_id"], :blocker_integrate, :point, %{
+      Signal.lifecycle(row["ticket"], row["attempt_id"], :blocker_integrate, :point, %{
         blocker: evidence["blocker"],
         outcome: if(evidence["conflict"], do: :conflict, else: :clean),
         non_ff: evidence["non_ff"],
@@ -74,6 +73,6 @@ defmodule Aiur.Orchestrator.OptimisticLedgerTelemetry do
   defp emit(row, event, metadata, at) do
     opts = if is_integer(at), do: [timestamp: DateTime.from_unix!(at, :millisecond)], else: []
     metadata = Map.put(metadata, :source_id, "#{event}:#{at || row["status"]}")
-    Lifecycle.record(row["ticket"], row["attempt_id"], event, :point, metadata, opts)
+    Signal.lifecycle(row["ticket"], row["attempt_id"], event, :point, metadata, opts)
   end
 end

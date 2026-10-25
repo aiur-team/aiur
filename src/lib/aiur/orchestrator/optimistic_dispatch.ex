@@ -7,8 +7,8 @@ defmodule Aiur.Orchestrator.OptimisticDispatch do
   alias Aiur.Events.BranchRefStore
   alias Aiur.{Issue, OptimisticStart}
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, OptimisticLedger}
-  alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.StartTrigger.ProgressStore
+  alias Aiur.Signal
 
   @spec prepare_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, atom()}
   def prepare_for_dispatch(%Issue{optimistic_start: %{}} = issue, _opts), do: {:ok, issue}
@@ -79,7 +79,7 @@ defmodule Aiur.Orchestrator.OptimisticDispatch do
       {:error, reason} -> Logger.warning("Optimistic start not persisted ticket=#{issue.identifier} attempt=#{attempt_id} reason=#{inspect(reason)}")
     end
 
-    Lifecycle.record(issue.identifier, attempt_id, :optimistic_start, :point, %{
+    Signal.lifecycle(issue.identifier, attempt_id, :optimistic_start, :point, %{
       start_trigger: trigger,
       blockers: Enum.map(blockers, & &1["id"]),
       blocker_prs: Enum.map(blockers, & &1["pr_number"])

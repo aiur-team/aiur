@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   alias Aiur.{Alerts, CurrentRunMembership, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{OptimisticLedger, State, TelemetryEvents}
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @membership_observe_timeout 5_000
   @terminal_verification_attempt_limit 5
@@ -102,7 +102,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   end
 
   defp capture_terminal(identity, lifecycle) do
-    Lifecycle.terminal_capture(identity, lifecycle)
+    Signal.terminal_capture(identity, lifecycle)
   rescue
     _ -> :ok
   catch
