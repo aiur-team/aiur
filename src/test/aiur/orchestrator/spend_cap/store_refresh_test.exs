@@ -183,6 +183,8 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
 
   test "state directory is owner-only", %{root: root} do
     state_dir = Path.join(root, "owner-only")
+    File.mkdir_p!(state_dir)
+    File.chmod!(state_dir, 0o755)
     {:ok, _store} = start_store(state_dir)
 
     assert Bitwise.band(File.stat!(state_dir).mode, 0o777) == 0o700
