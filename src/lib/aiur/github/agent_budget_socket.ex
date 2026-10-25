@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.AgentBudgetSocket do
   use GenServer
 
   alias Aiur.Config.Paths
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.AgentBudgetCommand
 
   @socket_name "agent-github-budget.sock"
 
@@ -62,7 +62,7 @@ defmodule Aiur.GitHub.AgentBudgetSocket do
       {:ok, listen_socket} ->
         if listen_path != path, do: File.ln_s!(listen_path, path)
         File.chmod!(path, 0o600)
-        command_fun = Keyword.get(opts, :command_fun, &Budget.agent_guard_command/1)
+        command_fun = Keyword.get(opts, :command_fun, &AgentBudgetCommand.execute/1)
         acceptor = spawn_link(fn -> accept_loop(listen_socket, command_fun) end)
         {:ok, %{path: path, listen_path: listen_path, listen_socket: listen_socket, acceptor: acceptor}}
 

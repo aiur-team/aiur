@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.BudgetSharedTest do
   alias Aiur.AgentGitHubGuard.AgentToken
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Budget.Shared
+  alias Aiur.GitHub.AgentBudgetCommand
   alias Aiur.GitHub.BudgetTestSupport
   alias Aiur.TestCleanup
 
@@ -111,8 +112,8 @@ defmodule Aiur.GitHub.BudgetSharedTest do
     first_label = "workspace:/instance-one/issue-1"
     second_label = "workspace:/instance-two/issue-2"
 
-    assert {:ok, "granted " <> _} = Budget.agent_guard_command(agent_acquire_args(first_label), shared_opts)
-    assert {:ok, "hold shared core " <> _} = Budget.agent_guard_command(agent_acquire_args(second_label), shared_opts)
+    assert {:ok, "granted " <> _} = AgentBudgetCommand.execute(agent_acquire_args(first_label), shared_opts)
+    assert {:ok, "hold shared core " <> _} = AgentBudgetCommand.execute(agent_acquire_args(second_label), shared_opts)
 
     expected = Enum.map([first_label, second_label], &Budget.token_key/1) |> Enum.sort()
     assert Enum.sort(Agent.get(state, & &1.actors)) == expected
