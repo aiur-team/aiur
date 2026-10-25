@@ -4,7 +4,9 @@ Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the rea
 Aiur.ControlCallTest	*	#6104	2026-12-31
 Aiur.Core.AgentRunnerCheckpointQueueTest	*	#5516	2026-12-31
 Aiur.Core.AgentRunnerPauseTest	agent runner interrupts an active turn and waits for the next operator message before resuming	#6070	2026-12-31
+Aiur.DaemonHeartbeatTest	*	#6054	2026-12-31
 Aiur.ExecutorWakeInboxTest	a wake stream faster than the debounce still reaches a blocked waiter (#2600)	#6006	2026-12-31
+Aiur.GitHub.ResourceStore.MemoryTest	the running store a checkpoint leaves no copy of the bodies on the store's heap	#6124	2027-01-22
 Aiur.OpenAICompat.CommandRunnerBudgetTest	a direct system gh API path is intercepted by the workspace guard	#5669	2026-12-31
 Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
