@@ -216,24 +216,30 @@ cmd_executor_moot() {
 }
 
 cmd_executor_wait() {
-  local timeout=300 json=0 as="" arg
+  local timeout=300 json=0 defer_ack=0 ack_through="" as="" arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --timeout) shift; timeout="${1:-}" ;;
       --timeout=*) timeout="${arg#--timeout=}" ;;
       --json) json=1 ;;
+      --defer-ack) defer_ack=1 ;;
+      --ack-through) shift; ack_through="${1:-}" ;;
+      --ack-through=*) ack_through="${arg#--ack-through=}" ;;
       --as) shift; as="${1:-}" ;;
       --as=*) as="${arg#--as=}" ;;
-      *) executor_session_flag "$@" || { echo "aiur: executor-wait accepts --timeout <seconds>, --as <id>, --session-id <uuid>, --harness claude|codex and --json" >&2; exit 64; }; shift "$EXECUTOR_SESSION_EXTRA" ;;
+      *) executor_session_flag "$@" || { echo "aiur: executor-wait accepts --timeout <seconds>, --ack-through <id>, --defer-ack, --as <id>, --session-id <uuid>, --harness claude|codex and --json" >&2; exit 64; }; shift "$EXECUTOR_SESSION_EXTRA" ;;
     esac
     shift
   done
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-wait --timeout expects a positive integer" >&2; exit 64; }
   executor_validate_consumer_id "$as" "executor-wait"
+  if [ -n "$ack_through" ]; then [[ "$ack_through" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "aiur: executor-wait --ack-through expects a non-negative integer" >&2; exit 64; }; fi
   local json_arg=false; [ "$json" -eq 1 ] && json_arg=true
+  local defer_arg=""; [ "$defer_ack" -eq 1 ] && defer_arg=", defer_ack: true"
+  local ack_arg=""; [ -n "$ack_through" ] && ack_arg=", ack_through: $ack_through"
   AIUR_CONTROL_COMMAND="executor-wait"
-  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg$(executor_as_argument "$as")$(executor_session_argument))"
+  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg$defer_arg$ack_arg$(executor_as_argument "$as")$(executor_session_argument))"
 }
 
 # The consumer id is an explicit identity, never inferred from the environment.

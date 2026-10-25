@@ -25,6 +25,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       install_hint: "install it with: npm install -g aiur-claude",
       # app-server stdio; OperatorDelivery serializes turns; CodingAgent exposes dynamic tools.
       delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
+      hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},
       can_interrupt: true,
       safe_checkpoints: [:notification],
       control_application_confirmation: :confirmed,
@@ -111,6 +112,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # OperatorInject types into the live pane; Command has no MCP binding;
       # HookSettings wires UserPromptSubmit, PostToolUse and Stop/StopFailure.
       delivery: %{transport: :tmux_pane, mid_turn_inject: :native, pull_tool: false, hook_boundaries: [:prompt, :tool, :stop], native_question: :none},
+      hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},
       immediate_delivery: true,
       control_application_confirmation: :confirmed,
       remote_control: true,

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { PARITY_VIEWPORTS } from '../support/design-parity.mjs'
-import { openModalPair } from '../support/build-home-modal-pair.mjs'
+import { hideDesignChat, openModalPair } from '../support/build-home-modal-pair.mjs'
 import { compareRegion } from '../support/build-home-region-parity.mjs'
 
 // Offline reuses the live rows but prevents the design's mock conversation timer changing progress.
@@ -15,6 +15,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
       // The body is excluded from this comparison. Prevent its reference-only mock log
       // from queuing scroll callbacks that run after another ticket replaces the body.
       await pair.design.addStyleTag({ content: '#tk-body #cv-log { overflow: clip !important; }' })
+      await hideDesignChat(pair)
       await expect(pair.product.locator("#build-root")).toHaveAttribute("data-build-generation", /\d+/)
       const rows = await pair.product.evaluate(async () => {
         const { ctx } = await import('/build-home/state.js')
@@ -25,6 +26,7 @@ for (const viewport of PARITY_VIEWPORTS) for (const theme of ['dark', 'light']) 
         expect(t).toBeTruthy()
         await pair.design.evaluate(id => window.AiurBuild.open('AIUR-' + id), t.id)
         await pair.product.evaluate(async id => (await import('/build-home/modal/frame.js')).openById(id), t.id)
+        if (t.agent) await expect(pair.product.locator('#tk-head .bm-agent')).toHaveAttribute('data-control', 'ready')
         // Only the frame/header belongs to this ticket; body ports have their own successors.
         for (const side of ['design', 'product']) await pair[side].locator('#tk-body').evaluate(el => { el.style.visibility = 'hidden' })
         for (const side of ['design', 'product']) await pair[side].locator('#tk-modal').evaluate(el => el.getAnimations().forEach(a => a.finish()))

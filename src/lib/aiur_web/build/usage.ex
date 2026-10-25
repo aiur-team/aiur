@@ -7,6 +7,7 @@ defmodule AiurWeb.Build.Usage do
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
+  alias AiurWeb.RemainingMeter
   import Aiur.BuildOrder.SourceFreshness, only: [ms: 1]
 
   @order [:claude, :codex, :kimi, :deepseek]
@@ -156,7 +157,11 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  defp unknown(base, %{percent: percent, observed_at: at}), do: %{base | none: true, note: "Last known #{percent}% (previous boot)", observed_at: ms(at), stale: true}
+  defp unknown(base, %{percent: percent, observed_at: at}) do
+    remaining = RemainingMeter.percent(percent)
+    %{base | none: true, note: "Last known #{remaining}% left (previous boot)", observed_at: ms(at), stale: true}
+  end
+
   defp unknown(base, _), do: %{base | none: true, note: "Awaiting first observation"}
 
   defp provider_windows(base, %{provider: :claude}, accounts, now) when map_size(accounts) >= 2 do
@@ -193,19 +198,21 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  defp window(id, value), do: %{acc: [pct(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
-  defp pct(%{kind: :exact, now: value}), do: value
-  defp pct(_), do: nil
+  defp window(id, value), do: %{acc: [meter_percent(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
+
+  defp meter_percent(%{kind: :exact, now: remaining_percent}) when is_number(remaining_percent), do: percent(remaining_percent)
+  defp meter_percent(_), do: nil
 
   defp credits(value) do
     amount = get_in(value, [:credits, :amount])
     left = if is_number(amount), do: "$" <> Money.format_amount(to_string(amount)), else: "unknown"
-    %{pct: pct(value.meter), left: left, tip: [["Prepaid credits", left <> " left"]]}
+    remaining = meter_percent(value.meter)
+    %{pct: remaining, left: left, tip: [["Prepaid credits", if(is_number(remaining), do: "#{left} left · #{percent(remaining)}% left", else: "#{left} left")]]}
   end
 
   defp account_window(accounts, names, key, label) do
     values = Enum.map(names, fn name -> Enum.find(get_in(accounts[name], [:reading, :windows]) || [], &(&1.window == key)) || %{} end)
-    %{acc: Enum.map(values, &percent(Map.get(&1, :used_percent))), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
+    %{acc: Enum.map(values, &(Map.get(&1, :used_percent) |> RemainingMeter.percent() |> percent())), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
   end
 
   defp duration(minutes, _id) when is_integer(minutes) and minutes > 0 do

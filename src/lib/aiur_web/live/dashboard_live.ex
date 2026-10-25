@@ -357,8 +357,6 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("search-commands", _params, socket), do: {:noreply, socket}
 
-  def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
-
   def handle_event("table-sort-changed", %{"sort" => sort}, socket),
     do: {:noreply, assign(socket, :table_sort, UnitsPanel.normalize_table_sort(sort))}
 

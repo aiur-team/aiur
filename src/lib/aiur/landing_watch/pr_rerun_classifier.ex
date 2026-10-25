@@ -55,12 +55,36 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
   defp explain(run, observation, opts) do
     jobs = failing_jobs(run)
     started = timestamp_ms(run["started_at"])
+    stale_event = stale_merge_event(jobs, started, opts)
 
     cond do
-      Classifier.infrastructure_run?(run) -> {:ok, {:rerun, "infrastructure failure"}}
-      stale_merge_ref?(jobs, started, opts) -> {:ok, {:refresh, "merge ref predates a fix on the base branch"}}
-      not is_integer(run["run_id"]) -> {:ok, nil}
-      true -> explain_from_workflow(run, jobs, started, observation, opts)
+      Classifier.infrastructure_run?(run) ->
+        {:ok, {:rerun, "infrastructure failure"}}
+
+      is_binary(stale_event) ->
+        {:ok, {:refresh, "merge ref predates a fix on the base branch; base input fix event base-history:#{stale_event}"}}
+
+      not is_integer(run["run_id"]) ->
+        explain_base_fix(run, jobs, started, opts)
+
+      true ->
+        case explain_base_fix(run, jobs, started, opts) do
+          {:ok, {:refresh, _}} = refresh -> refresh
+          {:ok, nil} -> explain_from_workflow(run, jobs, started, observation, opts)
+        end
+    end
+  end
+
+  defp explain_base_fix(run, jobs, started, opts) do
+    case base_input_fix?(jobs, started, opts) do
+      event when is_binary(event) ->
+        {:ok, {:refresh, "base input fix event #{event}"}}
+
+      _ ->
+        case concurrent_approved_failure_event(run, jobs, started, opts) do
+          event when is_binary(event) -> {:ok, {:refresh, "same check failed on approved PRs with disjoint changes; base input fix event #{event}"}}
+          _ -> {:ok, nil}
+        end
     end
   end
 
@@ -101,7 +125,7 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
     end
   end
 
-  # Base CI was red for every failing job when the run started and is green for each now.
+  # A red-to-green base transition is the evidence that the base fixed the check.
   @doc false
   @spec stale_merge_ref?(map(), keyword()) :: boolean()
   def stale_merge_ref?(run, opts) do
@@ -111,13 +135,143 @@ defmodule Aiur.LandingWatch.PrRerunClassifier do
   defp stale_merge_ref?(_jobs, nil, _opts), do: false
 
   defp stale_merge_ref?(jobs, started, opts) do
-    history = Keyword.get(opts, :main_history_fun, &main_history/0).() |> Enum.filter(&is_integer(&1.completed_at)) |> Enum.sort_by(& &1.completed_at)
-    before = history |> Enum.filter(&(&1.completed_at <= started)) |> List.last()
-    latest = List.last(history)
-
-    is_map(before) and latest.completed_at > started and
-      Enum.all?(jobs, &(conclusion(before, &1["name"]) in @failed and conclusion(latest, &1["name"]) in @passing))
+    is_binary(stale_merge_event(jobs, started, opts))
   end
+
+  defp stale_merge_event(_jobs, nil, _opts), do: nil
+
+  defp stale_merge_event(jobs, started, opts) do
+    history = Keyword.get(opts, :main_history_fun, &main_history/0).() |> Enum.filter(&is_integer(&1.completed_at)) |> Enum.sort_by(& &1.completed_at)
+    before = Enum.filter(history, &(&1.completed_at <= started)) |> List.last()
+    latest = Enum.filter(history, &(&1.completed_at > started)) |> List.last()
+
+    if is_map(before) and is_map(latest) and
+         Enum.all?(jobs, &(conclusion(before, &1["name"]) in @failed)) and
+         Enum.all?(jobs, &(conclusion(latest, &1["name"]) in @passing)) do
+      Integer.to_string(latest.completed_at)
+    end
+  end
+
+  defp base_input_fix?(_jobs, nil, _opts), do: nil
+
+  defp base_input_fix?(jobs, started, opts) do
+    merges = Keyword.get(opts, :ci_merges_fun, &Journal.ci_merges/1).(opts)
+
+    with {:ok, merges} when is_list(merges) <- merges,
+         history <- Keyword.get(opts, :main_history_fun, &main_history/0).(),
+         latest when is_map(latest) <-
+           history
+           |> Enum.filter(&(is_integer(&1.completed_at) and &1.completed_at > started))
+           |> Enum.sort_by(& &1.completed_at)
+           |> List.last() do
+      Enum.find_value(merges, fn merge ->
+        (is_integer(merge["merged_at_ms"]) and merge["merged_at_ms"] > started and
+           latest.completed_at > merge["merged_at_ms"] and
+           dependency_check?(jobs) and relevant_base_inputs?(Map.get(merge, "paths", [])) and
+           Enum.all?(jobs, &(conclusion(latest, &1["name"]) in @passing))) &&
+          "#{merge["pr"]}:#{merge["merged_at_ms"]}"
+      end)
+    else
+      _ -> nil
+    end
+  end
+
+  defp relevant_base_inputs?(paths) when is_list(paths) do
+    Enum.any?(paths, fn path ->
+      Path.basename(path) in ["mix.lock", "mix.exs"]
+    end)
+  end
+
+  defp relevant_base_inputs?(_), do: false
+
+  defp dependency_check?(jobs),
+    do: Enum.any?(jobs, &String.contains?(String.downcase(&1["name"] || ""), ["audit", "dependency", "workflow security", "workflow-security"]))
+
+  defp concurrent_approved_failure_event(_run, jobs, started, opts) do
+    passing_jobs = Enum.filter(jobs, &main_check_passed_after?(&1["name"], started, opts))
+
+    if passing_jobs == [] do
+      nil
+    else
+      case disjoint_failure_prs(opts) do
+        prs when is_list(prs) ->
+          Enum.find_value(passing_jobs, &disjoint_failure_event(&1, prs, Keyword.get(opts, :current_pr)))
+
+        _ ->
+          nil
+      end
+    end
+  end
+
+  defp disjoint_failure_prs(opts) do
+    case Keyword.get(opts, :disjoint_failure_prs_fun) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> Keyword.get_lazy(opts, :disjoint_failure_prs, fn -> disjoint_failure_prs(Keyword.get(opts, :all_observations, []), opts) end)
+    end
+  end
+
+  defp main_check_passed_after?(name, started, opts) when is_integer(started) do
+    Keyword.get(opts, :main_history_fun, &main_history/0).()
+    |> Enum.any?(&(is_integer(&1.completed_at) and &1.completed_at > started and conclusion(&1, name) in @passing))
+  end
+
+  defp main_check_passed_after?(_name, _started, _opts), do: false
+
+  defp disjoint_failure_event(job, prs, current_pr) do
+    current = Enum.find(prs, &(&1.pr == current_pr and job["name"] in &1.checks))
+
+    if is_map(current) do
+      peer = Enum.find(prs, &disjoint_peer?(&1, current, job["name"], current_pr))
+
+      if is_map(peer) do
+        prs = Enum.map([current, peer], & &1.pr) |> Enum.sort() |> Enum.join("-")
+        check = :crypto.hash(:sha256, job["name"]) |> Base.encode16(case: :lower)
+        "approved-prs-#{check}-#{prs}"
+      end
+    end
+  end
+
+  defp disjoint_peer?(other, current, check, current_pr) do
+    other.pr != current_pr and check in other.checks and MapSet.disjoint?(MapSet.new(current.paths), MapSet.new(other.paths))
+  end
+
+  @doc false
+  @spec disjoint_failure_prs([map()], keyword()) :: [map()]
+  def disjoint_failure_prs(observations, opts) when is_list(observations) do
+    fetch = Keyword.get(opts, :failed_checks_fun, &failed_check_names/2)
+    paths = Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2)
+
+    Enum.flat_map(observations, &observation_failure_paths(&1, fetch, paths, opts))
+  end
+
+  def disjoint_failure_prs(_, _), do: []
+
+  defp observation_failure_paths(observation, fetch, paths, opts) do
+    if Classifier.approved_at_head?(Map.get(observation, :raw, %{})),
+      do: fetch_failure_paths(observation, fetch, paths, opts),
+      else: []
+  end
+
+  defp fetch_failure_paths(observation, fetch, paths, opts) do
+    with {:ok, checks} when is_list(checks) <- fetch.(observation, opts),
+         {:ok, changed} when is_list(changed) <- paths.(observation.number, opts) do
+      [%{pr: observation.number, checks: checks, paths: changed}]
+    else
+      _ -> []
+    end
+  end
+
+  defp failed_check_names(%{head: head}, opts) when is_binary(head) do
+    case Keyword.get(opts, :ci_status_fun, &Client.fetch_commit_ci_status/2).(head, opts) do
+      {:ok, %{check_runs: runs}} ->
+        {:ok, for(%{"name" => name, "status" => "completed", "conclusion" => conclusion} <- runs, conclusion in @failed, do: name)}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  defp failed_check_names(_, _), do: {:ok, []}
 
   defp conclusion(entry, name), do: Enum.find_value(entry.checks, &(&1.name == name and &1.conclusion))
 

@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     TrackerTasks.run(state, {:comment_idle, issue_number, source, make_ref()}, fn -> idle_rework_issue(state, issue_number, event) end, fn current, result ->
       if is_nil(State.find_running_by_identifier(current.running, issue_number)) do
-        apply_idle_rework_decision(current, issue_number, source, event, attempt, idle_rework_decision_from_issue(result))
+        apply_idle_rework_decision(current, issue_number, source, event, attempt, idle_rework_decision_from_issue(result, event))
       else
         CommentWake.maybe_reactivate_on_comment(current, issue_number, source, event, attempt)
       end
@@ -85,7 +85,7 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
   # positive form of the same hold and is refused the same way. The poll path
   # never dispatches such tickets, so this gate is what keeps the comment path
   # from being the invisible auto-writer that reaches them.
-  defp idle_rework_decision_from_issue(result) do
+  defp idle_rework_decision_from_issue(result, event) do
     case result do
       {:ok, %Issue{} = issue} ->
         cond do
@@ -95,21 +95,18 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
           DispatchPolicy.normalize_issue_state(issue.state) == "" ->
             {:skip, :unlabeled_issue}
 
-          # Same argument as the unlabelled case, one state further along: a
-          # `todo` ticket has not been worked either, so there is no prior
-          # implementation for "rework" to mean anything about. Flipping it
-          # discards the true state — nothing restores `todo` afterwards — and
-          # makes an operator's own triage note indistinguishable from a
-          # reviewer rejecting the work.
+          # Ordinary comments on a `todo` ticket remain briefing material:
+          # there is no prior implementation to rework, and flipping the state
+          # would discard operator triage. A formal live review is the narrow
+          # exception because it proves an existing PR was rejected.
           #
           # Observed repeatedly: promoting a ticket to `agent:todo` and then
           # commenting to say why reliably un-promoted it on the next poll, so
           # promotion and commentary could not be done in the same breath.
           #
-          # This skip still seeds the event digest below, unlike the two above:
-          # the ticket is about to be dispatched, so the comment is briefing
-          # material the agent must read on its first turn.
-          DispatchPolicy.normalize_issue_state(issue.state) == "todo" ->
+          # The skip seeds the event digest below so the dispatched agent gets
+          # the operator's briefing on its first turn.
+          not_yet_attempted?(issue, event) ->
             {:skip, :not_yet_attempted}
 
           true ->
@@ -127,6 +124,11 @@ defmodule Aiur.Orchestrator.CommentWake.IdleRework do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp not_yet_attempted?(%Issue{} = issue, event) do
+    DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
+      not ReworkTransition.changes_requested_review?(event)
   end
 
   # Prefer the polled view already held in orchestrator state; fall back to an

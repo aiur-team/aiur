@@ -99,6 +99,7 @@ defmodule Aiur.DecisionStore.Retry do
   # rides the same bounded ladder instead of falling through to the opaque,
   # terminal `dispatch_rejected` (#2558).
   def dispatch_failure_class(:max_concurrent_agents_reached), do: "target_agent_unavailable"
+  def dispatch_failure_class({:max_concurrent_agents_reached, _detail}), do: "target_agent_unavailable"
   def dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   def dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
   def dispatch_failure_class(:delivery_target_unbound), do: "delivery_target_unbound"

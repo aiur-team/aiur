@@ -5,7 +5,7 @@ defmodule AiurWeb.Routes.Experiments do
   defmacro pages do
     quote do
       scope "/" do
-        pipe_through([:dashboard_auth, :dashboard_pages, :browser])
+        pipe_through([:browser_dashboard_auth, :dashboard_pages, :browser])
 
         live_session :experiments, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
           live("/experiments", AiurWeb.ExperimentsLive, :experiments)

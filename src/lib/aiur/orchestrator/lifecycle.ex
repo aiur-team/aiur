@@ -42,6 +42,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.ci.failed",
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
+    "ticket.*.agent.progress",
+    "ticket.*.agent.progress.checkin",
+    "ticket.*.agent.progress.phase",
     "ticket.*.agent.unblocked",
     "ticket.*.optimistic.integrated",
     "ticket.*.agent.decision.answered",
@@ -144,6 +147,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       ci_lifecycle:
         CIApprovalStore.load()
         |> Map.put(:poll_cache, %{})
+        |> Map.put(:ci_observed_at_ms, %{})
         |> Map.put(:rewakes, %{})
         # `nil` (not an empty set) marks the parked-ready ledger as unseeded, so
         # the first CI poll after boot reloads still-active alerts from the

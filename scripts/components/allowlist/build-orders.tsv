@@ -1,6 +1,7 @@
 # rule	target_module	reason
 R-down	Aiur.HttpServer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.TailscaleFunnel	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-down	AiurWeb.Build.Index	MP-E8-C7-T03 estimate CLI reads the shared local index for queue presence and complexity; it performs no dashboard writes
 R-down	AiurWeb.EndpointConfig	#4908 endpoint config seam, replaces the AiurWeb.Endpoint read
 R-down	AiurWeb.FinancialData	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	AiurWeb.FinancialDataAccess	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

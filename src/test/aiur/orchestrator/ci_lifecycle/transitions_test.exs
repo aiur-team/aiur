@@ -43,7 +43,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait", [expected_state: "human-review"]}}
-      assert_received {:recorded, 2, {:pause_agent, request_id, _generation}}
+      assert_received {:recorded, _position, {:pause_agent, request_id, _generation}}
       assert is_integer(request_id)
 
       entry = Map.fetch!(next.running, identifier)
@@ -103,14 +103,15 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  review_decision: nil,
                  recovery: nil,
                  failures: [%{name: "lint", result: "failure", excerpt: "failed"}],
+                 check_runs: [],
                  tracker_state: "ci-wait"
                }
              }
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
-               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :ci_observed_at_ms, :parked_ready_alerts, :draft_stall_alerts, :ci_wait_draft_alerts, :ci_wait_draft_since])
 
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -231,7 +232,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
 
-      assert_received {:recorded, 2,
+      assert_received {:recorded, 2, {:label_removed, ^identifier, "agent:merge-queued"}}
+      assert_received {:recorded, 3, {:label_removed, ^identifier, "agent:ci-red"}}
+
+      assert_received {:recorded, 4,
                        {:event,
                         %{
                           topic: ^topic,
@@ -241,8 +245,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                           message: "CI passed for the current PR head"
                         }}}
 
-      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
+      assert_received {:recorded, 5, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, 6, {:resume_agent, _request_id, 101}}
 
       assert next.running[identifier].issue.state == "in-progress"
       assert next.running[identifier].control.status == :paused
@@ -423,6 +427,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TransitionsTest do
                  review_decision: "APPROVED",
                  recovery: nil,
                  failures: [],
+                 check_runs: [],
                  tracker_state: "human-review"
                }
              }
