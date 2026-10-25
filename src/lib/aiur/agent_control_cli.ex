@@ -1,7 +1,20 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
+  alias Aiur.Application.StartupChecks
+  alias Aiur.Orchestrator.StatusCLI
+
   defdelegate prepare_handoff(opts \\ []), to: Aiur.Handoff, as: :prepare
-  defdelegate status(opts \\ []), to: Aiur.Orchestrator.StatusCLI
+
+  @spec status(keyword()) :: :ok
+  def status(opts \\ []) do
+    case StartupChecks.validate_hosted_secrets() do
+      :ok -> :ok
+      {:error, messages} -> Enum.each(messages, &IO.puts/1)
+    end
+
+    StatusCLI.status(opts)
+  end
+
   defdelegate main_watch_state(), to: Aiur.MainWatch, as: :state
   defdelegate main_watch_inherited?(check, merge_base), to: Aiur.MainWatch, as: :inherited?
   defdelegate agents(opts \\ []), to: Aiur.Orchestrator.StatusCLI
@@ -50,6 +63,11 @@ defmodule Aiur.AgentControlCLI do
   defdelegate pause_global(), to: Aiur.Orchestrator.ControlCLI
   defdelegate resume_global(), to: Aiur.Orchestrator.ControlCLI
   defdelegate set_max_agents(n), to: Aiur.Orchestrator.ControlCLI
+  defdelegate set_setting(key, json_value), to: Aiur.ControlCLI.Settings, as: :set
+  defdelegate set_setting(key, json_value, opts), to: Aiur.ControlCLI.Settings, as: :set
+  defdelegate list_settings(opts \\ []), to: Aiur.ControlCLI.Settings, as: :list
+  defdelegate unset_setting(key), to: Aiur.ControlCLI.Settings, as: :unset
+  defdelegate unset_setting(key, opts), to: Aiur.ControlCLI.Settings, as: :unset
   defdelegate message(issue, text, message_id \\ nil), to: Aiur.Orchestrator.ControlCLI.Message
   @spec message_status(pos_integer()) :: :ok
   defdelegate message_status(request_id), to: Aiur.Orchestrator.ControlCLI.Message, as: :status
