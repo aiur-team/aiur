@@ -27,7 +27,7 @@ defmodule Aiur.GitHub.Access.Settings do
     alert_sink: &Aiur.Signal.alert/2,
     request_taggers: [],
     hold_observer: &Function.identity/1,
-    write_scope: &Aiur.GitHub.Access.Settings.unscoped/2
+    write_scope: &__MODULE__.unscoped/2
   ]
 
   # Ports are plain values: `freshness` implements `Aiur.GitHub.Access.Freshness` (nil answers polling);

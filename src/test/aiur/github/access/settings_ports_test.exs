@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.Access.SettingsPortsTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.Access.{Settings, StaticSettings}
+  alias Aiur.GitHub.Transport
   alias Aiur.GitHub.Transport.TestScope
 
   @moduletag :tmp_dir
@@ -24,7 +25,7 @@ defmodule Aiur.GitHub.Access.SettingsPortsTest do
   # Future regression guard: a static consumer can preserve its declared caller.
   test "default settings leave the request untagged and unscoped", %{root: root} do
     Application.put_env(:aiur, :github_access_settings, Settings.new(root))
-    request = Aiur.GitHub.Transport.put_caller(%{url: "u"}, caller: :standalone)
+    request = Transport.put_caller(%{url: "u"}, caller: :standalone)
     assert %{url: "u", caller: "standalone"} == TestScope.run(request, & &1)
   end
 end
