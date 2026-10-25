@@ -3,6 +3,8 @@ defmodule Aiur.Secrets do
 
   require Logger
 
+  alias Aiur.Config.Paths
+
   @truthy_values ["1", "true", "TRUE", "yes", "YES"]
 
   @spec secrets_from_env?() :: boolean()
@@ -18,7 +20,7 @@ defmodule Aiur.Secrets do
   def warn_precedence_conflicts do
     warn_precedence_conflicts(
       System.get_env(),
-      Path.join(System.user_home!(), ".aiur/.env"),
+      Path.join(Paths.state_root(), ".env"),
       Path.join(File.cwd!(), ".env")
     )
   end

@@ -26,6 +26,7 @@ defmodule Aiur.RunTelemetry.Summaries do
 
   require Logger
 
+  alias Aiur.Config.Paths
   alias Aiur.GitHub.Config
   alias Aiur.RepoBase
   alias Aiur.RunTelemetry
@@ -58,9 +59,9 @@ defmodule Aiur.RunTelemetry.Summaries do
   def state_node do
     RepoBase.repo_path(repo_url())
   rescue
-    _error -> Path.expand("~/.aiur/repo/local/repo")
+    _error -> Path.join(Paths.state_root(), "repo/local/repo")
   catch
-    _kind, _reason -> Path.expand("~/.aiur/repo/local/repo")
+    _kind, _reason -> Path.join(Paths.state_root(), "repo/local/repo")
   end
 
   @doc "`<state-node>/analytics` — the analytics output root."

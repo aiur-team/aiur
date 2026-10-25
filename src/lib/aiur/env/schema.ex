@@ -195,6 +195,8 @@ defmodule Aiur.Env.Schema do
     {"AIUR_SECRETS_FROM_ENV", type: :boolean, group: :runtime, purpose: "Disable dotenv files so hosted secrets must be supplied by the daemon environment."},
     {"AIUR_GITHUB_ALLOW_PAT", type: :boolean, group: :runtime, purpose: "Explicitly allow GITHUB_TOKEN instead of a GitHub App in hosted/container mode."},
     {"AIUR_BG_STATE_DIR", type: :path, group: :runtime, purpose: "Directory for cookie, state and per-instance files.", default: "~/.config/aiur"},
+    {"AIUR_STATE_DIR",
+     type: :path, group: :runtime, purpose: "Root for durable daemon state; replaces ~/.aiur, including logs, repo caches, GitHub budget data and instance secrets.", default: "~/.aiur"},
     {"AIUR_CONTAINER", type: :string, validate: false, example: false, group: :runtime, purpose: "Container-mode marker set by the launcher."},
     {"AIUR_STATE_PERSISTENT", type: :boolean, group: :runtime, purpose: "Declare that the hosted state directory survives daemon restarts; otherwise env-only mode requires AIUR_SECRET_KEY_BASE."},
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},

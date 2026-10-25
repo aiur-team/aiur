@@ -129,6 +129,7 @@ export default withMermaid(defineConfig({
           items: [
             { text: 'Overview', link: '/' },
             { text: 'Quick start', link: '/guide/quick-start' },
+            { text: 'Hosted service container', link: '/guide/hosted-service' },
             { text: 'Accounts by backend', link: '/guide/claude-accounts' }
           ]
         },

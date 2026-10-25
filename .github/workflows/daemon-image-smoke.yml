@@ -1,0 +1,49 @@
+name: Daemon image smoke
+
+on:
+  pull_request:
+    paths:
+      - "packaging/docker/**"
+      - "src/**"
+      - "packaging/npm/aiur-cli/**"
+      - "mise.toml"
+      - "scripts/lib/layout-assets.sh"
+      - ".github/workflows/daemon-image-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  daemon-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build daemon target
+        run: docker build --file packaging/docker/Dockerfile.daemon --tag aiur-daemon:smoke .
+      - name: Run daemon and probe health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir="$(mktemp -d)"
+          cleanup() { docker rm -f aiur-daemon-smoke >/dev/null 2>&1 || true; rm -rf "$state_dir"; }
+          trap cleanup EXIT
+          chmod 777 "$state_dir"
+          docker run --detach --name aiur-daemon-smoke --publish 4000:4000 \
+            --env AIUR_STATE_DIR=/data --env AIUR_BG_STATE_DIR=/data/engine \
+            --env AIUR_COOKIE_FILE=/data/engine/cookie \
+            --env AIUR_ERLANG_COOKIE=daemon-smoke-cookie-5940 \
+            --env AIUR_CONFIG_FILE=/config/config \
+            --volume "$state_dir:/data" \
+            --volume "$GITHUB_WORKSPACE/packaging/docker/fixture.yaml:/config/config:ro" \
+            aiur-daemon:smoke
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4000/healthz; then exit 0; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' aiur-daemon-smoke)" != true ]; then
+              docker logs aiur-daemon-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs aiur-daemon-smoke
+          exit 1

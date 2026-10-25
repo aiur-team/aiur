@@ -1,6 +1,7 @@
 defmodule Aiur.Accounts.EnvKey do
   @moduledoc false
 
+  alias Aiur.Config.Paths
   alias Aiur.Init.Dotenv
 
   @spec read(String.t()) :: String.t() | nil
@@ -8,7 +9,7 @@ defmodule Aiur.Accounts.EnvKey do
     if Aiur.Secrets.secrets_from_env?() do
       System.get_env(name)
     else
-      path = Path.join(System.get_env("HOME") || Path.expand("~"), ".aiur/.env")
+      path = Path.join(Paths.state_root(), ".env")
 
       case File.read(path) do
         {:ok, contents} -> find_env_value(Dotenv.parse(contents), name)
