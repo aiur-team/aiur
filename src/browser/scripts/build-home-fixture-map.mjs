@@ -13,6 +13,7 @@ const stats = value => value == null ? null : {
 };
 
 export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = {} } = {}) {
+  const unknownProgress = { closed: null, open: null, total: null, observed_at: meta.now, reason: 'fixture progress unavailable' };
   const id = value => value.replace(/^AIUR-/, '');
   const window = win => win ? { acc: win.acc,
     reset_at: Object.hasOwn(win, 'reset_at') ? time(win, 'reset_at') : win.reset == null ? null : meta.now + duration(win.reset),
@@ -49,5 +50,7 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
       apis: [provider({ name: 'GitHub', icon: 'github', lines: usage.apis.filter(a => ['core', 'gql'].includes(a.tag))
         .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) }),
         ...usage.apis.filter(a => a.tag === 'credits').map(a => provider({ name: 'Search', icon: 'bars', lines: [{ ...a, acc: [a.pct ?? null], tip: a.rows }] }))],
-      providers: usage.models.map(provider) }, daemon };
+      providers: usage.models.map(provider) }, daemon,
+    epic_progress: Object.fromEntries(Object.keys(data.epics).filter(k => data.epics[k].general).map(k => [k, { ...unknownProgress }])),
+    epic_progress_meta: { unmatched: null, observed_at: meta.now, reason: unknownProgress.reason } };
 }
