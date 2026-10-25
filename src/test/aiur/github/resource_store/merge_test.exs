@@ -100,14 +100,24 @@ defmodule Aiur.GitHub.ResourceStore.MergeTest do
 
       final = ResourceStore.data(key)
       result_counts = results |> List.flatten() |> Enum.frequencies()
-      abandoned_writes = Regex.scan(~r/abandoned a contended write for #{Regex.escape(inspect(key))}/, log) |> length()
+
+      exhaustion_logs =
+        log
+        |> String.split("\n")
+        |> Enum.filter(&String.contains?(&1, "abandoned a contended write for #{inspect(key)}"))
+
+      abandoned_writes = length(exhaustion_logs)
+      expected_gen = writers * per_writer
+      actual_gen = get_in(final, ["gen"])
 
       assert backwards == [],
              "the held body went backwards: #{inspect(backwards)} (as {highest_seen, then_observed}); final body #{inspect(final)}"
 
       assert final == %{"gen" => writers * per_writer, "state" => "open"},
-             "every merge must survive; observed result counts #{inspect(result_counts)}, " <>
-               "abandoned writes #{abandoned_writes}, backwards steps #{inspect(backwards)}, final body #{inspect(final)}"
+             "every merge must survive; expected gen=#{expected_gen}, observed gen=#{inspect(actual_gen)}; " <>
+               "observed result counts #{inspect(result_counts)}, abandoned writes #{abandoned_writes}, " <>
+               "retry-exhaustion log entries #{inspect(exhaustion_logs)}, backwards steps #{inspect(backwards)}, " <>
+               "final body #{inspect(final)}"
 
       # A write the compare-and-swap could not land must be abandoned, never
       # forced: forcing it deposits a body derived from a read the table has long
