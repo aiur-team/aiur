@@ -21,6 +21,7 @@ defmodule Aiur.GitHub.Access.SettingsPortsTest do
     assert {:scoped, "u", %{caller: "ab"}} = TestScope.run(%{url: "u"}, & &1)
   end
 
+  # Future regression guard: a static consumer can preserve its declared caller.
   test "default settings leave the request untagged and unscoped", %{root: root} do
     Application.put_env(:aiur, :github_access_settings, Settings.new(root))
     request = Aiur.GitHub.Transport.put_caller(%{url: "u"}, caller: :standalone)

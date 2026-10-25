@@ -29,6 +29,7 @@ defmodule Aiur.GitHub.Access.StaticSettingsConsumersTest do
     assert_receive :github_quota_recovered, 1_000
   end
 
+  # Future regression guard: no configured target remains a valid standalone setting.
   test "an unset recovery target leaves recovery available without a notification", %{root: root} do
     quota = start_quota(root)
     observe(quota, 500)
