@@ -32,6 +32,8 @@ defmodule Aiur.WorkflowStore.ReloadRejection do
       {:ok, _settings} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  rescue
+    error in ArgumentError -> {:error, {:invalid_workflow_config, Exception.message(error)}}
   end
 
   @doc "Records a rejected reload of `path` and raises the operator alert."
