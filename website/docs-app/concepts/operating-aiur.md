@@ -32,17 +32,19 @@ Provider-backed Claude and Codex work is unauthorized until the app server
 reports the current session is using API-key authentication. Subscription,
 OAuth, personal-token, header-derived, agent-identity, Bedrock, missing, and
 unknown authentication observations stop the session before another tool call
-or successful completion. Aiur records the provider and safe authentication
-class, moves the ticket to `agent:error`, and does not retry that unsafe
-profile automatically.
+or successful completion.
+
+Aiur records the provider and safe authentication class, moves the ticket to
+`agent:error`, and does not retry that unsafe profile automatically.
 
 Hosted mode also validates the effective usage-limit fallback. The local
 default, `agent.rate_limit_fallback: claude`, is not statically API-key-only
 and therefore makes a hosted configuration invalid. Set the fallback to `""`
 to disable it, or select a registry backend whose account contract contains
-only API-key modes. This pre-dispatch rule is stricter than primary routing:
-a mixed-auth primary backend may run only after its trusted runtime observation
-proves API-key use.
+only API-key modes.
+
+This pre-dispatch rule is stricter than primary routing: a mixed-auth primary
+backend may run only after its trusted runtime observation proves API-key use.
 
 The current production backends each expose at least one agent-side boundary,
 so no production backend can pass hosted startup until the hosted-safe backend
