@@ -18,8 +18,7 @@
     "src/lib/aiur/open_ticket_source.ex",
     "src/lib/aiur/open_ticket_source/**",
     "src/lib/aiur/pr_merge/queue.ex",
-    "src/lib/aiur/webhooks/delivery_mode.ex",
-    "src/lib/aiur/webhooks/mode_table.ex"
+    "src/lib/aiur/webhooks/delivery_mode.ex"
   ],
   "facades": [
     "Aiur.AllowedContributors",
@@ -69,8 +68,7 @@
     "Aiur.OpenTicketSource",
     "Aiur.OpenTicketSource.Snapshot",
     "Aiur.PrMerge.Queue",
-    "Aiur.Webhooks.DeliveryMode",
-    "Aiur.Webhooks.ModeTable"
+    "Aiur.Webhooks.DeliveryMode"
   ],
   "requires": [
     "agent-sandbox",
