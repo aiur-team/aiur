@@ -5,6 +5,11 @@ defmodule Aiur.LandingWatch.UnapprovedRecovery do
   alias Aiur.LandingWatch.{ConflictRouting, LocalRead, PrRerun, PrRerunClassifier}
 
   @spec process(map(), keyword()) :: :ok | {:error, term()}
+  def process(%{draft?: true}, _opts), do: :ok
+  def process(%{review_decision: "CHANGES_REQUESTED"}, _opts), do: :ok
+  def process(%{raw: %{"isDraft" => true}}, _opts), do: :ok
+  def process(%{raw: %{"reviewDecision" => "CHANGES_REQUESTED"}}, _opts), do: :ok
+
   def process(observation, opts) do
     with {red_since, recovered_at} = window when is_integer(red_since) and is_integer(recovered_at) <- Keyword.get(opts, :main_ci_recovery_window),
          false <- ConflictRouting.conflicting?(observation),

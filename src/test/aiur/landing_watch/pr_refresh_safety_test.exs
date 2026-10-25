@@ -83,6 +83,35 @@ defmodule Aiur.LandingWatch.PrRefreshSafetyTest do
     refute_received :updated
   end
 
+  test "LandingWatch skips draft unapproved PRs before reading CI" do
+    observation =
+      "REVIEW_REQUIRED"
+      |> observation()
+      |> Map.put(:draft?, true)
+      |> Map.put(:raw, %{"reviewDecision" => "REVIEW_REQUIRED", "isDraft" => true})
+
+    assert :ok =
+             Aiur.LandingWatch.process(observation,
+               main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+               retry_arm_fun: fn _, _ -> :ok end,
+               recovery_runs_fun: fn _, _ -> flunk("draft PRs must not trigger recovery reads") end
+             )
+  end
+
+  test "LandingWatch skips changes-requested unapproved PRs before reading CI" do
+    observation =
+      "CHANGES_REQUESTED"
+      |> observation()
+      |> Map.put(:raw, %{"reviewDecision" => "CHANGES_REQUESTED", "isDraft" => false})
+
+    assert :ok =
+             Aiur.LandingWatch.process(observation,
+               main_ci_recovery_window: {@started_ms - 60_000, @started_ms + 60_000},
+               retry_arm_fun: fn _, _ -> :ok end,
+               recovery_runs_fun: fn _, _ -> flunk("changes-requested PRs must not trigger recovery reads") end
+             )
+  end
+
   test "main-fix recovery skips a conflicting unapproved PR" do
     parent = self()
 
