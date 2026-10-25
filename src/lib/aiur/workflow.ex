@@ -8,6 +8,7 @@ defmodule Aiur.Workflow do
   `prompt_file:` is absent the prompt falls back to the built-in default template.
   """
 
+  alias Aiur.Config.Overrides
   alias Aiur.WorkflowStore
 
   @aiur_dir ".aiur"
@@ -190,6 +191,10 @@ defmodule Aiur.Workflow do
     load(workflow_file_path())
   end
 
+  @doc false
+  @spec load_base() :: {:ok, loaded_workflow()} | {:error, term()}
+  def load_base, do: load_base(workflow_file_path())
+
   @doc """
   Parses config content that the caller has already read, as if it had been
   loaded from `path`.
@@ -210,6 +215,12 @@ defmodule Aiur.Workflow do
 
   @spec load(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
   def load(path) when is_binary(path) do
+    with {:ok, workflow} <- load_base(path), do: Overrides.apply(workflow)
+  end
+
+  @doc false
+  @spec load_base(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
+  def load_base(path) when is_binary(path) do
     if legacy_config_path?(path) do
       {:error, legacy_config_error(path)}
     else

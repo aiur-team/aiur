@@ -6,6 +6,7 @@ defmodule Aiur.HttpServer do
   require Logger
 
   alias Aiur.{Commands, Config, Orchestrator}
+  alias Aiur.Config.Paths
   alias AiurWeb.Endpoint
 
   @secret_key_bytes 48
@@ -388,8 +389,7 @@ defmodule Aiur.HttpServer do
         {:error, :instance_key_invalid} -> raise "invalid Aiur instance key for dashboard secret path"
       end
 
-    root = Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
-    Path.join([root, "instances", instance, "secret_key_base"])
+    Path.join([Paths.dashboard_secret_root(), "instances", instance, "secret_key_base"])
   end
 
   defp public_url_https?(url) when is_binary(url), do: URI.parse(url).scheme == "https"
