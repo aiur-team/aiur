@@ -5,9 +5,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
   alias Aiur.CIApprovalStore
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
+  alias Aiur.GitHub.{CIPollBatch, Client}
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiLifecycle.CancelledMergeGroup
   alias Aiur.Orchestrator.CiLifecycle.Outcome
   alias Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert
   alias Aiur.Orchestrator.CiLifecycle.PrLessReview
@@ -36,12 +37,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
     {baseline, invalidations} = {state.ci_lifecycle, Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})}
 
-    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, opts) end, fn current, result ->
+    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, baseline, opts) end, fn current, result ->
       current |> apply_ci_poll(result, generations, baseline, opts) |> continue.()
     end)
   end
 
-  defp fetch_ci_poll(cache, invalidations, opts) do
+  defp fetch_ci_poll(cache, invalidations, baseline, opts) do
     case fetch_ci_issues(cache, opts) do
       {:ok, issues, cache} ->
         issues_by_target = ci_issues_by_target(issues)
@@ -49,7 +50,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         poll_opts = Keyword.put(opts, :base_repair_invalidations, invalidations)
         poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
 
-        observation = observe_ci_targets(targets, issues_by_target, poll_opts, poller)
+        observation =
+          observe_ci_targets(targets, issues_by_target, poll_opts, poller)
+          |> CancelledMergeGroup.annotate(baseline, poll_opts)
 
         {:ok, issues, cache, observation}
 
@@ -411,12 +414,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
   defp classify_merge_queue_departure(state, issue, result) do
     target = CiLifecycle.ci_target_for_issue(issue)
     previous = get_in(state.ci_lifecycle, [:poll_cache, target])
-
-    if MergeQueue.failed_entry_dropped?(result, previous) do
-      Map.merge(result, %{decision: :failed, pending_reason: :merge_queue_dropped, failures: [%{name: "merge queue", kind: "merge_queue", result: "dropped after queue checks"}]})
-    else
-      result
-    end
+    CancelledMergeGroup.classify_departure(result, previous)
   end
 
   # ---- Parked-ready recovery alert ------------------------------------------
