@@ -1,10 +1,15 @@
 # Configuration reference
 Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels. Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below. Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
+Runtime overrides set with `aiur set` are operator-owned and stored per instance without changing this YAML. The daemon cooperatively refuses mutations when raw caller path evidence matches its configured or live agent workspaces; #6075 tracks authenticated operator-token enforcement.
+
+Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`. Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
+
 ## Environment variables
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
 
 - **Layering.** Shell exports win, then `./.env`, then `~/.aiur/.env`: the launcher reads the repository file first and each file fills only unset names, so the home file only fills the gaps. A blank value such as the `GITHUB_TOKEN=` placeholder `aiur init` writes is not a setting and shadows nothing. GitHub credentials (`GITHUB_TOKEN` and the `GITHUB_APP_*` set) resolve as one group: when `./.env` sets any of them, every GitHub credential in `~/.aiur/.env` is ignored, so a machine-wide App never outranks the token a repository configured for itself. When the home value loses either way, the daemon logs a startup warning naming the variable (never its value).
+- **Hosted environment-only mode.** Set `AIUR_SECRETS_FROM_ENV=1` on the daemon to skip both dotenv files. Startup and `aiur status` report missing tracker credentials, remote-dashboard credentials and allowlist, webhook secrets, non-persistent-state signing keys, and keys required by configured provider routes together by variable name; secret values are never included. Set `AIUR_STATE_PERSISTENT=1` only when the state directory survives daemon restarts; otherwise `AIUR_SECRET_KEY_BASE` is required.
 - **Required vs optional.** The only configuration that aborts a boot is the GitHub credential (`GITHUB_TOKEN`, a `gh` keyring login via `gh auth login`, or the complete GitHub App set — `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and one of `GITHUB_APP_PRIVATE_KEY_PATH` / `GITHUB_APP_PRIVATE_KEY`) and the tracker configuration. Every integration — GitHub App auth, webhooks, Linear, voice, dashboard, Supervisor Decision API, provider keys — is optional; absence disables the feature and is reported once at startup, never a boot failure.
 - **All-or-nothing credential groups.** A partially configured group (one dashboard credential without the other, or some but not all GitHub App credentials) fails at startup naming the missing members; a fully absent group is a supported setup.
 - **Type validation.** Values that fail their declared type (for example `AIUR_OPENCODE_BRIDGE_PORT=banana`) abort the boot naming the variable and what was expected, instead of failing at first use hours later.
@@ -24,6 +29,7 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `instance.ignore.label_prefixes` | array of strings | `[]` | Label prefixes marking tickets another instance owns. A prefix such as `nuc` matches `nuc:*` state labels. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.ignore.labels` | array of strings | `[]` | Exact labels marking tickets another instance owns. If label data is unavailable, ticket-scoped observers skip conservatively. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
 | `instance.ignore.tickets` | array of integers | `[]` | Ticket numbers another instance owns. This daemon does not transition, land, withdraw, alert on, count, or wake its Executor for them; dispatch is unaffected. Hot-reloadable. |
+| `instance.mode` | string | `local` | `hosted` enables fail-closed startup, reload, and dispatch checks for permission, network, credential, Remote Control, local-pane, and REPL isolation. Current production backends remain ineligible until #5701. Read once at daemon start; change it with a restart. |
 | `instance.role` | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
@@ -42,8 +48,6 @@ Aiur watches nonterminal tickets in the run scope and, once a ticket's **converg
 
 - `first_observed_active_work_at` is persisted durably per ticket in daemon state, set once the first time the monitor observes the ticket as nonterminal and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon restart never resets it.
 - `open_pr_created_at` is the creation time of the ticket's open PR (a floor, so an already-open PR is never hidden by a freshly installed or restarted monitor).
-
-The alert carries actionable evidence.
 
 | Evidence | Detail |
 | --- | --- |
@@ -435,7 +439,6 @@ The durable repository Executor state also records every daemon start and stop i
 | `dashboard_auth.google.allowed_emails` | array | `[]` | Exact email allowlist for Google OpenID Connect; an empty list disables Google sign-in. |
 | `dashboard_auth.passkeys` | boolean | false | Enables passkey login and enrollment after a fresh Google sign-in. |
 | `dashboard_auth.session_max_age_days` | integer | 30 | Maximum dashboard browser session age in days. |
-
 ## opencode
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-19 -->
 | --- | --- | --- | --- |
@@ -445,7 +448,6 @@ The durable repository Executor state also records every daemon start and stop i
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
 | `opencode.serve_args` | array | `[]` | Extra `opencode serve` arguments. |
-
 ## experiments
 The daemon owns [experiment](../concepts/experiments) writes through control RPC.
 
@@ -475,7 +477,6 @@ The daemon owns [experiment](../concepts/experiments) writes through control RPC
 | `experiments.max_snapshot_observations` | integer | 50000 | Maximum observations in a snapshot; positive, reserved for snapshot capture. |
 | `experiments.pack_dirs` | string list | [".aiur/experiments/packs"] | Consumer metric pack directories, relative to the base checkout; reserved for metric packs. |
 | `experiments.script_timeout_ms` | integer | 60000 | Script metric timeout in milliseconds; positive, reserved for metric packs. |
-
 ## build_queue
 Build queue configuration for GitHub workflows (Linear is unsupported); the daemon reconciles stored queue membership after tracker signals or on the configured interval, with a two-second debounce.
 
@@ -493,8 +494,6 @@ Build queue configuration for GitHub workflows (Linear is unsupported); the daem
 | `build_queue.set_order` | string | `none` | `none` preserves ordinary candidate ordering. Opt into `ranked` to prefer queue sets by persisted rank (creation order by default); ready members follow list position, while optimistic members retain deepest-first ordering within each set. Ready work always precedes optimistic work. With a cap or reserve configured, earlier unknown or stale readiness blocks ranked spill because it may have ready work. Held sets remain stopped. Main CI fixer tickets dispatch ahead of ranked sets. |
 | `build_queue.spill_reserve_slots` | integer | 0 | Slots kept free for the earliest unfinished, unheld set before admitting later-set work; minimum 0. Reserve applies even while that set waits on review. Set-policy waits appear as `queue_set_order` in status and queue show. |
 | `build_queue.start_trigger` | string | `pr_merged` | Prerequisite stage needed for queue promotion: `issue_closed`, `pr_merged`, `pr_approved`, `pr_ci_green`, or `pr_opened`. Also governs native dependency dispatch. Override with `queue add --start-on` or `queue set NAME --start-on`; `default` follows config. Missing or stale evidence never releases dependents. Optimistic stages combine lifecycle labels with retained per-PR progress. `pr_approved` adds one conditional review read per watched blocker. Linear dependency dispatch supports only `issue_closed` and `pr_merged`. See [Start trigger](/concepts/build-orders#start-trigger). |
-
 ## Further sections
-
 - [`agent`, host-pressure admission, `agent.claude`, `agent.codex`, model discovery](/reference/configuration-agent)
 - [`build_order` and resolution notes](/reference/configuration-build-order)

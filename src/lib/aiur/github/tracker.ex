@@ -339,6 +339,9 @@ defmodule Aiur.GitHub.Tracker do
   @impl Aiur.Tracker.CodeHost
   defdelegate pull_request_body_edited_at(number), to: Aiur.GitHub.PullRequestBodyEdit, as: :last_edited_at
 
+  @impl Aiur.Tracker.CodeHost
+  defdelegate update_pull_request_body(number, body), to: Aiur.GitHub.PullRequests, as: :update_body
+
   @impl Aiur.Tracker.IssueTracker
   defdelegate reopen_issue(issue_id), to: Aiur.GitHub.IssueReopen, as: :reopen
 

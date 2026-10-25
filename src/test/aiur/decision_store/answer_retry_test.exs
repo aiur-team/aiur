@@ -161,7 +161,7 @@ defmodule Aiur.DecisionStore.AnswerRetryTest do
         send(parent, {:target_attempt, attempt, opts[:retry_failed]})
 
         if attempt == 1,
-          do: {:error, :no_running_agent},
+          do: {:error, {:max_concurrent_agents_reached, %{used: 3, limit: 3, active: 2, paused_holds: 1}}},
           else: {:ok, %{status: :accepted, item: %{id: 89}}}
       end
 
