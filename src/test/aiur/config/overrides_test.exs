@@ -182,7 +182,7 @@ defmodule Aiur.Config.OverridesTest do
           end)
         end
 
-      for _ <- 1..concurrency, do: assert_receive(:ready)
+      for _ <- 1..concurrency, do: assert_receive(:ready, 5_000)
       Enum.each(tasks, &send(&1.pid, :go))
       assert Enum.all?(Enum.map(tasks, &Task.await(&1, 5_000)), &match?({:ok, _workflow}, &1))
 
