@@ -16,3 +16,4 @@ Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads ope
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
 AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31
+Aiur.Config.OverridesTest	boot keeps accepted entries and quarantines rejected entries	#6215	2027-01-23
