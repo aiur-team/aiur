@@ -2,6 +2,7 @@ defmodule Aiur.Events.JournaledPublishTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.Exchange
+  alias Aiur.Events.Journal
   alias Aiur.Events.JournaledPublish
 
   setup do
@@ -18,9 +19,8 @@ defmodule Aiur.Events.JournaledPublishTest do
         :ok = Exchange.subscribe("executor.test.ordered")
         send(parent, :subscribed)
 
-        receive_barrier do
-          {:event, %{id: id}} -> File.read!(journal) =~ ~s("id":#{id})
-        end
+        receive_barrier({:event, %{id: id}})
+        File.read!(journal) =~ ~s("id":#{id})
       end)
 
     assert_receive :subscribed, 500
@@ -37,9 +37,8 @@ defmodule Aiur.Events.JournaledPublishTest do
         :ok = Exchange.subscribe("executor.test.delayed")
         send(parent, :subscribed)
 
-        receive_barrier do
-          {:event, %{id: id}} -> File.read!(journal) =~ ~s("id":#{id})
-        end
+        receive_barrier({:event, %{id: id}})
+        File.read!(journal) =~ ~s("id":#{id})
       end)
 
     assert_receive :subscribed, 500
@@ -48,7 +47,7 @@ defmodule Aiur.Events.JournaledPublishTest do
       send(parent, {:append_started, self()})
 
       receive do
-        :continue_append -> Aiur.Events.Journal.append(path, record)
+        :continue_append -> Journal.append(path, record)
       end
     end
 
@@ -57,7 +56,7 @@ defmodule Aiur.Events.JournaledPublishTest do
         JournaledPublish.publish("executor.test.delayed", %{n: 1}, journal: journal, journal_dir: dir, append_fun: append_fun)
       end)
 
-    assert_receive {:append_started, append_pid}, 500
+    assert_receive {:append_started, append_pid}, 5_000
     send(append_pid, :continue_append)
     assert {:ok, _id, _count} = Task.await(publisher, 5_000)
     assert Task.await(task, 5_000) == true

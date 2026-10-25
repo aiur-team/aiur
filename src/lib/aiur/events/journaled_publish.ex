@@ -8,7 +8,8 @@ defmodule Aiur.Events.JournaledPublish do
   validate topic and source before calling: this does no GitHub-source rejection.
 
   Options: `:journal` and `:journal_dir` (required), `:source` (atom or string),
-  `:publish_opts` (defaults to `[source: source]`).
+  `:publish_opts` (defaults to `[source: source]`), `:append_fun` (defaults to
+  `&Aiur.Events.Journal.append/2`; intended for controlled append behavior).
   """
 
   # aiur:event-bus-boundary-member
