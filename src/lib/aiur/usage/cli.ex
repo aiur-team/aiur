@@ -1,7 +1,7 @@
 defmodule Aiur.Usage.CLI do
   @moduledoc false
-  alias Aiur.AccountsCLI
   alias Aiur.Accounts.UsageReadings
+  alias Aiur.AccountsCLI
   import Aiur.ControlCLI.Protocol, only: [exit_marker: 1, guarded: 2]
 
   @spec rpc(binary() | nil, boolean()) :: :ok
