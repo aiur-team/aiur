@@ -32,6 +32,8 @@ defmodule Aiur.Handoff.ApplicationRestartTest do
     after
       kill_recorded_provider_groups(runtime_root)
       kill_process_group(elem(provider, 1))
+      kill_process_group(elem(relay, 2))
+      kill_process(elem(relay, 1))
       Enum.each([elem(provider, 1), elem(provider, 2)], &kill_process(&1))
       close_port(elem(provider, 0))
       close_port(elem(relay, 0))
