@@ -86,8 +86,11 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp maybe_put_deployment_auth(session_opts, _backend, _opts), do: session_opts
 
   defp replace_hosted_provider_auth(session_opts, env) do
+    replacement_names = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+    replacement_names = if Enum.any?(env, fn {name, _value} -> name == "CODEX_HOME" end), do: ["CODEX_HOME" | replacement_names], else: replacement_names
+
     Keyword.update(session_opts, :env, env, fn existing ->
-      Enum.reject(existing, fn {name, _value} -> name in ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"] end) ++ env
+      Enum.reject(existing, fn {name, _value} -> name in replacement_names end) ++ env
     end)
   end
 
@@ -113,6 +116,12 @@ defmodule Aiur.AgentRunner.SessionOptions do
     if present_env?(env, "ANTHROPIC_API_KEY"), do: [{"ANTHROPIC_API_KEY", env["ANTHROPIC_API_KEY"]}], else: []
   end
 
+  defp deployment_auth_env("codex", "consumer", env, true, _transport) when is_map(env) do
+    []
+    |> maybe_add_env("CODEX_HOME", env)
+    |> maybe_add_env("OPENAI_API_KEY", env)
+  end
+
   defp deployment_auth_env("codex", _kind, env, true, _transport) when is_map(env) do
     if present_env?(env, "OPENAI_API_KEY"), do: [{"OPENAI_API_KEY", env["OPENAI_API_KEY"]}], else: []
   end
@@ -131,6 +140,10 @@ defmodule Aiur.AgentRunner.SessionOptions do
   defp deployment_auth_env(_backend, _kind, _env, _hosted?, _transport), do: []
 
   defp present_env?(env, name), do: is_binary(env[name]) and String.trim(env[name]) != ""
+
+  defp maybe_add_env(values, name, env) do
+    if present_env?(env, name), do: values ++ [{name, env[name]}], else: values
+  end
 
   defp maybe_put_account(session_opts, backend, config, opts) do
     account_backend = if backend == "claude-repl", do: "claude", else: backend

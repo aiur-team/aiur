@@ -102,7 +102,12 @@ defmodule Aiur.Application.StartupChecks do
 
   defp configure_codex_home(%{instance: %{mode: "hosted"}}, env) do
     state_dir = env["AIUR_BG_STATE_DIR"] || Path.expand("~/.config/aiur")
-    codex_home = Path.join(state_dir, "codex")
+
+    codex_home =
+      case env["CODEX_HOME"] do
+        home when is_binary(home) and home != "" -> home
+        _ -> Path.join(state_dir, "codex")
+      end
 
     case File.mkdir_p(codex_home) do
       :ok ->
@@ -117,9 +122,17 @@ defmodule Aiur.Application.StartupChecks do
 
   defp configure_codex_home(_settings, env), do: env
 
-  defp configured_routes(%{priority: [_ | _] = routes}), do: routes
-  defp configured_routes(%{kind: kind}) when is_binary(kind), do: [kind]
-  defp configured_routes(_), do: []
+  defp configured_routes(agent) do
+    routing =
+      agent
+      |> Map.get(:routing, %{})
+      |> Map.values()
+      |> List.flatten()
+
+    (List.wrap(Map.get(agent, :priority, [])) ++ routing ++ List.wrap(Map.get(agent, :kind)))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
 
   defp clear_rotated_provider_auth_holds(%{instance: %{mode: "hosted"}, agent: agent} = settings, env) do
     agent

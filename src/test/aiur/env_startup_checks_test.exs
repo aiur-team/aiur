@@ -110,6 +110,16 @@ defmodule Aiur.EnvStartupChecksTest do
     assert Enum.any?(messages, &String.contains?(&1, "CODEX_HOME/auth.json"))
   end
 
+  test "hosted startup requires credentials for backend routes" do
+    settings = %{
+      instance: %{mode: "hosted", deployment_kind: "operator"},
+      agent: %{kind: "claude", priority: [], routing: %{1 => "codex:gpt-5.5"}, backend_configs: %{}}
+    }
+
+    assert {:error, messages} = StartupChecks.validate_deployment_credentials(settings, %{})
+    assert Enum.any?(messages, &String.contains?(&1, "CODEX_HOME/auth.json"))
+  end
+
   test "hosted Linear configuration does not require GitHub credentials" do
     settings = %{
       tracker: %{kind: "linear"},

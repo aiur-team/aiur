@@ -118,7 +118,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       inherited = %{
         "CLAUDE_CODE_OAUTH_TOKEN" => "subscription-token",
         "ANTHROPIC_API_KEY" => "anthropic-key",
-        "OPENAI_API_KEY" => "openai-key"
+        "OPENAI_API_KEY" => "openai-key",
+        "CODEX_HOME" => "/state/codex"
       }
 
       assert [{"CLAUDE_CODE_OAUTH_TOKEN", "subscription-token"}] =
@@ -127,7 +128,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert [{"ANTHROPIC_API_KEY", "anthropic-key"}] =
                SessionOptions.deployment_auth_env("claude", "consumer", inherited)
 
-      assert [{"OPENAI_API_KEY", "openai-key"}] =
+      assert [{"CODEX_HOME", "/state/codex"}, {"OPENAI_API_KEY", "openai-key"}] =
                SessionOptions.deployment_auth_env("codex", "consumer", inherited)
 
       assert [] = SessionOptions.deployment_auth_env("codex", "operator", inherited, false)
