@@ -18,7 +18,7 @@ defmodule Aiur.TestSupport.CodeownersGuardState do
   def unregistered?, do: is_pid(saved_pid()) and is_nil(Process.whereis(CodeOwners))
 
   def leaks(expected, test_name) when expected in [:unset, nil] do
-    if unregistered?, do: [unregistered_leak(test_name)], else: []
+    if unregistered?(), do: [unregistered_leak(test_name)], else: []
   end
 
   def leaks(expected, test_name) do
