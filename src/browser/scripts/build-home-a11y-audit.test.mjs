@@ -10,9 +10,15 @@ test('only overlap-caused contrast incompletes are exempted', () => {
   const input = audit('bgOverlap')
   expectAuditClean(boardAudit(input))
   assert.equal(input.incomplete[0].nodes.length, 1)
-  for (const key of ['bgColor', 'fgColor', 'nonBmp', undefined]) {
+  for (const key of ['bgColor', 'fgColor', 'nonBmp', 'imgNode', undefined]) {
     assert.throws(() => expectAuditClean(boardAudit(audit(key))))
   }
+  const edges = audit('imgNode')
+  edges.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['#bd-edges'] }]
+  expectAuditClean(boardAudit(edges))
+  const image = structuredClone(edges)
+  image.incomplete[0].nodes[0].any[0].relatedNodes.push({ target: ['#unrelated-image'] })
+  assert.throws(() => expectAuditClean(boardAudit(image)))
   const mixed = audit('bgOverlap')
   mixed.incomplete[0].nodes[0].all = node('bgColor').any
   assert.throws(() => expectAuditClean(boardAudit(mixed)))

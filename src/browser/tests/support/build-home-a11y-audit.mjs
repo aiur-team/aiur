@@ -1,6 +1,14 @@
 // Kevin's preserve_visuals_revise_matrix decision: overlapping board layers
 // prevent axe from sampling a background. Exempt only that diagnostic, never
-// violations or other unknown causes. Token pairs are checked separately.
+// violations or other unknown causes. Axe also calls the overlapping edge SVG
+// an imgNode: require its exact related-node evidence, not that key alone.
+// Token pairs are checked separately.
+function overlapCheck(check) {
+  if (check.data?.messageKey === 'bgOverlap') return true
+  if (check.data?.messageKey !== 'imgNode') return false
+  const targets = (check.relatedNodes ?? []).map(node => node.target.join(''))
+  return targets.includes('#bd-edges') && targets.every(target => ['#bd-edges', '#bd-lanes'].includes(target))
+}
 export function boardAudit(audit) {
   return {
     ...audit,
@@ -8,7 +16,7 @@ export function boardAudit(audit) {
       ...result,
       nodes: result.nodes.filter(node => {
         const checks = [...node.any, ...node.all, ...node.none]
-        return !checks.length || !checks.every(check => check.data?.messageKey === 'bgOverlap')
+        return !checks.length || !checks.every(overlapCheck)
       })
     })
   }
