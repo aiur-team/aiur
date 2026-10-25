@@ -12,7 +12,9 @@ defmodule Aiur.Accounts.Shims.Codex do
   def never_shared, do: ["auth.json", "sessions", "state_*.sqlite"]
 
   @impl true
-  def profile_root, do: Path.join(System.get_env("HOME") || Path.expand("~"), ".codex")
+  def profile_root do
+    System.get_env("CODEX_HOME") || Path.join(System.get_env("HOME") || Path.expand("~"), ".codex")
+  end
 
   @impl true
   def login_command(dir), do: {"env", ["CODEX_HOME=" <> dir, "codex"]}
