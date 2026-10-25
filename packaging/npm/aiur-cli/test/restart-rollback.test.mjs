@@ -28,7 +28,9 @@ source "$1"
 AIUR_RELEASE_DIR="$2"
 AIUR_LOGS_ROOT="$3"
 AIUR_ALERT_LEDGER_PATH_FILE="$4"
+AIUR_BG_STATE_DIR="$TMPDIR/state"
 export AIUR_RELEASE_DIR AIUR_LOGS_ROOT AIUR_ALERT_LEDGER_PATH_FILE
+export AIUR_BG_STATE_DIR
 AIUR_RESTART_BUILD_CMD=': '
 AIUR_RESTART_HANDOFF_ID=''
 prepare_restart_handoff() { AIUR_RESTART_HANDOFF_ID='handoff-123'; export AIUR_RESTART_HANDOFF_ID; }
@@ -44,7 +46,7 @@ dispatch_run() {
   printf '%s|%s|%s\n' "$AIUR_RELEASE_DIR" "$*" "$AIUR_RESTART_HANDOFF_ID" >>"$TEST_EVENTS"
   case "$AIUR_RELEASE_DIR" in
     *aiur-previous-release.*) return 0 ;;
-    *) echo 'new release panic: missing module'; exit 1 ;;
+    *) echo 'new release panic: missing module' >>"$AIUR_LOGS_ROOT/log/boot.out.log"; exit 1 ;;
   esac
 }
 cmd_restart --keep-agents
