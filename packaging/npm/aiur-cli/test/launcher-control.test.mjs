@@ -165,10 +165,11 @@ test("accounts falls back to the offline reader after preparing the control iden
   expect(capture).not.toContain("RPC_EXPR:");
 });
 
-test("usage compatibility commands emit deprecations and dispatch through the shared CLI", () => {
+test("usage compatibility commands preserve readers and emit deprecations", () => {
   const cases = [
     { argv: ["accounts"], replacement: "aiur usage", expression: "Aiur.Usage.CLI.legacy_accounts(false, nil)" },
     { argv: ["accounts", "kimi", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("a2ltaQ=="))' },
+    { argv: ["accounts", "--all", "kimi", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("a2ltaQ=="))' },
     { argv: ["github-cost", "--budget", "core", "--format", "records"], replacement: "aiur usage github", expression: 'Aiur.AgentControlCLI.github_cost([budget: "core", format: :records])' },
     { argv: ["github-usage", "--json"], replacement: "aiur usage github", expression: 'Aiur.AgentControlCLI.github_usage([json: true])' },
     { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.TicketUsageCLI.rpc(Base.decode64!("NDI="), json: true)' },

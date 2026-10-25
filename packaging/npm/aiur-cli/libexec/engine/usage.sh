@@ -62,7 +62,6 @@ usage_alias() {
   done
 
   if [ "$command" = accounts ]; then
-    [ "$all" = false ] || [ -z "$positional" ] || die "accounts cannot combine --all with a harness filter"
     # Keep the old account rows and harness filter during the deprecation release.
     if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
       resolve_release || return $?
