@@ -1,5 +1,5 @@
 defmodule Aiur.Alerts.ClosedTicketTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.{AlertFeed, AlertLedger}
   alias Aiur.Alerts.ClosedTicket
