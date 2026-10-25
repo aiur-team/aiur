@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Commands
   alias Aiur.Issue
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.Dispatcher.AnsweredDecisions
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
@@ -232,13 +233,15 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
     OptimisticDispatch.record(issue, lifecycle_attempt_id, optimistic_blockers)
     rework_head_sha = Keyword.get(opts, :rework_head_sha) || :pending
+    decision_store = Keyword.get(opts, :decision_store, Commands.default_store())
 
     runner_context = %{
       attempt: attempt,
       worker_host: worker_host,
       worker_generation: worker_generation,
       lifecycle_attempt_id: lifecycle_attempt_id,
-      rework_head_sha: rework_head_sha
+      rework_head_sha: rework_head_sha,
+      answered_decisions: AnsweredDecisions.for_ticket(issue.identifier, decision_store, Keyword.get(opts, :decision_store_read_timeout, 5_000))
     }
 
     start_runner_task_fun = Keyword.get(opts, :start_runner_task_fun, &start_runner_task/5)
@@ -288,6 +291,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             stalled_alert_outstanding: Keyword.get(opts, :stalled_alert_outstanding, false),
             prior_work: Keyword.get(opts, :prior_work, false),
             rework_head_sha: rework_head_sha,
+            pending_answered_decisions: Enum.map(runner_context.answered_decisions, & &1.action_id),
+            decision_store: decision_store,
             started_at: DateTime.utc_now()
           }
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
@@ -346,7 +351,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
         worker_host: context.worker_host,
         orchestrator: recipient,
         worker_generation: context.worker_generation,
-        rework_head_sha: rework_head_sha
+        rework_head_sha: rework_head_sha,
+        answered_decisions: context.answered_decisions
       )
     end)
   end
