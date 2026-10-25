@@ -54,6 +54,21 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "commands --filter requires a value"
   end
 
+  test "legacy usage commands print a deprecation line and route to the shared CLI" do
+    aliases = [
+      {"accounts", "aiur usage", "", "Aiur.Usage.CLI.rpc(nil, false)"},
+      {"github-cost", "aiur usage github", "", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), false)"},
+      {"github-usage", "aiur usage github", "--json", "Aiur.Usage.CLI.rpc(Base.decode64!(\"Z2l0aHVi\"), true)"},
+      {"ticket-usage", "aiur usage ticket", "5692 --json", "Aiur.Usage.CLI.rpc(Base.decode64!(\"dGlja2V0\"), true)"}
+    ]
+
+    for {command, replacement, args, expression} <- aliases do
+      {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\nusage_alias #{command} #{args}|, [])
+      assert out =~ "deprecated; use '#{replacement}'"
+      assert out =~ "RPC:#{expression}"
+    end
+  end
+
   test "executor-answer safely routes one option answer through the control rpc" do
     {out, 0} =
       run_sourced_engine(
@@ -252,72 +267,6 @@ defmodule AiurEngineCommandsTest do
     assert out =~ "RPC:Aiur.AgentControlCLI.analytics([range: :full, json: true"
     assert out =~ "since: Base.decode64!"
     assert out =~ "build_order: Base.decode64!"
-  end
-
-  test "github-cost routes the budget selection through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost --budget core --json|,
-        []
-      )
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "core", json: true])|
-  end
-
-  test "github-cost defaults to the GraphQL budget, which is the one that runs out" do
-    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost|, [])
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql"])|
-  end
-
-  test "github-cost passes an output format through as an atom" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost --format records|,
-        []
-      )
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql", format: :records])|
-  end
-
-  test "github-cost rejects malformed launcher arguments before an RPC" do
-    for {argv, message} <- [
-          {~s|--budget points|, "github-cost --budget accepts graphql, core or all"},
-          {~s|--budget|, "github-cost --budget requires a value"},
-          {~s|--format wide|, "github-cost --format accepts auto, table or records"},
-          {~s|--format|, "github-cost --format requires a value"},
-          {~s|--unknown|, "github-cost received an unknown option"},
-          {~s|extra|, "github-cost does not accept positional arguments"}
-        ] do
-      {out, 64} = run_sourced_engine("cmd_github_cost #{argv}", [])
-      assert out =~ message
-    end
-  end
-
-  test "github-usage routes through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_usage --json|,
-        []
-      )
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_usage([json: true])|
-  end
-
-  test "github-usage defaults to a plain per-actor report" do
-    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_usage|, [])
-
-    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_usage([])|
-  end
-
-  test "github-usage rejects malformed launcher arguments before an RPC" do
-    for {argv, message} <- [
-          {~s|--unknown|, "github-usage received an unknown option"},
-          {~s|extra|, "github-usage does not accept positional arguments"}
-        ] do
-      {out, 64} = run_sourced_engine("cmd_github_usage #{argv}", [])
-      assert out =~ message
-    end
   end
 
   test "alerts ack refuses agent sessions before contacting the daemon" do

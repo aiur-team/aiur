@@ -227,7 +227,9 @@ Transient label failures retry after 1, 4 and 16 seconds through scheduled recon
 
 Membership commands report the first marker failure immediately, retain the pending marker and retry it in the background.
 
-Queue label requests use the `github-cost` callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+Queue label requests use the daemon ledger callers `build_queue_label_post` and `build_queue_label_delete`. Promotion guard GETs use `build_queue_write_observe`. The daemon request ledger uses the same names. Shared open-list reads remain shared cost, and cached reads make no request.
+
+The consolidated `aiur usage github` view reports quota windows; caller rankings are no longer printed by the legacy `github-cost` alias.
 
 The dispatch poll normally renews the open-issue snapshot the queue plans from. When that snapshot is older than the observation age, a non-empty queue lists open issues itself with caller `build_queue_open_issue_list`: at most once per observation age, starting one observation age after boot. The listing selects and authorizes no dispatch candidates.
 

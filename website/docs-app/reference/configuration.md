@@ -218,16 +218,11 @@ The `wip_*` keys bound the save of uncommitted work described in [Saved uncommit
 
 `poll_seconds: 0` disables periodic refreshes, not dispatch-time freshness checks.
 
-A base refresh is bounded from clone/fetch start by `prewarm.build_timeout_minutes` (default 60); on expiry,
-Aiur terminates its process group and releases dispatch for cold-clone fallback. The independent idle watchdog
-releases a stalled dispatch hold after 10 minutes.
+A base refresh is bounded from clone/fetch start by `prewarm.build_timeout_minutes` (default 60); on expiry, Aiur terminates its process group and releases dispatch for cold-clone fallback. The independent idle watchdog releases a stalled dispatch hold after 10 minutes.
 
-For the idle watchdog, "stalled" means the hold's worker is dead with no
-completion signal in flight. Timed-out builds are not retried automatically; restart Aiur to retry.
+For the idle watchdog, "stalled" means the hold's worker is dead with no completion signal in flight. Timed-out builds are not retried automatically; restart Aiur to retry.
 
-The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh:
-a freshness probe that self-clears in seconds holds dispatch too briefly to
-matter to an operator.
+The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh: a freshness probe that self-clears in seconds holds dispatch too briefly to matter to an operator.
 
 The alert fires only once a hold has persisted past the routine bound: a probe
 that fails or exceeds its own timeout, a build that genuinely holds the fleet,
@@ -289,10 +284,7 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 
 ## upgrade
 
-The `aiur run` upgrade-version notice is optional and opt-out: it caches with a
-TTL (the registry is contacted at most once a day), fails open and silent when
-unreachable, never runs under `aiurdev`, and is channel-aware — a `nightly` or
-`next` user is never offered a lower `latest`.
+The `aiur run` upgrade-version notice is optional and opt-out: it caches with a TTL (the registry is contacted at most once a day), fails open and silent when unreachable, never runs under `aiurdev`, and is channel-aware — a `nightly` or `next` user is never offered a lower `latest`.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-12 -->
 | --- | --- | --- | --- |
@@ -309,6 +301,12 @@ environment-variable equivalents; the check also stays silent in CI runs.
 | `alerts.enabled` | boolean | true | Master alert-sound switch. |
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
+
+## usage
+
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
+| --- | --- | --- | --- |
+| `usage.alerts` | map | %{} | Per-provider low-usage alert thresholds; each threshold is remaining percent from 0 to 100. |
 
 ## elevenlabs
 

@@ -74,55 +74,6 @@ cmd_status() {
   fi
 }
 
-# `aiur usage` — Codex/Claude limit headroom from the daemon's meter
-# projection, each value carrying the age of its observation.
-cmd_usage() {
-  [ "$#" -eq 0 ] || die "usage does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.usage()"
-}
-
-cmd_accounts() {
-  local json_arg=false harness="" arg encoded expression
-  for arg in "$@"; do
-    case "$arg" in
-      --json)
-        [ "$json_arg" = false ] || die "accounts accepts --json only once"
-        json_arg=true
-        ;;
-      --all)
-        ;;
-      -*)
-        die "accounts accepts an optional harness and --json"
-        ;;
-      *)
-        [ -z "$harness" ] || die "accounts accepts only one harness"
-        harness="$arg"
-        ;;
-    esac
-  done
-
-  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
-    resolve_release || return $?
-    prepare_distribution || die "distribution setup failed; cannot contact aiur"
-    resolve_control_identity_from_records
-  fi
-
-  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$(probe_node_liveness)" = "down" ]; then
-    # The local one-shot CLI renders the identity and marks usage unavailable.
-    # It never makes a provider request.
-    run_local_cli accounts "$@"
-    return
-  fi
-
-  if [ -n "$harness" ]; then
-    encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
-    expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
-  else
-    expression="Aiur.AgentControlCLI.accounts($json_arg)"
-  fi
-  run_control_rpc "$expression"
-}
-
 cmd_pause_resume() {
   local command="$1"
   shift

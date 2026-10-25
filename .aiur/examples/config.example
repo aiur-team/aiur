@@ -191,6 +191,14 @@ alerts:
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
   alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
 
+# Optional low-usage alerts. Thresholds are remaining percentages; unknown or stale readings do not trigger alerts.
+# usage:
+#   alerts:
+#     claude:
+#       threshold: 10
+#     codex:
+#       threshold: 10
+
 # === Executor takeover advisories (advanced defaults shown) ===
 # While a nonterminal ticket stays in the run scope, aiur watches its convergence age
 # (durable first-active-work time floored by the open PR's creation time) and raises an

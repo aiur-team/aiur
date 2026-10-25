@@ -92,10 +92,19 @@ defmodule Aiur.ControlCallTest do
           "Aiur.AgentControlCLI.message(:ok, \"text\")",
           "Aiur.AgentControlCLI.units(scope: \"invalid\")",
           "Aiur.AgentControlCLI.analytics(range: :show)",
-          "Aiur.AgentControlCLI.github_cost(budget: \"other\")",
           "Aiur.AgentControlCLI.ticket_estimate(hours: \"1000\")"
         ] do
       assert {:error, :non_literal_argument} = ControlCall.parse(expression), expression
+    end
+
+    for expression <- [
+          "Aiur.AgentControlCLI.usage()",
+          "Aiur.AgentControlCLI.github_cost()",
+          "Aiur.AgentControlCLI.github_usage()",
+          "Aiur.AgentControlCLI.accounts(true)",
+          "Aiur.TicketUsageCLI.rpc(\"5692\", [])"
+        ] do
+      assert {:error, :denied_remote} = ControlCall.parse(expression), expression
     end
   end
 

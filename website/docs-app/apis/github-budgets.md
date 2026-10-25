@@ -41,11 +41,13 @@ Sustained timeouts raise one `system.github.budget_broker_degraded` attention wi
 
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
-| Core | REST requests | The Build page usage strip, the Units meter, `aiur units`, or `aiur github-cost --budget core`. |
-| GraphQL | Query points | The Build page usage strip, the Units meter, `aiur units`, or `aiur github-cost`. |
+| Core | REST requests | The Build page usage strip, the Units meter, `aiur units`, or `aiur usage github`. |
+| GraphQL | Query points | The Build page usage strip, the Units meter, `aiur units`, or `aiur usage github`. |
 | Anonymous core | REST requests made without a token | A `core:anonymous` row, present only once an anonymous read has been observed. |
 | Secondary limit | Temporary abuse-control backoff | A separate Units row while the backoff is active. |
 | Issue dependencies / sub-issues | Route-specific REST windows | Separate `core:issue_dependencies` and `core:sub_issues` observations in the quota snapshot; excluded from primary Core and dispatch. |
+
+The shared provider view is available as `aiur usage github` or `GET /api/v1/usage/github`. See the provider-specific quota, attribution, and reconciliation detail in this page before interpreting those readings.
 
 Broker command summaries include mailbox, Python queue, SQLite open, lock-wait,
 SQL execution, and commit latency by request type so the slow stage can be
@@ -72,57 +74,21 @@ again.
 
 ### Where the budget went
 
-The meters above say how much is left.
+`aiur usage github` exposes the daemon's observed quota windows and
+reconciliation fields in the shared usage envelope. The legacy `github-cost`
+command forwards to this provider; caller rankings and budget/format filters
+are no longer part of that CLI output.
 
-`aiur github-cost` says which code path spent it, ranked by points and by points per hour, for one budget at a time.
+GitHub's window is credential-wide, while daemon attribution covers only calls
+observed since that daemon process started. A restart can therefore leave spend
+in the GitHub window that has no matching daemon-side attribution.
 
-| Column | What it means |
-| --- | --- |
-| `CALLER` | The code path that issued the call, not the ticket it was issued for. A batch query naming 33 tickets is one poller, so it is one row. |
-| `POINTS` | What the calls cost the budget in the current window. |
-| `POINTS/HR` | The rate the caller is running at, extrapolated from the elapsed part of the window rather than a whole hour. `unknown` when too little of the window has elapsed to extrapolate from. |
-| `SOURCE` | `reported` when GitHub priced the call itself through a `rateLimit { cost }` selection in the query, `estimated` when it did not and the call is counted at one point. GraphQL queries are instrumented automatically; mutations and REST calls are counted per request. |
+Calls from other tools using the same credential are also outside this process's
+attribution; they are not evidence of duplicate accounting by themselves.
 
-Below the ranking, one reconciliation line per budget compares the sum of the
-rows against `limit - remaining` on the credential's own window:
-
-| Line | What to do |
-| --- | --- |
-| `reconciles` | The ranking accounts for the window's spend. |
-| `N points unattributed (spend outside this process)` | Expected. Anything else using the same credential — a shell `gh` call, another Aiur instance — is spend this process never saw. It bounds how much of the window the ranking explains. |
-| `DOES NOT reconcile — attributed more than was spent` | A double count in the accounting. Points cannot be spent twice, so this is a defect worth reporting. |
-| `not measurable` | No window has been observed yet. Not the same as zero spend. |
-
-The command reads the meter the daemon already keeps and issues no GitHub
-request of its own, so checking it is free.
-
-### Reading these numbers without fooling yourself
-
-Three traps have each cost a run more than an hour. All three produce a figure
-that looks like a leak and is not.
-
-**A daemon restart invalidates reconciliation for the rest of the window.**
-
-The daemon's attribution window restarts with the process; GitHub's does not.
-Points spent before the restart stay in `limit - remaining` and appear in no row of the ranking.
-
-So the unattributed figure is inflated by exactly that much until the GitHub
-window rolls. Wait for the reset before comparing attribution against the credential's window.
-
-**The unattributed figure is not a leak.**
-
-As the table above says, it is expected. It counts anything sharing the
-credential that this process did not issue: a shell `gh` call, a script minting
-its own installation token, another Aiur instance.
-
-A monitoring loop sampling the API on the same credential *is itself* unattributed spend, so an investigation can widen the gap it is measuring. Baseline with the fleet quiet and your own tooling stopped.
-
-**Agent `gh` calls do not bill the daemon's credential.**
-
-Agents hold the bot PAT; the daemon under App auth holds an installation token.
-Separate budgets, separate windows.
-
-An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and never spends the App pool. Agent activity correlating with App-pool spend means something else scales with the fleet.
+Agent `gh` calls use the bot PAT while the daemon may use an installation
+token. Those credentials have separate budgets and windows, so agent activity
+does not explain spend in the daemon's App pool.
 
 Related: a low read-cache hit rate is not automatically a defect. See
 [Shared agent reads](/apis/github-agent-cache#shared-agent-reads) for what the cache refuses on purpose
@@ -166,7 +132,7 @@ making, so selection costs no budget of its own.
 
 The dashboard's primary GitHub window follows the daemon's primary credential.
 Readiness checks that use the operator-only `AIUR_CI_READINESS_TOKEN` do not
-replace it; other credential windows remain available in `aiur github-usage`.
+replace it; other credential windows remain available in `aiur usage github`.
 
 Readiness requests carry an explicit non-primary identity. Requests without a
 resolved credential identity are retained under their token fingerprint and
@@ -176,8 +142,8 @@ identified as the primary credential.
 A credential with no observation this window is treated as probably full rather
 than as empty, and ties resolve to the primary credential.
 
-`aiur github-usage` grows a per-credential section and a pool total. Both
-commands show them only when more than one credential is configured.
+`aiur usage github` includes the observed credential windows and pool totals
+when those observations are available.
 
 #### Writes stay on their own identity
 

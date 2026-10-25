@@ -119,7 +119,7 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   expect(result.stderr).not.toContain(":noconnection");
 });
 
-test("github-cost fails clearly instead of reading an empty local meter when the daemon is down", () => {
+test("github-cost points to the shared usage provider when the daemon is down", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(
     launcher,
@@ -134,11 +134,44 @@ test("github-cost fails clearly instead of reading an empty local meter when the
   expect(result.status).not.toBe(0);
   expect(result.stdout).toBe("");
   expect(result.stderr.trim()).toBe(
-    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+    "aiur: 'github-cost' is deprecated; use 'aiur usage github'\n" +
+      "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
   );
   expect(readFileSync(captureFile, "utf8")).toContain(
-    'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "graphql"])',
+    'RPC_EXPR:Aiur.Usage.CLI.rpc(Base.decode64!("Z2l0aHVi"), false)',
   );
+});
+
+test("usage compatibility commands emit deprecations and dispatch through the shared CLI", () => {
+  const cases = [
+    { argv: ["accounts"], replacement: "aiur usage", expression: "Aiur.Usage.CLI.rpc(nil, false)" },
+    { argv: ["accounts", "claude", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Y2xhdWRl"), true)' },
+    { argv: ["github-cost"], replacement: "aiur usage github", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Z2l0aHVi"), false)' },
+    { argv: ["github-usage", "--json"], replacement: "aiur usage github", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("Z2l0aHVi"), true)' },
+    { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.Usage.CLI.rpc(Base.decode64!("dGlja2V0"), true)' },
+  ];
+
+  for (const item of cases) {
+    const { launcher, releaseDir } = setupControlRpc();
+    const result = runControl(launcher, releaseDir, {
+      AIUR_FAKE_RPC_MODE: "ok",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    }, item.argv);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(`aiur: '${item.argv[0]}' is deprecated; use '${item.replacement}'`);
+    expect(readFileSync(captureFile, "utf8")).toContain(`RPC_EXPR:${item.expression}`);
+  }
+
+  const { launcher, releaseDir } = setupControlRpc();
+  rmSync(captureFile, { force: true });
+  const filtered = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "ok",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+  }, ["github-cost", "--budget", "core"]);
+  expect(filtered.status).toBe(1);
+  expect(filtered.stderr).toContain("github-cost does not accept --budget; use aiur usage github");
+  expect(existsSync(captureFile)).toBe(false);
 });
 
 test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {
