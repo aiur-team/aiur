@@ -104,19 +104,25 @@ See [CLI and control commands](/reference/cli) for the complete operational surf
 
 ## Running two daemons against one repository
 
-Set the same `tracker.github.label_prefix` on each daemon and use
-`instance.owns` to reserve selected tickets without changing their labels. For
-example, `instance.owns: [{label: "build-lane:voice"}]` sends matching work to
-the NUC while it is live and dispatching; when it stops or pauses, matching
+Set shared `AIUR_LEASE_DATABASE_URL`. `primary` instances are equally eligible
+to lead; `secondary` instances skip repository-wide services but still dispatch
+tickets and handle CI. Role changes apply after restart. The lease holder runs
+repository services until expiry; the dashboard and `aiur status` show its ID
+and lease age.
+
+Each instance heals labels for tickets in its own tracker view, so split label
+prefixes do not depend on the repository leader. Use distinct
+`tracker.github.label_prefix` values to split dispatch between instances.
+
+Use `instance.owns` to reserve selected tickets without changing their labels.
+For example, `instance.owns: [{label: "build-lane:voice"}]` sends matching work
+to the NUC while it is live and dispatching; when it stops or pauses, matching
 tickets return to the shared pool.
 
 `instance.pool: false` keeps a daemon on its owned tickets only. These rules
 require the shared `AIUR_LEASE_DATABASE_URL`.
 
-Set `instance.role: secondary` on other daemons when repository-wide watchers
-should run only on primary. Secondary instances still dispatch tickets and
-handle ticket CI; the role is read at daemon start, so restart after changing
-it. `aiur status` shows ownership rules for this instance and other live ones.
+`aiur status` shows ownership rules for this instance and other live ones.
 
 `instance.ignore` remains available for static installations and per-ticket
 watcher filtering. Its `label_prefixes: [nuc]` and `tickets: [4121]` entries do
