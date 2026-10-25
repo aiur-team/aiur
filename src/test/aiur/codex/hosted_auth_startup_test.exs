@@ -33,7 +33,7 @@ defmodule Aiur.Codex.HostedAuthStartupTest do
            ) == {:error, {:unsafe_hosted_authentication, "codex", :subscription}}
 
     assert_received {:provider_started, %{root_pid: root_pid}}
-    refute wait_until_alive?(root_pid)
+    refute process_alive?(root_pid)
   end
 
   test "unsafe startup notification cannot be replaced by a later API-key account read" do
@@ -87,18 +87,6 @@ defmodule Aiur.Codex.HostedAuthStartupTest do
       esac
     done
     """
-  end
-
-  defp wait_until_alive?(pid, attempts \\ 20)
-  defp wait_until_alive?(pid, 0), do: process_alive?(pid)
-
-  defp wait_until_alive?(pid, attempts) do
-    if process_alive?(pid) do
-      Process.sleep(25)
-      wait_until_alive?(pid, attempts - 1)
-    else
-      false
-    end
   end
 
   defp process_alive?(pid) do
