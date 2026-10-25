@@ -25,6 +25,12 @@ defmodule Aiur.Config.Paths do
 
   @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
+  @doc false
+  @spec dashboard_secret_root() :: Path.t()
+  def dashboard_secret_root do
+    Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+  end
+
   @doc """
   Returns the per-launch log directory. Defaults to `<cwd>/log` when no
   `--logs-root` was set. It does not survive a daemon restart.
