@@ -309,6 +309,7 @@ defmodule Aiur.Docs.ControlCenterFixture.Fleet do
     """
     tracker:
       kind: memory
+      base_branch: main
       active_states: [todo, in-progress]
       terminal_states: [done]
     agent:
