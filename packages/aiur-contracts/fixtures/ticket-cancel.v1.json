@@ -1,0 +1,13 @@
+{
+  "contract": "aiur.ticket_cancel",
+  "contract_version": 1,
+  "issue_identifier": "5698",
+  "process": {
+    "exit_status": "killed",
+    "exited_at": "2026-10-23T12:00:00Z",
+    "handle": "5698:attempt-1",
+    "observed_at": "2026-10-23T12:00:00Z",
+    "status": "exited"
+  },
+  "tracker_state": "cancelled"
+}
