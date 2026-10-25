@@ -35,11 +35,13 @@ defmodule Aiur.GitHub.Quota do
 
   alias Aiur.GitHub.Access.{Settings, Token}
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Budget.FleetSnapshot
   alias Aiur.GitHub.Credential
   alias Aiur.GitHub.CredentialRegistry
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
 
   alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, SnapshotCache, Windows}
+  alias Aiur.Instance.LeaseStore
 
   @empty_coverage %{resources: %{}, estimated?: false}
   @unknown_snapshot %{
@@ -268,6 +270,17 @@ defmodule Aiur.GitHub.Quota do
     }
 
     SnapshotCache.put(self(), snapshot, System.monotonic_time(:millisecond), System.system_time(:millisecond))
+
+    _ =
+      Task.start(fn ->
+        _ = LeaseStore.publish_github_quota_snapshot(snapshot)
+
+        case LeaseStore.github_quota_snapshots() do
+          {:ok, snapshots} when is_list(snapshots) -> FleetSnapshot.put(snapshots)
+          _unavailable -> :ok
+        end
+      end)
+
     state = maybe_alert_stale_sample(state, now)
     {:reply, snapshot, state}
   end
