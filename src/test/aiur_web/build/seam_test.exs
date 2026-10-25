@@ -6,7 +6,8 @@ defmodule AiurWeb.Build.SeamTest do
   # C8-T01 Now-band rows read the Units catalog through its policy, tracker identity, and pause-reason facades;
   # components.json declares these (dashboard-ui requires projections, kernel and orchestration).
   # MP-E8-C8-T04 reads C8-T01 Units through the existing shared payload cache.
-  @allowed ~w(AiurWeb.OperatorControlCenter.PayloadLoader AiurWeb.BuildLive AiurWeb.Endpoint AiurWeb.EndpointConfig Aiur.BuildQueue Aiur.AgentChat Aiur.AgentPubSub AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State AiurWeb.RemainingMeter)
+  # #5998 reads Build Order packs for feature progress through the existing pack loader.
+  @allowed ~w(AiurWeb.OperatorControlCenter.PayloadLoader AiurWeb.BuildOrder.PlanningSource.PackLoader AiurWeb.BuildLive AiurWeb.Endpoint AiurWeb.EndpointConfig Aiur.BuildQueue Aiur.AgentChat Aiur.AgentPubSub AiurWeb.Layouts AiurWeb.FinancialDataAccess AiurWeb.Presenter AiurWeb.BuildOrder.Runtime AiurWeb.OperatorControlCenter.UnitsURL Aiur.Projections.UnitsPolicy Aiur.TrackerIdentity Aiur.Orchestrator.State AiurWeb.RemainingMeter)
   @usage_facades [
     # Authorized usage reads configured Claude account labels.
     "Aiur.Accounts",

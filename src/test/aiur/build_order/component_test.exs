@@ -80,6 +80,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ProviderMeters.Store,
     Aiur.ProviderMeters.HostObservations,
     Aiur.ProviderMeterProjection,
+    Aiur.Usage.Alerts,
     Aiur.ProviderMeterRefresh,
     Aiur.UsageLedger,
     Aiur.UsageCompaction.Coordinator,

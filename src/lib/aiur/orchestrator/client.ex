@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.Client do
   @moduledoc "Client forwarding for the Orchestrator RPC facade, with the original server defaults."
-  alias Aiur.Orchestrator.{GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
+  alias Aiur.Orchestrator.{Cancellation, GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
@@ -33,6 +33,13 @@ defmodule Aiur.Orchestrator.Client do
           {:ok, map()} | {:error, term()}
   def send_correlated_operator_message(server, identifier, payload),
     do: OM.send_correlated_operator_message(server, identifier, payload)
+
+  @spec cancel_agent(String.t()) :: {:ok, Cancellation.result()} | {:error, term()}
+  def cancel_agent(identifier), do: Cancellation.cancel_agent(identifier)
+
+  @spec cancel_agent(GenServer.server(), String.t()) ::
+          {:ok, Cancellation.result()} | {:error, term()}
+  def cancel_agent(server, identifier), do: Cancellation.cancel_agent(server, identifier)
 
   @spec pause_agent(String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)

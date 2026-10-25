@@ -11,6 +11,8 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate send_operator_message(server, identifier, payload), to: Aiur.Orchestrator.Client
       defdelegate send_correlated_operator_message(identifier, payload), to: Aiur.Orchestrator.Client
       defdelegate send_correlated_operator_message(server, identifier, payload), to: Aiur.Orchestrator.Client
+      defdelegate cancel_agent(identifier), to: Aiur.Orchestrator.Client
+      defdelegate cancel_agent(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate pause_agent(identifier), to: Aiur.Orchestrator.Client
       defdelegate pause_agent(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate request_control(identifier, action, request_id), to: Aiur.Orchestrator.Client

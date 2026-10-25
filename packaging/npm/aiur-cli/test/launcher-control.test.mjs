@@ -119,26 +119,93 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   expect(result.stderr).not.toContain(":noconnection");
 });
 
-test("github-cost fails clearly instead of reading an empty local meter when the daemon is down", () => {
+test("github-cost keeps its ranked reader and options during deprecation", () => {
   const { launcher, releaseDir } = setupControlRpc();
-  const result = runControl(
-    launcher,
-    releaseDir,
-    {
-      AIUR_FAKE_RPC_MODE: "noconnection",
-      AIUR_FAKE_EPMD_REGISTERED: "0",
-    },
-    ["github-cost"],
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "ok",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+  }, ["github-cost", "--budget", "core", "--format", "records", "--json"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stderr.trim()).toBe("aiur: 'github-cost' is deprecated; use 'aiur usage github'");
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "core", format: :records, json: true])',
   );
+});
+
+test("help keeps the deprecated github-cost budget and format options visible", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {}, ["--help"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain(
+    "aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]",
+  );
+});
+
+test("github-cost reports a stopped daemon instead of falling back to an empty local meter", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "noconnection",
+    AIUR_FAKE_EPMD_REGISTERED: "0",
+  }, ["github-cost"]);
 
   expect(result.status).not.toBe(0);
   expect(result.stdout).toBe("");
   expect(result.stderr.trim()).toBe(
-    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+    "aiur: 'github-cost' is deprecated; use 'aiur usage github'\n" +
+      "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
   );
   expect(readFileSync(captureFile, "utf8")).toContain(
     'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "graphql"])',
   );
+});
+
+test("accounts falls back to the offline reader after preparing the control identity", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "noconnection",
+    AIUR_FAKE_EPMD_REGISTERED: "0",
+  }, ["accounts", "kimi", "--json"]);
+
+  expect(result.status).toBe(0);
+  expect(result.stderr.trim()).toBe("aiur: 'accounts' is deprecated; use 'aiur usage'");
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("ARGV_FILE:accounts\nkimi\n--json");
+  expect(capture).not.toContain("RPC_EXPR:");
+});
+
+test("usage compatibility commands preserve readers and emit deprecations", () => {
+  const cases = [
+    { argv: ["accounts"], replacement: "aiur usage", expression: "Aiur.Usage.CLI.legacy_accounts(false, nil)" },
+    { argv: ["accounts", "kimi", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("a2ltaQ=="))' },
+    { argv: ["accounts", "--all", "kimi", "--json"], replacement: "aiur usage", expression: 'Aiur.Usage.CLI.legacy_accounts(true, Base.decode64!("a2ltaQ=="))' },
+    { argv: ["github-cost", "--budget", "core", "--format", "records"], replacement: "aiur usage github", expression: 'Aiur.AgentControlCLI.github_cost([budget: "core", format: :records])' },
+    { argv: ["github-usage", "--json"], replacement: "aiur usage github", expression: 'Aiur.AgentControlCLI.github_usage([json: true])' },
+    { argv: ["ticket-usage", "42", "--json"], replacement: "aiur usage ticket", expression: 'Aiur.TicketUsageCLI.rpc(Base.decode64!("NDI="), json: true)' },
+  ];
+
+  for (const item of cases) {
+    const { launcher, releaseDir } = setupControlRpc();
+    const result = runControl(launcher, releaseDir, {
+      AIUR_FAKE_RPC_MODE: "ok",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    }, item.argv);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(`aiur: '${item.argv[0]}' is deprecated; use '${item.replacement}'`);
+    expect(readFileSync(captureFile, "utf8")).toContain(`RPC_EXPR:${item.expression}`);
+  }
+
+  const { launcher, releaseDir } = setupControlRpc();
+  rmSync(captureFile, { force: true });
+  const filtered = runControl(launcher, releaseDir, {
+    AIUR_FAKE_RPC_MODE: "ok",
+    AIUR_FAKE_EPMD_REGISTERED: "1",
+  }, ["github-cost", "--budget", "invalid"]);
+  expect(filtered.status).toBe(64);
+  expect(filtered.stderr).toContain("github-cost --budget accepts graphql, core or all");
+  expect(existsSync(captureFile)).toBe(false);
 });
 
 test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {

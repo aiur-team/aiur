@@ -66,6 +66,12 @@ In List view, **List shows** switches between Tickets, Features and Epics. The
 selection is kept in the `list` link parameter; `tickets` is the default and
 omitted.
 
+The Features list shows closed, published-open, and planned-not-published
+segments for each feature. Percentages use closed tickets divided by the full
+planned feature total. Unavailable counts show `—` with a reason; incomplete
+history does not appear as zero progress. Each row opens the existing feature
+focus in Tickets view.
+
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
 button to open the Dependency tree overlay.
@@ -77,6 +83,12 @@ Fit also waits for history needed to measure zoom density, up to 30 more pages.
 Clicking a dependency arrow locks its chain on touch screens too. Escape closes
 the tree, then releases the lock. Links outside the loaded board are counted;
 “links not yet known” means the dependency index is incomplete.
+
+### Shared provider usage
+
+The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
+
+Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
 
 ### Shared GitHub quota
 
@@ -147,6 +159,49 @@ Their draft 2020-12 schemas and generated TypeScript types (`FleetStatus`,
 additive fields; clients should ignore fields they do not recognize. A breaking
 shape change uses a new contract version and schema beside v1.
 
+### Ticket cancellation API
+
+`POST /api/v1/<issue_identifier>/cancel` cancels exactly one running ticket and
+waits a bounded time for both its selected runner and tracked OS process or
+process group to exit. It uses dashboard
+Basic Auth and the normal API-write protections: writable dashboard mode, an
+accepted `Origin`, and `X-Aiur-Request: 1`.
+
+A `200` response always carries `contract: "aiur.ticket_cancel"`,
+`contract_version: 1`, `tracker_state: "cancelled"`, and a `process` object with
+an opaque `handle`, `status: "exited"`, bounded `exit_status` (`normal`,
+`shutdown`, `killed`, `noproc`, or `unknown`), `exited_at`, and
+`observed_at`.
+
+The schema and generated `TicketCancel` type are in `@aiur/contracts`.
+
+Changing the tracker state alone is not success. If the selected process does
+not exit before the bound, the same versioned body returns with `409` and
+`process.status` set to `still_running` or `kill_failed`; both exit fields are
+`null`.
+
+The tracker remains cancelled, and Aiur schedules another bounded shell
+cleanup attempt; a later runner exit is terminal and is never retried as agent
+work.
+
+A replacement agent generation produces `generation_changed` without
+stopping the replacement. An ambiguous identifier also returns `409` before
+any tracker or process mutation.
+
+Precondition and tracker failures use the standard
+`{"error":{"code":…,"message":…}}` envelope and never claim process-exit
+evidence.
+
+| HTTP | Code or body | Meaning |
+| --- | --- | --- |
+| `200` | versioned cancel result | The named process exited. |
+| `404` | `issue_not_found` | The named ticket does not exist in the current tracker snapshot. |
+| `409` | versioned cancel result | The process did not exit, or its generation changed. |
+| `409` | `agent_not_running`, `ambiguous_identifier` | No unique running process can be selected. |
+| `422` | `invalid_identifier` | The identifier is invalid. |
+| `503` | `orchestrator_unavailable`, `cancel_failed` | Cancellation could not be completed or confirmed. |
+| `405` | `method_not_allowed` | The cancellation route only accepts `POST`. |
+
 ### Per-ticket usage API
 
 `GET /api/v1/<ticket>/usage` returns versioned JSON with
@@ -175,7 +230,7 @@ Errors use the `{"error":{"code":…,"message":…}}` shape.
 | `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
 | `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
 
-`aiur ticket-usage <ticket> --json` prints the same payload.
+The deprecated `aiur ticket-usage <ticket> --json` command keeps its per-ticket ledger report. `aiur usage ticket` is the aggregate provider snapshot, not a per-ticket report.
 
 ### Ticket progress API
 
