@@ -94,26 +94,60 @@ defmodule Aiur.AppServer.Rpc do
     payload = to_string(data)
 
     case Jason.decode(payload) do
-      {:ok, %{"id" => ^request_id, "error" => error}} ->
-        {:error, {:response_error, error}}
-
-      {:ok, %{"id" => ^request_id, "result" => result}} ->
-        {:ok, result}
-
-      {:ok, %{"id" => ^request_id} = response_payload} ->
-        {:error, {:response_error, response_payload}}
-
-      {:ok, %{} = other} ->
-        case maybe_route_notification(other, on_notification, backend_label) do
-          :ok -> with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
-          {:error, _reason} = error -> error
-        end
+      {:ok, %{} = response} ->
+        handle_json_response(response, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?)
 
       {:error, _} ->
-        unless sensitive_response?, do: StreamDiagnostics.record(port, payload)
-        log_non_json_stream_line(payload, "response stream", backend_label, sensitive_response?: sensitive_response?)
-        with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
+        handle_non_json_response(payload, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?)
     end
+  end
+
+  defp handle_json_response(
+         %{"id" => response_id, "error" => error},
+         _port,
+         request_id,
+         _timeout_ms,
+         _backend_label,
+         _on_notification,
+         _sensitive_response?
+       )
+       when response_id == request_id,
+       do: {:error, {:response_error, error}}
+
+  defp handle_json_response(
+         %{"id" => response_id, "result" => result},
+         _port,
+         request_id,
+         _timeout_ms,
+         _backend_label,
+         _on_notification,
+         _sensitive_response?
+       )
+       when response_id == request_id,
+       do: {:ok, result}
+
+  defp handle_json_response(
+         %{"id" => response_id} = response,
+         _port,
+         request_id,
+         _timeout_ms,
+         _backend_label,
+         _on_notification,
+         _sensitive_response?
+       )
+       when response_id == request_id,
+       do: {:error, {:response_error, response}}
+
+  defp handle_json_response(response, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?) do
+    with :ok <- maybe_route_notification(response, on_notification, backend_label) do
+      with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
+    end
+  end
+
+  defp handle_non_json_response(payload, port, request_id, timeout_ms, backend_label, on_notification, sensitive_response?) do
+    unless sensitive_response?, do: StreamDiagnostics.record(port, payload)
+    log_non_json_stream_line(payload, "response stream", backend_label, sensitive_response?: sensitive_response?)
+    with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
   end
 
   defp maybe_route_notification(payload, on_notification, backend_label) do
