@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { boardAudit, contrastRatio } from '../tests/support/build-home-a11y-audit.mjs'
 import { expectAuditClean } from '../tests/support/browser-helpers.mjs'
 
-const node = key => ({ any: [{ data: { messageKey: key } }], all: [], none: [] })
+const node = key => ({ target: ['.bd-cx'], any: [{ data: { messageKey: key } }], all: [], none: [] })
 const audit = (key, id = 'color-contrast') => ({ violations: [], incomplete: [{ id, nodes: [node(key)] }] })
 
 test('only overlap-caused contrast incompletes are exempted', () => {
@@ -13,6 +13,13 @@ test('only overlap-caused contrast incompletes are exempted', () => {
   for (const key of ['bgColor', 'fgColor', 'nonBmp', 'imgNode', undefined]) {
     assert.throws(() => expectAuditClean(boardAudit(audit(key))))
   }
+  expectAuditClean(boardAudit(audit('nonBmp'), new Set(['.bd-cx'])))
+  assert.throws(() => expectAuditClean(boardAudit(audit('nonBmp'), new Set(['.unrelated']))))
+  const pseudo = audit('pseudoContent')
+  pseudo.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#bd-now'] }]
+  expectAuditClean(boardAudit(pseudo))
+  pseudo.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#unrelated'] }]
+  assert.throws(() => expectAuditClean(boardAudit(pseudo)))
   const edges = audit('imgNode')
   edges.incomplete[0].nodes[0].any[0].relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['#bd-edges'] }]
   expectAuditClean(boardAudit(edges))

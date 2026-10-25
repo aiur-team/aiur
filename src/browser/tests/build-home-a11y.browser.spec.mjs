@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { measureGlyphContrast, expectGlyphContrast } from './support/build-home-glyph-contrast.mjs'
 import { boardAudit, contrastRatio } from './support/build-home-a11y-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
@@ -173,7 +174,13 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         await settleAnimations(page, '#build-root')
         const audit = await new AxeBuilder({ page }).include('#bd-vp').analyze()
         await test.info().attach('axe-audit', { body: JSON.stringify(audit), contentType: 'application/json' })
-        expectAuditClean(boardAudit(audit))
+        const glyphs = audit.incomplete.filter(result => result.id === 'color-contrast')
+          .flatMap(result => result.nodes).filter(node => node.any.some(check => check.data?.messageKey === 'nonBmp'))
+          .map(node => node.target.join(''))
+        const measurements = await measureGlyphContrast(page, glyphs)
+        await test.info().attach('glyph-contrast', { body: JSON.stringify(measurements), contentType: 'application/json' })
+        expectGlyphContrast(measurements)
+        expectAuditClean(boardAudit(audit, new Set(measurements.map(item => item.selector))))
       })
     }
   }
@@ -194,3 +201,18 @@ for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']
     }
   })
 }
+
+test('rendered glyph contrast rejects a colour below its size-class threshold', async ({ page }) => {
+  await open(page)
+  const glyph = page.locator('.bd-cx').first()
+  await glyph.evaluate(element => { element.id = 'contrast-glyph-probe' })
+  const original = await measureGlyphContrast(page, ['#contrast-glyph-probe'])
+  expect(original).toHaveLength(1)
+  expectGlyphContrast(original)
+  await glyph.evaluate(element => {
+    element.style.setProperty('color', getComputedStyle(element.closest('.bd-in')).backgroundColor, 'important')
+  })
+  const degraded = await measureGlyphContrast(page, ['#contrast-glyph-probe'])
+  expect(degraded[0].ratio).toBeLessThan(degraded[0].minimum)
+  expect(() => expectGlyphContrast(degraded)).toThrow()
+})
