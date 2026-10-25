@@ -49,11 +49,23 @@ defmodule Aiur.LandingWatch.PrRefreshSafety do
   end
 
   defp verify_no_base_overlap(observation, opts) do
+    case Keyword.get(opts, :refresh_overlap) do
+      {:ok, []} -> :ok
+      {:ok, paths} when is_list(paths) and paths != [] -> {:error, {:base_changed_pr_files, paths}}
+      {:ok, []} -> :ok
+      {:error, _} = error -> error
+      nil -> fetch_and_verify_no_base_overlap(observation, opts)
+      _ -> {:error, :refresh_overlap_unavailable}
+    end
+  end
+
+  defp fetch_and_verify_no_base_overlap(observation, opts) do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
          {:ok, base_changes} <- Keyword.fetch!(opts, :base_changes_fun).(observation.head, base, opts),
          {:ok, base_paths} <- normalize_base_paths(base_changes),
          {:ok, own_paths} when is_list(own_paths) <- Keyword.get(opts, :changed_paths_fun, &Client.fetch_pull_request_changed_paths/2).(observation.number, opts) do
-      if base_paths == :all or Enum.any?(own_paths, &(&1 in base_paths)), do: {:error, :base_changed_pr_files}, else: :ok
+      overlap = Enum.filter(own_paths, &(base_paths == :all or &1 in base_paths))
+      if overlap == [], do: :ok, else: {:error, {:base_changed_pr_files, overlap}}
     else
       {:error, _} = error -> error
       _ -> {:error, :refresh_overlap_unavailable}

@@ -37,14 +37,31 @@ defmodule Aiur.LandingWatch.PrRerun do
       failed == [] ->
         :ok
 
-      Enum.any?(failed, &PrRerunClassifier.stale_merge_ref?(&1, opts)) ->
-        stale = Enum.filter(failed, &PrRerunClassifier.stale_merge_ref?(&1, opts))
-        request_remedy(observation, stale, :refresh, "base input fix event red-window:#{red_since}:#{recovered_at}; merge ref predates a fix on the base branch", opts)
+      Enum.any?(failed, &stale_merge_ref?(&1, opts)) ->
+        stale = Enum.filter(failed, &stale_merge_ref?(&1, opts))
+        recover_stale_merge_ref(observation, stale, {red_since, recovered_at}, opts)
 
       true ->
         request_remedy(observation, failed, :rerun, "main CI recovered", opts)
     end
   end
+
+  defp recover_stale_merge_ref(observation, stale, window, opts) do
+    reason = "base input fix event red-window:#{elem(window, 0)}:#{elem(window, 1)}; merge ref predates a fix on the base branch"
+
+    case base_overlap(observation, opts) do
+      {:ok, []} ->
+        request_remedy(observation, stale, :refresh, reason, Keyword.put(opts, :refresh_overlap, {:ok, []}))
+
+      {:ok, paths} ->
+        route_overlap_rework(observation, stale, paths, reason, opts)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp stale_merge_ref?(run, opts), do: Keyword.get(opts, :stale_merge_ref_fun, &PrRerunClassifier.stale_merge_ref?/2).(run, opts)
 
   @spec handle_failure(map(), map(), [map()], keyword()) :: :ok | {:error, term()}
   def handle_failure(observation, result, runs, opts) do
@@ -126,29 +143,54 @@ defmodule Aiur.LandingWatch.PrRerun do
 
   # Base changes to the PR's own files void its Tested head (#4854), so the worker retests rather than the watcher updating.
   defp remedy(observation, runs, :refresh, reason, marker, opts) do
-    overlap =
-      case defer_if_refused(observation, runs, reason, opts) do
-        :ok -> base_overlap(observation, opts)
-        :deferred -> :ok
-        {:error, _} = error -> error
-      end
+    case refresh_preflight(observation, runs, reason, opts) do
+      :ok -> decide_refresh_overlap(observation, runs, reason, marker, opts)
+      :deferred -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp refresh_preflight(observation, runs, reason, opts), do: defer_if_refused(observation, runs, reason, opts)
+
+  defp decide_refresh_overlap(observation, runs, reason, marker, opts) do
+    overlap = Keyword.get(opts, :refresh_overlap, :not_checked)
+    overlap = if overlap == :not_checked, do: base_overlap(observation, opts), else: overlap
 
     case overlap do
       :ok ->
         :ok
 
       {:ok, []} ->
-        request_remedy(observation, runs, :refresh, reason, opts)
+        request_remedy(observation, runs, :refresh, reason, Keyword.put(opts, :refresh_overlap, {:ok, []}))
 
       {:ok, paths} ->
-        failure = %{name: "Base changed this PR's files", excerpt: "update the branch and rerun local tests at the new head (#{Enum.join(paths, ", ")})"}
-
-        with :ok <- Journal.clear_rerun_pending(observation.number, observation.head, opts),
-             {:ok, _} <- Journal.claim_alert(observation.number, observation.head, marker, opts),
-             do: LandingWatch.rework(observation, [failure], Keyword.delete(opts, :hold_rework))
+        if Keyword.get(opts, :main_ci_recovery_window) do
+          route_overlap_rework(observation, runs, paths, reason, opts)
+        else
+          route_regular_overlap_rework(observation, paths, marker, opts)
+        end
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp route_regular_overlap_rework(observation, paths, marker, opts) do
+    failure = %{name: "Base changed this PR's files", excerpt: "update the branch and rerun local tests at the new head (#{Enum.join(paths, ", ")})"}
+
+    with :ok <- Journal.clear_rerun_pending(observation.number, observation.head, opts),
+         {:ok, _} <- Journal.claim_alert(observation.number, observation.head, marker, opts),
+         do: LandingWatch.rework(observation, [failure], Keyword.delete(opts, :hold_rework))
+  end
+
+  defp route_overlap_rework(observation, runs, paths, reason, opts) do
+    event = Regex.run(~r/base input fix event ([^; ]+)/, reason, capture: :all_but_first) |> List.first() || "unknown"
+    marker = "base-fix-overlap-#{event}"
+    failures = Enum.map(runs, &%{name: &1["name"], excerpt: "base changed this PR's files: #{Enum.join(paths, ", ")}; update the branch and rerun local tests"})
+
+    with :ok <- Journal.clear_rerun_pending(observation.number, observation.head, opts),
+         {:ok, claim} <- Journal.claim_alert(observation.number, observation.head, marker, opts) do
+      if claim == :new, do: LandingWatch.rework(observation, failures, Keyword.delete(opts, :hold_rework)), else: :ok
     end
   end
 
