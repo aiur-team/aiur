@@ -29,6 +29,7 @@ defmodule Aiur.GitHubCostCLI do
   alias Aiur.GitHub.CredentialUsage
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.ReadCache
+  alias Aiur.GitHubCostCLI.Fleet
   alias Aiur.JSONSafe
 
   @table_min_width 96
@@ -106,6 +107,7 @@ defmodule Aiur.GitHubCostCLI do
 
   defp envelope(snapshot, budget, opts) do
     callers = callers_for(snapshot, budget)
+    fleet = Fleet.attribution(snapshot, budget, opts)
     windows = snapshot |> Map.get(:windows, %{}) |> for_budget(budget)
     # Cost reads GitHub's own windows, never the broker's admission counts, so
     # it does not pay for a broker subprocess it would not read.
@@ -122,6 +124,7 @@ defmodule Aiur.GitHubCostCLI do
       },
       data: %{
         callers: Enum.map(callers, &present_caller(&1, callers)),
+        fleet: fleet,
         windows: Map.new(windows, fn {resource, window} -> {resource, present_window(window)} end),
         reconciliation: snapshot |> Map.get(:reconciliation, %{}) |> for_budget(budget),
         cache: cache_snapshot(opts),
@@ -263,18 +266,9 @@ defmodule Aiur.GitHubCostCLI do
     end
 
     print_windows(data["windows"])
+    Fleet.print(data["fleet"])
     print_reconciliation(data["reconciliation"])
     print_ledger(data["ledger"])
-    # Reading order, not merge order. The ranking says where the budget went,
-    # the window says how much is left, the reconciliation says whether the
-    # ranking adds up, and the cache says how much never had to be spent — that
-    # is the whole question for the single-credential default, and those four
-    # always print.
-    #
-    # The pool sections come last because they are a drill-down that only exists
-    # when more than one credential is configured. Within them the order mirrors
-    # the single-credential one above: per-credential windows first, then the
-    # pool-wide reconciliation that adds them up.
     print_cache(data["cache"])
     print_credentials(data["credentials"])
     print_pool_reconciliation(data["pool_reconciliation"])
