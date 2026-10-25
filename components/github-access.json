@@ -81,6 +81,7 @@
   "owns": {
     "config": [],
     "env": [
+      "AIUR_GITHUB_ALLOW_PAT",
       "AIUR_GITHUB_BUDGET_CONSUMER",
       "AIUR_GITHUB_BUDGET_DIR",
       "AIUR_GITHUB_BUDGET_IDENTITY_KEY",
@@ -111,6 +112,7 @@
   ],
   "config": [],
   "env": [
+    "AIUR_GITHUB_ALLOW_PAT",
     "AIUR_GITHUB_BUDGET_CONSUMER",
     "AIUR_GITHUB_BUDGET_DIR",
     "AIUR_GITHUB_BUDGET_IDENTITY_KEY",

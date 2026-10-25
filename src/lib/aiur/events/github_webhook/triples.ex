@@ -1,4 +1,6 @@
 defmodule Aiur.Events.GithubWebhook.Triples do
+  require Logger
+
   @moduledoc """
   The `{topic, payload, publish_opts}` triples a webhook delivery publishes,
   and the comment and review shapes it stores.
@@ -11,7 +13,9 @@ defmodule Aiur.Events.GithubWebhook.Triples do
 
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, PostDeployChecks}
   alias Aiur.Events.GithubWebhook.Identity
+  alias Aiur.GitHub.PullRequests
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.RecentMerge
 
   @type triple :: {String.t(), map(), keyword()}
   @type result :: {:publish, [triple()]} | {:drop, term()} | {:error, term()}
@@ -268,7 +272,10 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   defp approval_only_context(context), do: Map.delete(context, "head_committed_at")
 
   @spec pull_request_triple(map(), map(), term(), String.t()) :: result()
-  def pull_request_triple(payload, pr, action, repo) do
+  def pull_request_triple(payload, pr, action, repo), do: pull_request_triple(payload, pr, action, repo, [])
+
+  @spec pull_request_triple(map(), map(), term(), String.t(), keyword()) :: result()
+  def pull_request_triple(payload, pr, action, repo, opts) do
     merged? = merged_pull_request?(action, Map.get(pr, "merged"))
     actor = get_in(payload, ["sender", "login"])
     pr_number = Map.get(pr, "number")
@@ -280,13 +287,31 @@ defmodule Aiur.Events.GithubWebhook.Triples do
         _ -> pr
       end
 
-    with {:ok, target, _pr_number} <- Identity.pull_request_identity(payload),
+    pr = maybe_enrich_commit_messages(pr, pr_number, merged?, opts)
+    payload = Map.put(payload, "pull_request", pr)
+    linked_ids = Identity.linked_ticket_identifiers(pr)
+    branch_id = Identity.ticket_from_head_ref(pr)
+
+    targets =
+      if merged? do
+        ids =
+          if Map.get(pr, "commit_messages_unavailable", false) do
+            RecentMerge.closing_issue_identifiers_in_body(Map.get(pr, "body"), repo_from_pr(pr))
+          else
+            linked_ids
+          end
+
+        Enum.uniq([branch_id | ids] |> Enum.reject(&is_nil/1))
+      else
+        closing_ids = RecentMerge.closing_issue_identifiers_in_body(Map.get(pr, "body"), repo_from_pr(pr))
+        Enum.uniq([branch_id | closing_ids] |> Enum.reject(&is_nil/1))
+      end
+
+    with {:ok, target, _pr_number} <- Identity.pull_request_identity(payload, allow_commit_messages: merged?),
          topic when is_binary(topic) <- pr_topic(target, action, merged?) do
       publish_opts = [
         actor: actor,
-        issue_number: target,
-        bypass_contamination: merged?,
-        dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha)
+        bypass_contamination: merged?
       ]
 
       event = %{
@@ -298,7 +323,19 @@ defmodule Aiur.Events.GithubWebhook.Triples do
 
       event = if merged?, do: Map.put(event, :post_deploy_checks, PostDeployChecks.from_pr_body(Map.get(pr, "body"))), else: event
 
-      {:publish, [{topic, event, publish_opts}]}
+      triples =
+        Enum.map(targets, fn ticket ->
+          target_topic = pr_topic(ticket, action, merged?)
+
+          target_opts =
+            publish_opts
+            |> Keyword.put(:issue_number, ticket)
+            |> Keyword.put(:dedup_key, pr_dedup_key(repo, pr_number, action, head_sha, ticket, merged?))
+
+          {target_topic, event, target_opts}
+        end)
+
+      {:publish, triples}
     else
       {:drop, _reason} = drop -> drop
       {:error, _reason} = error -> error
@@ -310,6 +347,33 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   defp pr_topic(target, "ready_for_review", _merged), do: "ticket.#{target}.pr.ready_for_review"
   defp pr_topic(target, _action, true), do: "ticket.#{target}.pr.merged"
   defp pr_topic(_target, _action, _merged), do: nil
+
+  defp pr_dedup_key(repo, pr_number, action, head_sha, _ticket, false),
+    do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha)
+
+  defp pr_dedup_key(repo, pr_number, action, head_sha, ticket, true),
+    do: GithubKeys.pr_dedup_key(repo, pr_number, action, head_sha, ticket)
+
+  defp maybe_enrich_commit_messages(pr, number, true, opts) do
+    if Map.has_key?(pr, "commit_messages") do
+      pr
+    else
+      request_opts = Keyword.take(opts, [:request_fun, :token])
+
+      case PullRequests.fetch_pull_request_commits(number, Keyword.put(request_opts, :head_sha, get_in(pr, ["head", "sha"]))) do
+        {:ok, messages} ->
+          Map.put(pr, "commit_messages", messages)
+
+        {:error, reason} ->
+          Logger.warning("GithubWebhook commit messages unavailable pr=#{number}: #{inspect(reason)}")
+          Map.put(pr, "commit_messages_unavailable", true)
+      end
+    end
+  end
+
+  defp maybe_enrich_commit_messages(pr, _number, _merged, _opts), do: pr
+
+  defp repo_from_pr(pr), do: get_in(pr, ["base", "repo", "full_name"])
 
   defp merged_pull_request?("closed", true), do: true
   defp merged_pull_request?("merged", _merged), do: true

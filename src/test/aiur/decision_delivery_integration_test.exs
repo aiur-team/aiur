@@ -27,10 +27,21 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
   end
 
   test "request through resolution preserves one action and independent delivery state", %{dir: dir} do
+    parent = self()
+
     {orchestrator, _orchestrator_pid, _worker_pid} =
       start_orchestrator!(Module.concat(__MODULE__, :HappyPathOrchestrator), "981")
 
-    store = start_store!(dir, dispatcher: dispatch_via(orchestrator), dispatch_delay_ms: 50)
+    store =
+      start_store!(dir,
+        dispatcher: dispatch_via(orchestrator),
+        dispatch_delay_ms: 50,
+        answer_comment_publisher: fn decision ->
+          send(parent, {:answer_comment_published, decision.answer.action_id})
+          :ok
+        end
+      )
+
     {metrics, metrics_path} = start_metrics!(dir)
 
     assert {:ok, %{status: :accepted, decision: decision}} = request(store, request_payload("happy"))
@@ -44,6 +55,9 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
 
     assert {:ok, %{status: :accepted, action: action}} =
              DecisionStore.answer(decision.decision_id, answer_payload, [actor: @actor], store)
+
+    assert_receive {:answer_comment_published, published_action_id}, 1_000
+    assert published_action_id == action.action_id
 
     assert {:ok, %{status: :duplicate, action: ^action}} =
              DecisionStore.answer(decision.decision_id, answer_payload, [actor: @actor], store)
@@ -132,6 +146,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     assert Enum.map(audit, &audit_type/1) == [
              :requested,
              :answer_recorded,
+             :answer_comment_published,
              :dispatch_queued,
              :handed_off,
              :delivered,

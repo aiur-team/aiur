@@ -343,6 +343,9 @@ defmodule Aiur.DecisionStore.Requests do
 
   @spec lifecycle_slug(term()) :: term()
   def lifecycle_slug(:answer_recorded), do: "answered"
+  def lifecycle_slug(:pending_for_session), do: "pending-for-session"
+  def lifecycle_slug(:session_started), do: "session-started"
+  def lifecycle_slug(:answer_comment_published), do: "answer-comment-published"
   def lifecycle_slug(:decision_expired), do: "expired"
   def lifecycle_slug(:decision_mooted), do: "mooted"
   def lifecycle_slug(:decision_dismissed), do: "dismissed"

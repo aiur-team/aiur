@@ -46,7 +46,10 @@ export function bandAgentsFreshness(D, now = nowMs()) {
   if (!bandAgentsUsable(D, now) || source?.state === 'ok' || age === null) return null;
   const minutes = Math.floor(age / 60_000);
   const ageLabel = minutes === 0 ? 'under 1m ago' : `${minutes}m ago`;
-  return { text: `Stale · ${ageLabel}`, title: `Last agent observation ${fmtT(source.observed_at)}; ${ageLabel}` };
+  if (source?.state === 'unavailable') return { text: `Last read failed · ${ageLabel}`, title: `Last read failed at ${fmtT(source.observed_at)}; ${ageLabel}` };
+  const staleAfter = Number.isFinite(source?.stale_after_ms) ? source.stale_after_ms : 60_000;
+  const freshness = age <= staleAfter ? 'Fresh' : 'Stale';
+  return { text: `${freshness} · ${ageLabel}`, title: `Last agent observation ${fmtT(source.observed_at)}; ${ageLabel}` };
 }
 function paintClock() {
   if (!ctx.life || ctx.life.disposed) return;

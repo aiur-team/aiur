@@ -23,6 +23,7 @@ defmodule Aiur.GitHub.IssueStateLargeBodyTest do
 
   test "state transition replaces old labels when the valid issue response exceeds 64 KiB" do
     parent = self()
+    {:ok, labels} = Agent.start_link(fn -> ["sym:ci-wait", "sym:rework"] end)
     body = %{"state" => "open", "labels" => [%{"name" => "sym:ci-wait"}, %{"name" => "sym:rework"}], "body" => String.duplicate("specification ", 5_000)}
     assert byte_size(Jason.encode!(body)) > 65_536
 
@@ -30,10 +31,22 @@ defmodule Aiur.GitHub.IssueStateLargeBodyTest do
       send(parent, {:request, request})
 
       case request.method do
-        :get -> {:ok, %{status: 200, body: body}}
-        :post -> {:ok, %{status: 200}}
-        :delete -> {:ok, %{status: 200}}
-        other -> flunk("unexpected request: #{inspect(other)}")
+        :get ->
+          current_labels = Agent.get(labels, & &1)
+          label_objects = Enum.map(current_labels, &%{"name" => &1})
+          {:ok, %{status: 200, body: Map.put(body, "labels", label_objects)}}
+
+        :post ->
+          Agent.update(labels, &Enum.uniq(request.body["labels"] ++ &1))
+          {:ok, %{status: 200}}
+
+        :delete ->
+          label = request.url |> String.split("/") |> List.last() |> URI.decode()
+          Agent.update(labels, &List.delete(&1, label))
+          {:ok, %{status: 200}}
+
+        other ->
+          flunk("unexpected request: #{inspect(other)}")
       end
     end
 
@@ -48,6 +61,7 @@ defmodule Aiur.GitHub.IssueStateLargeBodyTest do
 
   test "state transition accepts the maximum character count in multibyte UTF-8" do
     parent = self()
+    {:ok, labels} = Agent.start_link(fn -> ["sym:ci-wait"] end)
 
     body = %{
       "state" => "open",
@@ -62,10 +76,22 @@ defmodule Aiur.GitHub.IssueStateLargeBodyTest do
       send(parent, {:request, request})
 
       case request.method do
-        :get -> {:ok, %{status: 200, body: body}}
-        :post -> {:ok, %{status: 200}}
-        :delete -> {:ok, %{status: 200}}
-        other -> flunk("unexpected request: #{inspect(other)}")
+        :get ->
+          current_labels = Agent.get(labels, & &1)
+          label_objects = Enum.map(current_labels, &%{"name" => &1})
+          {:ok, %{status: 200, body: Map.put(body, "labels", label_objects)}}
+
+        :post ->
+          Agent.update(labels, &Enum.uniq(request.body["labels"] ++ &1))
+          {:ok, %{status: 200}}
+
+        :delete ->
+          label = request.url |> String.split("/") |> List.last() |> URI.decode()
+          Agent.update(labels, &List.delete(&1, label))
+          {:ok, %{status: 200}}
+
+        other ->
+          flunk("unexpected request: #{inspect(other)}")
       end
     end
 
