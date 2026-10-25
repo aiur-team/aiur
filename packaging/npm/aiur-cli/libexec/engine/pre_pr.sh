@@ -1,7 +1,7 @@
 # Snapshot the integration branch, then report every cheap gate without moving the PR branch.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local root base_ref base_sha result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required interrupted=0 active_gate_pid= result_file
+  local root base_ref base_sha validation_base_sha result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required interrupted=0 active_gate_pid= result_file
   local -a results=() failures=() test_files=() test_env=()
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
   if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
@@ -72,6 +72,12 @@ cmd_pre_pr() {
   fi
   base_sha="$(git rev-parse "FETCH_HEAD^{commit}")"
   results+=("PASS base origin/$base_ref ($(git rev-parse --short "$base_sha"))")
+  if ! validation_base_sha="$(git merge-base HEAD "$base_sha")"; then
+    results+=("FAIL merge base origin/$base_ref")
+    pre_pr_report "$base_sha" FAIL
+    return 1
+  fi
+  results+=("PASS PR merge base ($(git rev-parse --short "$validation_base_sha"))")
 
   run_gate() {
     name="$1"; shift
@@ -111,8 +117,8 @@ cmd_pre_pr() {
 
   run_gate "mix format --check-formatted" bash -c 'cd src && mise exec -- mix format --check-formatted'
   run_gate "mix compile --warnings-as-errors" bash -c 'cd src && mise exec -- mix compile --warnings-as-errors'
-  run_gate "check-pr-structure" python3 scripts/check-pr-structure.py --base "$base_sha"
-  run_gate "check-file-size" python3 scripts/check-file-size.py --base "$base_sha"
+  run_gate "check-pr-structure" python3 scripts/check-pr-structure.py --base "$validation_base_sha"
+  run_gate "check-file-size" python3 scripts/check-file-size.py --base "$validation_base_sha"
   run_gate "check-config-docs" python3 scripts/check-config-docs.py
   run_gate "check-hot-list-format" python3 scripts/check-hot-list-format.py
   if ! affected="$(cd src && AIUR_BASE_BRANCH="$base_ref" mise exec -- mix aiur.affected_tests "origin/$base_ref" --json)"; then
