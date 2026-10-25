@@ -77,6 +77,8 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/experiments/:id", Phoenix.LiveView.Plug, :experiment, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:post, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :refresh, [:dashboard_auth, :api_write, :require_writable], :debug},
     {:*, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :method_not_allowed, [:dashboard_auth, :api_write, :require_writable], :debug},
+    {:post, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :cancel, [:dashboard_auth, :api_write, :require_writable], :debug},
+    {:*, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :method_not_allowed, [:dashboard_auth, :api_write, :require_writable], :debug},
     {:post, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :send_message, [:dashboard_auth, :api_write, :require_writable], :debug},
     {:*, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :method_not_allowed, [:dashboard_auth, :api_write, :require_writable], :debug},
     {:post, "/api/v1/:issue_identifier/pause", AiurWeb.ObservabilityApiController, :pause, [:dashboard_auth, :api_write, :require_writable], :debug},

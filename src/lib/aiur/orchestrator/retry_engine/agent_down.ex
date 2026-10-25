@@ -43,6 +43,21 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
   defp handle_running_agent_down(
          state,
          issue_id,
+         %{cancel_requested: true},
+         reason,
+         session_id
+       ) do
+    Logger.info(
+      "Cancelled agent task exited for issue_id=#{issue_id} session_id=#{session_id} " <>
+        "reason=#{inspect(reason)}; completing terminal teardown"
+    )
+
+    AgentTeardown.terminate_cancelled_issue(state, issue_id)
+  end
+
+  defp handle_running_agent_down(
+         state,
+         issue_id,
          %{runtime_terminal_failure: %{kind: :startup_failed} = failure} = running_entry,
          _reason,
          session_id
@@ -186,7 +201,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
   end
 
   defp maybe_reap_orphaned_agent_shell(state, running_entry) do
-    if State.completed_running_entry?(running_entry) do
+    if State.completed_running_entry?(running_entry) or Map.get(running_entry, :cancel_requested) == true do
       state
     else
       case AgentTeardown.reap_orphaned_agent_shell(running_entry) do

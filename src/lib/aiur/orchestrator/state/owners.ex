@@ -151,6 +151,7 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.RetryEngine,
       Aiur.Orchestrator.Reconciler,
       Aiur.Orchestrator.AgentTeardown,
+      Aiur.Orchestrator.Cancellation,
       Aiur.Orchestrator.AutoResume,
       Aiur.Orchestrator.StartupClaimReconciler,
       Aiur.Orchestrator.OrphanedWorkers,
