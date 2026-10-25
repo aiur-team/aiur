@@ -25,6 +25,12 @@ defmodule Aiur.Config.Paths do
 
   @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
+  @doc false
+  @spec dashboard_secret_root() :: Path.t()
+  def dashboard_secret_root do
+    Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+  end
+
   @doc """
   Returns the per-launch log directory. Defaults to `<cwd>/log` when no
   `--logs-root` was set. It does not survive a daemon restart.
@@ -67,6 +73,14 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @spec outbound_events_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def outbound_events_state_dir do
+    case Application.get_env(:aiur, :outbound_events_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "outbound-events")}
+    end
+  end
+
   @doc "Resolves the build queue directory beneath the instance- and project-qualified state root."
   @spec build_queue_dir() :: {:ok, Path.t()} | {:error, atom()}
   def build_queue_dir do
@@ -92,20 +106,6 @@ defmodule Aiur.Config.Paths do
       _ ->
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "current-run-membership")}
-        end
-    end
-  end
-
-  @doc "Resolves the daemon-private outbound event delivery queue directory."
-  @spec outbound_events_state_dir() :: {:ok, Path.t()} | {:error, atom()}
-  def outbound_events_state_dir do
-    case Application.get_env(:aiur, :outbound_events_state_dir) do
-      path when is_binary(path) and path != "" ->
-        {:ok, path}
-
-      _ ->
-        with {:ok, root} <- decision_state_dir() do
-          {:ok, Path.join(root, "outbound-events")}
         end
     end
   end
