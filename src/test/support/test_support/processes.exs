@@ -204,12 +204,21 @@ defmodule Aiur.TestSupport.Processes do
 
   defp start_supervised_endpoint do
     original_config = Application.get_env(:aiur, AiurWeb.Endpoint)
-    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.drop(original_config || [], [:http, :https, :server]))
+    Application.put_env(:aiur, AiurWeb.Endpoint, isolated_endpoint_config(original_config || []))
 
     try do
-      ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, http: [ip: {127, 0, 0, 1}, port: 0], server: true})
+      ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []})
     after
       restore_endpoint_config(original_config)
+    end
+  end
+
+  defp isolated_endpoint_config(config) do
+    if Keyword.get(config, :server, false) do
+      http = config |> Keyword.get(:http, []) |> Keyword.merge(ip: {127, 0, 0, 1}, port: 0)
+      config |> Keyword.put(:http, http) |> Keyword.delete(:https)
+    else
+      config
     end
   end
 

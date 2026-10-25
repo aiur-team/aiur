@@ -59,6 +59,9 @@ defmodule Aiur.HttpServer do
         {:ok, _pid} = success ->
           handle_endpoint_start(success, opts, host, ip, port)
 
+        :ignore ->
+          :ignore
+
         failure ->
           restore_endpoint_env(previous_endpoint_config, previous_dashboard_pages)
           handle_endpoint_start(failure, opts, host, ip, port)
