@@ -17,7 +17,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
   alias AiurWeb.BuildOrder.TicketContextPresenter
-  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, Summaries, UnitsPanel, Voice}
+  alias AiurWeb.DashboardLive.{Controls, GitHubQuotaSnapshot, RepositoryLeaderBanner, Summaries, UnitsPanel, Voice}
   alias AiurWeb.EndpointConfig
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialDataAccess
@@ -88,7 +88,7 @@ defmodule AiurWeb.DashboardLive do
 
     socket =
       socket
-      |> assign(%{payload: payload, now: DateTime.utc_now(), repository_leader: AiurWeb.DashboardLive.RepositoryLeaderBanner.initial_status()})
+      |> assign(%{payload: payload, now: DateTime.utc_now(), repository_leader: RepositoryLeaderBanner.initial_status()})
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
       |> Voice.assign_voice()
@@ -205,7 +205,7 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_info(:runtime_tick, socket) do
     schedule_runtime_tick()
-    {:noreply, AiurWeb.DashboardLive.RepositoryLeaderBanner.refresh(socket)}
+    {:noreply, RepositoryLeaderBanner.refresh(socket)}
   end
 
   def handle_info(:github_quota_tick, socket) do
@@ -768,7 +768,7 @@ defmodule AiurWeb.DashboardLive do
       writable={@writable}
     >
       <:banner>
-        <AiurWeb.DashboardLive.RepositoryLeaderBanner.banner status={Map.get(assigns, :repository_leader)} />
+        <RepositoryLeaderBanner.banner status={Map.get(assigns, :repository_leader)} />
         <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
