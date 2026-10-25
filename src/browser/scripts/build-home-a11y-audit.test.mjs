@@ -132,3 +132,16 @@ test('lane-icon background overlap requires the exact header-owned SVG', () => {
     assert.throws(() => expectAuditClean(boardAudit(input)))
   }
 })
+
+test('card SVG over a lane requires both lane and card provenance', () => {
+  const input = audit('imgNode')
+  const check = input.incomplete[0].nodes[0].any[0]
+  check.relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['div[data-id="1286"] > .bd-in'] }]
+  expectAuditClean(boardAudit(input))
+  for (const target of ['#unrelated', '.bd-in', '#bd-lanes + svg']) {
+    check.relatedNodes[1].target = [target]
+    assert.throws(() => expectAuditClean(boardAudit(input)))
+  }
+  check.relatedNodes = [{ target: ['div[data-id="1286"] > .bd-in'] }]
+  assert.throws(() => expectAuditClean(boardAudit(input)))
+})

@@ -17,7 +17,9 @@ function overlapCheck(check) {
   if (key === 'imgNode' && targets.includes('#bd-lanes') && targets.includes('#bd-lanes .bd-lx > svg') &&
     targets.every(target => ['#bd-lanes', '#bd-lanes .bd-lx > svg'].includes(target))) return true
   const card = target => /^div\[data-id="[^"]+"\] > \.bd-in(?: > [\w.#:[\]=" -]+)*$/.test(target)
-  return targets.includes('#bd-edges') && targets.every(target => ['#bd-edges', '#bd-lanes'].includes(target) || (key === 'imgNode' && card(target)))
+  const laneCard = key === 'imgNode' && targets.includes('#bd-lanes') && targets.some(card)
+  return (targets.includes('#bd-edges') || laneCard) &&
+    targets.every(target => ['#bd-edges', '#bd-lanes'].includes(target) || (key === 'imgNode' && card(target)))
 }
 export function boardAudit(audit) {
   return {
