@@ -109,6 +109,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     snapshot_key = Keyword.get(opts, :name) || self()
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
+    Application.put_env(:aiur, :instance_globally_paused, global_pause.globally_paused)
 
     # The dispatch tick's base is the `:dispatch` poll class, not the raw
     # `interval_seconds` scalar: since #2309 an operator can give the tracker

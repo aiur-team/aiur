@@ -6,15 +6,13 @@
   "paths": [
     "src/lib/aiur/build_queue.ex",
     "src/lib/aiur/build_queue/**",
-    "src/lib/aiur/build_queue_cli.ex",
-    "src/lib/aiur_web/build_queue/**"
+    "src/lib/aiur/build_queue_cli.ex"
   ],
   "facades": [
     "Aiur.BuildQueue",
     "Aiur.BuildQueue.ClaimProbe",
     "Aiur.BuildQueue.Hints",
-    "Aiur.BuildQueueCLI",
-    "AiurWeb.BuildQueue.Runtime"
+    "Aiur.BuildQueueCLI"
   ],
   "facade_pending": null,
   "requires": [

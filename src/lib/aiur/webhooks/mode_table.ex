@@ -30,6 +30,7 @@ defmodule Aiur.Webhooks.ModeTable do
   """
 
   use GenServer
+  @behaviour Aiur.GitHub.Access.Freshness
 
   alias Aiur.Webhooks.DeliveryMode
 
@@ -110,6 +111,7 @@ defmodule Aiur.Webhooks.ModeTable do
   end
 
   @doc "The effective webhook transport for repository configuration reads."
+  @impl Aiur.GitHub.Access.Freshness
   @spec repo_config_transport(String.t(), DeliveryMode.transport()) :: DeliveryMode.transport()
   def repo_config_transport(repo, :webhook) do
     if config_events?(repo), do: :webhook, else: :polling
@@ -136,6 +138,7 @@ defmodule Aiur.Webhooks.ModeTable do
   Answers `:polling` for a repo the table knows nothing about, or when no table
   is running — the conservative reading that keeps the short TTL.
   """
+  @impl Aiur.GitHub.Access.Freshness
   @spec transport(String.t()) :: DeliveryMode.transport()
   def transport(repo) do
     case mode(repo) do

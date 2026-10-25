@@ -20,9 +20,11 @@ defmodule AiurWeb.RouterTableTest do
     Decisions.method_catches()
   end
 
-  # Characterization of the pre-split router; deliberately passes on main.
+  # Characterization of the router table, including the public health endpoints.
   @expected [
     {:post, "/api/v1/github/webhook", AiurWeb.GithubWebhookController, :create, [:github_webhook], false},
+    {:get, "/healthz", AiurWeb.PublicHealthController, :live, [], :debug},
+    {:get, "/readyz", AiurWeb.PublicHealthController, :live, [], :debug},
     {:get, "/auth/login", AiurWeb.DashboardAuthController, :login, [:auth_session], :debug},
     {:get, "/auth/google", AiurWeb.DashboardAuthController, :google, [:auth_session], :debug},
     {:get, "/auth/google/callback", AiurWeb.DashboardAuthController, :google_callback, [:auth_session], :debug},
@@ -62,12 +64,12 @@ defmodule AiurWeb.RouterTableTest do
     {:get, "/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/decisions", AiurWeb.CommandsRedirectController, :legacy, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/build-orders", AiurWeb.BuildOrderRedirectController, :catalog, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
+    {:get, "/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/", Phoenix.LiveView.Plug, :build, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/units", Phoenix.LiveView.Plug, :index, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/commands", Phoenix.LiveView.Plug, :decisions, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/commands/:decision_id", Phoenix.LiveView.Plug, :decision, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
-    {:get, "/build-orders", Phoenix.LiveView.Plug, :build_orders, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
-    {:get, "/build-orders/:root_number", Phoenix.LiveView.Plug, :build_order, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/build", Phoenix.LiveView.Plug, :build, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/analytics", Phoenix.LiveView.Plug, :analytics, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},
     {:get, "/post-deploy", Phoenix.LiveView.Plug, :index, [:browser_dashboard_auth, :dashboard_pages, :browser], :debug},

@@ -54,6 +54,14 @@ defmodule Aiur.Config.Schema.Instance do
     # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
     field(:id, :string)
 
+    # @config-reference config-configuration-00 instance.owns
+    # @config-detail instance.owns | array of maps | `[]` | Ticket rules reserved for this live instance. Each entry has exactly one `label` or positive `ticket`; matching rules apply only while this instance is dispatching. Requires the shared lease store to coordinate live instances. Hot-reloadable. |
+    field(:owns, {:array, :map}, default: [])
+
+    # @config-reference config-configuration-00 instance.pool
+    # @config-detail instance.pool | boolean | `true` | Whether this instance may dispatch tickets that no live, dispatching instance reserves with `instance.owns`. Hot-reloadable. |
+    field(:pool, :boolean, default: true)
+
     # @config-reference config-configuration-00 instance.role
     # @config-detail instance.role | string | `primary` | `secondary` disables repository-wide landing, quarantine, merge-queue and main-branch watchers while retaining ticket dispatch and per-ticket CI handling. Read once at daemon start; change it with a restart. |
     field(:role, :string, default: "primary")
@@ -67,11 +75,34 @@ defmodule Aiur.Config.Schema.Instance do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:mode, :deployment_kind, :role, :id], empty_values: [])
+    |> cast(attrs, [:mode, :deployment_kind, :role, :id, :owns, :pool], empty_values: [])
     |> validate_inclusion(:mode, ["local", "hosted"])
     |> validate_inclusion(:deployment_kind, ["operator", "consumer"])
     |> validate_inclusion(:role, ["primary", "secondary"])
     |> validate_length(:id, min: 1, max: 200)
+    |> validate_owns()
     |> cast_embed(:ignore, with: &Ignore.changeset/2)
   end
+
+  defp validate_owns(changeset) do
+    validate_change(changeset, :owns, fn :owns, rules ->
+      if Enum.all?(rules, &valid_ownership_rule?/1),
+        do: [],
+        else: [owns: "must contain maps with exactly one non-empty label or positive ticket"]
+    end)
+  end
+
+  defp valid_ownership_rule?(%{"label" => label} = rule),
+    do: map_size(rule) == 1 and is_binary(label) and String.trim(label) != ""
+
+  defp valid_ownership_rule?(%{"ticket" => ticket} = rule),
+    do: map_size(rule) == 1 and is_integer(ticket) and ticket > 0
+
+  defp valid_ownership_rule?(%{label: label} = rule),
+    do: map_size(rule) == 1 and is_binary(label) and String.trim(label) != ""
+
+  defp valid_ownership_rule?(%{ticket: ticket} = rule),
+    do: map_size(rule) == 1 and is_integer(ticket) and ticket > 0
+
+  defp valid_ownership_rule?(_), do: false
 end
