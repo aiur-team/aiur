@@ -300,8 +300,9 @@ def module_violations(root, manifest, file_owners, include_modules=False):
         destination = modules.get(target)
         if destination is not None and source != destination and namespace_private(components[destination], target):
             violations.setdefault(('R-private', source, target), f'{path}:{line} ({source_module})')
-        # Preserve the structural graph's exclusion of declarations and literals.
-        if kind in ('alias', 'literal'):
+        # Event-bus declarations keep their facade boundary even when the alias
+        # is never called. Other components keep declarations outside the graph.
+        if kind == 'literal' or (kind == 'alias' and source != 'event-bus'):
             continue
         if target not in modules:
             if target.startswith(('Aiur.', 'AiurWeb.')):

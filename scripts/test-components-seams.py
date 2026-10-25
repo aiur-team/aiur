@@ -101,6 +101,55 @@ check('future_guard_comments_and_docs_ignored', '# alias Aiur.Orchestrator\n@mod
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex')
 check('similar_namespace_allowed', 'alias Aiur.OrchestratorExtra', source_component='build-queue',
       path='src/lib/aiur/build_queue/server.ex')
+
+
+# Event-bus alias declarations are contract references even when never called.
+def event_bus_alias_check(name, source, targets, expected, message):
+    manifest = copy.deepcopy(MANIFEST)
+    components = {c['id']: c for c in manifest['components']}
+    for component in components.values():
+        component['paths'] = []
+        component['status'] = 'core'
+    manifest['features'] = []
+    components['event-bus']['facades'] = ['Aiur.Events.Exchange']
+    components['event-bus']['requires'] = ['orchestration']
+    components['event-bus']['paths'] = ['src/lib/aiur/events/exchange.ex']
+    components['orchestration']['paths'] = ['src/lib/aiur/orchestrator/state.ex']
+    components['orchestration']['facades'] = ['Aiur.Orchestrator.State']
+    components['event-bus']['requires'] = []
+    with tempfile.TemporaryDirectory(prefix='event-bus-alias-') as directory:
+        root = Path(directory)
+        (root / 'components.schema.json').write_text(SCHEMA)
+        (root / 'components.json').write_text(json.dumps(manifest))
+        files = {
+            'src/lib/aiur/events/exchange.ex': 'defmodule Aiur.Events.Exchange do\n' + source + '\nend\n',
+            'src/lib/aiur/orchestrator/state.ex': '\n'.join(f'defmodule {target} do\nend' for target in targets),
+        }
+        for file, content in files.items():
+            target = root / file
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        result = subprocess.run([sys.executable, str(CHECKER), '--rules', 'elixir', '--require-elixir'],
+                                env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(root)), capture_output=True, text=True)
+        output = result.stdout + result.stderr
+        assert result.returncode == expected, f'{name}: expected {expected}, got {result.returncode}\n{output}'
+        assert message in output, f'{name}: missing {message!r}\n{output}'
+        print(f'PASS: {name}')
+
+
+for name, source, target, rule in [
+    ('event_bus_alias_public_upward_fails', 'alias Aiur.Orchestrator.State', 'Aiur.Orchestrator.State', 'R-down'),
+    ('event_bus_alias_private_upward_fails', 'alias Aiur.Orchestrator.Internal', 'Aiur.Orchestrator.Internal', 'R-private'),
+    ('event_bus_grouped_alias_public_upward_fails', 'alias Aiur.Orchestrator.{State, Internal}', 'Aiur.Orchestrator.State', 'R-down'),
+    ('event_bus_grouped_alias_private_upward_fails', 'alias Aiur.Orchestrator.{State, Internal}', 'Aiur.Orchestrator.Internal', 'R-private'),
+    ('event_bus_alias_private_without_call_fails', 'alias Aiur.Orchestrator.Internal', 'Aiur.Orchestrator.Internal', 'R-private'),
+]:
+    if not SELECTED or name in SELECTED:
+        RAN.add(name)
+        event_bus_alias_check(name, source, [target], 1, f'{rule} event-bus -> {target}')
+if not SELECTED or 'event_bus_kernel_alias_passes' in SELECTED:
+    RAN.add('event_bus_kernel_alias_passes')
+    event_bus_alias_check('event_bus_kernel_alias_passes', 'alias Enum\nalias Map', [], 0, 'R-down: 0')
 check('file_level_alias_is_forbidden', 'nil', 1, 'R-forbid build-queue -> Aiur.Orchestrator:',
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex',
       preamble='alias Aiur.Orchestrator\n')
