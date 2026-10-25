@@ -8,6 +8,7 @@
     "src/lib/aiur/eleven_labs/**",
     "src/lib/aiur/voice.ex",
     "src/lib/aiur/voice/**",
+    "src/lib/aiur_web/device_voice_ticket/**",
     "src/lib/aiur_web/sockets/voice.ex",
     "src/lib/aiur_web/voice*.ex"
   ],

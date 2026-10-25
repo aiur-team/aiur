@@ -1,6 +1,6 @@
 defmodule AiurWeb.VoiceChannel do
   @moduledoc """
-  Browser dictation channel: the second producer feeding the shared
+  Browser and paired-device dictation channel feeding the shared
   provider-neutral transcription path.
 
   The browser captures audio with `getUserMedia` (it cannot run the Node
@@ -35,6 +35,19 @@ defmodule AiurWeb.VoiceChannel do
   @dictate_topics ["voice:dictate", "voice:dictation"]
 
   @impl true
+  def join("voice:dictate", payload, %{assigns: %{voice_authority: %{kind: :device, device_id: device_id}}} = socket)
+      when is_binary(device_id) and device_id != "" do
+    with true <- EndpointConfig.get(:dashboard_writable) == true,
+         {:ok, lease} <- VoiceSessionLimiter.acquire("device:" <> device_id) do
+      join_target(socket, nil, lease, "voice:dictate", payload)
+    else
+      false -> refuse("Dashboard writing is disabled.", "read_only")
+      {:error, :capacity} -> refuse("Too many device dictation sessions are active. Close another microphone and retry.", "capacity")
+    end
+  end
+
+  def join(_topic, _payload, %{assigns: %{voice_authority: %{kind: :device}}}), do: refuse("invalid_topic", "invalid_payload")
+
   def join(
         topic,
         payload,
