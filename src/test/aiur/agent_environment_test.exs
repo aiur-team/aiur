@@ -658,9 +658,9 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
       assert to_string(options) =~ "+S 4:4"
 
-      # The only permitted BASH_ENV is Aiur's immutable build-admission hook;
-      # an operator-provided value is replaced at the launch boundary.
-      assert {~c"BASH_ENV", build_gate_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      # The trusted shell hook runs before tool commands and chains build admission.
+      assert {~c"BASH_ENV", _shell_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert {~c"AIUR_BUILD_GATE_HOOK", build_gate_hook} = List.keyfind(env, ~c"AIUR_BUILD_GATE_HOOK", 0)
       assert to_string(build_gate_hook) == BuildGate.agent_hook_path()
       assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
       assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)

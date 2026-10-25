@@ -80,6 +80,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.ProviderMeters.Store,
     Aiur.ProviderMeters.HostObservations,
     Aiur.ProviderMeterProjection,
+    Aiur.Usage.Alerts,
     Aiur.ProviderMeterRefresh,
     Aiur.UsageLedger,
     Aiur.UsageCompaction.Coordinator,
@@ -163,16 +164,17 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.Experiments.StatsRunner,
     {Aiur.Experiments.Auto, [recording?: true, feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]]},
     Aiur.BuildOrder.Features.LabelProjection,
-    Aiur.LandingWatch,
     Aiur.ExecutorSweep,
     Aiur.Experiments.Auto.Notifier,
     Aiur.Experiments.Auto.WindowManager,
     Aiur.Experiments.Analyst,
     Aiur.Experiments.AnalystTrigger,
-    Aiur.LandingWatch.QuarantineLifter,
     Aiur.RunTelemetry.RetainedCache,
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Instance.GlobalServices]},
+    {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     AiurWeb.DashboardAuth.ChallengeStore,
+    AiurWeb.DashboardAuthRateLimit.Store,
     Aiur.BuildOrder.Estimates,
     AiurWeb.Build.IndexSupervisor
   ]
@@ -204,6 +206,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
             {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
             AiurWeb.FinancialData.Supervisor,
             AiurWeb.DashboardAuth.ChallengeStore,
+            AiurWeb.DashboardAuthRateLimit.Store,
             AiurWeb.Build.IndexSupervisor,
             {Aiur.HttpServer, dashboard_pages?: true}
           ])

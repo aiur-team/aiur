@@ -150,6 +150,125 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
     refute MapSet.member?(state.claimed, issue.id)
   end
 
+  test "an owned ticket reaches the lease only on its live owner" do
+    parent = self()
+
+    roster = [
+      %{instance_id: "nuc", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "build-lane:voice"}], "pool" => true, "dispatching" => true}}},
+      %{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}
+    ]
+
+    issue = %{lease_issue("voice-42") | labels: ["build-lane:voice"]}
+
+    for instance_id <- ["nuc", "pc"] do
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        ownership_instance_id: instance_id,
+        ownership_live_instances_fun: fn -> {:ok, roster} end,
+        lease_claim_fun: fn _ ->
+          send(parent, {:lease_attempt, instance_id})
+          :acquired
+        end,
+        runner: fn _, _, _ -> :ok end
+      )
+    end
+
+    assert_receive {:lease_attempt, "nuc"}, 1_000
+    refute_receive {:lease_attempt, "pc"}, 100
+  end
+
+  test "an unknown live roster blocks before attempting the shared lease" do
+    parent = self()
+    issue = %{lease_issue("voice-43") | labels: ["build-lane:voice"]}
+
+    state =
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        ownership_live_instances_fun: fn -> {:error, :offline} end,
+        lease_claim_fun: fn _ ->
+          send(parent, :lease_attempt)
+          :acquired
+        end,
+        runner: fn _, _, _ ->
+          send(parent, :runner_started)
+          :ok
+        end
+      )
+
+    refute_receive :lease_attempt, 0
+    refute_receive :runner_started, 0
+    refute MapSet.member?(state.claimed, issue.id)
+  end
+
+  test "a missing self heartbeat raises an ownership-unavailable attention" do
+    issue = %{lease_issue("voice-self-missing") | labels: ["build-lane:voice"]}
+    topic = "ticket.#{issue.id}.agent.attention.dispatch-declined"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    state =
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        ownership_instance_id: "nuc",
+        ownership_live_instances_fun: fn ->
+          {:ok, [%{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}]}
+        end,
+        lease_claim_fun: fn _ -> flunk("ownership-unavailable ticket must not reach the shared lease") end,
+        runner: fn _, _, _ -> flunk("ownership-unavailable ticket must not start a workspace") end
+      )
+
+    assert state.dispatch_declines[issue.id] == :instance_ownership_unavailable
+    assert_received {:event, %{topic: ^topic} = event}
+    assert event["needs_attention"] == true
+  end
+
+  test "a PR-head ticket still requires a known eligible owner" do
+    parent = self()
+    base_issue = %{lease_issue("voice-pr") | labels: ["build-lane:voice"], pr_head_ref: "feature/voice"}
+
+    for {instance_id, roster_result} <- [
+          {"pc",
+           {:ok,
+            [
+              %{instance_id: "nuc", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "build-lane:voice"}], "dispatching" => true}}},
+              %{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}
+            ]}},
+          {"nuc", {:error, :offline}}
+        ] do
+      state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          base_issue,
+          nil,
+          nil,
+          ownership_instance_id: instance_id,
+          ownership_live_instances_fun: fn -> roster_result end,
+          lease_claim_fun: fn _ ->
+            send(parent, :lease_attempt)
+            :acquired
+          end,
+          runner: fn _, _, _ ->
+            send(parent, :runner_started)
+            :ok
+          end
+        )
+
+      refute MapSet.member?(state.claimed, base_issue.id)
+    end
+
+    refute_receive :lease_attempt, 0
+    refute_receive :runner_started, 0
+  end
+
   test "a lease acquired for a launch that cannot start is released" do
     parent = self()
 

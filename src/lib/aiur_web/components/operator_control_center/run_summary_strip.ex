@@ -71,6 +71,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:windows, github_windows(assigns.github_quota))
       |> assign(:auth_mode, github_auth_mode(assigns.github_quota))
       |> assign(:backoffs, github_backoffs(assigns.github_quota))
+      |> assign(:fleet_budget, Map.get(assigns.github_quota, :fleet_budget, %{state: :unknown}))
       |> assign(:elevenlabs?, elevenlabs_configured?(assigns.elevenlabs_quota))
 
     ~H"""
@@ -79,6 +80,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span class="rs-group-title">APIS</span>
         <span class="rs-group-count">{api_count_label(@elevenlabs?)}</span>
       </div>
+      <p class="rs-limit-meta rs-github-budget-scope">{fleet_budget_label(@fleet_budget, @now)}</p>
       <div class="rs-apis-rows">
         <div class="rs-api rs-provider-row">
           <div class="rs-head">
@@ -115,6 +117,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     </div>
     """
   end
+
+  defp fleet_budget_label(%{state: :observed, resources: resources, observed_instances: count, age_seconds: age}, _now) do
+    "Shared daemon spend: Core #{Map.get(resources, "core", 0)} requests, GraphQL #{Map.get(resources, "graphql", 0)} points across #{count} observed instances (#{age}s old); agent gh calls are counted per host."
+  end
+
+  defp fleet_budget_label(_unknown, _now), do: "Shared daemon budget has no fleet sample yet; agent gh calls are counted per host."
 
   defp github_auth_mode(%{auth_mode: mode}), do: mode
   defp github_auth_mode(_quota), do: :unknown

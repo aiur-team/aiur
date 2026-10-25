@@ -42,6 +42,7 @@
     "src/priv/github_guard/gh/**"
   ],
   "facades": [
+    "Aiur.GitHub.Access.Freshness",
     "Aiur.GitHub.Access.Settings",
     "Aiur.GitHub.Access.SettingsProvider",
     "Aiur.GitHub.Access.StaticSettings",
@@ -74,6 +75,7 @@
     "Aiur.GitHub.Transport"
   ],
   "requires": [
+    "config",
     "kernel",
     "signal"
   ],

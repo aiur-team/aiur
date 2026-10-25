@@ -347,7 +347,6 @@ function pageLabel(name) {
     'build-home': 'Build home',
     units: 'Units',
     commands: 'Commands',
-    'build-orders': 'Build Order',
     analytics: 'Analytics'
   }[name] || name
 }
