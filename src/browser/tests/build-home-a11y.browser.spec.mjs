@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { boardAudit, contrastRatio } from './support/build-home-a11y-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
 
@@ -171,8 +172,25 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)
         await settleAnimations(page, '#build-root')
         const audit = await new AxeBuilder({ page }).include('#bd-vp').analyze()
-        expectAuditClean(audit)
+        await test.info().attach('axe-audit', { body: JSON.stringify(audit), contentType: 'application/json' })
+        expectAuditClean(boardAudit(audit))
       })
     }
   }
+}
+
+for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']) {
+  test(`future regression guard: card text token contrast, ${theme}, ${palette}`, async ({ page }) => {
+    await open(page)
+    const tokens = await page.locator('#build-root').evaluate((root, { theme, palette }) => {
+      document.documentElement.dataset.theme = theme
+      document.documentElement.dataset.palette = palette
+      const styles = getComputedStyle(root)
+      return Object.fromEntries(['--fg', '--muted', '--faint', '--surface'].map(name => [name, styles.getPropertyValue(name).trim()]))
+    }, { theme, palette })
+    // Card titles, references and status text share the opaque card surface.
+    for (const name of ['--fg', '--muted', '--faint']) {
+      expect(contrastRatio(tokens[name], tokens['--surface']), `${name} on --surface (${theme}, ${palette})`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
 }

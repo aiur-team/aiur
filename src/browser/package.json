@@ -8,7 +8,7 @@
     "test:build-modal-parity": "node scripts/run-browser-tests.mjs tests/build-home-modal-parity.browser.spec.mjs --config playwright.design-parity.config.mjs --fully-parallel --workers=2",
     "test:build-modal-motion": "node scripts/run-browser-tests.mjs tests/build-home-modal-motion.browser.spec.mjs",
     "test:build-home-protocol": "TZ=America/Los_Angeles node --test scripts/build-home-protocol.test.mjs",
-    "test:build-home-a11y": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-a11y.browser.spec.mjs --fully-parallel --workers=4",
+    "test:build-home-a11y": "node --test scripts/build-home-a11y-audit.test.mjs && npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-a11y.browser.spec.mjs --fully-parallel --workers=4",
     "test:build-home-now-state": "node --test scripts/build-home-now-state.test.mjs",
     "test:build-home-edges-unit": "TZ=America/Los_Angeles node --test scripts/build-home-edges.test.mjs",
     "test:build-home-edges": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/build-home-edges.browser.spec.mjs tests/build-home-edges-lifecycle.browser.spec.mjs --config playwright.build-home-edges.config.mjs",
