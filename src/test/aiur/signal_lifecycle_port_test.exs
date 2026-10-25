@@ -46,9 +46,9 @@ defmodule Aiur.SignalLifecyclePortTest do
   test "remaining lifecycle operations forward exact arguments and results synchronously" do
     Application.put_env(:aiur, :signal, lifecycle_sink: Sink)
     opts = [enabled: true, recorder: :test_recorder]
-    assert Signal.lifecycle_enabled?(opts)
+    assert true == Signal.lifecycle_enabled?(opts)
     assert_received {:enabled, ^opts}
-    refute Signal.lifecycle_enabled?(enabled: false)
+    assert false == Signal.lifecycle_enabled?(enabled: false)
     assert_received {:enabled, [enabled: false]}
 
     message = %{"id" => "operation", "command" => "private command"}
@@ -72,8 +72,8 @@ defmodule Aiur.SignalLifecyclePortTest do
       if config == :absent, do: Application.delete_env(:aiur, :signal), else: Application.put_env(:aiur, :signal, config)
 
       assert capture_log(fn ->
-               refute Signal.lifecycle_enabled?()
-               refute Signal.lifecycle_enabled?(recorder: fn _, _, _ -> flunk("no sink") end)
+               assert false == Signal.lifecycle_enabled?()
+               assert false == Signal.lifecycle_enabled?(recorder: fn _, _, _ -> flunk("no sink") end)
                assert :skip = Signal.decode_codex_operation(%{})
                assert :skip = Signal.decode_claude_operation(%{})
                assert :skip = Signal.external_anchor(%{})
