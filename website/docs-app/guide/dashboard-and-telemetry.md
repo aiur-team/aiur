@@ -159,15 +159,18 @@ A `200` response always carries `contract: "aiur.ticket_cancel"`,
 `contract_version: 1`, `tracker_state: "cancelled"`, and a `process` object with
 an opaque `handle`, `status: "exited"`, bounded `exit_status` (`normal`,
 `shutdown`, `killed`, `noproc`, or `unknown`), `exited_at`, and
-`observed_at`. The schema and generated `TicketCancel` type are in
-`@aiur/contracts`.
+`observed_at`.
+
+The schema and generated `TicketCancel` type are in `@aiur/contracts`.
 
 Changing the tracker state alone is not success. If the selected process does
 not exit before the bound, the same versioned body returns with `409` and
 `process.status` set to `still_running` or `kill_failed`; both exit fields are
-`null`. The tracker remains cancelled, and Aiur schedules another bounded
-shell cleanup attempt; a later runner exit is terminal and is never retried as
-agent work.
+`null`.
+
+The tracker remains cancelled, and Aiur schedules another bounded shell
+cleanup attempt; a later runner exit is terminal and is never retried as agent
+work.
 
 A replacement agent generation produces `generation_changed` without
 stopping the replacement. An ambiguous identifier also returns `409` before
