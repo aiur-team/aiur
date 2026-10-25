@@ -211,6 +211,7 @@ for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']
   test(`future regression guard: decorative glyph contrast, ${theme}, ${palette}`, async ({ page }) => {
     await open(page)
     await page.locator('html').evaluate((html, values) => Object.assign(html.dataset, values), { theme, palette })
+    await settleAnimations(page, '#build-root')
     const selectors = await page.locator('.bd-card .bd-cx').evaluateAll(glyphs => [...new Set(glyphs.map(glyph =>
       '.bd-card[data-id=' + JSON.stringify(glyph.closest('.bd-card').dataset.id) + '] .bd-cx'))])
     const baseline = glyphBaselines[theme][palette]
