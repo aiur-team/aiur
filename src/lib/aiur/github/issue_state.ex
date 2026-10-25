@@ -14,16 +14,7 @@ defmodule Aiur.GitHub.IssueState do
   alias Aiur.GitHub.IssueState.{ClosedIssue, LabelAdd, LabelDelete}
   alias Aiur.GitHub.StateWriteCoordinator
 
-  alias Aiur.GitHub.{
-    Errors,
-    HumanReviewGate,
-    Issues,
-    Labels,
-    LocalHold,
-    StatePolicy,
-    Transport,
-    WriteThrough
-  }
+  alias Aiur.GitHub.{Access, HumanReviewGate, Issues, Labels, StatePolicy, WriteThrough}
 
   require Logger
 
@@ -31,12 +22,12 @@ defmodule Aiur.GitHub.IssueState do
   def update_issue_state(issue_number, state_name, opts \\ [])
       when is_binary(issue_number) and is_binary(state_name) do
     StateWriteCoordinator.with_lock(issue_number, fn ->
-      with {:ok, {owner, repo}} <- Transport.parse_repo(),
-           {:ok, token} <- Transport.require_token() do
+      with {:ok, {owner, repo}} <- Access.parse_repo(),
+           {:ok, token} <- Access.require_token() do
         prefix = Config.label_prefix()
-        request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+        request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
         request_fun = retry_local_holds(request_fun, opts)
-        issue_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
+        issue_url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
 
         update_context = %{
           request_fun: request_fun,
@@ -57,10 +48,10 @@ defmodule Aiur.GitHub.IssueState do
   @spec add_label(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def add_label(issue_number, label, opts \\ [])
       when is_binary(issue_number) and is_binary(label) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
 
       case request_fun.(%{method: :post, url: url, token: token, body: %{"labels" => [label]}}) do
         {:ok, %{status: status, body: labels}} when status in 200..299 ->
@@ -71,10 +62,10 @@ defmodule Aiur.GitHub.IssueState do
           :ok
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -82,12 +73,12 @@ defmodule Aiur.GitHub.IssueState do
   @spec remove_label(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def remove_label(issue_number, label, opts \\ [])
       when is_binary(issue_number) and is_binary(label) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
 
       case request_fun.(%{method: :delete, url: url, token: token}) do
         # A removal answers with the labels that survived it, so the deposit is
@@ -101,10 +92,10 @@ defmodule Aiur.GitHub.IssueState do
           :ok
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -364,17 +355,17 @@ defmodule Aiur.GitHub.IssueState do
   end
 
   defp retry_request(request_fun, request, opts) do
-    LocalHold.run(
+    Access.with_transient_retry(
       fn -> classify_raw_local_hold(request_fun.(request)) end,
-      LocalHold.caller_opts(opts)
+      Access.transient_retry_opts(opts)
     )
   end
 
   defp classify_raw_local_hold({:error, {:aiur, :locally_held, _hold}} = error),
-    do: {:error, Errors.classify_error(error)}
+    do: {:error, Access.classify_error(error)}
 
   defp classify_raw_local_hold({:error, :github_budget_broker_timeout}),
-    do: {:error, Errors.classify_error({:error, :github_budget_broker_timeout})}
+    do: {:error, Access.classify_error({:error, :github_budget_broker_timeout})}
 
   defp classify_raw_local_hold(response), do: response
 
@@ -446,10 +437,10 @@ defmodule Aiur.GitHub.IssueState do
           :ok
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     else
       :ok

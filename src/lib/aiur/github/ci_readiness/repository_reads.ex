@@ -5,8 +5,8 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
   branch protection and rulesets.
   """
 
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.CiReadiness.WorkflowRules
-  alias Aiur.GitHub.{Credential, Errors, Transport}
 
   @ruleset_page_limit 20
   @workflow_page_limit 20
@@ -23,31 +23,31 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
     case request(request_fun, %{method: :get, url: base_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) -> {:ok, branch}
       {:ok, %{status: 404} = response} -> classify_repository_not_found(request_fun, token, owner, repo, response)
-      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      {:ok, %{status: _} = response} -> {:error, Access.github_status_error(response)}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
       _ -> {:error, :invalid_repository_response}
     end
   end
 
   defp classify_repository_not_found(request_fun, token, owner, repo, repository_response) do
-    organization_url = "#{Transport.base_url()}/orgs/#{encode_path_component(owner)}"
+    organization_url = "#{Access.base_url()}/orgs/#{encode_path_component(owner)}"
 
     case request(request_fun, %{method: :get, url: organization_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: status}} when status in 200..299 ->
-        {:error, {:github_org_repository_not_accessible, %{organization: owner, repo: "#{owner}/#{repo}", token_type: Credential.token_type(token)}}}
+        {:error, {:github_org_repository_not_accessible, %{organization: owner, repo: "#{owner}/#{repo}", token_type: Access.token_type(token)}}}
 
       {:ok, %{status: 404}} ->
-        {:error, Errors.github_status_error(repository_response)}
+        {:error, Access.github_status_error(repository_response)}
 
       {:ok, %{status: _} = response} ->
-        organization_error = Errors.github_status_error(response)
+        organization_error = Access.github_status_error(response)
 
-        if Errors.retryable_github_error?(organization_error),
+        if Access.retryable_github_error?(organization_error),
           do: {:error, organization_error},
-          else: {:error, Errors.github_status_error(repository_response)}
+          else: {:error, Access.github_status_error(repository_response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
 
       _ ->
         {:error, :invalid_organization_response}
@@ -60,8 +60,8 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
     case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: 404}} -> {:error, :base_branch_missing}
-      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      {:ok, %{status: _} = response} -> {:error, Access.github_status_error(response)}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -71,8 +71,8 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
     case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: body}} when is_list(body) -> {:ok, body}
       {:ok, %{status: 404}} -> {:ok, []}
-      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      {:ok, %{status: _} = response} -> {:error, Access.github_status_error(response)}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -108,7 +108,7 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
           )
 
         continue_workflow_state_pages(
-          Transport.parse_next_page_url(Map.get(response, :headers, %{})),
+          Access.parse_next_page_url(Map.get(response, :headers, %{})),
           request_fun,
           token,
           base_url,
@@ -119,10 +119,10 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
         )
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
 
       _ ->
         {:error, :invalid_workflow_states_response}
@@ -177,10 +177,10 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
         decode_workflow(entry, content)
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
 
       _ ->
         {:error, :invalid_workflow_response}
@@ -216,7 +216,7 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
       {:ok, %{status: 200, body: protection}} -> {:ok, required_checks_from(protection)}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -250,7 +250,7 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
     case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: rulesets} = response} when is_list(rulesets) ->
         continue_ruleset_page(
-          Transport.parse_next_page_url(Map.get(response, :headers, %{})),
+          Access.parse_next_page_url(Map.get(response, :headers, %{})),
           request_fun,
           token,
           base_url,
@@ -264,7 +264,7 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
         {:error, required_check_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
 
       _ ->
         {:error, :invalid_ruleset_response}
@@ -298,7 +298,7 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
     case request(request_fun, %{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:ok, detail}
       {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      {:error, reason} -> {:error, Access.classify_error({:error, reason})}
       _ -> {:error, :invalid_ruleset_response}
     end
   end
@@ -306,18 +306,18 @@ defmodule Aiur.GitHub.CiReadiness.RepositoryReads do
   defp fetch_ruleset_detail(_request_fun, _token, _base_url, _summary), do: {:error, :invalid_ruleset_summary}
 
   defp required_check_error(%{status: 403} = response) do
-    case Errors.response_message(response) do
+    case Access.response_message(response) do
       message when is_binary(message) ->
         if String.contains?(message, @plan_limit_message),
           do: {:ci_readiness_plan_limit, message},
-          else: Errors.github_status_error(response)
+          else: Access.github_status_error(response)
 
       _ ->
-        Errors.github_status_error(response)
+        Access.github_status_error(response)
     end
   end
 
-  defp required_check_error(response), do: Errors.github_status_error(response)
+  defp required_check_error(response), do: Access.github_status_error(response)
 
   @doc false
   @spec required_checks_from(term()) :: [map()]
