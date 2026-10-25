@@ -90,6 +90,17 @@ defmodule Aiur.ControlCall.Allowlist do
     {:github_usage, 1, :read, [:keyword], %{json: :boolean}},
     {:ticket_estimate, 0, &__MODULE__.estimate_scope/1, [], %{}},
     {:ticket_estimate, 1, &__MODULE__.estimate_scope/1, [:keyword], %{id: :positive, hours: :quarter_hour, clear: :boolean, reason: :estimate_reason, by: :estimate_actor, json: :boolean}},
+    {:operator_relay_answer, 1, :write, [:keyword],
+     %{
+       decision_id: :non_empty_string,
+       option_id: :non_empty_string,
+       custom_response: :non_empty_string,
+       expected_version: :positive,
+       quote: :non_empty_string,
+       relayed_by: :non_empty_string,
+       idempotency_key: :non_empty_string,
+       supersede: :boolean
+     }},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
