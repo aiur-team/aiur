@@ -87,15 +87,24 @@ defmodule Aiur.GitHub.Budget.Shared do
   end
 
   @spec fallback_limits(tuple(), map()) :: tuple()
-  def fallback_limits({core, graphql, search}, coordination) do
-    if coordination.available? do
-      {core, graphql, search}
-    else
-      # Even when the last roster read saw only this daemon, an outage can hide
-      # another instance starting at the same time. Reserve half the ceiling
-      # until shared admissions are available again.
-      count = max(coordination.live_count, 2)
-      {fallback_limit(core, count), fallback_limit(graphql, count), fallback_limit(search, count)}
+  def fallback_limits(limits, coordination),
+    do: fallback_limits(limits, coordination, LeaseStore.configured?())
+
+  @spec fallback_limits(tuple(), map(), boolean()) :: tuple()
+  def fallback_limits({core, graphql, search} = limits, coordination, configured?) do
+    cond do
+      not configured? ->
+        limits
+
+      coordination.available? ->
+        {core, graphql, search}
+
+      true ->
+        # Even when the last roster read saw only this daemon, an outage can hide
+        # another instance starting at the same time. Reserve half the ceiling
+        # until shared admissions are available again.
+        count = max(coordination.live_count, 2)
+        {fallback_limit(core, count), fallback_limit(graphql, count), fallback_limit(search, count)}
     end
   end
 

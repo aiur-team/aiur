@@ -275,8 +275,9 @@ defmodule Aiur.GitHub.Budget do
 
   defp do_local_acquire(request, key, python, opts, deadline_at) do
     command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
+    command_fun = Keyword.get(opts, :acquire_command_fun, &BrokerPort.command/3)
 
-    case BrokerPort.command(acquire_args(request, opts), key, command_opts) do
+    case command_fun.(acquire_args(request, opts), key, command_opts) do
       {:ok, "granted " <> id} ->
         grant_or_hold(String.trim(id), request, key, python, opts, deadline_at)
 
@@ -383,8 +384,17 @@ defmodule Aiur.GitHub.Budget do
     settings = Settings.settings(opts)
     {core_limit, graphql_limit, search_limit} = actor_limits(Settings.consumer_identity(opts), settings)
 
+    status_fun = Keyword.get(opts, :coordination_status_fun, &LeaseStore.budget_coordination_status/0)
+    configured_fun = Keyword.get(opts, :coordination_configured_fun, &LeaseStore.configured?/0)
+    coordination = status_fun.()
+
+    coordination =
+      if Keyword.get(opts, :fallback_only?, false),
+        do: %{coordination | available?: false},
+        else: coordination
+
     {core_limit, graphql_limit, search_limit} =
-      Shared.fallback_limits({core_limit, graphql_limit, search_limit}, LeaseStore.budget_coordination_status())
+      Shared.fallback_limits({core_limit, graphql_limit, search_limit}, coordination, configured_fun.())
 
     family = endpoint_family(request)
 
