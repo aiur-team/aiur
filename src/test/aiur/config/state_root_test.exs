@@ -44,7 +44,12 @@ defmodule Aiur.Config.StateRootTest do
   test "AIUR_STATE_DIR overrides the default ~/.aiur root" do
     root = Path.join(System.tmp_dir!(), "aiur-state-env-#{System.unique_integer([:positive])}")
     assert Paths.state_root(%{"AIUR_STATE_DIR" => root}) == root
-    assert Paths.state_root(%{}) == Path.join(System.user_home!(), ".aiur")
+    assert Paths.state_root(%{}) == Path.expand("~/.aiur")
+  end
+
+  test "default root follows the HOME environment value" do
+    home = Path.join(System.tmp_dir!(), "aiur-state-home-#{System.unique_integer([:positive])}")
+    assert Paths.state_root(%{"HOME" => home}) == Path.join(home, ".aiur")
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)

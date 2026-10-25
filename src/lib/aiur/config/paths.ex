@@ -36,7 +36,7 @@ defmodule Aiur.Config.Paths do
   def state_root(env) when is_map(env) do
     case env["AIUR_STATE_DIR"] do
       path when is_binary(path) and path != "" -> Path.expand(path)
-      _ -> Path.join(System.user_home!(), ".aiur")
+      _ -> Path.join(env["HOME"] || System.user_home!(), ".aiur")
     end
   end
 
