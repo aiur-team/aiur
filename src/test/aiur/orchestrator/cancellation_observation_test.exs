@@ -6,8 +6,7 @@ defmodule Aiur.Orchestrator.CancellationObservationTest do
   @now ~U[2026-10-24 18:30:00Z]
 
   test "reports the selected process exit with its opaque handle and exit status" do
-    pid = spawn(fn -> exit_on_stop() end)
-    on_exit(fn -> stop_if_alive(pid) end)
+    pid = start_test_process(fn -> exit_on_stop() end)
 
     assert %{
              contract: "aiur.ticket_cancel",
@@ -36,8 +35,7 @@ defmodule Aiur.Orchestrator.CancellationObservationTest do
   end
 
   test "a process that ignores the stop request reports still_running after the bound" do
-    pid = spawn(fn -> ignore_stop() end)
-    on_exit(fn -> stop_if_alive(pid) end)
+    pid = start_test_process(fn -> ignore_stop() end)
 
     result =
       observe_after_stop(
@@ -63,8 +61,7 @@ defmodule Aiur.Orchestrator.CancellationObservationTest do
   end
 
   test "a rejected stop request reports kill_failed while the process remains alive" do
-    pid = spawn(fn -> ignore_stop() end)
-    on_exit(fn -> stop_if_alive(pid) end)
+    pid = start_test_process(fn -> ignore_stop() end)
 
     result =
       observe_after_stop(pid, "NUC-42:attempt-3", fn _target -> {:error, :refused} end, 10)
@@ -95,7 +92,5 @@ defmodule Aiur.Orchestrator.CancellationObservationTest do
     end
   end
 
-  defp stop_if_alive(pid) do
-    if Process.alive?(pid), do: Process.exit(pid, :kill)
-  end
+  defp start_test_process(fun), do: start_supervised!({Task, fun}, id: make_ref())
 end

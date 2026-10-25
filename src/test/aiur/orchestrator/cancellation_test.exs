@@ -31,8 +31,7 @@ defmodule Aiur.Orchestrator.CancellationTest do
         else: Application.delete_env(:aiur, :memory_tracker_issues)
     end)
 
-    pid = spawn(fn -> ignore_stop() end)
-    on_exit(fn -> stop_if_alive(pid) end)
+    pid = start_test_process(fn -> ignore_stop() end)
 
     state = %State{
       running: %{
@@ -59,9 +58,8 @@ defmodule Aiur.Orchestrator.CancellationTest do
   end
 
   test "ambiguous bare identifiers fail before tracker or process mutation" do
-    first = spawn(fn -> ignore_stop() end)
-    second = spawn(fn -> ignore_stop() end)
-    on_exit(fn -> Enum.each([first, second], &stop_if_alive/1) end)
+    first = start_test_process(fn -> ignore_stop() end)
+    second = start_test_process(fn -> ignore_stop() end)
 
     state = %State{
       running: %{
@@ -78,9 +76,8 @@ defmodule Aiur.Orchestrator.CancellationTest do
   end
 
   test "a tracker callback never stops a replacement generation" do
-    original = spawn(fn -> ignore_stop() end)
-    replacement = spawn(fn -> ignore_stop() end)
-    on_exit(fn -> Enum.each([original, replacement], &stop_if_alive/1) end)
+    original = start_test_process(fn -> ignore_stop() end)
+    replacement = start_test_process(fn -> ignore_stop() end)
 
     original_ref = make_ref()
 
@@ -119,8 +116,7 @@ defmodule Aiur.Orchestrator.CancellationTest do
   test "a delayed exit after a bounded cancellation is terminal and is not retried" do
     issue_id = "issue-42"
     ref = make_ref()
-    pid = spawn(fn -> ignore_stop() end)
-    on_exit(fn -> stop_if_alive(pid) end)
+    pid = start_test_process(fn -> ignore_stop() end)
 
     state = %State{
       running: %{
@@ -144,8 +140,7 @@ defmodule Aiur.Orchestrator.CancellationTest do
   end
 
   test "a tracker failure leaves the selected process and running state unchanged" do
-    pid = spawn(fn -> ignore_stop() end)
-    on_exit(fn -> stop_if_alive(pid) end)
+    pid = start_test_process(fn -> ignore_stop() end)
     state = %State{running: %{"issue-42" => running_entry("issue-42", "42", pid, make_ref(), "42:attempt-5")}}
 
     assert {:reply, {:cancel_tracker_io, "42", stage, %Issue{}}, ^state} =
@@ -175,7 +170,5 @@ defmodule Aiur.Orchestrator.CancellationTest do
     end
   end
 
-  defp stop_if_alive(pid) do
-    if Process.alive?(pid), do: Process.exit(pid, :kill)
-  end
+  defp start_test_process(fun), do: start_supervised!({Task, fun}, id: make_ref())
 end
