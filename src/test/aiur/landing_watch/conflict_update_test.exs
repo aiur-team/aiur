@@ -38,6 +38,20 @@ defmodule Aiur.LandingWatch.ConflictUpdateTest do
     refute_received {:transition, _, _, _}
   end
 
+  test "a merge-group held head is not updated or routed back toward auto-merge" do
+    parent = self()
+    observation = conflicting()
+    opts = cycle_opts(parent, observation, {:ok, %{}})
+    path = Keyword.fetch!(opts, :journal_path)
+
+    assert :ok = Journal.hold_merge_group_head(observation.number, observation.head, journal_path: path)
+    assert :ok = LandingWatch.poll(opts)
+
+    refute_received {:update_branch, _, _}
+    refute_received {:auto_merge, _}
+    refute_received {:transition, _, _, _}
+  end
+
   test "a refused update-branch routes to rebase-only rework naming the conflicting files" do
     parent = self()
     opts = cycle_opts(parent, conflicting(), @refused)

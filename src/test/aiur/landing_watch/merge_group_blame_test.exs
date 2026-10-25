@@ -225,13 +225,14 @@ defmodule Aiur.LandingWatch.MergeGroupBlameTest do
     Aiur.TestCleanup.rm_rf!(path)
   end
 
-  test "the journal counts repeated failures against the same PR head" do
+  test "the journal counts repeated failures against the same spec and PR head" do
     path = Path.join(System.tmp_dir!(), "merge-group-blame-attempt-#{System.unique_integer([:positive])}.json")
     opts = [journal_path: path]
 
-    assert {:ok, 1} = Journal.record_merge_group_blame_attempt(18, "same-head", opts)
-    assert {:ok, 2} = Journal.record_merge_group_blame_attempt(18, "same-head", opts)
-    assert {:ok, 1} = Journal.record_merge_group_blame_attempt(18, "new-head", opts)
+    assert {:ok, 1} = Journal.record_merge_group_failure_attempt(18, "same-head", "src/test/parity_test.exs", opts)
+    assert {:ok, 2} = Journal.record_merge_group_failure_attempt(18, "same-head", "src/test/parity_test.exs", opts)
+    assert {:ok, 1} = Journal.record_merge_group_failure_attempt(18, "same-head", "src/test/other_test.exs", opts)
+    assert {:ok, 1} = Journal.record_merge_group_failure_attempt(18, "new-head", "src/test/parity_test.exs", opts)
 
     Aiur.TestCleanup.rm_rf!(path)
   end
