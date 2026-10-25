@@ -1,4 +1,5 @@
 defmodule Aiur.GitHub.AccessFacadeTest do
+  # Cohesion: the independent delegate table and real fixture inputs pin the complete facade contract.
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.Access
