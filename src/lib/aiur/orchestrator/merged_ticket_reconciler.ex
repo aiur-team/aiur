@@ -141,9 +141,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       state,
       {:merged_reconcile, issue.id},
       fn ->
-        if target == "needs-triage",
-          do: NonClosingMerge.write_target(issue, merge, expected_state(issue), opts, update),
-          else: update.(issue.identifier, target, expected_state(issue))
+        update.(issue.identifier, target, expected_state(issue))
       end,
       fn current, result ->
         if Reconciler.issue_input(current, issue.id) == input do
@@ -163,20 +161,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       Keyword.put(opts, :update_issue_state_fun, fn _identifier, _target, _expected -> result end)
 
     {state, _retained} =
-      cond do
-        target == "done" ->
-          reconcile_merged_ticket_to_done(state, issue, merge, opts, [])
-
-        target == "needs-triage" ->
-          if result == :ok do
-            {record_reference_triage(state, issue, merge, opts), []}
-          else
-            {emit_failed_alert(state, issue, merge, result, opts), [issue]}
-          end
-
-        true ->
-          reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, [])
-      end
+      if target == "done",
+        do: reconcile_merged_ticket_to_done(state, issue, merge, opts, []),
+        else: reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, [])
 
     if result == :ok, do: Lifecycle.wake_tick(state), else: state
   end
@@ -194,12 +181,6 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       {:ok, "done"} ->
         reconcile_merged_ticket_to_done(state, issue, merge, opts, retained)
 
-      {:ok, "needs-triage"} ->
-        case NonClosingMerge.write_target(issue, merge, issue.state, opts, NonClosingMerge.update_issue_state_fun(opts)) do
-          :ok -> {record_reconciled(state, issue, merge), retained}
-          {:error, reason} -> {emit_failed_alert(state, issue, merge, reason, opts), [issue | retained]}
-        end
-
       {:ok, target} when target in ["rework", "ci-wait", "human-review"] ->
         reconcile_merged_ticket_remaining_open(state, issue, merge, target, opts, retained)
 
@@ -213,14 +194,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   defp reconcile_reference_only_ticket(state, issue, merge, opts, retained) do
-    case NonClosingMerge.write_target(issue, merge, issue.state, opts, NonClosingMerge.update_issue_state_fun(opts)) do
-      :ok ->
-        state = record_reference_triage(state, issue, merge, opts)
-        {state, retained}
-
-      {:error, reason} ->
-        state = emit_failed_alert(state, issue, merge, reason, opts)
-        {state, [issue | retained]}
+    case NonClosingMerge.write_target(issue, merge, issue.state, opts, fn _, _, _ -> :ok end) do
+      :ok -> {record_reference_triage(state, issue, merge, opts), retained}
+      {:error, reason} -> {emit_failed_alert(state, issue, merge, reason, opts), [issue | retained]}
     end
   end
 
@@ -474,18 +450,38 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   defp blocked_reason(0), do: "; no dependent agents are waiting on it"
   defp blocked_reason(count), do: "; #{count} dependent agent(s) remain paused"
 
-  defp fetch_merged_ticket_state({issue, merge, opts}),
-    do:
-      if(NonClosingMerge.reference_only?(issue, merge, opts),
-        do: {:ok, "needs-triage"},
-        else: merged_ticket_target_for_issue(issue, opts)
-      )
+  defp fetch_merged_ticket_state({issue, merge, opts}) do
+    if NonClosingMerge.reference_only?(issue, merge, opts) do
+      {:reference_only, issue.state}
+    else
+      merged_ticket_target_for_issue(issue, opts)
+    end
+  end
 
   defp apply_merged_ticket_state(current, result, {input, issue, merge, opts}) do
     if Reconciler.issue_input(current, issue.id) == input do
-      start_merged_transition(current, issue, merge, opts, result)
+      case result do
+        {:reference_only, _state} -> apply_reference_only_comment(current, issue, merge, opts)
+        _ -> start_merged_transition(current, issue, merge, opts, result)
+      end
     else
       Lifecycle.wake_tick(current)
     end
+  end
+
+  defp apply_reference_only_comment(state, issue, merge, opts) do
+    TrackerTasks.run(
+      state,
+      {:merged_reference_comment, issue.id},
+      fn ->
+        NonClosingMerge.write_target(issue, merge, issue.state, opts, fn _, _, _ -> :ok end)
+      end,
+      fn current, result ->
+        case result do
+          :ok -> NonClosingMerge.record_triage(current, issue, merge, opts, &record_reconciled/3, &emit_failed_alert/5)
+          {:error, reason} -> emit_failed_alert(current, issue, merge, reason, opts)
+        end
+      end
+    )
   end
 end

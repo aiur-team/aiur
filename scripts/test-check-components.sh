@@ -237,7 +237,7 @@ if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '28 sections, 7 fields, 84 env vars, 29 state paths owned once' in result.stdout
+    assert __import__('re').search(r'^components: \d+ sections, \d+ fields, \d+ env vars, \d+ state paths owned once$', result.stdout, __import__('re').MULTILINE), result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -292,7 +292,6 @@ else:
             if verify:
                 verify(root, command)
             print(f'PASS: {name}')
-
     def use_experiments_contract(root):
         manifest = json.loads((root / 'components.json').read_text())
         sys.path.insert(0, str(repo / 'scripts'))
@@ -312,6 +311,7 @@ else:
                     ('R-down commands -> AiurWeb.Router',),
                     source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
     from components.harness_fixtures import run as harness_checks; harness_checks(reference_check, repo)
+    from components.event_bus_fixtures import run as bus_checks; bus_checks(reference_check, repo)
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))

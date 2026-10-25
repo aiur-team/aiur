@@ -6,6 +6,7 @@ defmodule Aiur.AgentEnvironment do
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
   alias Aiur.AgentEnvironment.{Contributor, CredentialScrub}
   alias Aiur.AgentEnvironment.GitHubPath
+  alias Aiur.AgentEnvironment.SchedulerOptions
   alias Aiur.Config.Paths
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -27,7 +28,7 @@ defmodule Aiur.AgentEnvironment do
   # own.
   @restart_build_env_names ~w(AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_RECEIPT AIUR_RESTART_BUILD_VERIFIES)
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
-  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE)
+  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE AIUR_LEASE_DATABASE_URL AIUR_CONTAINER)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY(?:__[A-Z0-9_-]+)?\z/
   # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
@@ -54,7 +55,6 @@ defmodule Aiur.AgentEnvironment do
   # `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` returns nothing even when the
   # daemon's own environment carries it.
   @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN)
-  @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -302,7 +302,8 @@ defmodule Aiur.AgentEnvironment do
         __MODULE__.GitIdentity.port_env(opts) ++
         Enum.map(mix_scheduler_env(), fn {name, value} -> {String.to_charlist(name), String.to_charlist(value)} end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
-        port_startup_env
+        port_startup_env ++
+        Aiur.AgentShellHook.port_env(build_gate_env)
 
     contributions = Contributor.port_env(workspace, opts)
 
@@ -339,9 +340,7 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  # Build admission is the sole permitted BASH_ENV hook in an agent workspace:
-  # it is an Aiur-owned absolute path, replaces (rather than inherits) the
-  # operator value, and is only present when admission is enabled.
+  # AgentShellHook replaces operator BASH_ENV, repairs PATH after profiles, then sources this hook.
   defp replace_bash_env(startup_env, build_gate_env) do
     case List.keyfind(build_gate_env, "BASH_ENV", 0) do
       {"BASH_ENV", _hook_path} ->
@@ -467,7 +466,7 @@ defmodule Aiur.AgentEnvironment do
 
     [
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
-      {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
+      {"ELIXIR_ERL_OPTIONS", SchedulerOptions.build(cap)}
     ]
   end
 
@@ -517,9 +516,4 @@ defmodule Aiur.AgentEnvironment do
       _ -> neutral_repo_url()
     end
   end
-
-  defp scheduler_options(cap), do: scheduler_options(cap, System.get_env("ELIXIR_ERL_OPTIONS", ""))
-
-  defp scheduler_options(cap, options),
-    do: options |> then(&Regex.replace(@scheduler_option, &1, "")) |> String.split() |> Kernel.++(["+S", "#{cap}:#{cap}"]) |> Enum.join(" ")
 end

@@ -1,3 +1,4 @@
+import { activeFeature } from './features.js';
 // Port of design build.js:807–877, 1543–1547; unknowns are explicit at the trust boundary.
 import { S, ctx, fx, onReset } from './state.js';
 import { esc } from './dom.js';
@@ -130,7 +131,7 @@ export function makeCard(it) {
   el.setAttribute('role', 'button'); decorate(el); return el;
 }
 export function decorate(el) {
-  const t = ctx.D.byId[el.dataset.id], F = S.feature;
+  const t = ctx.D.byId[el.dataset.id], F = activeFeature();
   if (!t) return;
   const inFeat = F && t.feature === F, also = F && !inFeat && t.also.includes(F), ghost = el.classList.contains('ghost');
   el.classList.toggle('dim', !match(t) || (!!F && S.fmode === 'focus' && !inFeat && !also && !ghost));

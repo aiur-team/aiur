@@ -17,9 +17,11 @@ The optional experiment store registers this check; without it, ordinary authori
 
 ## GitHub App authentication
 
-The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise.
+Local instances use a short-lived GitHub App installation token when App credentials are configured. Otherwise, they use `GITHUB_TOKEN` or the `gh` keyring.
 
-When no App credentials are set, a `GITHUB_TOKEN` env var is preferred, then the `gh` keyring (`gh auth login`). Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
+Hosted instances (`instance.mode: hosted`), environment-only deployments, and deployments declaring persistent state default to App authentication. They reject PAT auth unless `AIUR_GITHUB_ALLOW_PAT=1` explicitly opts into `GITHUB_TOKEN`; when both the App and PAT are configured, the App wins.
+
+Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour. The dashboard's GitHub quota card shows whether the daemon is using a GitHub App, a PAT, or the `gh` keyring.
 
 ### Set up the App
 
@@ -36,6 +38,10 @@ Create a GitHub App under **Settings → Developer settings → GitHub Apps** an
 
 GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
 
+For webhook delivery, subscribe the App to `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, `check_suite`, `push`, `branch_protection_rule`, `repository_ruleset`, and `repository`. See [webhook setup](/apis/github-webhooks#optional-webhook) for endpoint details.
+
+A container `aiur init` prints this event list and the permissions above.
+
 ### Configure the daemon
 
 The daemon reads App credentials from the same `.env` the launcher sources; they are never written to `.aiur/config`.
@@ -47,11 +53,11 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 | `GITHUB_APP_PRIVATE_KEY_PATH` | Path to the private-key PEM file; preferred. |
 | `GITHUB_APP_PRIVATE_KEY` | Inline PEM alternative; use one or the other. |
 
-`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
+`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value. A container platform may inject the PEM as `GITHUB_APP_PRIVATE_KEY`; Aiur uses that content without requiring a key file. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
 
 A repository whose own `.env` sets a `GITHUB_TOKEN` (or any `GITHUB_APP_*` name) does not inherit the App from `~/.aiur/.env`; see [environment layering](/reference/configuration#environment-variables). Put App credentials in `~/.aiur/.env` for every repository the App is installed on, and in the repository `.env` when only that repository should use it.
 
-The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
+For local instances, the env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`). Hosted/container instances require the App unless `AIUR_GITHUB_ALLOW_PAT=1` is set and `GITHUB_TOKEN` is present; the keyring is not a hosted fallback.
 
 The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls — a locked keyring prompting for a passphrase, a slow host, or a missing GUI credential agent — cannot hang the daemon with no log line.
 
@@ -106,6 +112,8 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 ## What the agent guard governs
 
 Governed `gh` calls run for at most 120 seconds. `AIUR_GH_CALL_TIMEOUT_SECONDS` may lower the cap. On timeout, the supervisor terminates child processes and exits 124; `gh run watch` and `gh pr checks --watch` share the limit. It sources its body from an anonymous pipe, so caller-writable `TMPDIR` cannot replace it.
+
+Before handoff, if the PR body has stale or invalid local-test evidence, the daemon checks `.aiur-runtime/tmp/pr.md` in the agent workspace. A regular file no larger than 1 MB is accepted only when it passes the PR body lint for the current PR head. Aiur applies it with the daemon credential and verifies the stored body before allowing handoff.
 
 Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard

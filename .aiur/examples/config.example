@@ -34,7 +34,11 @@ tracker:
 # Merge policy defaults; currently validated and shown in status/capabilities.
 # For a second daemon on the same GitHub repository, set instance.role: secondary.
 instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # primary | secondary; one primary per repository
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
   #   tickets: []                     # ids handed over mid-flight
@@ -89,6 +93,9 @@ agent:
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
   # max_repeated_identical_commands: 5  # steer after five identical read-only results; stop on the next repeat; 0 disables
+  # local_gate_wait_steer_minutes: 20    # only after prolonged local gate polling with fresh green CI; lets ordinary builds finish
+  # local_gate_wait_stop_minutes: 30     # ten minutes after the steer, to give the worker time to refresh the PR body and hand off
+  # local_gate_ci_max_age_minutes: 15    # ignore a green cache entry old enough to belong to a previous PR head
   # max_commands_per_turn: 1000  # optional tool-call cap; null disables
   # max_input_tokens_per_turn: 20000000  # optional input-token cap; null disables
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # runtime cap: release worker, route to rework/review; 0 = off
@@ -188,6 +195,14 @@ alerts:
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
   alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
+
+# Optional low-usage alerts. Thresholds are remaining percentages; unknown or stale readings do not trigger alerts.
+# usage:
+#   alerts:
+#     claude:
+#       threshold: 10
+#     codex:
+#       threshold: 10
 
 # === Executor takeover advisories (advanced defaults shown) ===
 # While a nonterminal ticket stays in the run scope, aiur watches its convergence age
@@ -290,7 +305,7 @@ alerts:
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_tags: {}, capture_label_prefixes: ["experiment:", "cohort:", "feature:"], capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
 # server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); 0.0.0.0 exposes the LAN
-# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com, localhost, 127.0.0.1] }
+# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com], trusted_proxies: [10.0.0.0/8] }
 # dashboard_auth: { google: { allowed_emails: [operator@example.com] }, passkeys: false, session_max_age_days: 30, browser_basic_auth: true }
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur
 # dashboard owns Funnel HTTPS 443 and should alert on a stale target.

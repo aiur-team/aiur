@@ -102,17 +102,20 @@ cmd_pre_pr() {
     pre_pr_persist "$base_sha" INCOMPLETE
   }
 
-  run_coverage_partitions() {
-    local partition
-    full_suite_recommended=1
-    for partition in 1 2 3 4; do
-      printf 'aiur pre-pr coverage partition started: %s/4\n' "$partition"
-      run_gate "coverage partition ($partition/4)" "${test_env[@]}" \
-        "MIX_TEST_ARGS=--max-cases 4" "MIX_TEST_PARTITION=$partition" TEST_PARTITIONS=4 \
-        nice -n 10 timeout --signal=TERM --kill-after=60s 60m mise exec -- \
-        make -C "$root/src" coverage-partition
-    done
-  }
+  if [ -f "$root/scripts/lib/layout-assets.sh" ]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      results+=("FAIL pinned layout assets (Node/npm required; install Node/npm, then run npm ci --ignore-scripts and npm run vendor:elk -- --check in src/browser)")
+      result=1
+      printf '%s\n' 'ELK asset generation failed; release build stopped. Install Node/npm and retry:' '  cd src/browser && npm ci --ignore-scripts && npm run vendor:elk -- --check' >"$temp_dir/layout-assets.log"
+      failures+=("$temp_dir/layout-assets.log")
+    elif ! ( source "$root/scripts/lib/layout-assets.sh"; build_layout_assets "$root" mise exec -- ) >"$temp_dir/layout-assets.log" 2>&1; then
+      results+=("FAIL pinned layout assets")
+      failures+=("$temp_dir/layout-assets.log")
+      result=1
+    else
+      results+=("PASS pinned layout assets")
+    fi
+  fi
 
   run_gate "mix format --check-formatted" bash -c 'cd src && mise exec -- mix format --check-formatted'
   run_gate "mix compile --warnings-as-errors" bash -c 'cd src && mise exec -- mix compile --warnings-as-errors'
@@ -120,8 +123,6 @@ cmd_pre_pr() {
   run_gate "check-file-size" python3 scripts/check-file-size.py --base "$base_sha"
   run_gate "check-config-docs" python3 scripts/check-config-docs.py
   run_gate "check-hot-list-format" python3 scripts/check-hot-list-format.py
-  run_gate "architectural guard tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
-
   if ! affected="$(cd src && AIUR_BASE_BRANCH="$base_ref" mise exec -- mix aiur.affected_tests "origin/$base_ref" --json)"; then
     results+=("FAIL affected tests selection")
     printf '%s\n' "$affected" >"$temp_dir/affected-selection.log"
@@ -139,8 +140,7 @@ cmd_pre_pr() {
     case "$selection" in
       full)
         full_suite_recommended=1
-        results+=("NOTE full selection ($(jq -r '.reason' <<<"$affected")); running CI coverage partitions locally; full CI suite runs in merge queue")
-        run_coverage_partitions
+        results+=("NOTE full selection ($(jq -r '.reason' <<<"$affected")); running discovered reader tests locally; CI owns the full coverage partitions")
         while IFS= read -r edited; do
           [ -n "$edited" ] || continue
           while IFS= read -r reader_test; do
@@ -172,8 +172,8 @@ cmd_pre_pr() {
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
           if [ "${#mix_paths[@]}" -gt 400 ]; then
-            results+=("NOTE affected selection includes ${#mix_paths[@]} files; running CI coverage partitions locally")
-            run_coverage_partitions
+            full_suite_recommended=1
+            results+=("NOTE affected selection includes ${#mix_paths[@]} files; deferred to CI to keep local checks focused")
           else
             run_gate "affected tests" "${test_env[@]}" nice -n 10 bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
           fi

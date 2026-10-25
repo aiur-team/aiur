@@ -60,7 +60,11 @@ tracker:
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
 instance:
+  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # primary | secondary; one primary per repository
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
   #   tickets: []                     # ids handed over mid-flight
@@ -137,6 +141,7 @@ server:
   host: 127.0.0.1
   port: 4000
   # public_url: https://aiur.example.com
+  # trusted_proxies: [10.0.0.0/8]
   # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
 # dashboard_auth: {google: {allowed_emails: [operator@example.com]}, passkeys: false, session_max_age_days: 30, browser_basic_auth: true}
@@ -176,6 +181,9 @@ agent:
   #   openrouter: {model: moonshotai/kimi-k2.7-code}
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # max_repeated_identical_commands: 5
+  # local_gate_wait_steer_minutes: 20
+  # local_gate_wait_stop_minutes: 30
+  # local_gate_ci_max_age_minutes: 15
   # max_commands_per_turn: 1000
   # max_input_tokens_per_turn: 20000000
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
@@ -249,3 +257,8 @@ compaction:
 #     after_step_days: 7
 #     after_max_days: 42
 #     metric_packs: ["delivery"]
+# Optional per-provider low-usage alerts use remaining percent (unknown/stale readings are ignored):
+# usage:
+#   alerts:
+#     codex:
+#       threshold: 10

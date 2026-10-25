@@ -8,7 +8,8 @@ defmodule Aiur.Handoff.CLI do
 
   # Keep this below the 120s shell RPC envelope in engine/handoff.sh so the
   # daemon can report the blocked control RPC before the launcher times out.
-  @preflight_snapshot_timeout_ms 100_000
+  # Leave the prepare's 100s budget inside the shell's 120s RPC envelope.
+  @preflight_snapshot_timeout_ms 10_000
 
   @spec print_latest(keyword()) :: :ok
   def print_latest(opts \\ []) do
@@ -51,7 +52,14 @@ defmodule Aiur.Handoff.CLI do
     case Aiur.AgentControlCLI.prepare_handoff() do
       {:ok, result} ->
         IO.puts("__AIUR_HANDOFF__:#{result.handoff_id}")
-        if result.skipped != [], do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
+
+        if result.skipped != [],
+          do: IO.puts("Handoff skipped paused agents: #{Enum.join(result.skipped, ", ")}")
+
+        for agent <- result.agents, reason = agent["fallback_reason"], not is_nil(reason) do
+          IO.puts("Handoff ticket fallback: #{agent["identifier"]} (#{reason})")
+        end
+
         exit_marker(0)
 
       {:error, reason} ->
@@ -105,8 +113,12 @@ defmodule Aiur.Handoff.CLI do
 
       true ->
         IO.puts("HANDOFF #{report.handoff_id} at=#{report.completed_at || "unknown"} adopted=#{length(report.adopted)} fallback=#{length(report.fallback)} gap=#{report.gap_ms || "unknown"}ms")
-        for agent <- report.adopted, do: IO.puts("#{agent["identifier"]} adopted pid=#{agent["provider_pid_after"]} session=#{agent["session_id_after"]}")
-        for agent <- report.fallback, do: IO.puts("#{agent["identifier"]} fallback #{agent["reason"]}")
+
+        for agent <- report.adopted,
+            do: IO.puts("#{agent["identifier"]} adopted pid=#{agent["provider_pid_after"]} session=#{agent["session_id_after"]}")
+
+        for agent <- report.fallback,
+            do: IO.puts("#{agent["identifier"]} fallback #{agent["reason"]}")
     end
 
     :ok

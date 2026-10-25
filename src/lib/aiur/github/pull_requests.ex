@@ -7,8 +7,52 @@ defmodule Aiur.GitHub.PullRequests do
   alias Aiur.GitHub.{ChangedPaths, Comments, Errors, ResourceFetch, ResourceStore, Transport}
   alias Aiur.GitHub.PullRequests.{BaseBranch, OpenPullRequests}
   alias Aiur.GitHub.PullRequests.CommitCiStatus
+  alias Aiur.GitHub.ReadCache
 
   @issue_events_page 100
+
+  @doc "Fetches commit messages for a pull request, across all pages, cached by its head SHA."
+  @spec fetch_pull_request_commits(pos_integer(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_pull_request_commits(number, opts \\ [])
+
+  def fetch_pull_request_commits(number, opts) when is_integer(number) and number > 0 do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      fetch = fn ->
+        request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+        url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{number}/commits?per_page=100"
+        fetch_commit_messages(request_fun, token, url, 0, [])
+      end
+
+      ReadCache.pull_request_commits("#{owner}/#{repo}", number, Keyword.get(opts, :head_sha), fetch)
+    end
+  end
+
+  def fetch_pull_request_commits(_number, _opts), do: {:error, :invalid_pull_request_number}
+
+  defp fetch_commit_messages(_request_fun, _token, _url, 100, _acc), do: {:error, :pull_request_commit_list_too_large}
+
+  defp fetch_commit_messages(request_fun, token, url, page, acc) do
+    with {:ok, %{status: 200, body: commits} = response} <- request_fun.(%{method: :get, url: url, token: token, caller: "pull_request_commits"}),
+         true <- is_list(commits),
+         {:ok, messages} <- commit_messages(commits) do
+      case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        nil -> {:ok, acc ++ messages}
+        next -> fetch_commit_messages(request_fun, token, next, page + 1, acc ++ messages)
+      end
+    else
+      {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
+      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+      false -> {:error, :invalid_pull_request_commit}
+    end
+  end
+
+  defp commit_messages(commits) do
+    messages = Enum.map(commits, &get_in(&1, ["commit", "message"]))
+    if Enum.all?(messages, &is_binary/1), do: {:ok, messages}, else: {:error, :invalid_pull_request_commit}
+  end
+
+  defdelegate update_body(number, body, opts \\ []), to: Aiur.GitHub.PullRequests.BodyUpdater
 
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}

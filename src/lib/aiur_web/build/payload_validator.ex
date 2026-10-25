@@ -82,7 +82,7 @@ defmodule AiurWeb.Build.PayloadValidator do
   defp references(%{"kind" => "snapshot", "epics" => epics, "features" => features, "order" => order, "sections" => sections} = msg)
        when is_map(epics) and is_map(features) and is_list(order) and is_map(sections) do
     refs = Enum.flat_map(Enum.with_index(order), fn {key, i} -> reference(epics, key, "order.#{i}") end)
-    refs ++ feature_refs(features, epics) ++ row_refs(sections, epics, features) ++ count_refs(msg["counts"], order, epics)
+    refs ++ feature_refs(features, epics) ++ row_refs(sections, epics, features) ++ count_refs(msg["counts"], order, epics) ++ progress_refs(msg["feature_progress"], epics)
   end
 
   defp references(_message), do: []
@@ -119,6 +119,8 @@ defmodule AiurWeb.Build.PayloadValidator do
   end
 
   defp count_refs(_counts, _order, _epics), do: []
+  defp progress_refs(%{"features" => progress}, epics) when is_map(progress), do: Enum.flat_map(Map.keys(progress) -- Map.keys(epics), &error("feature_progress.features.#{&1}", :reference))
+  defp progress_refs(_, _), do: []
   defp reference(_map, nil, _path), do: []
   defp reference(map, key, path), do: if(Map.has_key?(map, key), do: [], else: error(path, :reference))
   defp rule(errors, true, path, reason), do: errors ++ error(path, reason)
