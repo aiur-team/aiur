@@ -177,6 +177,41 @@ defmodule Aiur.Config.OverridesTest do
            end)
   end
 
+  test "concurrent applies quarantine a rejected entry once", %{override_path: path} do
+    {:ok, workflow} = Workflow.load_base()
+    rounds = 8
+    concurrency = 4
+    parent = self()
+
+    for round <- 1..rounds do
+      write_override!(path, %{"agent.max_concurrent_buildz" => entry(9, round)})
+
+      tasks =
+        for _ <- 1..concurrency do
+          Task.async(fn ->
+            send(parent, :ready)
+
+            receive do
+              :go -> Overrides.apply(workflow)
+            end
+          end)
+        end
+
+      for _ <- 1..concurrency, do: assert_receive(:ready, 5_000)
+      Enum.each(tasks, &send(&1.pid, :go))
+      assert Enum.all?(Task.await_many(tasks, :infinity), &match?({:ok, _workflow}, &1))
+
+      rejected_paths = Path.wildcard(Path.join(Path.dirname(path), "config-overrides.rejected-*.json"))
+      assert length(rejected_paths) == round
+    end
+
+    alerts =
+      AlertFeed.list(ledger_paths: [AlertLedger.path()])
+      |> Enum.filter(&(&1["topic"] == "config.override_rejected"))
+
+    assert length(alerts) == rounds
+  end
+
   test "missing instance identity disables boot overrides and names set refusal" do
     previous = System.get_env("AIUR_INSTANCE_KEY")
 
