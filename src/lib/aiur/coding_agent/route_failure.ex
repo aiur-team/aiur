@@ -127,7 +127,10 @@ defmodule Aiur.CodingAgent.RouteFailure do
     settings = Aiur.Config.settings!()
 
     availability_opts = Keyword.get(opts, :availability_opts, [])
-    fingerprint = ProviderCredential.fingerprint(backend, settings, System.get_env()) || "unavailable"
+
+    fingerprint =
+      ProviderCredential.fingerprint_for_mode(settings.instance.mode, backend, settings, System.get_env()) ||
+        "unavailable"
 
     path =
       if settings.instance.mode == "hosted",

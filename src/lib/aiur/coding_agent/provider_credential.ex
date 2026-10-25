@@ -3,6 +3,12 @@ defmodule Aiur.CodingAgent.ProviderCredential do
 
   alias Aiur.CodingAgent.RouteCredentials
 
+  @spec fingerprint_for_mode(String.t(), String.t(), map(), map()) :: String.t() | nil
+  def fingerprint_for_mode("hosted", backend, settings, env),
+    do: fingerprint(backend, settings, env)
+
+  def fingerprint_for_mode(_mode, _backend, _settings, _env), do: nil
+
   @spec fingerprint(String.t(), map(), map()) :: String.t() | nil
   def fingerprint("claude", _settings, env) do
     fingerprint_value(env["CLAUDE_CODE_OAUTH_TOKEN"] || env["ANTHROPIC_API_KEY"])
