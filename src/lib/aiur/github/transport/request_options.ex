@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.Transport.RequestOptions do
 
   @default_request_timeout_ms 30_000
 
+  @spec headers(String.t() | nil, map()) :: [{String.t(), String.t()}]
   def headers(token, req) do
     case Map.get(req, :etag) do
       nil -> github_headers(token, req)
@@ -12,6 +13,7 @@ defmodule Aiur.GitHub.Transport.RequestOptions do
     end
   end
 
+  @spec options([{String.t(), String.t()}], map()) :: keyword()
   def options(headers, req) do
     options = Application.get_env(:aiur, :github_transport_test_options, [])
     options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
