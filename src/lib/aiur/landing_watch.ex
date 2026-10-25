@@ -6,8 +6,8 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Classifier, ConflictRouting, ConflictUpdate, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, PrRerunClassifier}
-  alias Aiur.LandingWatch.{QueueAdmission, RunnerQueue}
+  alias Aiur.LandingWatch.{Classifier, ConflictRouting, ConflictUpdate, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun}
+  alias Aiur.LandingWatch.{QueueAdmission, RunnerQueue, UnapprovedRecovery}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -181,46 +181,12 @@ defmodule Aiur.LandingWatch do
       if Classifier.approved_at_head?(Map.get(observation, :raw, %{})) do
         process_approved(observation, opts)
       else
-        process_unapproved_recovery(observation, opts)
+        UnapprovedRecovery.process(observation, opts)
       end
     end
   end
 
   def process(_observation, _opts), do: :ok
-
-  defp process_unapproved_recovery(observation, opts) do
-    with {red_since, recovered_at} = window when is_integer(red_since) and is_integer(recovered_at) <- Keyword.get(opts, :main_ci_recovery_window),
-         false <- ConflictRouting.conflicting?(observation),
-         {:ok, runs} <- Keyword.get(opts, :recovery_runs_fun, &recovery_runs/2).(observation, opts),
-         in_window <- Enum.filter(runs, &recovery_run_in_window?(&1, window)),
-         stale_fun <- Keyword.get(opts, :stale_merge_ref_fun, &PrRerunClassifier.stale_merge_ref?/2),
-         stale <- Enum.filter(in_window, &stale_fun.(&1, opts)),
-         true <- stale != [] do
-      PrRerun.recover_main_ci(observation, stale, window, opts)
-    else
-      false -> :ok
-      _ -> :ok
-    end
-  end
-
-  defp recovery_run_in_window?(run, {red_since, recovered_at}) do
-    case DateTime.from_iso8601(run["started_at"] || "") do
-      {:ok, started, _} ->
-        timestamp = DateTime.to_unix(started, :millisecond)
-        run["status"] == "completed" and run["conclusion"] in ["failure", "timed_out", "startup_failure"] and timestamp >= red_since and timestamp <= recovered_at
-
-      _ ->
-        false
-    end
-  end
-
-  defp recovery_runs(%{head: head}, opts) do
-    with {:ok, %{check_runs: runs}} <-
-           LocalRead.run(Keyword.get(opts, :ci_status_fun, &Client.fetch_commit_ci_status/2), [head, opts], opts) do
-      failed = Enum.filter(runs, &(&1["status"] == "completed" and &1["conclusion"] in ["failure", "timed_out", "startup_failure"]))
-      hydrate_failed_jobs(failed, opts)
-    end
-  end
 
   defp process_approved(%{number: number, raw: raw, head: head} = observation, opts) do
     current_approval = Keyword.get(opts, :approved_fun, &HumanReviewGate.pull_request_approved_at_head?/2)
@@ -259,7 +225,9 @@ defmodule Aiur.LandingWatch do
     if Keyword.get(opts, :hold_rework, false), do: :ok, else: route_rework(observation, failures, opts)
   end
 
-  defp hydrate_failed_jobs(runs, opts) do
+  @doc false
+  @spec hydrate_failed_jobs([map()], keyword()) :: {:ok, [map()]} | {:error, term()}
+  def hydrate_failed_jobs(runs, opts) do
     runs
     |> Enum.reduce_while({:ok, []}, fn run, {:ok, acc} ->
       case hydrate_run(run, opts) do
