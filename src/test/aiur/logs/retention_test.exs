@@ -1,5 +1,5 @@
 defmodule Aiur.Logs.RetentionTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Logs.Retention
 
@@ -8,6 +8,21 @@ defmodule Aiur.Logs.RetentionTest do
     File.mkdir_p!(root)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
     %{root: root}
+  end
+
+  test "default root follows AIUR_STATE_DIR" do
+    root = Aiur.TestSupport.tmp_root!("aiur-retention-state")
+    previous_state_dir = System.get_env("AIUR_STATE_DIR")
+    System.put_env("AIUR_STATE_DIR", root)
+    expected_root = Path.join(root, "logs")
+
+    on_exit(fn ->
+      if is_nil(previous_state_dir), do: System.delete_env("AIUR_STATE_DIR"), else: System.put_env("AIUR_STATE_DIR", previous_state_dir)
+      Aiur.TestCleanup.rm_rf!(root)
+    end)
+
+    {:ok, pid} = Retention.start_link(name: nil, start_paused?: true)
+    assert %{root: ^expected_root} = :sys.get_state(pid)
   end
 
   # Writes a session dir holding one file of `bytes`, then stamps the dir

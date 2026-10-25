@@ -25,10 +25,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          state_dir="$(mktemp -d)"
-          cleanup() { docker rm -f aiur-daemon-smoke >/dev/null 2>&1 || true; rm -rf "$state_dir"; }
+          state_volume="$(docker volume create --label aiur.ticket=5940)"
+          cleanup() {
+            docker rm -f aiur-daemon-smoke >/dev/null 2>&1 || true
+            docker volume rm "$state_volume" >/dev/null
+          }
           trap cleanup EXIT
-          chmod 777 "$state_dir"
           docker run --detach --name aiur-daemon-smoke --publish 4000:4000 \
             --env AIUR_STATE_DIR=/data --env AIUR_BG_STATE_DIR=/data/engine \
             --env AIUR_COOKIE_FILE=/data/engine/cookie \
@@ -40,7 +42,7 @@ jobs:
             --env AIUR_GOOGLE_CLIENT_ID=smoke-client-id \
             --env AIUR_GOOGLE_CLIENT_SECRET=smoke-client-secret \
             --env AIUR_CONFIG_FILE=/config/config \
-            --volume "$state_dir:/data" \
+            --volume "$state_volume:/data" \
             --volume "$GITHUB_WORKSPACE/packaging/docker/fixture.yaml:/config/config:ro" \
             aiur-daemon:smoke
           for attempt in $(seq 1 60); do

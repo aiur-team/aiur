@@ -56,7 +56,7 @@ defmodule AiurWeb.PublicHealthController do
   defp ready? do
     case Application.get_env(:aiur, :health_ready_fun) do
       fun when is_function(fun, 0) -> fun.() == :ok
-      _ -> is_pid(orchestrator_pid()) and TrackerHealth.tracker_preflight() == :ok
+      _ -> is_pid(orchestrator_pid()) and tracker_preflight() == :ok
     end
   rescue
     _ -> false
@@ -68,6 +68,13 @@ defmodule AiurWeb.PublicHealthController do
     case Application.get_env(:aiur, :health_orchestrator_pid_fun) do
       fun when is_function(fun, 0) -> fun.()
       _ -> Process.whereis(Orchestrator)
+    end
+  end
+
+  defp tracker_preflight do
+    case Application.get_env(:aiur, :health_tracker_preflight_fun) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> TrackerHealth.tracker_preflight()
     end
   end
 end
