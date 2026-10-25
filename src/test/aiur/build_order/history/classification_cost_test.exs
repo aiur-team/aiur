@@ -88,7 +88,8 @@ defmodule Aiur.BuildOrder.History.ClassificationCostTest do
 
     state = %{projection: projection, health: :healthy, freshness: %{}, source_coverage: %{}}
     query = fn scope -> Query.summary(state, scope) end
-    sample = read(query_fun: query)
+    # An existing pilot caller may still pass the old baseline keyword.
+    sample = read(query_fun: query, baseline_partial_records: baseline.coverage.partial_records)
     assert sample.partial_records == 1
     assert sample.tokens.input == {:known, 900}
     assert sample.tokens.output == {:known, 120}
