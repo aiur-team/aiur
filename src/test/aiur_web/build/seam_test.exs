@@ -17,7 +17,7 @@ defmodule AiurWeb.Build.SeamTest do
     # ElevenLabs reads its supervised quota snapshot; it does not issue requests.
     "Aiur.ElevenLabs.Quota",
     # GitHub reads its supervised quota snapshot and existing resource holds.
-    "Aiur.GitHub.Quota",
+    "Aiur.GitHub.Access",
     # Durable previous-boot readings come from the existing local ledger file.
     "Aiur.ModelAvailability",
     # Watch events register the socket pid with the existing focused polling service.
