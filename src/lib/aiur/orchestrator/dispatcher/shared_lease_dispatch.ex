@@ -44,20 +44,20 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
       )
     end
 
-    if is_binary(issue.pr_head_ref) do
-      dispatch.()
-    else
-      case ownership_eligibility(selected_issue, opts) do
-        :eligible ->
+    case ownership_eligibility(selected_issue, opts) do
+      :eligible ->
+        if is_binary(issue.pr_head_ref) do
+          dispatch.()
+        else
           dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
+        end
 
-        :ineligible ->
-          Candidates.emit_dispatch_attempt_decline(state, issue, :instance_not_owner, false)
+      :ineligible ->
+        Candidates.emit_dispatch_attempt_decline(state, issue, :instance_not_owner, false)
 
-        :unknown ->
-          Logger.warning("Instance ownership roster unavailable for #{State.issue_context(issue)}; holding dispatch")
-          Candidates.emit_dispatch_attempt_decline(state, issue, :instance_ownership_unavailable, true)
-      end
+      :unknown ->
+        Logger.warning("Instance ownership roster unavailable for #{State.issue_context(issue)}; holding dispatch")
+        Candidates.emit_dispatch_attempt_decline(state, issue, :instance_ownership_unavailable, true)
     end
   end
 

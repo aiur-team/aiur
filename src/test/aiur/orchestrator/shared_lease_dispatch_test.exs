@@ -206,6 +206,44 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
     refute MapSet.member?(state.claimed, issue.id)
   end
 
+  test "a PR-head ticket still requires a known eligible owner" do
+    parent = self()
+    base_issue = %{lease_issue("voice-pr") | labels: ["build-lane:voice"], pr_head_ref: "feature/voice"}
+
+    for {instance_id, roster_result} <- [
+          {"pc",
+           {:ok,
+            [
+              %{instance_id: "nuc", metadata: %{"version" => 1, "data" => %{"owns" => [%{"label" => "build-lane:voice"}], "dispatching" => true}}},
+              %{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}
+            ]}},
+          {"nuc", {:error, :offline}}
+        ] do
+      state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          base_issue,
+          nil,
+          nil,
+          ownership_instance_id: instance_id,
+          ownership_live_instances_fun: fn -> roster_result end,
+          lease_claim_fun: fn _ ->
+            send(parent, :lease_attempt)
+            :acquired
+          end,
+          runner: fn _, _, _ ->
+            send(parent, :runner_started)
+            :ok
+          end
+        )
+
+      refute MapSet.member?(state.claimed, base_issue.id)
+    end
+
+    refute_receive :lease_attempt, 0
+    refute_receive :runner_started, 0
+  end
+
   test "a lease acquired for a launch that cannot start is released" do
     parent = self()
 
