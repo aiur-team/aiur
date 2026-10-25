@@ -248,6 +248,9 @@ defmodule Aiur.Application.Children do
       # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
       BuildOrders.child_specs(:view_state_sweep, opts),
       Aiur.GitHub.Listeners,
+      # Seed the fail-closed admission table before the Orchestrator can perform
+      # its initial dispatch.
+      Aiur.Orchestrator.SpendCap.Store,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
       Aiur.DecisionExpiry,
@@ -310,8 +313,7 @@ defmodule Aiur.Application.Children do
         quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
         dashboard_final_children(dashboard?, opts) ++
-        coordination_children() ++
-        [Aiur.Orchestrator.SpendCap.Store]
+        coordination_children()
     )
   end
 

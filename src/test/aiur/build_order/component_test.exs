@@ -121,6 +121,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.OpenTicketSource, [poll_on_start: true]},
     {Aiur.GitHub.ViewStateSweep, [sources: [Aiur.BuildOrder.PackStatus]]},
     Aiur.GitHub.Listeners,
+    Aiur.Orchestrator.SpendCap.Store,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
     Aiur.DecisionExpiry,
@@ -174,8 +175,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {AiurWeb.OperatorControlCenter.Analytics.Prewarmer, prewarm_on_start: true},
     AiurWeb.DashboardAuth.ChallengeStore,
     Aiur.BuildOrder.Estimates,
-    AiurWeb.Build.IndexSupervisor,
-    Aiur.Orchestrator.SpendCap.Store
+    AiurWeb.Build.IndexSupervisor
   ]
 
   setup do
