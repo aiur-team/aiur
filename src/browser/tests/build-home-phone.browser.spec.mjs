@@ -50,6 +50,16 @@ for (const name of Object.keys(PHONE_CELLS)) test(`phone guard: no page scroll s
   }
 })
 
+test('offline board has no horizontal overflow at 390px', async ({ browser }) => {
+  for (const dataset of ['offline', 'live']) {
+    const { page, close } = await openPhoneProduct(browser, phoneCell('p390', dataset))
+    try {
+      const overflow = await page.locator('#bd-vp').evaluate(vp => vp.scrollWidth - vp.clientWidth)
+      expect(overflow, `${dataset} #bd-vp horizontal overflow`).toBe(0)
+    } finally { await close() }
+  }
+})
+
 for (const name of ['p390', 'p430']) test(`phone guard: board geometry matches the design at ${name}`, async ({ browser }) => {
   const pair = await openParityPair(browser, phoneCell(name))
   try {
