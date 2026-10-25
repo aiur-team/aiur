@@ -219,26 +219,32 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
 
       case reap_fun.(running_entry) do
         :reaped ->
-          count = Map.get(state, :orphaned_agent_reap_count, 0) + 1
-          identifier = Map.get(running_entry, :identifier)
-
-          _ =
-            Alerts.emit_custom(
-              "ticket.#{identifier}.agent.orphan_reaped",
-              "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
-              issue: Map.get(running_entry, :issue),
-              workspace: Map.get(running_entry, :workspace_path),
-              worker_host: Map.get(running_entry, :worker_host),
-              reason: "agent runner exited while its tracked shell process tree remained live",
-              needs_attention: true
-            )
-
-          %{state | orphaned_agent_reap_count: count}
+          record_orphan_reap(state, running_entry)
 
         :gone ->
           state
       end
     end
+  end
+
+  defp record_orphan_reap(state, %{cancel_requested: true}), do: state
+
+  defp record_orphan_reap(state, running_entry) do
+    count = Map.get(state, :orphaned_agent_reap_count, 0) + 1
+    identifier = Map.get(running_entry, :identifier)
+
+    _ =
+      Alerts.emit_custom(
+        "ticket.#{identifier}.agent.orphan_reaped",
+        "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
+        issue: Map.get(running_entry, :issue),
+        workspace: Map.get(running_entry, :workspace_path),
+        worker_host: Map.get(running_entry, :worker_host),
+        reason: "agent runner exited while its tracked shell process tree remained live",
+        needs_attention: true
+      )
+
+    %{state | orphaned_agent_reap_count: count}
   end
 
   defp expire_pending_control(state, running_entry, issue_id) do

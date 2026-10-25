@@ -177,12 +177,13 @@ defmodule Aiur.Orchestrator.CancellationTest do
              AgentDown.handle_agent_down(state, ref, :killed,
                reap_fun: fn selected ->
                  send(owner, {:orphan_reap, selected.telemetry_attempt_id})
-                 :gone
+                 :reaped
                end
              )
 
     assert_receive {:orphan_reap, "42:attempt-reap-on-down"}, 100
     refute Map.has_key?(next.running, issue_id)
+    assert next.orphaned_agent_reap_count == 0
   end
 
   test "a non-exit result schedules another shell cleanup attempt" do

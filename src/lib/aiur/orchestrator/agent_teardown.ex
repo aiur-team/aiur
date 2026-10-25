@@ -1,7 +1,9 @@
 defmodule Aiur.Orchestrator.AgentTeardown do
   @moduledoc """
-  Owns orchestrator AgentTeardown behavior.
-  All functions execute inside the orchestrator GenServer process.
+  Owns orchestrator teardown behavior.
+
+  State-mutating functions execute inside the orchestrator GenServer process.
+  Supervised shell cleanup helpers may be scheduled by an API observer.
   """
 
   require Logger
