@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.OptimisticLedgerTelemetry do
   @moduledoc "Lifecycle points for persisted optimistic attempt transitions."
+  alias Aiur.Signal
 
   @spec record_changes(map(), map()) :: :ok
   def record_changes(previous, current) do

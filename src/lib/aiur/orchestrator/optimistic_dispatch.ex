@@ -7,8 +7,8 @@ defmodule Aiur.Orchestrator.OptimisticDispatch do
   alias Aiur.Events.BranchRefStore
   alias Aiur.{Issue, OptimisticStart}
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, OptimisticLedger}
-  alias Aiur.StartTrigger.ProgressStore
   alias Aiur.Signal
+  alias Aiur.StartTrigger.ProgressStore
 
   @spec prepare_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, atom()}
   def prepare_for_dispatch(%Issue{optimistic_start: %{}} = issue, _opts), do: {:ok, issue}

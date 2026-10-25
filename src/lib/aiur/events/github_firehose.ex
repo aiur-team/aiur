@@ -35,13 +35,13 @@ defmodule Aiur.Events.GithubFirehose do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.{Boot, RecentMerge, RecentMergeStore, RunTelemetry}
   alias Aiur.Events
   alias Aiur.Events.GithubFirehose.PullRequest
   alias Aiur.Events.{GithubKeys, Sanitizer}
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.PullRequests
+  alias Aiur.Signal
   alias Aiur.StartTrigger.ProgressStore
   alias Aiur.TicketBranch
 
