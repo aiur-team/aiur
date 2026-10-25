@@ -20,6 +20,32 @@ defmodule Aiur.AgentGitHubGuard.IssueCreateTest do
     refute File.exists?(context.calls)
   end
 
+  test "agent flake issues replace dispatch labels with triage and parked labels", context do
+    args_file = Path.join(context.workspace, "created-args")
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["issue", "create", "--title", "Something broke", "--label", "flake,bug,agent:todo"], FAKE_GH_ARGS: args_file)
+
+    args = File.read!(args_file)
+    assert args =~ "flake"
+    assert args =~ "bug"
+    assert args =~ "needs-triage"
+    assert args =~ "agent:parked"
+    refute args =~ "agent:todo"
+  end
+
+  test "a Flaky test title is parked even without a flake label", context do
+    args_file = Path.join(context.workspace, "created-title-args")
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["issue", "create", "--title", "Flaky test: timeout", "--label", "agent:todo"], FAKE_GH_ARGS: args_file)
+
+    args = File.read!(args_file)
+    assert args =~ "needs-triage"
+    assert args =~ "agent:parked"
+    refute args =~ "agent:todo"
+  end
+
   test "each documented disposition reaches gh, in every flag spelling", context do
     for label <- ~w(agent:todo human:todo needs-triage build-order epic) do
       File.rm_rf!(context.calls)
