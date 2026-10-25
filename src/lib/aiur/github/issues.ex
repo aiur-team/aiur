@@ -880,7 +880,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   # The bounded collector halts an over-limit body and hands back a 200 with an
-  # empty body (`Access.bounded_response_collector/1`). Left unrecognised,
+  # empty body (`Transport.OffProcess.bounded_response_collector/1`). Left unrecognised,
   # that fell through the list-page match to `Access.github_status_error/1` and
   # surfaced as `{:github, :http, %{status: 200}}` — a "failure" carrying a
   # success status, which hid the real cause for a spec-heavy backlog (#2533).

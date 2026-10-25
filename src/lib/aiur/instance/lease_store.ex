@@ -5,7 +5,7 @@ defmodule Aiur.Instance.LeaseStore do
   require Logger
 
   alias Aiur.Instance.Identity
-  alias Aiur.Instance.LeaseStore.{Postgres, Renewal, SharedState, TicketKey}
+  alias Aiur.Instance.LeaseStore.{Postgres, Renewal, RepositoryLease, SharedState, TicketKey}
 
   @name __MODULE__
   @default_ttl_ms 30_000
@@ -114,7 +114,7 @@ defmodule Aiur.Instance.LeaseStore do
   def owned?(ticket, opts \\ []) do
     if configured?() do
       case holder(ticket, opts) do
-        {:held, holder_id} -> holder_id == current_instance_id(opts)
+        {:held, holder_id} -> holder_id == RepositoryLease.configured_instance_id(opts)
         :unheld -> false
         :disabled -> :disabled
         :unknown -> :unknown
@@ -164,6 +164,12 @@ defmodule Aiur.Instance.LeaseStore do
   @spec list_live(keyword()) :: {:ok, [map()]} | {:error, term()}
   def list_live(opts \\ []), do: request(opts, :list_live)
 
+  defdelegate claim_leader(repository, opts \\ []), to: RepositoryLease
+  defdelegate renew_leader(repository, opts \\ []), to: RepositoryLease
+  defdelegate leader(repository, opts \\ []), to: RepositoryLease
+  defdelegate leader_owned?(repository, opts \\ []), to: RepositoryLease
+  defdelegate repository_key(repository \\ nil), to: RepositoryLease
+
   defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit), to: Aiur.Instance.LeaseStore.SharedState
   defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points), to: Aiur.Instance.LeaseStore.SharedState
   defdelegate admit_github_budget(lease_id, credential_key, resource, consumer_key, limit, points, opts), to: Aiur.Instance.LeaseStore.SharedState
@@ -207,7 +213,7 @@ defmodule Aiur.Instance.LeaseStore do
 
   @impl true
   def handle_call({:claim, key, ttl_ms, grace_ms}, _from, state) do
-    instance_id = instance_id(state)
+    instance_id = RepositoryLease.state_instance_id(state)
 
     result =
       query(
@@ -259,7 +265,7 @@ defmodule Aiur.Instance.LeaseStore do
         WHERE ticket_key = $1 AND instance_id = $2
         RETURNING ticket_key
         """,
-        [key, instance_id(state), ttl_ms / 1_000],
+        [key, RepositoryLease.state_instance_id(state), ttl_ms / 1_000],
         fn %{num_rows: rows} -> if(rows == 1, do: :ok, else: {:error, :lease_lost}) end
       )
 
@@ -271,7 +277,7 @@ defmodule Aiur.Instance.LeaseStore do
       query(
         state,
         "DELETE FROM aiur_ticket_leases WHERE ticket_key = $1 AND instance_id = $2",
-        [key, instance_id(state)],
+        [key, RepositoryLease.state_instance_id(state)],
         fn _ -> :ok end
       )
 
@@ -292,7 +298,7 @@ defmodule Aiur.Instance.LeaseStore do
           metadata_json = EXCLUDED.metadata_json, heartbeat_at = EXCLUDED.heartbeat_at, expires_at = EXCLUDED.expires_at
         RETURNING instance_id, build_version, metadata_json, heartbeat_at, expires_at
         """,
-        [instance_id(state), build_version, encoded, ttl_ms / 1_000],
+        [RepositoryLease.state_instance_id(state), build_version, encoded, ttl_ms / 1_000],
         &Postgres.decode_instances/1
       )
 
@@ -338,6 +344,12 @@ defmodule Aiur.Instance.LeaseStore do
         response
     end
   end
+
+  def handle_call({:repository_lease, action, repo, ttl_ms, instance_id}, _from, state) do
+    reply_with_reconnect(RepositoryLease.handle(state, action, repo, ttl_ms, instance_id), state)
+  end
+
+  def handle_call(:instance_id, _from, state), do: {:reply, RepositoryLease.state_instance_id(state), state}
 
   @impl true
   def handle_info(:connect, state) do
@@ -394,20 +406,6 @@ defmodule Aiur.Instance.LeaseStore do
   end
 
   defp reply_with_reconnect(result, state), do: {:reply, result, state}
-
-  defp instance_id(state) do
-    case state.instance_id do
-      fun when is_function(fun, 0) -> fun.()
-      id -> id
-    end
-  end
-
-  defp current_instance_id(opts) do
-    case Keyword.get(opts, :instance_id, &Identity.current/0) do
-      fun when is_function(fun, 0) -> fun.()
-      id -> id
-    end
-  end
 
   defp connect(%{url: url, opts: opts}) when is_binary(url) and url != "" do
     case Postgrex.start_link(Postgres.connection_opts(url) ++ Keyword.take(opts, [:timeout, :types])) do

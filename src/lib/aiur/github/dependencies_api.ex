@@ -130,7 +130,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   # endpoint answering `304`, and the held body — carrying each blocker's
   # original state — is then served in its place. The dispatch gate derives
   # blocker state from exactly those embedded labels, so the whole fleet stalls
-  # against blockers that closed hours earlier and only `Access.forget/1`
+  # against blockers that closed hours earlier and only `ResourceStore.forget/1`
   # clears it (#2550, #2552).
   #
   # So a revalidating read is sent unconditionally. It is bounded by dispatch
