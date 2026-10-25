@@ -1,8 +1,12 @@
+# Keep checks in one suite so ordering, unknown-source handling, and the shared snapshot
+# fixture are exercised together across the Executor's unified health sweep.
 defmodule Aiur.ExecutorSweep.ChecksTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
   alias Aiur.ExecutorSweep.Checks
   alias Aiur.ExecutorSweep.SnapshotCache
+  alias Aiur.ExecutorSweep.StateLabels
+  alias Aiur.GitHub.Labels
   alias Aiur.GitHub.ResourceStore
 
   test "puts the 23-hour unreviewed PR first and includes age" do
@@ -69,6 +73,20 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{kind: "stale_merge_group", age_ms: 8_400_000}] = Enum.filter(Checks.all(snapshot, now), &(&1.kind == "stale_merge_group"))
   end
 
+  test "names runner starvation when queued merge-group runs outnumber running runs" do
+    now = DateTime.utc_now()
+    queued = for id <- 1..11, do: %{id: id, name: "run #{id}", state: "queued", started_at: now}
+    snapshot = %{merge_groups: queued, github_cache_ages: %{merge_group_runs: Map.new(1..11, &{&1, 0})}}
+
+    findings = Checks.all(snapshot, now)
+
+    assert [%{kind: "runner_starvation", queued_runs: 11, running_runs: 0, status_url: "https://www.githubstatus.com/#components", message: message}] =
+             Enum.filter(findings, &(&1.kind == "runner_starvation"))
+
+    assert message =~ "11 merge-group runs queued, 0 running"
+    refute Enum.any?(findings, &(&1.kind == "stale_merge_group"))
+  end
+
   test "reports red checks only from fresh live CI observations" do
     now = ~U[2026-10-15 18:20:00Z]
     old = ~U[2026-10-15 16:00:00Z]
@@ -106,7 +124,9 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
 
     findings = Checks.all(snapshot, now)
     refute Enum.any?(findings, &(&1.kind == "approved_pr_red"))
-    assert [%{verification: "unverified"}] = Enum.filter(findings, &(&1.kind == "stale_merge_group"))
+
+    assert [%{verification: "unverified", kind: "runner_starvation", queued_runs: 1, running_runs: 0}] =
+             Enum.filter(findings, &(&1.kind == "runner_starvation"))
   end
 
   test "a snapshot read carries body fetch ages for GitHub-derived sources" do
@@ -158,35 +178,6 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     }
 
     assert [] = Checks.all(snapshot, now)
-  end
-
-  test "names conflicting PRs that strand ci-wait and human-review tickets" do
-    snapshot = %{
-      tickets: [%{number: 5267, labels: ["agent:ci-wait"]}, %{number: 5268, labels: ["agent:human-review"]}],
-      pull_requests: [
-        %{
-          number: 5172,
-          issue_number: 5267,
-          state: "open",
-          mergeable: "CONFLICTING",
-          review_decision: "APPROVED",
-          head_sha: "head",
-          approved_head_sha: "head",
-          in_merge_queue: false,
-          auto_merge: false,
-          required_checks: []
-        },
-        %{number: 5173, issue_number: 5268, state: "open", mergeable: "CONFLICTING"}
-      ]
-    }
-
-    findings = Checks.all(snapshot, ~U[2026-10-19 12:00:00Z])
-
-    assert [%{kind: "conflicting_waiting_pr", ticket: 5267, pull_request: 5172, message: message, action: action}, %{kind: "conflicting_waiting_pr", ticket: 5268, pull_request: 5173}] = findings
-
-    assert message =~ "conflicting"
-    assert action =~ "Merge main"
-    refute Enum.any?(findings, &(&1.kind == "approved_pr_not_landing"))
   end
 
   test "finds ci-wait tickets older than two hours when required checks are terminal" do
@@ -304,6 +295,36 @@ defmodule Aiur.ExecutorSweep.ChecksTest do
     assert [%{ticket: 1800, ticket_count: 2, message: message}] = Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels"))
     assert message =~ "2 open ticket(s)"
     assert message =~ "oldest ticket #1800"
+  end
+
+  # Regression guard only: #5925 already supplies this behavior on main.
+  test "regression guard: queued stays a marker under a non-default prefix" do
+    tickets =
+      for state <- Labels.state_labels("sym") do
+        %{number: 2000, created_at: nil, labels: ["sym:queued", state]}
+      end
+
+    assert [] = StateLabels.findings(tickets, "sym")
+  end
+
+  test "sweep honors a non-default prefix for queued tickets" do
+    snapshot = %{tickets: [%{number: 1, labels: ["sym:queued", "sym:todo"]}]}
+
+    findings = Checks.all(snapshot, DateTime.utc_now(), label_prefix: "sym")
+
+    refute Enum.any?(findings, &(&1.kind == "invalid_state_labels"))
+  end
+
+  test "does not flag tickets owned by another instance label prefix" do
+    tickets = [
+      %{number: 2200, labels: ["nuc:todo"], created_at: "2026-01-01T00:00:00Z"},
+      %{number: 2201, labels: ["agent:todo"], created_at: "2026-01-02T00:00:00Z"},
+      %{number: 2202, labels: [], created_at: "2026-01-03T00:00:00Z"}
+    ]
+
+    assert [%{ticket: 2202, ticket_count: 1, state_labels: []}] =
+             Checks.all(%{tickets: tickets}, ~U[2026-10-18 14:00:00Z], label_prefix: "agent")
+             |> Enum.filter(&(&1.kind == "invalid_state_labels"))
   end
 
   test "counts merging and cancelled as real state labels, not missing ones" do

@@ -35,7 +35,7 @@ defmodule Aiur.AccountsCLIOutputTest do
   # atom-keyed map follows the VM atom table and already varies between builds.
   test "text output is unchanged" do
     assert output(false, "claude") ==
-             ~s(name="default"  harness="claude"  email="dev@example.com"  org="Example"  seat_tier="max"  remaining_percent=nil  weekly_percent=nil  five_hour_percent=nil  freshness="no_oauth_token"  age_ms=nil\n)
+             ~s(name="default"  harness="claude"  email="dev@example.com"  org="Example"  seat_tier="max"  remaining_percent=nil  weekly_percent=nil  five_hour_percent=nil  freshness="no_oauth_token"  age_ms=nil  last_error="no_oauth_token"\n)
 
     assert output(false, "codex") ==
              ~s(name="default"  harness="codex"  email=nil  org=nil  seat_tier=nil  remaining_percent=nil  weekly_percent=nil  five_hour_percent=nil  freshness="stale_ledger"  age_ms=120000\n)
@@ -61,7 +61,9 @@ defmodule Aiur.AccountsCLIOutputTest do
                "remaining_percent" => nil,
                "age_ms" => nil,
                "weekly_percent" => nil,
-               "five_hour_percent" => nil
+               "five_hour_percent" => nil,
+               # Claude rows only: why the usage probe has no reading (#5747).
+               "last_error" => "no_oauth_token"
              }
            ]
 

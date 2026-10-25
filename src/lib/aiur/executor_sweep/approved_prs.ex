@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorSweep.ApprovedPrs do
   @moduledoc false
 
-  alias Aiur.ExecutorSweep.FailureCause
+  alias Aiur.ExecutorSweep.{FailureCause, LatestChecks}
 
   @type finding :: %{kind: String.t(), priority: pos_integer(), action: String.t(), message: String.t()}
 
@@ -14,19 +14,18 @@ defmodule Aiur.ExecutorSweep.ApprovedPrs do
 
   defp findings_for_pr(pr, snapshot, now, max_age_ms) do
     base_checks = Map.get(snapshot, :base_checks, [])
+    failures = LatestChecks.red_required(value(pr, :required_checks, []))
 
-    if Enum.any?(value(pr, :required_checks, []), &red_check?/1) do
+    if failures != [] do
       age = live_ci_age(pr, now)
-      if fresh_age?(age, max_age_ms), do: approved_pr_findings(pr, base_checks, age, max_age_ms), else: []
+      if fresh_age?(age, max_age_ms), do: approved_pr_findings(pr, failures, base_checks, age, max_age_ms), else: []
     else
       age = cache_age(snapshot, value(pr, :number, nil))
-      approved_pr_findings(pr, base_checks, age, max_age_ms)
+      approved_pr_findings(pr, failures, base_checks, age, max_age_ms)
     end
   end
 
-  defp approved_pr_findings(pr, base_checks, observed_age_ms, max_age_ms) do
-    failures = Enum.filter(value(pr, :required_checks, []), &red_check?/1)
-
+  defp approved_pr_findings(pr, failures, base_checks, observed_age_ms, max_age_ms) do
     # A cached row can keep "open" after the merge; merged_at is the landing proof (#5119).
     if approved_current_and_open?(pr) and (failures != [] or approved_pr_not_landing?(pr)) do
       [approved_pr_finding(pr, failures, base_checks, observed_age_ms, max_age_ms)]
@@ -46,8 +45,6 @@ defmodule Aiur.ExecutorSweep.ApprovedPrs do
     landing_known and not landing and value(pr, :mergeable, nil) != "CONFLICTING"
   end
 
-  defp red_check?(check), do: value(check, :conclusion, nil) in ["failure", "cancelled", "timed_out", "startup_failure"]
-
   defp approved_current_head?(pr) do
     value(pr, :review_decision, "") == "APPROVED" and
       (is_nil(value(pr, :head_sha, nil)) or value(pr, :approved_head_sha, nil) == value(pr, :head_sha, nil))
@@ -61,7 +58,11 @@ defmodule Aiur.ExecutorSweep.ApprovedPrs do
 
     cause = classifications |> Enum.map(& &1.class) |> Enum.uniq() |> single_or_mixed()
     checks = Enum.map_join(classifications, ", ", &"#{&1.name} (#{display_failure_class(&1.class)})")
-    problem = if red, do: "has a red required check: #{checks}", else: "is not queued or auto-merging"
+
+    problem =
+      if red,
+        do: "#{LatestChecks.problem(failures, cause, true)}; checks: #{checks}",
+        else: LatestChecks.problem(failures, cause, false)
 
     stale? = not fresh_age?(observed_age_ms, max_age_ms)
     verification = if stale?, do: "unverified", else: "verified"

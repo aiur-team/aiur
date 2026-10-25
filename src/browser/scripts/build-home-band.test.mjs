@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
-import { guardTarget, settleTarget, bandClock, bandCounts, bandEta, bandEmptyText, bandAgentsFreshness, bandAgentsUsable } from '../../priv/static/build-home/band.js'
+import { guardTarget, settleTarget, bandClock, bandCounts, bandEmptyText, bandAgentsFreshness, bandAgentsUsable } from '../../priv/static/build-home/band.js'
 import { bandLayout } from '../../priv/static/build-home/band-layout.js'
+import { etaLabel } from '../../priv/static/build-home/estimate.js'
 const live = JSON.parse(readFileSync(new URL('../../test/fixtures/build_home/live.json', import.meta.url)))
 
 test('B1 guard thresholds preserve strict boundaries and 72px give-up', () => {
@@ -35,10 +36,10 @@ test('retrying agents get a timeline count and are not state unknown', () => {
   const retrying = { agent: { state: 'retrying' } }
   assert.deepEqual(bandCounts([retrying]), { nr: 0, nt: 1, ns: 0, ni: 0, nu: 0 })
 })
-test('B5 ETA stays unknown rather than dividing by demo capacity', () => {
+test('B5 ETA stays unknown when capacity is missing', () => {
   const D = { now: live.sections.now, plan: live.sections.plan, sources: live.sources }
-  assert.equal(bandEta(D).text, `${D.now.length + D.plan.length} to go · ETA —`)
-  assert.equal(bandEta({ ...D, sources: { queue: { state: 'unavailable' } } }).text, '— to go · ETA —')
+  assert.equal(etaLabel(D).text, `${D.now.length + D.plan.length} to go · ETA —`)
+  assert.equal(etaLabel({ ...D, sources: { queue: { state: 'unavailable' } } }).text, '— to go · ETA —')
 })
 test('B6 unavailable is shown only before any reading or after stale data expires', () => {
   const D = { now: [], sources: { agents: { state: 'unavailable' } } }
@@ -47,7 +48,13 @@ test('B6 unavailable is shown only before any reading or after stale data expire
   const observed_at = live.now - 30_000
   const failed = { ...D, now: live.sections.now, sources: { agents: { state: 'unavailable', observed_at } } }
   assert.equal(bandEmptyText(failed, live.now), null)
-  assert.deepEqual(bandAgentsFreshness(failed, live.now), { text: 'Stale · under 1m ago', title: 'Last agent observation 14:19; under 1m ago' })
+  assert.deepEqual(bandAgentsFreshness({ ...failed, sources: { agents: { state: 'stale', observed_at, stale_after_ms: 240_000 } } }, live.now),
+    { text: 'Fresh · under 1m ago', title: 'Last agent observation 14:19; under 1m ago' })
+  assert.deepEqual(bandAgentsFreshness(failed, live.now), { text: 'Last read failed · under 1m ago', title: 'Last read failed at 14:19; under 1m ago' })
+  assert.deepEqual(bandAgentsFreshness({ ...failed, sources: { agents: { state: 'stale', observed_at: live.now - 90_000, stale_after_ms: 240_000 } } }, live.now),
+    { text: 'Fresh · 1m ago', title: 'Last agent observation 14:18; 1m ago' })
+  assert.deepEqual(bandAgentsFreshness({ ...failed, sources: { agents: { state: 'stale', observed_at: live.now - 60_001, stale_after_ms: 60_000 } } }, live.now),
+    { text: 'Stale · 1m ago', title: 'Last agent observation 14:18; 1m ago' })
   assert.equal(bandAgentsFreshness({ ...failed, sources: { agents: { state: 'ok', observed_at } } }, live.now), null)
   assert.equal(bandEmptyText({ ...failed, now: [] }, live.now), 'Agent states unavailable')
   assert.equal(bandEmptyText({ ...failed, now: [], sources: { agents: { state: 'stale', observed_at } } }, live.now), 'Agent states stale · last seen 14:19')

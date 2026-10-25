@@ -268,8 +268,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   background: var(--accent);
 }
 
-/* A meter that has reached 100% used is critical: the fill turns red so an
-   exhausted window is never mistaken for a healthy one. */
+/* Low remaining headroom is critical: the fill turns red near an empty window. */
 .rs-meter > i.is-critical {
   background: var(--blocking);
 }
@@ -278,8 +277,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   background: var(--warning, #d08a2a);
 }
 
-/* Meter stage colours: yellow from 80%, orange from 90%, red at 100% used. */
+/* Warning stages are selected by the remaining share at the presentation boundary. */
 .rs-meter > i.is-caution {
   background: var(--caution, #d0a92a);
 }
-

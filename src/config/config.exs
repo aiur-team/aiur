@@ -103,7 +103,11 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
-  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
+  always: [
+    Aiur.Orchestrator.HostedModeCheck,
+    Aiur.Config.Schema.TurnSandboxPolicyCheck,
+    Aiur.Opencode.Config.SemanticCheck
+  ]
 
 config :phoenix, :json_library, Jason
 

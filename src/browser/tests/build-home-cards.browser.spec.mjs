@@ -53,8 +53,8 @@ async function openCardParityPair(browser, cell, options) {
   }, full.sections)
   return pair
 }
-async function open(page, dataset = 'unknowns') {
-  await page.goto('/build-fixture/' + dataset)
+async function open(page, dataset = 'unknowns', query = '') {
+  await page.goto('/build-fixture/' + dataset + query)
   await expect(page.locator('#bd-content')).toHaveCount(1)
   await page.evaluate(async () => {
     window.st = await import('/build-home/state.js')
@@ -159,7 +159,7 @@ test('unknown points, estimates, queue numbers and unfiled identity stay explici
   await open(page)
   await draw(page, '9004'); await expect(probe(page).locator('.bd-status')).toContainText('Open · not queued'); await expect(probe(page).locator('[data-unknown="pts"]')).toHaveText('—')
   await expect(probe(page).locator('.bd-cx')).toHaveAttribute('title', /points unknown/)
-  await draw(page, '9005'); await expect(probe(page).locator('.bd-status')).toContainText('≈— · 2 pts')
+  await draw(page, '9005'); await expect(probe(page).locator('.bd-status')).toContainText('— · 2 pts')
   await expect(probe(page).locator('[data-unknown="est"]')).toHaveAttribute('title', 'Estimate unknown')
   await page.evaluate(() => inject('9005', { qpos: null, override: { hours: '3', reason: 'bad' } }))
   await draw(page, '9005'); await expect(probe(page).locator('[data-unknown="qpos"]')).toHaveText('—')
@@ -173,7 +173,7 @@ test('unknown points, estimates, queue numbers and unfiled identity stay explici
 })
 
 test('history distinguishes outcomes and guards unknown dates and state', async ({ page }) => {
-  await open(page)
+  await open(page, 'unknowns', '?tstate=not+planned')
   for (const [status, label] of [['done', 'Merged'], ['failed', 'Failed · closed'], ['not_planned', 'Not planned'], ['closed', 'Closed'], ['running', 'State unknown']]) {
     await page.evaluate(status => inject('9010', { status }), status)
     const card = await draw(page, '9010'); await expect(card.locator('.bd-status > span').first()).toHaveText(label)
@@ -429,9 +429,8 @@ test.describe('parity', () => {
         const pair = await openCardParityPair(browser, cell, { query: `span=${span}`, productPending: true })
         try {
           await expect(pair.product.locator('#bd-content')).toHaveCount(1)
-          // History and open cards have the same payload values as the design.
-          // Plan estimates are deliberately unknown: compare their top/cues below.
-          const selector = '.bd-card.hist, .bd-card.nq, .bd-card.now'
+          // Fixture estimates preserve the design values across every section.
+          const selector = '.bd-card.hist, .bd-card.nq, .bd-card.now, .bd-card.plan'
           const count = await pair.design.locator(selector).count()
           expect(count).toBeGreaterThan(0)
           const tier = await compareCard(pair, selector, 'card-' + name)
@@ -454,10 +453,9 @@ test.describe('parity', () => {
         const plans = await pair.design.locator('.bd-card.plan.full').evaluateAll(nodes => nodes.map(el => ({ id: el.dataset.id, cue: !!el.querySelector('.bd-cues'), alert: !!el.querySelector('.bd-alert') })))
         expect(plans.some(p => p.cue)).toBe(true)
         for (const row of plans.filter(p => p.cue || p.alert)) {
-          // Estimate remains unknown in the product; the design's invented EST
-          // value cannot be used as a status baseline. Compare the real known parts.
+          // Include the shared estimate label alongside the override cue.
           await compareCard(pair, `.bd-card[data-id="${row.id}"]`, 'plan-' + row.id + '-' + name,
-            ['bd-top', 'bd-title', row.alert ? 'bd-alert' : 'bd-cues'])
+            ['bd-top', 'bd-title', row.alert ? 'bd-alert' : 'bd-cues', 'bd-status'])
         }
       } finally { await pair.close() }
     })

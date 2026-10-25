@@ -1,6 +1,8 @@
 defmodule Aiur.Workspace.PrewarmTestBuildTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.TestSupport.IsolatedBuildGateEnv
+
   @tag :tmp_dir
   test "repository prewarm compiles both dev and test artifacts", %{tmp_dir: root} do
     base = Path.join(root, "base")
@@ -30,7 +32,10 @@ defmodule Aiur.Workspace.PrewarmTestBuildTest do
       {"npm_config_cache", Path.join(root, "npm")}
     ]
 
-    {output, status} = System.cmd("bash", [script], cd: base, env: env, stderr_to_stdout: true)
+    gate_env = IsolatedBuildGateEnv.prepare(root)
+    assert IsolatedBuildGateEnv.isolated?(gate_env, root)
+
+    {output, status} = System.cmd("bash", [script], cd: base, env: env ++ gate_env, stderr_to_stdout: true)
     assert status == 0, output
     assert File.read!(Path.join(base, "src/_build/test/lib/aiur/ebin/build.env")) == "test\n"
     assert File.read!(Path.join(base, "src/_build/dev/lib/aiur/ebin/build.env")) == "dev\n"

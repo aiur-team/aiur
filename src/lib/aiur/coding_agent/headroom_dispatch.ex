@@ -136,6 +136,14 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
   @spec max_reading_age_seconds(keyword()) :: pos_integer()
   def max_reading_age_seconds(opts \\ []), do: Keyword.get_lazy(opts, :max_reading_age_seconds, &configured_max_age/0)
 
+  @doc "Freshness every usage surface shows for a polled account entry (`Aiur.Accounts.UsageReadings.freshness/2`)."
+  @spec usage_freshness(map()) :: :fresh | :cached | :stale | :unavailable
+  def usage_freshness(entry), do: UsageReadings.freshness(entry)
+
+  @doc "When a polled account entry was last actually observed (`Aiur.Accounts.UsageReadings.observed_at/1`)."
+  @spec usage_observed_at(map()) :: DateTime.t() | nil
+  def usage_observed_at(entry), do: UsageReadings.observed_at(entry)
+
   @doc "Remaining percent of a reading's binding window, or `nil` when unknown (`Aiur.Accounts.Headroom`)."
   @spec remaining_percent(Headroom.reading()) :: non_neg_integer() | nil
   def remaining_percent(reading), do: Headroom.remaining_percent(reading)
@@ -386,11 +394,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
     _ -> nil
   end
 
-  defp configured_max_age do
-    Config.settings!().agent.headroom_reading_max_age_seconds || 1800
-  rescue
-    _ -> 1800
-  end
+  defp configured_max_age, do: UsageReadings.max_reading_age_seconds()
 
   defp configured_accounts do
     Config.settings!().agent.accounts || %{}

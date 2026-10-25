@@ -3,10 +3,10 @@ defmodule AiurWeb.Sockets.LiveView do
   LiveView socket mount contributed by the dashboard component.
   """
 
-  defmacro mount(session_options) do
+  defmacro mount(_session_options) do
     quote do
       socket("/live", Phoenix.LiveView.Socket,
-        websocket: [connect_info: [:user_agent, session: unquote(session_options)]],
+        websocket: [connect_info: [:user_agent, session: {Aiur.Config.SessionOptions, :runtime_options, []}]],
         longpoll: false
       )
     end
