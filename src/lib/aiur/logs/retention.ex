@@ -1,6 +1,6 @@
 defmodule Aiur.Logs.Retention do
   @moduledoc """
-  Periodically bounds the unified log home (`AIUR_STATE_DIR/logs`, default `AIUR_STATE_DIR/logs` (`~/.aiur/logs`)) to
+  Periodically bounds the unified log home (`AIUR_STATE_DIR/logs`, default `~/.aiur/logs`) to
   `max_log_history_mb` (`.aiurconfig`, default 1000 MB).
 
   Every `interval_ms` (default 5 min) it sums the size of every session
