@@ -52,11 +52,11 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
           dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
         end
 
-      :ineligible ->
+      {:ineligible, _reason} ->
         Candidates.emit_dispatch_attempt_decline(state, issue, :instance_not_owner, false)
 
-      :unknown ->
-        Logger.warning("Instance ownership roster unavailable for #{State.issue_context(issue)}; holding dispatch")
+      {:unavailable, reason} ->
+        Logger.warning("Instance ownership unavailable (#{reason}) for #{State.issue_context(issue)}; holding dispatch")
         Candidates.emit_dispatch_attempt_decline(state, issue, :instance_ownership_unavailable, true)
     end
   end
@@ -67,16 +67,16 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
     case live_instances_fun.() do
       {:ok, live_instances} when is_list(live_instances) ->
         instance_id = Keyword.get_lazy(opts, :ownership_instance_id, &Identity.current/0)
-        if Instance.eligible?(issue, instance_id, live_instances), do: :eligible, else: :ineligible
+        Instance.eligible?(issue, instance_id, live_instances)
 
       {:error, :store_not_configured} ->
-        if Instance.ownership_configured?(), do: :unknown, else: :eligible
+        if Instance.ownership_configured?(), do: {:unavailable, :store_not_configured}, else: :eligible
 
       _ ->
-        :unknown
+        {:unavailable, :live_roster_unknown}
     end
   rescue
-    _ -> :unknown
+    _ -> {:unavailable, :live_roster_unknown}
   end
 
   defp dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts) do

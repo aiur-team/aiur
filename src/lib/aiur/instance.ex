@@ -166,8 +166,11 @@ defmodule Aiur.Instance do
     "INSTANCE IGNORE #{rules} owns=[#{owns}] pool=#{Map.get(status, :pool, true)} live=[#{live}] ignored_since_boot=#{status.ignored_since_boot}"
   end
 
-  @doc "Returns whether this instance may dispatch a ticket under the live ownership roster."
-  @spec eligible?(term(), String.t(), [map()]) :: boolean()
+  @doc "Returns dispatch eligibility and the reason when the live ownership roster prevents a decision."
+  @spec eligible?(term(), String.t(), [map()]) ::
+          :eligible
+          | {:ineligible, :peer_owns_ticket | :pool_closed}
+          | {:unavailable, :self_missing_from_roster | :self_not_dispatching | :labels_unknown | :invalid_roster}
   def eligible?(ticket, self, live_instances) when is_binary(self) and is_list(live_instances) do
     labels = ticket_labels(ticket)
     number = number(ticket)
@@ -189,21 +192,22 @@ defmodule Aiur.Instance do
     if current do
       eligible_with_current?(current, live_instances, number, labels, label_rules_active?)
     else
-      false
+      {:unavailable, :self_missing_from_roster}
     end
   end
 
-  def eligible?(_ticket, _self, _live_instances), do: false
+  def eligible?(_ticket, _self, _live_instances), do: {:unavailable, :invalid_roster}
 
   defp eligible_with_current?(current, live_instances, number, labels, label_rules_active?) do
     current_rules = ownership_metadata(current)
 
     cond do
-      not current_rules.dispatching -> false
-      is_nil(labels) and label_rules_active? -> false
-      owns_ticket?(current_rules.owns, number, labels) -> true
-      other_instance_owns?(live_instances, number, labels) -> false
-      true -> current_rules.pool
+      not current_rules.dispatching -> {:unavailable, :self_not_dispatching}
+      is_nil(labels) and label_rules_active? -> {:unavailable, :labels_unknown}
+      owns_ticket?(current_rules.owns, number, labels) -> :eligible
+      other_instance_owns?(live_instances, number, labels) -> {:ineligible, :peer_owns_ticket}
+      current_rules.pool -> :eligible
+      true -> {:ineligible, :pool_closed}
     end
   end
 

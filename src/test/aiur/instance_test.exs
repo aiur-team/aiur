@@ -59,20 +59,21 @@ defmodule Aiur.InstanceTest do
     other = %Aiur.Issue{id: "42", labels: ["build-lane:docs"]}
     ticket = %Aiur.Issue{id: "73", identifier: "73", labels: []}
 
-    assert Instance.eligible?(voice, "nuc", roster)
-    refute Instance.eligible?(voice, "pc", roster)
-    assert Instance.eligible?(other, "pc", roster)
-    assert Instance.eligible?(ticket, "nuc", roster)
+    assert :eligible = Instance.eligible?(voice, "nuc", roster)
+    assert {:ineligible, :peer_owns_ticket} = Instance.eligible?(voice, "pc", roster)
+    assert :eligible = Instance.eligible?(other, "pc", roster)
+    assert :eligible = Instance.eligible?(ticket, "nuc", roster)
 
     paused_roster = put_in(roster, [Access.at(0), :metadata, "data", "dispatching"], false)
-    assert Instance.eligible?(voice, "pc", paused_roster)
+    assert :eligible = Instance.eligible?(voice, "pc", paused_roster)
 
     ownerless_roster = Enum.drop(roster, 1)
-    assert Instance.eligible?(voice, "pc", ownerless_roster)
+    assert :eligible = Instance.eligible?(voice, "pc", ownerless_roster)
 
     closed_pool = put_in(roster, [Access.at(1), :metadata, "data", "pool"], false)
-    refute Instance.eligible?(other, "pc", closed_pool)
-    refute Instance.eligible?(%Aiur.Issue{id: "44", labels: nil}, "pc", roster)
+    assert {:ineligible, :pool_closed} = Instance.eligible?(other, "pc", closed_pool)
+    assert {:unavailable, :labels_unknown} = Instance.eligible?(%Aiur.Issue{id: "44", labels: nil}, "pc", roster)
+    assert {:unavailable, :self_missing_from_roster} = Instance.eligible?(voice, "nuc", ownerless_roster)
   end
 
   test "heartbeat metadata stops ownership reservations while the workflow is paused" do

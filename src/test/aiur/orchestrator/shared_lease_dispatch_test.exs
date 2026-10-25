@@ -206,6 +206,31 @@ defmodule Aiur.Orchestrator.SharedLeaseDispatchTest do
     refute MapSet.member?(state.claimed, issue.id)
   end
 
+  test "a missing self heartbeat raises an ownership-unavailable attention" do
+    issue = %{lease_issue("voice-self-missing") | labels: ["build-lane:voice"]}
+    topic = "ticket.#{issue.id}.agent.attention.dispatch-declined"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    state =
+      Dispatcher.do_dispatch_issue(
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+        issue,
+        nil,
+        nil,
+        ownership_instance_id: "nuc",
+        ownership_live_instances_fun: fn ->
+          {:ok, [%{instance_id: "pc", metadata: %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => true}}}]}
+        end,
+        lease_claim_fun: fn _ -> flunk("ownership-unavailable ticket must not reach the shared lease") end,
+        runner: fn _, _, _ -> flunk("ownership-unavailable ticket must not start a workspace") end
+      )
+
+    assert state.dispatch_declines[issue.id] == :instance_ownership_unavailable
+    assert_received {:event, %{topic: ^topic} = event}
+    assert event["needs_attention"] == true
+  end
+
   test "a PR-head ticket still requires a known eligible owner" do
     parent = self()
     base_issue = %{lease_issue("voice-pr") | labels: ["build-lane:voice"], pr_head_ref: "feature/voice"}
