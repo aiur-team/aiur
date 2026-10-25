@@ -1,14 +1,10 @@
 defmodule Aiur.AgentRunner.LocalGateCICache do
   @moduledoc false
 
-  alias Aiur.Orchestrator.Client
-
-  @snapshot_timeout_ms 1_000
-
   @doc false
   @spec read(GenServer.server(), String.t()) :: map() | :unavailable
   def read(orchestrator, identifier) when is_binary(identifier) do
-    case Client.dashboard_snapshot(orchestrator, @snapshot_timeout_ms) do
+    case Aiur.Orchestrator.dashboard_snapshot(orchestrator, 1_000) do
       {:current, snapshot, _freshness} ->
         snapshot
         |> running_ci_result(identifier)
