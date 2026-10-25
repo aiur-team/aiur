@@ -145,7 +145,7 @@
           },
           "uniqueItems": true
         },
-        "alias_allowlist": {
+        "boundary_reference_allowlist": {
           "type": "array",
           "items": {
             "type": "string",

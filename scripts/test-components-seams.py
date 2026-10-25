@@ -103,8 +103,9 @@ check('similar_namespace_allowed', 'alias Aiur.OrchestratorExtra', source_compon
       path='src/lib/aiur/build_queue/server.ex')
 
 
-# Event-bus alias declarations are contract references even when never called.
-def event_bus_alias_check(name, source, targets, expected, message):
+# Event-bus boundary references include declarations and literals, even when unused.
+def event_bus_boundary_check(name, source, targets, expected, message, *, source_path='src/lib/aiur/events/exchange.ex',
+                             source_module='Aiur.Events.Exchange', boundary_member=True):
     manifest = copy.deepcopy(MANIFEST)
     components = {c['id']: c for c in manifest['components']}
     for component in components.values():
@@ -113,7 +114,7 @@ def event_bus_alias_check(name, source, targets, expected, message):
     manifest['features'] = []
     components['event-bus']['facades'] = ['Aiur.Events.Exchange', 'Aiur.Events.Topic']
     components['event-bus']['requires'] = ['orchestration', 'config', 'kernel']
-    components['event-bus']['paths'] = ['src/lib/aiur/events/exchange.ex', 'src/lib/aiur/events/topic.ex']
+    components['event-bus']['paths'] = [source_path, 'src/lib/aiur/events/topic.ex']
     components['orchestration']['paths'] = ['src/lib/aiur/orchestrator/state.ex']
     components['orchestration']['facades'] = ['Aiur.Orchestrator.State']
     components['config']['paths'] = ['src/lib/aiur/config.ex', 'src/lib/aiur/workflow.ex']
@@ -126,13 +127,14 @@ def event_bus_alias_check(name, source, targets, expected, message):
     # Edge-rule fixtures opt into the tested target so they reach R-private/R-down;
     # the dedicated allowlist fixtures below exercise the default contract.
     if expected == 1 and message.startswith(('R-down', 'R-private')):
-        components['event-bus']['alias_allowlist'].extend(targets)
+        components['event-bus']['boundary_reference_allowlist'].extend(targets)
     with tempfile.TemporaryDirectory(prefix='event-bus-alias-') as directory:
         root = Path(directory)
         (root / 'components.schema.json').write_text(SCHEMA)
         (root / 'components.json').write_text(json.dumps(manifest))
+        marker = '# aiur:event-bus-boundary-member\n' if boundary_member else ''
         files = {
-            'src/lib/aiur/events/exchange.ex': 'defmodule Aiur.Events.Exchange do\n' + source + '\nend\n',
+            source_path: marker + f'defmodule {source_module} do\n' + source + '\nend\n',
             'src/lib/aiur/orchestrator/state.ex': '\n'.join(
                 f'defmodule {target} do\nend' for target in targets if target.startswith('Aiur.Orchestrator.')),
             'src/lib/aiur/config.ex': 'defmodule Aiur.Config do\nend\n',
@@ -140,7 +142,7 @@ def event_bus_alias_check(name, source, targets, expected, message):
             'src/lib/aiur/json_safe.ex': 'defmodule Aiur.JSONSafe do\nend\n',
             'src/lib/aiur/shell.ex': 'defmodule Aiur.Shell do\nend\n',
             'src/lib/aiur/workflow.ex': 'defmodule Aiur.Workflow do\nend\n',
-            'src/lib/aiur/events/topic.ex': 'defmodule Aiur.Events.Topic do\nend\n',
+            'src/lib/aiur/events/topic.ex': 'defmodule Aiur.Events.Topic do\nend\ndefmodule Aiur.PubSub do\nend\n',
         }
         for file, content in files.items():
             target = root / file
@@ -162,20 +164,28 @@ for name, source, target, rule in [
 ]:
     if not SELECTED or name in SELECTED:
         RAN.add(name)
-        event_bus_alias_check(name, source, [target], 1, f'{rule} event-bus -> {target}')
+        event_bus_boundary_check(name, source, [target], 1, f'{rule} event-bus -> {target}')
 if not SELECTED or 'event_bus_kernel_alias_passes' in SELECTED:
     RAN.add('event_bus_kernel_alias_passes')
-    event_bus_alias_check('event_bus_kernel_alias_passes',
+    event_bus_boundary_check('event_bus_kernel_alias_passes',
                           'alias Aiur.Config\nalias Aiur.JsonStore\nalias Aiur.JSONSafe\nalias Aiur.Events.Topic',
                           ['Aiur.Config', 'Aiur.JsonStore', 'Aiur.JSONSafe', 'Aiur.Events.Topic'], 0, 'R-down: 0')
 for name, source, target in [
     ('event_bus_pubsub_alias_forbidden', 'alias Phoenix.PubSub', 'Phoenix.PubSub'),
     ('event_bus_kernel_alias_forbidden', 'alias Aiur.Shell', 'Aiur.Shell'),
     ('event_bus_config_alias_forbidden', 'alias Aiur.Workflow', 'Aiur.Workflow'),
+    ('event_bus_boundary_literal_forbidden', '"Aiur.Orchestrator"', 'Aiur.Orchestrator'),
+    ('event_bus_boundary_qualified_call_forbidden', 'Aiur.Shell.run()', 'Aiur.Shell'),
 ]:
     if not SELECTED or name in SELECTED:
         RAN.add(name)
-        event_bus_alias_check(name, source, [target], 1, f'R-forbid event-bus -> {target}')
+        event_bus_boundary_check(name, source, [target], 1, f'R-forbid event-bus -> {target}')
+if not SELECTED or 'event_bus_nonmember_pubsub_call_passes' in SELECTED:
+    RAN.add('event_bus_nonmember_pubsub_call_passes')
+    event_bus_boundary_check('event_bus_nonmember_pubsub_call_passes',
+                             'Phoenix.PubSub.subscribe(Aiur.PubSub, topic)', [], 0, 'R-down: 0',
+                             source_path='src/lib/aiur/agent_pubsub.ex', source_module='Aiur.AgentPubSub',
+                             boundary_member=False)
 check('file_level_alias_is_forbidden', 'nil', 1, 'R-forbid build-queue -> Aiur.Orchestrator:',
       source_component='build-queue', path='src/lib/aiur/build_queue/server.ex',
       preamble='alias Aiur.Orchestrator\n')

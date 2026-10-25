@@ -286,6 +286,11 @@ def module_violations(root, manifest, file_owners, include_modules=False):
     components = {c['id']: c for c in manifest['components']}
     graph = {cid: set() for cid in components}
     violations, unresolved = {}, set()
+    event_bus_boundary_paths = {
+        path for path, owner in file_owners.items()
+        if owner == 'event-bus' and path.endswith('.ex')
+        and '# aiur:event-bus-boundary-member' in (root / path).read_text()
+    }
     for _, path, source_module, target, kind, line in references:
         # Match ownership's tracked-file boundary, including in dirty worktrees.
         if path not in file_owners:
@@ -296,19 +301,21 @@ def module_violations(root, manifest, file_owners, include_modules=False):
                                   'reference' if kind in ('alias', 'literal') else kind, path)
         for rule in strict:
             violations.setdefault((rule, source, target), f'{path}:{line} ({source_module})')
-        if kind == 'alias' and source == 'event-bus':
+        is_boundary_target = target.startswith('Aiur.') or target == 'Phoenix.PubSub'
+        if source == 'event-bus' and path in event_bus_boundary_paths and is_boundary_target:
             destination = modules.get(target)
-            same_component = destination == source
-            allowed_alias = any(module_matches(pattern, target)
-                                for pattern in component.get('alias_allowlist', []))
-            if not same_component and not allowed_alias:
+            # `__MODULE__.Nested` references resolve beneath their owning module
+            # even though the walker only indexes the file's primary module.
+            same_component = destination == source or target.startswith(source_module + '.')
+            allowed_reference = any(module_matches(pattern, target)
+                                    for pattern in component.get('boundary_reference_allowlist', []))
+            if not same_component and not allowed_reference:
                 violations.setdefault(('R-forbid', source, target), f'{path}:{line} ({source_module})')
         # Namespace privacy also covers aliases/literals and composition-root wiring.
         destination = modules.get(target)
         if destination is not None and source != destination and namespace_private(components[destination], target):
             violations.setdefault(('R-private', source, target), f'{path}:{line} ({source_module})')
-        # Event-bus declarations keep their facade boundary even when the alias
-        # is never called. Other components keep declarations outside the graph.
+        # Declarations and literals stay outside the structural graph.
         if kind == 'literal' or (kind == 'alias' and source != 'event-bus'):
             continue
         if target not in modules:
