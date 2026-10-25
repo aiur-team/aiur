@@ -13,8 +13,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
 
   alias Aiur.Events.{GithubKeys, GithubReviewThreadIdentity, PostDeployChecks}
   alias Aiur.Events.GithubWebhook.Identity
-  alias Aiur.GitHub.PullRequests
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{Access, PullRequests}
   alias Aiur.RecentMerge
 
   @type triple :: {String.t(), map(), keyword()}
@@ -46,7 +45,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
              poller_comment_shape(comment),
              GithubKeys.comment_dedup_key(repo, "issue_comment", String.to_integer(number), Map.get(comment, "id")),
              if(pull_request?, do: review_context(Map.get(issue, "pull_request"))),
-             ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
+             Access.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
            )
          ]}
     end
@@ -69,7 +68,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
            upcase_review_state(review),
            GithubKeys.pr_review_dedup_key(repo, pr_number, Map.get(review, "id")),
            review_context(Map.get(payload, "pull_request")),
-           ResourceStore.key_for_repo(:pr_review, repo, Map.get(review, "id"))
+           Access.key_for_repo(:pr_review, repo, Map.get(review, "id"))
          )
        ]}
     end
@@ -112,7 +111,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
 
   defp review_comment_keys(repo, pr_number, %{"review_thread_id" => thread_id})
        when is_binary(thread_id) and thread_id != "" do
-    resource = ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)
+    resource = Access.key_for_repo(:pr_review_thread, repo, thread_id)
     generation = GithubReviewThreadIdentity.unresolved_generation(resource)
 
     {
@@ -125,7 +124,7 @@ defmodule Aiur.Events.GithubWebhook.Triples do
   defp review_comment_keys(repo, pr_number, comment) when is_map(comment) do
     {
       GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")),
-      ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id")),
+      Access.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id")),
       nil
     }
   end

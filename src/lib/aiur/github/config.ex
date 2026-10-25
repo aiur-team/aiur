@@ -32,7 +32,7 @@ defmodule Aiur.GitHub.Config do
   Resolves the *same* repository `repo/0` does, including the fallback to the
   current checkout's `origin` remote when `tracker.github.repo` carries no
   value. Every GitHub call already picks its repository through `repo/0`
-  (`Aiur.GitHub.Transport.parse_repo/0`), so without the fallback a daemon
+  (`Aiur.GitHub.Access.parse_repo/0`), so without the fallback a daemon
   launched against a shared config that names no repo polls its origin
   repository happily while every issue it reads normalizes to an unjoinable
   identity — `:missing_tracker_identity` at pre-spawn, and no agent can
