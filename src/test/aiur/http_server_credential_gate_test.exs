@@ -190,32 +190,23 @@ defmodule Aiur.HttpServerCredentialGateTest do
   end
 
   describe "non-loopback bind with credentials" do
-    test "passes the gate (doesn't short-circuit with :ignore)" do
+    test "still requires browser sign-in configuration" do
       System.put_env("AIUR_DASHBOARD_USERNAME", "alice")
       System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
 
       Process.flag(:trap_exit, true)
 
-      # We expect the gate to pass and the Endpoint to then try to bind.
-      # Binding to TEST-NET-1 fails with :eaddrnotavail — that's fine,
-      # the assertion is "we got past the credential gate", not "we
-      # actually bound the port". Trapping exits keeps the test process
-      # alive when Endpoint's supervisor cascades the failure.
-      result =
-        try do
-          HttpServer.start_link(
-            host: "192.0.2.1",
-            port: 0,
-            orchestrator: Aiur.Orchestrator
-          )
-        catch
-          :exit, reason -> {:exit, reason}
-        end
+      log =
+        capture_log(fn ->
+          assert :ignore =
+                   HttpServer.start_link(
+                     host: "192.0.2.1",
+                     port: 0,
+                     orchestrator: Aiur.Orchestrator
+                   )
+        end)
 
-      # `:ignore` here would mean the gate rejected before binding.
-      # Anything else (success, bind failure, exit) means the gate
-      # let us through.
-      refute result == :ignore
+      assert log =~ "configure Google sign-in with an email allowlist or enroll a passkey"
     end
   end
 end
