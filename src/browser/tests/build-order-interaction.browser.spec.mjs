@@ -75,6 +75,10 @@ test('only a modifier wheel zooms and a background drag pans the canvas', async 
     await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
 
     const readout = graph.locator('[data-bo-zoom-level]')
+    const zoomIn = graph.getByRole('button', { name: 'Zoom in' })
+    // The oversized fixture auto-fits after its first settled layout. A manual
+    // zoom cancels that one-time fit before asserting keyboard reset behavior.
+    await zoomIn.click()
     await graph.locator('[data-bo-grid-viewport]').focus()
     await page.keyboard.press('0')
     await expect(readout).toHaveText('100%')
@@ -93,7 +97,6 @@ test('only a modifier wheel zooms and a background drag pans the canvas', async 
 
     // Zoom in until the scaled content overflows, then a background pointer drag
     // scrolls the viewport in place.
-    const zoomIn = graph.getByRole('button', { name: 'Zoom in' })
     while (!(await zoomIn.isDisabled())) await zoomIn.click()
     const panned = await graph.evaluate((element) => {
       const vp = element.querySelector('[data-bo-grid-viewport]')
