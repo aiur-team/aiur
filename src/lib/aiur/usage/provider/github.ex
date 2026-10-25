@@ -1,6 +1,6 @@
 defmodule Aiur.Usage.Provider.GitHub do
   @moduledoc false
-  alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.Access
   alias Aiur.Usage.ProviderSupport
 
   defstruct [:provider, :observed_at, :age_ms, :freshness, :source, fields: %{}]
@@ -8,7 +8,7 @@ defmodule Aiur.Usage.Provider.GitHub do
 
   @spec read(keyword()) :: t()
   def read(opts) do
-    snapshot = Keyword.get_lazy(opts, :github_quota, &Quota.snapshot/0)
+    snapshot = Keyword.get_lazy(opts, :github_quota, &Access.quota_snapshot/0)
     observed = Map.get(snapshot, :state) == :observed
 
     observed_at =

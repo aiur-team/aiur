@@ -1,7 +1,6 @@
 defmodule Aiur.ExecutorSweep.CacheAges do
+  alias Aiur.GitHub.Access
   @moduledoc false
-
-  alias Aiur.GitHub.ResourceStore
 
   @spec for_repo(String.t(), String.t(), integer()) :: map()
   def for_repo(owner, repo, now_ms \\ System.system_time(:millisecond)) do
@@ -20,7 +19,7 @@ defmodule Aiur.ExecutorSweep.CacheAges do
   # LandingWatch keys each run page by its status listing ("base:status:page"). Most pages fit in
   # the store and hold a response map; only oversized pages get the compact age-index list (#5738).
   defp merge_group_evidence(owner, repo, now_ms) do
-    entries = ResourceStore.list(:landing_merge_group_runs, owner, repo)
+    entries = Access.list(:landing_merge_group_runs, owner, repo)
 
     page_entries =
       for {{_type, _owner, _repo, id}, entry} <- entries,
@@ -96,7 +95,7 @@ defmodule Aiur.ExecutorSweep.CacheAges do
   end
 
   defp subject_ages(type, owner, repo, now_ms) do
-    ResourceStore.list(type, owner, repo)
+    Access.list(type, owner, repo)
     |> Enum.reduce(%{}, fn {{^type, _owner, _repo, id}, entry}, ages ->
       with {number, ""} <- Integer.parse(to_string(id)),
            age when is_integer(age) <- entry_age(entry, now_ms) do
@@ -108,7 +107,7 @@ defmodule Aiur.ExecutorSweep.CacheAges do
   end
 
   defp merge_group_ages(owner, repo, now_ms) do
-    ResourceStore.list(:landing_merge_group_runs, owner, repo)
+    Access.list(:landing_merge_group_runs, owner, repo)
     |> Enum.reduce(%{}, &merge_group_page_ages(&1, &2, now_ms))
   end
 

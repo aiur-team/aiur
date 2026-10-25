@@ -1,6 +1,6 @@
 defmodule Aiur.MainWatch.Fixer do
   @moduledoc "Files and reconciles fixer tickets from the base-CI background task."
-  alias Aiur.GitHub.{Config, MainFixer, ResourceStore, StatePolicy}
+  alias Aiur.GitHub.{Access, Config, MainFixer, StatePolicy}
   alias Aiur.MainWatch.{FixerGitHub, FixerWatchdog, State}
   require Logger
 
@@ -165,9 +165,9 @@ defmodule Aiur.MainWatch.Fixer do
 
   @spec once(String.t(), keyword(), (-> :ok | {:error, term()})) :: :ok | {:error, term()}
   def once(identity, opts, action) do
-    key = ResourceStore.key_for_repo(:main_watch, Config.repo(), "fixer:" <> identity)
-    read = Keyword.get(opts, :fixer_read, &ResourceStore.fetch/1)
-    write = Keyword.get(opts, :fixer_write, fn key -> with :ok <- ResourceStore.put_resource(key, %{"done" => true}, source: :mutation), do: ResourceStore.flush() end)
+    key = Access.key_for_repo(:main_watch, Config.repo(), "fixer:" <> identity)
+    read = Keyword.get(opts, :fixer_read, &Access.fetch_resource/1)
+    write = Keyword.get(opts, :fixer_write, fn key -> with :ok <- Access.put_resource(key, %{"done" => true}, source: :mutation), do: Access.flush() end)
 
     case read.(key) do
       {:ok, %{data: %{"done" => true}}} -> :ok
