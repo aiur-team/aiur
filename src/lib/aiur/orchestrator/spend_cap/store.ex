@@ -250,7 +250,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp schedule_refresh(%{health: :healthy, refresh_scheduled?: false} = state) do
-    if Enum.any?(state.records, fn {key, record} -> refreshable_running?(state, key, record) end) do
+    if Enum.any?(state.records, fn {key, record} -> refreshable?(state, key, record) end) do
       Process.send_after(self(), :refresh_running_spend_caps, state.refresh_debounce_ms)
       %{state | refresh_scheduled?: true}
     else
@@ -264,7 +264,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
     snapshot = Runtime.snapshot(state.snapshot_fun)
 
     Enum.reduce(state.records, state, fn {key, record}, current ->
-      if refreshable_running?(current, key, record) do
+      if refreshable?(current, key, record) do
         usage = Runtime.project(current.project_fun, snapshot, record.identity)
         {_record, current} = refresh_one(current, key, record, usage)
         current
@@ -274,9 +274,10 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
     end)
   end
 
-  defp refreshable_running?(_state, _key, %Record{state: :budget_exhausted}), do: false
+  defp refreshable?(_state, _key, %Record{state: :budget_exhausted}), do: false
+  defp refreshable?(_state, _key, %Record{state: :unavailable}), do: true
 
-  defp refreshable_running?(state, key, %Record{} = record) do
+  defp refreshable?(state, key, %Record{} = record) do
     MapSet.member?(state.running_keys, key) or MapSet.member?(state.running_identifiers, record.identity.identifier)
   end
 

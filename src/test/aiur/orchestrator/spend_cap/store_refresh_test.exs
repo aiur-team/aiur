@@ -181,6 +181,38 @@ defmodule Aiur.Orchestrator.SpendCap.StoreRefreshTest do
     send(effect_task, :finish_tracker_effect)
   end
 
+  test "usage recovery re-admits an idle unavailable ticket", %{root: root} do
+    owner = self()
+    identity = GS.identity(5693)
+    {:ok, projection} = Agent.start_link(fn -> usage("0.25") end)
+    on_exit(fn -> if Process.alive?(projection), do: Agent.stop(projection) end)
+
+    {:ok, store} =
+      start_store(root,
+        usage_fun: fn ^identity -> Agent.get(projection, & &1) end,
+        snapshot_fun: fn -> %{generation: 6} end,
+        project_fun: fn %{generation: 6}, ^identity ->
+          send(owner, :recovery_projection_read)
+          Agent.get(projection, & &1)
+        end,
+        refresh_debounce_ms: 10
+      )
+
+    assert {:ok, %{"state" => "active"}} = Store.put(store, identity, "1.00")
+
+    Agent.update(projection, fn _usage -> %{state: :unavailable} end)
+    assert {:ok, %{"state" => "unavailable"}} = Store.get(store, "5693")
+    assert Store.admission(store, identity) == {:skip, :spend_cap_unavailable}
+
+    Agent.update(projection, fn _usage -> usage("0.25") end)
+    send(store, {:usage_aggregate_changed, %{generation: 6}})
+
+    assert_receive :recovery_projection_read, 1_000
+    _state = :sys.get_state(store)
+    assert Store.admission(store, identity) == :allow
+    assert {:ok, %{"state" => "active", "spent_amount" => "0.25"}} = Store.get(store, "5693")
+  end
+
   test "state directory is owner-only", %{root: root} do
     state_dir = Path.join(root, "owner-only")
     File.mkdir_p!(state_dir)
