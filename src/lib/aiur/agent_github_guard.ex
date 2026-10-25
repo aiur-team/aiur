@@ -11,6 +11,7 @@ defmodule Aiur.AgentGitHubGuard do
 
   alias Aiur.AgentCommandInstaller
   alias Aiur.AgentGitHubGuard.{AgentToken, RemoteInstall, Script}
+  alias Aiur.Config.Paths
 
   @broker_path Path.expand("../../priv/github_budget.py", __DIR__)
   @broker_metrics_path Path.expand("../../priv/github_budget_metrics.py", __DIR__)
@@ -142,7 +143,7 @@ defmodule Aiur.AgentGitHubGuard do
 
   @spec host_bin_dir() :: Path.t()
   def host_bin_dir do
-    Application.get_env(:aiur, :host_guard_bin_dir) || Path.join(System.user_home!(), ".aiur/bin")
+    Application.get_env(:aiur, :host_guard_bin_dir) || Path.join(Paths.state_root(), "bin")
   end
 
   @spec real_gh() :: Path.t() | nil

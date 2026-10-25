@@ -3,6 +3,7 @@ defmodule Aiur.OpenAICompat.Config do
 
   alias Aiur.CodingAgent
   alias Aiur.Config, as: AiurConfig
+  alias Aiur.Config.Paths
   alias Aiur.Init.Dotenv
 
   @required ~w(base_url api_key_env transport)a
@@ -110,7 +111,7 @@ defmodule Aiur.OpenAICompat.Config do
 
   defp account_api_key_from_file(env_name, selected_name) do
     selected_key = if is_binary(selected_name), do: env_name <> "__" <> String.upcase(selected_name), else: env_name
-    path = Path.join(System.get_env("HOME") || Path.expand("~"), ".aiur/.env")
+    path = Path.join(Paths.state_root(), ".env")
 
     case File.read(path) do
       {:ok, contents} ->

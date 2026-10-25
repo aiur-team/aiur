@@ -23,6 +23,8 @@ defmodule AiurWeb.RouterTableTest do
   # Characterization of the pre-split router; deliberately passes on main.
   @expected [
     {:post, "/api/v1/github/webhook", AiurWeb.GithubWebhookController, :create, [:github_webhook], false},
+    {:get, "/healthz", AiurWeb.HealthController, :live, [], :debug},
+    {:get, "/readyz", AiurWeb.HealthController, :ready, [], :debug},
     {:get, "/auth/login", AiurWeb.DashboardAuthController, :login, [:auth_session], :debug},
     {:get, "/auth/google", AiurWeb.DashboardAuthController, :google, [:auth_session], :debug},
     {:get, "/auth/google/callback", AiurWeb.DashboardAuthController, :google_callback, [:auth_session], :debug},

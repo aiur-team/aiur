@@ -92,6 +92,12 @@ defmodule AiurWeb.Router do
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
 
+  # Platform probes are intentionally public and return no component detail.
+  scope "/" do
+    get("/healthz", AiurWeb.HealthController, :live)
+    get("/readyz", AiurWeb.HealthController, :ready)
+  end
+
   scope "/auth" do
     pipe_through(:auth_session)
     get("/login", AiurWeb.DashboardAuthController, :login)

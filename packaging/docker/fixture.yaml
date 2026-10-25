@@ -1,0 +1,10 @@
+tracker:
+  kind: memory
+  active_states: []
+  terminal_states: []
+workspace:
+  root: /data/workspaces
+agent:
+  priority: []
+  max_concurrent_agents: 1
+  max_agent_duration_minutes: 30

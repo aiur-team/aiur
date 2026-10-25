@@ -1,0 +1,31 @@
+FROM ubuntu:24.04 AS build
+ARG DEBIAN_FRONTEND=noninteractive
+ENV MISE_DATA_DIR=/opt/mise MISE_CONFIG_DIR=/opt/mise/config MISE_CACHE_DIR=/opt/mise/cache \
+    MISE_INSTALL_PATH=/usr/local/bin/mise PATH=/opt/mise/shims:/usr/local/bin:$PATH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential autoconf libncurses-dev libssl-dev locales m4 unzip wget xz-utils nodejs npm && rm -rf /var/lib/apt/lists/*
+RUN curl https://mise.run | sh
+WORKDIR /opt/aiur
+COPY mise.toml ./mise.toml
+RUN mise trust ./mise.toml && mise install && mise exec -- mix local.hex --force && mise exec -- mix local.rebar --force
+COPY . .
+RUN cd src/browser && npm ci --ignore-scripts && npm run vendor:elk -- --check
+RUN cd src && mise exec -- mix deps.get && MIX_ENV=prod mise exec -- mix release aiur --overwrite
+
+FROM ubuntu:24.04 AS daemon
+ARG DEBIAN_FRONTEND=noninteractive
+ENV AIUR_RELEASE_DIR=/opt/aiur/release AIUR_STATE_DIR=/data AIUR_BG_STATE_DIR=/data/engine \
+    AIUR_COOKIE_FILE=/data/engine/cookie HOME=/home/aiur PATH=/usr/local/bin:/usr/bin:/bin
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git gnupg nodejs npm python3 && \
+    mkdir -p /etc/apt/keyrings && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" >/etc/apt/sources.list.d/github-cli.list && \
+    apt-get update && apt-get install -y --no-install-recommends gh && npm install --global @anthropic-ai/claude-code @openai/codex && \
+    groupadd --system aiur && useradd --system --gid aiur --home-dir /home/aiur --create-home aiur && mkdir -p /data /opt/aiur && chown -R aiur:aiur /data /home/aiur && rm -rf /var/lib/apt/lists/*
+COPY --from=build --chown=aiur:aiur /opt/aiur/src/_build/prod/rel/aiur /opt/aiur/release
+COPY --chown=aiur:aiur packaging/npm/aiur-cli /opt/aiur/cli
+RUN npm install --global /opt/aiur/cli
+COPY --chown=aiur:aiur packaging/docker/daemon-entrypoint.sh /usr/local/bin/aiur-daemon-entrypoint
+RUN chmod 755 /usr/local/bin/aiur-daemon-entrypoint
+USER aiur
+WORKDIR /config
+EXPOSE 4000
+ENTRYPOINT ["/usr/local/bin/aiur-daemon-entrypoint"]

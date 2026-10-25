@@ -72,7 +72,7 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
         remote_host: "worker-1"
       )
 
-    assert script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+    assert script =~ "rm -f \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget/agent-token\""
     refute script =~ "remote-bot-pat"
   end
 
@@ -100,8 +100,8 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
       )
 
     assert script =~ "env-bot-pat"
-    assert script =~ "chmod 600 \"$HOME/.aiur/github-budget/agent-token\""
-    refute script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+    assert script =~ "chmod 600 \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget/agent-token\""
+    refute script =~ "rm -f \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget/agent-token\""
   end
 
   # The destructive cleanup is only correct on a host the daemon is installing
@@ -114,7 +114,7 @@ defmodule Aiur.AgentGitHubGuard.InstallAndTokenTest do
         env_reader: fn _name -> nil end
       )
 
-    refute script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+    refute script =~ "rm -f \"${AIUR_STATE_DIR:-$HOME/.aiur}/github-budget/agent-token\""
   end
 
   # The boot path (`Aiur.start/2`) calls this with no options. Under a scrubbed

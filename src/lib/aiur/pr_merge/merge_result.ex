@@ -1,5 +1,6 @@
 defmodule Aiur.PrMerge.MergeResult do
   @moduledoc "Checks a merge in an invocation-isolated bare cache without changing the operator checkout."
+  alias Aiur.Config.Paths
   alias Aiur.Workspace.WipPreservation.Command
 
   @spec check(map(), map(), keyword()) :: :ok | {:refuse, [String.t()]} | {:error, String.t()}
@@ -91,7 +92,7 @@ defmodule Aiur.PrMerge.MergeResult do
 
   defp run_check(check, worktree, refusals, opts) do
     timeout = Keyword.get(opts, :timeout_ms, 600_000)
-    log_root = Keyword.get(opts, :log_root, Path.expand("~/.aiur/logs/pr-merge"))
+    log_root = Keyword.get(opts, :log_root, Path.join(Paths.state_root(), "logs/pr-merge"))
     log = Path.join(log_root, "premerge-#{Keyword.fetch!(opts, :id)}-#{System.unique_integer([:positive])}.log")
     shell = "unset GH_TOKEN GITHUB_TOKEN; cd \"$1\" && exec nice sh -c \"$2\" >\"$3\" 2>&1"
 
