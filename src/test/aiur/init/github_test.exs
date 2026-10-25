@@ -2,6 +2,34 @@ defmodule Aiur.Init.GitHubTest do
   use ExUnit.Case
 
   alias Aiur.Init.GitHub
+  alias Aiur.Init.GitHubApp
+
+  test "container init prints App permissions and events and selects App auth by default" do
+    previous_env = Map.new(["AIUR_SECRETS_FROM_ENV", "AIUR_STATE_PERSISTENT", "AIUR_GITHUB_ALLOW_PAT"], &{&1, System.get_env(&1)})
+
+    on_exit(fn ->
+      Enum.each(previous_env, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+    end)
+
+    System.put_env("AIUR_SECRETS_FROM_ENV", "1")
+    System.delete_env("AIUR_STATE_PERSISTENT")
+    System.delete_env("AIUR_GITHUB_ALLOW_PAT")
+
+    parent = self()
+    io = %{puts: fn line -> send(parent, {:init_output, line}) end, select: fn _, _, _ -> flunk("container auth must be selected without prompting") end}
+
+    assert GitHubApp.prompt(io, %{kind: "github", base_branch: "main"}) == :github_app
+    assert_received {:init_output, output}
+    assert output =~ "Contents Read and write"
+    assert output =~ "Checks Read"
+    assert output =~ "Actions Read"
+    assert output =~ "pull_request_review_thread"
+    assert output =~ "branch_protection_rule"
+    assert output =~ "GITHUB_APP_PRIVATE_KEY"
+  end
 
   describe "detect_github_login/1" do
     test "clears the governed credential file for the human-only lookup" do

@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
   Applies worker-reported control state and rejections to the running entry.
   """
 
+  alias Aiur.{AlertFeed, Alerts}
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DurationCapRelease
@@ -96,6 +97,16 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
       if(status == :working, do: previous_pause_reason, else: pause_reason)
     )
 
+    if previous_status == :paused and status == :working and stalled_alert_open?(updated_running_entry) do
+      Alerts.emit_system("ticket.#{Map.get(updated_running_entry, :identifier)}.agent.stalled.resolved",
+        message: "Agent resumed and is making progress",
+        issue: Map.get(updated_running_entry, :issue),
+        workspace: Map.get(updated_running_entry, :workspace_path),
+        worker_host: Map.get(updated_running_entry, :worker_host),
+        needs_attention: false
+      )
+    end
+
     state =
       state
       |> Map.put(:running, Map.put(state.running, issue_id, updated_running_entry))
@@ -107,6 +118,13 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
     state = sync_pause_reason_label(state, running_entry, previous_status, previous_pause_reason, status, pause_reason)
     StatusReport.notify_dashboard(state)
     {:noreply, state}
+  end
+
+  defp stalled_alert_open?(running_entry) do
+    topic = "ticket.#{Map.get(running_entry, :identifier)}.agent.stalled"
+
+    AlertFeed.list(needs_attention: true)
+    |> Enum.any?(&(&1["topic"] == topic))
   end
 
   defp put_usage_limit_reset(entry, :paused, :usage_limit_exhausted, %{reset_at: reset}) when is_binary(reset),
