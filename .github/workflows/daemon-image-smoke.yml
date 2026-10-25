@@ -33,6 +33,12 @@ jobs:
             --env AIUR_STATE_DIR=/data --env AIUR_BG_STATE_DIR=/data/engine \
             --env AIUR_COOKIE_FILE=/data/engine/cookie \
             --env AIUR_ERLANG_COOKIE=daemon-smoke-cookie-5940 \
+            --env AIUR_STATE_PERSISTENT=1 \
+            --env GITHUB_TOKEN=daemon-smoke-token \
+            --env AIUR_DASHBOARD_USERNAME=daemon-smoke \
+            --env AIUR_DASHBOARD_PASSWORD=daemon-smoke-password \
+            --env AIUR_GOOGLE_CLIENT_ID=smoke-client-id \
+            --env AIUR_GOOGLE_CLIENT_SECRET=smoke-client-secret \
             --env AIUR_CONFIG_FILE=/config/config \
             --volume "$state_dir:/data" \
             --volume "$GITHUB_WORKSPACE/packaging/docker/fixture.yaml:/config/config:ro" \

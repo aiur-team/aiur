@@ -1,6 +1,6 @@
 defmodule Aiur.Logs.Retention do
   @moduledoc """
-  Periodically bounds the unified log home (`~/.aiur/logs`) to
+  Periodically bounds the unified log home (`AIUR_STATE_DIR/logs`, default `AIUR_STATE_DIR/logs` (`~/.aiur/logs`)) to
   `max_log_history_mb` (`.aiurconfig`, default 1000 MB).
 
   Every `interval_ms` (default 5 min) it sums the size of every session
@@ -30,7 +30,7 @@ defmodule Aiur.Logs.Retention do
   Start the sweep. Accepts (all optional, defaults shown):
 
     * `:interval_ms` — sweep period (default 5 min).
-    * `:root` — log home to bound (default `~/.aiur/logs`).
+    * `:root` — log home to bound (default `AIUR_STATE_DIR/logs` (`~/.aiur/logs`)).
     * `:cap_mb_fun` — `(-> pos_integer)` cap source (default reads config).
     * `:current_session_fun` — `(-> path | nil)` session never to delete.
     * `:start_paused?` — skip the first scheduled tick (tests drive `sweep/1`).
@@ -162,7 +162,7 @@ defmodule Aiur.Logs.Retention do
     end
   end
 
-  defp default_root, do: Path.expand("~/.aiur/logs")
+  defp default_root, do: Path.join(Paths.state_root(), "logs")
 
   defp resolve_cap_mb do
     Config.max_log_history_mb()
@@ -175,7 +175,7 @@ defmodule Aiur.Logs.Retention do
   # The active session is the direct child of the root that is an
   # ancestor of the live log dir (`<root>/<session>/log`). Returns nil
   # when the active logs live outside the retention root (e.g. a custom
-  # `--logs-root`), in which case nothing under `~/.aiur/logs` is live.
+  # `--logs-root`), in which case nothing under the configured log root is live.
   defp current_session_dir do
     root = default_root()
     log_dir = Paths.log_root_dir()

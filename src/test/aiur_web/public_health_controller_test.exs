@@ -1,9 +1,10 @@
-defmodule AiurWeb.HealthControllerTest do
+defmodule AiurWeb.PublicHealthControllerTest do
   use ExUnit.Case, async: false
   import Plug.Test
 
   setup do
     previous = Application.get_env(:aiur, :health_ready_fun)
+    previous_orchestrator = Application.get_env(:aiur, :health_orchestrator_pid_fun)
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     System.delete_env("AIUR_DASHBOARD_USERNAME")
@@ -11,6 +12,7 @@ defmodule AiurWeb.HealthControllerTest do
 
     on_exit(fn ->
       if is_nil(previous), do: Application.delete_env(:aiur, :health_ready_fun), else: Application.put_env(:aiur, :health_ready_fun, previous)
+      if is_nil(previous_orchestrator), do: Application.delete_env(:aiur, :health_orchestrator_pid_fun), else: Application.put_env(:aiur, :health_orchestrator_pid_fun, previous_orchestrator)
       restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
     end)
@@ -32,6 +34,13 @@ defmodule AiurWeb.HealthControllerTest do
     ready = request(:get, "/readyz")
     assert ready.status == 200
     assert ready.resp_body == "ready\n"
+  end
+
+  test "readiness is unavailable when the orchestrator has not booted" do
+    Application.delete_env(:aiur, :health_ready_fun)
+    Application.put_env(:aiur, :health_orchestrator_pid_fun, fn -> nil end)
+
+    assert request(:get, "/readyz").status == 503
   end
 
   defp request(method, path), do: AiurWeb.Endpoint.call(conn(method, path), AiurWeb.Endpoint.init([]))

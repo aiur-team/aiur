@@ -447,7 +447,7 @@ defmodule Aiur.HttpServer do
   defp endpoint_url(url, fallback_host) when is_binary(url) do
     case URI.parse(url) do
       %URI{scheme: scheme, host: host, port: port} when scheme in ["http", "https"] and is_binary(host) ->
-        options = [host: host, scheme: if(scheme == "https", do: :https, else: :http)]
+        options = [host: host, scheme: scheme]
         if is_integer(port), do: Keyword.put(options, :port, port), else: options
 
       _ ->
