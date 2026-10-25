@@ -202,6 +202,26 @@ defmodule Aiur.Instance.LeaseStoreTest do
         assert Enum.count(results, &(&1 == :acquired)) == 1
         assert Enum.count(results, &(&1 == :held)) == 1
 
+        budget_key = "github-budget-test-#{suffix}"
+        assert {:ok, :admitted} = LeaseStore.admit_github_budget("budget-left-#{suffix}", budget_key, "graphql", "left", 100, 60, server: left)
+        assert {:ok, {:held, %DateTime{}}} = LeaseStore.admit_github_budget("budget-right-#{suffix}", budget_key, "graphql", "right", 100, 60, server: right)
+        observed_at = DateTime.utc_now()
+
+        provider_snapshot = %Aiur.ProviderMeterSnapshot{
+          provider: :codex,
+          backend: :app_server,
+          identity_scope: :account,
+          provider_account_generation: "generation-#{suffix}",
+          observed_at: observed_at,
+          auth_mode: :subscription,
+          freshness: :fresh,
+          health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
+          windows: %{"weekly" => %{used: 7}}
+        }
+
+        assert :ok = LeaseStore.publish_provider_meter(provider_snapshot, server: left)
+        assert {:ok, ^provider_snapshot} = LeaseStore.shared_provider_meter(:codex, server: right)
+
         expiry_key = "lease-test/expiry##{suffix}"
         assert LeaseStore.claim(expiry_key, server: left, ttl_ms: 1_000, grace_ms: 10_000) == :acquired
         assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 1_000, grace_ms: 10_000) == :held

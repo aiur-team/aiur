@@ -127,10 +127,11 @@ _session_alert_ledger_path_file="" _session_crash_dump_baseline_file="" _session
 _session_keep_capture=0
 _cleanup_ran=0
 session_cleanup() {
-  [ "$_cleanup_ran" = 1 ] && return 0
-  _cleanup_ran=1
   local code=$?
-  [ ! -s "$_session_pidfile.handoff" ] || return 0
+  set +e
+  [ "$_cleanup_ran" = 1 ] && return "$code"
+  _cleanup_ran=1
+  [ ! -s "$_session_pidfile.handoff" ] || return "$code"
 
   # Stop the BEAM-death watchdog: cleanup is running, so it has no work left and
   # a lingering poller would outlive this teardown.
@@ -200,8 +201,11 @@ session_cleanup() {
   _session_launch_lock=""
   return $code
 }
+install_session_exit_trap() {
+  trap 'session_cleanup; exit "$?"' EXIT
+}
 install_foreground_traps() {
-  trap 'session_cleanup' EXIT
+  install_session_exit_trap
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 130' INT
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 143' TERM
   trap 'trap - EXIT INT TERM HUP; session_cleanup; exit 129' HUP

@@ -47,6 +47,33 @@ test('spend-cap reached event requires the distinct budget_exhausted end state',
   }
 });
 
+test('ticket cancel reserves exit evidence for an observed process exit', () => {
+  const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket cancel');
+
+  for (const status of ['still_running', 'kill_failed', 'generation_changed']) {
+    const nonExit = structuredClone(fixture);
+    nonExit.process = {
+      ...nonExit.process,
+      status,
+      exit_status: null,
+      exited_at: null,
+    };
+    assert.equal(validate(nonExit), true, JSON.stringify(validate.errors));
+  }
+
+  const falseSuccess = structuredClone(fixture);
+  falseSuccess.process.status = 'still_running';
+  assert.equal(validate(falseSuccess), false);
+
+  const invented = structuredClone(fixture);
+  invented.process.status = 'queued';
+  assert.equal(validate(invented), false);
+
+  const unboundedReason = structuredClone(fixture);
+  unboundedReason.process.exit_status = 'arbitrary_runtime_term';
+  assert.equal(validate(unboundedReason), false);
+});
+
 test('status accepts nullable polling and structured CI results emitted by the presenter', () => {
   const { fixture, validate } = contractCases.find(({ name }) => name === 'status');
   const status = structuredClone(fixture);

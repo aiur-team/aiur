@@ -28,6 +28,7 @@
     "web-kit"
   ],
   "optional": [
+    "accounting",
     "build-orders",
     "commands",
     "conversations",

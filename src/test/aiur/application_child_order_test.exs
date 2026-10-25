@@ -133,6 +133,7 @@ defmodule Aiur.ApplicationChildOrderTest do
     Aiur.AgentPubSub.FleetRefresh => "Create the subscriber table after PubSub and before channels can register",
     Aiur.Orchestrator.SnapshotCache => "Create the snapshot table before SnapshotStore or SnapshotPublisher can write",
     Aiur.GitHub.HoldPressure => "Record local holds before any GitHub request can arrive",
+    Aiur.Usage.Alerts => "Subscribe before ProviderMeterRefresh emits baseline observations",
     # The first CI poll and queue reconcile need the seeded progress table before they run.
     Aiur.StartTrigger.ProgressStore => "Seed the ETS table before Orchestrator and BuildQueue start observing PR progress",
     Aiur.Orchestrator.SpendCap.Store => "Seed fail-closed admission before Orchestrator starts its initial dispatch",

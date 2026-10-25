@@ -11,7 +11,8 @@ consumers lose the closed union and must handle unknown modes when switching on 
 
 `src/index.ts` exports generated `CapabilitiesReport`, `CapabilityEntry`,
 `CapabilityState`, `CapabilityReason`, `CapabilityError`, `AgentsStatus`,
-`FleetStatus`, `TicketStatus`, `TicketUsage`, `TicketProgress`, `TicketSpendCap`, and `TicketSpendCapReached` types,
+`FleetStatus`, `TicketStatus`, `TicketCancel`, `TicketUsage`, `TicketProgress`,
+`TicketSpendCap`, and `TicketSpendCapReached` types,
 `KNOWN_CAPABILITY_IDS`, `KNOWN_CAPABILITY_ID_PATTERNS`, and `CAPABILITY_REASONS`.
 Harness patterns accept one lowercase `[a-z0-9_]+` segment.
 Run `npm run build` before importing runtime constants from this local package.
@@ -22,6 +23,7 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `agents.v1` | `aiur agents --json` | `aiur.agents` |
 | `status.v1` | `GET /api/v1/state` | `aiur.status` |
 | `ticket.v1` | `GET /api/v1/:id` | `aiur.ticket` |
+| `ticket-cancel.v1` | `POST /api/v1/:id/cancel` | `aiur.ticket_cancel` |
 | `ticket-usage.v1` | `GET /api/v1/:id/usage` and `aiur ticket-usage --json` | `aiur.ticket_usage` |
 | `ticket-progress.v1` | `GET /api/v1/:id/progress` | `aiur.ticket_progress` |
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |

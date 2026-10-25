@@ -203,6 +203,9 @@ defmodule Aiur.Application.Children do
       # is broadcast before there is anything retaining it.
       Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
+      # Subscribe after the projection exists and before refresh emits the
+      # baseline observation used to initialize low-usage alert episodes.
+      Aiur.Usage.Alerts,
       # Decides when usage is observed: one baseline after boot, then while a
       # surface is watched or headroom account selection is on. Starts after the projection so a baseline
       # observation always has somewhere to land.
@@ -318,7 +321,7 @@ defmodule Aiur.Application.Children do
   end
 
   defp dashboard_final_children(dashboard?, opts) do
-    List.wrap(if(dashboard?, do: AiurWeb.DashboardAuth.ChallengeStore)) ++
+    List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end

@@ -209,7 +209,8 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
+from the environment. GitHub uses the App when configured; local fallback is `GITHUB_TOKEN` or `gh` keyring, while hosted/container requires the App unless
+`AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. On a run,
 credential precedence is: an already-exported environment value, then
 `./.env` in the current repository, then `~/.aiur/.env`. Each dotenv file only
 fills unset names, blank values count for nothing, and GitHub credentials
@@ -233,9 +234,8 @@ daemon: agent and build children have both variables removed from their
 environment so they cannot overwrite daemon evidence or inherit its dump
 policy.
 
-GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
-for git pushes/PRs. Verify with `gh auth status` in the same shell that
-will run the agent.
+Use `gh auth setup-git` for git pushes/PRs, and verify with `gh auth status` in
+the same shell that will run the agent.
 
 Agent processes do **not** inherit `GITHUB_TOKEN`/`GH_TOKEN`: the daemon
 scrubs them from every agent environment and the `gh` guard injects the

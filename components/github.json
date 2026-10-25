@@ -13,13 +13,13 @@
     "src/lib/aiur/codeowners/**",
     "src/lib/aiur/github/**",
     "src/lib/aiur/github_cost_cli.ex",
+    "src/lib/aiur/github_cost_cli/**",
     "src/lib/aiur/github_usage_cli.ex",
     "src/lib/aiur/global_config_startup.ex",
     "src/lib/aiur/open_ticket_source.ex",
     "src/lib/aiur/open_ticket_source/**",
     "src/lib/aiur/pr_merge/queue.ex",
-    "src/lib/aiur/webhooks/delivery_mode.ex",
-    "src/lib/aiur/webhooks/mode_table.ex"
+    "src/lib/aiur/webhooks/delivery_mode.ex"
   ],
   "facades": [
     "Aiur.AllowedContributors",
@@ -64,13 +64,13 @@
     "Aiur.GitHub.ViewStateSweep",
     "Aiur.GitHub.WorkspacePreflight",
     "Aiur.GitHubCostCLI",
+    "Aiur.GitHubCostCLI.Fleet",
     "Aiur.GitHubUsageCLI",
     "Aiur.GlobalConfigStartup",
     "Aiur.OpenTicketSource",
     "Aiur.OpenTicketSource.Snapshot",
     "Aiur.PrMerge.Queue",
-    "Aiur.Webhooks.DeliveryMode",
-    "Aiur.Webhooks.ModeTable"
+    "Aiur.Webhooks.DeliveryMode"
   ],
   "requires": [
     "agent-sandbox",
