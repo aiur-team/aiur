@@ -1,6 +1,4 @@
 # rule	target_module	reason
-R-declared	Aiur.Accounts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
-R-declared	Aiur.Accounts.UsageReadings	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.AgentControlCLI	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
 R-declared	Aiur.AgentControlCLIFreshness	#4236 stale fleet output includes pause provenance when the snapshot stopped during global pause
 R-declared	Aiur.ControlCLI.CiWait	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
@@ -99,6 +97,9 @@ R-optional	Aiur.SystemLoad	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.SystemMemory	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the existing tmux dependency during server isolation
+R-optional	Aiur.Usage.GroupedScopes	#5693 spend-cap enforcement reads authoritative per-ticket API-equivalent cost and coverage
+R-optional	Aiur.Usage.GroupedScopes.Scope	#5693 spend-cap enforcement reads authoritative per-ticket API-equivalent cost and coverage
+R-optional	Aiur.UsageAggregate	#5693 spend-cap enforcement subscribes to authoritative aggregate changes
 R-optional	Aiur.Webhooks	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Webhooks.IntervalPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut

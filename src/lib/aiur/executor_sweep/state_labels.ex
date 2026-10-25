@@ -7,7 +7,7 @@ defmodule Aiur.ExecutorSweep.StateLabels do
 
   # Mirrors `Aiur.GitHub.Labels` state suffixes: a state missing here is
   # miscounted as an absent label (#5796).
-  @state_labels ~w(todo in-progress ci-wait human-review rework merging error done cancelled canceled)
+  @state_labels ~w(todo in-progress ci-wait human-review rework merging error done cancelled canceled budget-exhausted)
 
   @spec raw_labels(map()) :: [String.t()]
   def raw_labels(ticket) do

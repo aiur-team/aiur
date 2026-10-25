@@ -121,6 +121,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.BuildOrder.PackStatus, [poll_on_start: true]},
     {Aiur.OpenTicketSource, [poll_on_start: true]},
     {Aiur.GitHub.ViewStateSweep, [sources: [Aiur.BuildOrder.PackStatus]]},
+    Aiur.Orchestrator.SpendCap.Store,
     Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
