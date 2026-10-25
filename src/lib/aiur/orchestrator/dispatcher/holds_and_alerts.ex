@@ -6,7 +6,6 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   require Logger
 
   alias Aiur.AlertFeed
-  alias Aiur.Signal
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue
@@ -18,6 +17,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   # The prewarm gate holds the whole fleet while the warm base builds/clones.

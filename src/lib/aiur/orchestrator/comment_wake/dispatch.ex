@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.CommentWake.Dispatch do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWakeDecline
@@ -13,6 +12,7 @@ defmodule Aiur.Orchestrator.CommentWake.Dispatch do
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Signal
   alias Aiur.Tracker
 

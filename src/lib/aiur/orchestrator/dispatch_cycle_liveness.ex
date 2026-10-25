@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.DispatchCycleLiveness do
   @moduledoc false
 
-  alias Aiur.Signal
   alias Aiur.Orchestrator.{State, StatusReport}
+  alias Aiur.Signal
 
   @retry_ms 1_000
 

@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.CodingAgent
   alias Aiur.Handoff
   alias Aiur.Instance
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @spec dispatch(State.t(), Issue.t(), term(), term(), keyword(), function()) :: State.t()
   def dispatch(state, issue, attempt, worker_host, opts, dispatch_to_worker) do

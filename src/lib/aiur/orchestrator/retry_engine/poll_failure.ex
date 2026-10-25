@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Config
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.RetryEngine.PollFailure do
   alias Aiur.Orchestrator.RetryEngine.Exhaustion
   alias Aiur.Orchestrator.RetryEngine.Scheduling
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @max_retry_poll_failures 3
 

@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.ReworkHandoffChecks do
   @moduledoc false
 
-  alias Aiur.Signal
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.Signal
 
   @failed_conclusions ~w(action_required failure startup_failure timed_out)
 

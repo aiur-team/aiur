@@ -14,8 +14,8 @@ defmodule Aiur.Orchestrator.RetryEngine.HoldStreak do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @alert_after_ms 30 * 60 * 1_000
 

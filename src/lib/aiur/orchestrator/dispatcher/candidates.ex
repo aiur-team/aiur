@@ -9,7 +9,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue
@@ -23,6 +22,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Candidates do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   # Refreshes the open-blocking-Command ticket set in State from the local store.

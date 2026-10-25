@@ -3,9 +3,9 @@ defmodule Aiur.GitHub.Listeners.Firehose do
   use GenServer
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Events.GithubFirehose
   alias Aiur.GitHub.Listeners.Firehose.Window
+  alias Aiur.Signal
 
   @type t :: %__MODULE__{}
   defstruct events_etag: nil,

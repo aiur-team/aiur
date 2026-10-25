@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.GithubBudgetPause do
   @moduledoc false
 
-  alias Aiur.Signal
   alias Aiur.Orchestrator.{ControlLifecycle, State, TicketTransition}
   alias Aiur.Protocol.MapAccess
+  alias Aiur.Signal
 
   @budget_resources ["core", "graphql"]
   # A shared hold's advertised reset must be bounded to the broker's own

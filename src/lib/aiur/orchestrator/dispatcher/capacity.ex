@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.{Config, SystemCgroup}
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry
+  alias Aiur.Signal
   alias Aiur.SystemCpu
 
   @capacity_backoff_alert_ms 30_000

@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Signal
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Orchestrator.IssueSync.CapacityConstraints
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.IssueSync.FleetCapacity do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
+  alias Aiur.Signal
 
   @doc false
   @spec sync_fleet_capacity_starved_alert(State.t(), list(), integer()) :: State.t()

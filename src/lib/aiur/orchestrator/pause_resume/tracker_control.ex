@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   Runs operator resume and dispatch-budget reset controls as tracker steps outside the orchestrator call.
   """
 
-  alias Aiur.Signal
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
@@ -19,6 +18,7 @@ defmodule Aiur.Orchestrator.PauseResume.TrackerControl do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TicketTransition
+  alias Aiur.Signal
   alias Aiur.Tracker
   require Logger
 

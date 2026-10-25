@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake
   alias Aiur.Orchestrator.CommentWake.ReworkRetries
@@ -13,6 +12,7 @@ defmodule Aiur.Orchestrator.CommentWake.Reactivation do
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   @doc false

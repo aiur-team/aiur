@@ -3,11 +3,11 @@ defmodule Aiur.Orchestrator.CiReadinessGate do
   Advisory CI readiness checks for dispatch.
   """
 
-  alias Aiur.Signal
   alias Aiur.CodeHost
   alias Aiur.CodeHost.CiReadiness
   alias Aiur.Config
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000

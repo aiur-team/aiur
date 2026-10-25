@@ -24,11 +24,11 @@ defmodule Aiur.Orchestrator.ReworkGate do
   one.
   """
 
-  alias Aiur.Signal
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ReviewThreads
   alias Aiur.Orchestrator.{OperatorMessages, ReworkHandoffChecks, State}
   alias Aiur.PRLifecycle.PostAgentRouting
+  alias Aiur.Signal
 
   @doc false
   @spec operator_queue_empty?(GenServer.server(), String.t()) :: boolean()

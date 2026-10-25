@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.DispatchPolicy
@@ -16,6 +15,7 @@ defmodule Aiur.Orchestrator.IssueSync.StrandedTickets do
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   @doc """
   Re-queues open non-terminal tickets that have neither a live owner nor a

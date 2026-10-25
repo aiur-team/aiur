@@ -3,12 +3,12 @@ defmodule Aiur.Orchestrator.PauseResume.ControlCalls do
   Orchestrator call handlers for per-ticket pause, control requests, and control expiry.
   """
 
-  alias Aiur.Signal
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Orchestrator.PauseResume.ControlRequest
   alias Aiur.Orchestrator.PauseResume.PauseRequest
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
   alias Aiur.TrackerIdentity
   require Logger
 

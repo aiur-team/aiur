@@ -6,7 +6,6 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
 
   require Logger
 
-  alias Aiur.Signal
   alias Aiur.{CodeHost, Config, Issue, Tracker}
   alias Aiur.GitHub.{Issues, StatePolicy}
   alias Aiur.Orchestrator.Dispatcher.Budgets
@@ -14,6 +13,7 @@ defmodule Aiur.Orchestrator.Dispatcher.BudgetTrip do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   @doc false
   @spec trip_thrash_breaker(State.t(), term()) :: State.t()

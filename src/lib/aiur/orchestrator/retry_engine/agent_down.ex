@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
 
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
-  alias Aiur.Signal
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AgentTeardown
@@ -18,6 +17,7 @@ defmodule Aiur.Orchestrator.RetryEngine.AgentDown do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TokenAccounting
+  alias Aiur.Signal
 
   @spec handle_agent_down(State.t(), reference(), term()) :: {:noreply, State.t()}
   def handle_agent_down(state, ref, reason),

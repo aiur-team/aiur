@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.Signal
   alias Aiur.Config
   alias Aiur.Orchestrator.RetryEngine
   alias Aiur.Orchestrator.RetryEngine.Exhaustion
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.RetryEngine.Scheduling do
   alias Aiur.Orchestrator.RetryEngine.PollFailure
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.{TicketTransition, TrackerTasks}
+  alias Aiur.Signal
 
   @continuation_retry_delay_ms 1_000
 

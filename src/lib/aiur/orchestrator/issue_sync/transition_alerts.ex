@@ -4,7 +4,6 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   """
 
   alias Aiur.AlertFeed
-  alias Aiur.Signal
   alias Aiur.Config
   alias Aiur.DispatchBudgetStore
   alias Aiur.Events.GithubKeys
@@ -12,6 +11,7 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @doc false
   @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
