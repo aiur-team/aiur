@@ -57,7 +57,7 @@ tracker:
 instance:
   mode: local                        # local | hosted; hosted also requires API-key auth and fallback
   # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
-  role: primary                       # primary | secondary; one primary per repository
+  role: primary                       # eligible primary candidates share leader election; secondary never leads
   # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
   # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
