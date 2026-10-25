@@ -58,6 +58,8 @@ for (const width of [1440, 390]) test(`degraded marker retains design geometry $
   try {
     await pair.product.goto(new URL('/build-fixture/degraded', pair.product.url()).href)
     await expect(pair.product.locator('#bd-content')).toHaveCount(1)
+    // Keep this future-regression guard: degraded already fits on the baseline.
+    if (width === 390) expect(await pair.product.locator('#bd-vp').evaluate(vp => vp.scrollWidth - vp.clientWidth)).toBe(0)
     for (const page of [pair.design, pair.product]) await page.locator('#bd-vp').evaluate(vp => { vp.scrollTop = document.querySelector('#bd-sec-hist').offsetTop - 160 })
     const read = page => page.locator('#bd-sec-hist .bd-mk.empty').evaluate(el => {
       const s = getComputedStyle(el), props = ['top', 'left', 'width', 'height']

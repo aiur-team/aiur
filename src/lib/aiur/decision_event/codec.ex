@@ -149,6 +149,25 @@ defmodule Aiur.DecisionEvent.Codec do
     end
   end
 
+  def normalize_data(:pending_for_session, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, @identity_max) do
+      {:ok, %{action_id: action_id}}
+    end
+  end
+
+  def normalize_data(:session_started, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, @identity_max),
+         {:ok, session_id} <- Validation.bounded_required(Validation.get(raw, :session_id), @identity_max, :session_id) do
+      {:ok, %{action_id: action_id, session_id: session_id}}
+    end
+  end
+
+  def normalize_data(:answer_comment_published, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, @identity_max) do
+      {:ok, %{action_id: action_id}}
+    end
+  end
+
   def normalize_data(type, raw, _decision_id, _version, _trusted_provenance) when type in @transport_types and is_map(raw) do
     with {:ok, action_id} <- Validation.map_required_string(raw, :action_id, @identity_max),
          {:ok, attempt_id} <- Validation.map_required_string(raw, :attempt_id, @identity_max),
@@ -282,7 +301,7 @@ defmodule Aiur.DecisionEvent.Codec do
     }
   end
 
-  def data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_json_safe(answer)
+  def data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_event_json_safe(answer)
 
   def data_to_json_safe(:decision_dismissed, data) do
     %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
@@ -339,6 +358,12 @@ defmodule Aiur.DecisionEvent.Codec do
       "detail" => data.detail
     }
   end
+
+  def data_to_json_safe(:pending_for_session, data), do: %{"action_id" => data.action_id}
+
+  def data_to_json_safe(:session_started, data), do: %{"action_id" => data.action_id, "session_id" => data.session_id}
+
+  def data_to_json_safe(:answer_comment_published, data), do: %{"action_id" => data.action_id}
 
   def data_to_json_safe(type, data) when type in @transport_types do
     %{
