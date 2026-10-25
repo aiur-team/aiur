@@ -84,19 +84,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRetainedPayloadTest do
 
   test "an unpublished snapshot marks the loaded Units catalog as starting" do
     :ok = SnapshotStore.forget(@orchestrator)
-
-    orchestrator =
-      start_supervised!(%{
-        id: @orchestrator,
-        start: {Agent, :start_link, [fn -> :starting end, [name: @orchestrator]]}
-      })
+    {:ok, orchestrator} = Agent.start_link(fn -> :starting end, name: @orchestrator)
 
     on_exit(fn ->
+      if Process.alive?(orchestrator), do: Agent.stop(orchestrator)
       SnapshotStore.forget(@orchestrator)
     end)
 
-    assert GenServer.whereis(@orchestrator) == orchestrator
-    start_endpoint(orchestrator: @orchestrator)
+    start_endpoint([orchestrator: @orchestrator], boot_elapsed_ms: fn -> 0 end)
     payload = PayloadLoader.load(:fresh)
 
     assert payload.units.status == :loading
