@@ -4,15 +4,13 @@ defmodule Aiur.MainWatch do
   require Logger
   alias Aiur.Config
   alias Aiur.Events
+  alias Aiur.ExecutorSweep.CacheFreshness
   alias Aiur.GitHub.{Budget, ResourceStore, Transport}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
 
   @request_limit 64
-  @runner_queue_bound 10
-  @runner_starvation_age_ms 15 * 60_000
-  @actions_status_url "https://www.githubstatus.com/#components"
 
   @spec enabled?() :: boolean()
   def enabled?, do: MergePolicy.current().main_watch.enabled
@@ -77,43 +75,21 @@ defmodule Aiur.MainWatch do
   end
 
   defp runner_starvation(groups, now_ms) when is_list(groups) do
-    queued = Enum.filter(groups, &(run_state(&1) == "queued"))
-    running = Enum.count(groups, &(run_state(&1) == "in_progress"))
+    snapshot = %{merge_groups: groups}
+    now = DateTime.from_unix!(now_ms, :millisecond)
 
-    oldest_age =
-      queued
-      |> Enum.map(&run_age_ms(&1, now_ms))
-      |> Enum.max(fn -> 0 end)
-
-    queue_pressure? = running == 0 or length(queued) > running * 2
-    queue_evidence? = length(queued) > @runner_queue_bound or oldest_age >= @runner_starvation_age_ms
-
-    if queued != [] and queue_pressure? and queue_evidence? do
-      %{queued_runs: length(queued), running_runs: running, status_url: @actions_status_url}
+    snapshot
+    |> CacheFreshness.stale_merge_groups(now, 15, 0)
+    |> Enum.find(&(&1.kind == "runner_starvation"))
+    |> case do
+      nil -> nil
+      finding -> Map.take(finding, [:queued_runs, :running_runs, :status_url])
     end
   end
 
   defp runner_starvation(_groups, _now_ms), do: nil
 
   defp now_ms(server), do: Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
-
-  defp run_state(group), do: Map.get(group, :status, Map.get(group, "status", Map.get(group, :state, Map.get(group, "state", ""))))
-
-  defp run_age_ms(group, now_ms) do
-    case Map.get(group, :started_at, Map.get(group, "started_at")) do
-      %DateTime{} = started_at -> max(now_ms - DateTime.to_unix(started_at, :millisecond), 0)
-      timestamp when is_integer(timestamp) -> max(now_ms - timestamp, 0)
-      timestamp when is_binary(timestamp) -> parse_run_time(timestamp, now_ms)
-      _ -> 0
-    end
-  end
-
-  defp parse_run_time(timestamp, now_ms) do
-    case DateTime.from_iso8601(timestamp) do
-      {:ok, started_at, _offset} -> max(now_ms - DateTime.to_unix(started_at, :millisecond), 0)
-      _ -> 0
-    end
-  end
 
   @impl true
   def handle_cast(:reconcile, server), do: {:noreply, schedule_reconcile(server)}
