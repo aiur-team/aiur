@@ -164,11 +164,27 @@ defmodule Aiur.Instance.LeaseStore do
   @spec list_live(keyword()) :: {:ok, [map()]} | {:error, term()}
   def list_live(opts \\ []), do: request(opts, :list_live)
 
-  defdelegate claim_leader(repository, opts \\ []), to: RepositoryLease, as: :claim
-  defdelegate renew_leader(repository, opts \\ []), to: RepositoryLease, as: :renew
+  @spec claim_leader(String.t(), keyword()) :: :acquired | :held | {:error, term()}
+  def claim_leader(repository, opts \\ []), do: repository_lease_call(:claim, repository, opts)
+
+  @spec renew_leader(String.t(), keyword()) :: :ok | {:error, term()}
+  def renew_leader(repository, opts \\ []), do: repository_lease_call(:renew, repository, opts)
   defdelegate leader(repository, opts \\ []), to: RepositoryLease
   defdelegate leader_owned?(repository, opts \\ []), to: RepositoryLease
   defdelegate repository_key(repository \\ nil), to: RepositoryLease
+
+  defp repository_lease_call(action, repository, opts) do
+    server = Keyword.get(opts, :server, @name)
+    instance_id = Keyword.get_lazy(opts, :instance_id, fn -> GenServer.call(server, :instance_id) end)
+    lease_opts = Keyword.put(opts, :instance_id, instance_id)
+
+    case action do
+      :claim -> RepositoryLease.claim(repository, lease_opts)
+      :renew -> RepositoryLease.renew(repository, lease_opts)
+    end
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
 
   @impl true
   def init(opts) do
@@ -303,6 +319,8 @@ defmodule Aiur.Instance.LeaseStore do
     result = RepositoryLease.handle(state, action, repo, ttl_ms, instance_id)
     reply_with_reconnect(result, state)
   end
+
+  def handle_call(:instance_id, _from, state), do: {:reply, instance_id(state), state}
 
   @impl true
   def handle_info(:connect, state) do
