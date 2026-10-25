@@ -547,6 +547,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns = %{
       payload: payload,
       now: DateTime.utc_now(),
+      netlify_dashboard: %{enabled?: false, snapshot: %{provider: :netlify, state: :unavailable, fields: %{}}},
       time_zone: "Etc/UTC",
       # This helper renders DashboardLive directly, bypassing mount/3, so it has
       # to seed every assign mount/3 seeds — including the server-owned sidebar
