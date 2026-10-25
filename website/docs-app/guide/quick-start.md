@@ -120,4 +120,7 @@ it. `aiur status` shows ownership rules for this instance and other live ones.
 watcher filtering. Its `label_prefixes: [nuc]` and `tickets: [4121]` entries do
 not affect dispatch; use `instance.owns` for live rule-based dispatch.
 
-Register each daemon in `~/.aiur/remote-instances.yaml` as described under [Remote instances](/reference/cli-options#remote-instances). From the machine running the Executor, use `aiur --instance nuc status` (or another supported control command) to operate the named daemon without a second local Aiur run.
+Register each daemon in `~/.aiur/remote-instances.yaml` as described under
+[Remote instances](/reference/cli-options#remote-instances). From the Executor
+machine, use `aiur --instance nuc status` (or another control command) to
+operate the named daemon without starting a second local Aiur run.
