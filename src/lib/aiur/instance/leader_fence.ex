@@ -16,8 +16,7 @@ defmodule Aiur.Instance.LeaderFence do
     else
       case LeaseStore.leader_owned?(Aiur.GitHub.Config.repo(), Keyword.get(opts, :store_opts, [])) do
         true -> true
-        :disabled -> true
-        _ -> false
+        false -> false
       end
     end
   rescue

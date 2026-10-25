@@ -52,7 +52,8 @@ defmodule Aiur.Instance.LeaseStore.RepositoryLease do
   end
 
   @doc false
-  @spec handle(atom(), map(), String.t(), pos_integer() | nil, String.t() | nil) :: term()
+  @spec handle(map(), :claim | :read | :renew, String.t(), pos_integer() | nil, String.t() | nil) ::
+          :acquired | :held | :ok | {:error, term()} | {:ok, map() | nil}
   def handle(state, action, repo, ttl_ms, instance_id), do: query(state, query_spec(action, repo, ttl_ms, instance_id))
 
   defp query(state, {sql, params, mapper}) do

@@ -13,7 +13,7 @@ defmodule Aiur.MergePolicyCLI do
     IO.puts(leader_status_line(RepositoryLeader.status()))
   end
 
-  @spec leader_status_line(%{leader: String.t(), lease_age: String.t()}) :: String.t()
+  @spec leader_status_line(map()) :: String.t()
   def leader_status_line(leader),
     do: "REPOSITORY LEADER holder=#{leader.leader} lease_age=#{leader.lease_age}"
 

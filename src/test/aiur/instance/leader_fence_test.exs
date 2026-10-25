@@ -53,27 +53,18 @@ defmodule Aiur.Instance.LeaderFenceTest do
       )
 
     on_exit(fn -> safe_stop(pid) end)
-    assert_eventually(fn -> length(DynamicSupervisor.which_children(supervisor)) == 1 end)
+    :sys.get_state(leader)
+    assert length(DynamicSupervisor.which_children(supervisor)) == 1
 
     Agent.update(election, &%{&1 | claim: :held, renew: {:error, :lease_lost}})
     send(pid, :elect)
-    assert_eventually(fn -> DynamicSupervisor.which_children(supervisor) == [] end)
+    :sys.get_state(leader)
+    assert DynamicSupervisor.which_children(supervisor) == []
 
     Agent.update(election, &%{&1 | claim: :acquired})
     send(pid, :elect)
-    assert_eventually(fn -> length(DynamicSupervisor.which_children(supervisor)) == 1 end)
-  end
-
-  defp assert_eventually(assertion, attempts \\ 100)
-  defp assert_eventually(assertion, 0), do: assert(assertion.())
-
-  defp assert_eventually(assertion, attempts) do
-    if assertion.() do
-      :ok
-    else
-      Process.sleep(10)
-      assert_eventually(assertion, attempts - 1)
-    end
+    :sys.get_state(leader)
+    assert length(DynamicSupervisor.which_children(supervisor)) == 1
   end
 
   defp safe_stop(pid) do
