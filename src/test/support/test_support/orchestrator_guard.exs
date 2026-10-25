@@ -19,7 +19,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   """
   use GenServer
 
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.TestSupport.CodeownersGuardState
   alias Aiur.TestSupport.OrchestratorChild
   alias Aiur.TestSupport.SupervisorExit
 
@@ -177,7 +177,9 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   defp restore_test_scope_state(expected, expected_instance_key) do
     actual_instance_key = System.get_env("AIUR_INSTANCE_KEY")
     instance_key_leaks = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
-    codeowners_leaks = codeowners_leaks(:persistent_term.get(@codeowners_key, :unset))
+
+    codeowners_leaks = codeowners_leaks(:persistent_term.get(@codeowners_key, :unset), last_finished() || "unknown")
+
     leaks = app_env_leaks() ++ instance_key_leaks ++ codeowners_leaks
 
     if leaks != [] do
@@ -330,7 +332,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     end)
   end
 
-  defp verify_shared_state_restored!(%{aiur_expected_shared_state: expected}) do
+  defp verify_shared_state_restored!(%{aiur_expected_shared_state: expected} = context) do
     actual_instance_key = System.get_env("AIUR_INSTANCE_KEY")
     expected_instance_key = expected.instance_key
 
@@ -343,7 +345,7 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
 
     instance_key_leaks = if actual_instance_key == expected_instance_key, do: [], else: ["AIUR_INSTANCE_KEY changed from #{inspect(expected_instance_key)} to #{inspect(actual_instance_key)}"]
     expected_codeowners = Map.get(expected, :codeowners, :unset)
-    codeowners_leaks = codeowners_leaks(expected_codeowners)
+    codeowners_leaks = codeowners_leaks(expected_codeowners, test_name(context))
     leaks = app_env_leaks ++ instance_key_leaks ++ codeowners_leaks
 
     if leaks != [] do
@@ -355,14 +357,14 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
     leaks
   end
 
-  defp verify_shared_state_restored!(_context) do
-    leaks = codeowners_leaks()
+  defp verify_shared_state_restored!(context) do
+    leaks = codeowners_leaks(:persistent_term.get(@codeowners_key, :unset), test_name(context))
     if leaks != [], do: restore_codeowners(:persistent_term.get(@codeowners_key, :unset))
     leaks
   end
 
   def capture_codeowners_baseline! do
-    case codeowners_state() do
+    case CodeownersGuardState.capture() do
       nil -> :ok
       state -> :persistent_term.put(@codeowners_key, state)
     end
@@ -374,55 +376,20 @@ defmodule Aiur.TestSupport.OrchestratorGuard do
   @doc false
   def restore_codeowners_baseline!, do: restore_codeowners(:persistent_term.get(@codeowners_key, :unset))
 
-  defp codeowners_leaks(expected \\ :persistent_term.get(@codeowners_key, :unset))
-
-  defp codeowners_leaks(expected) when expected in [:unset, nil], do: []
-
-  defp codeowners_leaks(expected) do
-    case codeowners_state() do
-      nil -> []
-      ^expected -> []
-      actual -> ["Aiur.GitHub.CodeOwners changed from #{inspect(expected)} to #{inspect(actual)}"]
-    end
+  defp codeowners_leaks(expected \\ :persistent_term.get(@codeowners_key, :unset), test_name \\ last_finished()) do
+    CodeownersGuardState.leaks(expected, test_name)
   end
 
   defp restore_codeowners(expected) do
     case expected do
-      %{allowlist: allowlist, codeowners: codeowners} ->
-        restore_codeowners_if_running(allowlist, codeowners)
+      %{allowlist: _allowlist, codeowners: _codeowners} = state ->
+        CodeownersGuardState.restore(state)
 
       _ ->
         :ok
     end
   catch
     :exit, _reason -> :ok
-  end
-
-  defp restore_codeowners_if_running(allowlist, codeowners) do
-    case Process.whereis(Aiur.GitHub.CodeOwners) do
-      pid when is_pid(pid) ->
-        :sys.replace_state(pid, fn state ->
-          %{state | allowlist: MapSet.new(allowlist), codeowners: MapSet.new(codeowners)}
-        end)
-
-      nil ->
-        :ok
-    end
-  end
-
-  defp codeowners_state do
-    case Process.whereis(Aiur.GitHub.CodeOwners) do
-      pid when is_pid(pid) ->
-        %{
-          allowlist: CodeOwners.snapshot(pid),
-          codeowners: CodeOwners.codeowners_snapshot(pid)
-        }
-
-      nil ->
-        nil
-    end
-  catch
-    :exit, _reason -> nil
   end
 
   defp decision_store_leaks do
