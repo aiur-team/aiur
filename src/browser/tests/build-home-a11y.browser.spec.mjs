@@ -42,7 +42,8 @@ test('overlap selectors resolve only to actual card interiors', async ({ page })
   check.relatedNodes = [{ target: ['#bd-lanes'] }, { target: ['#lane-icon'] }]
   expectAuditClean(boardAudit(await canonicalBoardOverlaps(page, input)))
   check.relatedNodes[1].target = ['#unrelated-icon']
-  expect(() => expectAuditClean(boardAudit(input))).toThrow()
+  const unowned = await canonicalBoardOverlaps(page, input)
+  expect(() => expectAuditClean(boardAudit(unowned))).toThrow()
 })
 
 test('cards expose complete names and a single roving button stop', async ({ page }) => {
