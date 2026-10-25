@@ -1,5 +1,3 @@
-Code.require_file("build_queue.ex", __DIR__)
-
 defmodule Aiur.BrowserHarness.Fixtures do
   @moduledoc false
 

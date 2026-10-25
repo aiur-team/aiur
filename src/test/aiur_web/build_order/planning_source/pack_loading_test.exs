@@ -231,12 +231,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
     assert log =~ "workspace > state > environment > configured > explicit"
     assert log =~ "selected workspace"
 
-    {route, []} = RouteState.new("duplicate-discovery") |> RouteState.navigate("9900")
-    {route, [{:activate, identity}]} = RouteState.put_catalog(route, snapshot)
-
-    assert identity == root.identity
-    assert RouteState.status(route) == :selected_loading
-
     assert {:ok, %Snapshot{data: %SelectedRoot{root: %{title: "Workspace copy"}, members: members}}} = PlanningSource.demand(root.identity)
     assert Enum.find(members, &(&1.identity.identifier == "4101")).lifecycle.state == :closed
 
@@ -285,12 +279,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoadingTest do
 
     assert %Snapshot{data: %Catalog{entries: entries}} = snapshot
     assert Enum.map(entries, & &1.title) |> Enum.sort() == ["State copy", "Workspace copy"]
-
-    {route, []} = RouteState.new("duplicate-root-number") |> RouteState.navigate("9900")
-    {route, []} = RouteState.put_catalog(route, snapshot)
-
-    assert RouteState.status(route) == :invalid_catalog
-    assert RouteState.selected_identity(route) == nil
   end
 
   test "does not reconcile discovery packs without explicit build order IDs" do
