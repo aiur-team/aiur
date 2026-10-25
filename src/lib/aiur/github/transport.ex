@@ -31,10 +31,10 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.CredentialHeadroom
   alias Aiur.GitHub.Errors
-  alias Aiur.GitHub.{GraphQLErrors, HoldPressure}
+  alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.{Quota, Transport.TestScope}
   alias Aiur.GitHub.ReadCache
-  alias Aiur.GitHub.Transport.{GraphQL, OffProcess}
+  alias Aiur.GitHub.Transport.{GraphQL, OffProcess, Put, RequestOptions}
 
   require Logger
 
@@ -107,37 +107,43 @@ defmodule Aiur.GitHub.Transport do
   members had different visibility would need the credential in the cache key.
   """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(req), do: Settings.with_request(fn -> TestScope.run(req, &do_request/1) end)
+  def default_request_fun(req) do
+    Settings.with_request(fn -> TestScope.run(req, &do_request/1) end)
+  catch
+    # A crash report prints the stacktrace arguments, which hold the request and its credential.
+    kind, reason -> :erlang.raise(kind, redact_token(reason), redact_token(__STACKTRACE__))
+  end
+
+  defp redact_token(%_{} = struct), do: struct
+  defp redact_token(map) when is_map(map), do: Map.new(map, fn {key, value} -> {key, if(key == :token, do: "[REDACTED]", else: redact_token(value))} end)
+  defp redact_token([head | tail]), do: [redact_token(head) | redact_token(tail)]
+  defp redact_token(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> redact_token() |> List.to_tuple()
+  defp redact_token(term), do: term
 
   defp do_request(%{method: :get, url: url, token: token} = req) do
-    headers =
-      case Map.get(req, :etag) do
-        nil -> github_headers(token, req)
-        etag -> [{"If-None-Match", etag} | github_headers(token, req)]
-      end
+    headers = RequestOptions.headers(token, req)
 
-    quota_request(req, fn -> Req.get(url, request_options(headers, req)) end)
+    quota_request(req, fn -> Req.get(url, RequestOptions.options(headers, req)) end)
   end
 
   defp do_request(%{method: :post, url: url, token: token, body: body} = req) do
-    options =
-      token
-      |> github_headers(req)
-      |> request_options(req)
-      |> Keyword.put(:json, body)
+    options = RequestOptions.headers(token, req) |> then(&RequestOptions.options(&1, req)) |> Keyword.put(:json, body)
 
     quota_request(req, fn -> Req.post(url, options) end)
   end
 
   defp do_request(%{method: :patch, url: url, token: token, body: body} = req) do
     quota_request(req, fn ->
-      options = github_headers(token, req) |> request_options(req) |> Keyword.put(:json, body)
+      options = RequestOptions.headers(token, req) |> then(&RequestOptions.options(&1, req)) |> Keyword.put(:json, body)
       Req.patch(url, options)
     end)
   end
 
+  defp do_request(%{method: :put} = req),
+    do: Put.request(req, &quota_request/2, &github_headers/2, &RequestOptions.options/2)
+
   defp do_request(%{method: :delete, url: url, token: token} = req) do
-    quota_request(req, fn -> Req.delete(url, request_options(github_headers(token, req), req)) end)
+    quota_request(req, fn -> Req.delete(url, RequestOptions.options(RequestOptions.headers(token, req), req)) end)
   end
 
   # The cache wraps quota, not the other way round. A read the cache answers
@@ -163,7 +169,7 @@ defmodule Aiur.GitHub.Transport do
         budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
+        {:error, {:aiur, :locally_held, Settings.current().hold_observer.(hold)}}
     end
   end
 
@@ -190,7 +196,7 @@ defmodule Aiur.GitHub.Transport do
         end
 
       {:hold, hold} ->
-        {:error, {:aiur, :locally_held, HoldPressure.record(hold)}}
+        {:error, {:aiur, :locally_held, Settings.current().hold_observer.(hold)}}
 
       {:error, _reason} = error ->
         error
@@ -237,7 +243,7 @@ defmodule Aiur.GitHub.Transport do
   defp remaining_deadline_ms(deadline_at_ms),
     do: max(deadline_at_ms - System.monotonic_time(:millisecond), 0)
 
-  defp orchestrator_process?, do: self() == GenServer.whereis(Application.get_env(:aiur, :github_poll_owner))
+  defp orchestrator_process?, do: self() == GenServer.whereis(Settings.current().poll_owner)
 
   defp quota_preflight(quota, request), do: Quota.preflight(quota, request)
 
@@ -257,42 +263,7 @@ defmodule Aiur.GitHub.Transport do
     observed
   end
 
-  defp request_options(headers, req) do
-    options = Application.get_env(:aiur, :github_transport_test_options, [])
-    options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
-    timeout_ms = Map.get(req, :timeout_ms, @default_request_timeout_ms)
-
-    options
-    # The shared budget lease covers one network attempt. Req retries safe
-    # transient responses, including 429, by default; allowing that retry here
-    # would make one admission hide several GitHub calls and could swallow the
-    # response that establishes the fleet-wide cooldown.
-    |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms, retry: false)
-    |> OffProcess.maybe_bound_response(req)
-  end
-
-  @spec github_headers(String.t() | nil, map()) :: [{String.t(), String.t()}]
-  def github_headers(token, req) do
-    version =
-      case req do
-        %{api_version: version} when is_binary(version) -> version
-        _no_override -> "2022-11-28"
-      end
-
-    base = [
-      {"Accept", "application/vnd.github+json"},
-      {"X-GitHub-Api-Version", version}
-    ]
-
-    # A tokenless read is a legitimate anonymous call (public CODEOWNERS, for
-    # one). Sending `Bearer ` with no token turns it into a 401 instead, so the
-    # header is omitted rather than emitted empty.
-    if is_binary(token) and token != "" do
-      [{"Authorization", "Bearer #{token}"} | base]
-    else
-      base
-    end
-  end
+  defdelegate github_headers(token, req), to: RequestOptions, as: :headers
 
   @spec github_graphql(function(), String.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate github_graphql(request_fun, token, query, variables, opts \\ []), to: GraphQL
