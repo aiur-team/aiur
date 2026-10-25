@@ -66,10 +66,10 @@ In List view, **List shows** switches between Tickets, Features and Epics. The
 selection is kept in the `list` link parameter; `tickets` is the default and
 omitted.
 
-**Epics** counts every matching general epic, including feature-owned tickets;
-totals can overlap. Rows sort by remaining, then name, and show age. The footer
-counts unmatched tickets; planned pack tickets without area labels are excluded.
-Incomplete labels or history stay unknown. No matches? See
+Epics counts matching general epics, including feature-owned tickets, so totals
+overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
+tickets. Planned pack tickets without area labels are excluded; incomplete
+history or labels stay unknown. With no matches, see
 [`general_epics`](../reference/configuration-build-order.md#general-epics).
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
