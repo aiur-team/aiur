@@ -92,11 +92,41 @@ defmodule VoiceConverse.TranscriptIndexTest do
     assert_received {:enqueue, "provider-2", @id}
     refute_received {:enqueue, _, _}
 
-    assert {:ok, [%{record: %{"type" => "session_ended", "reason" => "daemon_restart", "duration_s" => 720}}], nil} =
-             TranscriptIndex.get(root, @id, after: 4, limit: 10)
+    assert {:ok, records, nil} = TranscriptIndex.get(root, @id, after: 0, limit: 10)
+
+    assert [
+             %{
+               record: %{
+                 "type" => "session_ended",
+                 "reason" => "daemon_restart",
+                 "duration_s" => 720
+               }
+             }
+           ] = Enum.filter(records, &(&1.record["type"] == "session_ended"))
 
     assert {:ok, %{reconciled: 0, errors: []}} = TranscriptIndex.reconcile(root, enqueue: enqueue)
     refute_received {:enqueue, _, _}
+
+    assert {:ok, records, nil} = TranscriptIndex.get(root, @id, after: 0, limit: 10)
+    assert 1 == Enum.count(records, &(&1.record["type"] == "session_ended"))
+  end
+
+  test "reconciliation leaves a transcript open until every cleanup enqueue is durable", %{root: root} do
+    store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
+    :ok = TranscriptStore.append(store, %{type: "provider_conversation", id: "provider-1", at: "2026-10-24T10:01:00Z"})
+    :ok = TranscriptStore.close(store)
+
+    assert {:ok, %{reconciled: 0, errors: errors}} =
+             TranscriptIndex.reconcile(root, enqueue: fn _, _ -> {:error, :queue_unavailable} end)
+
+    assert {@id, :cleanup_enqueue_failed} in errors
+    assert :queue_unavailable in errors
+    assert {:ok, records, nil} = TranscriptIndex.get(root, @id, after: 0, limit: 10)
+    refute Enum.any?(records, &(&1.record["type"] == "session_ended"))
+
+    assert {:ok, %{reconciled: 1, errors: []}} = TranscriptIndex.reconcile(root, enqueue: fn _, _ -> :ok end)
+    assert {:ok, records, nil} = TranscriptIndex.get(root, @id, after: 0, limit: 10)
+    assert 1 == Enum.count(records, &(&1.record["type"] == "session_ended"))
   end
 
   test "reconciled crashes are listed with daemon_restart and count toward today's minutes", %{root: root} do
@@ -143,6 +173,7 @@ defmodule VoiceConverse.TranscriptIndexTest do
     assert 15 ==
              TranscriptIndex.minutes_today(root,
                now: ~U[2026-10-24 10:00:00Z],
+               today: ~D[2026-10-24],
                open_sessions: fn -> [%{started_at: ~U[2026-10-24 09:55:00Z]}] end
              )
   end
@@ -165,6 +196,30 @@ defmodule VoiceConverse.TranscriptIndexTest do
     assert {:ok, %{reconciled: 0, errors: []}} = TranscriptIndex.reconcile(root)
 
     assert {:ok, [%{conversation_id: @id, end_reason: "user_end"}], nil} = TranscriptIndex.list(root, limit: 10)
+  end
+
+  test "list and minutes rebuild a torn index outside boot", %{root: root} do
+    store = open!(root, @id, ~U[2026-10-24 10:00:00Z])
+
+    :ok =
+      TranscriptStore.append(store, %{
+        type: "session_ended",
+        reason: "user_end",
+        at: "2026-10-24T10:02:00Z",
+        duration_s: 120
+      })
+
+    :ok = TranscriptStore.close(store)
+    :ok = File.write(Path.join(root, "index.ndjson"), "{\"op\": ")
+
+    assert {:ok, [%{conversation_id: @id, end_reason: "user_end"}], nil} = TranscriptIndex.list(root, limit: 10)
+    :ok = File.write(Path.join(root, "index.ndjson"), "{\"op\": ")
+
+    assert 2 ==
+             TranscriptIndex.minutes_today(root,
+               now: ~U[2026-10-24 13:00:00Z],
+               today: ~D[2026-10-24]
+             )
   end
 
   test "list filters by target and since, then paginates by its before cursor", %{root: root} do

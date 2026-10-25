@@ -13,6 +13,16 @@ defmodule VoiceConverse.TranscriptIndex.IndexFile do
     end
   end
 
+  def read_or_rebuild(root) do
+    case read(root) do
+      {:ok, conversations} ->
+        if File.exists?(path(root)), do: {:ok, conversations}, else: with(:ok <- rebuild(root), do: read(root))
+
+      {:error, _reason} ->
+        with(:ok <- rebuild(root), do: read(root))
+    end
+  end
+
   def append(root, op, conversation) do
     with :ok <- ensure_root(root),
          {:ok, fd} <- :file.open(String.to_charlist(path(root)), [:append, :binary, :raw]),

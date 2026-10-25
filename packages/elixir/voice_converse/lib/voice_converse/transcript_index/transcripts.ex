@@ -32,10 +32,34 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
   end
 
   def conversation(root, conversation_id) do
-    with {:ok, records, _meta} <- TranscriptStore.read(root, conversation_id),
-         {:ok, started} <- session_started(records) do
-      {:ok, conversation_from_records(conversation_id, started, records)}
+    with {:ok, scan} <- scan(root, conversation_id) do
+      {:ok, Map.drop(scan, [:provider_ids, :last_at])}
     end
+  end
+
+  def scan(root, conversation_id) do
+    with {:ok, path} <- TranscriptStore.path(root, conversation_id),
+         {:ok, fd} <- File.open(path, [:read]) do
+      try do
+        fd
+        |> IO.stream(:line)
+        |> Enum.reduce_while({:ok, empty_scan()}, fn line, {:ok, scan} ->
+          case decode_complete_line(line) do
+            {:ok, %{} = record} -> scan_record(scan, record)
+            _ -> {:cont, {:ok, scan}}
+          end
+        end)
+        |> then(fn
+          {:ok, %{started: nil}} -> {:error, :missing_session_started}
+          {:ok, scan} -> {:ok, conversation_from_scan(conversation_id, scan)}
+          error -> error
+        end)
+      after
+        File.close(fd)
+      end
+    end
+  rescue
+    error in File.Error -> {:error, error.reason}
   end
 
   def records_after(root, conversation_id, after_seq, limit) do
@@ -66,29 +90,47 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
   end
 
   def provider_ids(root, conversation_id) do
-    with {:ok, records, _meta} <- TranscriptStore.read(root, conversation_id) do
-      records
-      |> Enum.filter(&(&1["type"] == "provider_conversation"))
-      |> Enum.map(& &1["id"])
-      |> Enum.filter(&(is_binary(&1) and &1 != ""))
-      |> Enum.uniq()
-    else
-      _ -> []
-    end
+    with {:ok, %{provider_ids: ids}} <- scan(root, conversation_id), do: ids
   end
 
   def last_record_at(root, conversation_id, fallback) do
-    with {:ok, records, _meta} <- TranscriptStore.read(root, conversation_id) do
-      at = Enum.find_value(Enum.reverse(records), fallback, fn record -> record["at"] end)
-      {:ok, at}
-    end
+    with {:ok, %{last_at: at}} <- scan(root, conversation_id), do: {:ok, at || fallback}
   end
 
-  defp session_started([%{"type" => "session_started"} = started | _]), do: {:ok, started}
-  defp session_started(_), do: {:error, :missing_session_started}
+  defp empty_scan, do: %{started: nil, ended: nil, turn_count: 0, drafts: %{}, provider_ids: [], last_at: nil}
 
-  defp conversation_from_records(conversation_id, started, records) do
-    ended = Enum.find(Enum.reverse(records), &(&1["type"] == "session_ended"))
+  defp scan_record(%{started: nil} = scan, %{"type" => "session_started"} = record),
+    do: {:cont, {:ok, %{scan | started: record, last_at: record["at"]}}}
+
+  defp scan_record(%{started: nil}, _record), do: {:halt, {:error, :missing_session_started}}
+
+  defp scan_record(scan, record) do
+    scan = %{scan | last_at: record["at"] || scan.last_at}
+
+    scan =
+      case record do
+        %{"type" => "session_ended"} ->
+          %{scan | ended: record}
+
+        %{"type" => "user_turn"} ->
+          %{scan | turn_count: scan.turn_count + 1}
+
+        %{"type" => "draft", "draft_id" => id, "status" => status} when is_binary(status) ->
+          %{scan | drafts: Map.put(scan.drafts, id, status)}
+
+        %{"type" => "provider_conversation", "id" => id} when is_binary(id) and id != "" ->
+          %{scan | provider_ids: Enum.uniq([id | scan.provider_ids])}
+
+        _ ->
+          scan
+      end
+
+    {:cont, {:ok, scan}}
+  end
+
+  defp conversation_from_scan(conversation_id, scan) do
+    ended = scan.ended
+    started = scan.started
 
     %{
       conversation_id: conversation_id,
@@ -97,9 +139,11 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
       started_at: started["at"],
       ended_at: ended && ended["at"],
       end_reason: ended && ended["reason"],
-      turn_count: Enum.count(records, &(&1["type"] == "user_turn")),
-      draft_counts: draft_counts(records),
-      duration_s: ended && duration(ended, started)
+      turn_count: scan.turn_count,
+      draft_counts: scan.drafts |> Map.values() |> Enum.frequencies(),
+      duration_s: ended && duration(ended, started),
+      provider_ids: Enum.reverse(scan.provider_ids),
+      last_at: scan.last_at
     }
   end
 
@@ -121,18 +165,5 @@ defmodule VoiceConverse.TranscriptIndex.Transcripts do
 
   defp decode_complete_line(line) do
     if String.ends_with?(line, "\n"), do: Jason.decode(String.trim_trailing(line, "\n")), else: :torn_tail
-  end
-
-  defp draft_counts(records) do
-    records
-    |> Enum.reduce(%{}, fn
-      %{"type" => "draft", "draft_id" => id, "status" => status}, drafts when is_binary(status) ->
-        Map.put(drafts, id, status)
-
-      _, drafts ->
-        drafts
-    end)
-    |> Map.values()
-    |> Enum.frequencies()
   end
 end

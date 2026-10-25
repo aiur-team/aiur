@@ -34,15 +34,6 @@ defmodule VoiceConverse.TranscriptIndex.Reconciler do
   end
 
   defp close_crashed(root, conversation, enqueue) do
-    result =
-      with {:ok, ended_at} <- Transcripts.last_record_at(root, conversation.conversation_id, conversation.started_at),
-           {:ok, started_at, _} <- DateTime.from_iso8601(conversation.started_at),
-           {:ok, ended_at_time, _} <- DateTime.from_iso8601(ended_at),
-           {:ok, store} <- TranscriptStore.reopen(root, conversation.conversation_id),
-           :ok <- TranscriptStore.append(store, session_ended(ended_at, started_at, ended_at_time)) do
-        TranscriptStore.close(store)
-      end
-
     errors =
       Enum.reduce(Transcripts.provider_ids(root, conversation.conversation_id), [], fn provider_id, errors ->
         case enqueue.(provider_id, conversation.conversation_id) do
@@ -51,6 +42,22 @@ defmodule VoiceConverse.TranscriptIndex.Reconciler do
           other -> [other | errors]
         end
       end)
+
+    # Queue cleanup before sealing the transcript. If the process dies after the durable enqueue
+    # but before `session_ended`, the next boot re-enqueues idempotently; the reverse order loses
+    # provider cleanup forever because a closed transcript is not revisited.
+    result =
+      if errors == [] do
+        with {:ok, ended_at} <- Transcripts.last_record_at(root, conversation.conversation_id, conversation.started_at),
+             {:ok, started_at, _} <- DateTime.from_iso8601(conversation.started_at),
+             {:ok, ended_at_time, _} <- DateTime.from_iso8601(ended_at),
+             {:ok, store} <- TranscriptStore.reopen(root, conversation.conversation_id),
+             :ok <- TranscriptStore.append(store, session_ended(ended_at, started_at, ended_at_time)) do
+          TranscriptStore.close(store)
+        end
+      else
+        {:error, :cleanup_enqueue_failed}
+      end
 
     {result, errors}
   end

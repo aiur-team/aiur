@@ -15,7 +15,7 @@ defmodule VoiceConverse.TranscriptIndex do
   @spec list(Path.t(), keyword()) :: {:ok, [map()], String.t() | nil} | {:error, term()}
   def list(root, opts \\ []) do
     with {:ok, limit} <- limit(opts, 100),
-         {:ok, conversations} <- IndexFile.read(root),
+         {:ok, conversations} <- IndexFile.read_or_rebuild(root),
          {:ok, conversations} <- filter(conversations, Keyword.get(opts, :filter, %{})),
          {:ok, page, cursor} <- page(conversations, Keyword.get(opts, :before), limit) do
       {:ok, page, cursor}
@@ -31,22 +31,22 @@ defmodule VoiceConverse.TranscriptIndex do
     end
   end
 
-  @spec minutes_today(Path.t(), keyword()) :: non_neg_integer()
+  @spec minutes_today(Path.t(), keyword()) :: non_neg_integer() | {:error, term()}
   def minutes_today(root, opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     local_date = Keyword.get(opts, :local_date, &local_date/1)
-    today = local_date.(now)
+    today = Keyword.get_lazy(opts, :today, fn -> local_date.(now) end)
 
     closed =
-      case IndexFile.read(root) do
+      case IndexFile.read_or_rebuild(root) do
         {:ok, conversations} ->
           conversations
           |> Enum.filter(&(is_integer(&1.duration_s) and starts_on?(&1, today, local_date)))
           |> Enum.map(& &1.duration_s)
           |> Enum.sum()
 
-        {:error, _} ->
-          0
+        {:error, reason} ->
+          {:error, reason}
       end
 
     open =
@@ -59,7 +59,7 @@ defmodule VoiceConverse.TranscriptIndex do
         end
       end)
 
-    ceil_minutes(closed + open)
+    if is_integer(closed), do: ceil_minutes(closed + open), else: closed
   end
 
   defp record_event(root, conversation_id, op) do
