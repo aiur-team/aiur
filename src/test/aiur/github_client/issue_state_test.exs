@@ -5,6 +5,9 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
   alias Aiur.GitHub.Client
 
+  @tested_head String.duplicate("a", 40)
+  @base_sha String.duplicate("b", 40)
+
   setup do
     setup_client()
   end
@@ -71,7 +74,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -115,11 +118,8 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
       request_fun = fn req ->
         cond do
-          req.method == :get and req.url =~ "/compare/main...tested-head" ->
-            {:ok, %{status: 200, body: %{"status" => "ahead"}}}
-
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "sha" => "tested-head"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -173,7 +173,7 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok, %{status: 200, body: [pr(@tested_head)]}}
 
           req.method == :post and req.url == "https://api.github.com/graphql" ->
             review_threads_page_response([
@@ -349,5 +349,13 @@ defmodule Aiur.GitHub.Client.IssueStateTest do
 
   defp open_issue_response(labels) do
     {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+  end
+
+  defp pr(head) do
+    %{"number" => 77, "body" => local_tests_body(head), "head" => %{"ref" => "aiur/42", "sha" => head}}
+  end
+
+  defp local_tests_body(head) do
+    "## Local tests\n\nPolicy: partial\nTested head: #{head}\nBase: main @ #{@base_sha}\nSelection: focused gate coverage\n- `mix test` -> passed\n"
   end
 end

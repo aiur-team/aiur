@@ -8,6 +8,7 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
   alias AiurWeb.Router
 
   @path "/api/v1/usage/accounts"
+  @session_options Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session")
   @access_token "sk-ant-oat01-never-in-the-snapshot"
   @api_key "sk-ant-api03-never-in-the-snapshot"
   @deepseek_key "sk-deepseek-never-in-the-snapshot"
@@ -104,7 +105,8 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
   # (a token, an account uuid) must fail this test, not ship silently.
   test "rows and identities carry exactly the allowlisted fields" do
     UsageReadings.record("claude", "default", {:ok, %{windows: [%{window: "seven_day", used_percent: 10}]}}, DateTime.utc_now())
-    metered = ~w(name harness email org seat_tier identity weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms)
+    # Claude rows also say why the probe last failed (#5747); `nil` when it has not.
+    metered = ~w(name harness email org seat_tier identity weekly_percent five_hour_percent remaining_percent freshness observed_at age_ms last_error)
 
     claude = account(get_json(@path <> "?harness=claude"), "claude", "default")
     assert Enum.sort(Map.keys(claude)) == Enum.sort(metered)
@@ -154,7 +156,7 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
 
   test "unconfigured auth fails closed with the same boundary as state" do
     for path <- [@path, "/api/v1/state"] do
-      response = conn(:get, path) |> put_private(:aiur_dashboard_credentials, nil) |> Router.call(Router.init([]))
+      response = session_conn(:get, path) |> put_private(:aiur_dashboard_credentials, nil) |> Router.call(Router.init([]))
       # dashboard_auth is not `required?`, so unconfigured auth challenges.
       assert response.status == 401
       assert response.halted
@@ -176,9 +178,18 @@ defmodule AiurWeb.UsageAccountsApiControllerTest do
 
   defp request(method, authorization \\ Plug.BasicAuth.encode_basic_auth("operator", "secret"), path \\ @path) do
     # Plug.Parsers runs in the endpoint, ahead of the router this calls.
-    connection = conn(method, path) |> fetch_query_params() |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
+    connection = session_conn(method, path) |> put_private(:aiur_dashboard_credentials, {"operator", "secret"}) |> fetch_query_params()
+
     connection = if authorization, do: put_req_header(connection, "authorization", authorization), else: connection
     Router.call(connection, Router.init([]))
+  end
+
+  defp session_conn(method, path) do
+    method
+    |> conn(path)
+    |> Map.put(:secret_key_base, String.duplicate("s", 64))
+    |> AiurWeb.Session.call(@session_options)
+    |> fetch_session()
   end
 
   defp private_key?(value) when is_map(value),

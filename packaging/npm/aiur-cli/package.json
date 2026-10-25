@@ -27,6 +27,7 @@
     "libexec/aiur-executor-session.sh",
     "libexec/aiur-experiments.sh",
     "libexec/aiur-pane-ctrlc",
+    "libexec/aiur-mise-doctor",
     "scripts/postinstall.mjs",
     "share/aiur.tmux.conf"
   ],

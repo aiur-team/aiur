@@ -1,5 +1,6 @@
 export const PAGES = [
-  ['units', '/'],
+  ['build-home', '/'],
+  ['units', '/units'],
   ['commands', '/commands'],
   ['build-orders', '/build-orders'],
   ['build', '/build'],
@@ -7,7 +8,7 @@ export const PAGES = [
 ]
 
 export function buildDashboardIssues(name, snapshot, expectedActiveAgents = null) {
-  if (name !== 'build') return []
+  if (name !== 'build' && name !== 'build-home') return []
 
   const issues = []
   if (/Build timeline unavailable/i.test(snapshot.buildUnavailable || '')) {

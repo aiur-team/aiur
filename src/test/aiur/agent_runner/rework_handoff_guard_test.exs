@@ -142,6 +142,7 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
       assert error["message"] =~ "Tested head #{String.duplicate("a", 40)}"
       assert error["message"] =~ "PR head #{head}"
       assert error["message"] =~ "Rerun the touched tests"
+      assert error["message"] =~ "`Tested head: #{head}`"
       refute error["message"] =~ "aiur pre-pr"
       refute_received {:state_write, _, _}
     end
@@ -151,6 +152,48 @@ defmodule Aiur.AgentRunner.ReworkHandoffGuardTest do
 
     assert executor.(fresh).("aiur_set_ticket_state", %{"state" => "ci-wait"})["success"]
     assert_receive {:state_write, "gid-evidence", "ci-wait"}, 100
+  end
+
+  @tag :tmp_dir
+  test "handoff applies a valid staged PR body through the daemon writer and verifies it", %{tmp_dir: tmp_dir} do
+    head = String.duplicate("c", 40)
+    base = String.duplicate("d", 40)
+    stale = "## Local tests\n\nPolicy: partial\nTested head: #{String.duplicate("a", 40)}\nBase: main @ #{base}\nSelection: focused\n- `mix test` -> pass\n"
+    staged = String.replace(stale, String.duplicate("a", 40), head)
+    path = Path.join([tmp_dir, ".aiur-runtime", "tmp", "pr.md"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, staged)
+    issue = %Issue{id: "gid-staged-evidence", identifier: "5794", state: "in-progress"}
+    test_pid = self()
+
+    opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5800, "body" => stale, "head" => %{"sha" => head}}} end,
+      pull_request_body_updater: fn 5800, ^staged ->
+        send(test_pid, :body_updated)
+        {:ok, %{}}
+      end,
+      pull_request_refetcher: fn "5794" -> {:ok, %{"number" => 5800, "body" => staged, "head" => %{"sha" => head}}} end
+    ]
+
+    assert :allow = ReworkHandoffGuard.evidence_blockers(issue, "ci-wait", tmp_dir, opts)
+    assert_receive :body_updated, 100
+  end
+
+  @tag :tmp_dir
+  test "handoff does not apply staged PR body evidence with a stale head", %{tmp_dir: tmp_dir} do
+    head = String.duplicate("c", 40)
+    stale = "## Local tests\n\nPolicy: partial\nTested head: #{String.duplicate("a", 40)}\nBase: main @ #{String.duplicate("d", 40)}\nSelection: focused\n- `mix test` -> pass\n"
+    path = Path.join([tmp_dir, ".aiur-runtime", "tmp", "pr.md"])
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, stale)
+    issue = %Issue{id: "gid-staged-evidence", identifier: "5794", state: "in-progress"}
+
+    opts = [
+      open_pr_fetcher: fn _ -> {:ok, %{"number" => 5800, "body" => stale, "head" => %{"sha" => head}}} end,
+      pull_request_body_updater: fn _, _ -> flunk("must not apply evidence for another head") end
+    ]
+
+    assert {:refused, :stale_pr_body_evidence, _message} = ReworkHandoffGuard.evidence_blockers(issue, "ci-wait", tmp_dir, opts)
   end
 
   @tag :tmp_dir
