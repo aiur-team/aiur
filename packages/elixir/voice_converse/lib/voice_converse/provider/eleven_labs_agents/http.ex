@@ -3,6 +3,15 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.HTTP do
 
   @spec get(String.t(), keyword()) :: {:ok, non_neg_integer(), binary()} | {:error, term()}
   def get(url, opts) do
+    request(:get, url, opts)
+  end
+
+  @spec delete(String.t(), keyword()) :: {:ok, non_neg_integer(), binary()} | {:error, term()}
+  def delete(url, opts) do
+    request(:delete, url, opts)
+  end
+
+  defp request(method, url, opts) do
     :inets.start()
 
     headers =
@@ -12,7 +21,7 @@ defmodule VoiceConverse.Provider.ElevenLabsAgents.HTTP do
 
     timeout = Keyword.get(opts, :receive_timeout, 5_000)
 
-    case :httpc.request(:get, {String.to_charlist(url), headers}, request_options(timeout), body_format: :binary) do
+    case :httpc.request(method, {String.to_charlist(url), headers}, request_options(timeout), body_format: :binary) do
       {:ok, {{_version, status, _reason}, _headers, body}} -> {:ok, status, body}
       {:error, reason} -> {:error, reason}
     end
