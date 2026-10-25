@@ -6,7 +6,6 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   require Logger
 
   alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.Commands
   alias Aiur.Config
   alias Aiur.Issue
@@ -18,6 +17,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerHealth
+  alias Aiur.Signal
   alias Aiur.Tracker
 
   # The prewarm gate holds the whole fleet while the warm base builds/clones.
@@ -134,7 +134,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
 
     state = CapacityConstraints.record_capacity_constraint(state, :build, "prewarm=#{phase}")
 
-    case Alerts.emit_system("system.dispatch.prewarm_blocked",
+    case Signal.alert("system.dispatch.prewarm_blocked",
            reason: reason,
            needs_attention: true,
            severity: "warning"
@@ -161,7 +161,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
         AlertFeed.active_system_attention?("system.dispatch.prewarm_blocked")
 
     if active? do
-      case Alerts.emit_system("system.dispatch.prewarm_blocked.resolved",
+      case Signal.alert("system.dispatch.prewarm_blocked.resolved",
              reason: prewarm_resolution_reason(phase),
              needs_attention: false,
              severity: "info"
@@ -228,7 +228,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
         "GitHub tracker authentication preflight failed; fleet dispatch is paused. Cause: " <>
           "#{formatted_reason} This condition is expected to clear automatically once tracker authentication succeeds."
 
-      case Alerts.emit_system("system.tracker.auth_preflight_failed",
+      case Signal.alert("system.tracker.auth_preflight_failed",
              reason: message,
              needs_attention: true,
              severity: "warning"
@@ -253,7 +253,7 @@ defmodule Aiur.Orchestrator.Dispatcher.HoldsAndAlerts do
         AlertFeed.active_system_attention?("system.tracker.auth_preflight_failed")
 
     if active? do
-      case Alerts.emit_system("system.tracker.auth_preflight_failed.resolved",
+      case Signal.alert("system.tracker.auth_preflight_failed.resolved",
              reason: "GitHub tracker authentication preflight recovered; fleet dispatch may resume.",
              needs_attention: false,
              severity: "info"

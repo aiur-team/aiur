@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   require Logger
 
-  alias Aiur.{Alerts, CurrentRunMembership, Issue, TrackerIdentity}
+  alias Aiur.{CurrentRunMembership, Issue, Signal, TrackerIdentity}
   alias Aiur.Orchestrator.{OptimisticLedger, State, TelemetryEvents}
   alias Aiur.RunTelemetry.Lifecycle
 
@@ -91,7 +91,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   def terminal_lifecycle(_state), do: :completed
 
   defp alert_terminal_verification_abandoned(issue, count) do
-    Alerts.emit_system("ticket.#{issue.identifier}.terminal_verification_abandoned",
+    Signal.alert("ticket.#{issue.identifier}.terminal_verification_abandoned",
       issue: issue.identifier,
       message: "Terminal verification abandoned for #{issue.identifier} after #{count} attempts.",
       reason: "Tracker refresh or membership persistence remained unresolved after #{count} attempts; stopped retaining the ticket.",
