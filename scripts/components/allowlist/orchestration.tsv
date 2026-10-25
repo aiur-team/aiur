@@ -8,6 +8,7 @@ R-declared	Aiur.ControlCLI.DispatchAccount	MP-R1-C9-T14 moved CLI adapter retain
 R-declared	Aiur.ControlCLI.Protocol	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-declared	Aiur.ControlCLI.Reasons	MP-R1-C9-T12 shared control protocol retained for moved orchestration verbs
 R-declared	Aiur.EventHumanizerHelpers	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
+R-declared	Aiur.GitHub.Budget.FleetSnapshot	#5949 shared GitHub budget snapshot feeds status CLI
 R-declared	Aiur.GitHub.Connectivity	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.Errors	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.GitHub.LocalHold	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -67,6 +68,7 @@ R-optional	Aiur.GitHub.CIPollBatch	baseline 22b2fa407c5d4218d25d63b1aa17472aeca5
 R-optional	Aiur.GitHub.CiReadiness	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Client	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.CodeOwners	MP-R1-C9-T14 moved CLI adapter retains the existing reference; behavior and dependency cleanup are outside this extraction
+R-optional	Aiur.GitHub.Budget.FleetSnapshot	#5949 status CLI degrades when shared budget snapshots are unavailable
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Connectivity	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Errors	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
@@ -101,5 +103,6 @@ R-optional	Aiur.Webhooks.IntervalPolicy	baseline 22b2fa407c5d4218d25d63b1aa17472
 R-private	Aiur.Claude.RemoteControl	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.Claude.ReplAgent	#3474 retain orchestrator-owned Remote Control promotion and shutdown policy pending the REPL/RC cut
 R-private	Aiur.Codex.EventHumanizer	#3474 preserve the shared agents-table humanizer output required by DESIGN-R7
+R-private	Aiur.GitHub.Budget.FleetSnapshot	#5949 status CLI reads the shared daemon budget snapshot
 R-private	Aiur.PRLifecycle.PostAgentRouting	#5063 Shared verdict routing is consumed by each orchestrator handoff path.
 R-private	Aiur.PRLifecycle.ReviewFindings	#5063 Shared body-only review blocking predicate is owned by PR lifecycle.
