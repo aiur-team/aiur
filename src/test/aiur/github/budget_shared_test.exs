@@ -52,14 +52,19 @@ defmodule Aiur.GitHub.BudgetSharedTest do
     assert Agent.get(store, & &1) == 60
   end
 
-  test "a shared admission outage keeps the already-divided local grant" do
-    assert {:ok, %{id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}} =
+  test "a shared admission outage releases the lease for a divided local retry" do
+    parent = self()
+
+    assert :retry_fallback =
              Shared.grant_or_hold(
                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                %{url: "https://api.github.com/graphql"},
                "credential",
                coordination_status_fun: fn -> %{available?: true, live_count: 2} end,
-               github_budget_admit_fun: fn _, _, _, _, _, _ -> {:error, :database_down} end
+               github_budget_admit_fun: fn _, _, _, _, _, _ -> {:error, :database_down} end,
+               release_fun: fn lease_id, _key -> send(parent, {:released, lease_id}) end
              )
+
+    assert_receive {:released, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
   end
 end

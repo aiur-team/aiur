@@ -64,9 +64,12 @@ defmodule Aiur.GitHub.Budget.Shared do
           {:hold, %{reason: :shared_budget, resource: Budget.request_resource(request), reset_at: reset_at}}
 
         # The local broker has already granted this lease using the divided
-        # fallback ceiling. A shared-store outage must not discard that grant.
+        # fallback ceiling only if the roster was unavailable before acquire.
+        # The caller retries locally with a divided ceiling because the store
+        # can fail between its initial status check and this admission.
         {:error, _reason} ->
-          {:ok, %{id: id, token_key: token_key}}
+          release_lease(id, token_key, opts)
+          :retry_fallback
       end
     else
       {:error, :github_budget_broker_unavailable}
@@ -105,6 +108,14 @@ defmodule Aiur.GitHub.Budget.Shared do
   end
 
   defp admit(lease_id, request, token_key, opts) do
+    if Keyword.get(opts, :fallback_only?, false) do
+      :disabled
+    else
+      admit_with_coordination(lease_id, request, token_key, opts)
+    end
+  end
+
+  defp admit_with_coordination(lease_id, request, token_key, opts) do
     status_fun = Keyword.get(opts, :coordination_status_fun, &LeaseStore.budget_coordination_status/0)
 
     if status_fun.().available? do

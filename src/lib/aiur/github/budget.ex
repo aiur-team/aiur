@@ -278,7 +278,7 @@ defmodule Aiur.GitHub.Budget do
 
     case BrokerPort.command(acquire_args(request, opts), key, command_opts) do
       {:ok, "granted " <> id} ->
-        grant_or_hold(String.trim(id), request, key)
+        grant_or_hold(String.trim(id), request, key, python, opts, deadline_at)
 
       {:ok, "wait actor " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :actor_budget)
@@ -311,7 +311,16 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  defp grant_or_hold(id, request, key), do: Shared.grant_or_hold(id, request, key)
+  defp grant_or_hold(id, request, key, python, opts, deadline_at) do
+    case Shared.grant_or_hold(id, request, key, opts) do
+      :retry_fallback ->
+        request
+        |> do_local_acquire(key, python, Keyword.put(opts, :fallback_only?, true), deadline_at)
+
+      result ->
+        result
+    end
+  end
 
   defp retry_or_hold(request, key, python, opts, deadline_at, delay, reason) do
     if System.monotonic_time(:millisecond) + delay >= deadline_at do
