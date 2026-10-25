@@ -171,9 +171,15 @@ run_session() {
     release_aiur_launch_lock "$launch_lock"
     _session_launch_lock=""
     [ "$mode" = "foreground" ] && return 1
+    preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     exit 1
   fi
+
+  # A restart may need to publish its rollback alert from the still-running
+  # parent shell. Preserve the successful daemon's resolved ledger path too;
+  # the failed release may have crashed before writing its path handoff.
+  preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
 
   printf 'ready\n' >>"$supervisor_file"
   write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
@@ -413,6 +419,7 @@ run_session_start_tmux() {
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
+    preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     release_aiur_launch_lock "$launch_lock"
     exit 1
@@ -426,6 +433,7 @@ run_session_start_tmux() {
     if [ ! -x "$ctrlc_helper" ] ||
        ! "$tmux_bin" -L "$socket" -f "$conf" set-option -g @aiur_ctrlc "$ctrlc_helper"; then
       "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      preserve_restart_failure_artifacts "$startup_capture" "${AIUR_ALERT_LEDGER_PATH_FILE:-}"
       rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
       release_aiur_launch_lock "$launch_lock"
       die "aiur pane control helper is unavailable at $ctrlc_helper"
