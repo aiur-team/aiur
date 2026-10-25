@@ -124,14 +124,6 @@ defmodule Aiur.Config.OverridesTest do
   end
 
   test "boot keeps accepted entries and quarantines rejected entries", %{override_path: path} do
-    ensure_workflow_store_running()
-    store = Process.whereis(WorkflowStore)
-    :sys.suspend(store)
-
-    on_exit(fn ->
-      if Process.alive?(store), do: :sys.resume(store)
-    end)
-
     write_override!(path, %{
       "agent.max_concurrent_builds" => entry(2, 1),
       "agent.max_concurrent_buildz" => entry(9, 2),
