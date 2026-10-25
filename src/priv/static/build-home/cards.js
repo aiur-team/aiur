@@ -1,3 +1,4 @@
+import { activeFeature } from './features.js';
 // Port of design build.js:807–877, 1543–1547; unknowns are explicit at the trust boundary.
 import { S, ctx, fx, onReset } from './state.js';
 import { esc } from './dom.js';
@@ -29,6 +30,13 @@ function tickAges() {
   for (const el of rendered()) {
     const row = ctx.D.byId[el.dataset.id], cue = el.querySelector('.bd-q.promo');
     if (row && cue) cue.innerHTML = promo(row.cue?.promoted);
+  }
+}
+export function alignActiveGlow(el) {
+  const glow = el.querySelector('.bd-glow');
+  if (!glow || !el.classList.contains('ag-active')) return;
+  for (const animation of glow.getAnimations()) {
+    if (animation.animationName === 'bdRot') animation.startTime = 0;
   }
 }
 function epic(key) {
@@ -122,7 +130,7 @@ export function makeCard(it) {
   decorate(el); return el;
 }
 export function decorate(el) {
-  const t = ctx.D.byId[el.dataset.id], F = S.feature;
+  const t = ctx.D.byId[el.dataset.id], F = activeFeature();
   if (!t) return;
   const inFeat = F && t.feature === F, also = F && !inFeat && t.also.includes(F), ghost = el.classList.contains('ghost');
   el.classList.toggle('dim', !match(t) || (!!F && S.fmode === 'focus' && !inFeat && !also && !ghost));
@@ -135,9 +143,10 @@ export function refreshTicket(id) {
   if (!ctx.L) return;
   for (const it of ctx.L.band.items) if (it.t.id === id && ctx.D.byId[id]) {
     it.t = ctx.D.byId[id];
-    const el = makeCard(it); el.classList.add('noanim'); place(el, it);
-    it.el?.replaceWith(el); it.el = el;
+    const el = makeCard(it);
+    el.classList.add('noanim'); place(el, it);
+    it.el?.replaceWith(el); it.el = el; alignActiveGlow(el);
   }
   fx.drawEdgesSoon(30);
 }
-Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges });
+Object.assign(fx, { makeCard, decorateAll, refreshTicket, tickCardAges: tickAges, alignActiveGlow });

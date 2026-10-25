@@ -28,8 +28,8 @@ defmodule AiurWeb.OperatorControlCenter.HostMeterTest do
     assert html =~ "17 seconds old"
     refute html =~ "Account generation"
     strip = render_component(&RunSummaryStrip.run_summary_strip/1, run: %{state: :loading}, usage: %{state: :locked}, meters: view, now: snapshot.observed_at)
-    assert strip =~ "123.5%"
-    assert strip =~ "width:100%"
+    assert strip =~ "0% left"
+    assert strip =~ ~s(aria-valuenow="0")
     assert strip =~ "Account unverified"
     assert strip =~ "17 seconds old"
   end

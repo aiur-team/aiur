@@ -1,27 +1,38 @@
 defmodule Aiur.Orchestrator.PressureAdmission do
   @moduledoc false
 
-  alias Aiur.{Config, SystemPressure}
+  alias Aiur.{Config, SystemCgroup, SystemPressure}
   alias Aiur.Orchestrator.{DispatchPolicy, EnvelopeResume, Slots, State, SustainedLoad}
 
   @priority_bypass_pressure_ceiling 90.0
 
   @spec sample() :: map()
   def sample do
-    pressure = SystemPressure.cpu()
+    quota = SystemCgroup.cpu_quota()
+    cgroup_pressure = if is_number(quota), do: SystemCgroup.cpu_pressure(), else: :unavailable
+    pressure = if is_number(quota), do: cgroup_pressure, else: SystemPressure.cpu()
     fallback? = pressure == :unavailable
 
     %{
       cpu_pressure: pressure,
+      cpu_pressure_source: if(is_number(quota), do: :cgroup, else: :host),
+      cpu_quota: quota,
       pressure_threshold: Config.max_cpu_pressure(),
       pressure_target: Config.target_cpu_pressure(),
-      load: DispatchPolicy.read_load(Config.max_load_average(), Config.target_load_average()),
+      load: quota_load(quota),
+      schedulers: max(1, quota_schedulers(quota)),
       target: if(fallback?, do: Config.target_load_average(), else: nil),
       load_threshold: if(fallback?, do: Config.max_load_average(), else: nil),
       run_queue_threshold: if(fallback?, do: Config.run_queue_threshold(), else: nil),
-      cpu_snapshot: DispatchPolicy.read_cpu(Config.target_load_average(), Config.run_queue_threshold(), Config.max_load_average())
+      cpu_snapshot: if(is_number(quota), do: :unavailable, else: DispatchPolicy.read_cpu(Config.target_load_average(), Config.run_queue_threshold(), Config.max_load_average()))
     }
   end
+
+  defp quota_schedulers(quota) when is_number(quota), do: floor(quota)
+  defp quota_schedulers(_quota), do: System.schedulers_online()
+
+  defp quota_load(quota) when is_number(quota), do: :unavailable
+  defp quota_load(_quota), do: DispatchPolicy.read_load(Config.max_load_average(), Config.target_load_average())
 
   @spec cpu_gate(map()) :: :dispatch | {:hold, map()}
   def cpu_gate(%{cpu_pressure: %{avg60: value}, pressure_threshold: threshold}) do
@@ -31,7 +42,11 @@ defmodule Aiur.Orchestrator.PressureAdmission do
   end
 
   def cpu_gate(%{cpu_pressure: :unavailable} = probes) do
-    if Map.get(probes, :cpu_headroom, :unavailable) == :unavailable, do: raw_load_gate(probes), else: fallback_cpu_gate(probes)
+    cond do
+      is_number(Map.get(probes, :cpu_quota)) -> :dispatch
+      Map.get(probes, :cpu_headroom, :unavailable) == :unavailable -> raw_load_gate(probes)
+      true -> fallback_cpu_gate(probes)
+    end
   end
 
   def cpu_gate(probes), do: fallback_cpu_gate(probes)
@@ -190,6 +205,6 @@ defmodule Aiur.Orchestrator.PressureAdmission do
 
   @spec status_sample(map()) :: map()
   def status_sample(probes) do
-    Map.take(probes, [:cpu_pressure, :pressure_threshold, :pressure_target, :memory_mb, :memory_threshold_mb])
+    Map.take(probes, [:cpu_pressure, :cpu_pressure_source, :pressure_threshold, :pressure_target, :memory_mb, :memory_threshold_mb, :cgroup_memory_threshold])
   end
 end

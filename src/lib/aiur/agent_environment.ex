@@ -4,8 +4,9 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{AgentBuildGuard, AgentScratch, BuildGate, Config, Shell}
-  alias Aiur.AgentEnvironment.Contributor
+  alias Aiur.AgentEnvironment.{Contributor, CredentialScrub}
   alias Aiur.AgentEnvironment.GitHubPath
+  alias Aiur.AgentEnvironment.SchedulerOptions
   alias Aiur.Config.Paths
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -27,7 +28,7 @@ defmodule Aiur.AgentEnvironment do
   # own.
   @restart_build_env_names ~w(AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_RECEIPT AIUR_RESTART_BUILD_VERIFIES)
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
-  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE)
+  @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN AIUR_SECRET_KEY_BASE AIUR_LEASE_DATABASE_URL)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY(?:__[A-Z0-9_-]+)?\z/
   # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
@@ -54,7 +55,6 @@ defmodule Aiur.AgentEnvironment do
   # `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` returns nothing even when the
   # daemon's own environment carries it.
   @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN)
-  @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
@@ -131,6 +131,7 @@ defmodule Aiur.AgentEnvironment do
        Enum.join(
          @erlang_distribution_env_names ++
            @daemon_dump_env_names ++
+           ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
            @restart_build_env_names ++
            @parent_log_env_names ++
            @operator_only_env_names ++
@@ -142,7 +143,7 @@ defmodule Aiur.AgentEnvironment do
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|AIUR_TOKEN_*|*_API_KEY|*_API_KEY__*|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
@@ -213,8 +214,7 @@ defmodule Aiur.AgentEnvironment do
   @doc false
   @spec provider_credential_env_names() :: [String.t()]
   def provider_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@provider_api_key_pattern, &1))
-    Enum.uniq(@provider_credential_env_names ++ inherited)
+    Enum.uniq(@provider_credential_env_names ++ CredentialScrub.inherited_env_names(@provider_api_key_pattern))
   end
 
   @doc """
@@ -225,8 +225,7 @@ defmodule Aiur.AgentEnvironment do
   """
   @spec app_credential_env_names() :: [String.t()]
   def app_credential_env_names do
-    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@app_credential_env_pattern, &1))
-    Enum.uniq(@app_credential_env_names ++ inherited)
+    Enum.uniq(@app_credential_env_names ++ CredentialScrub.inherited_env_names(@app_credential_env_pattern))
   end
 
   @doc """
@@ -255,11 +254,13 @@ defmodule Aiur.AgentEnvironment do
       Enum.map(
         @erlang_distribution_env_names ++
           @daemon_dump_env_names ++
+          ~w(AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN) ++
           @restart_build_env_names ++
           @parent_log_env_names ++
           @operator_only_env_names ++
           provider_credential_env_names() ++
           app_credential_env_names() ++
+          CredentialScrub.remote_instance_token_env_names() ++
           @github_credential_env_names ++
           ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
@@ -305,8 +306,7 @@ defmodule Aiur.AgentEnvironment do
 
     contributions = Contributor.port_env(workspace, opts)
 
-    contributed_credentials =
-      for {name, _value} <- contributions, Regex.match?(@app_credential_env_pattern, to_string(name)), do: {name, false}
+    contributed_credentials = for {name, _value} <- contributions, CredentialScrub.contributed_credential_name?(name), do: {name, false}
 
     (workspace_env ++ contributions ++ unset_inherited_env ++ contributed_credentials)
     |> Map.new()
@@ -467,7 +467,7 @@ defmodule Aiur.AgentEnvironment do
 
     [
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
-      {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
+      {"ELIXIR_ERL_OPTIONS", SchedulerOptions.build(cap)}
     ]
   end
 
@@ -516,13 +516,5 @@ defmodule Aiur.AgentEnvironment do
       url when is_binary(url) and url != "" -> url
       _ -> neutral_repo_url()
     end
-  end
-
-  defp scheduler_options(cap) do
-    System.get_env("ELIXIR_ERL_OPTIONS", "")
-    |> then(&Regex.replace(@scheduler_option, &1, ""))
-    |> String.split()
-    |> Kernel.++(["+S", "#{cap}:#{cap}"])
-    |> Enum.join(" ")
   end
 end

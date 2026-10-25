@@ -1,3 +1,5 @@
+import { activeFeature } from './features.js';
+import { rowOk } from './filters.js';
 // Port of design build.js:1152–1181, with explicit unknowns and delegated input.
 import { S, ctx, fx } from './state.js';
 import { esc } from './dom.js';
@@ -24,7 +26,7 @@ export function stText(t) {
   if (t.sec === 'hist') return Object.hasOwn(HIST, t.status) ? HIST[t.status][1] : 'State unknown';
   if (t.sec === 'now') {
     const stateLabel = agentState(t.agent?.state).label;
-    return t.agent?.state === 'usage_limited' && Number.isFinite(t.agent?.resume_at)
+    return t.agent?.pause === 'usage_limit_exhausted' && Number.isFinite(t.agent?.resume_at)
       ? stateLabel + ' (resumes at ' + new Date(t.agent.resume_at).toISOString().slice(11, 16) + ' UTC)'
       : stateLabel;
   }
@@ -55,7 +57,7 @@ function agentCell(t) {
 function rowHTML(t, D, state) {
   const key = colKey(t), e = (Object.hasOwn(D.epics, key) ? D.epics[key] : D.epics.unsorted) ?? { label: 'Unsorted', unsorted: true };
   const f = Object.hasOwn(D.features, t.feature) ? D.features[t.feature] : null;
-  const dim = state.feature && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
+  const dim = activeFeature(D, state) && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
   const ups = t.deps.length, dn = (D.children[t.id] || []).length, deps = ups + ' dependencies · unblocks ' + dn;
   const cell = (cls, html, attrs = '') => '<span class="' + cls + '" role="cell"' + attrs + '>' + html + '</span>';
   return '<div class="lr ' + esc(t.sec) + (dim ? ' dim' : '') + '" role="row" tabindex="0" data-id="' + esc(t.id) + '"' + hue('--h', e.hue) +
@@ -80,7 +82,7 @@ function secHead(sec, label, sub, rows, extra, D, state, history, P, now) {
     '><b role="cell">' + label + '</b><em role="cell">' + esc(sub) + '</em></div>' + rows.map(t => rowHTML(t, D, state)).join('') + extra;
 }
 export function listHTML(D, state, history, P, now) {
-  const keep = t => match(t, state), rows = Object.fromEntries(['now', 'plan', 'nq'].map(sec => [sec, D[sec].filter(keep)]));
+  const keep = t => rowOk(state, t) && match(t, state), rows = Object.fromEntries(['now', 'plan', 'nq'].map(sec => [sec, D[sec].filter(keep)]));
   rows.hist = D.hist.filter(t => t.end >= (state.histFrom || 0) && keep(t)).sort((a, b) => b.end - a.end);
   const labels = { now: '<i class="lh-live" aria-hidden="true"></i>Live', plan: 'Planned', nq: 'Not queued', hist: 'History' };
   const nowCounts = { running: 0, retrying: 0, stuck: 0, paused: 0, unknown: 0 };
@@ -88,7 +90,8 @@ export function listHTML(D, state, history, P, now) {
     const key = ticket.agent?.state === 'active' ? 'running'
       : ticket.agent?.state === 'retrying' ? 'retrying'
         : ['error', 'retries', 'command'].includes(ticket.agent?.state) ? 'stuck'
-          : ['paused', 'parked', 'usage_limited', 'ci_wait'].includes(ticket.agent?.state) ? 'paused' : 'unknown';
+          : ['paused', 'parked', 'usage_limited', 'paused-usage-limit', 'paused-decision', 'paused-agent', 'ci_wait', 'merge-queued', 'blocked', 'handed-off'].includes(ticket.agent?.state) ? 'paused'
+            : ['ci-red', 'body-fix'].includes(ticket.agent?.state) ? 'stuck' : 'unknown';
     nowCounts[key]++;
   }
   const nowSummary = Object.entries(nowCounts).filter(([key, count]) => key === 'running' || count > 0)
@@ -107,6 +110,10 @@ function renderListImpl() {
   const anchor = previous.find(el => el.getBoundingClientRect().top >= top);
   const offset = anchor ? anchor.getBoundingClientRect().top - top : null, scroll = vp.scrollTop;
   ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
+  if (S.list !== 'tickets') {
+    vp.innerHTML = '<div class="bd-list-placeholder">' + (S.list === 'features' ? 'Features' : 'Epics') + ' view is not available yet</div>';
+    vp.scrollTop = 0; bindOnce(vp); return;
+  }
   vp.innerHTML = listHTML(ctx.D, S, H, ctx.snap, nowMs());
   const all = rows(), next = anchor && all.find(el => el.dataset.id === anchor.dataset.id);
   vp.scrollTop = next ? vp.scrollTop + next.getBoundingClientRect().top - top - offset : scroll;

@@ -7,7 +7,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
 
   @credentials ~w(AIUR_SECRET_KEY_BASE GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
                   GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH
-                  GITHUB_APP_NEW_SECRET AIUR_GITHUB_BUDGET_KEY)
+                  GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY)
   @fixture Path.expand("../../fixtures/agent_environment_contributor.json", __DIR__)
 
   defmodule UnsafeContributor do
@@ -29,6 +29,8 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     def repo_slug, do: "other/repo"
     @impl true
     def agent_process_log_path, do: "/other/log"
+    @impl true
+    def hosted_credential_boundary, do: :daemon
   end
 
   def credentials, do: @credentials
@@ -94,8 +96,15 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   test "regression guard: empty registry still scrubs inherited credentials", context do
     Application.put_env(:aiur, :agent_environment_contributors, [])
     previous_secret = System.get_env("GITHUB_APP_NEW_SECRET")
+    previous_remote_token = System.get_env("AIUR_TOKEN_NUC")
     System.put_env("GITHUB_APP_NEW_SECRET", "inherited")
-    on_exit(fn -> restore_env("GITHUB_APP_NEW_SECRET", previous_secret) end)
+    System.put_env("AIUR_TOKEN_NUC", "inherited")
+
+    on_exit(fn ->
+      restore_env("GITHUB_APP_NEW_SECRET", previous_secret)
+      restore_env("AIUR_TOKEN_NUC", previous_remote_token)
+    end)
+
     port = AgentEnvironment.workspace_env(context.workspace) |> Map.new()
     for name <- @credentials, do: assert(Map.fetch!(port, String.to_charlist(name)) == false)
     refute Map.has_key?(port, ~c"GH_CONFIG_DIR")
@@ -121,6 +130,16 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     write_workflow_file!(context.workflow_file, tracker_kind: "github", tracker_repo: "owner/name")
     assert Contributor.repo_slug() == "owner/name"
     assert Contributor.agent_process_log_path() == Path.join(context.workflow_root, "repo/owner/name/github-quota/agent-processes.tsv")
+  end
+
+  test "hosted credential census treats missing declarations as unknown" do
+    Application.put_env(:aiur, :agent_environment_contributors, [UnsafeContributor, AgentEnvironmentContributor, LaterContributor])
+
+    assert Contributor.hosted_credential_boundaries() == [
+             {UnsafeContributor, :unknown},
+             {AgentEnvironmentContributor, :agent},
+             {LaterContributor, :daemon}
+           ]
   end
 
   def snapshot(module, :port, context) do

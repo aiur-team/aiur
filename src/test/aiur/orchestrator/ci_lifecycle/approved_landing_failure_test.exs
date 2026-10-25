@@ -51,8 +51,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.ApprovedLandingFailureTest do
     sync_recorder(recorder)
 
     assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-    assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
-    assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, 1, false}}
+    assert_received {:recorded, 2, {:label_added, ^identifier, "agent:ci-red"}}
+    assert_received {:recorded, 3, {:event, %{topic: ^topic}}}
+    assert_received {:recorded, 4, {:agent_queue_updated, ^identifier, 1, false}}
     assert_received {:failure_comment, comment}
     assert comment =~ "browser spec (new failure on PR head)"
     assert next.running[identifier].issue.state == "rework"

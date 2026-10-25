@@ -28,7 +28,10 @@ defmodule AiurWeb.Build.PayloadSchema do
             %{
               "model" => nullable(:model),
               "name" => nullable({:short_string, 64}),
-              "state" => nullable(enum(~w(active error retrying retries command paused parked usage_limited ci_wait))),
+              "state" =>
+                nullable(
+                  enum(~w(active error retrying retries command paused parked usage_limited ci_wait merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off))
+                ),
               "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
               "resume_at" => nullable(:integer),
               "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
@@ -69,6 +72,7 @@ defmodule AiurWeb.Build.PayloadSchema do
            "epics" => list(:string),
            "from" => nullable(:integer),
            "to" => nullable(:integer),
+           "oldest" => nullable(:integer),
            "stats" => nullable(object(feature_stats()))
          })},
       "order" => list(:string),

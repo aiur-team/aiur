@@ -15,8 +15,10 @@ defmodule AiurWeb.Build.IndexReader do
         _ -> nil
       end
 
+    todo_ids = open_todo_ids(parts[:open], parts[:settings])
+
     now =
-      read_part(:now, dirty, parts, fn -> read_now(repo, opts) end)
+      read_part(:now, dirty, parts, fn -> read_now(repo, todo_ids, opts) end)
 
     parts = Map.put(parts, :now, now)
     active = MapSet.new(producer_rows(now), & &1.num)
@@ -35,10 +37,10 @@ defmodule AiurWeb.Build.IndexReader do
     if dirty == :all or MapSet.member?(dirty, key), do: Index.safe_read(key, fun), else: previous[key]
   end
 
-  defp read_now(repo, opts) do
+  defp read_now(repo, todo_ids, opts) do
     units_fun = Keyword.get(opts, :units_fun, fn -> PayloadLoader.load(:cached).units end)
     catalog = units_fun.()
-    units_now = NowRows.build(catalog, repository: repo) |> Map.put(:unit_rows, unit_rows(catalog, repo))
+    units_now = NowRows.build(catalog, repository: repo, todo_ids: todo_ids) |> Map.put(:unit_rows, unit_rows(catalog, repo))
 
     result =
       if map_size(units_now.rows) > 0 do
@@ -62,6 +64,22 @@ defmodule AiurWeb.Build.IndexReader do
     if is_map(result), do: Map.put(result, :unit_rows, units_now.unit_rows), else: result
   end
 
+  defp open_todo_ids(%{status: :available, tickets: tickets}, settings) when is_list(tickets) do
+    prefix =
+      case settings do
+        {:ok, settings} -> settings.tracker.github.label_prefix
+        _ -> "agent"
+      end
+
+    label = prefix <> ":todo"
+
+    tickets
+    |> Enum.filter(&(is_list(Map.get(&1, :labels)) and label in Map.get(&1, :labels)))
+    |> MapSet.new(&Map.get(&1, :identifier))
+  end
+
+  defp open_todo_ids(_open, _settings), do: MapSet.new()
+
   defp unit_rows(%{status: status, snapshot: %{rows: rows}}, {owner, repo}) when status in [:ready, :empty] do
     rows
     |> Enum.filter(fn row ->
@@ -79,7 +97,9 @@ defmodule AiurWeb.Build.IndexReader do
     running_by_identifier = Map.new(running, &{Map.get(&1, :identifier), &1})
 
     Enum.map(statuses, fn status ->
-      now_row(status, Map.get(running_by_identifier, Map.get(status, :identifier), %{}))
+      identifier = Map.get(status, :identifier)
+      running = Map.get(running_by_identifier, identifier)
+      now_row(status, running)
     end)
     |> Enum.reject(&is_nil/1)
   end
@@ -87,10 +107,11 @@ defmodule AiurWeb.Build.IndexReader do
   defp producer_rows(%{rows: rows}) when is_map(rows), do: Map.values(rows)
   defp producer_rows(_), do: []
 
-  defp now_row(%{identifier: _identifier, state: :running} = summary, running), do: now_row(summary, running, :running)
-  defp now_row(%{identifier: _identifier, work_state: :retrying} = summary, running), do: now_row(summary, running, :retrying)
+  defp now_row(%{identifier: _identifier, state: :running} = summary, running) when is_map(running), do: now_row(summary, running, :running)
 
-  defp now_row(%{identifier: _identifier, state: :paused, session_id: session} = summary, running) when is_binary(session),
+  defp now_row(%{identifier: _identifier, state: :paused, work_state: :retrying} = summary, running) when is_map(running), do: now_row(summary, running, :retrying)
+
+  defp now_row(%{identifier: _identifier, state: :paused, session_id: session} = summary, running) when is_binary(session) and is_map(running),
     do: now_row(summary, running, :running)
 
   defp now_row(_summary, _running), do: nil
@@ -102,6 +123,7 @@ defmodule AiurWeb.Build.IndexReader do
 
     %{
       identity: identity,
+      labels: Map.get(summary, :labels, []),
       runtime: %{
         bucket: bucket,
         work_state: Map.get(summary, :work_state, :working),
