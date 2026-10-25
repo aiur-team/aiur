@@ -99,6 +99,16 @@ defmodule Aiur.TestResetTest do
   end
 
   describe "guards" do
+    test "ABORT: hosted mode refuses --allow-remote before reading reset files", %{tmp_dir: tmp_dir} do
+      assert {:error, :hosted_allow_remote_forbidden} =
+               TestReset.run(%{
+                 repo_root: tmp_dir,
+                 confirm: false,
+                 allow_remote: true,
+                 instance_mode: "hosted"
+               })
+    end
+
     test "ABORT: tickets file missing", %{tmp_dir: tmp_dir} do
       assert {:error, :tickets_file_missing} = TestReset.run(%{repo_root: tmp_dir, confirm: false})
     end

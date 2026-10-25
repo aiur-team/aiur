@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   require Logger
   alias Aiur.Accounts.UsageReadings
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability}
+  alias Aiur.Orchestrator.RateLimitFallback.PausedFallback
   alias Aiur.Orchestrator.RateLimitFallback.Redispatch
 
   alias Aiur.Orchestrator.{
@@ -86,17 +87,10 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp usage_limited_on_primary?(running_entry, issue, opts) do
-    fallback_backend = fallback_backend(opts)
-    primary_backend = primary_backend(opts)
-    current_backend = Keyword.get_lazy(opts, :current_backend, fn -> CodingAgent.backend_for(issue) end)
+    current_backend = PausedFallback.limited_backend(running_entry, issue, opts)
+    fallback_backend = PausedFallback.backend(issue, current_backend, fallback_backend(opts), opts)
 
-    State.paused_running_entry?(running_entry) and
-      Map.get(running_entry, :paused_reason) == :usage_limit_exhausted and
-      is_binary(fallback_backend) and fallback_backend in CodingAgent.known_backends() and
-      fallback_backend != current_backend and
-      ModelAvailability.available?(fallback_backend, opts) and
-      is_nil(CodingAgent.override_backend(issue)) and
-      current_backend == primary_backend
+    PausedFallback.eligible?(running_entry, issue, current_backend, fallback_backend, primary_backend(opts), opts)
   end
 
   defp recovery_ready?(running_entry, opts) do
@@ -220,7 +214,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp usage_pause_recovered?(entry, issue, opts) do
-    backend = Keyword.get_lazy(opts, :current_backend, fn -> CodingAgent.backend_for(issue) end)
+    backend = PausedFallback.limited_backend(entry, issue, opts)
 
     State.paused_running_entry?(entry) and
       Map.get(entry, :paused_reason) == :usage_limit_exhausted and
@@ -240,21 +234,10 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     end
   end
 
-  defp reconcile_until_limit(
-         _item,
-         {state, transition_count},
-         _opts,
-         max_transitions
-       )
-       when transition_count >= max_transitions,
-       do: {:halt, {state, transition_count}}
+  defp reconcile_until_limit(_item, {state, transition_count}, _opts, max_transitions) when transition_count >= max_transitions,
+    do: {:halt, {state, transition_count}}
 
-  defp reconcile_until_limit(
-         {_issue_id, entry},
-         {state, transition_count},
-         opts,
-         _max_transitions
-       ) do
+  defp reconcile_until_limit({_issue_id, entry}, {state, transition_count}, opts, _max_transitions) do
     {next_state, transitioned?} = reconcile_entry(state, entry, opts)
     next_count = if transitioned?, do: transition_count + 1, else: transition_count
     {:cont, {next_state, next_count}}
@@ -266,12 +249,20 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     else
       case ControlLifecycle.current_pending(state.control_lifecycle, issue.id) do
         %{action: :resume} -> {state, false}
-        _ -> apply_decision(state, running_entry, issue, decide(running_entry, issue, opts), opts)
+        _ -> apply_counted(state, running_entry, issue, decide(running_entry, issue, opts), opts)
       end
     end
   end
 
   defp reconcile_entry(state, _entry, _opts), do: {state, false}
+
+  # Resumes and route moves write no tracker labels and are bounded by fleet
+  # capacity, so they do not spend the per-tick transition budget.
+  defp apply_counted(state, running_entry, issue, decision, opts) do
+    {next_state, moved?} = apply_decision(PausedFallback.mark_slot_wait(state, issue.id, false), running_entry, issue, decision, opts)
+    route? = decision == :engage and is_binary(PausedFallback.route_backend(issue, PausedFallback.limited_backend(running_entry, issue, opts), opts))
+    {next_state, moved? and decision != :resume and not route?}
+  end
 
   defp apply_decision(state, _running_entry, _issue, :noop, _opts), do: {state, false}
 
@@ -282,25 +273,30 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
     case resume.(state, running_entry) do
       {{:ok, :resumed}, resumed_state} -> {resumed_state, true}
+      {{:error, :max_concurrent_agents_reached}, deferred_state} -> {PausedFallback.mark_slot_wait(deferred_state, running_entry.issue.id, true), false}
       {_error, deferred_state} -> {deferred_state, false}
     end
   end
 
   defp apply_decision(state, running_entry, issue, :engage, opts) do
-    fallback_backend = fallback_backend(opts)
+    route = PausedFallback.route_backend(issue, PausedFallback.limited_backend(running_entry, issue, opts), opts)
+    fallback_backend = route || fallback_backend(opts)
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
-    relabeled = engage_issue(issue, fallback_backend, marker_label)
+    relabeled = if route, do: select_backend(issue, route), else: engage_issue(issue, fallback_backend, marker_label)
     context = Redispatch.transition_context(state, running_entry, issue, relabeled, opts)
 
     if Redispatch.backend_ready?(fallback_backend, running_entry, opts) do
       case Redispatch.admission(state, relabeled, running_entry, opts) do
+        # A route move writes no fallback labels, so there is nothing to revert.
+        {:ok, admitted_state} when is_binary(route) ->
+          {Redispatch.redispatch(admitted_state, running_entry, relabeled, opts), true}
+
         {:ok, admitted_state} ->
           engage_after_preflight(%{context | state: admitted_state}, fallback_backend, marker_label)
 
         {:error, reason, rejected_state} ->
           Logger.info("Rate-limit fallback engage deferred: #{log_context(running_entry, issue)} reason=#{inspect(reason)}")
-
-          {rejected_state, false}
+          {PausedFallback.mark_slot_wait(rejected_state, issue.id, reason == :no_available_slots), false}
       end
     else
       Logger.warning("Rate-limit fallback engage deferred; backend unavailable: #{log_context(running_entry, issue)} backend=#{fallback_backend}")

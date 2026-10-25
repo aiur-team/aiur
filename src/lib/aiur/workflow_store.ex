@@ -26,7 +26,7 @@ defmodule Aiur.WorkflowStore do
   require Logger
 
   alias Aiur.Workflow
-  alias Aiur.WorkflowStore.{Cache, Reload}
+  alias Aiur.WorkflowStore.{Cache, Reload, ReloadRejection}
 
   @poll_interval_ms 1_000
   @call_timeout_ms 5_000
@@ -217,12 +217,12 @@ defmodule Aiur.WorkflowStore do
   def init(_opts) do
     Cache.init!()
 
-    case Reload.load_state(Workflow.workflow_file_path()) do
-      {:ok, state} ->
-        Reload.commit(state)
-        schedule_poll()
-        {:ok, state}
-
+    with {:ok, state} <- Reload.load_state(Workflow.workflow_file_path()),
+         :ok <- ReloadRejection.validate(state.workflow) do
+      Reload.commit(state)
+      schedule_poll()
+      {:ok, state}
+    else
       {:error, reason} ->
         {:stop, reason}
     end

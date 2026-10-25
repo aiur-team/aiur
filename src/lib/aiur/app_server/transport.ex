@@ -9,6 +9,16 @@ defmodule Aiur.AppServer.Transport do
   def command(port, line) when is_port(port), do: Port.command(port, line)
   def command(pid, line) when is_pid(pid), do: relay_call(pid, {:command, line})
 
+  @doc "Acknowledges one relay frame after the turn loop has processed it."
+  @spec acknowledge(t()) :: :ok
+  def acknowledge(port) when is_port(port), do: :ok
+  def acknowledge(pid) when is_pid(pid), do: relay_call(pid, :acknowledge)
+
+  @doc false
+  @spec manual_acknowledgements(t()) :: :ok
+  def manual_acknowledgements(port) when is_port(port), do: :ok
+  def manual_acknowledgements(pid) when is_pid(pid), do: relay_call(pid, :manual_acknowledgements)
+
   @spec close(t()) :: true
   def close(port) when is_port(port), do: Port.close(port)
   def close(pid) when is_pid(pid), do: relay_call(pid, :close)

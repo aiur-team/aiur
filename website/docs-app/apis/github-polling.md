@@ -24,7 +24,7 @@ Label read/create failures stop startup before agents start and explain the requ
 | Base-branch CI (main watch enabled) | Completed watched workflow runs for up to 20 recent base commits, using a successful `merge_group` run for the main SHA when no completed push run exists | Detects failures through check webhooks, base pushes and polling; retains state across restarts. Fixer mode is opt-in (`on_red: dispatch_fixer`). Governed callers `main_fixer_open_issues` and `main_fixer_create` list/file tickets; shared comment and PR readers reconcile evidence/recovery. At default 120s, a single-page listing adds at most 30 calls/hr; pagination and comment/PR reads add calls (mechanism budget, not measured savings). [Fixer dispatch](/reference/merge-policy). |
 | Quarantine expiry | Hourly: up to 20 scheduled main CI runs, plus job details for each run | Determines whether expired test-quarantine entries can be lifted or their fix tickets need a priority escalation. |
 | Experiment release lines | Boot/hourly warm-clone `git ls-remote --tags --refs origin`; eligible tags are fetched and dated locally. | Creates [release experiments](/concepts/experiments#version-and-release-lines) without GitHub API calls. |
-| Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. Merged PR bodies also supply `Post-deploy check:` lines for the Executor checklist. |
+| Repository events | Default-branch pushes and opened, reopened, merged or closed-unmerged pull requests | Refreshes work whose base or review state changed. Merged PR bodies also supply `Post-deploy check:` lines for the Executor checklist. `GithubFirehose.enrich_merged_event/2` and `GithubWebhook.Triples.maybe_enrich_commit_messages/4` share commit-message reads through caller `pull_request_commits`, cached by repository, PR number and immutable head SHA for four hours. `Refs #N`, `issue N`, and similar references remain nonclosing links. |
 | Analytics facts | Terminal and on-demand backfill PR facts; boot/hourly base history and tags | Body-free `pr_facts` and `analytics/repo-timeline.ndjson`; callers `analytics_facts` and `analytics_repo_timeline`. |
 
 Once per repository and history query version, the daemon reads every issue for build history (caller `build_order_history_backfill`). It starts after a 60-second boot delay, spaces pages by 10 seconds, holds below 20% remaining GraphQL budget and pauses further reads after 300 reported points in a rolling hour.
@@ -46,6 +46,20 @@ CI batches and landing require all ruleset checks on PR heads. Startup readiness
 Only required checks decide a failure: a red check that nothing requires does not send the ticket to rework. With no required list, every failure still decides.
 
 Canceled runs get one exact-head rerun through the recovery journal. Landing watcher requeues approved PRs for infrastructure, inherited-base, or known non-PR failures. It requeues tests linked to an open flake issue or base failure in 24h; other failures route to rework with job details. It checks attribution and cancels stale groups.
+
+Immediately before first enqueue, the watcher rechecks the approved head and requires GitHub to report `MERGEABLE` with a `CLEAN` or `UNSTABLE` merge state. A conflict is handled by the existing rebase-only rework path; an unavailable or unknown verdict holds for the next poll.
+
+Before rework, the watcher tries GitHub's `update-branch` itself for a conflicting PR. This covers a conflict seen by the poll, by the pre-enqueue read, or after GitHub drops the PR from the queue for `merge_conflict`.
+
+It updates only an approved, non-draft PR outside the merge queue. Its ticket must belong to this instance and sit in `human-review`, `ci-wait` or `merging` with no Executor hold. Other PRs keep the rework path. A queued PR is never updated, because a dequeue resets the merge groups.
+
+The call is `PUT /pulls/{n}/update-branch` with `expected_head_sha`, on the agent credential. Each PR head gets at most one call per base SHA (`baseRefOid`). Each call takes a slot of the shared automatic-requeue cap (four per 15 minutes); a full cap holds the PR.
+
+An accepted update re-arms auto-merge with one GraphQL mutation, so the PR re-enters the queue after CI. A failed arm is retried on later polls, only on a head whose parent is the updated head; after five failures the watcher raises an attention.
+
+A refused update (HTTP 422) routes to rebase-only rework, and the comment says so. It names the conflicting files from a local `git merge-tree` in `~/.aiur/repo/<owner>/<repo>/conflict-files.git`. That is a git fetch with per-PR refs, not a REST read. The update adds no per-poll reads.
+
+GitHub's merge-group checks remain authoritative for the base and queued PRs. A later base or queue change can still make a candidate unmergeable after admission.
 
 An approved, clean PR whose queue head remains `UNMERGEABLE` for 20 minutes, or whose second failed merge-group run is at least 20 minutes old, is considered for one recovery.
 

@@ -5,6 +5,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   alias Aiur.AgentRunner.{
     Handoff,
+    LocalGateCICache,
     MessageHandler,
     NoopWait,
     QueueDrain,
@@ -149,7 +150,11 @@ defmodule Aiur.AgentRunner.TurnLoop do
     RepeatedCommandGuard.start_turn(
       repeat_threshold: agent_settings.max_repeated_identical_commands,
       command_cap: agent_settings.max_commands_per_turn,
-      input_token_cap: agent_settings.max_input_tokens_per_turn
+      input_token_cap: agent_settings.max_input_tokens_per_turn,
+      local_gate_wait_steer_minutes: agent_settings.local_gate_wait_steer_minutes,
+      local_gate_wait_stop_minutes: agent_settings.local_gate_wait_stop_minutes,
+      local_gate_ci_max_age_minutes: agent_settings.local_gate_ci_max_age_minutes,
+      local_gate_ci_reader: fn -> LocalGateCICache.read(orchestrator, issue.identifier) end
     )
 
     result =
@@ -173,22 +178,64 @@ defmodule Aiur.AgentRunner.TurnLoop do
         :throw, {:repeated_identical_command, command, count} ->
           {:error, {:repeated_identical_command, command, count}}
 
+        :throw, {:green_ci_local_gate_wait, head_sha, pr_number, elapsed_minutes} ->
+          {:error, {:green_ci_local_gate_wait, head_sha, pr_number, elapsed_minutes}}
+
         :throw, {:turn_cap, cap, count} ->
           {:error, {:turn_cap, cap, count}}
       after
         RepeatedCommandGuard.finish_turn()
       end
 
+    complete_supported_turn(
+      turn_context,
+      app_session,
+      result,
+      %{
+        issue: issue,
+        lifecycle_attempt_id: lifecycle_attempt_id,
+        operation_id: operation_id,
+        turn_number: turn_number,
+        codex_update_recipient: codex_update_recipient,
+        aiur_turn_id: aiur_turn_id,
+        wip_notices: wip_notices,
+        worker_host: worker_host,
+        max_turns: max_turns,
+        message_handler: message_handler,
+        orchestrator: orchestrator,
+        workspace: workspace,
+        opts: opts
+      }
+    )
+  end
+
+  defp complete_supported_turn(turn_context, app_session, result, context) do
+    %{
+      issue: issue,
+      lifecycle_attempt_id: lifecycle_attempt_id,
+      operation_id: operation_id,
+      turn_number: turn_number,
+      codex_update_recipient: codex_update_recipient,
+      aiur_turn_id: aiur_turn_id,
+      wip_notices: wip_notices,
+      worker_host: worker_host,
+      max_turns: max_turns,
+      message_handler: message_handler,
+      orchestrator: orchestrator,
+      workspace: workspace,
+      opts: opts
+    } = context
+
     TurnSupport.record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
 
-    if turn_number == 1,
-      do: SessionResume.track_resume_turn_start(app_session, issue.identifier, result)
+    if turn_number == 1, do: SessionResume.track_resume_turn_start(app_session, issue.identifier, result)
 
     TurnStreams.close(issue, aiur_turn_id, TurnSupport.turn_done_reason(result))
     backend = SessionLifecycle.session_backend!(app_session)
 
     case result do
       {:ok, turn_session} ->
+        SessionResume.fresh_turn_completed(app_session, issue.identifier)
         :ok = WipPreservation.mark_delivered(wip_notices)
 
         SessionResume.maybe_persist_turn_handle(
@@ -232,6 +279,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
         case reason do
           {:repeated_identical_command, command, count} ->
             RepeatedCommandStop.stop_on_repeated_command(turn_context, command, count)
+
+          {:green_ci_local_gate_wait, head_sha, pr_number, elapsed_minutes} ->
+            RepeatedCommandStop.stop_on_green_ci_local_gate_wait(turn_context, head_sha, pr_number, elapsed_minutes)
 
           {:turn_cap, cap, count} ->
             RepeatedCommandStop.stop_on_turn_cap(turn_context, cap, count)

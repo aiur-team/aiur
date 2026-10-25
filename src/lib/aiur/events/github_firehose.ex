@@ -37,10 +37,13 @@ defmodule Aiur.Events.GithubFirehose do
 
   alias Aiur.{Boot, RecentMerge, RecentMergeStore, RunTelemetry}
   alias Aiur.Events
-  alias Aiur.Events.{GithubKeys, PostDeployChecks, Sanitizer}
+  alias Aiur.Events.GithubFirehose.PullRequest
+  alias Aiur.Events.{GithubKeys, Sanitizer}
   alias Aiur.GitHub.Client
+  alias Aiur.GitHub.PullRequests
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.StartTrigger.ProgressStore
+  alias Aiur.TicketBranch
 
   @repo_events_per_page 30
 
@@ -129,7 +132,8 @@ defmodule Aiur.Events.GithubFirehose do
   defp process_event_response(events, etag, poll_interval, last_event_id, opts) do
     with {:ok, %{pages: pages, partial?: partial?}} <-
            fetch_backfill_pages(events, last_event_id, opts) do
-      processed = pages |> events_since_watermark(last_event_id) |> process_events(opts)
+      pending_events = pages |> events_since_watermark(last_event_id)
+      processed = process_events(pending_events, opts, last_event_id)
       pages_fetched = length(pages)
 
       result = %{
@@ -225,47 +229,96 @@ defmodule Aiur.Events.GithubFirehose do
   defp newest_event_id([%{"id" => id} | _]) when is_binary(id), do: id
   defp newest_event_id(_events), do: nil
 
-  defp process_events(events, opts) do
-    Enum.reduce(
-      events,
-      %{count: 0, persistence_errors: [], persistence_attempted?: false},
-      fn event, acc ->
+  defp process_events(events, opts, fallback_event_id) do
+    events
+    |> Enum.reverse()
+    |> Enum.reduce_while(
+      %{count: 0, persistence_errors: [], persistence_attempted?: false, last_processed_id: fallback_event_id},
+      fn original_event, acc ->
+        event = enrich_merged_event(original_event, opts)
         persistence_result = persist_recent_merge(event, opts)
         publish_result = publish_one(event, opts)
+        event_id = Map.get(original_event, "id")
 
-        %{
+        next = %{
           count: acc.count + if(match?({:ok, _, _}, publish_result), do: 1, else: 0),
           persistence_errors: maybe_add_persistence_error(acc.persistence_errors, persistence_result),
-          persistence_attempted?: acc.persistence_attempted? or persistence_attempted?(persistence_result)
+          persistence_attempted?: acc.persistence_attempted? or persistence_attempted?(persistence_result),
+          last_processed_id: event_id || acc.last_processed_id
         }
+
+        {:cont, next}
       end
     )
   end
 
-  defp persist_recent_merge(event, opts) do
-    live? = not GithubKeys.pre_boot_event?(event, opts)
+  defp enrich_merged_event(%{"type" => "PullRequestEvent", "payload" => %{"pull_request" => %{"number" => number} = pr} = payload} = event, opts)
+       when is_integer(number) do
+    if merged_pull_request_event?(Map.get(payload, "action"), Map.get(pr, "merged")) and
+         not Map.has_key?(pr, "commit_messages") do
+      fetch_opts = Keyword.take(opts, [:request_fun, :token]) |> Keyword.put(:head_sha, get_in(pr, ["head", "sha"]))
 
-    normalize_opts = [
-      live?: live?,
+      case PullRequests.fetch_pull_request_commits(number, fetch_opts) do
+        {:ok, messages} ->
+          put_in(event, ["payload", "pull_request", "commit_messages"], messages)
+
+        {:error, :pull_request_commit_list_too_large} ->
+          Logger.warning("GithubFirehose commit list too large pr=#{number}; using available merge identity")
+
+          event
+          |> put_in(["payload", "pull_request", "commit_messages_unavailable"], true)
+          |> put_in(["payload", "pull_request", "commit_messages_permanent"], true)
+
+        {:error, reason} ->
+          Logger.warning("GithubFirehose commit messages unavailable pr=#{number}: #{inspect(reason)}")
+          put_in(event, ["payload", "pull_request", "commit_messages_unavailable"], true)
+      end
+    else
+      event
+    end
+  end
+
+  defp enrich_merged_event(event, _opts), do: event
+
+  defp persist_recent_merge(event, opts) do
+    if commit_evidence_unavailable_without_body_closing?(event) and is_nil(TicketBranch.ticket_id(get_in(event, ["payload", "pull_request", "head", "ref"]))) do
+      Logger.warning("GithubFirehose merge attribution unavailable; preserving event without ticket identity")
+      :unclassified
+    else
+      event
+      |> RecentMerge.from_github_event(recent_merge_options(event, opts))
+      |> persist_recent_merge_result(event, opts)
+    end
+  end
+
+  defp commit_evidence_unavailable_without_body_closing?(event) do
+    pr = get_in(event, ["payload", "pull_request"])
+
+    is_map(pr) and Map.get(pr, "commit_messages_unavailable") == true and
+      RecentMerge.closing_issue_identifiers_in_body(Map.get(pr, "body"), get_in(event, ["repo", "name"])) == []
+  end
+
+  defp recent_merge_options(event, opts) do
+    [
+      live?: not GithubKeys.pre_boot_event?(event, opts),
       run_id: Keyword.get(opts, :run_id, Boot.run_id()),
       now: Keyword.get(opts, :now, DateTime.utc_now()),
       repo: Keyword.get(opts, :repo)
     ]
+  end
 
-    case RecentMerge.from_github_event(event, normalize_opts) do
-      :not_merge ->
-        :not_merge
+  defp persist_recent_merge_result(:not_merge, _event, _opts), do: :not_merge
 
-      {:ok, merge} ->
-        if merge.ticket_id && get_in(event, ["payload", "pull_request", "head", "repo", "full_name"]) == merge.repository,
-          do: ProgressStore.record(merge.ticket_id, %{pr_number: merge.number, stage: :pr_merged, source: :merge})
+  defp persist_recent_merge_result({:ok, merge}, event, opts) do
+    if merge.ticket_id && get_in(event, ["payload", "pull_request", "head", "repo", "full_name"]) == merge.repository,
+      do: ProgressStore.record(merge.ticket_id, %{pr_number: merge.number, stage: :pr_merged, source: :merge})
 
-        call_recent_merge_store(merge, opts)
+    call_recent_merge_store(merge, opts)
+  end
 
-      {:error, reason} ->
-        Logger.warning("GithubFirehose recent merge skipped: #{inspect(reason)}")
-        {:malformed, reason}
-    end
+  defp persist_recent_merge_result({:error, reason}, _event, _opts) do
+    Logger.warning("GithubFirehose recent merge skipped: #{inspect(reason)}")
+    {:malformed, reason}
   end
 
   defp call_recent_merge_store(merge, opts) do
@@ -398,45 +451,11 @@ defmodule Aiur.Events.GithubFirehose do
     end
   end
 
-  defp translate(%{"type" => "PullRequestEvent"} = event, opts) do
-    action = get_in(event, ["payload", "action"])
-    pr = get_in(event, ["payload", "pull_request"]) || %{}
-    head_ref = get_in(pr, ["head", "ref"]) || ""
-    head_sha = get_in(pr, ["head", "sha"]) || ""
-    actor = get_in(event, ["actor", "login"])
-    repo_name = get_in(event, ["repo", "name"]) || Keyword.get(opts, :repo)
-    pr_number = Map.get(pr, "number")
-    merged? = merged_pull_request_event?(action, Map.get(pr, "merged"))
-
-    with {:ticket, id, _push_topic} <- GithubKeys.ref_to_topic("refs/heads/" <> head_ref),
-         topic when is_binary(topic) <- pr_topic(id, action, Map.get(pr, "merged")) do
-      publish_opts = [
-        actor: actor,
-        issue_number: id,
-        bypass_contamination: merged?,
-        dedup_key: GithubKeys.pr_dedup_key(repo_name, pr_number, action, head_sha)
-      ]
-
-      payload = %{action: action, pr: pr, timestamp: Map.get(event, "created_at"), repository: repo_name}
-      payload = if merged?, do: Map.put(payload, :post_deploy_checks, PostDeployChecks.from_pr_body(Map.get(pr, "body"))), else: payload
-      {topic, payload, publish_opts}
-    else
-      _ -> nil
-    end
-  end
+  defp translate(%{"type" => "PullRequestEvent"} = event, opts),
+    do: PullRequest.translate(event, opts)
 
   defp translate(_event, _opts), do: nil
 
-  defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
-  defp pr_topic(id, "ready_for_review", _merged), do: "ticket.#{id}.pr.ready_for_review"
-  defp pr_topic(id, "reopened", _merged), do: "ticket.#{id}.pr.reopened"
-  defp pr_topic(id, "merged", _merged), do: "ticket.#{id}.pr.merged"
-  defp pr_topic(id, "closed", true), do: "ticket.#{id}.pr.merged"
-  defp pr_topic(id, "closed", false), do: "ticket.#{id}.pr.closed_unmerged"
-  defp pr_topic(_id, _action, _merged), do: nil
-
-  # GitHub's Events API emits sparse merge notifications as action=merged.
-  # Retain the older closed+merged form for replay compatibility.
   defp merged_pull_request_event?("merged", _merged), do: true
   defp merged_pull_request_event?("closed", true), do: true
   defp merged_pull_request_event?(_action, _merged), do: false

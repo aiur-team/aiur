@@ -1,2 +1,6 @@
 # BrowserSpec, spec path (as the failure annotation names it), and tracking ticket. Tabs delimit fields.
 BrowserSpec	src/browser/tests/build-home-tools-parity.browser.spec.mjs	#6061	2026-11-07
+BrowserSpec	src/browser/tests/build-home-composer.browser.spec.mjs	#6089	2026-11-07
+BrowserSpec	src/browser/tests/build-home-list-parity.browser.spec.mjs	#6061	2026-11-07
+BrowserSpec	src/browser/tests/build-home-render.browser.spec.mjs	#6153	2026-11-07
+BrowserSpec	src/browser/tests/home-css-parity.browser.spec.mjs	#6137	2026-11-07

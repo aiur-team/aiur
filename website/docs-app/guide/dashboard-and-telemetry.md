@@ -41,6 +41,15 @@ is marked as still settling; an unhealthy refresh is marked as degraded.
 
 ### Build timeline filters
 
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
+Done, Weighted, and scope figures. Unknown figures show `—` with a reason on
+hover.
+
+Focus dims unrelated tickets; Compact replaces unrelated runs with gap
+markers and retains loaded dependencies as dashed ghost cards. Earlier history
+loads back to the feature’s oldest closed member. Clear the feature with ×.
+
+
 The Build toolbar filters by Epic, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL.
 
 Epic hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
@@ -52,6 +61,10 @@ Tickets closed as not planned are hidden by default. Choose **Not planned** in t
 On the build timeline, Day, Week and Month set the visible range; − and + step
 through 1–30 days. The span is kept in the link. Range controls are hidden in
 List view and return when you switch to Timeline or Gantt.
+
+In List view, **List shows** switches between Tickets, Features and Epics. The
+selection is kept in the `list` link parameter; `tickets` is the default and
+omitted.
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
@@ -67,7 +80,7 @@ the tree, then releases the lock. Links outside the loaded board are counted;
 
 ### Shared GitHub quota
 
-GitHub-backed runs meter the shared agent credential's core and GraphQL budgets in the dashboard, including remaining units, reset times, rolling read/write attribution, and the top ticket consumer. Aiur raises an Executor alert at 10% remaining and pauses new dispatch until the affected window resets.
+GitHub-backed runs meter the shared credential's core and GraphQL budgets, with reset times, read/write attribution, and top ticket consumer. API and model bars show the share remaining: full is 100% left, empty is unusable until reset. Labels match the bar and warning colours appear near empty. Aiur alerts at 10% remaining and pauses dispatch until reset.
 
 `aiur alerts` reports aged open attentions in `archived_count` instead of listing them. When that count is non-zero, use `aiur alerts --needs-attention --all` to include archived items in the output.
 

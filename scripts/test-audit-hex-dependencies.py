@@ -90,6 +90,30 @@ class AuditPolicyTest(unittest.TestCase):
         self.assertTrue(all(audited_lock == lock_bytes for _, audited_lock, _ in commands))
         self.assertTrue(commands[1][2]["allow_advisories"])
 
+    def test_audit_uses_supplied_manifest_during_dependency_resolution_and_restores_it(self):
+        lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
+        base_manifest = b"defmodule Base.Mixfile do\nend\n"
+        candidate_manifest = b"defmodule Candidate.Mixfile do\nend\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            lock_path = root / "mix.lock"
+            manifest_path = root / "mix.exs"
+            lock_path.write_bytes(lock_bytes)
+            manifest_path.write_bytes(candidate_manifest)
+            observed_manifests = []
+
+            def runner(command, **_kwargs):
+                if command[-1] == "deps.get":
+                    observed_manifests.append(manifest_path.read_bytes())
+                return self.CLEAN
+
+            with patch.object(audit, "LOCK", lock_path), patch.object(audit, "MIX_EXS", manifest_path):
+                self.assertEqual(audit.audit_lock(lock_bytes, "base", runner, mix_exs_bytes=base_manifest), set())
+
+            self.assertEqual(observed_manifests, [base_manifest])
+            self.assertEqual(manifest_path.read_bytes(), candidate_manifest)
+
     def test_audit_uses_matching_manifest_for_base_lock_and_restores_candidate(self):
         base_lock = b'  "plug": {:hex, :plug, "1.0.0"}'
         head_lock = b'  "plug": {:hex, :plug, "2.0.0"}'

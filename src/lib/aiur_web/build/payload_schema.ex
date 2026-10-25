@@ -72,6 +72,7 @@ defmodule AiurWeb.Build.PayloadSchema do
            "epics" => list(:string),
            "from" => nullable(:integer),
            "to" => nullable(:integer),
+           "oldest" => nullable(:integer),
            "stats" => nullable(object(feature_stats()))
          })},
       "order" => list(:string),
@@ -184,11 +185,11 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source())})
-    Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean)))
+    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source(), ["stale_after_ms"])})
+    Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean), ["stale_after_ms"]))
   end
 
-  defp source, do: %{"state" => enum(~w(ok stale incomplete unavailable disabled unsupported)), "observed_at" => nullable(:integer), "reason" => nullable(:string)}
+  defp source, do: %{"state" => enum(~w(ok stale incomplete unavailable disabled unsupported)), "observed_at" => nullable(:integer), "reason" => nullable(:string), "stale_after_ms" => :positive}
 
   defp cue,
     do: %{
