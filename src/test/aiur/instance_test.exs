@@ -75,6 +75,23 @@ defmodule Aiur.InstanceTest do
     refute Instance.eligible?(%Aiur.Issue{id: "44", labels: nil}, "pc", roster)
   end
 
+  test "heartbeat metadata stops ownership reservations while the workflow is paused" do
+    previous = Application.fetch_env(:aiur, :instance_globally_paused)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, paused?} -> Application.put_env(:aiur, :instance_globally_paused, paused?)
+        :error -> Application.delete_env(:aiur, :instance_globally_paused)
+      end
+    end)
+
+    Application.put_env(:aiur, :instance_globally_paused, true)
+    assert %{"version" => 1, "data" => %{"dispatching" => false}} = Instance.heartbeat_metadata()
+
+    Application.put_env(:aiur, :instance_globally_paused, false)
+    assert %{"version" => 1, "data" => %{"dispatching" => true}} = Instance.heartbeat_metadata()
+  end
+
   test "configured instance id is optional and derived ids are stable per host and state directory" do
     assert {:ok, default} = Schema.parse(%{})
     assert is_nil(default.instance.id)

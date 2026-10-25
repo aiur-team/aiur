@@ -217,14 +217,14 @@ defmodule Aiur.Instance do
   @doc "Metadata payload sent with the shared-store heartbeat."
   @spec heartbeat_metadata() :: map()
   def heartbeat_metadata do
-    case {Aiur.Config.settings(), safe_global_pause()} do
-      {{:ok, %{instance: %Instance{} = settings}}, paused?} ->
+    case {Aiur.Config.settings(), Application.get_env(:aiur, :instance_globally_paused)} do
+      {{:ok, %{instance: %Instance{} = settings}}, paused?} when is_boolean(paused?) ->
         %{
           "version" => 1,
           "data" => %{
             "owns" => settings.owns,
             "pool" => settings.pool,
-            "dispatching" => paused? == false
+            "dispatching" => not paused?
           }
         }
 
@@ -233,15 +233,6 @@ defmodule Aiur.Instance do
     end
   rescue
     _ -> %{"version" => 1, "data" => %{"owns" => [], "pool" => true, "dispatching" => false}}
-  end
-
-  defp safe_global_pause do
-    case Aiur.Orchestrator.globally_paused?() do
-      {:ok, paused?} when is_boolean(paused?) -> paused?
-      _ -> :unknown
-    end
-  rescue
-    _ -> :unknown
   end
 
   defp live_instances_for_status do
