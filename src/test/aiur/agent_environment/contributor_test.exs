@@ -5,9 +5,12 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
   alias Aiur.AgentEnvironment.Contributor
   alias Aiur.GitHub.{AgentBudgetSocket, AgentEnvironmentContributor, Budget}
 
-  @credentials ~w(AIUR_SECRET_KEY_BASE GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
+  @credentials ~w(
+                  AIUR_SECRET_KEY_BASE CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY OPENAI_API_KEY
+                  GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
                   GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH
-                  GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY AIUR_LEASE_DATABASE_URL)
+                  GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY AIUR_LEASE_DATABASE_URL
+                )
   @fixture Path.expand("../../fixtures/agent_environment_contributor.json", __DIR__)
 
   defmodule UnsafeContributor do
@@ -72,7 +75,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     %{workflow_file: workflow_file, workflow_root: root, workspace: Path.join(root, "workspace"), home: Path.join(root, "home")}
   end
 
-  # These snapshots deliberately also pass before extraction: they guard moved values against future regressions.
+  # The snapshots preserve the original env shape and include the newly scrubbed provider credentials.
   for kind <- ["github", "linear"] do
     test "registered port environment equals pre-extraction snapshot for #{kind}", context do
       write_workflow_file!(context.workflow_file, tracker_kind: unquote(kind), tracker_repo: "owner/name")
