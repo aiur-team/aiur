@@ -81,19 +81,8 @@ defmodule Aiur.GitHub.BudgetSharedTest do
   end
 
   test "Budget retries a failed shared admission under the divided local ceiling", %{root: root} do
-    {:ok, status_calls} = Agent.start_link(fn -> 0 end)
+    {:ok, shared_attempts} = Agent.start_link(fn -> 0 end)
     {:ok, acquire_calls} = Agent.start_link(fn -> 0 end)
-
-    status_fun = fn ->
-      Agent.get_and_update(status_calls, fn count ->
-        status =
-          if count < 3,
-            do: %{available?: true, live_count: 2},
-            else: %{available?: false, live_count: 2}
-
-        {status, count + 1}
-      end)
-    end
 
     test_pid = self()
 
@@ -105,7 +94,7 @@ defmodule Aiur.GitHub.BudgetSharedTest do
       stagger_ms: 0,
       consumer_key: "daemon:retry-test",
       daemon_graphql_limit_per_hour: 100,
-      coordination_status_fun: status_fun,
+      coordination_status_fun: fn -> %{available?: true, live_count: 2} end,
       coordination_configured_fun: fn -> true end,
       acquire_command_fun: fn args, _key, _opts ->
         send(test_pid, {:local_acquire_args, args})
@@ -121,7 +110,11 @@ defmodule Aiur.GitHub.BudgetSharedTest do
       release_fun: fn _lease_id, _key -> :ok end,
       github_budget_admit_fun: fn _lease, _credential, resource, _consumer, limit, _points ->
         send(test_pid, {:shared_admission_attempt, resource, limit})
-        {:error, :database_down}
+
+        Agent.get_and_update(shared_attempts, fn
+          0 -> {{:error, :database_down}, 1}
+          count -> {{:ok, :admitted}, count + 1}
+        end)
       end
     ]
 
@@ -131,6 +124,7 @@ defmodule Aiur.GitHub.BudgetSharedTest do
     assert_receive {:local_acquire_args, retry_args}, 1_000
     assert option_value(first_args, "--graphql-limit") == "100"
     assert option_value(retry_args, "--graphql-limit") == "50"
+    assert Agent.get(shared_attempts, & &1) == 1
   end
 
   defp option_value(args, option) do
