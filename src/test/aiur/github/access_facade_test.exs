@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.AccessFacadeTest do
 
   alias Aiur.GitHub.Access
   alias Aiur.GitHub.Access.{Settings, StaticSettings}
+  alias Aiur.GitHub.Budget.FleetSnapshot
   alias Aiur.GitHub.ResourceStore
 
   @moduletag :tmp_dir
@@ -196,14 +197,14 @@ defmodule Aiur.GitHub.AccessFacadeTest do
   defp fixture_args(:app_jwt, _ctx), do: [JOSE.JWK.generate_key({:rsa, 2048}), "facade", DateTime.utc_now()]
 
   defp fixture_args(name, _ctx) when name in [:fleet_budget_snapshot, :fleet_budget_status_line] do
-    key = {Aiur.GitHub.Budget.FleetSnapshot, :latest}
+    key = {FleetSnapshot, :latest}
     previous = :persistent_term.get(key, :missing)
 
     on_exit(fn ->
       if previous == :missing, do: :persistent_term.erase(key), else: :persistent_term.put(key, previous)
     end)
 
-    Aiur.GitHub.Budget.FleetSnapshot.put([])
+    FleetSnapshot.put([])
     if name == :fleet_budget_snapshot, do: [], else: [true]
   end
 
