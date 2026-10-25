@@ -1,3 +1,4 @@
+import { activeFeature } from './features.js';
 import { rowOk } from './filters.js';
 // Port of design build.js:1152–1181, with explicit unknowns and delegated input.
 import { S, ctx, fx } from './state.js';
@@ -6,6 +7,7 @@ import { nowMs } from './clock.js';
 import { fmtD, fmtH } from './util.js';
 import { estLabel } from './estimate.js';
 import { I } from './icons.js';
+import { writeURL } from './url.js';
 import { LOGOS } from './logos.js';
 import { agentState, progress, modelLabel } from './now-state.js';
 import { colKey, match } from './match.js';
@@ -56,7 +58,7 @@ function agentCell(t) {
 function rowHTML(t, D, state) {
   const key = colKey(t), e = (Object.hasOwn(D.epics, key) ? D.epics[key] : D.epics.unsorted) ?? { label: 'Unsorted', unsorted: true };
   const f = Object.hasOwn(D.features, t.feature) ? D.features[t.feature] : null;
-  const dim = state.feature && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
+  const dim = activeFeature(D, state) && state.fmode === 'focus' && t.feature !== state.feature && !t.also.includes(state.feature);
   const ups = t.deps.length, dn = (D.children[t.id] || []).length, deps = ups + ' dependencies · unblocks ' + dn;
   const cell = (cls, html, attrs = '') => '<span class="' + cls + '" role="cell"' + attrs + '>' + html + '</span>';
   return '<div class="lr ' + esc(t.sec) + (dim ? ' dim' : '') + '" role="row" tabindex="0" data-id="' + esc(t.id) + '"' + hue('--h', e.hue) +
@@ -81,6 +83,7 @@ function secHead(sec, label, sub, rows, extra, D, state, history, P, now) {
     '><b role="cell">' + label + '</b><em role="cell">' + esc(sub) + '</em></div>' + rows.map(t => rowHTML(t, D, state)).join('') + extra;
 }
 export function listHTML(D, state, history, P, now) {
+  if (state.list === 'features') return featureListHTML(D, state, now);
   const keep = t => rowOk(state, t) && match(t, state), rows = Object.fromEntries(['now', 'plan', 'nq'].map(sec => [sec, D[sec].filter(keep)]));
   rows.hist = D.hist.filter(t => t.end >= (state.histFrom || 0) && keep(t)).sort((a, b) => b.end - a.end);
   const labels = { now: '<i class="lh-live" aria-hidden="true"></i>Live', plan: 'Planned', nq: 'Not queued', hist: 'History' };
@@ -101,14 +104,73 @@ export function listHTML(D, state, history, P, now) {
     ['id', 'tt', 'ep', 'st', 'ag', 'pg', 'dp'].map((key, i) => '<span class="c-' + key + '" role="columnheader">' + ['Ticket', 'Title', 'Epic', 'State', 'Agent', 'Progress', 'Deps'][i] + '</span>').join('') + '</div>' +
     ['now', 'plan', 'nq', 'hist'].map(sec => secHead(sec, labels[sec], subs[sec], rows[sec], sec === 'hist' ? more : '', D, state, history, P, now)).join('') + '</div>';
 }
+const knownSum = (values, key) => values.every(x => Number.isFinite(x[key])) ? values.reduce((sum, x) => sum + x[key], 0) : null;
+function featureListHTML(D, state, now) {
+  const values = D.order.filter(key => D.epics[key]?.feature && Object.hasOwn(D.features, D.epics[key].feature)).map(key => ({ key, feature: D.features[D.epics[key].feature], epic: D.epics[key], progress: D.feature_progress?.features?.[key] }));
+  const globallyUnknown = D.feature_progress?.reason;
+  const aggregate = key => globallyUnknown ? null : knownSum(values.map(x => x.progress || {}), key);
+  const closed = aggregate('closed'), open = aggregate('open'), unpublished = aggregate('unpublished');
+  const total = aggregate('total'), ci = aggregate('ci_wait');
+  const opened = Number.isFinite(open) && Number.isFinite(ci) ? open + ci : null;
+  const pct = Number.isFinite(total) && total > 0 && Number.isFinite(closed) ? Math.floor(closed * 100 / total) : null;
+  const observed = D.feature_progress?.observed_at, age = Number.isFinite(observed) ? Math.max(0, now - observed) : null;
+  const ageLabel = age == null ? 'age unknown' : age < 60_000 ? 'just now' : age < 3_600_000 ? Math.floor(age / 60_000) + 'm ago' : Math.floor(age / 3_600_000) + 'h ago';
+  const pctText = pct == null ? '—' : pct + '%';
+  const summary = Number.isFinite(closed) && Number.isFinite(total) ? `${closed} / ${total} tickets closed across all features` : '— tickets closed across all features';
+  const totalReasons = globallyUnknown ? [globallyUnknown] : [Number.isFinite(closed) ? null : 'states unavailable', Number.isFinite(ci) ? null : 'CI state unknown', Number.isFinite(unpublished) ? null : 'planned count unavailable'].filter(Boolean);
+  const totalsLine = `${summary} · ${Number.isFinite(unpublished) ? unpublished : '—'} planned tickets not published yet · ${Number.isFinite(ci) ? ci : '—'} waiting on CI${totalReasons.length ? ` · ${totalReasons.join(' · ')}` : ''}`;
+  const bar = (c, o, u, reason, cls = '') => {
+    const denominator = Number.isFinite(c) && Number.isFinite(o) && Number.isFinite(u) ? c + o + u : 0;
+    const width = n => denominator > 0 ? Math.max(0, n / denominator * 100) : 0;
+    return `<div class="fp-bar ${cls}${reason ? ' unknown' : ''}" role="img" aria-label="${esc(reason || `${c} closed, ${o} published open, ${u} planned not published`)}">${reason ? '<i class="fp-unknown"></i>' : `<i class="fp-closed" style="width:${width(c)}%"></i><i class="fp-open" style="width:${width(o)}%"></i><i class="fp-unpublished" style="width:${width(u)}%"></i>`}</div>`;
+  };
+  const groupKey = x => typeof x.progress?.wave === 'string' && x.progress.wave.length ? x.progress.wave : 'unknown';
+  const grouped = new Map();
+  for (const item of values) { const key = groupKey(item); (grouped.get(key) || grouped.set(key, []).get(key)).push(item); }
+  const waveOrder = value => { const match = /^(\d+)(.*)$/.exec(value); return match ? [Number(match[1]), match[2]] : [Infinity, value]; };
+  const groups = [...grouped.entries()].sort(([a], [b]) => {
+    if (a === 'unknown') return 1;
+    if (b === 'unknown') return -1;
+    const [an, as] = waveOrder(a), [bn, bs] = waveOrder(b);
+    return an - bn || as.localeCompare(bs);
+  });
+  const rows = groups.map(([wave, items]) => `<section class="fp-wave"><h2>${wave === 'unknown' ? 'Wave unknown' : `Wave ${esc(wave)}${items.length ? ` — ${items.map(item => esc(item.epic.label || item.feature.label)).join(' and ')}` : ''}`}</h2>${items.map(({key, feature, epic, progress: p}) => {
+    const reason = p?.reason || (!p ? 'planned count unavailable' : null), c = p?.closed, o = p?.open, u = p?.unpublished, t = p?.total;
+    const rowPct = Number.isFinite(c) && Number.isFinite(t) && t > 0 ? Math.floor(c * 100 / t) + '%' : '—';
+    const iconName = p?.icon || 'squares', icon = Object.hasOwn(I, iconName) ? I[iconName] : I.squares;
+    const published = Number.isFinite(c) && Number.isFinite(o) && Number.isFinite(p?.ci_wait) ? c + o + p.ci_wait : null;
+    const note = p && !reason ? published === 0 && Number.isFinite(t) && t > 0
+      ? `not published yet — 0 of ${t} planned tickets on GitHub`
+      : [u > 0 ? `${u} of ${t} not published yet` : null, p.ci_wait > 0 ? `${p.ci_wait} waiting on CI` : null].filter(Boolean).join(' · ')
+      : reason || 'not published yet — 0 of planned tickets on GitHub';
+    const code = p?.code ? `<small class="fp-code">${esc(p.code)}</small>` : '';
+    const summary = p?.summary ? `<small class="fp-summary">${esc(p.summary)}</small>` : '';
+    return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(epic.label || feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(epic.label || feature.label)}">${icon}</span><span class="fp-name"><b>${esc(epic.label || feature.label)}</b>${code}${summary}</span>${bar(c, Number.isFinite(o) && Number.isFinite(p?.ci_wait) ? o + p.ci_wait : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter')}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;
+  }).join('')}</section>`).join('');
+  const legend = '<div class="fp-legend"><span><i class="closed"></i>Closed</span><span><i class="open"></i>Published, open</span><span><i class="unpublished"></i>Planned, not published</span></div>';
+  const version = D.feature_progress?.plan_version || 'plan version unavailable';
+  const first = values.map(x => x.progress).find(Boolean) || {};
+  const rootTitle = first.root_title || 'Feature progress';
+  const rootDetails = [first.root_number ? `root #${first.root_number}` : 'root unknown', first.start_date || 'start date unknown', `data as of ${Number.isFinite(observed) ? new Date(observed).toLocaleString() : '—'} · ${ageLabel}`].join(' · ');
+  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(rootTitle)}</h1><p>${esc(rootDetails)}</p></div><div class="fp-overall"><b>${pctText}</b><span>${esc(totalsLine)}</span></div>${bar(closed, opened, unpublished, Number.isFinite(closed) && Number.isFinite(opened) && Number.isFinite(unpublished) ? null : 'Progress unavailable', 'fp-total')}${legend}</header><div class="fp-groups">${rows || '<p>No features available</p>'}</div><footer>Progress is closed / all tickets in the feature, rounded down; closed includes done, failed, and not-planned tickets. Planned counts from ${esc(version)}. ${Number.isFinite(D.feature_progress?.extras) ? D.feature_progress.extras : '—'} published tickets outside the plan are included in totals.</footer></article>`;
+}
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
+  if (S.list === 'features') {
+    ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
+    vp.innerHTML = listHTML(ctx.D, S, H, ctx.snap, nowMs());
+    bindOnce(vp); return;
+  }
   const focused = document.activeElement?.closest?.('.lr[data-id]'), index = previous.indexOf(focused);
   const moreFocused = document.activeElement?.id === 'lr-more' && vp.contains(document.activeElement);
   const top = vp.getBoundingClientRect().top;
   const anchor = previous.find(el => el.getBoundingClientRect().top >= top);
   const offset = anchor ? anchor.getBoundingClientRect().top - top : null, scroll = vp.scrollTop;
   ctx.L = null; ctx.content = null; ctx.R.clear(); ctx.cols = [];
+  if (S.list === 'epics') {
+    vp.innerHTML = '<div class="bd-list-placeholder">Epics view is not available yet</div>';
+    vp.scrollTop = 0; bindOnce(vp); return;
+  }
   vp.innerHTML = listHTML(ctx.D, S, H, ctx.snap, nowMs());
   const all = rows(), next = anchor && all.find(el => el.dataset.id === anchor.dataset.id);
   vp.scrollTop = next ? vp.scrollTop + next.getBoundingClientRect().top - top - offset : scroll;
@@ -125,11 +187,17 @@ function bindOnce(vp) {
     const btn = e.target.closest('#lr-more');
     if (btn) { earlier(btn); return; }
     const row = e.target.closest('.lr[data-id]'); if (row) open(row);
+    const feature = e.target.closest('.fp-row'); if (feature) focusFeature(feature.dataset.feature);
   });
   ctx.life.on(vp, 'keydown', e => {
-    if (S.view !== 'list' || e.key !== 'Enter' || e.target.matches('button')) return;
+    if (S.view !== 'list' || e.key !== 'Enter' || (e.target.matches('button') && !e.target.matches('.fp-row'))) return;
     const row = e.target.closest('.lr[data-id]'); if (row) { e.preventDefault(); open(row); }
+    const feature = e.target.closest('.fp-row'); if (feature) { e.preventDefault(); focusFeature(feature.dataset.feature); }
   });
+}
+function focusFeature(key) {
+  S.view = 'graph'; S.list = 'tickets'; S.feature = key; S.fmode = 'focus';
+  writeURL(); fx.renderTools(); fx.viewport(); fx.relayout();
 }
 async function earlier(btn) {
   if (H.state === 'loading') return;

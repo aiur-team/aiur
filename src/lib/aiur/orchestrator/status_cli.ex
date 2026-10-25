@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Config
   alias Aiur.ControlCLI.CiWait
   alias Aiur.ExecutorAttention
+  alias Aiur.GitHub.Budget.FleetSnapshot
   alias Aiur.GitHub.HoldPressure
   alias Aiur.Instance.{LeaseStore, Roster}
   alias Aiur.Orchestrator
@@ -127,6 +128,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     SystemLoad.print_dispatch_sample(Map.get(snapshot, :capacity))
     Capacity.print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
+    print_github_budget_scope()
     print_polling_status(Map.get(snapshot, :polling))
     footer_outcomes = Sections.await(footer, deadline_ms, bound_ms)
     exit_marker(status_exit_code(header_outcomes ++ footer_outcomes))
@@ -176,6 +178,10 @@ defmodule Aiur.Orchestrator.StatusCLI do
   defp value(_), do: "unknown"
   defp held_tickets(tickets) when is_list(tickets), do: Enum.join(tickets, ",")
   defp held_tickets(_), do: "unknown"
+
+  defp print_github_budget_scope do
+    IO.puts(FleetSnapshot.status_line(LeaseStore.configured?()))
+  end
 
   defp header_sections do
     [

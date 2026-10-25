@@ -27,6 +27,10 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"message with idempotency key", "cmd_message 123 --message-id msg-1 hello", :write, []},
     {"message status", "cmd_message --status 7", :read, []},
     {"set max agents", "cmd_set max-agents 5", :write, []},
+    {"set runtime setting", "cmd_set agent.max_concurrent_builds 2", :write, []},
+    {"unset runtime setting", "cmd_set --unset agent.max_concurrent_builds", :write, []},
+    {"list runtime settings", "cmd_set --list", :read, []},
+    {"list runtime settings as JSON", "cmd_set --list --json", :read, []},
     {"feature show", "cmd_feature show demo --json", :read, []},
     {"feature edit", "cmd_feature edit demo --label Demo --add-epic lane=Lane", :write, []},
     {"epic list", "cmd_epic list --json", :read, []},
@@ -36,8 +40,8 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"units", "cmd_units --scope all --condition active --format records --json", :read, []},
     {"build orders", "cmd_build_orders 123 --json", :read, []},
     {"analytics", "cmd_analytics --range full --since 2026-01-01 --build-order 123 --json", :read, []},
-    {"GitHub cost", "cmd_github_cost --budget all --format records --json", :read, []},
-    {"GitHub usage", "cmd_github_usage --json", :read, []},
+    {"GitHub cost", "usage_alias github-cost --json", :read, []},
+    {"GitHub usage", "usage_alias github-usage --json", :read, []},
     {"capabilities", "cmd_capabilities --json", :read, []},
     {"commands", "cmd_commands --filter all --blocking --ticket 123 --search x --cursor next --limit 1 --json", :read, []},
     {"alerts", "cmd_alerts --needs-attention --limit 1", :read, []},
@@ -46,10 +50,11 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     {"watch full", "cmd_watch --full", :read, []},
     {"watch changes", "cmd_watch --changes", :write, []},
     {"ticket estimate", "cmd_ticket estimate 123 0.5 --reason test --by operator --json", :write, []},
-    {"ticket usage", "cmd_ticket_usage 123 --json", :read, []},
+    {"ticket usage", "usage_alias ticket-usage 123 --json", :read, []},
     {"experiments list", "cmd_experiments list", :read, []},
     {"experiments stats", "cmd_experiments stats 123", :read, []},
     {"experiments freeze", "cmd_experiments freeze", :write, []},
+    {"operator relay answer", "cmd_operator_relay_answer decision --expected-version 1 --option yes --quote approved --relayed-by executor --idempotency-key key", :write, []},
     {"executor answer", "cmd_executor_answer decision --expected-version 1 --option yes --rationale approved --idempotency-key key", :write, []},
     {"executor escalate", "cmd_executor_escalate decision --expected-version 1 --reason help", :write, []},
     {"executor reclassify", "cmd_executor_reclassify decision --expected-version 1 --rationale update", :write, []},
@@ -90,6 +95,18 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     entries = Allowlist.entries()
     missing = Enum.reject(Aiur.AgentControlCLI.__info__(:functions), &Map.has_key?(entries, {[:Aiur, :AgentControlCLI], elem(&1, 0), elem(&1, 1)}))
     assert missing == [], "unclassified public AgentControlCLI functions: #{inspect(missing)}"
+  end
+
+  test "the client fan-out read fixture stays inside the server read allowlist" do
+    path = Path.expand("../../../../packaging/npm/aiur-cli/test/fixtures/control-read-commands.json", __DIR__)
+    fixture = path |> File.read!() |> Jason.decode!()
+
+    assert fixture["version"] == 1
+
+    for %{"argv" => argv, "expression" => expression} <- fixture["commands"] do
+      assert {:ok, %{scope: :read}} = ControlCall.parse(expression, remote: true, max_scope: :read),
+             "#{Enum.join(argv, " ")} is not a server-approved read: #{expression}"
+    end
   end
 
   test "real engine wrappers emit allowlisted expressions with their expected scope" do
@@ -159,7 +176,7 @@ defmodule Aiur.ControlCall.EngineCensusTest do
           {"Aiur.AgentControlCLI.executor_subscribe(Base.decode64!(\"dGlja2V0LjU5NjUuYWdlbnQuIw==\"))", :write},
           {"Aiur.AgentControlCLI.executor_unsubscribe(Base.decode64!(\"dGlja2V0LjU5NjUuIw==\"))", :write},
           {"Aiur.AgentControlCLI.analytics([range: :run])", :read},
-          {"Aiur.AgentControlCLI.accounts(true, Base.decode64!(\"Y29kZXg=\"))", :read},
+          {"Aiur.Usage.CLI.rpc(\"codex\", true)", :read},
           {"Aiur.AgentControlCLI.message(\"123\", Base.decode64!(\"aGVsbG8=\"), \"msg-1\")", :write},
           {"Aiur.AgentControlCLI.todo([\"123\"], [only: true, budget_ms: 1000, emit_exit_marker: true])", :write},
           {"Aiur.AgentControlCLI.pause(:all)", :write},

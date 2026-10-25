@@ -2,7 +2,7 @@
 
 Private, unpublished wire contracts for Aiur clients. No runtime dependencies.
 The v1 schemas use JSON Schema draft 2020-12. They cover capabilities, the
-CLI and HTTP status surfaces, per-ticket usage, and per-ticket progress.
+CLI and HTTP status surfaces, per-ticket usage, per-ticket progress, and ticket spend caps.
 Clients ignore unknown IDs and additive fields. A breaking change adds v2 beside v1.
 
 Capability `mode` now accepts any string so merge policy can report `ci=wait local_tests=partial`.
@@ -11,7 +11,8 @@ consumers lose the closed union and must handle unknown modes when switching on 
 
 `src/index.ts` exports generated `CapabilitiesReport`, `CapabilityEntry`,
 `CapabilityState`, `CapabilityReason`, `CapabilityError`, `AgentsStatus`,
-`FleetStatus`, `TicketStatus`, `TicketUsage`, and `TicketProgress` types,
+`FleetStatus`, `TicketStatus`, `TicketCancel`, `TicketUsage`, `TicketProgress`,
+`TicketSpendCap`, and `TicketSpendCapReached` types,
 `KNOWN_CAPABILITY_IDS`, `KNOWN_CAPABILITY_ID_PATTERNS`, and `CAPABILITY_REASONS`.
 Harness patterns accept one lowercase `[a-z0-9_]+` segment.
 Run `npm run build` before importing runtime constants from this local package.
@@ -22,8 +23,11 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `agents.v1` | `aiur agents --json` | `aiur.agents` |
 | `status.v1` | `GET /api/v1/state` | `aiur.status` |
 | `ticket.v1` | `GET /api/v1/:id` | `aiur.ticket` |
+| `ticket-cancel.v1` | `POST /api/v1/:id/cancel` | `aiur.ticket_cancel` |
 | `ticket-usage.v1` | `GET /api/v1/:id/usage` and `aiur ticket-usage --json` | `aiur.ticket_usage` |
 | `ticket-progress.v1` | `GET /api/v1/:id/progress` | `aiur.ticket_progress` |
+| `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
+| `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
 
 New consumer contracts follow the same layout: a schema and golden fixture with
 the same `<surface>.vN` stem, a top-level `contract` and `contract_version`, and

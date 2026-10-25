@@ -28,6 +28,7 @@ defmodule AiurWeb.Endpoint do
 
   plug(AiurWeb.Session, @session_options)
   plug(:fetch_session)
+  plug(AiurWeb.PublicBindGuard)
   plug(:authenticate_static_asset)
 
   plug(Plug.Static,

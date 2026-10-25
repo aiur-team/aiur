@@ -19,7 +19,13 @@ defmodule Aiur.Instance.Roster do
 
     case result do
       {:ok, records} when is_list(records) ->
-        rows = Enum.map(records, &present(&1, now_ms, now, stale_after_ms, retention_ms))
+        leader = leader(opts)
+
+        rows =
+          records
+          |> Enum.map(&present(&1, now_ms, now, stale_after_ms, retention_ms))
+          |> Enum.map(&put_leader(&1, leader))
+
         {:ok, %{observed_at: now, age_ms: 0, instances: Enum.reject(rows, & &1.removed?)}}
 
       {:error, :store_not_configured} ->
@@ -32,6 +38,20 @@ defmodule Aiur.Instance.Roster do
         {:error, {:invalid_roster, other}}
     end
   end
+
+  defp leader(opts) do
+    case Keyword.get(opts, :leader_fun) do
+      fun when is_function(fun, 0) -> fun.()
+      _ -> LeaseStore.leader(nil)
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  defp put_leader(%{state: :stale} = row, _leader), do: Map.put(row, :leader?, false)
+  defp put_leader(row, %{instance_id: id}), do: Map.put(row, :leader?, row.instance_id == id)
+  defp put_leader(row, status) when status in [:unheld, :disabled], do: Map.put(row, :leader?, false)
+  defp put_leader(row, _unknown), do: Map.put(row, :leader?, nil)
 
   defp present(record, now_ms, now, stale_after_ms, retention_ms) do
     heartbeat_ms = datetime_ms(record.heartbeat_at)

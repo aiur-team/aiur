@@ -3,12 +3,42 @@ Code.require_file("fixture.ex", __DIR__)
 defmodule Aiur.Orchestrator.RetryEngine.LookupTest do
   use Aiur.TestSupport
 
+  alias Aiur.Handoff.Fallback
   alias Aiur.Issue
   alias Aiur.Orchestrator.{EventTopics, RetryEngine, RuntimeWatchdog}
   alias Aiur.Orchestrator.State
   import Aiur.RetryEngineFixture, only: [tracker_identity: 1]
 
   describe "handle_retry_issue_lookup/6" do
+    test "handoff fallback marker survives scheduling and forces a fresh state lookup" do
+      stale = %Issue{id: "issue-handoff", identifier: "MT-HANDOFF", state: "in-progress"}
+      moved = %{stale | state: "ci-wait"}
+      queued = Fallback.resume(%State{}, %{"issue_id" => stale.id, "identifier" => stale.identifier, "issue" => %{"state" => stale.state}})
+      retry = queued.retry_attempts[stale.id]
+
+      assert {:ok, attempt, metadata, popped} = RetryEngine.pop_retry_attempt_state(queued, stale.id, retry.retry_token)
+      assert metadata.handoff_fallback
+
+      parent = self()
+
+      assert {:noreply, released} =
+               RetryEngine.handle_retry_issue(popped, stale.id, attempt, metadata,
+                 ensure_tracker_preflight_fun: fn state -> {:ok, state} end,
+                 fetch_candidate_issues_fun: fn ->
+                   send(parent, :stale_candidates_used)
+                   {:ok, [stale]}
+                 end,
+                 fetch_issue_states_by_ids_fun: fn [id] ->
+                   send(parent, {:fresh_lookup, id})
+                   {:ok, [moved]}
+                 end
+               )
+
+      assert_receive {:fresh_lookup, "issue-handoff"}, 1_000
+      refute_received :stale_candidates_used
+      refute MapSet.member?(released.claimed, stale.id)
+    end
+
     test "preserves the running rework head and stalled alert through queued retry dispatch" do
       parent = self()
       issue = %Issue{id: "issue-rework-retry", identifier: "MT-REWORK-RETRY", title: "Rework retry", state: "rework"}

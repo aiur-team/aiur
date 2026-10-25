@@ -26,12 +26,19 @@ defmodule Aiur.Instance.RosterTest do
       }
     ]
 
-    {:ok, roster} = Roster.list(now: now, list_fun: fn _ -> {:ok, records} end)
+    {:ok, roster} =
+      Roster.list(
+        now: now,
+        list_fun: fn _ -> {:ok, records} end,
+        leader_fun: fn -> %{instance_id: "home-a"} end
+      )
+
     expired = Enum.find(roster.instances, &(&1.instance_id == "container-b"))
     assert expired.state == :stale
     assert expired.age_ms == 50_000
     refute expired.state == :idle
     assert expired.host_kind == "container"
+    assert expired.leader? == false
     assert Enum.find(roster.instances, &(&1.instance_id == "home-a")).public_url == "https://aiur.example"
     home = Enum.find(roster.instances, &(&1.instance_id == "home-a"))
     assert home.leader? == true
@@ -41,6 +48,27 @@ defmodule Aiur.Instance.RosterTest do
 
     {:ok, removed} = Roster.list(now: DateTime.add(now, 61, :second), stale_retention_ms: 20_000, list_fun: fn _ -> {:ok, records} end)
     refute Enum.any?(removed.instances, &(&1.instance_id == "container-b"))
+  end
+
+  test "unknown leader lookup does not reuse heartbeat metadata" do
+    now = DateTime.utc_now()
+
+    record = %{
+      instance_id: "home-a",
+      build_version: "1.2.3",
+      metadata: %{"version" => 1, "data" => %{"leader" => true}},
+      heartbeat_at: now,
+      expires_at: DateTime.add(now, 30, :second)
+    }
+
+    assert {:ok, %{instances: [row]}} =
+             Roster.list(
+               now: now,
+               list_fun: fn _ -> {:ok, [record]} end,
+               leader_fun: fn -> :unknown end
+             )
+
+    assert row.leader? == nil
   end
 
   test "store errors remain errors rather than an empty roster" do

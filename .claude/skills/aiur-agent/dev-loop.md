@@ -153,11 +153,26 @@ blocking finding is the only enforcement they have.
 ## The loop
 
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
-`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
-into the PR body; it records the merged `origin/main` SHA and each gate result.
-It never pushes and refuses a dirty checkout. Once a PR exists it rewrites the
-body's `Tested head:` and `Base:` lines; with no PR yet it skips that. So the
-order is: push, `gh pr create`, `aiur pre-pr` again, then hand off;
+`aiurdev pre-pr`) from the branch checkout. It runs only selected or matching
+reader tests locally; CI owns the full coverage partitions. Paste its complete
+result block into the PR body; it records the merged `origin/main` SHA and
+each gate result. It never pushes and refuses a dirty checkout. When a PR is
+open, it rewrites the body's `Tested head:` and `Base:` lines. With no PR yet
+it skips body refresh. So the order is: push, `gh pr create`, `aiur pre-pr`
+again, then hand off;
+
+During a turn, Aiur watches transcript events for prolonged waiting on or
+polling local test/gate commands. If the daemon's recent CI cache says the
+current PR head is green, Aiur steers at the configured threshold to stop the
+local gate, refresh the PR body and mark the PR ready. This cached-CI rule only
+applies to tickets already polled in `ci-wait` or `human-review`; it does not
+expand GitHub polling to `in-progress` or `rework` tickets. The main time saving
+for those tickets comes from `pre-pr` leaving full coverage partitions to CI.
+The rule therefore covers workers waiting locally after handoff while their PR
+already has green required CI. If polling continues to the stop threshold, Aiur
+pauses the worker. Pending, red, stale or unavailable CI never triggers this
+rule. `pre-pr` also omits the architectural guard tests from its local gate;
+CI continues to run them in coverage.
 `aiur_set_ticket_state` refuses `ci-wait`/`human-review` while the body fails `mix pr_body.check` at the PR head.
 If `Tested head` is stale, the refusal names both the body SHA and live PR head;
 rerun the touched tests at the pushed head and update the evidence before handback.
@@ -364,10 +379,10 @@ The Elixir examples below apply only to Aiur's Elixir core.
    or the merge queue, do not merge/rebase the integration branch just because
    it moved, files overlap, a check failed, or a freshness check says the head
    is behind. The merge queue tests each PR on current base. Integrate only
-   when GitHub reports the exact PR head as `CONFLICTING`, a reviewer asks, or
-   a newer base commit is identified as fixing a failing check (name that
-   commit in the PR comment). File overlap and base movement alone do not
-   require a push.
+   when GitHub reports the exact PR head as `CONFLICTING` or a newer base
+   commit fixes a failing required check (name that commit and check in the PR
+   comment). A reviewer request alone does not authorize integration. File
+   overlap and base movement alone do not require a push.
 10. **Self-review the draft PR with `ce-code-review`** against the diff you just
     pushed. A missing doc that the threshold above required is a review finding —
     fix it here, not in a follow-up ticket.
@@ -378,27 +393,29 @@ The Elixir examples below apply only to Aiur's Elixir core.
     verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
     `headRefOid` equals your local `HEAD`. For a `human-review` or `ci-wait`
     handoff, integrate the configured base only when GitHub reports the exact
-    PR head as `CONFLICTING`, a reviewer asks, or a newer base commit is
-    identified as fixing a failing check (name it in the PR comment). File
+    PR head as `CONFLICTING` or a newer base commit fixes a failing required
+    check (name that commit and check in the PR comment). A reviewer request
+    alone does not authorize integration. File
     overlap, base movement, ancestry, and local path comparisons do not require
     a push: the merge queue tests the PR on current base. A non-`CONFLICTING` head permits handoff
     without a base merge; unavailable or mismatched GitHub evidence remains
     fail-closed in the state writer.
 
-    If GitHub reports `CONFLICTING` or a reviewer asks for integration, record
-    the pre-merge head and rescue ref first. Preserve feature scope and push the
+    If GitHub reports `CONFLICTING` or a newer base commit fixes a failing
+    required check, record the pre-merge head and rescue ref first. Preserve
+    feature scope and push the
     rescue ref before resolving nontrivial conflicts. After integration, run
     relevant local tests and the format, size, components gates; resolve drift,
     validate and push. Keep the PR ready before returning to `ci-wait` for
-    new-head CI. Record observed SHAs and the conflict or reviewer request in
-    the workpad across restarts. Never open a blocking decision for base
+    new-head CI. Record observed SHAs and the conflict or check fix, including
+    the check name, in the workpad across restarts. Never open a blocking decision for base
     integration.
 
     The agent `git` guard refuses pushes to ticket branches in `agent:ci-wait`
     or `agent:human-review`, including detached-HEAD pushes named by their
     destination ref; `gh pr update-branch` is refused in those states too.
-    Review rework is allowed. When GitHub reports the PR `CONFLICTING` or a
-    reviewer asked for integration, first move the ticket to `agent:in-progress`
+    Review rework is allowed. When GitHub reports the PR `CONFLICTING` or a newer base commit fixes a
+    failing required check, first move the ticket to `agent:in-progress`
     with `aiur_set_ticket_state`, then integrate and push.
 14. If you still believe the work is complete and correct and only CI remains,
     mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
@@ -417,7 +434,8 @@ The Elixir examples below apply only to Aiur's Elixir core.
       swapped `agent:ci-wait` for `agent:in-progress` before it woke you, so the
       removal is a no-op and the ticket ends up carrying both state labels —
       undispatchable, and healed by a guess (#2805). Harmless base movement
-      needs no merge or CI rerun. For a `CONFLICTING` head or reviewer request,
+      needs no merge or CI rerun. For a `CONFLICTING` head or a newer base
+      commit fixing a required check,
       follow step 13 and await fresh exact-head CI. Never open a blocking
       decision for base integration.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
@@ -425,6 +443,11 @@ The Elixir examples below apply only to Aiur's Elixir core.
       repair loop.
       If the only failure is a flaky test unrelated to your change, file the
       flake as its own ticket with the CI run id (or link its existing ticket).
+      File flake and other non-feature follow-ups with `needs-triage` and the
+      instance's parked label (`agent:parked`, or `nuc:parked` on NUC); never
+      include a dispatch state label such as `agent:todo` or `nuc:todo`. New
+      non-feature tickets wait for operator triage unless they block merging.
+      Quarantine-first applies to tests that fail on `main` or in a merge group.
       NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
       A flaky test blocks CI, not the ticket's implementation. State in the PR
       that the only failure is the known flake, link the flake ticket and CI run,

@@ -4,7 +4,7 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.CodingAgent.Backend
   @behaviour Aiur.AppServer.Adapter
 
-  alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc}
+  alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc, Transport}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   alias Aiur.Codex.{
@@ -206,6 +206,7 @@ defmodule Aiur.Codex.CodingAgent do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         StreamDiagnostics.record(port, pending <> to_string(chunk))
+        :ok = Transport.acknowledge(port)
         collect_startup_exit(port, deadline, "")
 
       {^port, {:data, {:noeol, chunk}}} ->

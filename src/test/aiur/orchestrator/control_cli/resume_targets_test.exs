@@ -124,7 +124,7 @@ defmodule Aiur.Orchestrator.ControlCLI.ResumeTargetsTest do
       end)
 
     assert pause_stderr =~ "aiur: failed to pause #45 (agent finished)"
-    assert resume_stderr =~ "aiur: failed to resume #46 (max concurrent agents reached)"
+    assert resume_stderr =~ "aiur: failed to resume #46 (max concurrent agents reached: 2 of 1 slots used (1 active, 1 held by paused entries))"
   end
 
   # The message is accepted into the queue and the agent never claims it inside

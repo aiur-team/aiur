@@ -29,6 +29,8 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     def repo_slug, do: "other/repo"
     @impl true
     def agent_process_log_path, do: "/other/log"
+    @impl true
+    def hosted_credential_boundary, do: :daemon
   end
 
   def credentials, do: @credentials
@@ -130,6 +132,16 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     assert Contributor.agent_process_log_path() == Path.join(context.workflow_root, "repo/owner/name/github-quota/agent-processes.tsv")
   end
 
+  test "hosted credential census treats missing declarations as unknown" do
+    Application.put_env(:aiur, :agent_environment_contributors, [UnsafeContributor, AgentEnvironmentContributor, LaterContributor])
+
+    assert Contributor.hosted_credential_boundaries() == [
+             {UnsafeContributor, :unknown},
+             {AgentEnvironmentContributor, :agent},
+             {LaterContributor, :daemon}
+           ]
+  end
+
   def snapshot(module, :port, context) do
     module.workspace_env(context.workspace, opts())
     |> Map.new(fn {name, value} -> {to_string(name), if(value == false, do: false, else: to_string(value))} end)
@@ -173,7 +185,8 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
       {name, value} ->
         normalized = normalize_value(value, replacements)
         # Main may publish the same build hook into its trusted, content-addressed directory.
-        {name, Regex.replace(~r"<root>/build-gate\.hooks/[a-f0-9]{64}/build_gate\.bash", normalized, "<priv>/build_gate.bash")}
+        normalized = Regex.replace(~r"<root>/build-gate\.hooks/[a-f0-9]{64}/build_gate\.bash", normalized, "<priv>/build_gate.bash")
+        {name, Regex.replace(~r"<root>/build-gate/\.agent-shell-hooks/[a-f0-9]{64}/agent_shell_environment\.bash", normalized, "<priv>/agent_shell_environment.bash")}
     end)
   end
 

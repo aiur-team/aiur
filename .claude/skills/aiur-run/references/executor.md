@@ -89,13 +89,12 @@ Only an explicit operator exclusion leaves filed work outside the build: park it
 with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
 in the ledger under the convergence policy above.
 
-“Prioritize” means place the work ahead of the previous next-up using priority
-labels and queue ordering, then report what it displaced. A label alone is not
-placement. Verify the collection, projected labels, prerequisites, membership,
-and effective start order before reporting intake complete.
+“Prioritize” means place the work ahead of the previous next-up using priority labels and queue ordering, then report what it displaced. A label alone is not placement. Verify the collection, projected labels, prerequisites, membership, and effective start order before reporting intake complete.
 
 Use `agent:queued` in the same creation request for executable members; the queue
 promotes ready members to `agent:todo`. Never create first and label later.
+
+**Give every new ticket a home-page epic.** After issue creation returns its number, run `aiur epic list` for the configured general keys, then `aiur epic set <epic> <ids…>` once per epic (up to 200 ids). Defaults are `bugs`, `design`, `infra`, `docs`; repositories can change them. An unknown key is refused with the list of valid keys; read it rather than guess. For feature members, use `aiur feature add <slug> <ids…>` instead. If unsure, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. Epic assignment is local Aiur state; if it fails, report the failure and continue filing. When promoting or retro-classifying many tickets, group ids by epic. If feature ownership conflicts, use `aiur feature add <slug> <ids…> --move` only when the ticket really changed feature.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
@@ -172,6 +171,16 @@ Pass the event's current decision version, exactly one option or custom answer,
 a rationale, and an idempotency key. Use a stable `--executor-id` for the run
 when available (the CLI otherwise records `aiur-cli`), so replay stays
 idempotent and stale events cannot overwrite a later answer.
+
+If the human has already answered in the attended conversation, use
+`operator-relay-answer` with the current version, one choice, a verbatim
+`--quote`, stable `--relayed-by` identity and an idempotency key. The operator
+must first enable `executor.relay_operator_answers`. The distinct
+`operator_relayed` actor and info alert preserve who decided and who recorded.
+Never enable this policy yourself or substitute an operator-attributed API.
+If disabled, report that relay recording is disabled and direct the operator
+to the dashboard. Use its revision/moot flow to correct a relay, or relay a
+corrected answer with `--supersede` before delivery.
 
 A decided answer that no agent has received yet can still be changed. It is
 addressed to the ticket, so a later worker of the same ticket receives it.

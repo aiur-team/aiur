@@ -52,6 +52,24 @@ defmodule Aiur.Harness.CapabilitiesTest do
 
   test "an unknown backend is reported rather than defaulted" do
     assert Capabilities.delivery_primitives("unknown-harness") == {:error, :unknown_backend}
+    assert Capabilities.hosted_security("unknown-harness") == {:error, :unknown_backend}
+  end
+
+  test "hosted security declarations fail closed when facts are absent" do
+    assert Capabilities.hosted_security_for_entry(%{}) == %{
+             permission_boundary: :unknown,
+             network_boundary: :unknown,
+             credential_boundary: :unknown
+           }
+
+    assert Capabilities.hosted_security_for_entry(%{hosted_execution: :invalid}) == %{
+             permission_boundary: :unknown,
+             network_boundary: :unknown,
+             credential_boundary: :unknown
+           }
+
+    assert {:ok, %{permission_boundary: :codex_sandbox, network_boundary: :codex_sandbox, credential_boundary: :agent}} =
+             Capabilities.hosted_security("codex")
   end
 
   test "interrupt derivation follows flags and exports regardless of backend name" do

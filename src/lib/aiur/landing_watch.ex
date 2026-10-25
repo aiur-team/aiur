@@ -6,7 +6,8 @@ defmodule Aiur.LandingWatch do
   alias Aiur.Alerts
   alias Aiur.Events
   alias Aiur.GitHub.{CiReadiness, CIRecovery, Client, HumanReviewGate, Transport}
-  alias Aiur.LandingWatch.{Classifier, ConflictRouting, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun, QueueAdmission, RunnerQueue}
+  alias Aiur.LandingWatch.{Classifier, ConflictRouting, ConflictUpdate, DisjointFailureCache, HeldApproval, Journal, LandingReconciliation, LocalRead, Observer, PrRerun}
+  alias Aiur.LandingWatch.{QueueAdmission, RunnerQueue, UnapprovedRecovery}
   alias Aiur.LandingWatch.RecoveryRuntime
   alias Aiur.LandingWatch.TicketLookup
   alias Aiur.Orchestrator.TicketTransition
@@ -162,10 +163,7 @@ defmodule Aiur.LandingWatch do
   end
 
   defp process_all(observations, opts) do
-    Enum.reduce(observations, :ok, fn observation, first_error ->
-      result = process_observation(observation, opts)
-      if first_error == :ok, do: result, else: first_error
-    end)
+    DisjointFailureCache.run(observations, opts, &process_observation/2)
   end
 
   defp process_observation(observation, opts) do
@@ -177,7 +175,20 @@ defmodule Aiur.LandingWatch do
 
   @doc false
   @spec process(map(), keyword()) :: :ok | {:error, term()}
-  def process(%{number: number, raw: raw, head: head} = observation, opts) when is_integer(number) and is_binary(head) do
+  def process(%{number: number, head: head} = observation, opts) when is_integer(number) and is_binary(head) do
+    # A merge head the watcher made has no approval, so its auto-merge retry runs before the approval gate (#6088).
+    with :ok <- Keyword.get(opts, :retry_arm_fun, &ConflictUpdate.retry_arm/2).(observation, opts) do
+      if Classifier.approved_at_head?(Map.get(observation, :raw, %{})) do
+        process_approved(observation, opts)
+      else
+        UnapprovedRecovery.process(observation, opts)
+      end
+    end
+  end
+
+  def process(_observation, _opts), do: :ok
+
+  defp process_approved(%{number: number, raw: raw, head: head} = observation, opts) do
     current_approval = Keyword.get(opts, :approved_fun, &HumanReviewGate.pull_request_approved_at_head?/2)
     required_checks = Keyword.get(opts, :required_checks_fun, &CiReadiness.fetch_required_checks/1)
     ci_status = Keyword.get(opts, :ci_status_fun, &Client.fetch_commit_ci_status/2)
@@ -208,15 +219,15 @@ defmodule Aiur.LandingWatch do
     end
   end
 
-  def process(_observation, _opts), do: :ok
-
   @doc false
   @spec rework(map(), [map()], keyword()) :: :ok | {:error, term()}
   def rework(observation, failures, opts) do
     if Keyword.get(opts, :hold_rework, false), do: :ok, else: route_rework(observation, failures, opts)
   end
 
-  defp hydrate_failed_jobs(runs, opts) do
+  @doc false
+  @spec hydrate_failed_jobs([map()], keyword()) :: {:ok, [map()]} | {:error, term()}
+  def hydrate_failed_jobs(runs, opts) do
     runs
     |> Enum.reduce_while({:ok, []}, fn run, {:ok, acc} ->
       case hydrate_run(run, opts) do

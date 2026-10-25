@@ -3,17 +3,20 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Handoff
+  alias Aiur.Instance
   alias Aiur.Instance.DispatchClaim
+  alias Aiur.Instance.Identity
   alias Aiur.Instance.LeaseStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher.Budgets
   alias Aiur.Orchestrator.Dispatcher.BudgetTrip
   alias Aiur.Orchestrator.Dispatcher.Candidates
+  alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @spec dispatch(State.t(), Issue.t(), term(), term(), keyword(), function()) :: State.t()
   def dispatch(state, issue, attempt, worker_host, opts, dispatch_to_worker) do
@@ -41,9 +44,39 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
       )
     end
 
-    if is_binary(issue.pr_head_ref),
-      do: dispatch.(),
-      else: dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
+    case ownership_eligibility(selected_issue, opts) do
+      :eligible ->
+        if is_binary(issue.pr_head_ref) do
+          dispatch.()
+        else
+          dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts)
+        end
+
+      {:ineligible, _reason} ->
+        Candidates.emit_dispatch_attempt_decline(state, issue, :instance_not_owner, false)
+
+      {:unavailable, reason} ->
+        Logger.warning("Instance ownership unavailable (#{reason}) for #{State.issue_context(issue)}; holding dispatch")
+        Candidates.emit_dispatch_attempt_decline(state, issue, :instance_ownership_unavailable, true)
+    end
+  end
+
+  defp ownership_eligibility(issue, opts) do
+    live_instances_fun = Keyword.get(opts, :ownership_live_instances_fun, &LeaseStore.list_live/0)
+
+    case live_instances_fun.() do
+      {:ok, live_instances} when is_list(live_instances) ->
+        instance_id = Keyword.get_lazy(opts, :ownership_instance_id, &Identity.current/0)
+        Instance.eligible?(issue, instance_id, live_instances)
+
+      {:error, :store_not_configured} ->
+        if Instance.ownership_configured?(), do: {:unavailable, :store_not_configured}, else: :eligible
+
+      _ ->
+        {:unavailable, :live_roster_unknown}
+    end
+  rescue
+    _ -> {:unavailable, :live_roster_unknown}
   end
 
   defp dispatch_with_shared_lease(state, issue, selected_issue, dispatch, opts) do
@@ -79,6 +112,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   defp prepare_for_dispatch(state, issue, opts) do
     with false <- Handoff.dispatch_held?(),
          {:ok, prepared} <- OptimisticDispatch.prepare_for_dispatch(issue, opts),
+         :ok <- HostedModeCheck.validate_configured_dispatch(prepared, opts),
          {:ok, selected_issue} <- CodingAgent.select_for_dispatch(prepared) do
       state = %{
         state
@@ -97,7 +131,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
           {:hold, state}
         else
-          Alerts.emit_system("ticket.#{issue.identifier}.agent.model_fallback_waiting",
+          Signal.alert("ticket.#{issue.identifier}.agent.model_fallback_waiting",
             issue: issue.identifier,
             reason: "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
             needs_attention: true,

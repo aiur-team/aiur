@@ -18,12 +18,14 @@ defmodule AiurWeb.Router do
 
   pipeline :auth_session do
     plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
   end
 
   pipeline :auth_post do
     plug(:fetch_session)
+    plug(AiurWeb.DashboardAuthRateLimit)
     plug(:protect_from_forgery)
   end
 
@@ -92,6 +94,9 @@ defmodule AiurWeb.Router do
   # The receiver must precede every dashboard scope.
   GithubWebhook.receiver()
 
+  get("/healthz", AiurWeb.PublicHealthController, :live)
+  get("/readyz", AiurWeb.PublicHealthController, :live)
+
   scope "/auth" do
     pipe_through(:auth_session)
     get("/login", AiurWeb.DashboardAuthController, :login)
@@ -122,6 +127,7 @@ defmodule AiurWeb.Router do
   # Per-ticket usage read (#5692).
   alias AiurWeb.Routes.Usage
   require Usage
+  Usage.mutations()
   Usage.reads()
   UsageProgressRoutes.reads()
 
@@ -130,6 +136,10 @@ defmodule AiurWeb.Router do
     pipe_through(:dashboard_auth)
     get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
     match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
+    get("/api/v1/usage", AiurWeb.UsageApiController, :index)
+    match(:*, "/api/v1/usage", AiurWeb.UsageApiController, :method_not_allowed)
+    get("/api/v1/usage/:provider", AiurWeb.UsageApiController, :show)
+    match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
   end
 
   # Generic issue reads and the catch-all stay last.
@@ -221,24 +231,21 @@ defmodule AiurWeb.Router do
   defp allowed_origins(conn) do
     endpoint_origin = safe_endpoint_origin()
 
-    [trusted_request_origin(conn, endpoint_origin), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
+    [trusted_request_origin(conn), endpoint_origin, {"http", "localhost", 80}, {"https", "localhost", 443}]
     |> Enum.reject(&is_nil/1)
     |> Enum.flat_map(&expand_loopback_aliases/1)
     |> Enum.uniq()
   end
 
-  defp trusted_request_origin(conn, endpoint_origin) do
+  defp trusted_request_origin(conn) do
     case request_origin(conn) do
       {_scheme, host, _port} = origin ->
-        if loopback_host?(host) or same_endpoint_host?(origin, endpoint_origin), do: origin
+        if loopback_host?(host), do: origin
 
       nil ->
         nil
     end
   end
-
-  defp same_endpoint_host?({scheme, host, _port}, {scheme, host, _endpoint_port}), do: true
-  defp same_endpoint_host?(_request_origin, _endpoint_origin), do: false
 
   defp request_origin(%Plug.Conn{scheme: scheme, host: host, port: port})
        when scheme in [:http, :https] and is_binary(host) and is_integer(port) do

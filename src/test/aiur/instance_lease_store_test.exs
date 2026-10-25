@@ -6,6 +6,9 @@ defmodule Aiur.Instance.LeaseStoreTest do
   alias Aiur.TrackerIdentity
 
   test "ticket keys normalize issue and provider shapes to one repository-qualified key" do
+    assert {:ok, "acme/widgets"} = LeaseStore.repository_key("Acme/Widgets")
+    assert {:error, :invalid_repository} = LeaseStore.repository_key("not-a-repo")
+
     identity = %TrackerIdentity{
       status: :joinable,
       kind: :github,
@@ -28,6 +31,26 @@ defmodule Aiur.Instance.LeaseStoreTest do
     assert {:ok, ^configured_key} = LeaseStore.ticket_key("#42")
     assert {:error, :invalid_ticket_key} = LeaseStore.ticket_key(%{number: "unknown"})
     assert {:error, :invalid_ticket_key} = LeaseStore.ticket_key(%{"number" => 42, "repository" => "acme/widgets/extra"})
+  end
+
+  test "leader claim and renew return store_unavailable when the store server is down" do
+    dead_server =
+      start_supervised!(
+        {Task,
+         fn ->
+           receive do
+             :stop -> :ok
+           end
+         end}
+      )
+
+    ref = Process.monitor(dead_server)
+    send(dead_server, :stop)
+    assert_receive {:DOWN, ^ref, :process, ^dead_server, :normal}, 1_000
+
+    for result <- [LeaseStore.claim_leader("owner/repo", server: dead_server), LeaseStore.renew_leader("owner/repo", server: dead_server)] do
+      assert {:error, {:store_unavailable, _reason}} = result
+    end
   end
 
   test "an unavailable PostgreSQL store leaves its supervisor and sibling services alive" do
@@ -204,6 +227,26 @@ defmodule Aiur.Instance.LeaseStoreTest do
         assert Enum.count(results, &(&1 == :acquired)) == 1
         assert Enum.count(results, &(&1 == :held)) == 1
 
+        budget_key = "github-budget-test-#{suffix}"
+        assert {:ok, :admitted} = LeaseStore.admit_github_budget("budget-left-#{suffix}", budget_key, "graphql", "left", 100, 60, server: left)
+        assert {:ok, {:held, %DateTime{}}} = LeaseStore.admit_github_budget("budget-right-#{suffix}", budget_key, "graphql", "right", 100, 60, server: right)
+        observed_at = DateTime.utc_now()
+
+        provider_snapshot = %Aiur.ProviderMeterSnapshot{
+          provider: :codex,
+          backend: :app_server,
+          identity_scope: :account,
+          provider_account_generation: "generation-#{suffix}",
+          observed_at: observed_at,
+          auth_mode: :subscription,
+          freshness: :fresh,
+          health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
+          windows: %{"weekly" => %{used: 7}}
+        }
+
+        assert :ok = LeaseStore.publish_provider_meter(provider_snapshot, server: left)
+        assert {:ok, ^provider_snapshot} = LeaseStore.shared_provider_meter(:codex, server: right)
+
         expiry_key = "lease-test/expiry##{suffix}"
         assert LeaseStore.claim(expiry_key, server: left, ttl_ms: 1_000, grace_ms: 10_000) == :acquired
         assert LeaseStore.claim(expiry_key, server: right, ttl_ms: 1_000, grace_ms: 10_000) == :held
@@ -230,6 +273,24 @@ defmodule Aiur.Instance.LeaseStoreTest do
         assert LeaseStore.renew(expiry_key, server: left, ttl_ms: 100) == {:error, :lease_lost}
         assert :ok = LeaseStore.release(expiry_key, server: left)
         assert LeaseStore.holder(expiry_key, server: right) == {:held, right_id}
+
+        repository = "lease-test/leader-#{suffix}"
+        assert LeaseStore.claim_leader(repository, server: left, ttl_ms: 5_000) == :acquired
+        assert LeaseStore.claim_leader(repository, server: right, ttl_ms: 5_000) == :held
+        assert %{instance_id: ^left_id, heartbeat_at: %DateTime{}, expires_at: %DateTime{}} = LeaseStore.leader(repository, server: right)
+        assert LeaseStore.leader_owned?(repository, server: left, instance_id: left_id)
+        refute LeaseStore.leader_owned?(repository, server: right, instance_id: right_id)
+
+        assert {:ok, %{num_rows: 1}} =
+                 Postgrex.query(
+                   connection,
+                   "UPDATE aiur_repository_leases SET expires_at = clock_timestamp() - interval '1 second' WHERE repository = $1",
+                   [repository]
+                 )
+
+        assert LeaseStore.claim_leader(repository, server: right, ttl_ms: 5_000) == :acquired
+        assert LeaseStore.renew_leader(repository, server: left, ttl_ms: 5_000) == {:error, :lease_lost}
+        assert %{instance_id: ^right_id} = LeaseStore.leader(repository, server: left)
     end
   end
 

@@ -5,6 +5,7 @@ defmodule Aiur.ControlCall.Allowlist do
   @agent [:Aiur, :AgentControlCLI]
   @handoff [:Aiur, :Handoff, :CLI]
   @session [:Aiur, :HarnessSessionCLI]
+  @usage [:Aiur, :Usage, :CLI]
   @ticket_usage [:Aiur, :TicketUsageCLI]
   @sweep [:Aiur, :ExecutorSweep, :CLI]
   @pr_merge [:Aiur, :PrMerge, :Record]
@@ -89,6 +90,17 @@ defmodule Aiur.ControlCall.Allowlist do
     {:github_usage, 1, :read, [:keyword], %{json: :boolean}},
     {:ticket_estimate, 0, &__MODULE__.estimate_scope/1, [], %{}},
     {:ticket_estimate, 1, &__MODULE__.estimate_scope/1, [:keyword], %{id: :positive, hours: :quarter_hour, clear: :boolean, reason: :estimate_reason, by: :estimate_actor, json: :boolean}},
+    {:operator_relay_answer, 1, :write, [:keyword],
+     %{
+       decision_id: :non_empty_string,
+       option_id: :non_empty_string,
+       custom_response: :non_empty_string,
+       expected_version: :positive,
+       quote: :non_empty_string,
+       relayed_by: :non_empty_string,
+       idempotency_key: :non_empty_string,
+       supersede: :boolean
+     }},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
@@ -140,6 +152,12 @@ defmodule Aiur.ControlCall.Allowlist do
     {:pause_global, 0, :write, [], %{}},
     {:resume_global, 0, :write, [], %{}},
     {:set_max_agents, 1, :write, [:positive], %{}},
+    {:set_setting, 2, :write, [:string, :string], %{}},
+    {:set_setting, 3, :write, [:string, :string, :keyword], %{caller_cwd: :string, caller_agent_workspace_env: :string}},
+    {:list_settings, 0, :read, [], %{}},
+    {:list_settings, 1, :read, [:keyword], %{json: :boolean}},
+    {:unset_setting, 1, :write, [:string], %{}},
+    {:unset_setting, 2, :write, [:string, :keyword], %{caller_cwd: :string, caller_agent_workspace_env: :string}},
     {:message, 2, :write, [{:regex, ~r/^\d+$/}, :string], %{}},
     {:message, 3, :write, [{:regex, ~r/^\d+$/}, :string, {:regex, ~r/^[A-Za-z0-9._:-]{1,128}$/}], %{}},
     {:message_status, 1, :read, [:positive], %{}},
@@ -149,11 +167,11 @@ defmodule Aiur.ControlCall.Allowlist do
     {:take, 2, :write, [:string_list, :string], %{}},
     {:release, 2, :write, [:string_list, :string], %{}},
     {:recover_workspace, 2, :write, [:string, :positive], %{}},
-    {:usage, 0, :read, [], %{}},
+    {:usage, 0, :deny, [], %{}},
     {:usage, 1, :deny, [:atom], %{}},
     {:usage, 2, :deny, [:atom, :keyword], %{}},
-    {:accounts, 1, :read, [:boolean], %{}},
-    {:accounts, 2, :read, [:boolean, {:nullable, :string}], %{}},
+    {:accounts, 1, :deny, [:boolean], %{}},
+    {:accounts, 2, :deny, [:boolean, {:nullable, :string}], %{}},
     {:usage_bar, 1, :deny, [:integer], %{}},
     {:prepare_handoff, 0, :deny, [], %{}},
     {:prepare_handoff, 1, :deny, [:keyword], %{}},
@@ -168,8 +186,8 @@ defmodule Aiur.ControlCall.Allowlist do
 
                 [
                   {{test_probe, :actor, 0}, %{class: :read, positional: [], options: %{}}},
-                  {{test_probe, :read_wait, 0}, %{class: :read, positional: [], options: %{}}},
-                  {{test_probe, :write_wait, 0}, %{class: :write, positional: [], options: %{}}},
+                  {{test_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
+                  {{test_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
                   {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}}
                 ]
               else
@@ -183,6 +201,8 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
             {{@handoff, :agents, 0}, %{class: :read, positional: [], options: %{}}},
             {{@session, :rpc, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean}}},
+            {{@usage, :rpc, 2}, %{class: :read, positional: [{:nullable, :string}, :boolean], options: %{}}},
+            {{@usage, :legacy_accounts, 2}, %{class: :read, positional: [:boolean, {:nullable, :string}], options: %{}}},
             {{@ticket_usage, :rpc, 2}, %{class: :read, positional: [{:regex, ~r/^[1-9][0-9]*$/}, :keyword], options: %{json: :boolean}}},
             {{@sweep, :rpc, 1}, %{class: &__MODULE__.sweep_scope/1, positional: [:keyword], options: %{argv: :literal_list, json: :boolean}}},
             {{@pr_merge, :print_watcher_state, 0}, %{class: :deny, positional: [], options: %{}}},

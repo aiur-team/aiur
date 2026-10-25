@@ -13,8 +13,7 @@
     "src/lib/aiur/feature_cli/**",
     "src/lib/aiur_web/build_order*.ex",
     "src/lib/aiur_web/build_order/**",
-    "src/lib/aiur_web/build_order_presenter/**",
-    "src/lib/aiur_web/live/build_order*.ex"
+    "src/lib/aiur_web/build_order_presenter/**"
   ],
   "facades": [
     "Aiur.BuildOrder.Catalog",
