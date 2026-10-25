@@ -24,7 +24,9 @@ defmodule Aiur.Config.Overrides do
     "agent.priority" => %{path: ["agent", "priority"], applies: "live"},
     "agent.routing" => %{path: ["agent", "routing"], applies: "live"},
     "build_queue.max_active_sets" => %{path: ["build_queue", "max_active_sets"], applies: "live"},
-    "instance.ignore.tickets" => %{path: ["instance", "ignore", "tickets"], applies: "live"}
+    "instance.ignore.tickets" => %{path: ["instance", "ignore", "tickets"], applies: "live"},
+    "instance.owns" => %{path: ["instance", "owns"], applies: "live"},
+    "instance.pool" => %{path: ["instance", "pool"], applies: "live"}
   }
 
   @doc "Merges every override accepted by this build into `workflow`."

@@ -45,6 +45,21 @@ defmodule Aiur.Config.OverridesTest do
     refute File.exists?(path)
   end
 
+  test "ownership rules and pool can be changed through runtime overrides" do
+    ensure_workflow_store_running()
+    write_workflow_file!(Workflow.workflow_file_path())
+
+    assert {:ok, %{key: "instance.owns", value: [%{"label" => "build-lane:voice"}], applies: "live"}} =
+             Overrides.set("instance.owns", [%{"label" => "build-lane:voice"}], "local:test")
+
+    assert {:ok, %{key: "instance.pool", value: false, applies: "live"}} =
+             Overrides.set("instance.pool", false, "local:test")
+
+    assert {:ok, settings} = Aiur.Config.settings_uncached()
+    assert settings.instance.owns == [%{"label" => "build-lane:voice"}]
+    refute settings.instance.pool
+  end
+
   test "a schema-invalid value is rejected without changing the active file", %{override_path: path} do
     assert {:ok, _entry} = Overrides.set("agent.max_concurrent_builds", 2, "local:test")
     before = File.read!(path)
