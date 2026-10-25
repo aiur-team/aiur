@@ -89,13 +89,12 @@ Only an explicit operator exclusion leaves filed work outside the build: park it
 with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
 in the ledger under the convergence policy above.
 
-“Prioritize” means place the work ahead of the previous next-up using priority
-labels and queue ordering, then report what it displaced. A label alone is not
-placement. Verify the collection, projected labels, prerequisites, membership,
-and effective start order before reporting intake complete.
+“Prioritize” means place the work ahead of the previous next-up using priority labels and queue ordering, then report what it displaced. A label alone is not placement. Verify the collection, projected labels, prerequisites, membership, and effective start order before reporting intake complete.
 
 Use `agent:queued` in the same creation request for executable members; the queue
 promotes ready members to `agent:todo`. Never create first and label later.
+
+**Give every new ticket a home-page epic.** After issue creation returns its number, run `aiur epic list` for the configured general keys, then `aiur epic set <epic> <ids…>` once per epic (up to 200 ids). Defaults are `bugs`, `design`, `infra`, `docs`; repositories can change them. An unknown key is refused with the list of valid keys; read it rather than guess. For feature members, use `aiur feature add <slug> <ids…>` instead. If unsure, set none: the ticket shows as Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. Epic assignment is local Aiur state; if it fails, report the failure and continue filing. When promoting or retro-classifying many tickets, group ids by epic. If feature ownership conflicts, use `aiur feature add <slug> <ids…> --move` only when the ticket really changed feature.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected

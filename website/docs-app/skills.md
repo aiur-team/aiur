@@ -65,6 +65,8 @@ sandbox resets from issue workspaces, not ordinary repository tests.
 
 ## Executor skills
 
+For a home-page epic, issue workers use `aiur_set_epic` or `aiur_feature`; Executors use `aiur epic set` or `aiur feature add`. Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
+
 These stay with the Executor and are not copied into ticket workspaces.
 
 `aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; it must never run the human-only `aiur answer` command, which only a human operator may use from an interactive terminal; `aiur-handoff` records that policy and watcher state.
