@@ -81,6 +81,7 @@
   "owns": {
     "config": [],
     "env": [
+      "AIUR_GITHUB_ALLOW_PAT",
       "AIUR_GITHUB_BUDGET_CONSUMER",
       "AIUR_GITHUB_BUDGET_DIR",
       "AIUR_GITHUB_BUDGET_IDENTITY_KEY",
@@ -89,7 +90,6 @@
       "GITHUB_APP_INSTALLATION_ID",
       "GITHUB_APP_PRIVATE_KEY",
       "GITHUB_APP_PRIVATE_KEY_PATH",
-      "AIUR_GITHUB_ALLOW_PAT",
       "GITHUB_TOKEN"
     ],
     "state": [],
@@ -112,6 +112,7 @@
   ],
   "config": [],
   "env": [
+    "AIUR_GITHUB_ALLOW_PAT",
     "AIUR_GITHUB_BUDGET_CONSUMER",
     "AIUR_GITHUB_BUDGET_DIR",
     "AIUR_GITHUB_BUDGET_IDENTITY_KEY",
@@ -120,7 +121,6 @@
     "GITHUB_APP_INSTALLATION_ID",
     "GITHUB_APP_PRIVATE_KEY",
     "GITHUB_APP_PRIVATE_KEY_PATH",
-    "AIUR_GITHUB_ALLOW_PAT",
     "GITHUB_TOKEN"
   ],
   "capabilities": [],
