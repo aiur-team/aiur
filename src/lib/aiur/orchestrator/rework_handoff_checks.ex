@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.ReworkHandoffChecks do
   @moduledoc false
 
-  alias Aiur.Alerts
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.Signal
 
   @failed_conclusions ~w(action_required failure startup_failure timed_out)
 
@@ -69,7 +69,7 @@ defmodule Aiur.Orchestrator.ReworkHandoffChecks do
   end
 
   defp no_op_rework_attention(issue_key, head_sha, checks, opts) do
-    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit_alert_fun.(
       "ticket.#{issue_key}.agent.attention.no_op_rework",

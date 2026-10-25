@@ -1,6 +1,6 @@
 defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
-  alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, StatusReport}
+  alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
@@ -24,6 +24,9 @@ defmodule Aiur.Orchestrator.Calls do
     do: StatusReport.list_running_active_identifiers(state)
 
   def handle_call({:has_live_owner, identifier}, _from, state), do: StatusReport.has_live_owner(state, identifier)
+
+  def handle_call({:spend_cap_exhausted, %Aiur.TrackerIdentity{} = identity}, _from, state),
+    do: SpendCap.Stop.handle_call(state, identity)
 
   def handle_call({:build_queue_claim_status, ids}, _from, state) when is_list(ids) do
     {:reply, Map.new(ids, &{&1, BuildQueueClaimProbe.classify(state, &1)}), state}

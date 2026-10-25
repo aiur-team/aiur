@@ -7,7 +7,6 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
 
   alias Aiur.AgentQueue
   alias Aiur.AgentQueueStore
-  alias Aiur.Alerts
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoSubscriptions
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   @capacity_starvation_alert_after_ms 60_000
   @doc false
@@ -351,7 +351,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
     topic = dependency_circular_wait_topic(entry.identifier)
     message = "Circular wait: #{entry.identifier} is queued while #{entry.waiting_count} parked agent(s) wait on it."
 
-    case Alerts.emit_system(topic,
+    case Signal.alert(topic,
            message: message,
            issue: entry.identifier,
            reason: message,
@@ -371,7 +371,7 @@ defmodule Aiur.Orchestrator.IssueSync.Dependencies do
     |> Enum.each(fn entry ->
       message = "Circular wait cleared for #{entry.identifier}."
 
-      Alerts.emit_system(dependency_circular_wait_topic(entry.identifier) <> ".resolved",
+      Signal.alert(dependency_circular_wait_topic(entry.identifier) <> ".resolved",
         message: message,
         issue: entry.identifier,
         reason: message,

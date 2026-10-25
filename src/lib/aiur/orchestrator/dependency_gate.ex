@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.DependencyGate do
   alias Aiur.BuildQueue.Hints
   alias Aiur.{Config, Issue, StartTrigger}
   alias Aiur.GitHub.Tracker
+  alias Aiur.Orchestrator.DispatchPolicy.IssueStates
   alias Aiur.StartTrigger.{Evidence, ProgressStore}
 
   @spec verdicts(Issue.t(), MapSet.t()) :: [{map(), StartTrigger.verdict()}]
@@ -58,7 +59,7 @@ defmodule Aiur.Orchestrator.DependencyGate do
 
   defp evidence(%{state: state} = blocker, terminal_states, now, max_age_ms) when is_binary(state) do
     state = state |> String.trim() |> String.downcase()
-    terminal? = state != "error" and (state in ["closed", "not_planned"] or MapSet.member?(terminal_states, state))
+    terminal? = state != "error" and (state == "not_planned" or IssueStates.terminal_issue_state?(state, terminal_states))
     row = ProgressStore.lookup(Map.get(blocker, :id)) || %{}
     row_stage = fresh_stage(row, now, max_age_ms)
     # Final evidence never ages out; optimistic evidence is only as fresh as the label fetch.
