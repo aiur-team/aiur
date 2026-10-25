@@ -199,6 +199,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
             id: Aiur.BrowserHarness.FixturePubSub
           ),
           Supervisor.child_spec({Phoenix.PubSub, name: Aiur.PubSub}, id: Aiur.PubSub),
+          Supervisor.child_spec(
+            {Aiur.CurrentRunProjections, idle_without_subscribers?: true},
+            id: Aiur.CurrentRunProjections
+          ),
           {Task.Supervisor, name: Aiur.TaskSupervisor},
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
           {AiurWeb.Endpoint, []},

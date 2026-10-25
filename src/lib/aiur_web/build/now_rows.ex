@@ -26,6 +26,7 @@ defmodule AiurWeb.Build.NowRows do
   alias Aiur.Orchestrator.State
   alias Aiur.Projections.UnitsPolicy
   alias Aiur.TrackerIdentity
+  alias AiurWeb.Build.Freshness
   alias AiurWeb.OperatorControlCenter.UnitsPresentation
 
   @type now_facts :: %{
@@ -39,7 +40,12 @@ defmodule AiurWeb.Build.NowRows do
           pct: 0..100 | nil,
           agent: %{model: String.t() | nil, name: String.t() | nil, state: String.t() | nil, pause: String.t() | nil, resume_at: integer() | nil, effort: String.t() | nil}
         }
-  @type source_block :: %{state: String.t(), observed_at: integer() | nil, reason: String.t() | nil}
+  @type source_block :: %{
+          required(:state) => String.t(),
+          required(:observed_at) => integer() | nil,
+          required(:reason) => String.t() | nil,
+          optional(:stale_after_ms) => pos_integer()
+        }
 
   @spec build(term(), keyword()) :: %{rows: %{String.t() => now_facts()}, source: source_block()}
   def build(catalog, opts \\ []) do
@@ -53,6 +59,7 @@ defmodule AiurWeb.Build.NowRows do
     source = %{
       state: if(status == :stale, do: "stale", else: "ok"),
       observed_at: timestamp(get_in(snapshot, [:freshness, :status]) |> observed_at()),
+      stale_after_ms: Freshness.snapshot_tolerance_ms(),
       reason:
         cond do
           status == :stale -> "fleet_stale"

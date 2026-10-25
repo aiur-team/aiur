@@ -133,7 +133,7 @@ defmodule AiurEnginePrePrTest do
     assert File.read!(Path.join(fixture, "polls")) == "3\n"
   end
 
-  test "full-suite fallback is reported and matching reader tests run" do
+  test "full selection defers coverage partitions to CI and runs matching reader tests" do
     fixture = fixture("gate")
     repo = Path.join(fixture, "repo")
     git!(repo, ["switch", "-c", "feature"])
@@ -157,23 +157,15 @@ defmodule AiurEnginePrePrTest do
     assert output =~ "FAIL mix format --check-formatted"
 
     assert output =~
-             "NOTE full selection (fixture requires full suite); running CI coverage partitions locally; full CI suite runs in merge queue"
+             "NOTE full selection (fixture requires full suite); running discovered reader tests locally; CI owns the full coverage partitions"
 
-    assert length(
-             Regex.scan(
-               ~r/aiur pre-pr gate complete: PASS coverage partition \([1-4]\/4\)/,
-               output
-             )
-           ) == 4
-
-    assert File.read!(Path.join(fixture, "coverage-partitions")) ==
-             "1:--max-cases 4\n2:--max-cases 4\n3:--max-cases 4\n4:--max-cases 4\n"
+    refute File.exists?(Path.join(fixture, "coverage-partitions"))
 
     assert output =~ "PASS reader tests"
     assert File.read!(Path.join(fixture, "reader-tests")) =~ "changed_reader_test.exs"
     refute File.read!(Path.join(fixture, "reader-tests")) =~ "changed_mention_test.exs"
     refute File.exists?(Path.join(fixture, "make-ci-ran"))
-    assert File.read!(Path.join(fixture, "test-env")) == "clean\nclean\n"
+    assert File.read!(Path.join(fixture, "test-env")) == "clean\n"
 
     temp_dirs =
       fixture
@@ -181,7 +173,7 @@ defmodule AiurEnginePrePrTest do
       |> File.read!()
       |> String.split("\n", trim: true)
 
-    assert length(temp_dirs) == 2
+    assert length(temp_dirs) == 1
     assert Enum.all?(temp_dirs, &String.starts_with?(&1, Path.join(fixture, "aiur-pre-pr.")))
     assert output =~ "Result: FAIL"
     assert length(Regex.scan(~r/--- aiur pre-pr result/, output)) == 1
@@ -343,6 +335,7 @@ defmodule AiurEnginePrePrTest do
           {"AIUR_SKIP_BUILD", "1"},
           {"AIUR_AGENT_WORKSPACE", repo},
           {"AIUR_BASE_BRANCH", "main"},
+          {"PRE_PR_SELECTOR_MODE", "scoped"},
           {"HOME", Path.join(fixture, "home")},
           {"TMPDIR", fixture},
           {"TMUX", nil},
