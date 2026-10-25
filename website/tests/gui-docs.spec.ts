@@ -13,7 +13,6 @@ const surfacePages = {
   'build': 'docs-app/concepts/build-history.md',
   'units': 'docs-app/concepts/units.md',
   'commands': 'docs-app/concepts/commands.md',
-  'build-orders': 'docs-app/concepts/build-orders.md',
   'streamdeck': 'docs-app/guide/stream-deck.md'
 } as const
 
@@ -105,7 +104,7 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(dashboard).not.toContain('| **Units** | `/`')
   expect(dashboard).toContain('| **Units** (rollback) | `/units`')
   expect(dashboard).toContain('| **Commands** | `/commands`')
-  expect(dashboard).toContain('| **Build Order** | `/build-orders`')
+  expect(dashboard).toContain("Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`.")
   expect(dashboard).toContain('| **Analytics** | `/analytics`')
   expect(dashboard).toContain('| **Streamdeck** | `/streamdeck`')
   expect(dashboard).toContain('browser emulator for the physical Stream Deck + sidecar')

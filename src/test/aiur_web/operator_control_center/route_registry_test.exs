@@ -73,14 +73,12 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     analytics = %{available?: true}
     units = RouteRegistry.current_route(:index)
     {:ok, commands} = RouteRegistry.route(:commands, analytics)
-    build_order = RouteRegistry.current_route(:build_orders)
     {:ok, analytics_route} = RouteRegistry.route(:analytics, analytics)
 
     assert RouteRegistry.navigation_mode(units, commands) == :patch
-    assert RouteRegistry.navigation_mode(build_order, build_order) == :patch
-    assert RouteRegistry.navigation_mode(units, build_order) == :navigate
-    assert RouteRegistry.navigation_mode(build_order, units) == :navigate
+    assert RouteRegistry.navigation_mode(analytics_route, analytics_route) == :patch
     assert RouteRegistry.navigation_mode(units, analytics_route) == :navigate
+    assert RouteRegistry.navigation_mode(analytics_route, units) == :navigate
   end
 
   test "Experiments capability inserts a separate owner after Analytics" do
@@ -109,15 +107,10 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert DecisionPath.inbox(:all, %{search: "", ignored: "secret"}) == "/commands"
   end
 
-  test "registers the Build Order catalog and selected actions as one live owner" do
-    build_order = RouteRegistry.current_route(:build_orders)
-    assert build_order.path == "/build-orders"
-    assert build_order.availability == :available
-    assert build_order.owner == :build_order
-    assert build_order.active_actions == [:build_orders, :build_order]
-    assert RouteRegistry.available?(build_order)
-    assert RouteRegistry.active?(build_order, :build_orders)
-    assert RouteRegistry.active?(build_order, :build_order)
+  test "retired Build Order actions resolve to the Build home" do
+    for action <- [:build_orders, :build_order] do
+      assert %{id: :build, path: "/"} = RouteRegistry.current_route(action)
+    end
   end
 
   test "registers Streamdeck+ as an always-available LiveView" do

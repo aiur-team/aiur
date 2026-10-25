@@ -381,6 +381,7 @@ jobs:
           node-version: "22"
       - name: Set up bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.0.2
+        with: { bun-version: "1.4.2" }
       - name: Download matching platform artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -470,7 +471,6 @@ jobs:
               exit 1
             fi
           done
-
       - name: Stamp launcher version and dependency pins
         run: node packaging/scripts/stamp-versions.mjs "${{ needs.setup.outputs.version }}"
 
