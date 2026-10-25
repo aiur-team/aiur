@@ -17,6 +17,10 @@ export const ticketUsageSchema = read('schemas/ticket-usage.v1.schema.json');
 export const ticketProgressSchema = read('schemas/ticket-progress.v1.schema.json');
 export const ticketSpendCapSchema = read('schemas/ticket-spend-cap.v1.schema.json');
 export const ticketSpendCapReachedSchema = read('schemas/ticket-spend-cap-reached.v1.schema.json');
+export const outboundEventEnvelopeSchema = read('schemas/outbound-event-envelope.v1.schema.json');
+export const ticketLifecycleEventSchema = read('schemas/ticket-lifecycle-event.v1.schema.json');
+export const ticketProgressEventSchema = read('schemas/ticket-progress-event.v1.schema.json');
+export const ticketUsageEventSchema = read('schemas/ticket-usage-event.v1.schema.json');
 export const report = read('fixtures/capabilities.v1.json');
 export const error = read('fixtures/capability-error.v1.json');
 export const agents = read('fixtures/agents.v1.json');
@@ -29,7 +33,10 @@ export const ticketSpendCap = read('fixtures/ticket-spend-cap.v1.json');
 export const ticketSpendCapReached = read('fixtures/ticket-spend-cap-reached.v1.json');
 export const commandSchema = read('schemas/command.v2.schema.json');
 export const command = read('fixtures/command.v2.json');
-const ajv = new Ajv2020({ allErrors: true });
+export const ticketLifecycleEvent = read('fixtures/ticket-lifecycle-event.v1.json');
+export const ticketProgressEvent = read('fixtures/ticket-progress-event.v1.json');
+export const ticketUsageEvent = read('fixtures/ticket-usage-event.v1.json');
+const ajv = new Ajv2020({ allErrors: true, formats: { 'date-time': true } });
 for (const schema of [
   eventsSchema,
   eventsCatalogSchema,
@@ -42,6 +49,10 @@ for (const schema of [
   ticketProgressSchema,
   ticketSpendCapSchema,
   ticketSpendCapReachedSchema,
+  outboundEventEnvelopeSchema,
+  ticketLifecycleEventSchema,
+  ticketProgressEventSchema,
+  ticketUsageEventSchema,
 ]) {
   ajv.addSchema(schema);
 }
@@ -58,6 +69,9 @@ export const validateTicketUsage = ajv.getSchema(ticketUsageSchema.$id);
 export const validateTicketProgress = ajv.getSchema(ticketProgressSchema.$id);
 export const validateTicketSpendCap = ajv.getSchema(ticketSpendCapSchema.$id);
 export const validateTicketSpendCapReached = ajv.getSchema(ticketSpendCapReachedSchema.$id);
+export const validateTicketLifecycleEvent = ajv.getSchema(ticketLifecycleEventSchema.$id);
+export const validateTicketProgressEvent = ajv.getSchema(ticketProgressEventSchema.$id);
+export const validateTicketUsageEvent = ajv.getSchema(ticketUsageEventSchema.$id);
 
 export const contractCases = [
   { name: 'agents', schema: agentsSchema, fixture: agents, validate: validateAgents },
@@ -68,6 +82,9 @@ export const contractCases = [
   { name: 'ticket progress', schema: ticketProgressSchema, fixture: ticketProgress, validate: validateTicketProgress },
   { name: 'ticket spend cap', schema: ticketSpendCapSchema, fixture: ticketSpendCap, validate: validateTicketSpendCap },
   { name: 'ticket spend cap reached', schema: ticketSpendCapReachedSchema, fixture: ticketSpendCapReached, validate: validateTicketSpendCapReached },
+  { name: 'ticket lifecycle event', schema: ticketLifecycleEventSchema, fixture: ticketLifecycleEvent, validate: validateTicketLifecycleEvent },
+  { name: 'ticket progress event', schema: ticketProgressEventSchema, fixture: ticketProgressEvent, validate: validateTicketProgressEvent },
+  { name: 'ticket usage event', schema: ticketUsageEventSchema, fixture: ticketUsageEvent, validate: validateTicketUsageEvent },
 ];
 
 for (const [validate, fixture] of [

@@ -17,7 +17,9 @@ defmodule Aiur.Events.Publisher do
     3. **Replay dedup** — sources that poll replay-prone APIs can pass
        a stable `:dedup_key` to avoid publishing the same PR/comment
        event repeatedly.
-    4. **Exchange.publish/2 fan-out** — once filters pass, hands off
+    4. **Outbound admission** — when configured, synchronously fsyncs a
+       versioned external event before internal fan-out.
+    5. **Exchange.publish/2 fan-out** — once filters pass, hands off
        to the Exchange which sends to every matching subscriber.
 
   ## Why a GenServer
@@ -39,6 +41,7 @@ defmodule Aiur.Events.Publisher do
   require Logger
 
   alias Aiur.Events.{Exchange, HistoryStore, IdGenerator, SourcePolicy, Trace}
+  alias Aiur.Events.Outbound.ExportJournal
   alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
@@ -161,6 +164,7 @@ defmodule Aiur.Events.Publisher do
     id = IdGenerator.next_id()
     event = event_with_observation(topic, payload, id, opts)
 
+    _ = ExportJournal.maybe_ingest(event)
     subscribers = Exchange.publish(topic, event)
     record_emit_marker(topic, event, opts)
     # Recorded *after* the publish, never before. A crash in between then
@@ -191,6 +195,7 @@ defmodule Aiur.Events.Publisher do
     else
       event = event_with_observation(topic, payload, id, opts)
 
+      _ = ExportJournal.maybe_ingest(event)
       subscribers = Exchange.publish(topic, event)
       record_emit_marker(topic, event, opts)
       Trace.trace(:publish, topic, id: id, body: payload)

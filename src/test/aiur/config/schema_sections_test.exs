@@ -60,6 +60,12 @@ defmodule Aiur.Config.SchemaSectionsTest do
       assert settings.events.block_state_debounce_seconds == 10
       assert settings.events.custom_events_per_turn_max == 5
       assert settings.events.codeowners_refresh_seconds == 3_600
+      refute settings.events.export.enabled
+      assert settings.events.export.webhook_url == nil
+      assert settings.events.export.subject_id == nil
+      assert settings.events.export.max_pending_events == 10_000
+      assert settings.events.export.retry_ms == 5_000
+      assert settings.events.export.request_timeout_ms == 15_000
     end
 
     test "Events section accepts explicit values" do
@@ -75,6 +81,55 @@ defmodule Aiur.Config.SchemaSectionsTest do
       assert settings.events.block_state_debounce_seconds == 20
       assert settings.events.custom_events_per_turn_max == 10
       assert settings.events.codeowners_refresh_seconds == 7_200
+    end
+
+    test "Events export accepts a strict HTTPS endpoint and one subject filter" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "events" => %{
+                   "export" => %{
+                     "enabled" => true,
+                     "webhook_url" => "https://events.example.test/aiur?tenant=mobile",
+                     "subject_id" => "5695",
+                     "max_pending_events" => 500,
+                     "retry_ms" => 1_000,
+                     "request_timeout_ms" => 3_000
+                   }
+                 }
+               })
+
+      assert settings.events.export.enabled
+      assert settings.events.export.webhook_url == "https://events.example.test/aiur?tenant=mobile"
+      assert settings.events.export.subject_id == "5695"
+      assert settings.events.export.max_pending_events == 500
+      assert settings.events.export.retry_ms == 1_000
+      assert settings.events.export.request_timeout_ms == 3_000
+    end
+
+    test "Events export rejects unsafe endpoints, invalid subjects, and non-positive bounds" do
+      for webhook_url <- [
+            "http://events.example.test/aiur",
+            "https://user:pass@events.example.test/aiur",
+            "https://events.example.test/aiur#fragment",
+            "https:///missing-host",
+            "not a URI"
+          ] do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"events" => %{"export" => %{"webhook_url" => webhook_url}}})
+
+        assert message =~ "events.export.webhook_url"
+      end
+
+      for export <- [
+            %{"subject_id" => " "},
+            %{"subject_id" => "ticket/5695"},
+            %{"max_pending_events" => 0},
+            %{"retry_ms" => 0},
+            %{"request_timeout_ms" => 0}
+          ] do
+        assert {:error, {:invalid_workflow_config, _message}} =
+                 Schema.parse(%{"events" => %{"export" => export}})
+      end
     end
 
     test "Decisions section defaults supervisor autonomy to denied" do

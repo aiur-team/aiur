@@ -1,0 +1,15 @@
+{
+  "contract": "aiur.ticket_progress_event",
+  "contract_version": 1,
+  "event_id": "evt_102",
+  "event_type": "ticket.progress.changed",
+  "emitted_at": "2026-10-25T00:00:01Z",
+  "ticket_id": "5695",
+  "job_id": "run-5695-1",
+  "data": {
+    "percent": 40,
+    "source": "progress.checkin",
+    "observed_at": "2026-10-25T00:00:01Z",
+    "occurred_at": "2026-10-25T00:00:00Z"
+  }
+}

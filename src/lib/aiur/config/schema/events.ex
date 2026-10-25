@@ -8,7 +8,6 @@ defmodule Aiur.Config.Schema.Events do
   alias Aiur.Config.Schema.EventsExport
 
   require EventsExport
-
   @primary_key false
   embedded_schema do
     embeds_one(:export, EventsExport, on_replace: :update, defaults_to_struct: true)
@@ -36,5 +35,6 @@ defmodule Aiur.Config.Schema.Events do
     |> validate_number(:block_state_debounce_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:custom_events_per_turn_max, greater_than: 0)
     |> validate_number(:codeowners_refresh_seconds, greater_than: 0)
+    |> cast_embed(:export, with: &EventsExport.changeset/2)
   end
 end

@@ -1,0 +1,14 @@
+{
+  "contract": "aiur.ticket_lifecycle_event",
+  "contract_version": 1,
+  "event_id": "evt_101",
+  "event_type": "ticket.lifecycle.changed",
+  "emitted_at": "2026-10-25T00:00:00Z",
+  "ticket_id": "5695",
+  "job_id": "run-5695-1",
+  "data": {
+    "lifecycle": "running",
+    "source": "tracker",
+    "observed_at": "2026-10-25T00:00:00Z"
+  }
+}
