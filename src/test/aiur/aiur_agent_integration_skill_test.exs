@@ -23,12 +23,14 @@ defmodule Aiur.AiurAgentIntegrationSkillTest do
     assert repo_prompt =~ "leave a correct base unchanged"
   end
 
-  test "review and CI handoffs integrate only for conflicts or reviewer requests" do
+  test "approved PR integration requires a conflict or a named required-check fix" do
     for path <- ~w(SKILL.md dev-loop.md turn-workflow.md) do
       content = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/#{path}")))
       assert content =~ "Never open a blocking decision for base integration"
       assert content =~ "only when GitHub reports the exact PR head as `CONFLICTING`"
-      assert content =~ "or a reviewer asks"
+      assert content =~ "failing required check"
+      refute content =~ "or a reviewer asks"
+      refute content =~ "reviewer explicitly asks"
       refute content =~ "up to 3 integrations"
       refute content =~ "three-integration"
       refute content =~ "No shared changed paths"
