@@ -9,30 +9,33 @@ defmodule Aiur.Instance.RepositoryLeader do
   @ttl_ms 30_000
   @renew_interval_ms 10_000
 
-  @spec status(DateTime.t()) :: %{leader: String.t(), lease_age: String.t()}
-  def status(now \\ DateTime.utc_now()) do
-    case LeaseStore.leader(Aiur.GitHub.Config.repo()) do
+  @spec status(DateTime.t(), keyword()) :: %{leader: String.t(), lease_age: String.t(), observed_at: DateTime.t()}
+  def status(now \\ DateTime.utc_now(), opts \\ []) do
+    leader_fun = Keyword.get(opts, :leader_fun, &LeaseStore.leader/1)
+    repository = Keyword.get_lazy(opts, :repository, &Aiur.GitHub.Config.repo/0)
+
+    case leader_fun.(repository) do
       %{instance_id: id, heartbeat_at: %DateTime{} = heartbeat_at} ->
-        %{leader: id, lease_age: "#{max(DateTime.diff(now, heartbeat_at, :second), 0)}s"}
+        %{leader: id, lease_age: "#{max(DateTime.diff(now, heartbeat_at, :second), 0)}s", observed_at: now}
 
       :unheld ->
-        %{leader: "none", lease_age: "unknown"}
+        %{leader: "none", lease_age: "unknown", observed_at: now}
 
       :disabled ->
-        %{leader: "unconfigured", lease_age: "unknown"}
+        %{leader: "unconfigured", lease_age: "unknown", observed_at: now}
 
       _ ->
-        %{leader: "unknown", lease_age: "unknown"}
+        %{leader: "unknown", lease_age: "unknown", observed_at: now}
     end
   rescue
-    _ -> %{leader: "unknown", lease_age: "unknown"}
+    _ -> %{leader: "unknown", lease_age: "unknown", observed_at: now}
   end
 
+  @spec status_text(map()) :: String.t()
+  def status_text(%{leader: leader, lease_age: age}), do: "Repository leader: #{leader} · lease age #{age}"
+
   @spec status_text() :: String.t()
-  def status_text do
-    %{leader: leader, lease_age: age} = status()
-    "Repository leader: #{leader} · lease age #{age}"
-  end
+  def status_text, do: status() |> status_text()
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))

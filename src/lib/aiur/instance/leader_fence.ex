@@ -7,11 +7,14 @@ defmodule Aiur.Instance.LeaderFence do
   @repo_global_exact_callers ~w(main_watch_canary main_watch_single_test_rerun)
 
   @spec allowed?() :: boolean()
-  def allowed? do
-    if Aiur.Config.instance_role() == "secondary" do
+  @spec allowed?(keyword()) :: boolean()
+  def allowed?(opts \\ []) do
+    role = Keyword.get_lazy(opts, :role, &Aiur.Config.booted_instance_role/0)
+
+    if role == "secondary" do
       false
     else
-      case LeaseStore.leader_owned?(Aiur.GitHub.Config.repo()) do
+      case LeaseStore.leader_owned?(Aiur.GitHub.Config.repo(), Keyword.get(opts, :store_opts, [])) do
         true -> true
         :disabled -> true
         _ -> false

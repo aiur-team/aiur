@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.IssueSync.LabelWrites do
   Schedules guarded state-label writes and applies current reconciliation results.
   """
 
-  alias Aiur.Instance.LeaderFence
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.Reconciler
   alias Aiur.Orchestrator.TicketTransition
@@ -22,21 +21,21 @@ defmodule Aiur.Orchestrator.IssueSync.LabelWrites do
   end
 
   @doc false
-  @spec guarded_update_fun([Aiur.Issue.t()]) :: (String.t(), String.t() -> :ok | {:error, term()})
-  def guarded_update_fun(issues) do
+  @spec guarded_update_fun([Aiur.Issue.t()], (Aiur.Issue.t(), String.t() -> term())) ::
+          (String.t(), String.t() -> term())
+  def guarded_update_fun(issues, update_fun \\ &write_ticket_state/2) do
     fn identifier, target ->
-      issue = Enum.find(issues, &(&1.identifier == identifier))
-      TicketTransition.write_state(identifier, target, writer: :issue_sync, expected_state: issue.state)
+      case Enum.find(issues, &(&1.identifier == identifier)) do
+        nil -> {:error, :outside_tracker_scope}
+        issue -> update_fun.(issue, target)
+      end
     end
   end
 
-  defp write_label_heal({issue, target, update_state_fun}) do
-    if LeaderFence.allowed?() do
-      update_state_fun.(issue.identifier, target)
-    else
-      LeaderFence.error()
-    end
-  end
+  defp write_ticket_state(issue, target),
+    do: TicketTransition.write_state(issue.identifier, target, writer: :issue_sync, expected_state: issue.state)
+
+  defp write_label_heal({issue, target, update_state_fun}), do: update_state_fun.(issue.identifier, target)
 
   defp apply_label_heal(current, result, {apply_heal, input, issue}) do
     if Reconciler.issue_input(current, issue.id) == input do
