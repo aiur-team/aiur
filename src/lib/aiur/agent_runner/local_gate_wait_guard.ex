@@ -24,7 +24,10 @@ defmodule Aiur.AgentRunner.LocalGateWaitGuard do
           {state(), :ok | {:steer, String.t()} | {:stop, map(), non_neg_integer()}}
   def completed(state, command, now_ms, opts) do
     state = started(state, command, now_ms)
-    elapsed_ms = if is_integer(state.started_at_ms), do: max(now_ms - state.started_at_ms, 0), else: 0
+
+    elapsed_ms =
+      if is_integer(state.started_at_ms), do: max(now_ms - state.started_at_ms, 0), else: 0
+
     evaluate(state, elapsed_ms, now_ms, opts)
   end
 
@@ -81,9 +84,14 @@ defmodule Aiur.AgentRunner.LocalGateWaitGuard do
     cond do
       local_gate_command?(normalized) -> :gate
       active? and Regex.match?(~r/(?:^|\s)(?:sleep|usleep)(?:\s|$)/, normalized) -> :wait
+      active? and read_only_ci_command?(normalized) -> :wait
       gate_log_poll?(normalized) -> :gate
       true -> :other
     end
+  end
+
+  defp read_only_ci_command?(command) do
+    Regex.match?(~r{(?:^|\s)gh\s+(?:pr\s+(?:checks|view)|run\s+view)(?:\s|$)}, command)
   end
 
   defp local_gate_command?(command) do

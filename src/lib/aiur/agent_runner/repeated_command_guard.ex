@@ -47,8 +47,14 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   @spec observe_message(map()) :: :ok | {:steer, String.t()}
   def observe_message(message) when is_map(message) do
     steering = observe_command_event(message)
-    usage = Map.get(message, :accounting_usage) || Map.get(message, :usage) || Map.get(message, "usage")
-    cumulative? = Map.get(message, :usage_source) == :cumulative_only or not is_nil(Map.get(message, :usage_epoch))
+
+    usage =
+      Map.get(message, :accounting_usage) || Map.get(message, :usage) || Map.get(message, "usage")
+
+    cumulative? =
+      Map.get(message, :usage_source) == :cumulative_only or
+        not is_nil(Map.get(message, :usage_epoch))
+
     epoch = Map.get(message, :usage_epoch)
     input_tokens = if is_map(usage), do: input_token_count(usage), else: nil
 
@@ -90,14 +96,18 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
 
   defp store_pending_command(_context, _id, _command), do: :ok
 
-  defp observe_pending_command(context, id, output, _message) when is_binary(id) and is_binary(output) do
+  defp observe_pending_command(context, id, output, message)
+       when is_binary(id) and is_binary(output) do
     case Map.pop(context.pending_commands, id) do
       {command, pending} when is_binary(command) ->
         context = %{context | pending_commands: pending}
         observe_shell_command(context, command, output)
 
       _ ->
-        :ok
+        case fallback_codex_command(message) do
+          command when is_binary(command) -> observe_shell_command(context, command, output)
+          _missing -> :ok
+        end
     end
   end
 
@@ -117,7 +127,8 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
 
     Process.put(@key, next)
 
-    if is_integer(context.command_cap) and context.command_cap > 0 and commands >= context.command_cap do
+    if is_integer(context.command_cap) and context.command_cap > 0 and
+         commands >= context.command_cap do
       throw({:turn_cap, :commands, commands})
     end
 
@@ -168,11 +179,17 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   defp command_event(%{event: :notification, payload: payload}) when is_map(payload),
     do: notification_command_event(payload)
 
-  defp command_event(%{event: :tool_call, payload: %{name: "exec_command", arguments: arguments} = payload}),
-    do: {:started, payload[:id], get(arguments, :command)}
+  defp command_event(%{
+         event: :tool_call,
+         payload: %{name: "exec_command", arguments: arguments} = payload
+       }),
+       do: {:started, payload[:id], get(arguments, :command)}
 
-  defp command_event(%{event: :tool_result, payload: %{name: "exec_command", output: output} = payload}),
-    do: {:completed, payload[:id], output}
+  defp command_event(%{
+         event: :tool_result,
+         payload: %{name: "exec_command", output: output} = payload
+       }),
+       do: {:completed, payload[:id], output}
 
   defp command_event(_message), do: :none
 
@@ -193,13 +210,26 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
 
   defp notification_command_event("item/created", "tool_call", item) do
     if get(item, :name) == "Bash",
-      do: {:started, get(item, :tool_use_id) || get(item, :id), item |> get(:input) |> then(&get(&1 || %{}, :command))}
+      do:
+        {:started, get(item, :tool_use_id) || get(item, :id),
+         item |> get(:input) |> then(&get(&1 || %{}, :command))}
   end
 
   defp notification_command_event("item/created", "tool_result", item),
-    do: {:completed, get(item, :tool_use_id) || get(item, :id), normalize_output(get(item, :content))}
+    do:
+      {:completed, get(item, :tool_use_id) || get(item, :id),
+       normalize_output(get(item, :content))}
 
   defp notification_command_event(_method, _type, _item), do: :none
+
+  defp fallback_codex_command(%{event: :notification, payload: payload}) when is_map(payload) do
+    item = payload |> get(:params) |> then(&(get(&1 || %{}, :item) || %{}))
+
+    if get(payload, :method) == "item/completed" and get(item, :type) == "commandExecution",
+      do: codex_command(item)
+  end
+
+  defp fallback_codex_command(_message), do: nil
 
   defp codex_command(item) do
     case get(item, :commandActions) do
@@ -263,7 +293,8 @@ defmodule Aiur.AgentRunner.RepeatedCommandGuard do
   @doc "Returns a concise steering instruction with the repeated command and count."
   @spec steering_message(term(), pos_integer()) :: String.t()
   def steering_message(command, count),
-    do: "The output of `#{inspect(command)}` has not changed for #{count} consecutive calls; act on it or stop and hand off."
+    do:
+      "The output of `#{inspect(command)}` has not changed for #{count} consecutive calls; act on it or stop and hand off."
 
   @read_commands ~w(cat cut file grep head ls pwd stat tail wc)
 

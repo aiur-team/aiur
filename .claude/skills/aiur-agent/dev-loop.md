@@ -164,9 +164,15 @@ again, then hand off;
 During a turn, Aiur watches transcript events for prolonged waiting on or
 polling local test/gate commands. If the daemon's recent CI cache says the
 current PR head is green, Aiur steers at the configured threshold to stop the
-local gate, refresh the PR body and mark the PR ready. If polling continues to
-the stop threshold, Aiur pauses the worker. Pending, red, stale or unavailable
-CI never triggers this rule.
+local gate, refresh the PR body and mark the PR ready. This cached-CI rule only
+applies to tickets already polled in `ci-wait` or `human-review`; it does not
+expand GitHub polling to `in-progress` or `rework` tickets. The main time saving
+for those tickets comes from `pre-pr` leaving full coverage partitions to CI.
+The rule therefore covers workers waiting locally after handoff while their PR
+already has green required CI. If polling continues to the stop threshold, Aiur
+pauses the worker. Pending, red, stale or unavailable CI never triggers this
+rule. `pre-pr` also omits the architectural guard tests from its local gate;
+CI continues to run them in coverage.
 `aiur_set_ticket_state` refuses `ci-wait`/`human-review` while the body fails `mix pr_body.check` at the PR head.
 If `Tested head` is stale, the refusal names both the body SHA and live PR head;
 rerun the touched tests at the pushed head and update the evidence before handback.
