@@ -21,13 +21,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up Elixir for selection
-        uses: ./.github/actions/setup-elixir
+      - { name: Set up Elixir for selection, uses: ./.github/actions/setup-elixir }
       - name: Classify the changed paths
         id: classify
         env:
@@ -66,7 +64,7 @@ jobs:
       - uses: ./.github/actions/workflow-security
       - run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh
       - name: Test legacy Stream Deck nightly cleanup
-        run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
+        run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs && node --test packages/nightly-release/test/lib.test.mjs
       - name: Test human-only merge ruleset verifier
         run: bash scripts/test-human-only-merge-ruleset.sh
       - name: Test human-only merge ruleset drift check
@@ -88,8 +86,7 @@ jobs:
       - name: Test CI concurrency
         run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-ci-soak-browser.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
-        env:
-          GH_TOKEN: ${{ github.token }}
+        env: { GH_TOKEN: "${{ github.token }}" }
         run: bash scripts/verify-human-only-merge-ruleset-live.sh
       - name: Test rename preflight and plan refresh
         run: make test-rename-preflight && python3 -I scripts/test_plan_refresh.py
@@ -111,9 +108,7 @@ jobs:
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh && bash .claude/skills/aiur-run/scripts/tests/check-stack-order_test.sh
       - name: Test file size gate
         run: bash scripts/test-check-file-size.sh
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
-        with: { bun-version: "1.4.2" }
+      - { name: Set up Bun, uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76, with: { bun-version: "1.4.2" } } # v2.0.2
   build:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
@@ -128,9 +123,7 @@ jobs:
         if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Set up Elixir
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/setup-elixir
+      - { name: Set up Elixir, if: "${{ needs.changes.outputs.docs_only != 'true' }}", uses: ./.github/actions/setup-elixir }
       - name: Build release
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make build
@@ -317,8 +310,7 @@ jobs:
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Report failed coverage partitions
         if: ${{ (needs.coverage-partition.result != 'success') && needs.changes.outputs.docs_only != 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+        env: { GH_TOKEN: "${{ github.token }}" }
         working-directory: .
         run: bash scripts/report-ci-failures.sh '^coverage \([1-4]/4\)$' "${{ needs.coverage-partition.result }}"
       - name: Set up Elixir
@@ -380,8 +372,7 @@ jobs:
     name: analytics
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions:
-      contents: read
+    permissions: { contents: read }
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -389,8 +380,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Analytics reducer suite (stdlib unittest)
-        env:
-          PYTHONPATH: analytics/lib
+        env: { PYTHONPATH: analytics/lib }
         run: python3 -m unittest discover -s analytics/tests -t analytics -v
   dialyzer:
     needs: changes
@@ -541,8 +531,7 @@ jobs:
       - name: Build packaged production release
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         id: build
-        env:
-          MIX_ENV: prod
+        env: { MIX_ENV: prod }
         run: |
           release_dir=$(bash packaging/scripts/build-release.sh)
           echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
@@ -573,8 +562,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         working-directory: .
@@ -626,3 +614,17 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           NEEDS_JSON: ${{ toJSON(needs) }}
         run: python3 scripts/check-ci-gate.py
+  nightly-trigger:
+    name: nightly trigger
+    needs: [ci-gate, changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    if: ${{ !cancelled() && github.repository == 'aiur-team/aiur' && github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: { actions: write, contents: read }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - { env: { GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}" }, run: bash scripts/dispatch-nightly.sh }

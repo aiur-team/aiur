@@ -117,7 +117,7 @@ for path in workflows:
         if "uses: oven-sh/setup-bun@" not in line:
             continue
         found += 1
-        step = "\n".join(lines[index + 1 : index + 6])
+        step = "\n".join(lines[index : index + 6])
         if 'bun-version: "1.4.2"' not in step:
             raise SystemExit(f"{path}:{index + 1}: setup-bun must pin Bun 1.4.2")
 if found != expected:

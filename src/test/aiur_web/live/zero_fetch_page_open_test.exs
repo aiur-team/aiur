@@ -3,8 +3,8 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   A1, asserted by call count and run on every CI build: opening a dashboard page
   against a cold store reaches GitHub **zero** times.
 
-  There are no exceptions: every dashboard route, including `/` and
-  `/build-orders`, reaches GitHub zero times on open. The ticket backlog, Ad
+  There are no exceptions: every dashboard route, including `/`, reaches
+  GitHub zero times on open. The ticket backlog, Ad
   Hoc overlay and Build Order catalog are event-sourced (#2325) — they
   subscribe to `ResourceStore` changes and keep one listing per daemon boot, so
   a page opens onto the held snapshot and costs nothing. The two routes that
@@ -61,7 +61,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   @endpoint AiurWeb.Endpoint
   # The dashboard routes that must never fetch when opened, paired with a marker
-  # only that route renders. `/` and `/build-orders` (+ `/build-orders/:root_number`)
+  # only that route renders. `/` and the Build Order pages (now redirects to `/`)
   # used to be the two deliberate exceptions — a first demander buying a
   # view-originated refresh — but they are event-sourced (#2325) now and open
   # onto the held snapshot, so they join the zero set. The github-tracker path
@@ -72,9 +72,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     {"/units", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
-    {"/streamdeck", "streamdeck-page"},
-    {"/build-orders", "build-order-page"},
-    {"/build-orders/2073", "build-order-page"}
+    {"/streamdeck", "streamdeck-page"}
   ]
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
@@ -255,25 +253,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert requests == [],
              "opening /units under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
-      assert_egress_open!(counter)
-    end
-
-    test "opening the Build Order pages reaches GitHub zero times", %{counter: counter} do
-      for path <- ["/build-orders", "/build-orders/2073"] do
-        assert {:ok, view, html} = live(build_conn(), path)
-        assert html =~ "dashboard-shell", "#{path} did not render the dashboard shell"
-        assert html =~ "build-order-page", "#{path} rendered a shell but not its own page"
-        assert render(view) =~ "build-order-page"
-      end
-
-      requests = Agent.get(counter, & &1)
-
-      assert requests == [],
-             "opening the Build Order pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
-
-      # A view-originated refresh that quietly stopped firing would have shown
-      # up as a disappearing request here; asserting the egress path is open
-      # keeps the zero meaningful instead.
       assert_egress_open!(counter)
     end
 

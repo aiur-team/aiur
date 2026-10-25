@@ -384,6 +384,7 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
   # `pull_request` overrides the approved-at-head, queued default.
   defp request_fun(pull_request, upstream_files) do
     parent = self()
+    {:ok, labels} = Agent.start_link(fn -> ["agent:rework"] end)
     detail = Map.merge(@approved_queued, pull_request)
 
     threads = %{
@@ -420,12 +421,54 @@ defmodule Aiur.GitHub.HumanReviewGateMergeQueueTest do
       body = Map.get(req, :body) || %{}
       text = req.url <> " " <> to_string(body["query"])
 
-      if req.method == :post and is_list(body["labels"]),
-        do: send(parent, {:label_written, body["labels"]})
+      notify_label_write(req, parent)
 
-      {_route, response} = Enum.find(routes, fn {route, _response} -> text =~ route end)
-      {:ok, %{status: 200, body: response}}
+      case state_label_response(req, labels) do
+        :unhandled ->
+          route_response(routes, text)
+
+        response ->
+          response
+      end
     end
+  end
+
+  defp notify_label_write(%{method: :post, body: %{"labels" => labels}}, parent) when is_list(labels),
+    do: send(parent, {:label_written, labels})
+
+  defp notify_label_write(_request, _parent), do: :ok
+
+  defp state_label_response(%{method: :get, url: url}, labels) do
+    if String.ends_with?(url, "/issues/42") do
+      current_labels = Agent.get(labels, & &1)
+      issue = %{"state" => "open", "labels" => Enum.map(current_labels, &%{"name" => &1})}
+      {:ok, %{status: 200, body: issue}}
+    else
+      :unhandled
+    end
+  end
+
+  defp state_label_response(%{method: :post, body: %{"labels" => new_labels}}, labels) when is_list(new_labels) do
+    Agent.update(labels, &Enum.uniq(new_labels ++ &1))
+    {:ok, %{status: 200}}
+  end
+
+  defp state_label_response(%{method: :delete, url: url}, labels) do
+    if String.contains?(url, "/issues/42/labels/") do
+      label = url |> String.split("/") |> List.last() |> URI.decode()
+      Agent.update(labels, &List.delete(&1, label))
+      remaining = Agent.get(labels, &Enum.map(&1, fn item -> %{"name" => item} end))
+      {:ok, %{status: 200, body: remaining}}
+    else
+      :unhandled
+    end
+  end
+
+  defp state_label_response(_request, _labels), do: :unhandled
+
+  defp route_response(routes, text) do
+    {_route, response} = Enum.find(routes, fn {route, _response} -> text =~ route end)
+    {:ok, %{status: 200, body: response}}
   end
 
   defp local_tests_body do
