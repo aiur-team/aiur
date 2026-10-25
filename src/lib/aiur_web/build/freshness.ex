@@ -43,7 +43,14 @@ defmodule AiurWeb.Build.Freshness do
 
   @spec snapshot_tolerance_ms() :: non_neg_integer()
   def snapshot_tolerance_ms do
-    PollCadence.snapshot_tolerance_ms(EndpointConfig.get(:snapshot_timeout_ms) || 15_000, class: :dispatch)
+    timeout =
+      if :ets.whereis(AiurWeb.Endpoint) == :undefined do
+        15_000
+      else
+        EndpointConfig.get(:snapshot_timeout_ms) || 15_000
+      end
+
+    PollCadence.snapshot_tolerance_ms(timeout, class: :dispatch)
   end
 
   @doc "Reads the current fleet rows through the nonblocking orchestrator read model."
