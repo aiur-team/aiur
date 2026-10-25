@@ -29,7 +29,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
   """
 
   alias Aiur.BuildOrder.GitHubGraph.{Connection, Pager, Settings}
-  alias Aiur.GitHub.{ResourceStore, Transport}
+  alias Aiur.GitHub.Access
 
   @doc """
   Re-converges the store's Build Order graph from GitHub.
@@ -40,9 +40,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
   @spec run(keyword()) :: {:ok, :reconciled, map()} | {:error, term()}
   def run(opts \\ []) do
     with {:ok, repository, limits} <- Settings.authority(opts),
-         {:ok, token} <- Transport.require_token(opts),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, fence} <-
-           ResourceStore.membership_snapshot(elem(repository, 0), elem(repository, 1)) do
+           Access.membership_snapshot(elem(repository, 0), elem(repository, 1)) do
       state = Settings.initial_state(opts, limits)
 
       paging =
@@ -87,7 +87,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
 
   defp deposit_catalog({owner, repo} = repository, nodes, fence) do
     edges = Enum.flat_map(nodes, &root_edges(&1, repository))
-    ResourceStore.replace_membership(owner, repo, fence, edges)
+    Access.replace_membership(owner, repo, fence, edges)
   end
 
   defp root_edges(node, repository) do
@@ -128,8 +128,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
       full_name = repo_string(repository)
       body = issue_body(node, full_name)
 
-      ResourceStore.deposit_unless_older(
-        ResourceStore.key_for_repo(:issue, full_name, number),
+      Access.deposit_unless_older(
+        Access.key_for_repo(:issue, full_name, number),
         body,
         source: :reconciliation,
         version: Map.get(body, "updated_at"),
@@ -153,8 +153,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
       end
 
     if labels != [] do
-      ResourceStore.deposit_unless_older(
-        ResourceStore.key_for_repo(:issue_labels, full_name, number),
+      Access.deposit_unless_older(
+        Access.key_for_repo(:issue_labels, full_name, number),
         labels,
         source: :reconciliation,
         version: Map.get(node, "updatedAt"),
