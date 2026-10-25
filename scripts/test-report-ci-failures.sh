@@ -136,8 +136,10 @@ fi
 
 require 'the test partition reporter must run only when a partition did not succeed' \
   "needs.coverage-partition.result != 'success'" "$test_step"
-require 'the test partition reporter needs a token' \
-  'GH_TOKEN: ${{ github.token }}' "$test_step"
+if ! grep -Eq 'GH_TOKEN: "?\$\{\{ github\.token \}\}' <<<"$test_step"; then
+  echo 'the test partition reporter needs a token' >&2
+  exit 1
+fi
 require 'the test partition reporter must run from the repository root' \
   'working-directory: .' "$test_step"
 require 'the test partition reporter must name the partition jobs exactly' \
