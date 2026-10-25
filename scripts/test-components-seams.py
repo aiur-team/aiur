@@ -114,7 +114,8 @@ def event_bus_boundary_check(name, source, targets, expected, message, *, source
     manifest['features'] = []
     components['event-bus']['facades'] = ['Aiur.Events.Exchange', 'Aiur.Events.Topic']
     components['event-bus']['requires'] = ['orchestration', 'config', 'kernel']
-    components['event-bus']['paths'] = [source_path, 'src/lib/aiur/events/topic.ex']
+    components['event-bus']['paths'] = list(dict.fromkeys(
+        [source_path, 'src/lib/aiur/events/topic.ex', 'src/lib/aiur/agent_pubsub.ex']))
     components['orchestration']['paths'] = ['src/lib/aiur/orchestrator/state.ex']
     components['orchestration']['facades'] = ['Aiur.Orchestrator.State']
     components['config']['paths'] = ['src/lib/aiur/config.ex', 'src/lib/aiur/workflow.ex']
@@ -142,7 +143,8 @@ def event_bus_boundary_check(name, source, targets, expected, message, *, source
             'src/lib/aiur/json_safe.ex': 'defmodule Aiur.JSONSafe do\nend\n',
             'src/lib/aiur/shell.ex': 'defmodule Aiur.Shell do\nend\n',
             'src/lib/aiur/workflow.ex': 'defmodule Aiur.Workflow do\nend\n',
-            'src/lib/aiur/events/topic.ex': 'defmodule Aiur.Events.Topic do\nend\ndefmodule Aiur.PubSub do\nend\n',
+            'src/lib/aiur/events/topic.ex': '# aiur:event-bus-boundary-member\ndefmodule Aiur.Events.Topic do\nend\ndefmodule Aiur.PubSub do\nend\n',
+            'src/lib/aiur/agent_pubsub.ex': 'defmodule Aiur.AgentPubSub do\nend\n',
         }
         for file, content in files.items():
             target = root / file
@@ -176,6 +178,7 @@ for name, source, target in [
     ('event_bus_config_alias_forbidden', 'alias Aiur.Workflow', 'Aiur.Workflow'),
     ('event_bus_boundary_literal_forbidden', '"Aiur.Orchestrator"', 'Aiur.Orchestrator'),
     ('event_bus_boundary_qualified_call_forbidden', 'Aiur.Shell.run()', 'Aiur.Shell'),
+    ('event_bus_alias_nonmember_bus_module_forbidden', 'alias Aiur.AgentPubSub', 'Aiur.AgentPubSub'),
 ]:
     if not SELECTED or name in SELECTED:
         RAN.add(name)

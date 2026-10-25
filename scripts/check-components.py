@@ -272,13 +272,14 @@ def module_violations(root, manifest, file_owners, include_modules=False):
         raise ValueError('Elixir missing; install via mise') from error
     if result.returncode:
         raise ValueError(f'module walker failed: {result.stderr.strip()}')
-    modules, references = {}, []
+    modules, module_paths, references = {}, {}, []
     for row in result.stdout.splitlines():
         fields = row.split('\t')
         if len(fields) == 3 and fields[0] == 'M':
             _, path, module = fields
             if path in file_owners:
                 modules[module] = file_owners[path]
+                module_paths[module] = path
         elif len(fields) == 6 and fields[0] == 'R':
             references.append(fields)
         else:
@@ -290,6 +291,9 @@ def module_violations(root, manifest, file_owners, include_modules=False):
         path for path, owner in file_owners.items()
         if owner == 'event-bus' and path.endswith('.ex')
         and '# aiur:event-bus-boundary-member' in (root / path).read_text()
+    }
+    event_bus_boundary_modules = {
+        module for module, path in module_paths.items() if path in event_bus_boundary_paths
     }
     for _, path, source_module, target, kind, line in references:
         # Match ownership's tracked-file boundary, including in dirty worktrees.
@@ -306,7 +310,7 @@ def module_violations(root, manifest, file_owners, include_modules=False):
             destination = modules.get(target)
             # `__MODULE__.Nested` references resolve beneath their owning module
             # even though the walker only indexes the file's primary module.
-            same_component = destination == source or target.startswith(source_module + '.')
+            same_component = target in event_bus_boundary_modules or target.startswith(source_module + '.')
             allowed_reference = any(module_matches(pattern, target)
                                     for pattern in component.get('boundary_reference_allowlist', []))
             if not same_component and not allowed_reference:
