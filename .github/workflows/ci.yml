@@ -314,7 +314,8 @@ jobs:
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Report failed coverage partitions
         if: ${{ (needs.coverage-partition.result != 'success') && needs.changes.outputs.docs_only != 'true' }}
-        env: { GH_TOKEN: "${{ github.token }}" }
+        env:
+          GH_TOKEN: ${{ github.token }}
         working-directory: .
         run: bash scripts/report-ci-failures.sh '^coverage \([1-4]/4\)$' "${{ needs.coverage-partition.result }}"
       - name: Set up Elixir
