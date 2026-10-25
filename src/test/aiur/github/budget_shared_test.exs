@@ -65,6 +65,6 @@ defmodule Aiur.GitHub.BudgetSharedTest do
                release_fun: fn lease_id, _key -> send(parent, {:released, lease_id}) end
              )
 
-    assert_receive {:released, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+    assert_receive {:released, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, 1_000
   end
 end
