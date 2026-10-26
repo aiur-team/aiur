@@ -18,6 +18,7 @@ defmodule AiurWeb.DashboardLive.Session do
   alias AiurWeb.DashboardLive.Usage
   alias AiurWeb.DashboardLive.Voice
   alias AiurWeb.EndpointConfig
+  alias AiurWeb.InstanceRosterData
   alias AiurWeb.OperatorControlCenter.NavState
   alias AiurWeb.OperatorControlCenter.PayloadLoader
   alias AiurWeb.OperatorControlCenter.RouteRegistry
@@ -43,7 +44,12 @@ defmodule AiurWeb.DashboardLive.Session do
 
     socket =
       socket
-      |> assign(%{payload: payload, now: DateTime.utc_now(), repository_leader: RepositoryLeaderBanner.initial_status()})
+      |> assign(%{
+        payload: payload,
+        now: DateTime.utc_now(),
+        repository_leader: RepositoryLeaderBanner.initial_status(),
+        instance_agent_roster: InstanceRosterData.read()
+      })
       |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
       |> assign(:netlify_dashboard, NetlifyUsage.snapshot())
@@ -104,6 +110,7 @@ defmodule AiurWeb.DashboardLive.Session do
 
     if connected do
       schedule_runtime_tick()
+      schedule_instance_roster_tick()
       schedule_github_quota_tick()
       schedule_elevenlabs_quota_tick()
     end
@@ -148,6 +155,18 @@ defmodule AiurWeb.DashboardLive.Session do
   @doc false
   @spec schedule_runtime_tick() :: term()
   def schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
+
+  @doc false
+  @spec schedule_instance_roster_tick() :: term()
+  def schedule_instance_roster_tick, do: Process.send_after(self(), :instance_roster_tick, 10_000)
+
+  @doc false
+  @spec refresh_instance_roster(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  def refresh_instance_roster(socket) do
+    schedule_instance_roster_tick()
+    assign(socket, :instance_agent_roster, InstanceRosterData.read())
+  end
+
   @doc false
   @spec schedule_github_quota_tick() :: term()
   def schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)

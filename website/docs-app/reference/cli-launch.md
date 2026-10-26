@@ -43,7 +43,9 @@ See [global launch options](/reference/cli-options) for parser flags and launche
 
 Background and container runs persist Logger output at `<logs-root>/log/aiur.log`; `--debug` enables debug messages. By default, `<logs-root>` is `~/.aiur/logs/<launch-id>/`; stdout/stderr is saved to `log/boot.out.log`, and container mode streams it to the platform collector.
 
-`aiur status` shows `optimistic n/cap`, `MERGE POLICY`, watcher state (`running`, `unavailable`, `not_running`), CI SHA/age/red start date, degraded CODEOWNERS trust, empty-cycle causes/ages, and prewarm holds. Daemon-read sections share a 1.5s bound: slow sections show last good output with `STALE` age, or `unavailable` and exit 1 without a saved result.
+`aiur status` shows `optimistic n/cap`, `MERGE POLICY`, watcher state (`running`, `unavailable`, `not_running`), CI SHA/age/red start date, degraded CODEOWNERS trust, empty-cycle causes/ages, and prewarm holds.
+
+When a lease store is configured, it also shows the shared instance roster. Daemon-read sections share a 1.5s bound: slow sections show last good output with `STALE` age, or `unavailable` and exit 1 without a saved result.
 
 `CI WAIT` lists tickets, PRs, recovery state (including `draft_pr`) and failing checks, including tickets without workers. `aiur capabilities` shows `ci=<mode> local_tests=<mode>` ([merge policy](/reference/merge-policy)).
 
@@ -66,4 +68,3 @@ Launch mode determines which interfaces remain available:
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
 
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
-
