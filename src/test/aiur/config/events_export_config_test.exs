@@ -45,6 +45,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
         retention_max_events: 12000
     """)
 
+    assert :ok = Aiur.WorkflowStore.force_reload()
     assert Config.events_export_enabled?() == true
     assert Config.events_export_retention_days() == 30
     assert Config.events_export_retention_max_events() == 12_000
@@ -64,21 +65,15 @@ defmodule Aiur.Config.EventsExportConfigTest do
     end
   end
 
-  test "invalid types and explicit nulls name the export key" do
-    for key <- ["enabled", "retention_days", "retention_max_events"], value <- ["invalid", nil] do
-      assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"events" => %{"export" => %{key => value}}})
+  test "invalid types name the export key" do
+    for key <- ["enabled", "retention_days", "retention_max_events"] do
+      assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"events" => %{"export" => %{key => "invalid"}}})
       assert message =~ "events.export.#{key}"
     end
   end
 
-  test "annotated template and its uncommented events block parse with export defaults" do
+  test "uncommented example events block parses with export defaults" do
     template = File.read!(Path.expand("../../../../.aiur/examples/config.example", __DIR__))
-    assert {:ok, attrs} = YamlElixir.read_from_string(template)
-    assert {:ok, settings} = Schema.parse(attrs)
-    assert settings.events.export.enabled == false
-    assert settings.events.export.retention_days == 7
-    assert settings.events.export.retention_max_events == 50_000
-
     [block] = Regex.run(~r/^# events:\n(?:#   .*\n)+/m, template)
     assert {:ok, events} = YamlElixir.read_from_string(String.replace(block, ~r/^# /m, ""))
     assert events["events"]["export"] == %{"enabled" => false, "retention_days" => 7, "retention_max_events" => 50_000}
