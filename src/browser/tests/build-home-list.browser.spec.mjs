@@ -126,7 +126,7 @@ test('Features list renders counts, proportional segments, unknowns and focus re
   await expect(page.locator('.fp-row').first().locator('.fp-unpublished')).toHaveAttribute('style', /width:25%/)
   await expect(page.locator('.fp-overall > b')).toHaveText('—')
   await expect(page.locator('.fp-overall > span')).toContainText('— tickets closed across all features')
-  await expect(page.locator('.fp-wave h2')).toHaveText(['Wave 0', 'Features'])
+  await expect(page.locator('.fp-wave h2')).toHaveText(['Wave 0', 'Feature: Khala chat'])
   await expect(page.locator('.fp-row').nth(1)).toContainText('Khala · server: — / — · Khala · client: 2 / 3')
   await expect(page.locator('.fp-row').nth(1)).toContainText('Khala · server: — / —')
   await expect(page.locator('.fp-row').nth(1).locator('.fp-bar')).toHaveClass(/unknown/)

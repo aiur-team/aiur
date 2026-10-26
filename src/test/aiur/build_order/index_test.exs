@@ -182,11 +182,11 @@ defmodule Aiur.BuildOrder.IndexTest do
     ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
     root = row(99, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..104, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
     parent = %{owner: "acme", repository: "widgets", number: 99}
-    closed = row(100, %{parent: parent, labels: ["build-lane:core"]})
-    ci_wait = row(101, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:core", "agent:human-review"], agent_model: "codex"})
-    rework = row(102, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "agent:rework"]})
-    parked = row(103, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "nuc:parked"]})
-    unowned = row(104, %{parent: parent, labels: ["build-lane:core"]})
+    closed = row(100, %{parent: parent, labels: ["build-lane:core", "phase:2"]})
+    ci_wait = row(101, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:core", "phase:2", "agent:human-review"], agent_model: "codex"})
+    rework = row(102, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "phase:3", "agent:rework"]})
+    parked = row(103, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "phase:3", "nuc:parked"]})
+    unowned = row(104, %{parent: parent, labels: ["build-lane:core", "phase:2"]})
     feature = %{slug: "bo-99", label: "Build order", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}, %{key: "f-bo-99-ui", label: "UI"}], from: now(), to: :none, baseline: :none}
     registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
     p = parts([root, closed, ci_wait, rework, parked, unowned])
@@ -202,7 +202,36 @@ defmodule Aiur.BuildOrder.IndexTest do
 
     assert {:ok, index} = assemble(p)
     assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :total]) == %{closed: 2, open: 0, ci_wait: 1, total: 3}
+    assert index.feature_progress.features["f-bo-99-core"].wave == "2"
     assert Map.take(index.feature_progress.features["f-bo-99-ui"], [:closed, :open, :ci_wait, :total]) == %{closed: 0, open: 2, ci_wait: 0, total: 2}
+    assert index.feature_progress.features["f-bo-99-ui"].wave == "3"
+  end
+
+  test "root epic matches all local pack lanes when its epic key has no lane suffix" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    members = Enum.map(100..134, &row(&1, %{parent: %{owner: "acme", repository: "widgets", number: 1363}, labels: ["build-lane:core"]}))
+    root = row(1363, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..134, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    feature = %{slug: "bo-1363", label: "Feature 1363", hue: 175, epics: [%{key: "f-bo-1363", label: "Feature 1363"}], from: now(), to: :none, baseline: :none}
+    registry = %{features: %{"bo-1363" => feature}, owners: %{}, also: %{}, health: health()}
+
+    pack = %{
+      root: 1363,
+      feature: "bo-1363",
+      complete?: true,
+      status: %{},
+      version: "v1",
+      manifest: %{"workstreams" => [%{"id" => "core"}]},
+      tickets: Enum.map(100..134, &%{id: "MP-E8-C1-T#{&1}", lane: "core", number: &1})
+    }
+
+    p =
+      parts([root | members])
+      |> put_in([:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+      |> Map.put(:packs, [pack])
+
+    assert {:ok, index} = Index.assemble(p, now: now())
+    assert Map.take(index.feature_progress.features["f-bo-1363"], [:closed, :total, :plan_version]) == %{closed: 35, total: 35, plan_version: "v1"}
   end
 
   test "producer fields win over older history fields" do

@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.Index.FeatureProgress do
   @moduledoc "Aggregates feature progress from indexed rows and local Build Order manifests."
-  alias Aiur.BuildOrder.Features.RootImportMapping
+  alias Aiur.BuildOrder.{Features.RootImportMapping, Metadata}
 
   @spec compute(map(), map(), map(), boolean(), integer()) :: map()
   def compute(parts, all, features, complete?, now) do
@@ -23,7 +23,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp epic_progress(context) do
     %{parts: parts, all: all, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?, now: now} = context
     key = epic_key(epic)
-    lane = epic_lane(key, pack_set, context.slug)
+    lane = epic_lane(key, pack_set, context.slug, context.feature)
     {lane_packs, members, rows, workstream} = epic_data(key, lane, pack_set, all)
     ci_known? = complete? and source_ok?(parts[:now])
     states = row_counts(rows, complete?, ci_known?)
@@ -32,7 +32,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
     plan = if root_members == :unknown, do: plan, else: Map.merge(plan, %{unpublished: 0, root_total: length(root_members)})
     root_counts = if is_list(root_members), do: root_row_counts(root_members, all, complete?, ci_known?)
 
-    progress_metadata(context, lane_packs, members, workstream, plan, ci_known?)
+    progress_metadata(context, lane_packs, members, workstream, plan, ci_known?, root_members)
     |> Map.merge(%{
       closed: if(root_counts, do: root_counts.closed, else: states.closed),
       open: if(root_counts, do: root_counts.open, else: states.open),
@@ -60,8 +60,8 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp ci_wait_row?(row), do: row.sec == "now" and get_in(row, [:agent, :state]) == "ci_wait" and not closed_status?(row.status)
 
   defp epic_data(key, lane, pack_set, all) do
-    lane_packs = Enum.filter(pack_set, &pack_has_lane?(&1, lane))
-    members = Enum.flat_map(lane_packs, &lane_members(&1, lane))
+    lane_packs = if lane == :all, do: pack_set, else: Enum.filter(pack_set, &pack_has_lane?(&1, lane))
+    members = if lane == :all, do: Enum.flat_map(lane_packs, & &1.members), else: Enum.flat_map(lane_packs, &lane_members(&1, lane))
     rows = Enum.filter(all, fn {_id, row} -> row.epic == key end)
     workstream = Enum.find_value(lane_packs, fn pack -> pack.workstreams[lane] end)
     {lane_packs, members, rows, workstream}
@@ -69,13 +69,13 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
 
   defp lane_members(pack, lane), do: Enum.filter(pack.members, &(&1.lane == lane))
 
-  defp progress_metadata(context, lane_packs, members, workstream, plan, ci_known?) do
-    %{slug: slug, feature: feature, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?} = context
+  defp progress_metadata(context, lane_packs, members, workstream, plan, ci_known?, root_members) do
+    %{parts: parts, slug: slug, feature: feature, epic: epic, packs: pack_set, packs_available?: packs_available?, complete?: complete?} = context
 
     %{
       feature: slug,
       label: epic_label(epic),
-      wave: feature_wave(feature, workstream),
+      wave: feature_wave(feature, workstream, parts, root_members),
       summary: feature[:summary] || get_workstream(workstream, "summary"),
       icon: feature[:icon] || get_workstream(workstream, "icon"),
       code: feature[:code] || get_workstream(workstream, "code") || member_code(members),
@@ -87,7 +87,32 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
     }
   end
 
-  defp feature_wave(feature, workstream), do: normalize_wave(feature[:wave]) || normalize_wave(get_workstream(workstream, "wave")) || normalize_wave(get_workstream(workstream, "phase"))
+  defp feature_wave(feature, workstream, parts, root_members),
+    do: normalize_wave(feature[:wave]) || normalize_wave(get_workstream(workstream, "wave")) || normalize_wave(get_workstream(workstream, "phase")) || member_phase_wave(parts, root_members)
+
+  defp member_phase_wave(_parts, :unknown), do: nil
+
+  defp member_phase_wave(parts, members) do
+    case parts[:history] do
+      {:ok, %{rows: rows}} ->
+        phases =
+          members
+          |> Enum.map(&Map.get(rows, &1))
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(&Metadata.parse(&1.labels).phase)
+          |> Enum.reject(&(&1 == :unphased))
+          |> Enum.uniq()
+
+        case phases do
+          [phase] -> normalize_wave(phase)
+          _ -> nil
+        end
+
+      _unavailable ->
+        nil
+    end
+  end
+
   defp get_workstream(nil, _key), do: nil
   defp get_workstream(workstream, key), do: workstream[key] || workstream[String.to_atom(key)]
   defp epic_label(%{label: label}), do: label
@@ -121,7 +146,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
     %{unpublished: unpublished, extras: extras}
   end
 
-  defp root_members(parts, %{slug: "bo-" <> root}, key, complete?) do
+  defp root_members(parts, %{slug: "bo-" <> root, feature: feature}, key, complete?) do
     with {number, ""} when number > 0 <- Integer.parse(root),
          {:ok, registry} <- parts[:features],
          true <- registry.health.state == :healthy,
@@ -133,7 +158,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
       history_rows
       |> Enum.filter(fn {_member, row} -> root_member?(row, number, repository) end)
       |> Enum.map(&elem(&1, 0))
-      |> Enum.filter(&lane_key(number, history_rows[&1], key))
+      |> Enum.filter(&lane_key(number, history_rows[&1], key, feature))
     else
       _unknown -> :unknown
     end
@@ -144,8 +169,15 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp root_member?(%{parent: %{number: root} = parent}, root, repository), do: RootImportMapping.same_repository?(parent, repository)
   defp root_member?(_row, _root, _repository), do: false
 
-  defp lane_key(root, %{labels: labels}, key), do: RootImportMapping.key(root, RootImportMapping.lane(root, %{labels: labels})) == key
-  defp lane_key(root, _row, key), do: RootImportMapping.key(root, :unassigned) == key
+  defp lane_key(root, row, key, feature) do
+    root_key = RootImportMapping.key(root, :unassigned)
+    sole_root_epic? = key == root_key and Enum.map(feature.epics, &epic_key/1) == [root_key]
+
+    case row do
+      %{labels: labels} -> sole_root_epic? or RootImportMapping.key(root, RootImportMapping.lane(root, %{labels: labels})) == key
+      _ -> RootImportMapping.key(root, :unassigned) == key
+    end
+  end
 
   defp total_count(%{closed: closed, open: open, ci_wait: ci_wait}, unpublished, complete?, ci_known?) do
     if complete? and ci_known? and is_integer(unpublished), do: closed + open + ci_wait + unpublished
@@ -220,12 +252,25 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp ticket_number(%{"github" => %{"number" => number}}) when is_integer(number) and number > 0, do: number
   defp ticket_number(_), do: nil
 
-  defp epic_lane(epic_key, packs, slug) do
+  defp epic_lane(epic_key, packs, slug, feature) do
     Enum.find_value(packs, fn pack ->
       lane = pack_lane(pack, epic_key)
       if lane && pack_has_lane?(pack, lane), do: lane
-    end) || imported_lane(epic_key, slug) || :unassigned
+    end) || imported_lane(epic_key, slug) || root_pack_lane(epic_key, packs, slug, feature) || :unassigned
   end
+
+  defp root_pack_lane(epic_key, packs, "bo-" <> root, feature) do
+    with {number, ""} when number > 0 <- Integer.parse(root),
+         true <- epic_key == RootImportMapping.key(number, :unassigned),
+         true <- packs != [],
+         true <- Enum.map(feature.epics, &epic_key/1) == [epic_key] do
+      :all
+    else
+      _no_root_pack -> nil
+    end
+  end
+
+  defp root_pack_lane(_epic_key, _packs, _slug, _feature), do: nil
 
   defp imported_lane(epic_key, "bo-" <> root) do
     with {number, ""} <- Integer.parse(root),
@@ -242,6 +287,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
 
   defp imported_lane(_epic_key, _slug), do: nil
 
+  defp pack_has_lane?(_pack, :all), do: true
   defp pack_has_lane?(pack, lane), do: Enum.any?(pack.members, &(&1.lane == lane))
 
   defp pack_lane(pack, epic_key), do: Enum.find_value(pack.members, &member_lane(&1, pack.root, epic_key))

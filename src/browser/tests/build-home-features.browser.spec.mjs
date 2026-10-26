@@ -86,6 +86,7 @@ test('feature list shows a proportional bar for known membership', async ({ page
   const row = page.locator('.fp-row')
   await expect(row).toHaveCount(1)
   await expect(row).toContainText('3 / 10')
+  await expect(row).toContainText('MP-E8')
   await expect(row).toContainText('Pagination · API: 1 / 4 · Pagination · client: 2 / 6')
   const closed = row.locator('.fp-closed')
   await expect(closed).toBeVisible()
