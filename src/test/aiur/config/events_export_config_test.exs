@@ -8,6 +8,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
   setup do
     previous = Application.get_env(:aiur, :workflow_file_path)
     dir = Aiur.TestSupport.tmp_root!("events-export-config")
+    File.mkdir_p!(dir)
     path = Path.join(dir, "config")
     File.write!(path, "tracker:\n  kind: memory\n")
     Workflow.set_workflow_file_path(path)
