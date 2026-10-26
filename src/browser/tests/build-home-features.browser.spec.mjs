@@ -61,6 +61,37 @@ test('unknown stats, baseline, missing stats and labels update through live diff
   await expect(page.locator('.bd-kv b')).toHaveText(['—', '—', '—'])
   await expect(page.locator('.sp polyline')).toHaveCount(0)
 })
+test('feature list shows a proportional bar for known membership', async ({ page }) => {
+  await open(page, '?view=list')
+  await expect(page.locator('.bd-list')).toBeVisible()
+  await page.getByRole('tab', { name: 'Features' }).click()
+  const progress = {
+    features: {
+      'f-pag-api': { feature: 'pag', closed: 1, open: 2, ci_wait: 1, unpublished: 0, total: 4, observed_at: Date.now(), wave: '0', summary: 'Pagination work', icon: 'layers', code: 'MP-E8', plan_version: 'v1', extras: 0, reason: null },
+      'f-pag-client': { feature: 'pag', closed: 2, open: 3, ci_wait: 1, unpublished: 0, total: 6, observed_at: Date.now(), wave: '0', summary: null, icon: null, code: null, plan_version: 'v1', extras: 0, reason: null }
+    }, observed_at: Date.now(), plan_version: 'v1', extras: 0
+  }
+  await page.evaluate(async progress => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    ctx.D.feature_progress = progress
+    ctx.D.order = ['f-pag-api', 'f-pag-client']
+    ctx.D.epics = { 'f-pag-api': { feature: 'pag', label: 'Pagination · API' }, 'f-pag-client': { feature: 'pag', label: 'Pagination · client' } }
+    ctx.D.features = { pag: { label: 'Events pagination', hue: 272, epics: ['f-pag-api', 'f-pag-client'], to: Infinity } }
+    ctx.snap.order = ctx.D.order
+    ctx.snap.epics = ctx.D.epics
+    ctx.snap.features = ctx.D.features
+    ctx.snap.feature_progress = progress
+    fx.renderList()
+  }, progress)
+  const row = page.locator('.fp-row')
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('3 / 10')
+  await expect(row).toContainText('MP-E8')
+  await expect(row).toContainText('Pagination · API: 1 / 4 · Pagination · client: 2 / 6')
+  const closed = row.locator('.fp-closed')
+  await expect(closed).toBeVisible()
+  await expect(closed).toHaveAttribute('style', /width:30%/)
+})
 for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} stays inactive in graph, compact and list`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))
   await open(page, `?feature=${slug}&fmode=compact`)
