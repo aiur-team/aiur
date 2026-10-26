@@ -46,7 +46,9 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@broker_root Path.expand(\"../../../../priv/github_budget\", __DIR__)",
       "for path <- @broker_paths, do: @external_resource(path)",
       "@broker_metrics_path Path.expand(\"../../../../priv/github_budget_metrics.py\", __DIR__)",
-      "@external_resource @broker_metrics_path"
+      "@external_resource @broker_metrics_path",
+      "@socket_client_path Path.expand(\"../../../../priv/github_budget_socket.py\", __DIR__)",
+      "@external_resource @socket_client_path"
     ],
     "aiur/github/access/wrapper_recursion.ex" => [
       "@snippet_path Path.expand(\"../../../../priv/guard_recursion.sh\", __DIR__)",

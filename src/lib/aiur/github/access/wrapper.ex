@@ -7,6 +7,8 @@ defmodule Aiur.GitHub.Access.Wrapper do
   for path <- @broker_paths, do: @external_resource(path)
   @broker_metrics_path Path.expand("../../../../priv/github_budget_metrics.py", __DIR__)
   @external_resource @broker_metrics_path
+  @socket_client_path Path.expand("../../../../priv/github_budget_socket.py", __DIR__)
+  @external_resource @socket_client_path
   @gh_script Aiur.GitHub.Access.WrapperRecursion.splice(Aiur.GitHub.Access.WrapperSource.aiur(), "gh")
   # The budget broker is embedded at compile time and re-installed into every
   # workspace on each local dispatch (`Provisioner.maybe_install_agent_support`
@@ -33,10 +35,12 @@ defmodule Aiur.GitHub.Access.Wrapper do
   # out for either choice.
   @broker Enum.map_join(@broker_paths, &File.read!/1)
   @broker_metrics File.read!(@broker_metrics_path)
+  @socket_client File.read!(@socket_client_path)
   @scripts [
     {"gh", @gh_script},
     {"aiur-github-budget", @broker},
-    {"github_budget_metrics.py", @broker_metrics}
+    {"github_budget_metrics.py", @broker_metrics},
+    {"aiur-github-budget-socket", @socket_client}
   ]
 
   @spec scripts() :: [{String.t(), String.t()}]

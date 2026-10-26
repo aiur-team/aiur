@@ -224,7 +224,8 @@ defmodule Aiur.BuildOrder.IndexTest do
 
     assert {:ok, index} = assemble(p)
     assert Map.has_key?(index.all, "101") == false
-    assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :total]) == %{closed: 2, open: 1, ci_wait: nil, total: 3}
+    assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :total]) == %{closed: 2, open: 1, ci_wait: 0, total: 3}
+    refute index.feature_progress.features["f-bo-99-core"].reason =~ "CI state unknown"
     assert index.feature_progress.features["f-bo-99-core"].root_number == 99
     assert index.feature_progress.features["f-bo-99-core"].start_date == Date.to_iso8601(DateTime.to_date(root.created_at))
   end

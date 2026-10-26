@@ -42,6 +42,7 @@ defmodule VoiceConverse.Session.Start do
          start_waiters: [],
          finishing?: false,
          finished?: false,
+         end_tool_call_id: nil,
          deferred_events: [],
          audio_queue: :queue.new(),
          audio_task?: false,
