@@ -110,7 +110,9 @@ defmodule Aiur.AppServer.RelayPortTest do
     send(peer, :send_frame)
     assert_receive {:relay_peer_frame_sent, ^peer}, 1_000
     assert_receive {^relay, {:data, {:eol, "pending"}}}, 1_000
-    assert {:error, reason} = RelayPort.call(relay, :acknowledge)
+    caller = spawn(fn -> Transport.acknowledge(relay) end)
+    caller_monitor = Process.monitor(caller)
+    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, {:shutdown, {:relay_send_failed, :ack, reason}}}, 1_000
     assert reason in [:closed, :econnreset]
     assert_receive {:DOWN, ^monitor, :process, ^relay, {:shutdown, {:relay_send_failed, :ack, ^reason}}}, 1_000
     :gen_tcp.close(listener)
