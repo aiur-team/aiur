@@ -19,6 +19,7 @@ config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
+config :aiur, Aiur.Events.InstanceId, Aiur.Identity
 
 config :aiur, :signal,
   alert_sink: Aiur.Alerts,
