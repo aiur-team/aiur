@@ -81,6 +81,18 @@ defmodule Aiur.DecisionAnswerPrecedenceTest do
     assert Decision.active_answer(durable).actor.source == :device
   end
 
+  for operation <- [:supersede, :revise] do
+    test "#{operation}: an exact older executor revision retries after an operator correction", %{store: store, decision: decision} do
+      original = answer!(store, decision, :executor)
+      assert {:ok, %{decision: first, action: accepted}} = replace(unquote(operation), store, original, :executor)
+      assert {:ok, %{decision: corrected}} = replace(:supersede, store, first, :operator)
+      assert {:ok, %{status: :duplicate, action: replayed, decision: current}} = replace(unquote(operation), store, original, :executor)
+      assert replayed.action_id == accepted.action_id
+      assert current.active_action_id == corrected.active_action_id
+      assert Decision.active_answer(current).actor.kind == :operator
+    end
+  end
+
   test "unknown source opts fall back to rpc", %{store: store, decision: decision} do
     assert {:ok, %{action: action}} = DecisionStore.answer(decision.decision_id, payload(:operator, "unknown"), [actor: %{kind: :operator, id: "human"}, actor_source: :unrecognized], store)
     assert action.actor.source == :rpc

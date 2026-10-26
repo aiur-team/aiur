@@ -20,7 +20,7 @@ defmodule Aiur.DecisionStore.Revisions do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
          {:ok, actor} <- Answers.fetch_actor(opts),
-         :ok <- Answering.require_actor_may_replace(actor, Decision.active_answer(decision)),
+         :ok <- require_new_actor_may_replace(decision, payload, actor),
          :ok <- Answers.require_relay_enabled(actor, state),
          :ok <- require_relay_may_replace(decision, actor) do
       case find_revision_replay(decision, payload) do
@@ -51,6 +51,14 @@ defmodule Aiur.DecisionStore.Revisions do
 
   defp accept_revision_unless_moot(decision, payload, actor, opts, state),
     do: accept_revision(decision, payload, actor, opts, state)
+
+  # An exact replay returns its recorded revision and never replaces the active answer.
+  defp require_new_actor_may_replace(decision, payload, actor) do
+    case find_revision_replay(decision, payload) do
+      nil -> Answering.require_actor_may_replace(actor, Decision.active_answer(decision))
+      %DecisionRevision{} -> :ok
+    end
+  end
 
   # Supersede is the Executor's way to replace a decided answer that no agent
   # has received (#2711). It reuses the revision record, so the replaced answer
