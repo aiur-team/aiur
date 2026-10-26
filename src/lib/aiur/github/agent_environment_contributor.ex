@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   alias Aiur.Config.Paths
   alias Aiur.GitHub.{Access, AgentBudgetSocket, AgentMarker}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.Instance.LeaseStore
 
   @impl true
   def port_env(workspace, opts) do
@@ -37,7 +38,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       # this while the agent is inside the workspace below — a clone of some
       # other repository must not have its answers filed under this one.
       {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
-      {~c"AIUR_GITHUB_BUDGET_SOCKET", AgentBudgetSocket.socket_path() |> String.to_charlist()},
+      budget_socket_env(),
       {~c"AIUR_GITHUB_BUDGET_ROOT", Access.budget_state_dir() |> String.to_charlist()},
       # #2356: the path to the token file the daemon wrote for the `gh` guard.
       # This is a PATH, not a credential — the raw token lives on disk and the
@@ -74,7 +75,6 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       publication_credential_export(opts) <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
-      "export AIUR_GITHUB_BUDGET_SOCKET=#{Aiur.Shell.escape(AgentBudgetSocket.socket_path())}\n" <>
       "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=#{github_budget.max_inflight_per_endpoint}\n" <>
@@ -157,4 +157,12 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   end
 
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
+
+  defp budget_socket_env do
+    if LeaseStore.configured?() do
+      {~c"AIUR_GITHUB_BUDGET_SOCKET", AgentBudgetSocket.socket_path() |> String.to_charlist()}
+    else
+      {~c"AIUR_GITHUB_BUDGET_SOCKET", false}
+    end
+  end
 end

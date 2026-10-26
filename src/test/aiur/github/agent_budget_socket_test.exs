@@ -24,4 +24,18 @@ defmodule Aiur.GitHub.AgentBudgetSocketTest do
     assert {:ok, %File.Stat{mode: mode}} = File.stat(path)
     assert Bitwise.band(mode, 0o777) == 0o600
   end
+
+  test "ignores the child when the socket cannot listen" do
+    socket_dir = Path.join(System.tmp_dir!(), "agent-budget-failure-#{System.unique_integer([:positive])}")
+    path = Path.join(socket_dir, "agent-github-budget.sock")
+
+    assert :ignore =
+             AgentBudgetSocket.start_link(
+               socket_path: path,
+               listen_fun: fn _port, _opts -> {:error, :eacces} end
+             )
+
+    refute File.exists?(path)
+    Aiur.TestCleanup.rm_rf!(socket_dir)
+  end
 end

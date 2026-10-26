@@ -47,6 +47,8 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     env = Application.fetch_env!(:aiur, :env)
     budget = Application.fetch_env!(:aiur, :github_budget_dir)
     budget_settings = Application.fetch_env(:aiur, :github_budget_settings_override)
+    lease_database_url = Application.fetch_env(:aiur, :lease_database_url)
+    lease_database_url_env = System.get_env("AIUR_LEASE_DATABASE_URL")
 
     # Freeze baseline inputs independently of later changes to production defaults.
     Application.put_env(:aiur, :github_budget_settings_override, %{
@@ -60,11 +62,20 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     })
 
     Application.put_env(:aiur, :github_budget_dir, Path.join(root, "budget"))
+    Application.delete_env(:aiur, :lease_database_url)
+    System.delete_env("AIUR_LEASE_DATABASE_URL")
 
     on_exit(fn ->
       Application.put_env(:aiur, :agent_environment_contributors, registry)
       Application.put_env(:aiur, :env, env)
       Application.put_env(:aiur, :github_budget_dir, budget)
+
+      case lease_database_url do
+        {:ok, value} -> Application.put_env(:aiur, :lease_database_url, value)
+        :error -> Application.delete_env(:aiur, :lease_database_url)
+      end
+
+      restore_env("AIUR_LEASE_DATABASE_URL", lease_database_url_env)
 
       case budget_settings do
         {:ok, value} -> Application.put_env(:aiur, :github_budget_settings_override, value)
@@ -94,6 +105,21 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     for name <- @credentials, do: assert(Map.fetch!(port, String.to_charlist(name)) == false)
     shell = shell_env(AgentEnvironment, context)
     for name <- @credentials, do: refute(Map.has_key?(shell, name))
+  end
+
+  test "agent budget socket env requires shared storage and is never sent to remote agents", context do
+    local_env = AgentEnvironmentContributor.port_env(context.workspace, opts()) |> Map.new()
+    assert Map.fetch!(local_env, ~c"AIUR_GITHUB_BUDGET_SOCKET") == false
+
+    remote_exports = AgentEnvironmentContributor.shell_exports(context.workspace, opts())
+    refute remote_exports =~ "AIUR_GITHUB_BUDGET_SOCKET"
+
+    Application.put_env(:aiur, :lease_database_url, "postgres://shared-store/aiur")
+    configured_env = AgentEnvironmentContributor.port_env(context.workspace, opts()) |> Map.new()
+    assert Map.fetch!(configured_env, ~c"AIUR_GITHUB_BUDGET_SOCKET") == String.to_charlist(AgentBudgetSocket.socket_path())
+
+    configured_remote_exports = AgentEnvironmentContributor.shell_exports(context.workspace, opts())
+    refute configured_remote_exports =~ "AIUR_GITHUB_BUDGET_SOCKET"
   end
 
   test "regression guard: empty registry still scrubs inherited credentials", context do
@@ -174,7 +200,6 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     replacements = [
       {to_string(:code.priv_dir(:aiur)), "<priv>"},
       {Budget.state_dir(), "<budget>"},
-      {AgentBudgetSocket.socket_path(), "<runtime>/agent-github-budget.sock"},
       {context.workspace, "<workspace>"},
       {context.home, "<home>"},
       {context.workflow_root, "<root>"},

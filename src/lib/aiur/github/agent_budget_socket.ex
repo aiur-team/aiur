@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.AgentBudgetSocket do
   @moduledoc "Local Unix socket that admits agent GitHub requests through the daemon budget."
   use GenServer
+  require Logger
 
   alias Aiur.Config.Paths
   alias Aiur.GitHub.AgentBudgetCommand
@@ -58,7 +59,9 @@ defmodule Aiur.GitHub.AgentBudgetSocket do
     listen_path = listen_path(path)
     if listen_path != path, do: File.rm(listen_path)
 
-    case :gen_tcp.listen(0, [:local, :binary, packet: :line, active: false, ifaddr: {:local, String.to_charlist(listen_path)}, backlog: 64]) do
+    listen_fun = Keyword.get(opts, :listen_fun, &:gen_tcp.listen/2)
+
+    case listen_fun.(0, [:local, :binary, packet: :line, active: false, ifaddr: {:local, String.to_charlist(listen_path)}, backlog: 64]) do
       {:ok, listen_socket} ->
         if listen_path != path, do: File.ln_s!(listen_path, path)
         File.chmod!(path, 0o600)
@@ -67,7 +70,8 @@ defmodule Aiur.GitHub.AgentBudgetSocket do
         {:ok, %{path: path, listen_path: listen_path, listen_socket: listen_socket, acceptor: acceptor}}
 
       {:error, reason} ->
-        {:stop, {:socket_listen_failed, path, listen_path, reason}}
+        Logger.warning("GitHub agent budget socket unavailable at #{path}: #{inspect(reason)}")
+        :ignore
     end
   end
 
