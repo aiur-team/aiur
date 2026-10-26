@@ -177,6 +177,28 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       refute Map.has_key?(request, :etag)
     end
 
+    test "already-declared blocker on a later REST page is idempotent, not a cycle" do
+      next_url = "https://api.github.com/repos/owner/repo/issues/7/dependencies/blocked_by?page=2"
+
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") and String.contains?(req.url, "page=2") ->
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [{"link", "<#{next_url}>; rel=\"next\""}], body: Enum.map(1..30, &%{"id" => &1, "number" => &1})}}
+        end
+      end
+
+      graph_request_fun = fn _req -> flunk("cycle traversal must not run for an existing edge on page two") end
+
+      assert {:ok, :already_present} =
+               IssueDependencies.declare(7, 80, request_fun: request_fun, graph_request_fun: graph_request_fun)
+    end
+
     test "transient BFS error returns :cycle_check_inconclusive (does NOT optimistically POST)" do
       request_fun = fn req ->
         cond do
@@ -214,6 +236,26 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       end
 
       assert {:error, :permission_denied} = IssueDependencies.declare(7, 80, request_fun: request_fun)
+    end
+
+    test "a POST 422 keeps its upstream validation cause when the cycle check found none" do
+      request_fun = fn req ->
+        cond do
+          req.method == :post ->
+            {:ok, %{status: 422, headers: [], body: %{"message" => "Validation Failed", "errors" => [%{"code" => "invalid"}]}}}
+
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          String.contains?(req.url, "/issues/80/dependencies/blocking") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+        end
+      end
+
+      assert {:error, {:github, :http, %{status: 422}}} = IssueDependencies.declare(7, 80, request_fun: request_fun)
     end
 
     test "rate-limited POST 403 stays rate_limited" do

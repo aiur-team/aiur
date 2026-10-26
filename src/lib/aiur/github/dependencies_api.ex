@@ -68,21 +68,7 @@ defmodule Aiur.GitHub.DependenciesApi do
       url =
         "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}"
 
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             api_version: @dependencies_api_version
-           }) do
-        {:ok, %{status: 200, body: body}} when is_list(body) ->
-          {:ok, body}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Access.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Access.classify_error({:error, reason})}
-      end
+      fetch_dependency_pages(request_fun, token, url, [])
     end
   end
 
@@ -154,15 +140,44 @@ defmodule Aiur.GitHub.DependenciesApi do
 
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        retained = Access.header(Map.get(response, :headers, []), "etag") || etag
-
-        if not is_nil(key),
-          do: Access.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
-
-        {:ok, body}
+        blocked_by_success(key, request_fun, token, etag, body, response)
 
       {:ok, %{status: 304}} ->
         blocked_by_not_modified(key, request_fun, token, url, etag)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Access.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Access.classify_error({:error, reason})}
+    end
+  end
+
+  defp blocked_by_success(key, request_fun, token, etag, body, response) do
+    next = Access.parse_next_page_url(Map.get(response, :headers, []))
+
+    with {:ok, complete_body} <- fetch_dependency_pages(request_fun, token, next, body) do
+      cache_blocked_by(key, next, complete_body, response, etag)
+      {:ok, complete_body}
+    end
+  end
+
+  defp cache_blocked_by(key, nil, body, response, etag) when not is_nil(key) do
+    retained = Access.header(Map.get(response, :headers, []), "etag") || etag
+    Access.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
+  end
+
+  defp cache_blocked_by(_key, _next, _body, _response, _etag), do: :ok
+
+  defp fetch_dependency_pages(_request_fun, _token, nil, acc), do: {:ok, acc}
+
+  defp fetch_dependency_pages(request_fun, token, url, acc) do
+    request = %{method: :get, url: url, token: token, api_version: @dependencies_api_version}
+
+    case request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        next = Access.parse_next_page_url(Map.get(response, :headers, []))
+        fetch_dependency_pages(request_fun, token, next, acc ++ body)
 
       {:ok, %{status: _status} = response} ->
         {:error, Access.github_status_error(response)}

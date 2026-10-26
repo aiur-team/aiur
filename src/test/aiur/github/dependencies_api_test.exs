@@ -57,6 +57,21 @@ defmodule Aiur.GitHub.DependenciesApiTest do
 
       assert {:ok, ^blockers} = DependenciesApi.fetch_blocked_by(5, request_fun: request_fun)
     end
+
+    test "follows later pages before returning the complete blocker list" do
+      first = [%{"id" => 1, "number" => 2}]
+      second = [%{"id" => 3, "number" => 4}]
+      next_url = "https://api.github.com/repos/owner/repo/issues/5/dependencies/blocked_by?per_page=30&page=2"
+
+      request_fun = fn %{url: url} ->
+        if String.contains?(url, "page=2"),
+          do: {:ok, %{status: 200, body: second}},
+          else: {:ok, %{status: 200, body: first, headers: [{"link", "<#{next_url}>; rel=\"next\""}]}}
+      end
+
+      expected = first ++ second
+      assert {:ok, ^expected} = DependenciesApi.fetch_blocked_by(5, request_fun: request_fun, revalidate: true)
+    end
   end
 
   describe "fetch_blocking/2" do
@@ -69,6 +84,21 @@ defmodule Aiur.GitHub.DependenciesApiTest do
       end
 
       assert {:ok, ^blocking} = DependenciesApi.fetch_blocking(3, request_fun: request_fun)
+    end
+
+    test "follows later pages for cycle traversal" do
+      first = [%{"number" => 10}]
+      second = [%{"number" => 11}]
+      next_url = "https://api.github.com/repos/owner/repo/issues/3/dependencies/blocking?per_page=30&page=2"
+
+      request_fun = fn %{url: url} ->
+        if String.contains?(url, "page=2"),
+          do: {:ok, %{status: 200, body: second}},
+          else: {:ok, %{status: 200, body: first, headers: [{"link", "<#{next_url}>; rel=\"next\""}]}}
+      end
+
+      expected = first ++ second
+      assert {:ok, ^expected} = DependenciesApi.fetch_blocking(3, request_fun: request_fun)
     end
   end
 
