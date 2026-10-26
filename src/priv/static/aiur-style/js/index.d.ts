@@ -4,3 +4,5 @@ export { initShellNav } from './shell.js';
 export type { ShellNavOptions } from './shell.js';
 export { initBanner } from './banner.js';
 export { initBrandReveal, initTopbarPin } from './brand-reveal.js';
+export { createFlowField } from './field.js';
+export type { FlowFieldOptions, Obstacle } from './field.js';
