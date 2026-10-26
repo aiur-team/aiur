@@ -63,6 +63,8 @@ jobs:
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs && node --test packages/nightly-release/test/lib.test.mjs
       - name: Test human-only merge ruleset verifier
         run: bash scripts/test-human-only-merge-ruleset.sh
+      - name: Test standalone GitHub access wrapper
+        run: make -C packages/gh-access test
       - name: Test human-only merge ruleset drift check
         run: bash scripts/test-human-only-merge-ruleset-live.sh
       - name: Test pull request merge-gate diagnostics

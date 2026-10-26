@@ -4,6 +4,7 @@
   "layer": 2,
   "kind": "in-app",
   "paths": [
+    "packages/gh-access/**",
     "src/lib/aiur/github/access.ex",
     "src/lib/aiur/github/access/**",
     "src/lib/aiur/github/agent_cache**",
@@ -41,7 +42,11 @@
     "src/lib/aiur/github/transport**",
     "src/priv/github_budget*.py",
     "src/priv/github_budget/**",
-    "src/priv/github_guard/gh/**"
+    "src/priv/github_guard/aiur-gh.sha256",
+    "src/priv/github_guard/gh/**",
+    "src/priv/github_guard/parts.tsv",
+    "src/priv/github_guard/policy-none.sh",
+    "src/priv/github_guard/standalone.sh"
   ],
   "facades": [
     "Aiur.GitHub.Access",

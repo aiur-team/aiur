@@ -180,6 +180,7 @@ export default withMermaid(defineConfig({
             { text: 'GitHub webhooks', link: '/apis/github-webhooks' },
             { text: 'GitHub credentials', link: '/apis/github-auth' },
             { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
+            { text: 'Standalone gh-access', link: '/apis/gh-access' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
             { text: 'ElevenLabs', link: '/apis/elevenlabs' }
           ]
