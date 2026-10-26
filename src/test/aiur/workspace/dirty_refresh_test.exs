@@ -2,6 +2,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
   use Aiur.TestSupport
   alias Aiur.Workspace.Context
   alias Aiur.Workspace.WipPreservation
+  alias Aiur.TestCleanup
 
   test "before_run preserves and recreates dirty leftover workspaces for todo dispatches" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover")
@@ -19,7 +20,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
 
       assert_stale_refresh_saved!(workspace, issue.identifier, trace_root, issue)
     after
-      File.rm_rf(test_root)
+      TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -41,7 +42,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
       assert trace_path(trace_root, issue) |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
-      File.rm_rf(test_root)
+      TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -62,7 +63,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
 
       assert_stale_refresh_saved!(workspace, issue.identifier, trace_root, issue)
     after
-      File.rm_rf(test_root)
+      TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -112,7 +113,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       # line — that recreate path is reserved for fresh todo dispatches, #577).
       assert trace_path(trace_root, issue) |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
-      File.rm_rf(test_root)
+      TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -143,7 +144,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       assert {branch, 0} = System.cmd("git", ["-C", workspace, "branch", "--show-current"])
       assert String.trim(branch) == "aiur/429"
     after
-      File.rm_rf(test_root)
+      TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -165,7 +166,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       assert {:ok, _workspace} = Workspace.create_for_issue("S-URL")
       assert File.read!(out_file) == "https://github.com/test-org/test-repo.git\nv2"
     after
-      File.rm_rf(test_root)
+      TestCleanup.rm_rf!(test_root)
     end
   end
 
@@ -214,7 +215,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
       refute git_head!(workspace) == main_tip
       assert File.read!(Path.join(workspace, "README.md")) == "v2 advanced\n"
     after
-      File.rm_rf!(test_root)
+      TestCleanup.rm_rf!(test_root)
     end
   end
 
