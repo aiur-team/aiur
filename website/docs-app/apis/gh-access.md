@@ -29,7 +29,8 @@ undecidable-command policy. Standalone flags cannot disable that policy.
 With no credential file, the real `gh` uses its own login. Inherited `GH_TOKEN`
 and `GITHUB_TOKEN` are cleared before helpers start. To use a specific token,
 set `AIUR_GITHUB_CREDENTIAL_FILE` to a restricted file containing it on the first
-line. Only the real `gh` child receives that credential; helper processes do not.
+line. The wrapper injects `GH_TOKEN` only into the real `gh` child; helpers do not
+inherit token variables.
 
 By default, state is under `~/.aiur/github-budget`, shared with Aiur agents on
 the same host. Answers and budget rows are separated by credential. Using a
