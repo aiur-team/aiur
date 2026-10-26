@@ -9,6 +9,7 @@ defmodule VoiceConverse.Session do
     Session.Start,
     SessionLimits,
     SessionRegistry,
+    Tools,
     TranscriptStore
   }
 
@@ -109,6 +110,15 @@ defmodule VoiceConverse.Session do
   def handle_info({:voice_conversation, ref, event}, %{provider_ref: ref} = state) do
     handle_provider_event(event, state)
   end
+
+  def handle_info({:end_after_tool_result, call_id}, %{end_tool_call_id: call_id} = state) do
+    case begin_finish(state, :user_end) do
+      {:done, state} -> {:stop, :normal, state}
+      {:pending, state} -> {:noreply, state}
+    end
+  end
+
+  def handle_info({:end_after_tool_result, _call_id}, state), do: {:noreply, state}
 
   def handle_info({:voice_conversation, ref, event}, %{provider_ref: nil, opening: opening} = state)
       when not is_nil(opening) do
@@ -236,7 +246,35 @@ defmodule VoiceConverse.Session do
 
   defp handle_provider_event(%Events.ToolCall{} = event, state) do
     record = %{type: "tool_call", call_id: event.call_id, name: event.name, params: event.params, at: now(state)}
-    persist_and_broadcast(state, record, event, state.state)
+
+    case persist(state, record) do
+      {:ok, state} ->
+        broadcast(state, event)
+        result = Tools.handle(state, event)
+
+        result_record = %{
+          type: "tool_result",
+          call_id: event.call_id,
+          name: event.name,
+          summary: result.text,
+          is_error: result.is_error,
+          at: now(state)
+        }
+
+        case persist(state, result_record) do
+          {:ok, state} ->
+            :ok = state.provider.tool_result(state.provider_ref, event.call_id, result)
+            state = if result.end?, do: %{state | end_tool_call_id: event.call_id}, else: state
+            if result.end?, do: send(self(), {:end_after_tool_result, event.call_id})
+            {:noreply, state}
+
+          {:error, state} ->
+            stop_unknown(state)
+        end
+
+      {:error, state} ->
+        stop_unknown(state)
+    end
   end
 
   defp handle_provider_event(%Events.Error{code: code} = event, state) do
