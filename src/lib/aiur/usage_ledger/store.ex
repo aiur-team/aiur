@@ -175,7 +175,7 @@ defmodule Aiur.UsageLedger.Store do
   defp commit_retirement(state, watermark) do
     checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
 
-    with :ok <- RetiredKeys.write(state.paths.retired_keys_path, state.policy.idempotency),
+    with :ok <- RetiredKeys.write(state.paths.retired_keys_path, state.position, state.policy.idempotency),
          {:ok, encoded_checkpoint} <- encode_checkpoint(checkpoint, state),
          :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, encoded_checkpoint),
          :ok <- state.retired_floor_write_fun.(state.paths.retired_path, watermark, state.retire_sync_fun) do
@@ -249,7 +249,7 @@ defmodule Aiur.UsageLedger.Store do
   defp maybe_write_retired_keys(_policy, true, %{retired_through: 0}), do: :ok
 
   defp maybe_write_retired_keys(policy, true, state),
-    do: RetiredKeys.write(state.paths.retired_keys_path, policy.idempotency)
+    do: RetiredKeys.write(state.paths.retired_keys_path, state.position + 1, policy.idempotency)
 
   defp encode_checkpoint(checkpoint, state) do
     case state.checkpoint_encode_fun.(checkpoint, state.limits.max_checkpoint_bytes) do

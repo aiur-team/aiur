@@ -101,6 +101,27 @@ defmodule Aiur.UsageLedger.RetirementTest do
     GenServer.stop(restarted)
   end
 
+  test "recovery excludes archived keys newer than a failed checkpoint", context do
+    {:ok, ledger} = start_ledger(context.root, context.name, checkpoint_interval: 2)
+    append_n(context.name, 4)
+    {:ok, _} = Store.retire(context.name, 2)
+    GenServer.stop(ledger)
+
+    fail_checkpoint = fn _path, _encoded -> {:error, :eio} end
+
+    {:ok, restarted_with_failure} =
+      start_ledger(context.root, context.name, checkpoint_interval: 2, checkpoint_fun: fail_checkpoint)
+
+    assert {:ok, _} = GenServer.call(context.name, {:append, envelope(%{})})
+    assert {:error, :persistence_failed} = GenServer.call(context.name, {:append, envelope(%{})})
+    GenServer.stop(restarted_with_failure)
+
+    {:ok, recovered} = start_ledger(context.root, context.name)
+    assert GenServer.call(context.name, :health) == :healthy
+    assert GenServer.call(context.name, :generation) == 6
+    GenServer.stop(recovered)
+  end
+
   test "a floor persisted before the segment is reclaimed still drops the retired prefix on boot", context do
     {:ok, ledger} = start_ledger(context.root, context.name, checkpoint_interval: 1)
     append_n(context.name, 5)

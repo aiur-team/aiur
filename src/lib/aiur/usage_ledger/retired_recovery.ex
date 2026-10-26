@@ -18,13 +18,32 @@ defmodule Aiur.UsageLedger.RetiredRecovery do
   @spec replay_tail(map(), non_neg_integer(), list(), String.t()) ::
           {:ok, CounterPolicy.state(), non_neg_integer()} | {:error, atom()}
   def replay_tail(policy, checkpoint_position, records, keys_path) do
-    with {:ok, keys} <- RetiredKeys.load(keys_path) do
+    with {:ok, archived} <- RetiredKeys.load(keys_path) do
+      keys = keys_at_checkpoint(archived, checkpoint_position, records)
       policy = %{policy | idempotency: MapSet.union(policy.idempotency, keys)}
 
       records
       |> Enum.filter(&(&1.position > checkpoint_position))
       |> replay_records(policy, checkpoint_position)
     end
+  end
+
+  defp keys_at_checkpoint(%{position: archived_position, keys: keys}, checkpoint_position, records)
+       when archived_position > checkpoint_position do
+    tail_keys = idempotency_keys(records, &(&1.position > checkpoint_position))
+    MapSet.difference(keys, tail_keys)
+  end
+
+  defp keys_at_checkpoint(%{position: archived_position, keys: keys}, checkpoint_position, records) do
+    checkpoint_keys = idempotency_keys(records, &(&1.position > archived_position and &1.position <= checkpoint_position))
+    MapSet.union(keys, checkpoint_keys)
+  end
+
+  defp idempotency_keys(records, predicate) do
+    records
+    |> Enum.filter(predicate)
+    |> Enum.map(&CounterPolicy.idempotency_key(&1.envelope))
+    |> MapSet.new()
   end
 
   defp replay_records(records, policy, position) do
