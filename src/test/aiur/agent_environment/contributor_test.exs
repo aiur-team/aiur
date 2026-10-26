@@ -1,9 +1,9 @@
 defmodule Aiur.AgentEnvironment.ContributorTest do
   use Aiur.TestSupport
 
-  alias Aiur.Claude.Repl.Command
   alias Aiur.{AgentEnvironment, AgentGitHubGuard, AgentProcessLog}
   alias Aiur.AgentEnvironment.Contributor
+  alias Aiur.Claude.Repl.Command
   alias Aiur.GitHub.{AgentBudgetSocket, AgentEnvironmentContributor, Budget}
 
   @credentials ~w(
