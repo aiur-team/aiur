@@ -44,6 +44,11 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.ClientTokenAuth)
   end
 
+  pipeline :control_token do
+    plug(:fetch_session)
+    plug(AiurWeb.ControlTokenAuth)
+  end
+
   pipeline :supervisor_auth do
     plug(AiurWeb.SupervisorAuth)
   end
@@ -95,9 +100,9 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
@@ -127,6 +132,7 @@ defmodule AiurWeb.Router do
   Decisions.mutations()
   Decisions.reads()
   Decisions.method_catches()
+  Control.calls()
   DashboardPages.static_assets()
   DashboardPages.pages()
   Experiments.pages()
@@ -182,10 +188,11 @@ defmodule AiurWeb.Router do
 
   # Rejects agent-write requests while the dashboard is read-only. Sources the
   # flag from the endpoint config (set by `Aiur.HttpServer`, overridable in
-  # tests) and fails closed: a missing/false value keeps the dashboard
-  # observe-only.
+  # tests). The control endpoint defers this decision until after parsing the
+  # allowlisted call so it can audit write-call refusals while still allowing
+  # read-scope calls.
   defp require_dashboard_writable(conn, _opts) do
-    if dashboard_writable?() do
+    if dashboard_writable?() or conn.path_info == ["api", "v1", "control"] do
       conn
     else
       conn

@@ -1,10 +1,14 @@
 import { test, expect } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
 import AxeBuilder from '@axe-core/playwright'
 import { expectSpanAuditClean } from './support/build-home-span-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { openFixture } from './support/browser-helpers.mjs'
 
 test.beforeEach(async ({ page }) => {
+  await page.route(/\/build-home\/tools\.js$/, route => route.fulfill({
+    path: fileURLToPath(new URL('../../priv/static/build-home/tools.js', import.meta.url)), contentType: 'text/javascript'
+  }))
   await openFixture(page)
   await page.evaluate(async () => {
     const state = await import('/build-home/state.js')
@@ -70,6 +74,14 @@ test('daemon status follows snapshot and socket changes and escapes helper text'
   await expect(page.locator('.bd-daemon')).toHaveText('<img src=x>')
   await expect(page.locator('.bd-daemon img')).toHaveCount(0)
 })
+test('loaded view activation keeps keyboard focus on its toolbar tab', async ({ page }) => {
+  await page.evaluate(() => { m.S.loading = false })
+  await page.getByRole('tab', { name: 'List', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  expect(await page.evaluate(() => m.S.view)).toBe('list')
+  await expect(page.getByRole('tab', { name: 'List', exact: true })).toBeFocused()
+})
+
 test('server URL change rebuilds viewport and jumps without URL echo', async ({ page }) => {
   for (const view of ['gantt', 'graph']) {
     await page.evaluate(view => { m.S.loading = false; board.length = 0; events['build:url']({ state: { view } }) }, view)

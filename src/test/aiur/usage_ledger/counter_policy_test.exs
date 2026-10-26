@@ -52,6 +52,27 @@ defmodule Aiur.UsageLedger.CounterPolicyTest do
     assert Decimal.equal?(stale_delta.cost.amount, Decimal.new(0))
   end
 
+  test "checkpoint idempotency witness is bounded while preserving aggregate state" do
+    policy =
+      Enum.reduce(1..150, CounterPolicy.new(), fn offset, state ->
+        event =
+          envelope(
+            idempotency_key: "codex:checkpoint-#{offset}",
+            source_event_id: "checkpoint-#{offset}",
+            source_sequence: offset
+          )
+
+        assert {:ok, %{state: next}} = CounterPolicy.apply(state, event)
+        next
+      end)
+
+    {:ok, checkpoint_policy} = CounterPolicy.load(CounterPolicy.checkpoint_dump(policy))
+
+    assert MapSet.size(checkpoint_policy.idempotency) == 128
+    assert CounterPolicy.checkpoint_matches?(checkpoint_policy, policy)
+    refute CounterPolicy.dump(checkpoint_policy) == CounterPolicy.dump(policy)
+  end
+
   test "rejects a newer unexplained decrease but establishes new epochs and models independently" do
     first = envelope(tokens: %{input: 10})
     lower = envelope(idempotency_key: "codex:evt-18", source_event_id: "evt-18", source_sequence: 18, tokens: %{input: 8})

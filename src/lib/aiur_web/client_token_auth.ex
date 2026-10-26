@@ -32,11 +32,16 @@ defmodule AiurWeb.ClientTokenAuth do
   end
 
   defp basic_fallback(conn, opts, header) do
-    if public_bind?() and is_binary(header) and String.starts_with?(String.downcase(header), "basic ") do
-      conn |> send_resp(401, "basic authentication is unavailable on a public bind") |> halt()
-    else
-      opts = if public_bind?(), do: Keyword.put(opts, :required?, true), else: opts
-      AiurWeb.Router.dashboard_basic_auth(conn, opts)
+    cond do
+      Keyword.get(opts, :bearer_only?, false) ->
+        conn |> send_resp(401, "unauthorized") |> halt()
+
+      public_bind?() and is_binary(header) and String.starts_with?(String.downcase(header), "basic ") ->
+        conn |> send_resp(401, "basic authentication is unavailable on a public bind") |> halt()
+
+      true ->
+        opts = if public_bind?(), do: Keyword.put(opts, :required?, true), else: opts
+        AiurWeb.Router.dashboard_basic_auth(conn, opts)
     end
   end
 

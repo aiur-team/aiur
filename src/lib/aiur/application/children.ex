@@ -313,12 +313,14 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         dashboard_cache_children(dashboard?) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
+        [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts)
     )
   end
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
+      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end

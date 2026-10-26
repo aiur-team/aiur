@@ -69,5 +69,6 @@
     "alerts"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "notify"
 }

@@ -70,5 +70,6 @@
     "LINES",
     "TMUX_PANE"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

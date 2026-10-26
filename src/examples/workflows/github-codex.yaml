@@ -270,3 +270,9 @@ compaction:
 #   alerts:
 #     codex:
 #       threshold: 10
+# Optional read-only Netlify account usage; requires NETLIFY_AUTH_TOKEN in .env.
+netlify:
+  enabled: false
+  # account_id: your-netlify-team-id
+  poll_seconds: 900
+  credit_alert_threshold: 100

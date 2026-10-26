@@ -28,5 +28,5 @@ defmodule VoiceConverse.Testing.FakeBriefingSource do
   def subscribe(_t, _pid), do: :unsupported
 
   @impl true
-  def alive?(_t), do: :unknown
+  def alive?(t), do: Map.get(t, :alive, :unknown)
 end

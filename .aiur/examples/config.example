@@ -200,6 +200,12 @@ alerts:
 
 # Optional low-usage alerts. Thresholds are remaining percentages; unknown or stale readings do not trigger alerts.
 # usage:
+#   alerts: {claude: {threshold: 10}} # remaining percent; Netlify credits have a separate `netlify` section
+# netlify:
+#   enabled: false
+#   account_id: your-netlify-team-id
+#   poll_seconds: 900
+#   credit_alert_threshold: 100
 #   alerts:
 #     claude:
 #       threshold: 10
@@ -315,7 +321,14 @@ alerts:
 # server: { tailscale_funnel: true }     # reconcile an operator-enabled Funnel on HTTPS 443 to this dashboard's current bound port
 # observability: { build_order_funnel_health_check: true }
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
-# events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
+# events:
+#   block_state_debounce_seconds: 10
+#   custom_events_per_turn_max: 5
+#   codeowners_refresh_seconds: 3600
+#   export:                          # reserved for exporter; read at boot, restart to apply
+#     enabled: false
+#     retention_days: 7              # 1..90; first age/count bound reached applies
+#     retention_max_events: 50000     # 1000..1000000
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
 
 # Build queue (GitHub only; defaults shown except opt-in set ordering).

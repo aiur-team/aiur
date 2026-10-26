@@ -27,6 +27,7 @@ defmodule Aiur.Config.Schema do
     Instance,
     MergePolicy,
     Monitoring,
+    Netlify,
     Observability,
     Opencode,
     Polling,
@@ -48,6 +49,7 @@ defmodule Aiur.Config.Schema do
   require Instance
   require Tracker
   require BuildQueue
+  require Events
   require Experiments
   require Voice
   require Workspace
@@ -112,6 +114,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:voice, Voice, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
     embeds_one(:usage, Usage, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:netlify, Netlify, on_replace: :update, defaults_to_struct: true)
     # Keep the Executor sweep settings in the same parsed settings snapshot.
     embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
   end
@@ -253,6 +256,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:voice, with: &Voice.changeset/2)
     |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
     |> cast_embed(:usage, with: &Usage.changeset/2)
+    |> cast_embed(:netlify, with: &Netlify.changeset/2)
   end
 
   # Ecto's integer cast truncates a float (1.5 -> 1) and coerces a numeric

@@ -8,6 +8,7 @@
     "src/lib/aiur/accounts.ex",
     "src/lib/aiur/accounts/**",
     "src/lib/aiur/agent/**",
+    "src/lib/aiur/netlify/**",
     "src/lib/aiur/provider_account_generation.ex",
     "src/lib/aiur/provider_account_generation/**",
     "src/lib/aiur/provider_meter_probe.ex",
@@ -26,7 +27,8 @@
     "src/lib/aiur/usage_envelope.ex",
     "src/lib/aiur/usage_envelope/**",
     "src/lib/aiur/usage_ledger.ex",
-    "src/lib/aiur/usage_ledger/**"
+    "src/lib/aiur/usage_ledger/**",
+    "src/lib/aiur_web/components/operator_control_center/run_summary_strip/netlify_row.ex"
   ],
   "facades": [
     "*"
@@ -48,6 +50,7 @@
     "env": [
       "DEEPSEEK_API_KEY",
       "MOONSHOT_API_KEY",
+      "NETLIFY_AUTH_TOKEN",
       "OPENROUTER_API_KEY",
       "OPENROUTER_MANAGEMENT_KEY"
     ],
@@ -72,16 +75,19 @@
     "type": "included"
   },
   "docs": [
-    "concepts/units.md"
+    "concepts/units.md",
+    "guide/dashboard-and-telemetry.md"
   ],
   "config": [],
   "env": [
     "DEEPSEEK_API_KEY",
     "MOONSHOT_API_KEY",
+    "NETLIFY_AUTH_TOKEN",
     "OPENROUTER_API_KEY",
     "OPENROUTER_MANAGEMENT_KEY"
   ],
   "capabilities": [
     "accounting.meters"
-  ]
+  ],
+  "goal": "run-agents"
 }

@@ -112,5 +112,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "facade_pending": null
+  "facade_pending": null,
+  "goal": "run-agents"
 }

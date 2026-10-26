@@ -3,8 +3,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$repo_root" "$@" <<'PY'
-import json
-import os
+import json, os
 from pathlib import Path
 import shutil
 import subprocess
@@ -497,4 +496,5 @@ if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
   python3 "$repo_root/scripts/test-github-components.py"
 fi
+python3 "$repo_root/scripts/test-component-goals.py"
 printf '%s\n' 'check-components guard: all selected cases passed'

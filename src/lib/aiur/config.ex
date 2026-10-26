@@ -208,11 +208,16 @@ defmodule Aiur.Config do
   defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_days(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_max_events(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings
   defdelegate max_vertical_panes(), to: Aiur.Config.TrackerSettings
   defdelegate max_log_history_mb(), to: Aiur.Config.TrackerSettings
+  @spec netlify_settings() :: Aiur.Config.Schema.Netlify.t()
+  def netlify_settings, do: settings!().netlify
   defdelegate workspace_hooks(), to: Aiur.Config.TrackerSettings
   defdelegate hook_timeout_ms(), to: Aiur.Config.TrackerSettings
   defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings

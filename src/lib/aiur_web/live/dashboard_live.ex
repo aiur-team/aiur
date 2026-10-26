@@ -4,6 +4,8 @@ defmodule AiurWeb.DashboardLive do
   """
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias AiurWeb.DashboardLive.NetlifyUsage
+
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.ProviderMeterRefresh
@@ -13,7 +15,6 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.DashboardLive.Conversation
   alias AiurWeb.DashboardLive.Page
   alias AiurWeb.DashboardLive.ProviderMeters
-  alias AiurWeb.DashboardLive.RepositoryLeaderBanner
   alias AiurWeb.DashboardLive.Session
   alias AiurWeb.DashboardLive.Summaries
   alias AiurWeb.DashboardLive.TicketContext
@@ -39,10 +40,8 @@ defmodule AiurWeb.DashboardLive do
   def handle_params(params, uri, socket), do: Session.handle_params(params, uri, socket)
 
   @impl true
-  def handle_info(:runtime_tick, socket) do
-    Session.schedule_runtime_tick()
-    {:noreply, RepositoryLeaderBanner.refresh(socket)}
-  end
+
+  def handle_info(:runtime_tick, socket), do: {:noreply, NetlifyUsage.tick(socket, &Session.schedule_runtime_tick/0)}
 
   def handle_info(:instance_roster_tick, socket), do: {:noreply, Session.refresh_instance_roster(socket)}
 
@@ -425,6 +424,7 @@ defmodule AiurWeb.DashboardLive do
   end
 
   @impl true
+
   def render(assigns), do: Page.page(assigns)
 
   defp handle_writable_event(socket, fun) when is_function(fun, 0) do
