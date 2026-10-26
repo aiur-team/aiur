@@ -465,5 +465,19 @@
       "date": null,
       "ref": "https://github.com/aiur-team/aiur/issues/5614"
     }
+  },
+  {
+    "id": "build-home-usage-percent-width",
+    "spec": "build-home-usage-parity.browser.spec.mjs",
+    "kind": "design-style",
+    "selector": ".ax-usage",
+    "css": ".ax-ln, .ax-ln:has(.ax-no) { grid-template-columns: 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-ln.t { grid-template-columns: 3.4em 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-pc { white-space: nowrap !important; }",
+    "reason": "Mirror the #6426 Build home meter fix in the frozen design reference so parity still checks the complete rendered surface after the percentage column is widened.",
+    "approval": {
+      "status": "pending-sign-off",
+      "by": null,
+      "date": null,
+      "ref": "https://github.com/aiur-team/aiur/issues/6426"
+    }
   }
 ]

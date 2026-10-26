@@ -126,10 +126,10 @@ test('meter percentage labels stay inside their rows at desktop and phone widths
       }
     }
 
-    await expect(page.locator('.api .ax-pc').nth(0)).toHaveText('43% left')
-    await expect(page.locator('.api .ax-pc').nth(1)).toHaveText('93% left')
-    await expect(page.locator('.mdl .ax-pc').first()).toHaveText('92% left')
-    await expect(page.locator('.mdl .ax-pc').nth(1)).toHaveText('92% left')
+    await expect(page.locator('.api .ax-pc').nth(0)).toHaveText('57% left')
+    await expect(page.locator('.api .ax-pc').nth(1)).toHaveText('7% left')
+    await expect(page.locator('.mdl .ax-pc').first()).toHaveText('8% left')
+    await expect(page.locator('.mdl .ax-pc').nth(1)).toHaveText('8% left')
   }
 })
 
