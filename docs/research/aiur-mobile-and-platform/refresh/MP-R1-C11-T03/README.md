@@ -1,83 +1,120 @@
-# Final refresh checkpoint
+# Final post-refactor refresh — MP-R1-C11-T03
 
-Status: **incomplete; no wave-2 or directory-publish sign-off**.
+This report clears the final-refresh gate for the source-reviewed ready subset
+when its PR merges. It does not clear named REFRESH holds, product approvals,
+tracker errors, or conditional package-promotion gates.
 
-This checkpoint preserves the reconstructed evidence for #3340 after workspace
-recreation removed the earlier scratch draft. It is not the final refresh.
+## Sign-off and boundaries
 
-## Inputs and provenance
+- Refreshed main: `4fbe109541ba1e279d3eb315d8455c4d139c92ba`; full range starts at `45a290e3053423100a73b534c620fdd12ebe11ad`.
+- C9/S16: all 14 tickets closed through merged PRs; every merge SHA is an ancestor
+  of this target. See [receipts](merges.md).
+- Executor decision on 2026-10-26: deliver through the canonical main PR.
+  This supersedes research-only publication; it does not approve downstream UX.
+- Wave 2 may start **MP-E2-C1-T01 backend-only**, after this PR merges, using the
+  existing DESIGN-E2 header exception. Its source owners, five semantic citation
+  checks, revised focused-test placement and [RC-23 budget](admissions-final.md)
+  are explicit. Product/visible copy and escalation-default approvals stay gated.
+- Other E2 implementation tickets retain product/predecessor gates and any named
+  source-review hold. Free spikes retain their separate tracker execution state;
+  this report claims no manual/model-run result for them.
+- The directory publisher may consume the final [component path inventory](component-paths.md)
+  and [migration map](../../bucket-1-refactor/MP-R1/migration-plan.md).
+  Planned physical packages must not be presented as shipped.
 
-- Research pack: `de341053cc16d2e6096a3a0d0fbacb43ef9f6eb0` (research/refactor-findings).
-- Current-main overlay and report target: `4fbe109541ba1e279d3eb315d8455c4d139c92ba`.
-- Range start: `45a290e3053423100a73b534c620fdd12ebe11ad`.
-- Ledger publication: `c96025161f1688888de4159d8c31fb117a989b6a`; actual CSV read from report target.
-- Source pack was exported from research, then current main's merged owner docs
-  were overlaid. This preserves MP-R2's accepted refresh rather than restoring
-  its older research copy. See [pins](pins.json).
-- MP-R2 owner refresh #3368 merged through PR #6255, merge
-  `75bb894d20f9401fddc8c0257b7c7a6fb9a3dbc1`. It is no longer an outstanding
-  dependency. Native unblock attempted once but returned
-  coordination_operation_exception; its existing dependency edge is already closed.
+## Scope and dispositions
 
-## Pre-edit report
+389 canonical MP ticket documents and their build-order mirrors were refreshed.
+This covers E2–E7/N1–N7, later R2 C5–C7, and the open canonical refactor tickets.
+E8 is a separately added program, outside the requested E2…N7 range; Executor QA
+wrappers with no canonical research ticket are not manufactured here.
 
-60 file moves; 9086 citations: GONE 260, LINES-CHANGED 1136,
-LINES-SHIFTED 489, MOVED 65, OK 3008, UNRESOLVED 4128.
-16 migration rows and 665 candidate size-owner outcomes.
+The current imported pack statuses are: {'ready': 86, 'blocked': 302, 'superseded': 1}.
 
-These are tool classifications before this turn's draft edits. Proposed paths,
-globs, directories, sibling-repository references and coordinates already stamped
-by C11-T02 need interpretation; they are not automatically invalid designs.
-The tool's same-range replay does not prove all-OK semantics for mixed baselines.
+57 verified mechanical citation edits are recorded in [the exact inventory](mechanical.md).
+Existing partially refreshed citations use the C11-T02 stamp's baseline; other
+coordinates use their original ticket baseline. Existing base_sha stays unchanged
+unless the whole cited code scope was re-read; C1-T01's code baseline is advanced.
+Accepted MP-R2 owner ticket text/statuses are preserved from the merged refresh.
 
-The 25 parts below concatenate exactly to the 9857-line raw report.
-SHA256: `f0ccef0102a15c29380d4b41656cffcb0a5b777858076b3a33da591c4687280c`. Every part is at most 400 lines.
+91 tickets have named REFRESH source-audit holds,
+covering 126 changed/missing starting-point ranges. Each hold records the
+old citation, old SHA, owner and completion rule; it rejects implementing from
+unverified historical locations, not the product design. These tickets are
+explicitly blocked and no unresolved range is claimed fixed by a tool heuristic.
 
-## Recovered preparation
+The E2 ready implementation subset has no unresolved GONE/LINES-CHANGED source
+range: the old store monolith and helper placements were replaced with current
+Requests/Persistence/Codec/Reducers owners and [five semantic spot checks](spot-checks.md).
+All other unresolved E2 starting-point ranges are attached to explicitly blocked
+tickets in [the E2 review list](reviews-E2.md).
 
-- [Current manifest paths](component-paths.md), measured from the target, without
-  asserting that conditional physical-package promotions have occurred.
-- [Prospective first-frontier admissions](admissions.md), measured from current
-  blobs rather than the historical release_lines column. These do not establish
-  complete implementation scope, predicted final sizes or admission.
-- Private draft restores the prior plan's RC-19–RC-22 closures, C9-T10–T14 and
-  synchronous delivery wording. First three E2 implementation candidates have
-  re-read code-owner starting points: Codec/Reducers/Persistence/Requests,
-  Config schema, and the serialized Revisions guard. Whole-ticket audits remain open.
+## Full-range evidence
 
-## Validation at this checkpoint
+The pre-edit C11-T01 report found 60 moves and 9086 citations: GONE 260,
+LINES-CHANGED 1136, LINES-SHIFTED 489, MOVED 65, OK 3008, UNRESOLVED 4128.
+It also emitted 16 migration rows and 665 candidate owner outcomes.
 
-- `python3 scripts/test_plan_refresh.py`: all 17 existing fixtures pass.
-- `python3 scripts/check-components.py`: passes with existing baselines;
-  all 2919 source files owned. No zero-violation claim.
-- `python3 scripts/check-components.py --docs`: docs references valid.
-- Locked TypeScript dependency installed with
-  `npm ci --prefix scripts/components --ignore-scripts` before component checks.
-- No production changes or new tests. No manual CLI/TUI acceptance applies here.
-- Earlier 102-edit/116-file draft and its checksum are historical and absent from
-  this recreated workspace. They are not claimed recovered or newly validated.
+Raw counts include proposed files, globs, directories, other repositories,
+non-ticket research and already-refreshed coordinates. They are not semantic
+failure counts. The original report parts concatenate byte-for-byte; each part
+is <=400 lines to preserve raw evidence within the file-size rule.
 
-## Remaining acceptance
+Same-range replay does not understand mixed coordinate baselines. The ready
+subset is checked directly at the target and its mechanical/semantic decisions
+are recorded separately; no all-OK full-pack replay claim is made.
 
-1. Confirm destination: original ticket specifies research-only with coordinator
-   commits; agent workflow specifies canonical branch and main PR. Keep the
-   source pack unpublished until that sequencing question is answered.
-2. Complete Procedure A across waves 2–5 and unfinished wave-1 tickets. Preserve
-   accepted owner refreshes; re-read changed/gone/split citations, add named
-   REFRESH items only for concretely invalidated designs, and retain old base_sha
-   unless every citation is verified. Update canonical and build-order mirrors.
-3. Complete RC-23 admissions for first-ready E2 work with actual edited tests,
-   new files, predicted final sizes and no-growth constraints.
-4. Finish all 16 migration rows with actual targets and merge receipts; finalize
-   component-map section 3; list relevant unmerged R2/R5/R6/R7 work without
-   blocking on unrelated R3/R4 work.
-5. Compare all cited contract states, run the post-edit report and manually inspect
-   five wave-2 citations. Only explicitly blocked tickets may retain unresolved
-   wave-2 GONE/LINES-CHANGED citations.
-6. Commit accepted report and edits together; coordinator signs off only when the
-   conditions are met. No ready PR or CI/review handoff is warranted by this checkpoint.
+## Contracts and migration
 
-## Raw report
+[All 14 contract metadata records](contracts.md) were compared with the adopted
+C11-T02 publication; [68 citing-ticket records](contract-consumers-01.md) identify
+owners' consumers. MP-R2's accepted events-and-replay refresh is preserved.
+This ticket changes no owner contract or product decision. Foreign corrections
+already listed in MP-R2 CONTRACT-REQUESTS stay with their named owners.
+
+Every migration PR-01…PR-16 row now gives actual paths and a merge or explicit
+non-move disposition. R7's accepted NO-GO keeps adapters in core; #3478/#3479
+remain blocked on promotion. R5 provider packaging #3456 remains unmerged.
+R6 anchors and the existing conversation facade are merged. Unrelated R3/R4
+work is not a blocker. No missing move SHA is fabricated.
+
+The prior production-readiness plan closes RC-19–RC-22, names C9-T10–T14,
+and distinguishes synchronous answer delivery from the decision.answered wake.
+Component-map section 3 updates Paths today from the actual manifest; other
+columns retain their explicitly labelled research design.
+
+## Validation
+
+- Existing plan-refresh fixture suite: 17 tests pass; no new tests or production code.
+- Component source checker: passes with existing allowed baselines; 2919 files owned.
+- Component docs-reference checker: passes.
+- Five wave-2 ranges were read for the named behavior at the refreshed SHA.
+- Ready-subset replay at the target: 18 citations, 13 OK, 5 UNRESOLVED proposed paths;
+  zero GONE or LINES-CHANGED. This is a coordinate check, not semantic proof.
+- All 389 canonical/build-order pairs match after resolving relative links; local links resolve.
+- Self-review corrected C1-T01 to select the request version before an answer exists.
+- A full post-edit replay attempt exited 137; mixed baselines remain represented by
+  the original full-range report, explicit holds and the scoped target check above.
+- All actual edited/new planning documents remain <=500 lines; raw shards are byte-preserving.
+- Final lint, structural, ready-subset replay, mirror/link checks and handoff-gate
+  evidence are recorded in the PR's Local tests section when run; no unrun pass is claimed here.
+
+## Owned source reviews
+
+- [reviews-E2](reviews-E2.md)
+- [reviews-E3](reviews-E3.md)
+- [reviews-E4](reviews-E4.md)
+- [reviews-E5](reviews-E5.md)
+- [reviews-E6](reviews-E6.md)
+- [reviews-E7](reviews-E7.md)
+- [reviews-N1](reviews-N1.md)
+- [reviews-N2](reviews-N2.md)
+- [reviews-N3](reviews-N3.md)
+- [reviews-N4](reviews-N4.md)
+- [reviews-N5](reviews-N5.md)
+- [reviews-N7](reviews-N7.md)
+
+## Raw C11-T01 report
 
 - [Part 1](raw-01.md)
 - [Part 2](raw-02.md)
