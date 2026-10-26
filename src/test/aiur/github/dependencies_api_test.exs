@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.DependenciesApiTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{DependenciesApi, ResourceStore}
+  alias Aiur.GitHub.{Access, DependenciesApi, ResourceStore}
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @dependencies_api_version "2026-03-10"
@@ -50,7 +50,7 @@ defmodule Aiur.GitHub.DependenciesApiTest do
       blockers = [%{"number" => 2}]
 
       request_fun = fn %{method: :get, url: url, api_version: api_version} ->
-        assert url =~ "/issues/5/dependencies/blocked_by"
+        assert url =~ "/issues/5/dependencies/blocked_by?per_page=100"
         assert api_version == @dependencies_api_version
         {:ok, %{status: 200, body: blockers}}
       end
@@ -61,7 +61,7 @@ defmodule Aiur.GitHub.DependenciesApiTest do
     test "follows later pages before returning the complete blocker list" do
       first = [%{"id" => 1, "number" => 2}]
       second = [%{"id" => 3, "number" => 4}]
-      next_url = "https://api.github.com/repos/owner/repo/issues/5/dependencies/blocked_by?per_page=30&page=2"
+      next_url = "https://api.github.com/repos/owner/repo/issues/5/dependencies/blocked_by?per_page=100&page=2"
 
       request_fun = fn %{url: url} ->
         if String.contains?(url, "page=2"),
@@ -72,6 +72,50 @@ defmodule Aiur.GitHub.DependenciesApiTest do
       expected = first ++ second
       assert {:ok, ^expected} = DependenciesApi.fetch_blocked_by(5, request_fun: request_fun, revalidate: true)
     end
+
+    test "replaces a cached page-one list with the complete unvalidated list" do
+      key = ResourceStore.key(:issue_blocked_by, "owner", "repo", 5)
+      first = Enum.map(1..100, &%{"id" => &1, "number" => &1})
+      second = [%{"id" => 101, "number" => 101}]
+      ResourceStore.put_resource(key, Enum.take(first, 30), source: :fetch, etag: "truncated")
+
+      request_fun = fn %{url: url} ->
+        if String.contains?(url, "page=2"),
+          do: {:ok, %{status: 200, body: second}},
+          else:
+            {:ok,
+             %{
+               status: 200,
+               body: first,
+               headers: [{"link", "<https://api.github.com/repos/owner/repo/issues/5/dependencies/blocked_by?per_page=100&page=2>; rel=\"next\""}]
+             }}
+      end
+
+      expected = first ++ second
+      assert {:ok, ^expected} = DependenciesApi.fetch_blocked_by(5, request_fun: request_fun, revalidate: true)
+      assert ResourceStore.data(key) == expected
+      assert is_nil(Access.etag(key))
+    end
+
+    test "fails closed when dependency pagination exceeds the page cap" do
+      Process.put({__MODULE__, :page_requests}, 0)
+
+      request_fun = fn %{url: url} ->
+        page =
+          case Regex.run(~r/[?&]page=(\d+)/, url) do
+            [_, number] -> String.to_integer(number)
+            nil -> 1
+          end
+
+        Process.put({__MODULE__, :page_requests}, Process.get({__MODULE__, :page_requests}) + 1)
+        next_url = "https://api.github.com/repos/owner/repo/issues/3/dependencies/blocking?per_page=100&page=#{page + 1}"
+        {:ok, %{status: 200, body: [%{"number" => page}], headers: [{"link", "<#{next_url}>; rel=\"next\""}]}}
+      end
+
+      assert {:error, :dependency_page_limit_exceeded} = DependenciesApi.fetch_blocking(3, request_fun: request_fun)
+      assert Process.get({__MODULE__, :page_requests}) == 10
+      Process.delete({__MODULE__, :page_requests})
+    end
   end
 
   describe "fetch_blocking/2" do
@@ -79,7 +123,7 @@ defmodule Aiur.GitHub.DependenciesApiTest do
       blocking = [%{"number" => 10}]
 
       request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "/issues/3/dependencies/blocking"
+        assert url =~ "/issues/3/dependencies/blocking?per_page=100"
         {:ok, %{status: 200, body: blocking}}
       end
 
@@ -89,7 +133,7 @@ defmodule Aiur.GitHub.DependenciesApiTest do
     test "follows later pages for cycle traversal" do
       first = [%{"number" => 10}]
       second = [%{"number" => 11}]
-      next_url = "https://api.github.com/repos/owner/repo/issues/3/dependencies/blocking?per_page=30&page=2"
+      next_url = "https://api.github.com/repos/owner/repo/issues/3/dependencies/blocking?per_page=100&page=2"
 
       request_fun = fn %{url: url} ->
         if String.contains?(url, "page=2"),

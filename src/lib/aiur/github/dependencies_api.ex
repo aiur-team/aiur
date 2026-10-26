@@ -14,6 +14,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   # `2022-11-28` since the issue/comment surfaces they hit are stable.
 
   @dependencies_api_version "2026-03-10"
+  @max_dependency_pages 10
 
   @doc """
   Fetches the issues `issue_number` is currently blocked by, using the
@@ -67,9 +68,9 @@ defmodule Aiur.GitHub.DependenciesApi do
       request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       url =
-        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}"
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/#{kind}?per_page=100"
 
-      fetch_dependency_pages(request_fun, token, url, [])
+      fetch_dependency_pages(request_fun, token, url, [], 0)
     end
   end
 
@@ -89,7 +90,7 @@ defmodule Aiur.GitHub.DependenciesApi do
          {:ok, token} <- Access.require_token() do
       key = Access.key(:issue_blocked_by, owner, repo, issue_number)
       request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
-      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/blocked_by"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/blocked_by?per_page=100"
       blocked_by_serve(key, request_fun, token, url, opts)
     end
   end
@@ -157,7 +158,15 @@ defmodule Aiur.GitHub.DependenciesApi do
   defp blocked_by_success(key, request_fun, token, etag, body, response) do
     next = Access.parse_next_page_url(Map.get(response, :headers, []))
 
-    with {:ok, complete_body} <- fetch_dependency_pages(request_fun, token, next, body) do
+    # A prior build may have cached only page one. Remove that body and validator
+    # before following pagination so failures cannot leave a truncated list to
+    # be served by a later reader.
+    if next do
+      Access.drop_data(key)
+      Access.drop_etag(key)
+    end
+
+    with {:ok, complete_body} <- fetch_dependency_pages(request_fun, token, next, body, 1) do
       cache_blocked_by(key, next, complete_body, response, etag)
       {:ok, complete_body}
     end
@@ -168,17 +177,25 @@ defmodule Aiur.GitHub.DependenciesApi do
     Access.deposit_unless_older(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
   end
 
+  defp cache_blocked_by(key, next, body, _response, _etag) when not is_nil(key) and is_binary(next) do
+    Access.deposit_unless_older(key, body, source: :fetch, etag: nil, version: blocked_by_version(body))
+  end
+
   defp cache_blocked_by(_key, _next, _body, _response, _etag), do: :ok
 
-  defp fetch_dependency_pages(_request_fun, _token, nil, acc), do: {:ok, acc}
+  defp fetch_dependency_pages(_request_fun, _token, nil, acc, _pages_fetched), do: {:ok, acc}
 
-  defp fetch_dependency_pages(request_fun, token, url, acc) do
+  defp fetch_dependency_pages(_request_fun, _token, _url, _acc, pages_fetched)
+       when pages_fetched >= @max_dependency_pages,
+       do: {:error, :dependency_page_limit_exceeded}
+
+  defp fetch_dependency_pages(request_fun, token, url, acc, pages_fetched) do
     request = %{method: :get, url: url, token: token, api_version: @dependencies_api_version}
 
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         next = Access.parse_next_page_url(Map.get(response, :headers, []))
-        fetch_dependency_pages(request_fun, token, next, acc ++ body)
+        fetch_dependency_pages(request_fun, token, next, acc ++ body, pages_fetched + 1)
 
       {:ok, %{status: _status} = response} ->
         {:error, Access.github_status_error(response)}
