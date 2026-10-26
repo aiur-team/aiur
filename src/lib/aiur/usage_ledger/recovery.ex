@@ -2,7 +2,7 @@ defmodule Aiur.UsageLedger.Recovery do
   @moduledoc false
 
   alias Aiur.{Config, Fs, Journal}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, RetiredFloor, RetiredKeys}
+  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, RetiredFloor, RetiredRecovery}
 
   @default_limits %{
     max_record_bytes: 32_768,
@@ -102,13 +102,11 @@ defmodule Aiur.UsageLedger.Recovery do
       segment_health != :healthy ->
         %{unavailable_state(:retired_segment_unhealthy, persistence) | retired_through: floor}
 
-      not contiguous_tail?(retained, floor, checkpoint.position) ->
+      not RetiredRecovery.valid_tail?(retained, floor, checkpoint.position) ->
         %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
 
       true ->
-        with {:ok, retired_keys} <- RetiredKeys.load(paths.retired_keys_path),
-             checkpoint_policy = %{checkpoint.policy | idempotency: MapSet.union(checkpoint.policy.idempotency, retired_keys)},
-             {:ok, policy, position} <- replay_retired_tail(checkpoint_policy, checkpoint.position, retained) do
+        with {:ok, policy, position} <- RetiredRecovery.replay_tail(checkpoint.policy, checkpoint.position, retained, paths.retired_keys_path) do
           %{
             paths: paths,
             records: retained,
@@ -126,29 +124,6 @@ defmodule Aiur.UsageLedger.Recovery do
           {:error, _reason} -> %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
         end
     end
-  end
-
-  defp contiguous_tail?(records, floor, position) do
-    expected_last =
-      case List.last(records) do
-        nil -> position
-        record -> record.position
-      end
-
-    expected = if expected_last > floor, do: Enum.to_list((floor + 1)..expected_last), else: []
-    Enum.map(records, & &1.position) == expected and expected_last >= position
-  end
-
-  defp replay_retired_tail(policy, checkpoint_position, records) do
-    records
-    |> Enum.filter(&(&1.position > checkpoint_position))
-    |> Enum.reduce_while({:ok, policy, checkpoint_position}, fn record, {:ok, current, position} ->
-      if record.position == position + 1 do
-        replay_record(record, current, position)
-      else
-        {:halt, {:error, :invalid_positions}}
-      end
-    end)
   end
 
   defp replay(path, limits, tail_status) do
