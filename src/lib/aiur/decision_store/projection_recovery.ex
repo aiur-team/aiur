@@ -46,11 +46,27 @@ defmodule Aiur.DecisionStore.ProjectionRecovery do
     prior = Map.get(current, event.decision_id)
     decision = DecisionProjection.reduce(List.wrap(prior) ++ [event]).current[event.decision_id]
     withheld? = MapSet.member?(ids, event.event_id)
+    pending = attribute_pending_request(pending, decision, event)
     pending = if withheld?, do: [{decision, event} | pending], else: pending
     {Map.put(current, event.decision_id, decision), pending}
   end
 
   defp replay_record(_unknown, acc, _ids), do: acc
+
+  # A crash between the two appends and projection repair must still publish
+  # the requested notification with its subsequently replayed attribution.
+  defp attribute_pending_request(pending, decision, %DecisionEvent{type: :request_attributed}) do
+    Enum.map(pending, fn
+      {%Decision{decision_id: id, version: version}, %DecisionEvent{type: :requested} = request}
+      when id == decision.decision_id and version == decision.version ->
+        {decision, request}
+
+      other ->
+        other
+    end)
+  end
+
+  defp attribute_pending_request(pending, _decision, _event), do: pending
 
   defp last_id(records) do
     Enum.reduce(records, nil, fn record, id -> Map.get(record, :event_id, id) end)

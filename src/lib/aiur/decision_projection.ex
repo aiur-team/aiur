@@ -10,6 +10,7 @@ defmodule Aiur.DecisionProjection do
   returns the usable prefix plus its exact corrupt line.
   """
 
+  alias Aiur.Commands.Projection, as: CommandProjection
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionProjection.Reducers
@@ -216,7 +217,8 @@ defmodule Aiur.DecisionProjection do
     with {:ok, current} <- fetch_current(projection, event.decision_id),
          :ok <- require_enrichment_version(current, event),
          :ok <- require_enrichment_base(current, data.decision) do
-      apply_request(projection, data.decision, event)
+      candidate = CommandProjection.inherit_attributes(current, data.decision)
+      apply_request(projection, candidate, event)
     end
   end
 
