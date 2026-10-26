@@ -1,7 +1,8 @@
 defmodule Aiur.Config.Schema.Decisions do
   @moduledoc false
 
-  use Aiur.Config.Schema.EmbeddedSchema, ["decisions_escalation.ex"]
+  @external_resource Path.join(__DIR__, "decisions_escalation.ex")
+  use Ecto.Schema
 
   import Ecto.Changeset
 
