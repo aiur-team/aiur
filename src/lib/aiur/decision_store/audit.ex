@@ -3,6 +3,8 @@ defmodule Aiur.DecisionStore.Audit do
 
   require Logger
 
+  alias Aiur.Commands.Requester
+  alias Aiur.Commands.Topics
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionEvent
@@ -10,7 +12,7 @@ defmodule Aiur.DecisionStore.Audit do
   alias Aiur.DecisionPubSub
   alias Aiur.DecisionRevision
   alias Aiur.DecisionStore.Answers
-  alias Aiur.Events
+  alias Aiur.ExecutorEvents.Requested
 
   @recent_audit_limit 50
   @system_follow_up_actor %{kind: :system, id: "decision-store"}
@@ -23,16 +25,18 @@ defmodule Aiur.DecisionStore.Audit do
 
   @spec notify(term(), term(), term()) :: term()
   def notify(decision, event_id, state) do
-    topic = "ticket.#{decision.ticket.identifier}.agent.decision.requested"
-    payload = DecisionProjection.to_json_safe(decision)
+    payload = if Requester.executor?(decision), do: Requested.payload(decision), else: DecisionProjection.to_json_safe(decision)
 
     try do
-      Events.publish_persisted(topic, payload, event_id, digest_source: :orchestrator)
+      case Topics.publish(decision, "requested", payload, event_id) do
+        {:error, _reason} -> schedule_executor_request_retry(decision, state, 0)
+        _published -> :ok
+      end
     rescue
       error -> Logger.warning("aiur_decision_store phase=notify_publisher_failed error=#{Exception.message(error)}")
     end
 
-    notify_requested_executor(decision, state, :executor_request_publisher)
+    unless Requester.executor?(decision), do: notify_requested_executor(decision, state, :executor_request_publisher)
 
     try do
       DecisionPubSub.broadcast_changed(decision.decision_id, decision.version)
