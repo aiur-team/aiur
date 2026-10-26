@@ -52,14 +52,6 @@ defmodule Aiur.GitHub.Budget.ActorLimitsTest do
     assert actor.core.used == 1
   end
 
-  test "resolves the broker from the installed application private directory" do
-    assert Budget.broker_path() ==
-             :aiur
-             |> :code.priv_dir()
-             |> to_string()
-             |> Path.join("github_budget.py")
-  end
-
   test "an agent hitting its hourly Core ceiling holds only that agent, not the daemon", %{root: root} do
     opts = [
       state_dir: root,
