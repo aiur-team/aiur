@@ -34,6 +34,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.config.reload_rejected", "config"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/commands/request_attributes.ex
+    {"system.decision.attributes.append_failed", "commands"},
     # aiur/decision_dispatch_tasks/saturation.ex
     {"system.decision_dispatch.saturated", "commands"},
     # aiur/decision_dispatch_tasks/saturation.ex
