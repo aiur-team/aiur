@@ -3,7 +3,9 @@
   "name": "Agent listener modes",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/listener/effective.ex"
+  ],
   "facades": [
     "*"
   ],
