@@ -243,6 +243,11 @@ defmodule AiurWeb.DashboardLive.AddAgentTest do
     refute render(view) =~ "Waiting for an agent to start"
   end
 
+  # A pinned tag expires with its version. When the routing table names a family
+  # alias the modal has to open on the alias, not on the concrete version it happens
+  # to resolve to today, or confirming strands the ticket on that version while every
+  # untouched ticket follows the alias forward.
+
   test "the add-agent modal opens on a routed family alias rather than the version it resolves to" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), agent_routing: %{3 => "codex:sol"})
 

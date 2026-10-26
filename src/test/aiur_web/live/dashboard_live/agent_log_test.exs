@@ -52,6 +52,10 @@ defmodule AiurWeb.DashboardLive.AgentLogTest do
     assert_receive {:typed_agent_pause, ^identity}, 1000
   end
 
+  # #2717. A Send press is one message. When the outcome is unknown, pressing
+  # Send again with the same draft retries it under the same message id. After
+  # a success, the same text is a new message with a new id.
+
   test "Agent log send keeps its message id for a retry after an unknown outcome" do
     identity = units_identity()
     membership = units_membership(identity)

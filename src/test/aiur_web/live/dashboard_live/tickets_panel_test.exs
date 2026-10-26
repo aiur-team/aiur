@@ -207,6 +207,11 @@ defmodule AiurWeb.DashboardLive.TicketsPanelTest do
     assert restored =~ ~s(<span class="rs-group-count">3 tickets</span>)
   end
 
+  # The two features have to compose: a filter that only saw the revealed batch
+  # would report a ticket as absent when it is merely still hidden, and a reveal
+  # control counting the whole backlog would offer to reveal rows the query
+  # excluded.
+
   test "the Tickets panel search reaches unrevealed tickets and the reveal control counts the matches" do
     identity = units_identity()
     orchestrator_name = Module.concat(__MODULE__, :TicketsSearchRevealOrchestrator)
