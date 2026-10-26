@@ -18,25 +18,27 @@ defmodule Aiur.Events.CatalogLookupTest do
     caller = self()
 
     worker =
-      spawn(fn ->
-        receive do
-          :lookup ->
-            results = Enum.map(["ticket.42.agent.decision.answered", "foo.bar"], &Catalog.lookup/1)
-            send(caller, {:lookups, self(), results, Entries.entries()})
+      start_supervised!(
+        {Task,
+         fn ->
+           receive do
+             :lookup ->
+               results = Enum.map(["ticket.42.agent.decision.answered", "foo.bar"], &Catalog.lookup/1)
+               send(caller, {:lookups, self(), results, Entries.entries()})
 
-            receive do
-              :stop -> :ok
-            after
-              5_000 -> :ok
-            end
-        after
-          5_000 -> :ok
-        end
-      end)
+               receive do
+                 :stop -> :ok
+               after
+                 5_000 -> :ok
+               end
+           after
+             5_000 -> :ok
+           end
+         end}
+      )
 
     on_exit(fn ->
       for pattern <- @runtime_work, do: :erlang.trace_pattern(pattern, false, [:local])
-      if Process.alive?(worker), do: Process.exit(worker, :kill)
     end)
 
     :erlang.trace(worker, true, [:call])
