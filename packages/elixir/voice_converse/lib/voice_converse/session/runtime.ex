@@ -1,7 +1,7 @@
 defmodule VoiceConverse.Session.Runtime do
   @moduledoc false
 
-  alias VoiceConverse.{Events, TranscriptStore}
+  alias VoiceConverse.{Events, Tools, TranscriptStore}
 
   def open(session, state, phase) do
     provider = state.provider
@@ -92,8 +92,8 @@ defmodule VoiceConverse.Session.Runtime do
       credentials: {config.credentials, provider_id},
       system_prompt: "",
       first_message: nil,
-      context: transcript_tail(state),
-      tools: [],
+      context: context(state),
+      tools: Tools.specs(config, state.target),
       audio_in: :pcm_16000,
       audio_out: :pcm_16000,
       llm: config.llm,
@@ -113,6 +113,9 @@ defmodule VoiceConverse.Session.Runtime do
       _ -> ""
     end
   end
+
+  defp context(%{reconnects: 0, context: context}), do: context
+  defp context(state), do: transcript_tail(state)
 
   defp provider_code(:provider_quota), do: :provider_quota
   defp provider_code(code) when code in [:provider_auth, :provider_unavailable, :privacy_preflight_failed], do: code

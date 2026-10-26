@@ -31,5 +31,8 @@
     {"argv": ["executor-roster"], "expression": "Aiur.AgentControlCLI.executor_roster(json: false)"},
     {"argv": ["executor-session"], "expression": "Aiur.HarnessSessionCLI.rpc(json: false)"},
     {"argv": ["message", "--status", "1"], "expression": "Aiur.AgentControlCLI.message_status(1)"}
+  ],
+  "remote_write_commands": [
+    {"argv": ["executor-wait-fixture"], "expression": "Aiur.AgentControlCLI.executor_wait(timeout_ms: 300000, json: true, defer_ack: true, ack_through: 44, as: \"fleet\")"}
   ]
 }

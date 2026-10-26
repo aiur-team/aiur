@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "directory_published": false,
+  "directory_published": true,
   "ports": [
     {
       "from": "orchestration",

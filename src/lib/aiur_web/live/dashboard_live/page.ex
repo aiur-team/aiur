@@ -74,6 +74,7 @@ defmodule AiurWeb.DashboardLive.Page do
       |> Map.put_new(:usage_summary_announcement, nil)
       |> Map.put_new(:usage_summary_drill, nil)
       |> Map.put_new(:usage_summary_drill_trigger, nil)
+      |> Map.put_new(:netlify_dashboard, nil)
       |> then(
         &Map.put_new(
           &1,
@@ -165,6 +166,7 @@ defmodule AiurWeb.DashboardLive.Page do
           meters={@provider_meters_view}
           github_quota={@github_quota}
           elevenlabs_quota={@elevenlabs_quota}
+          netlify_dashboard={@netlify_dashboard}
           now={@now}
         />
 

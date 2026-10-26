@@ -182,6 +182,15 @@ observer. Registration never acknowledges wakes or advances the shared cursor;
 only `executor-wait` does that. If you are acting as the Executor, launch with
 `--executor`; there is no valid Executor launch without it.
 
+For a multi-instance fleet, run one Executor from one machine. Stop the
+per-machine Executors, then use `aiur --instance all executor-wait --as
+<executor-id> --json` in its loop. The CLI waits on every registered instance
+and returns records as soon as one instance has wakes; each instance has its
+own deferred-ack cursor, so a retry after interruption redelivers uncommitted
+wakes. Handle any records printed even when an unreachable instance makes the
+command exit nonzero. Use `--instance <name>` to wait on one remote instance.
+Remote waits require an explicit `--as` identity and cap `--timeout` at 600 seconds.
+
 Include `--debug` only when authorized. It controls evidence capture and never
 authorizes filing or commenting on an issue; those mutations require separately
 recorded authority. Do not combine the separate `--todo` command with launch

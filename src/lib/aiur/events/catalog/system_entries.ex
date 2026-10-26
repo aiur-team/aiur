@@ -98,6 +98,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.instance.ownership_unknown.resolved", "config"},
     # aiur/landing_watch.ex
     {"system.main.ci.failed.resolved", "orchestration"},
+    # aiur/usage/alerts.ex
+    {"system.netlify.credits_low", "executor-attention"},
+    # aiur/usage/alerts.ex
+    {"system.netlify.credits_low.resolved", "executor-attention"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
     # aiur/landing_watch/pr_rerun.ex

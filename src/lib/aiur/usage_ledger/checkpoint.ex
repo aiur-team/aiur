@@ -9,13 +9,17 @@ defmodule Aiur.UsageLedger.Checkpoint do
   @default_max_bytes 1_048_576
 
   @spec record(non_neg_integer(), non_neg_integer(), CounterPolicy.state()) :: map()
-  def record(position, generation, %CounterPolicy{} = policy)
+  @spec record(non_neg_integer(), non_neg_integer(), CounterPolicy.state(), keyword()) :: map()
+  def record(position, generation, %CounterPolicy{} = policy, opts \\ [])
       when is_integer(position) and position >= 0 and is_integer(generation) and generation >= 0 do
     payload = %{
       "version" => @version,
       "position" => position,
       "generation" => generation,
-      "policy" => CounterPolicy.dump(policy)
+      "policy" =>
+        CounterPolicy.checkpoint_dump(policy,
+          idempotency_limit: if(Keyword.get(opts, :compact_idempotency?, true), do: 128, else: :all)
+        )
     }
 
     Map.put(payload, "checksum", checksum(payload))
