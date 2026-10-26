@@ -186,7 +186,11 @@ sys.exit(result.returncode)
         dirname = helpers / 'dirname'
         dirname.write_text('#!/bin/sh\nenv > "$SIBLING_ENV"\nexec /usr/bin/dirname "$@"\n')
         dirname.chmod(0o755)
+        shasum = helpers / 'shasum'
+        shasum.write_text('#!/bin/sh\nenv >> "$SIBLING_ENV"\nexec /usr/bin/shasum "$@"\n')
+        shasum.chmod(0o755)
         env = {'GH_TOKEN': 'caller-secret', 'GITHUB_TOKEN': 'other-secret',
+               'guard_token': 'inherited', 'budget_token': 'inherited',
                'PATH': str(helpers) + ':' + self.env['PATH'], 'SIBLING_ENV': str(self.root / 'sibling')}
         result = self.run_gh('api', 'repos/o/r/issues/3', env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -194,7 +198,7 @@ sys.exit(result.returncode)
         self.assertNotIn('secret', (self.root / 'sibling').read_text())
         credential = self.root / 'credential'
         credential.write_text('file-secret\n')
-        result = self.run_gh('api', 'repos/o/r/issues/4', env=env | {'AIUR_GITHUB_CREDENTIAL_FILE': str(credential)})
+        result = self.run_gh('api', 'repos/o/r/issues/4', env=env | {'AIUR_GITHUB_CREDENTIAL_FILE': str(credential), 'AIUR_GITHUB_BUDGET_KEY': ''})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.requests()[-1]['token'], 'file-secret')
         self.assertNotIn('secret', (self.root / 'sibling').read_text())
