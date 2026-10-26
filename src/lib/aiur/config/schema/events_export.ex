@@ -4,6 +4,8 @@ defmodule Aiur.Config.Schema.EventsExport do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.WebhookDestination
+
   @primary_key false
   @type t :: %__MODULE__{}
 
@@ -11,6 +13,9 @@ defmodule Aiur.Config.Schema.EventsExport do
     # @config-reference config-configuration-11 events.export.enabled
     # @config-detail events.export.enabled | boolean | false | Enables the external event journal and configured webhook delivery; restart to apply. |
     field(:enabled, :boolean, default: false)
+    # @config-reference config-configuration-11 events.export.allow_private_destinations
+    # @config-detail events.export.allow_private_destinations | boolean | false | Allows loopback, private, link-local, CGNAT and ULA webhook destinations. |
+    field(:allow_private_destinations, :boolean, default: false)
     # @config-reference config-configuration-11 events.export.webhook_url
     # @config-detail events.export.webhook_url | string | nil | HTTPS endpoint receiving outbound event POSTs. |
     field(:webhook_url, :string)
@@ -21,7 +26,7 @@ defmodule Aiur.Config.Schema.EventsExport do
     # @config-detail events.export.max_pending_events | integer | 10000 | Maximum admitted events waiting for acknowledgement. |
     field(:max_pending_events, :integer, default: 10_000)
     # @config-reference config-configuration-11 events.export.retry_ms
-    # @config-detail events.export.retry_ms | integer | 5000 | Delay before retrying a failed delivery. |
+    # @config-detail events.export.retry_ms | integer | 5000 | Initial delay for capped exponential delivery retries. |
     field(:retry_ms, :integer, default: 5_000)
     # @config-reference config-configuration-11 events.export.request_timeout_ms
     # @config-detail events.export.request_timeout_ms | integer | 15000 | Per-attempt webhook request timeout. |
@@ -39,7 +44,17 @@ defmodule Aiur.Config.Schema.EventsExport do
     schema
     |> cast(
       attrs,
-      [:enabled, :webhook_url, :subject_id, :max_pending_events, :retry_ms, :request_timeout_ms, :retention_days, :retention_max_events],
+      [
+        :enabled,
+        :allow_private_destinations,
+        :webhook_url,
+        :subject_id,
+        :max_pending_events,
+        :retry_ms,
+        :request_timeout_ms,
+        :retention_days,
+        :retention_max_events
+      ],
       empty_values: []
     )
     |> validate_required([:enabled, :retention_days, :retention_max_events])
@@ -48,7 +63,7 @@ defmodule Aiur.Config.Schema.EventsExport do
     |> validate_number(:max_pending_events, greater_than: 0)
     |> validate_number(:retry_ms, greater_than: 0)
     |> validate_number(:request_timeout_ms, greater_than: 0)
-    |> validate_change(:webhook_url, &validate_webhook_url/2)
+    |> validate_webhook_url()
     |> validate_change(:subject_id, &validate_subject_id/2)
     |> require_url_when_enabled()
   end
@@ -57,17 +72,18 @@ defmodule Aiur.Config.Schema.EventsExport do
     if get_field(changeset, :enabled), do: validate_required(changeset, [:webhook_url]), else: changeset
   end
 
-  defp validate_webhook_url(:webhook_url, value) when is_binary(value) do
-    case URI.new(value) do
-      {:ok, %URI{scheme: "https", host: host, userinfo: nil, fragment: nil}} when is_binary(host) and host != "" ->
-        []
+  defp validate_webhook_url(changeset) do
+    case get_field(changeset, :webhook_url) do
+      nil ->
+        changeset
 
-      _other ->
-        [webhook_url: "must be an HTTPS URL with a host and without userinfo or a fragment"]
+      value ->
+        case WebhookDestination.validate_url(value, get_field(changeset, :allow_private_destinations) == true) do
+          :ok -> changeset
+          {:error, message} -> add_error(changeset, :webhook_url, message)
+        end
     end
   end
-
-  defp validate_webhook_url(:webhook_url, _value), do: [webhook_url: "must be an HTTPS URL"]
 
   defp validate_subject_id(:subject_id, value) when is_binary(value) do
     if String.match?(value, ~r/\A[A-Za-z0-9._:-]+\z/),

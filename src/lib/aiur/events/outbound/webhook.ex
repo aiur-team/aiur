@@ -6,14 +6,19 @@ defmodule Aiur.Events.Outbound.Webhook do
 
   require Logger
 
+  alias Aiur.Config.WebhookDestination
+
   @spec new!(keyword()) :: map()
   def new!(opts) do
     %{
       url: Keyword.fetch!(opts, :url),
       signing_key: opts |> Keyword.fetch!(:secret) |> decode_secret!(),
       subject_id: Keyword.get(opts, :subject_id),
+      allow_private_destinations: Keyword.get(opts, :allow_private_destinations, false),
       request_timeout_ms: Keyword.fetch!(opts, :request_timeout_ms),
       request_fun: Keyword.get(opts, :request_fun, &Req.post/1),
+      resolve_fun: Keyword.get(opts, :resolve_fun, &WebhookDestination.resolve/2),
+      alert_fun: Keyword.get(opts, :alert_fun, &ignore_alert/2),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)
     }
   end
@@ -53,26 +58,27 @@ defmodule Aiur.Events.Outbound.Webhook do
     timestamp = state.clock.() |> DateTime.to_unix() |> Integer.to_string()
     signature = signature(state.signing_key, event_id, String.to_integer(timestamp), body)
 
-    request = [
-      url: state.url,
-      body: body,
-      headers: [
-        {"content-type", "application/json"},
-        {"webhook-id", event_id},
-        {"webhook-timestamp", timestamp},
-        {"webhook-signature", signature}
-      ],
-      receive_timeout: state.request_timeout_ms,
-      connect_options: [timeout: state.request_timeout_ms],
-      retry: false,
-      redirect: false
-    ]
+    case state.resolve_fun.(state.url, state.allow_private_destinations) do
+      {:ok, pinned_url, hostname} ->
+        request = [
+          url: pinned_url,
+          body: body,
+          headers: [
+            {"content-type", "application/json"},
+            {"webhook-id", event_id},
+            {"webhook-timestamp", timestamp},
+            {"webhook-signature", signature}
+          ],
+          receive_timeout: state.request_timeout_ms,
+          connect_options: [timeout: state.request_timeout_ms, hostname: hostname],
+          retry: false,
+          redirect: false
+        ]
 
-    case state.request_fun.(request) do
-      {:ok, %Req.Response{status: status}} when status in 200..299 -> {:ok, state}
-      {:ok, %Req.Response{status: status}} -> {:error, {:http_status, status}}
-      {:error, _reason} -> {:error, :request_failed}
-      _other -> {:error, :invalid_transport_result}
+        handle_response(state.request_fun.(request), event_id, state)
+
+      {:error, _reason} ->
+        {:error, :destination_unavailable}
     end
   rescue
     _error -> {:error, :request_failed}
@@ -84,6 +90,41 @@ defmodule Aiur.Events.Outbound.Webhook do
 
   defp subscribed?(event, subject_id) do
     event["ticket_id"] == subject_id or event["job_id"] == subject_id
+  end
+
+  defp handle_response({:ok, %Req.Response{status: status}}, _event_id, state) when status in 200..299,
+    do: {:ok, state}
+
+  defp handle_response({:ok, %Req.Response{status: status}}, _event_id, _state) when status in [408, 429],
+    do: {:error, {:http_status, status}}
+
+  defp handle_response({:ok, %Req.Response{status: status}}, event_id, state) when status in 400..499 do
+    alert_permanent_failure(state.alert_fun, status, event_id)
+    {:discard, {:http_status, status}, state}
+  end
+
+  defp handle_response({:ok, %Req.Response{status: status}}, _event_id, _state),
+    do: {:error, {:http_status, status}}
+
+  defp handle_response({:error, _reason}, _event_id, _state), do: {:error, :request_failed}
+  defp handle_response(_other, _event_id, _state), do: {:error, :invalid_transport_result}
+
+  defp alert_permanent_failure(alert_fun, status, event_id) do
+    message = "Outbound webhook event #{event_id} was discarded after permanent HTTP #{status}."
+
+    _ =
+      alert_fun.("system.outbound_events.delivery.permanent_failure",
+        message: message,
+        reason: message,
+        needs_attention: true,
+        severity: "warning"
+      )
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp signature(key, webhook_id, timestamp, body) do
@@ -100,4 +141,6 @@ defmodule Aiur.Events.Outbound.Webhook do
   end
 
   defp decode_secret!(_secret), do: raise(ArgumentError, "outbound webhook secret must use the whsec_ prefix")
+
+  defp ignore_alert(_topic, _opts), do: :ok
 end

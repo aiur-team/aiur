@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import {
   DuplicateWebhookError,
@@ -15,6 +18,19 @@ const headers = {
   'webhook-timestamp': String(timestamp),
   'webhook-signature': 'v1,x6NtCsb4O8VSnXhPaKG1+9ahN6zNY6uuuZidWBVLbDA=',
 };
+
+test('pinned verifier uses constant-time comparison and a bounded five-minute window', () => {
+  const require = createRequire(import.meta.url);
+  const verifierPath = require.resolve('standardwebhooks');
+  const verifierSource = readFileSync(verifierPath, 'utf8');
+  const comparisonSource = readFileSync(join(dirname(verifierPath), 'timing_safe_equal.js'), 'utf8');
+
+  assert.match(verifierSource, /WEBHOOK_TOLERANCE_IN_SECONDS = 5 \* 60/);
+  assert.match(verifierSource, /now - timestamp > WEBHOOK_TOLERANCE_IN_SECONDS/);
+  assert.match(verifierSource, /timestamp > now \+ WEBHOOK_TOLERANCE_IN_SECONDS/);
+  assert.match(verifierSource, /timingSafeEqual\)\(encoder\.encode\(signature\), encoder\.encode\(expectedSignature\)\)/);
+  assert.match(comparisonSource, /out \|= a\.getUint8\(i\) \^ b\.getUint8\(i\)/);
+});
 
 test('receiver accepts the cross-language signature vector once', (context) => {
   context.mock.method(Date, 'now', () => timestamp * 1_000);

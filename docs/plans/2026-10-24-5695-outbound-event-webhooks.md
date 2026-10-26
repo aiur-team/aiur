@@ -32,7 +32,7 @@ The consumer can subscribe globally or narrow the configured subscription to one
 - A1. The Aiur operator configures an outbound endpoint, a host-held signing secret, and an optional subject identifier.
 - A2. The external TypeScript consumer installs the independently packed `@aiur/contracts` package plus the Standard Webhooks verifier, verifies the raw request body before parsing it, validates or types the event, and deduplicates by event ID.
 - F1. A lifecycle, progress, usage, spend-cap, or cancel-result producer commits its owning state and publishes a bounded internal event; the exporter normalizes and journals the external event before webhook delivery.
-- F2. A failed or non-2xx request retains the delivery cursor and retries the same event; a successful 2xx response advances the cursor.
+- F2. A transport failure, timeout, 408, 429, or 5xx response retains the delivery cursor and retries the same event with capped exponential backoff and jitter. A 2xx response advances the cursor; any other 4xx response raises an operator attention and advances past that permanent failure.
 - F3. A configured subject filter advances past non-matching events without sending them and sends matching events whose ticket or job identifier equals the filter.
 
 ### Requirements
@@ -42,7 +42,7 @@ The consumer can subscribe globally or narrow the configured subscription to one
 - R1. An enabled outbound subscription delivers events through HTTP POST without requiring the consumer to poll an Aiur endpoint.
 - R2. Every delivery uses the Standard Webhooks symmetric signature shape: `webhook-id`, `webhook-timestamp`, and `webhook-signature`, with HMAC-SHA256 over the exact `id.timestamp.raw_body` bytes.
 - R3. The TypeScript receiver rejects missing or malformed headers, a non-matching signature, timestamps outside a five-minute past-or-future tolerance, and a duplicate `webhook-id` before returning parsed data.
-- R4. Delivery is at least once after journal admission: a non-2xx response, transport failure, or timeout does not advance the durable cursor, while a 2xx response does.
+- R4. Delivery is at least once for retryable outcomes after journal admission: transport failures, timeouts, 408, 429, and 5xx responses retain the durable cursor and retry with capped exponential backoff and jitter. A 2xx response acknowledges the event; any other 4xx response raises an operator attention and advances past the permanent failure so one poison record cannot wedge the queue.
 
 #### Event contracts and correlation
 
@@ -98,7 +98,7 @@ The consumer can subscribe globally or narrow the configured subscription to one
 - KTD2. Follow Standard Webhooks rather than inventing Aiur headers. Use a base64 `whsec_` host secret, standard header names, a `v1,<base64-hmac>` signature, exact raw bytes, and a five-minute replay window.
 - KTD3. Publish lifecycle and usage changes into `Aiur.Events.Exchange` only after their owning stores commit. Progress already crosses that boundary; spend-cap and cancel-result producers will adopt the same persist-then-publish rule.
 - KTD4. A single export-journal writer assigns a dense delivery sequence in observed order. `Aiur.Events.IdGenerator` IDs remain unique identifiers, not ordering cursors.
-- KTD5. Use `Aiur.Events.DurableConsumer` for webhook delivery. The handler returns an error for every non-2xx or transport failure so the cursor cannot claim an unacknowledged event.
+- KTD5. Use `Aiur.Events.DurableConsumer` for webhook delivery. Retry transport failures, timeouts, 408, 429, and 5xx responses with capped exponential backoff and jitter. Treat other 4xx responses as permanent: raise an operator attention and advance the cursor so a poison event cannot block later delivery.
 - KTD6. Keep `@aiur/contracts` free of custom cryptography. Ship an executable TypeScript receiver example and tests using the official `standardwebhooks` package, including an ID-deduplication seam the application must back with storage in production.
 - KTD7. Event schemas use a common envelope vocabulary but remain five separately addressable schema files and fixtures. Progress and usage payloads are purpose-built event facts; the spend-cap event is adopted from #5693 and the cancel-result event references #5696's response contract.
 - KTD8. The optional `subject_id` filter matches either `ticket_id` or `job_id` exactly. Filtering occurs in the delivery handler so the journal remains a complete ordered record and changing the filter never changes producer behavior.
@@ -176,8 +176,8 @@ The webhook handler applies the subject filter, JSON-encodes once, signs those e
 
 - **Requirements:** R1-R4, R11
 - **Files:** `src/lib/aiur/events/outbound/export_journal.ex`, `src/lib/aiur/events/outbound/source.ex`, `src/lib/aiur/events/outbound/webhook.ex`, `src/lib/aiur/config/paths.ex`, and focused tests
-- **Approach:** Subscribe to allowlisted topics, append normalized records with dense sequence numbers, expose replay/live source callbacks, and deliver through `DurableConsumer`. Sign the exact encoded body for every attempt and treat only 2xx responses as acknowledgements.
-- **Test scenarios:** Replay precedes live delivery without loss; concurrent internal IDs cannot reorder the dense sequence; 503/timeout retry the same record; 204 advances; redirects are rejected; filtering sends only one ID; compaction removes only acknowledged records; a full queue refuses admission and alerts without claiming delivery.
+- **Approach:** Subscribe to allowlisted topics, append normalized records with dense sequence numbers, expose replay/live source callbacks, and deliver through `DurableConsumer`. Sign the exact encoded body for every attempt, retry transport failures, timeouts, 408, 429, and 5xx responses with capped exponential backoff and jitter, and skip other 4xx responses only after raising an operator attention.
+- **Test scenarios:** Replay precedes live delivery without loss; concurrent internal IDs cannot reorder the dense sequence; 503/timeout retry the same record with capped backoff and jitter; 204 advances; a permanent 4xx alerts, advances, and permits the next record; redirects are rejected; filtering sends only one ID; compaction removes only acknowledged or explicitly discarded records; a full queue refuses admission and alerts without claiming delivery.
 - **Verification:** Export-journal, source, and webhook handler tests pass, including a local test HTTP adapter that validates headers against the fixed TypeScript-compatible vector.
 
 ### U5. Integrate spend-cap and cancel-result producers
@@ -216,7 +216,7 @@ The webhook handler applies the subject filter, JSON-encodes once, signs those e
 - All thirteen requirements and five acceptance examples are implemented without a stub.
 - Five event schemas, fixtures, generated TypeScript types, and an executable receiver example ship through the independently packable `@aiur/contracts` package.
 - Actual lifecycle, progress, usage, spend-cap, and cancel-result emissions validate against their shipped schemas.
-- Signed delivery rejects replayed and tampered requests, retries failures at least once, and supports one exact ticket/job filter.
+- Signed delivery rejects replayed and tampered requests, retries retryable failures with capped exponential backoff and jitter, skips permanent 4xx poison records with an operator attention, and supports one exact ticket/job filter.
 - Configuration, environment declarations, templates, operator docs, and supervision agree on disabled and enabled behavior.
 - Blocker-owned APIs are consumed from their validated refs without duplicating their contracts.
 - New tests demonstrate fail-without-production-change behavior in an isolated worktree.

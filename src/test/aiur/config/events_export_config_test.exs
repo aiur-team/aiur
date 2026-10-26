@@ -66,7 +66,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
   end
 
   test "invalid types name the export key" do
-    for key <- ["enabled", "retention_days", "retention_max_events"] do
+    for key <- ["enabled", "allow_private_destinations", "retention_days", "retention_max_events"] do
       assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"events" => %{"export" => %{key => "invalid"}}})
       assert message =~ "events.export.#{key}"
     end
@@ -76,7 +76,17 @@ defmodule Aiur.Config.EventsExportConfigTest do
     template = File.read!(Path.expand("../../../../.aiur/examples/config.example", __DIR__))
     [block] = Regex.run(~r/^# events:\n(?:#   .*\n)+/m, template)
     assert {:ok, events} = YamlElixir.read_from_string(String.replace(block, ~r/^# /m, ""))
-    assert events["events"]["export"] == %{"enabled" => false, "retention_days" => 7, "retention_max_events" => 50_000}
+    assert events["events"]["export"] == %{
+             "allow_private_destinations" => false,
+             "enabled" => false,
+             "max_pending_events" => 10_000,
+             "request_timeout_ms" => 15_000,
+             "retention_days" => 7,
+             "retention_max_events" => 50_000,
+             "retry_ms" => 5_000,
+             "subject_id" => "5695",
+             "webhook_url" => "https://consumer.example.com/webhooks/aiur"
+           }
     assert {:ok, settings} = Schema.parse(events)
     assert settings.events.export.enabled == false
     assert settings.events.export.retention_days == 7
