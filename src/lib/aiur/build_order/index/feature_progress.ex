@@ -30,7 +30,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
     plan = plan_counts(members, rows, lane_packs, complete?, packs_available?)
     root_members = root_members(parts, context, key, complete?)
     plan = if root_members == :unknown, do: plan, else: Map.merge(plan, %{unpublished: 0, root_total: length(root_members)})
-    root_counts = if is_list(root_members), do: root_row_counts(root_members, all, complete?, ci_known?)
+    root_counts = if is_list(root_members), do: root_row_counts(root_members, parts[:history], all, complete?, ci_known?)
 
     progress_metadata(context, lane_packs, members, workstream, plan, ci_known?, root_members)
     |> Map.merge(%{
@@ -44,17 +44,33 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
     })
   end
 
-  defp root_row_counts(members, all, complete?, ci_known?) do
-    rows = Enum.map(members, &all[to_string(&1)])
-    states_known? = complete? and Enum.all?(rows, &is_map/1)
-    ci_known? = ci_known? and Enum.all?(rows, &is_map/1)
+  defp root_row_counts(members, history, all, complete?, ci_known?) do
+    history_rows = history_member_rows(members, history)
+    indexed_rows = Enum.map(members, &all[to_string(&1)])
+    rows_known? = complete? and Enum.all?(history_rows, &is_map/1)
+    ci_known? = ci_known? and Enum.all?(indexed_rows, &is_map/1)
+    ci_wait_ids = indexed_rows |> Enum.filter(&(is_map(&1) and ci_wait_row?(&1))) |> MapSet.new(& &1.num)
 
     %{
-      closed: if(states_known?, do: Enum.count(rows, &closed_status?(&1.status))),
-      open: if(states_known?, do: Enum.count(rows, &(not closed_status?(&1.status) and not ci_wait_row?(&1)))),
-      ci_wait: if(ci_known?, do: Enum.count(rows, &ci_wait_row?/1))
+      closed: if(rows_known?, do: Enum.count(history_rows, &history_closed?/1)),
+      open: if(rows_known?, do: Enum.count(members, &open_history_member?(history, &1, ci_wait_ids))),
+      ci_wait: if(ci_known?, do: Enum.count(indexed_rows, &ci_wait_row?/1))
     }
   end
+
+  defp history_member_rows(members, {:ok, %{rows: rows}}), do: Enum.map(members, &Map.get(rows, &1))
+  defp history_member_rows(_members, _unavailable), do: []
+
+  defp open_history_member?({:ok, %{rows: rows}}, member, ci_wait_ids) do
+    case Map.get(rows, member) do
+      %{lifecycle: %{state: :open}} -> member not in ci_wait_ids
+      _row -> false
+    end
+  end
+
+  defp open_history_member?(_history, _member, _ci_wait_ids), do: false
+  defp history_closed?(%{lifecycle: %{state: :closed}}), do: true
+  defp history_closed?(_row), do: false
 
   defp closed_status?(status), do: status in ["done", "failed", "not_planned", "closed"]
   defp ci_wait_row?(row), do: row.sec == "now" and get_in(row, [:agent, :state]) == "ci_wait" and not closed_status?(row.status)
