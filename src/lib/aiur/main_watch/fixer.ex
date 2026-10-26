@@ -15,10 +15,7 @@ defmodule Aiur.MainWatch.Fixer do
          :ok <- act(observation, observations, issues, watch, opts) do
       FixerWatchdog.check(own(issues), opts)
     else
-      {:error, reason} = error ->
-        topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
-        alert(topic, %{reason: inspect(reason)}, opts)
-        error
+      {:error, _reason} = error -> retry_or_alert(error, observations, watch, opts)
     end
   end
 
@@ -102,6 +99,28 @@ defmodule Aiur.MainWatch.Fixer do
 
   defp shared_budget_hold?({:aiur, :locally_held, %{reason: :shared_budget}}), do: true
   defp shared_budget_hold?(_reason), do: false
+
+  defp retry_or_alert({:error, reason} = error, observations, watch, opts) do
+    case {broker_timeout?(reason), Keyword.get(opts, :fixer_broker_timeout_retried?, false)} do
+      {true, false} ->
+        Logger.warning("main-watch fixer retrying after GitHub broker timeout")
+        Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1).(Access.backoff_base_ms())
+        reconcile(observations, watch, Keyword.put(opts, :fixer_broker_timeout_retried?, true))
+
+      _ ->
+        topic = if shared_budget_hold?(reason), do: "system.main.fixer.held", else: "system.main.fixer.failed"
+        alert(topic, %{reason: inspect(reason)}, opts)
+        error
+    end
+  end
+
+  defp broker_timeout?({:github, kind, %{reason: :github_budget_broker_timeout}}) when kind in [:local_hold, :timeout], do: true
+
+  defp broker_timeout?(%{classification: kind, detail: %{reason: :github_budget_broker_timeout}})
+       when kind in [:local_hold, :timeout],
+       do: true
+
+  defp broker_timeout?(_reason), do: false
 
   defp refresh(opts) do
     case Keyword.get(opts, :fixer_refresh, &Aiur.Orchestrator.request_refresh/0).() do

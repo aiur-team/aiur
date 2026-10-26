@@ -124,6 +124,31 @@ defmodule Aiur.MainWatch.FixerTest do
     assert map_size(Agent.get(store, & &1.receipts)) == 1
   end
 
+  test "broker timeout retries once immediately and logs the retry", %{store: store, opts: opts} do
+    parent = self()
+    attempts = start_supervised!({Agent, fn -> 0 end}, id: :open_attempts)
+
+    open = fn _, _ ->
+      case Agent.get_and_update(attempts, &{&1 + 1, &1 + 1}) do
+        1 -> {:error, {:github, :local_hold, %{reason: :github_budget_broker_timeout}}}
+        _ -> {:ok, []}
+      end
+    end
+
+    opts =
+      opts
+      |> Keyword.put(:fixer_open, open)
+      |> Keyword.put(:local_hold_sleep_fun, fn wait_ms -> send(parent, {:retry_wait, wait_ms}) end)
+
+    log = capture_log(fn -> assert :ok = Fixer.reconcile([observation()], @watch, opts) end)
+
+    assert_received {:retry_wait, 1_000}
+    assert log =~ "main-watch fixer retrying after GitHub broker timeout"
+    assert Agent.get(attempts, & &1) == 2
+    assert length(Agent.get(store, & &1.issues)) == 1
+    assert Agent.get(store, & &1.alerts) == []
+  end
+
   test "recovery comments without closing and missing PR raises attention", %{store: store, opts: opts} do
     red = observation()
     :ok = Fixer.reconcile([red], @watch, opts)
