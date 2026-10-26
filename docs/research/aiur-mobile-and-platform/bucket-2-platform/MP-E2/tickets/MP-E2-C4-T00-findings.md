@@ -75,7 +75,9 @@ Codex has no timeout at all.
 
 In [`MP-E2-C4-T00-fixtures/`](MP-E2-C4-T00-fixtures/). IDs, paths and home directories
 are replaced with `<uuid>`, `<workspace>`, `call_<id>`, `msg_<id>` and `<codex-home>`;
-account and rate-limit notifications are removed. Nothing else is changed.
+account and rate-limit notifications are removed. In `after_reply.ndjson`, the
+`item/agentMessage/delta` frames of each message are collapsed into one sanitized delta,
+because a path could be split across deltas. Nothing else is changed.
 
 - `request_user_input.json` — the captured single-question request (Q1/Q2).
 - `request_user_input_two_questions.json` — the two-question request (secret probe).
