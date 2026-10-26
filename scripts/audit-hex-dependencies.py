@@ -96,7 +96,18 @@ def audit_lock(lock_bytes: bytes, label: str, runner=run, *, mix_exs_bytes: byte
             MIX_EXS.write_bytes(mix_exs_bytes)
 
         LOCK.write_bytes(lock_bytes)
-        runner(["mise", "exec", "--", "mix", "deps.get"], cwd=SRC)
+        runner(
+            [
+                "bash",
+                str(ROOT / "scripts/retry-mix-deps-get.sh"),
+                "mise",
+                "exec",
+                "--",
+                "mix",
+                "deps.get",
+            ],
+            cwd=SRC,
+        )
         if LOCK.read_bytes() != lock_bytes:
             raise RuntimeError(f"{label} dependency resolution changed the lock; refusing to audit a different snapshot")
         output = runner(["mise", "exec", "--", "mix", "hex.audit"], cwd=SRC, allow_advisories=True)
