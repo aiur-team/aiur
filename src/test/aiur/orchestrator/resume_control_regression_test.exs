@@ -119,45 +119,6 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     }
   end
 
-  # Stands in for a live worker. It acknowledges a pause only when told to,
-  # which lets a case hold the pause pending, and always acknowledges a resume.
-  defp worker(issue_id, parent) do
-    orchestrator = Process.whereis(Orchestrator)
-
-    spawn_link(fn -> worker_loop(orchestrator, issue_id, parent) end)
-  end
-
-  defp worker_loop(orchestrator, issue_id, parent) do
-    receive do
-      {:pause_agent, request_id, generation} ->
-        send(parent, {:worker_got, :pause, request_id})
-
-        receive do
-          :ack_pause -> send(orchestrator, {:worker_control_state, issue_id, :paused, %{request_id: request_id, generation: generation}})
-          :hold_pause -> :ok
-        end
-
-        worker_loop(orchestrator, issue_id, parent)
-
-      {:resume_agent, request_id, generation} ->
-        send(parent, {:worker_got, :resume, request_id})
-        send(orchestrator, {:worker_control_state, issue_id, :working, %{request_id: request_id, generation: generation}})
-        worker_loop(orchestrator, issue_id, parent)
-
-      :stop ->
-        :ok
-    after
-      10_000 -> :timeout
-    end
-  end
-
-  defp with_resume_confirm_timeout(timeout_ms, fun) do
-    Application.put_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms, timeout_ms)
-    fun.()
-  after
-    Application.delete_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms)
-  end
-
   test "returns a named refusal and keeps the orchestrator and registry", %{orchestrator: pid} do
     use_memory_tracker!([idle_issue("52")])
     bystander = spawn_link(fn -> Process.sleep(:infinity) end)

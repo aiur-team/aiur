@@ -3,6 +3,8 @@ Code.require_file("../../support/tracker_io_poll_barrier.exs", __DIR__)
 defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   use Aiur.TestSupport
 
+  alias Aiur.TestSupport.Isolation
+
   import Aiur.TrackerIoPollBarrier, only: [await_owned_poll: 2, await_poll_finished: 1]
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
@@ -15,8 +17,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     PriorityControl,
     RetryEngine,
     SnapshotStore,
-    StatusReport,
-    TrackerTasks
+    StatusReport
   }
 
   # Production control budget tolerates local fsyncs under load; held tracker barriers still expose blocked handlers.
@@ -152,7 +153,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
     server = start_supervised!({Orchestrator, initial_poll?: false})
 
-    worker = spawn(fn -> receive do: (:stop -> :ok) end)
+    worker = start_owned_task(fn -> receive do: (:stop -> :ok) end)
 
     :sys.replace_state(server, fn state ->
       entry = %{
@@ -456,5 +457,10 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       refute_received {:trace, ^server, :call, {^module, ^function, _args}},
                       "an orchestrator handler performed remote work: #{inspect(module)}.#{function}"
     end)
+  end
+
+  defp start_owned_task(fun) do
+    child = Supervisor.child_spec({Task, fun}, id: make_ref())
+    Isolation.start_owned!(child)
   end
 end

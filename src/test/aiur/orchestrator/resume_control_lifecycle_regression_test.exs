@@ -1,5 +1,7 @@
 defmodule Aiur.Orchestrator.ResumeControlLifecycleRegressionTest do
   use Aiur.TestSupport
+
+  alias Aiur.TestSupport.Isolation
   import ExUnit.CaptureIO
   alias Aiur.{AgentControlCLI, Issue}
   alias Aiur.Orchestrator.PauseResume
@@ -109,7 +111,7 @@ defmodule Aiur.Orchestrator.ResumeControlLifecycleRegressionTest do
   defp worker(issue_id, parent) do
     orchestrator = Process.whereis(Orchestrator)
 
-    spawn_link(fn -> worker_loop(orchestrator, issue_id, parent) end)
+    start_owned_task(fn -> worker_loop(orchestrator, issue_id, parent) end)
   end
 
   defp worker_loop(orchestrator, issue_id, parent) do
@@ -218,7 +220,7 @@ defmodule Aiur.Orchestrator.ResumeControlLifecycleRegressionTest do
   end
 
   test "a gone worker is not reported as running", %{orchestrator: pid} do
-    dead = spawn(fn -> :ok end)
+    dead = start_owned_task(fn -> :ok end)
     ref = Process.monitor(dead)
     assert_receive {:DOWN, ^ref, :process, ^dead, _}, 1000
 
@@ -314,5 +316,10 @@ defmodule Aiur.Orchestrator.ResumeControlLifecycleRegressionTest do
       attempts == 0 -> false
       true -> Process.sleep(20) && eventually(fun, attempts - 1)
     end
+  end
+
+  defp start_owned_task(fun) do
+    child = Supervisor.child_spec({Task, fun}, id: make_ref())
+    Isolation.start_owned!(child)
   end
 end

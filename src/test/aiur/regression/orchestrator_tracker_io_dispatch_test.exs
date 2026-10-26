@@ -3,10 +3,12 @@ Code.require_file("../../support/tracker_io_poll_barrier.exs", __DIR__)
 defmodule Aiur.Regression.OrchestratorTrackerIoDispatchTest do
   use Aiur.TestSupport
 
-  import Aiur.TrackerIoPollBarrier, only: [await_owned_poll: 2, await_poll_finished: 1]
+  alias Aiur.TestSupport.Isolation
+
+  import Aiur.TrackerIoPollBarrier, only: [await_owned_poll: 2]
 
   alias Aiur.{DispatchBudgetStore, Issue, Orchestrator}
-  alias Aiur.GitHub.{DispatchAuthorization, Transport}
+  alias Aiur.GitHub.DispatchAuthorization
   alias Aiur.Orchestrator.Dispatcher
 
   alias Aiur.Orchestrator.OperatorMessages
@@ -144,7 +146,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoDispatchTest do
 
     server = start_supervised!({Orchestrator, initial_poll?: false})
 
-    worker = spawn(fn -> receive do: (:stop -> :ok) end)
+    worker = start_owned_task(fn -> receive do: (:stop -> :ok) end)
 
     :sys.replace_state(server, fn state ->
       entry = %{
@@ -260,7 +262,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoDispatchTest do
   end
 
   test "orchestrator shutdown reaps a held tracker task", %{server: server, token: token} do
-    stray = spawn(fn -> SlowTracker.fetch_candidate_issues() end)
+    stray = start_owned_task(fn -> SlowTracker.fetch_candidate_issues() end)
     send(server, :run_poll_cycle)
     tracker = await_owned_poll(server, token)
     monitor = Process.monitor(tracker)
@@ -282,30 +284,6 @@ defmodule Aiur.Regression.OrchestratorTrackerIoDispatchTest do
     end)
   end
 
-  defp trace_handler_io(server) do
-    # Config/provider lookups, error formatting and cache scope are local; underlying tracker I/O remains traced.
-    tracker_patterns =
-      Enum.flat_map([{Aiur.Tracker.IssueTracker, Aiur.Tracker}, {Aiur.Tracker.CodeHost, Aiur.CodeHost}], fn {behaviour, facade} ->
-        for {function, arity} <- behaviour.behaviour_info(:callbacks),
-            function not in [:open_issue_labels, :clone_url, :workspace_repo_segment, :ci_readiness, :format_preflight_error, :with_poll_cycle],
-            do: {facade, function, arity}
-      end)
-
-    patterns =
-      tracker_patterns ++
-        [
-          {Transport, :default_request_fun, :_},
-          {Aiur.GitHub.Tracker, :fetch_candidate_issues_conditional, :_},
-          {Aiur.GitHub.Tracker, :hydrate_blocked_by, :_},
-          {Aiur.Events.GithubFirehose, :poll, :_},
-          {Aiur.Events.GithubCIPoller, :poll, :_}
-        ] ++ @dispatch_authorization_patterns
-
-    Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
-    :erlang.trace(server, true, [:call, {:tracer, self()}])
-    patterns
-  end
-
   defp assert_no_handler_io(server, patterns) do
     delivery = :erlang.trace_delivered(server)
     receive_barrier({:trace_delivered, ^server, ^delivery})
@@ -317,15 +295,8 @@ defmodule Aiur.Regression.OrchestratorTrackerIoDispatchTest do
     end)
   end
 
-  defp put_test_env(key, value) do
-    previous = Application.fetch_env(:aiur, key)
-    Application.put_env(:aiur, key, value)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, original} -> Application.put_env(:aiur, key, original)
-        :error -> Application.delete_env(:aiur, key)
-      end
-    end)
+  defp start_owned_task(fun) do
+    child = Supervisor.child_spec({Task, fun}, id: make_ref())
+    Isolation.start_owned!(child)
   end
 end
