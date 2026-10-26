@@ -226,10 +226,7 @@ For the idle watchdog, "stalled" means the hold's worker is dead with no complet
 
 The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh: a freshness probe that self-clears in seconds holds dispatch too briefly to matter to an operator.
 
-The alert fires only once a hold has persisted past the routine bound: a probe
-that fails or exceeds its own timeout, a build that genuinely holds the fleet,
-or a stalled hold the watchdog releases. Its `.resolved` fires when the gate
-clears.
+The alert fires only once a hold has persisted past the routine bound: a probe that fails or exceeds its own timeout, a build that genuinely holds the fleet, or a stalled hold the watchdog releases. Its `.resolved` fires when the gate clears.
 
 ## pr_watch
 
@@ -241,21 +238,15 @@ clears.
 
 ## pr_health
 
-Periodic scan of open pull requests for conditions that stall PRs silently: a
-PR authored by a configured human merger (unmergeable by construction, since
-GitHub blocks self-approval), a non-draft PR older than `stale_hours` with no
-review, and a rework ticket whose PR's own contribution has genuinely changed
-since its blocking review.
+Periodic scan of open pull requests for conditions that stall PRs silently: a PR authored by a configured human merger (unmergeable by construction, since GitHub blocks
+self-approval), a non-draft PR older than `stale_hours` with no review, and a rework ticket whose PR's own contribution has genuinely changed since its blocking review.
 
 Findings raise needs-attention alerts in the Executor's alert feed
 (`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed` /
 `system.pr_health.rework_merge_only`).
 
-Enabling the scan enables the **rework re-queue**: a ticket in
-`agent:rework` whose PR's own contribution diff (`merge-base..head`) changed
-since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
-for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
-a brand-new review, so nothing else re-queues it.
+Enabling the scan enables the **rework re-queue**: a ticket in `agent:rework` whose PR's own contribution diff (`merge-base..head`) changed since the blocking `CHANGES_REQUESTED`
+review is moved to `agent:human-review` for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until a brand-new review, so nothing else re-queues it.
 
 It also runs the **head-verdict router** on the same interval. At the open, non-draft PR's head, the configured
 reviewer's `CHANGES_REQUESTED` moves `agent:human-review`, `agent:ci-wait` or `agent:error` to `agent:rework`.
