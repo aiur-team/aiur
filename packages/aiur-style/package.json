@@ -35,6 +35,10 @@
     "./react": {
       "types": "./dist/react/index.d.ts",
       "default": "./dist/react/index.js"
+    },
+    "./field": {
+      "types": "./dist/js/field.d.ts",
+      "default": "./dist/js/field.js"
     }
   },
   "files": [

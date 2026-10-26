@@ -1,0 +1,19 @@
+@layer aiur.components {
+  .aiur-field {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: calc(100% + var(--aiur-field-fade, 260px));
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--aiur-field-fade, 260px)), transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - var(--aiur-field-fade, 260px)), transparent 100%);
+  }
+
+  .aiur-lines {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(112deg, transparent 0 28px, var(--aiur-color-field-line) 29px, transparent 30px 58px);
+    mask-image: radial-gradient(ellipse, #000 12%, transparent 72%);
+    pointer-events: none;
+  }
+}
