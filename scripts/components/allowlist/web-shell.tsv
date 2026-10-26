@@ -1,6 +1,11 @@
 # rule	target_module	reason
 R-declared	Aiur.AgentChat	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.AgentControlCLI	#5970 control API invokes the shared control CLI facade
+R-declared	Aiur.BuildStamp	#5970 control API includes the build identity in its result
 R-declared	Aiur.Claude.HookEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.ControlCall	#5970 control API parses and runs allowlisted calls
+R-declared	Aiur.JSONSafe	#5970 audit writes normalized JSON records
+R-declared	Aiur.Journal	#5970 audit appends durable records to the daemon log
 R-declared	Aiur.Orchestrator	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.PaneManager	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-private	Aiur.Claude.HookEvents	MP-R1-C6-T01 register the Claude lifecycle-hook route with its owning component

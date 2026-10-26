@@ -168,10 +168,10 @@ logs written inside each workspace include:
   (`Aiur.AlertFeed`) reads its `alert` events, and agent crash reasons must
   persist here (#708); don't stop writing it.
 
-Call-correlated completion or failure evidence for asynchronously published
-agent events is daemon-owned at `<run-log-root>/log/event-publications.ndjson`.
-It must not live under an agent-writable workspace; the offline delivery
-collector joins it to the transcript by ticket and tool-call identity.
+Daemon-owned records live at `<run-log-root>/log/`: event publications,
+remote control-call writes and refusals (`control-audit.ndjson`). They must not
+live under an agent-writable workspace; the offline collector joins publications
+to transcripts by ticket and tool-call identity.
 
 When resuming an issue that was already in progress, inspect the transcript
 logs, daemon publication outcomes, and workpad comment before changing code. Don't
