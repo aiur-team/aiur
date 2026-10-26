@@ -85,6 +85,26 @@ defmodule Aiur.AgentSkillsTest do
     assert license =~ "Copyright (c) 2025 Every"
   end
 
+  test "skills that instruct direct PR merging cannot be model-invoked" do
+    repo_root = Path.expand("../../..", __DIR__)
+    skills_root = Path.join(repo_root, ".claude/skills")
+
+    direct_merge_skills =
+      for skill_file <- Path.wildcard(Path.join(skills_root, "*/SKILL.md")),
+          content = File.read!(skill_file),
+          skill_name = skill_file |> Path.dirname() |> Path.basename(),
+          not (skill_name == "aiur-run" or String.starts_with?(skill_name, "aiur-run-")),
+          String.contains?(content, "gh pr merge"),
+          do: {skill_file, content}
+
+    assert direct_merge_skills != [], "expected at least one skill describing direct PR merging"
+
+    for {skill_file, content} <- direct_merge_skills do
+      assert Regex.match?(~r/^disable-model-invocation:\s*true\s*$/m, content),
+             "#{Path.relative_to(skill_file, repo_root)} instructs direct PR merging but is model-invocable"
+    end
+  end
+
   test "installs design-import auxiliary agent metadata", %{workspace: ws} do
     assert :ok = AgentSkills.install(ws)
 
