@@ -102,7 +102,7 @@ test('feature list keeps known closed progress solid when other counts are unkno
     ['f-bo-6368', 'unassigned', 'Unassigned tickets', '2', 0, 0, 0, 0]
   ]
   const features = Object.fromEntries(entries.map(([epic, slug, label]) => [slug, { label, hue: 272, epics: [epic] }]))
-  const epics = Object.fromEntries(entries.map(([key, , label]) => [key, { feature: entries.find(entry => entry[0] === key)[1], label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]))
+  const epics = Object.fromEntries(entries.map(([key, , label]) => [key, { key, feature: entries.find(entry => entry[0] === key)[1], label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]))
   const progress = {
     features: Object.fromEntries(entries.map(([key, slug, summary, wave, closed, open, unpublished, total]) => [key, {
       feature: slug, closed, open, ci_wait: slug === 'part3' || slug === 'part2' ? null : 0,
@@ -125,19 +125,35 @@ test('feature list keeps known closed progress solid when other counts are unkno
   await expect(page.locator('.fp-overall')).toContainText('435 / 495')
   await expect(page.locator('.fp-overall')).toContainText('CI state unknown')
   await expect(overall.locator('.fp-closed')).toHaveAttribute('style', /width:87\.8/)
-  await expect(overall.locator('.fp-unknown')).toHaveAttribute('style', /width:12\.1/)
-  await expect(overall.locator('.fp-closed')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(overall.locator('.fp-open')).toHaveAttribute('style', /width:11\.717/)
+  await expect(overall.locator('.fp-unknown')).toHaveAttribute('style', /width:0\.404/)
+  const accent = await page.locator('.fp-legend .closed').evaluate(el => getComputedStyle(el).backgroundColor)
+  await expect(overall.locator('.fp-closed')).toHaveCSS('background-color', accent)
   const part2 = page.locator('.fp-row').filter({ hasText: 'Wave 1 refactor (part 2/3)' })
   const part3 = page.locator('.fp-row').filter({ hasText: 'Wave 1 refactor (part 3/3)' })
   await expect(part2.locator('.fp-closed')).toHaveAttribute('style', /width:93\.6/)
   await expect(part3.locator('.fp-closed')).toHaveAttribute('style', /width:69\.0/)
-  await expect(part3.locator('.fp-unknown')).toHaveAttribute('style', /width:30\.985/)
-  await expect(part3.locator('.fp-closed')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(part3.locator('.fp-open')).toHaveAttribute('style', /width:28\.169/)
+  await expect(part3.locator('.fp-unknown')).toHaveAttribute('style', /width:2\.8169/)
+  await expect(part3.locator('.fp-closed')).toHaveCSS('background-color', accent)
   await expect(part3.locator('.fp-unknown')).toHaveCSS('background-image', /repeating-linear-gradient/)
   await expect(page.locator('.fp-row')).not.toContainText('Unassigned: 0 / 0')
   const empty = page.locator('.fp-row[data-feature="unassigned"] .fp-bar')
   await expect(empty).toHaveAttribute('aria-label', 'No tickets to count')
   await expect(empty.locator('.fp-unknown')).toHaveCount(0)
+
+  await page.evaluate(() => {
+    const { ctx, fx } = window.m
+    ctx.D.features.unknown = { label: 'Unknown closed count', hue: 272, epics: ['f-bo-6369-core'] }
+    ctx.D.epics['f-bo-6369-core'] = { key: 'f-bo-6369-core', feature: 'unknown', label: 'Build Order 6369 · Core' }
+    ctx.D.feature_progress.features['f-bo-6369-core'] = { feature: 'unknown', closed: null, open: 3, ci_wait: 0, unpublished: 0, total: 10, observed_at: Date.now(), wave: '3', reason: 'states unavailable' }
+    fx.renderList()
+  })
+  const unknown = page.locator('.fp-row[data-feature="unknown"] .fp-bar')
+  await expect(unknown.locator('.fp-open')).toHaveAttribute('style', /width:30%/)
+  await expect(unknown.locator('.fp-unknown')).toHaveAttribute('style', /width:70%/)
+  await expect(unknown.locator('.fp-unknown')).toHaveCSS('background-image', /repeating-linear-gradient/)
+  await expect(unknown.locator('.fp-closed')).toHaveCount(0)
 })
 for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} stays inactive in graph, compact and list`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))

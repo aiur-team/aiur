@@ -49,7 +49,7 @@ test('feature progress keeps known closed ratios and hatches only the unknown re
     ['f-other', 'other', 'Other work', '2', 298, 32, 0, 330],
     ['f-bo-6368', 'unassigned', 'Unassigned tickets', '2', 0, 0, 0, 0]
   ];
-  const epics = Object.fromEntries(rows.map(([key, feature, label]) => [key, { feature, label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]));
+  const epics = Object.fromEntries(rows.map(([key, feature, label]) => [key, { key, feature, label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]));
   const features = Object.fromEntries(rows.map(([key, feature, label]) => [feature, { label, epics: [key] }]));
   const progress = {
     features: Object.fromEntries(rows.map(([key, feature, summary, wave, closed, open, unpublished, total]) => [key, {
@@ -61,14 +61,25 @@ test('feature progress keeps known closed ratios and hatches only the unknown re
   const html = listHTML({ features, epics, feature_progress: progress }, S, {}, {}, Date.now());
   assert.match(html, /435 \/ 495 tickets closed/);
   assert.match(html, /class="fp-closed" style="width:87\.8787/);
-  assert.match(html, /class="fp-unknown" style="width:12\.1212/);
+  assert.match(html, /class="fp-open" style="width:11\.7171/);
+  assert.match(html, /class="fp-unknown" style="width:0\.4040/);
   assert.match(html, /class="fp-closed" style="width:93\.6170/);
   assert.match(html, /class="fp-closed" style="width:69\.0140/);
-  assert.match(html, /class="fp-unknown" style="width:30\.9859/);
+  assert.match(html, /class="fp-open" style="width:28\.1690/);
+  assert.match(html, /class="fp-unknown" style="width:0\.4040/);
   assert.ok(!html.includes('Unassigned: 0 / 0'));
   const emptyRow = html.split('<button type="button" class="fp-row" data-feature="unassigned"')[1].split('</button>')[0];
   assert.match(emptyRow, /class="fp-bar fp-meter" role="img" aria-label="No tickets to count"/);
   assert.ok(!emptyRow.includes('fp-unknown'));
+  const unknownFeatures = { unknown: { label: 'Unknown closed count', epics: ['f-bo-6369-core'] } };
+  const unknownEpics = { 'f-bo-6369-core': { key: 'f-bo-6369-core', feature: 'unknown', label: 'Build Order 6369 · Core' } };
+  const unknownProgress = { features: { 'f-bo-6369-core': { feature: 'unknown', closed: null, open: 3, ci_wait: 0, unpublished: 0, total: 10, wave: '3' } } };
+  const unknownHtml = listHTML({ features: unknownFeatures, epics: unknownEpics, feature_progress: unknownProgress }, S, {}, {}, Date.now());
+  const unknownRow = unknownHtml.split('<button type="button" class="fp-row" data-feature="unknown"')[1].split('</button>')[0];
+  assert.match(unknownRow, /class="fp-bar fp-meter unknown"/);
+  assert.match(unknownRow, /class="fp-unknown"/);
+  assert.ok(!unknownRow.includes('fp-closed'));
+  assert.match(unknownRow, /class="fp-open" style="width:30%/);
 });
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';
