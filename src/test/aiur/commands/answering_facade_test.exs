@@ -128,6 +128,19 @@ defmodule Aiur.Commands.AnsweringFacadeTest do
              Answering.supersede(decision.decision_id, payload("later"), opts(ctx))
   end
 
+  test "dismissed commands stay withdrawn when answered through the facade", ctx do
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{question: "Optional choice?", blocking: false, source_id: "dismissed"},
+        [ticket: %{identifier: "6398", title: "Facade", url: nil}, source: %{agent_id: "agent", session_id: "session"}],
+        ctx.store
+      )
+
+    assert {:ok, _dismissed} = DecisionStore.dismiss(decision.decision_id, [actor: %{kind: :operator, id: "human"}], ctx.store)
+    assert Answering.answer(decision.decision_id, payload(), opts(ctx)) == %{status: :withdrawn, reason: :dismissed}
+    assert {:ok, %{answer: nil, decision_status: :dismissed}} = DecisionStore.get(decision.decision_id, ctx.store)
+  end
+
   test "too-late mappings preserve winner and delivery evidence", ctx do
     assert %{status: :accepted, decision: decision} = Answering.answer(ctx.decision.decision_id, payload(), opts(ctx))
 
