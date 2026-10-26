@@ -44,6 +44,11 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.ClientTokenAuth)
   end
 
+  pipeline :control_token do
+    plug(:fetch_session)
+    plug(AiurWeb.ControlTokenAuth)
+  end
+
   pipeline :supervisor_auth do
     plug(AiurWeb.SupervisorAuth)
   end
@@ -95,9 +100,9 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
@@ -127,6 +132,7 @@ defmodule AiurWeb.Router do
   Decisions.mutations()
   Decisions.reads()
   Decisions.method_catches()
+  Control.calls()
   DashboardPages.static_assets()
   DashboardPages.pages()
   Experiments.pages()

@@ -44,6 +44,8 @@ defmodule AiurWeb.RouterTableTest do
     {:*, "/api/v1/decisions/:decision_id/revise", AiurWeb.DecisionApiController, :method_not_allowed, [:supervisor_auth], :debug},
     {:*, "/api/v1/decisions/:decision_id", AiurWeb.DecisionApiController, :method_not_allowed, [:supervisor_auth], :debug},
     {:*, "/api/v1/decisions/:decision_id/*path", AiurWeb.DecisionApiController, :not_found, [:supervisor_auth], :debug},
+    {:post, "/api/v1/control", AiurWeb.ControlController, :run, [:control_token], :debug},
+    {:*, "/api/v1/control", AiurWeb.ControlController, :method_not_allowed, [:control_token], :debug},
     {:get, "/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
     {:get, "/build-order-grid-hook.js", AiurWeb.StaticAssetController, :build_order_grid_hook, [:browser_dashboard_auth, :dashboard_pages], :debug},
