@@ -5,6 +5,8 @@ defmodule Aiur.ClientTokensTest do
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-client-tokens-#{System.unique_integer([:positive])}")
     path = Path.join(root, "client-tokens.json")
+    File.mkdir_p!(root)
+    File.chmod!(root, 0o755)
     previous = Application.get_env(:aiur, :client_tokens_path)
     Application.put_env(:aiur, :client_tokens_path, path)
 
