@@ -7,11 +7,12 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
   alias Aiur.Config
   alias Aiur.DispatchBudgetStore
   alias Aiur.Events.GithubKeys
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
   alias Aiur.Issue
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.Signal
+  alias Aiur.TicketBranch
 
   @doc false
   @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
@@ -141,20 +142,25 @@ defmodule Aiur.Orchestrator.IssueSync.TransitionAlerts do
     )
   end
 
-  defp human_review_pull_request(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id})
-       when is_binary(id) do
+  defp human_review_pull_request(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository, identifier: identifier}})
+       when not is_nil(identifier) do
     repo = "#{owner}/#{repository}"
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo, id)
-    {repo, key |> ResourceStore.data() |> human_review_pr_listing()}
+    key = Access.key_for_repo(:branch_pull_request_listing_all, repo, "open")
+    {repo, key |> Access.data() |> human_review_pr_listing(identifier)}
   rescue
     _ -> {nil, nil}
   end
 
   defp human_review_pull_request(_issue), do: {nil, nil}
 
-  defp human_review_pr_listing(%{} = pull_request), do: pull_request
-  defp human_review_pr_listing([pull_request | _rest]), do: pull_request
-  defp human_review_pr_listing(_listing), do: nil
+  defp human_review_pr_listing(pull_requests, identifier) when is_list(pull_requests) do
+    Enum.find(pull_requests, fn
+      %{"head" => %{"ref" => branch}} when is_binary(branch) -> TicketBranch.ticket_branch?(branch, identifier)
+      _other -> false
+    end)
+  end
+
+  defp human_review_pr_listing(_listing, _identifier), do: nil
 
   defp human_review_pr_identity(%{"number" => number, "head" => %{"sha" => sha}}) when is_integer(number) and is_binary(sha),
     do: {number, sha}

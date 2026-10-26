@@ -6,7 +6,7 @@ defmodule Aiur.MixProject do
       app: :aiur,
       version: "0.0.9",
       elixir: "~> 1.19",
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:github_budget],
       # Test builds are copied from the prewarm base into each workspace.
       elixirc_options: if(Mix.env() == :test, do: [check_cwd: false], else: []),
       start_permanent: Mix.env() == :prod,
@@ -130,6 +130,13 @@ defmodule Aiur.MixProject do
         ]
       ],
       test_ignore_filters: [
+        "test/support/dashboard_live_orchestrator_stubs.exs",
+        "test/support/dashboard_live_store_stubs.exs",
+        "test/support/dashboard_live_unit_fixtures.exs",
+        "test/support/dashboard_live_support.exs",
+        "test/support/dashboard_live_processes.exs",
+        "test/support/dashboard_live_decision_fixtures.exs",
+        "test/support/dashboard_live_control_fixtures.exs",
         "test/support/core_test_support.exs",
         "test/support/extensions_test_support.exs",
         "test/support/snapshot_support.exs",

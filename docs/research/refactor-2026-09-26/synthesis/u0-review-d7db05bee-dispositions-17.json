@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 17,
+  "first_id": "orch-a-15",
+  "last_id": "orch-b-10",
+  "findings": [
+    {
+      "id": "orch-a-15",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/operator_messages.ex:1088",
+      "note": "control_api_call distinguishes timeout from unavailable, while queue_api_call catches every exit as unavailable; Interrupts has another whereis/catch wrapper. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-16",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/control_lifecycle_store.ex:86",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-a-16"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "orch-a-17",
+      "status": "changed",
+      "anchor": "src/lib/aiur/ci_approval_store.ex:75",
+      "note": "CIApprovalStore.save rescues write failure into warning and :ok, making CiLifecycle hard match inert. Logger-only failure remains, but launcher log_file now persists normal-mode logs (#2983); the no-debug loss premise is obsolete. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-18",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/lifecycle.ex:171",
+      "note": "Launch-pause initialization hard-matches GlobalPauseStore.save; that store can return unresolved-path or write errors, so this path can fail init. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-19",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/command_scan.ex:83",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-a-19"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "orch-a-20",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/ci_lifecycle.ex:602",
+      "note": "Draft-gate and parked-ready reconciliation retain separate alert/latch flows and transition helpers; duplicated CI alert orchestration remains. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-21",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:549",
+      "note": "Candidate cache is read and updated beneath ci_lifecycle.poll_cache while lifecycle initialization merges approval, poll-cache, rewake and alert fields into the same map. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-22",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/comment_wake.ex:746",
+      "note": "CommentWake obtains fetch/emit function doubles from event payloads; AutoSubscriptions stores subscription function overrides in persistent_term. Incompatible dependency injection boundaries remain. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-23",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/ci_lifecycle.ex:71",
+      "note": "Pinned src/lib call search finds maybe_resume_for_ci_failure only at spec/definition; synchronous check_initial_ci_readiness and redispatch_ready? likewise have no production call sites. Production-only duplicate entrypoints remain. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-24",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:1173",
+      "note": "dispatch_prevalidated_issue infers result from claimed, retry and fallback maps and defaults to dispatch_not_started; AutoResume independently infers success from claimed/running membership. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-24"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-25",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:1490",
+      "note": "redispatch_thrash_budget and admit_redispatch_thrash_budget separately obtain previous/candidate budget and classify trips; redispatch_ready? and admit_redispatch keep parallel admission chains. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-26",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/comment_polling.ex:268",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-a-26"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "orch-a-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/ci_lifecycle.ex:324",
+      "note": "CI result application synchronously saves approval JSON and merge_journaled_base_repairs loads the ledger; control journal lock retries still Process.sleep inline. Static blocking paths remain; aggregate poll latency unmeasured. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-28",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/control_lifecycle.ex:849",
+      "note": "Restored rejection condition accepts only private pause_reasons; the list omits github_budget_hold, agent_pause_request and input_required, so unsupported persisted reasons return nil. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-29",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/operator_messages.ex:3",
+      "note": "Module claims all functions run in Orchestrator, but client send_operator_message calls a GenServer wrapper and the module also contains queue handlers; cross-module digest summary stays in CommentWake. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-29"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-30",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/comment_wake.ex:579",
+      "note": "Trusted-comment and digest readers still handle atom/string keys at each consumer using separate reads instead of one boundary normalization. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-30"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/ci_lifecycle.ex:374",
+      "note": "CI pass writes tracker state before terminal publication; Publisher :filtered only warns and returns state without enqueuing the verdict or scheduling a publication retry. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-31"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-32",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/ci_lifecycle.ex:1",
+      "note": "CiLifecycle still owns polling, tracker/control transitions, terminal publishing, rewakes and alert latches; CommentWake combines merged-ticket reconciliation and rework reactivation. Historical line lengths are not claimed as current counts. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-32"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-33",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatch_policy.ex:51",
+      "note": "Module still claims purity while read_load probes host state, effective_state_limit reads Config, and identity resolution logs.",
+      "source_ids": [
+        "orch-a-33"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-34",
+      "status": "changed",
+      "anchor": "src/test/aiur/orchestrator/agent_teardown_test.exs:6",
+      "note": "AgentTeardown isolated test still asserts only terminate_task(nil); CI integration test remains outside mirrored directory. Dispatcher runner receives now specify 1000ms, so the historical bare-100ms examples are repaired; layout/coverage concern remains. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-a-34"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex:378",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-a-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "orch-a-36",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/comment_polling.ex:22",
+      "note": "Polling/retry constants remain spread across command scan, issue sync, comment polling, dispatcher and auto-resume; no measured tuning impact asserted.",
+      "source_ids": [
+        "orch-a-36"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-37",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:197",
+      "note": "Candidate polling notifies dashboard, then run_poll_cycle notifies again; monitor_without_candidates also retains its notification.",
+      "source_ids": [
+        "orch-a-37"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-a-38",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/membership_lifecycle.ex:30",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "orch-a-38"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "orch-b-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/status_report.ex:205",
+      "note": "Projection Map.take still omits orphaned reap count and other capacity/startup fields read by snapshot/status renderers, substituting State defaults. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/token_accounting.ex:217",
+      "note": "Completion accounting still dot-reads started_at while redispatch_safety_entry retains only identifier, host, retry and prior_work plus parked metadata. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/pause_resume.ex:1205",
+      "note": "Correlated resume clears only enumerated reasons, excluding usage_limit_exhausted and fallback recovery; worker_pause_reason still prefers stored paused_reason over newly reported payload cause. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/control_lifecycle.ex:891",
+      "note": "Persisted pause reasons, input-pause reasons and resume-clear lists are independent and disagree; persisted list lacks input_required and github_budget_hold while resume clearing lacks usage_limit_exhausted. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/remote_control_mode.ex:291",
+      "note": "RemoteControlMode catches non-timeout exits as unavailable; PauseResume distinguishes noproc/nodedown from internal orchestrator_call_failed. Control wrapper behavior still diverges. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/tracker_health.ex:66",
+      "note": "TrackerHealth recognizes raw/classified local holds but defaults workspace/preflight wrappers to unclassified; RetryEngine recursively unwraps those wrappers and AutoResume has its own boolean clauses. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/retry_engine.ex:1183",
+      "note": "Non-rate-limit exhaustion still collapses to tracker_retry_exhausted; agent give-up branch calls this helper and alert hard-codes max_retry_poll_failures tracker failures. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/rate_limit_fallback.ex:475",
+      "note": "Sorted one-transition reconciliation still counts failed engage/revert label write as transitioned true, starving later entries on repeated earliest failure. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-08"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-09",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/push_routing.ex:586",
+      "note": "Pending auto-resume still retains hint and discards every resume error under cap-full comment, without classifying non-capacity failures. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-09"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "orch-b-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/remote_control_mode.ex:120",
+      "note": "RC promotion tears down and drops running entry before redispatch; RateLimitFallback retains a parked lifecycle safety entry until replacement admission. Redispatch safety differs between callers. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "orch-b-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

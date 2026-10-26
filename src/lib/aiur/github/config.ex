@@ -5,25 +5,23 @@ defmodule Aiur.GitHub.Config do
   @behaviour Aiur.TrackerConfig
   @impl Aiur.TrackerConfig
   def validate_settings(settings), do: validate!(settings: settings)
-  require Logger
   alias Aiur.GitHub.{AuthPolicy, CodeOwners}
+  alias Aiur.GitHub.Config.Origin
 
   @default_label_prefix "agent"
-
-  @origin_cache_key {__MODULE__, :resolved_origin_repo}
 
   @doc "The `owner/name` this daemon operates on, from config or the checkout's origin remote."
   @spec repo() :: String.t() | nil
   def repo, do: repo([])
 
   @spec repo(Aiur.Config.Schema.t()) :: String.t() | nil
-  def repo(%Aiur.Config.Schema{} = config), do: explicit_repo(config) || origin_repo([])
+  def repo(%Aiur.Config.Schema{} = config), do: explicit_repo(config) || Origin.repo([])
 
   @doc """
   `repo/0` with the same injectable `:origin_fun` seam `configured_repo/1` takes.
   """
   @spec repo(keyword()) :: String.t() | nil
-  def repo(opts) when is_list(opts), do: explicit_repo() || origin_repo(opts)
+  def repo(opts) when is_list(opts), do: explicit_repo() || Origin.repo(opts)
 
   @doc """
   The repository tracker identities are qualified by, as an `{owner, name}`
@@ -32,7 +30,7 @@ defmodule Aiur.GitHub.Config do
   Resolves the *same* repository `repo/0` does, including the fallback to the
   current checkout's `origin` remote when `tracker.github.repo` carries no
   value. Every GitHub call already picks its repository through `repo/0`
-  (`Aiur.GitHub.Transport.parse_repo/0`), so without the fallback a daemon
+  (`Aiur.GitHub.Access.parse_repo/0`), so without the fallback a daemon
   launched against a shared config that names no repo polls its origin
   repository happily while every issue it reads normalizes to an unjoinable
   identity — `:missing_tracker_identity` at pre-spawn, and no agent can
@@ -69,7 +67,7 @@ defmodule Aiur.GitHub.Config do
           {:ok, {String.t(), String.t()}}
           | {:error, :missing_configured_repository | :invalid_configured_repository}
   def configured_repo_from_value(value, opts \\ [])
-  def configured_repo_from_value(nil, opts), do: origin_configured_repo(origin_repo(opts))
+  def configured_repo_from_value(nil, opts), do: origin_configured_repo(Origin.repo(opts))
   def configured_repo_from_value(value, _opts) when is_binary(value), do: parse_configured_repo(value)
   def configured_repo_from_value(_value, _opts), do: {:error, :invalid_configured_repository}
 
@@ -116,9 +114,9 @@ defmodule Aiur.GitHub.Config do
       [
         "config_read=#{Aiur.Workflow.workflow_file_path()}",
         "searched=#{Enum.join(Aiur.Workflow.config_path_candidates(), ",")}",
-        "cwd=#{origin_cwd()}",
+        "cwd=#{Origin.cwd()}",
         "tracker.github.repo=#{explicit_repo() || "unset"}",
-        "origin=#{origin_repo([]) || "none"}"
+        "origin=#{Origin.repo([]) || "none"}"
       ],
       " "
     )
@@ -146,52 +144,9 @@ defmodule Aiur.GitHub.Config do
   defp origin_configured_repo(value) when is_binary(value), do: parse_configured_repo(value)
   defp origin_configured_repo(_value), do: {:error, :missing_configured_repository}
 
-  # Resolved once per VM rather than per call. `Aiur.Git.origin_repo/0` shells
-  # out to git, and `configured_repo/0` runs once per issue during poll
-  # normalization, so an uncached fallback would fork a process per issue on
-  # exactly the shared-config installs it exists to serve. More importantly it
-  # would leave `repo/0` and `configured_repo/0` reading two independent `git`
-  # invocations at different instants: a transient failure of one alone yields
-  # `:repository_mismatch` or `:missing_configured_repository`, turning the
-  # deterministic #2518 bug into an intermittent one. Caching makes the two
-  # agree by construction. Only a binary is cached, so a transient failure is
-  # retried on the next call instead of frozen in for the process lifetime.
-  defp origin_repo(opts) do
-    case Keyword.get(opts, :origin_fun) do
-      origin_fun when is_function(origin_fun, 0) ->
-        origin_fun.()
-
-      _default ->
-        case :persistent_term.get(@origin_cache_key, :unset) do
-          :unset -> resolve_origin_repo()
-          resolved -> resolved
-        end
-    end
-  end
-
   @doc false
   @spec resolve_origin_repo((-> String.t() | nil)) :: String.t() | nil
-  def resolve_origin_repo(origin_fun \\ &Aiur.Git.origin_repo/0) do
-    # `git` ran unlocked: a value cached meanwhile wins over this late result (#4071).
-    with value when is_binary(value) <- origin_fun.(),
-         :unset <- :persistent_term.get(@origin_cache_key, :unset) do
-      # The one operator-facing surface that names which repository an unconfigured
-      # install actually resolved to. Without it, a daemon launched from the wrong
-      # directory auto-detects that directory's repository and reports nothing.
-      Logger.info("aiur_config phase=repo_auto_detected repo=#{value} cwd=#{origin_cwd()} reason=tracker_github_repo_unset")
-      :persistent_term.put(@origin_cache_key, value)
-      value
-    else
-      cached_or_nil -> cached_or_nil
-    end
-  end
-
-  defp origin_cwd do
-    case File.cwd() do
-      {:ok, cwd} -> cwd
-      _error -> "unknown"
-    end
-  end
+  defdelegate resolve_origin_repo(origin_fun \\ &Aiur.Git.origin_repo/0), to: Origin
 
   @spec token() :: String.t() | nil
   defdelegate token(), to: Aiur.GitHub.Access.Token

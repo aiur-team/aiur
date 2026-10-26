@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Config
   alias Aiur.ControlCLI.CiWait
   alias Aiur.ExecutorAttention
-  alias Aiur.GitHub.Budget.FleetSnapshot
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.HoldPressure
   alias Aiur.Instance.LeaseStore
   alias Aiur.Orchestrator
@@ -104,7 +104,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
     bound_ms = control_query_timeout(opts, :section_timeout_ms, @section_timeout_ms)
     deadline_ms = System.monotonic_time(:millisecond) + bound_ms
     # Start every daemon read now so they overlap the table rendering (#5817).
-    header = Sections.start(header_sections())
+    header = Sections.start(header_sections(opts))
     footer = Sections.start(footer_sections(opts))
     header_outcomes = Sections.await(header, deadline_ms, bound_ms)
     IO.puts(Aiur.Instance.status_line())
@@ -134,10 +134,10 @@ defmodule Aiur.Orchestrator.StatusCLI do
   end
 
   defp print_github_budget_scope do
-    IO.puts(FleetSnapshot.status_line(LeaseStore.configured?()))
+    IO.puts(Access.fleet_budget_status_line(LeaseStore.configured?()))
   end
 
-  defp header_sections do
+  defp header_sections(opts) do
     [
       listener: &Diagnostics.print_executor_listener_status/0,
       wakes: &ExecutorAttention.CLI.print_wake_status/0,
@@ -145,7 +145,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
       comment_trust: &Diagnostics.print_codeowners_trust/0,
       reload: &ReloadRejection.print_status/0,
       handoff: &Aiur.Handoff.CLI.print_latest/0,
-      merge_policy: &Aiur.MergePolicyCLI.print/0
+      merge_policy: fn -> Aiur.MergePolicyCLI.print(Keyword.get(opts, :landing_watch_server, Aiur.LandingWatch)) end
     ]
   end
 

@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.MainFixer do
   @moduledoc false
-  alias Aiur.GitHub.{Config, Errors, Labels, Transport, WriteThrough}
+  alias Aiur.GitHub.{Access, Config, Labels, WriteThrough}
   alias Aiur.{Issue, MergePolicy}
 
   @marker ~r/<!-- aiur:main-watch signature=([a-f0-9]{64}) sha=([a-f0-9]{40}) -->/
@@ -34,10 +34,10 @@ defmodule Aiur.GitHub.MainFixer do
 
   @spec create(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def create(body, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(), {:ok, token} <- Transport.require_token(opts), :ok <- Labels.ensure(owner, repo, token, body["labels"], opts) do
-      case Keyword.get(opts, :request_fun, &Transport.default_request_fun/1).(%{
+    with {:ok, {owner, repo}} <- Access.parse_repo(), {:ok, token} <- Access.require_token(opts), :ok <- Labels.ensure(owner, repo, token, body["labels"], opts) do
+      case Keyword.get(opts, :request_fun, &Access.default_request_fun/1).(%{
              method: :post,
-             url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues",
+             url: "#{Access.base_url()}/repos/#{owner}/#{repo}/issues",
              token: token,
              body: body,
              caller: "main_fixer_create"
@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.MainFixer do
           {:ok, issue}
 
         {:ok, response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
           {:error, reason}
