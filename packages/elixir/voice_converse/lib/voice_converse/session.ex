@@ -3,6 +3,7 @@ defmodule VoiceConverse.Session do
 
   alias VoiceConverse.{
     ClientErrors,
+    Drafts,
     Events,
     ProviderCleanup,
     Session.Runtime,
@@ -250,7 +251,7 @@ defmodule VoiceConverse.Session do
     case persist(state, record) do
       {:ok, state} ->
         broadcast(state, event)
-        result = Tools.handle(state, event)
+        {result, state} = handle_tool(state, event)
 
         result_record = %{
           type: "tool_result",
@@ -313,6 +314,26 @@ defmodule VoiceConverse.Session do
         stop_unknown(state)
     end
   end
+
+  defp handle_tool(state, %Events.ToolCall{name: "propose_instruction", params: params}) do
+    with {:ok, text} <- Tools.proposed_instruction(params),
+         {:ok, draft, drafts} <-
+           Drafts.propose_instruction(state.drafts, text,
+             target: state.draft_target,
+             at: now(state),
+             redactor: state.config.redactor
+           ),
+         record <- Drafts.record(draft),
+         {:ok, state} <- persist(state, record) do
+      broadcast(state, {:draft, record})
+      {Tools.draft_waiting(draft.draft_id), %{state | drafts: drafts}}
+    else
+      {:error, %{} = result} -> {result, state}
+      {:error, reason} -> {Tools.draft_error(reason), state}
+    end
+  end
+
+  defp handle_tool(state, event), do: {Tools.handle(state, event), state}
 
   defp persist(state, record) do
     case TranscriptStore.append(state.store, record) do
