@@ -89,6 +89,27 @@ test('keyboard wraps, Home/End, Enter/Space, roving focus and panel relationship
   await expect(page.locator(`${root} .aiur-command__copy`)).toBeFocused();
 });
 
+test('initialization normalizes tabindex around the selected tab before keyboard input', async ({ page }) => {
+  await page.evaluate(async () => {
+    const { initCommand } = await import('../dist/js/index.js');
+    const original = document.querySelector<HTMLElement>('#command-tabs')!;
+    const clone = original.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((tab, index) => {
+      tab.setAttribute('aria-selected', String(index === 2));
+      if (index === 0) tab.removeAttribute('tabindex');
+      else tab.tabIndex = index === 2 ? -1 : 0;
+    });
+    original.replaceWith(clone);
+    initCommand(clone);
+  });
+  const tabs = page.locator(`${root} [role="tab"]`);
+  for (let i = 0; i < names.length; i++) {
+    await expect(tabs.nth(i)).toHaveAttribute('tabindex', i === 2 ? '0' : '-1');
+  }
+  await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`${root} .aiur-command__text`)).toHaveText(commands[2]);
+});
+
 test('command initialization is idempotent and destroy permits reinitialization', async ({ page }) => {
   await page.evaluate(async () => {
     const { initCommand } = await import('../dist/js/index.js');
