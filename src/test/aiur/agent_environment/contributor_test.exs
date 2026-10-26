@@ -11,6 +11,7 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
                   GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
                   GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH
                   GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY AIUR_LEASE_DATABASE_URL
+                  NETLIFY_AUTH_TOKEN
                 )
   @fixture Path.expand("../../fixtures/agent_environment_contributor.json", __DIR__)
 

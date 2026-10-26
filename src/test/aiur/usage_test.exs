@@ -2,11 +2,12 @@ defmodule Aiur.UsageTest do
   use ExUnit.Case, async: true
   alias Aiur.Usage.Alerts
   alias Aiur.Usage.CLI
+  alias Aiur.Usage.Events
   alias Aiur.Usage.Provider.{Broker, Claude, Codex, GitHub, Ticket}
 
-  test "registry includes supported providers and leaves netlify for its adapter" do
-    assert Enum.sort(Aiur.Usage.providers()) == [:broker, :claude, :codex, :github, :ticket]
-    assert {:error, :unknown_provider} = Aiur.Usage.provider("netlify", [])
+  test "registry includes the Netlify provider adapter" do
+    assert Enum.sort(Aiur.Usage.providers()) == [:broker, :claude, :codex, :github, :netlify, :ticket]
+    assert {:ok, %{"provider" => "netlify"}} = Aiur.Usage.provider("netlify", netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unavailable, fields: %{}})
   end
 
   test "every unavailable provider remains unknown instead of becoming zero" do
@@ -15,7 +16,8 @@ defmodule Aiur.UsageTest do
       {"codex", [meter_views: %{}]},
       {"github", [github_quota: %{state: :unknown, windows: %{}}]},
       {"broker", [broker_usage: %{}]},
-      {"ticket", [ticket_usage: %{}]}
+      {"ticket", [ticket_usage: %{}]},
+      {"netlify", [netlify_usage: %{provider: :netlify, state: :unavailable, reason: :disabled, freshness: :unknown, fields: %{}}]}
     ]
 
     for {provider, opts} <- cases do
@@ -65,6 +67,124 @@ defmodule Aiur.UsageTest do
       refute is_nil(record["observed_at"]), provider
       assert map_size(record["fields"]) > 0, provider
     end
+  end
+
+  test "Netlify balance remains unavailable when audit data has no known balance" do
+    now = ~U[2026-10-25 12:00:00Z]
+
+    data = %{
+      account: %{"plan_credits" => 500, "current_billing_period_start" => "2026-10-01T00:00:00Z"},
+      audit: [%{"action" => "Credits purchased", "created_at" => "2026-10-24T12:00:00Z", "traits" => %{"purchase_amount" => 500}}],
+      sites: [],
+      bandwidth: %{}
+    }
+
+    result = Aiur.Netlify.Usage.calculate(data, now)
+    assert result.state == :unavailable
+    assert result.credits.estimated_remaining == nil
+    refute is_number(result.credits.estimated_remaining)
+  end
+
+  test "Netlify estimate subtracts deploy and bandwidth burn since its audit anchor" do
+    now = ~U[2026-10-25 12:00:00Z]
+
+    data = %{
+      account: %{"plan_credits" => 500, "current_billing_period_start" => "2026-10-01T00:00:00Z"},
+      audit: [%{"action" => "Account notified of credit balance threshold", "created_at" => "2026-10-24T12:00:00Z", "traits" => %{"credit_balance" => 250}}],
+      sites: [%{id: "site-1", name: "Main", production_deploys: 2}],
+      bandwidth: %{"total" => 1_000_000_000}
+    }
+
+    result = Aiur.Netlify.Usage.calculate(data, now)
+    assert_in_delta result.credits.estimated_remaining, 250 - 50 / 24.5, 0.001
+    assert result.credits.anchor_age_seconds == 86_400
+    assert hd(result.sites).credits_burn == 30
+    assert result.credits.runway_days > 0
+  end
+
+  test "Netlify purchase delta extends only an existing audit balance anchor" do
+    now = ~U[2026-10-25 12:00:00Z]
+
+    data = %{
+      account: %{"current_billing_period_start" => "2026-10-01T00:00:00Z"},
+      audit: [
+        %{"action" => "Account notified of credit balance threshold", "created_at" => "2026-10-22T12:00:00Z", "traits" => %{"credit_balance" => 250}},
+        %{"action" => "Credits purchased", "created_at" => "2026-10-23T12:00:00Z", "traits" => %{"purchase_amount" => 500}}
+      ],
+      sites: [],
+      bandwidth: %{}
+    }
+
+    assert Aiur.Netlify.Usage.calculate(data, now).credits.anchor_balance == 750
+  end
+
+  test "Netlify alert opens on audit threshold and resolves on a healthy estimate" do
+    owner = self()
+
+    emit = fn event ->
+      send(owner, event)
+      :ok
+    end
+
+    low = %{low_event?: true, fields: %{credits: %{estimated_remaining: 200}}}
+    healthy = %{fields: %{credits: %{estimated_remaining: 250}}}
+    assert Aiur.Netlify.Usage.alert_transition(low, 100, false, emit)
+    assert_receive :low, 1_000
+    refute Aiur.Netlify.Usage.alert_transition(healthy, 100, true, emit)
+    assert_receive :resolved, 1_000
+  end
+
+  test "Netlify alert opens when estimated credits cross the configured threshold" do
+    owner = self()
+
+    emit = fn event ->
+      send(owner, event)
+      :ok
+    end
+
+    below_threshold = %{fields: %{credits: %{estimated_remaining: 99}}}
+
+    assert Aiur.Netlify.Usage.alert_transition(below_threshold, 100, false, emit)
+    assert_receive :low, 1_000
+    refute Aiur.Netlify.Usage.alert_transition(below_threshold, 0, false, emit)
+    refute_receive :low, 20
+  end
+
+  test "Netlify CLI JSON uses the shared envelope and labels an unavailable balance" do
+    snapshot = %{
+      provider: :netlify,
+      state: :unavailable,
+      reason: :no_valid_audit_anchor,
+      observed_at: ~U[2026-10-25 12:00:00Z],
+      age_ms: 17,
+      freshness: :unavailable,
+      fields: %{credits: %{estimated_remaining: nil}}
+    }
+
+    assert {:ok, payload} = CLI.payload("netlify", netlify_usage: snapshot)
+    assert payload["contract"] == "aiur.usage"
+    assert payload["contract_version"] == 1
+    assert payload["provider"]["age_ms"] == 17
+    assert payload["provider"]["fields"]["credits"]["estimated_remaining"] == nil
+    assert CLI.render(payload, "netlify") =~ "estimated credits: unavailable"
+  end
+
+  test "Netlify alert handler emits the low and resolved system topics" do
+    owner = self()
+
+    {:ok, _server} =
+      Alerts.start_link(
+        name: nil,
+        emit: fn topic, _opts ->
+          send(owner, topic)
+          :ok
+        end
+      )
+
+    Events.broadcast_netlify(%{low_event?: true, fields: %{credits: %{estimated_remaining: 20}}})
+    assert_receive "system.netlify.credits_low", 1_000
+    Events.broadcast_netlify(%{fields: %{credits: %{estimated_remaining: 200}}})
+    assert_receive "system.netlify.credits_low.resolved", 1_000
   end
 
   test "configured provider thresholds are bounded remaining percentages" do

@@ -312,6 +312,7 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         dashboard_cache_children(dashboard?) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
+        [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts)
     )
   end

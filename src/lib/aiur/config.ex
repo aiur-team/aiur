@@ -216,6 +216,8 @@ defmodule Aiur.Config do
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings
   defdelegate max_vertical_panes(), to: Aiur.Config.TrackerSettings
   defdelegate max_log_history_mb(), to: Aiur.Config.TrackerSettings
+  @spec netlify_settings() :: Aiur.Config.Schema.Netlify.t()
+  def netlify_settings, do: settings!().netlify
   defdelegate workspace_hooks(), to: Aiur.Config.TrackerSettings
   defdelegate hook_timeout_ms(), to: Aiur.Config.TrackerSettings
   defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings

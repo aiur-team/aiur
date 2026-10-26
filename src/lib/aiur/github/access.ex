@@ -157,6 +157,7 @@ defmodule Aiur.GitHub.Access do
   defdelegate print_status(), to: Aiur.GitHub.ResourceStore.Memory
   defdelegate base_url(), to: Aiur.GitHub.Transport
   defdelegate default_request_fun(req), to: Aiur.GitHub.Transport
+  defdelegate off_process_request(request, request_fun), to: Aiur.GitHub.Transport
   defdelegate fetch_json_list(request_fun, token, url, opts \\ []), to: Aiur.GitHub.Transport
 
   defdelegate fetch_json_list_conditional(request_fun, token, url, etag \\ nil, opts \\ []),
