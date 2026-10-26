@@ -115,6 +115,7 @@ defmodule Aiur.ExecutorWakeInbox do
         next_wake_id: summary.next_wake_id,
         cursor: summary.cursor,
         pending_count: summary.pending_count,
+        records: summary.records,
         timer: nil,
         waiters: %{},
         alert_fun: alert_fun,
@@ -161,9 +162,6 @@ defmodule Aiur.ExecutorWakeInbox do
         timer = Process.send_after(self(), {:wait_timeout, key}, timeout_ms)
         waiter = %{from: from, monitor: monitor, timer: timer}
         {:noreply, %{state | waiters: Map.put(state.waiters, key, waiter)}}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
     end
   end
 
@@ -195,9 +193,6 @@ defmodule Aiur.ExecutorWakeInbox do
         in_flight = Enum.count(state.pending, fn {_key, record} -> record["wake_id"] > state.cursor end)
         stats = %{cursor: state.cursor, pending_count: length(unread) + in_flight}
         {:reply, {:ok, stats}, %{state | pending_count: length(unread)}}
-
-      {:error, _reason} = error ->
-        {:reply, error, state}
     end
   end
 
@@ -273,8 +268,8 @@ defmodule Aiur.ExecutorWakeInbox do
   defp flush_pending(state) do
     records = state.pending |> Map.values() |> Enum.sort_by(& &1["wake_id"])
 
-    case Storage.append_new_records(state.path, records) do
-      :ok ->
+    case Storage.append_records(state, records) do
+      {:ok, state} ->
         :ok = Storage.persist_pending(state.pending_path, %{})
         state |> Map.merge(%{pending: %{}, flush_failures: 0}) |> Storage.trim_consumed() |> serve_waiters()
 
@@ -296,7 +291,6 @@ defmodule Aiur.ExecutorWakeInbox do
     case Storage.unread_records(state) do
       {:ok, [_ | _] = records} -> {{:ok, records}, state}
       {:ok, []} -> {:timeout, state}
-      {:error, reason} -> {{:error, reason}, state}
     end
   end
 

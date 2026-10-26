@@ -37,6 +37,17 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert Enum.sum(Enum.map(records, & &1["count"])) == 40
   end
 
+  test "pending reads cached journal records after startup", %{opts: opts} do
+    File.mkdir_p!(Path.dirname(opts[:path]))
+    File.write!(opts[:path], Jason.encode!(record(1, "42")) <> "\n")
+    start_supervised!({ExecutorWakeInbox, opts})
+
+    File.rm!(opts[:path])
+    File.mkdir!(opts[:path])
+
+    assert [%{"wake_id" => 1, "ticket" => "42"}] = ExecutorWakeInbox.pending(__MODULE__)
+  end
+
   test "coalesces by topic class and ticket while keeping the latest identifiers", %{opts: opts} do
     opts = Keyword.put(opts, :debounce_ms, 60_000)
     start_supervised!({ExecutorWakeInbox, opts})

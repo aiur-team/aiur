@@ -13,9 +13,17 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   @spec unread_records(map()) :: {:ok, [map()]} | {:error, term()}
   def unread_records(state) do
     cursor = current_cursor(state)
+    {:ok, Enum.filter(state.records, &(&1["wake_id"] > cursor))}
+  end
 
-    with {:ok, records} <- durable_records(state) do
-      {:ok, Enum.filter(records, &(&1["wake_id"] > cursor))}
+  @doc false
+  @spec append_records(map(), [map()]) :: {:ok, map()} | {:error, term()}
+  def append_records(state, records) do
+    known = MapSet.new(state.records, & &1["wake_id"])
+    additions = Enum.reject(records, &MapSet.member?(known, &1["wake_id"]))
+
+    with :ok <- append_new_records(state.path, additions) do
+      {:ok, %{state | records: state.records ++ additions}}
     end
   end
 
@@ -131,7 +139,8 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
        %{
          next_wake_id: Enum.max([cursor, quarantined_max | durable_ids ++ pending_ids]) + 1,
          cursor: cursor,
-         pending_count: Enum.count(records, &(&1["wake_id"] > cursor))
+         pending_count: Enum.count(records, &(&1["wake_id"] > cursor)),
+         records: records
        }}
     end
   end
@@ -180,11 +189,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   @doc false
   @spec trim_consumed(map()) :: map()
   def trim_consumed(state) do
-    case Journal.replay(state.path, &validate_record/1) do
-      {:ok, records, nil} -> trim_records(state, records)
-      {:ok, _records, corruption} -> Recovery.trim_failed(state, corruption)
-      {:error, reason} -> Recovery.trim_failed(state, reason)
-    end
+    trim_records(state, state.records)
   end
 
   defp trim_records(state, records) do
@@ -207,7 +212,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
       end
 
     cursor = report_dropped_unread(state, unread -- retained_unread)
-    %{state | cursor: cursor, pending_count: length(retained_unread)}
+    %{state | records: retained, cursor: cursor, pending_count: length(retained_unread)}
   end
 
   defp report_dropped_unread(state, []), do: state.cursor
