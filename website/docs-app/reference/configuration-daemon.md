@@ -193,8 +193,8 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 | `events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval. |
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
 | `events.export.enabled` | boolean | false | Enables the external event journal; restart to apply. Writes the segmented export journal when enabled. |
-| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); older records are trimmed. Read at boot. |
-| `events.export.retention_max_events` | integer | 50000 | Maximum retained records (1000..1000000); the first retention bound reached applies. Read at boot. |
+| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); reserved until retention is installed. Not enforced by the writer. |
+| `events.export.retention_max_events` | integer | 50000 | Maximum retained records (1000..1000000); reserved until retention is installed. Not enforced by the writer. |
 
 ## upgrade
 

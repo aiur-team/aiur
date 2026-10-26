@@ -58,11 +58,11 @@ defmodule Aiur.Events.Export.Layout do
     paths = segments(dir)
 
     with {:ok, meta} <- JsonStore.read(Path.join(dir, "export.meta.json")),
-         {:ok, records} <- recover_segments(paths),
-         {:ok, epoch} <- epoch(meta, instance, records) do
-      last = List.last(records)
+         {:ok, summary} <- recover_segments(paths),
+         {:ok, epoch} <- epoch(meta, instance, summary.last) do
+      last = summary.last
       head = if(last, do: last["seq"], else: 0)
-      oldest = if(records == [], do: 1, else: hd(records)["seq"])
+      oldest = if(summary.first, do: summary.first["seq"], else: 1)
 
       path =
         case List.last(paths) do
@@ -78,20 +78,20 @@ defmodule Aiur.Events.Export.Layout do
 
   defp recover_segments(paths) do
     result =
-      Enum.reduce_while(paths, {:ok, []}, fn {first, path}, {:ok, acc} ->
+      Enum.reduce_while(paths, {:ok, %{first: nil, last: nil}}, fn {first, path}, {:ok, summary} ->
         with {:ok, records} <- replay(path, false),
              true <- dense?(records, first),
-             true <- acc == [] or first == List.last(acc)["seq"] + 1 do
-          {:cont, {:ok, acc ++ records}}
+             true <- is_nil(summary.last) or first == summary.last["seq"] + 1 do
+          {:cont, {:ok, %{first: summary.first || List.first(records), last: List.last(records) || summary.last}}}
         else
           _ -> {:halt, {:error, :journal_corrupt}}
         end
       end)
 
     # Validate complete lines before permitting writer-only tail repair.
-    with {:ok, records} <- result,
+    with {:ok, summary} <- result,
          :ok <- repair_newest(paths) do
-      {:ok, records}
+      {:ok, summary}
     end
   end
 
@@ -109,7 +109,7 @@ defmodule Aiur.Events.Export.Layout do
   @spec dense?([map()], pos_integer()) :: boolean()
   def dense?(records, first), do: records |> Enum.with_index(first) |> Enum.all?(fn {r, seq} -> r["seq"] == seq end)
 
-  defp epoch(nil, _instance, []), do: {:ok, Base.encode32(:crypto.strong_rand_bytes(16), padding: false)}
+  defp epoch(nil, _instance, nil), do: {:ok, Base.encode32(:crypto.strong_rand_bytes(16), padding: false)}
   defp epoch(%{"v" => 1, "instance" => instance, "epoch" => epoch}, instance, _) when is_binary(epoch) and epoch != "", do: {:ok, epoch}
   defp epoch(_, _, _), do: {:error, :journal_corrupt}
 

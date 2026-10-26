@@ -18,41 +18,44 @@ defmodule Aiur.Events.Export.Reader do
 
   defp read_records(status, after_seq, limit, patterns) do
     with {:ok, dir} <- Layout.directory(),
-         {:ok, records} <- collect(Layout.segments(dir), status, after_seq),
-         true <- Layout.dense?(records, after_seq + 1),
-         true <- length(records) == status.head_seq - after_seq do
-      records = records |> Enum.filter(&matches?(&1, patterns)) |> Enum.take(limit)
+         {:ok, records, next} <- collect(Layout.segments(dir), status.head_seq, after_seq, limit, patterns),
+         true <- length(records) == limit or next == status.head_seq + 1 do
       {:ok, Map.take(status, [:instance, :epoch, :head_seq, :oldest_seq]) |> Map.put(:records, records)}
     else
       _ -> {:error, :events_unavailable}
     end
   end
 
-  defp collect(paths, status, after_seq) do
-    paths
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {{first, path}, index}, {:ok, acc} ->
-      next =
-        case Enum.at(paths, index + 1) do
-          nil -> status.head_seq + 1
-          {seq, _} -> seq
-        end
+  defp collect(paths, head, after_seq, limit, patterns) do
+    next_paths = Enum.drop(paths, 1) ++ [{head + 1, nil}]
 
-      if next <= after_seq + 1 or first > status.head_seq do
-        {:cont, {:ok, acc}}
-      else
-        collect_segment(first, path, status.head_seq, after_seq, acc)
-      end
+    paths
+    |> Enum.zip(next_paths)
+    |> Enum.reject(fn {{first, _}, {next, _}} -> next <= after_seq + 1 or first > head end)
+    |> Enum.reduce_while({:ok, [], after_seq + 1}, fn {{first, path}, _}, {:ok, acc, next} ->
+      collect_segment(first, path, head, {acc, next, limit, patterns})
     end)
   end
 
-  defp collect_segment(first, path, head, after_seq, acc) do
+  defp collect_segment(first, path, head, {acc, next, limit, patterns}) do
     with {:ok, records} <- Layout.replay(path, false),
          true <- Layout.dense?(records, first) do
-      visible = Enum.filter(records, &(&1["seq"] > after_seq and &1["seq"] <= head))
-      {:cont, {:ok, acc ++ visible}}
+      visible = Enum.filter(records, &(&1["seq"] >= next and &1["seq"] <= head))
+      accept_segment(visible, acc, next, limit, patterns)
     else
       _ -> {:halt, {:error, :journal_corrupt}}
+    end
+  end
+
+  defp accept_segment(visible, acc, next, limit, patterns) do
+    if Layout.dense?(visible, next) do
+      selected = visible |> Enum.filter(&matches?(&1, patterns)) |> Enum.take(limit - length(acc))
+      acc = acc ++ selected
+      next = if visible == [], do: next, else: List.last(visible)["seq"] + 1
+      action = if length(acc) == limit, do: :halt, else: :cont
+      {action, {:ok, acc, next}}
+    else
+      {:halt, {:error, :journal_corrupt}}
     end
   end
 

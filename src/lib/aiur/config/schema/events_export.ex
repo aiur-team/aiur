@@ -9,10 +9,10 @@ defmodule Aiur.Config.Schema.EventsExport do
     # @config-detail events.export.enabled | boolean | false | Enables the external event journal; restart to apply. Writes the segmented export journal when enabled. |
     field(:enabled, :boolean, default: false)
     # @config-reference config-configuration-11 events.export.retention_days
-    # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); older records are trimmed. Read at boot. |
+    # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); reserved until retention is installed. Not enforced by the writer. |
     field(:retention_days, :integer, default: 7)
     # @config-reference config-configuration-11 events.export.retention_max_events
-    # @config-detail events.export.retention_max_events | integer | 50000 | Maximum retained records (1000..1000000); the first retention bound reached applies. Read at boot. |
+    # @config-detail events.export.retention_max_events | integer | 50000 | Maximum retained records (1000..1000000); reserved until retention is installed. Not enforced by the writer. |
     field(:retention_max_events, :integer, default: 50_000)
   end
 

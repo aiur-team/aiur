@@ -327,8 +327,8 @@ alerts:
 #   codeowners_refresh_seconds: 3600
 #   export:                          # export journal; read at boot, restart to apply
 #     enabled: false
-#     retention_days: 7              # 1..90; first age/count bound reached applies
-#     retention_max_events: 50000     # 1000..1000000
+#     retention_days: 7              # 1..90; reserved until retention is installed
+#     retention_max_events: 50000     # 1000..1000000; not enforced by writer
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
 
 # Build queue (GitHub only; defaults shown except opt-in set ordering).

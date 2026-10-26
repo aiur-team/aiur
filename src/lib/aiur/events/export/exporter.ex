@@ -121,7 +121,9 @@ defmodule Aiur.Events.Export.Exporter do
   end
 
   defp publish_status(state) do
-    :persistent_term.put({Export, :status}, Map.take(state, [:state, :reason, :instance, :epoch, :oldest_seq, :head_seq]))
+    status = Map.take(state, [:state, :reason, :instance, :epoch, :oldest_seq, :head_seq])
+    status = if status.state == :starting, do: %{status | state: :unavailable}, else: status
+    :persistent_term.put({Export, :status}, status)
   end
 
   @impl true
