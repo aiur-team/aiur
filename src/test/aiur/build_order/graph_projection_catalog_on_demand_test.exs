@@ -1,4 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
+  # Catalog on-demand cadence, failure recovery and staleness behavior share
+  # one deterministic projection harness; keeping them together avoids
+  # duplicating task, clock and authority setup for each policy guarantee.
   # The `planning: 0` on-demand catalog guarantees from #2309/#2399, pinned
   # under the event-sourced model (#2313).
   #
