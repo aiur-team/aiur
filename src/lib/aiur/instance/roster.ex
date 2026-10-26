@@ -1,6 +1,7 @@
 defmodule Aiur.Instance.Roster do
   @moduledoc "Builds an age-aware view of instances published to the shared lease store."
 
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Instance.{Identity, LeaseStore}
 
   @doc "Returns roster rows with observation time and explicit live/stale state."
@@ -42,10 +43,17 @@ defmodule Aiur.Instance.Roster do
   defp leader(opts) do
     case Keyword.get(opts, :leader_fun) do
       fun when is_function(fun, 0) -> fun.()
-      _ -> LeaseStore.leader(nil)
+      _ -> current_repository_leader()
     end
   rescue
     _ -> :unknown
+  end
+
+  defp current_repository_leader do
+    case GitHubConfig.repo() do
+      repository when is_binary(repository) -> LeaseStore.leader(repository)
+      _ -> :unknown
+    end
   end
 
   defp put_leader(%{state: :stale} = row, _leader), do: Map.put(row, :leader?, false)
