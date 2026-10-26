@@ -14,10 +14,10 @@
 ## Hosted execution safety
 
 Set `instance.mode: hosted` only when every dispatchable backend has explicit,
-safe permission, network, and credential boundaries. Aiur checks the complete
-backend set and every registered agent-environment contributor before starting
-supervision and again before dispatch after a config reload. Missing or unknown
-declarations are unsafe.
+safe permission, network, and credential boundaries. Aiur statically checks the
+complete backend set and every registered agent-environment contributor before
+starting supervision and again before dispatch after a config reload. Missing
+or unknown declarations are unsafe.
 
 Hosted mode also rejects Remote Control (`agent.remote_control`, `+remote`
 routes, and `model:remote` labels), foreground tmux panes, tmux-backed REPL
@@ -27,6 +27,29 @@ Hosted mode requires bounded agent permissions, network access denied by
 default, and credentials kept in trusted daemon-side components. Codex must
 use an approval policy other than `never`, a bounded thread sandbox, and a
 bounded per-turn sandbox with network access disabled.
+
+Static startup, reload, and dispatch validation includes the effective fallback,
+but does not inspect the current authentication of primary routes or configured
+account profiles.
+
+The first and every later trusted runtime observation must prove API-key
+authentication. Subscription, OAuth, personal-token, header-derived,
+agent-identity, Bedrock, missing, and unknown observations fail closed.
+
+Claude reauthorizes the current observation before every tool call and successful
+completion. Codex has no separate per-action authorization gate: an unsafe
+initial account read refuses session startup, and a later unsafe account
+notification stops the turn before subsequent progress, tool-call processing,
+or successful completion.
+
+Aiur records the provider and safe authentication class, moves the ticket to
+`agent:error`, and does not retry that unsafe profile automatically.
+
+Hosted mode also validates the effective usage-limit fallback. The local
+default, `agent.rate_limit_fallback: claude`, is not statically API-key-only
+and therefore makes a hosted configuration invalid. Set the fallback to `""`
+to disable it, or select a registry backend whose account contract contains
+only API-key modes.
 
 The current production backends each expose at least one agent-side boundary,
 so no production backend can pass hosted startup until the hosted-safe backend

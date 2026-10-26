@@ -195,6 +195,8 @@ defmodule Aiur.Config.PriorityRoutesTest do
 
     test "401 does NOT advance: a broken credential must surface, not reroute spend" do
       assert RouteFailure.classify(:unauthorized) == :auth_rejected
+      assert RouteFailure.classify({:turn_failed, %{"provider_error" => %{"api_error_status" => 401}}}) == :auth_rejected
+      assert RouteFailure.classify({:turn_failed, %{"message" => "request failed with status 401 in unrelated text"}}) == :fatal
       refute RouteFailure.advance?(:auth_rejected)
       refute RouteFailure.record_limit?(:auth_rejected)
     end

@@ -282,7 +282,7 @@ defmodule Aiur.CodingAgent.HeadroomDispatch do
 
   defp reading(%{backend: backend, account: account}, state, meters, per_backend, now, opts) do
     cond do
-      not ModelAvailability.available?(backend, state: state, now: now) -> %{limited: true, source: "ledger"}
+      not ModelAvailability.available?(backend, state: state, now: now, path: Keyword.get_lazy(opts, :path, &ModelAvailability.path/0)) -> %{limited: true, source: "ledger"}
       reading = Map.get(meters, {account_backend(backend), account || "default"}) -> reading
       Map.get(per_backend, backend) == 1 -> backend_reading(backend, Keyword.merge(opts, state: state, now: now))
       true -> nil

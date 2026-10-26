@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur/capabilities.ex",
     "src/lib/aiur/capabilities/**",
+    "src/lib/aiur/client_tokens.ex",
     "src/lib/aiur/identity.ex",
     "src/lib/aiur/identity/**",
     "src/lib/aiur_web/controllers/capabilities_controller.ex",
@@ -14,6 +15,7 @@
   "facades": [
     "Aiur.Capabilities",
     "Aiur.Capabilities.Provider",
+    "Aiur.ClientTokens",
     "Aiur.Identity",
     "AiurWeb.Routes.Capabilities"
   ],
