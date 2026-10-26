@@ -19,6 +19,22 @@ const socketHarness = (): WebSocketLike & { sent: string[]; open(): void; messag
 };
 
 describe("Stream Deck Phoenix channel", () => {
+  it("uses a configured client bearer token for the token exchange", async () => {
+    const socket = socketHarness();
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ token: "signed-token" }) }));
+    await connectStreamDeckChannel({
+      baseUrl: "https://aiur.test",
+      token: "client-token",
+      fetch,
+      websocket: vi.fn(() => socket),
+      events: { snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(), voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn() },
+    });
+
+    expect(fetch).toHaveBeenCalledWith("https://aiur.test/api/v1/streamdeck/token", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer client-token" }),
+    }));
+  });
+
   it("mints a token, joins, consumes projected state, and sends control", async () => {
     const socket = socketHarness();
     const events = {
@@ -33,6 +49,7 @@ describe("Stream Deck Phoenix channel", () => {
       websocket: vi.fn(() => socket),
       events,
     });
+
 
     socket.open();
     expect(JSON.parse(socket.sent[0])).toEqual(["4", "1", "streamdeck:fleet", "phx_join", {}]);

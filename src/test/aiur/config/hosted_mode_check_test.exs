@@ -397,6 +397,14 @@ defmodule Aiur.Orchestrator.HostedModeCheckTest do
 
   defp settings(mode, extra \\ %{}) do
     config = Map.merge(%{"instance" => %{"mode" => mode}}, extra)
+
+    config =
+      if mode == "hosted" do
+        Map.update(config, "agent", %{"rate_limit_fallback" => ""}, &Map.put_new(&1, "rate_limit_fallback", ""))
+      else
+        config
+      end
+
     assert {:ok, settings} = Schema.parse(config)
     settings
   end

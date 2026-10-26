@@ -54,8 +54,8 @@ the change falsifies before writing anything new.
 
 | Change | Page |
 |--------|------|
-| Config key | `website/docs-app/reference/configuration.md`, `configuration-agent.md`, `configuration-build-order.md` or `configuration-voice.md` (one entry per key, on exactly one of them, defaults included) |
-| CLI command or flag | `website/docs-app/reference/cli.md` |
+| Config key | `website/docs-app/reference/configuration*.md` (one entry per key, defaults included; index: `configuration.md`) |
+| CLI command or flag | `website/docs-app/reference/cli*.md` (topic pages; index: `cli.md`) |
 | Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
 | Model or behavior explanation | `website/docs-app/concepts/` |
 | Skills | `website/docs-app/skills.md` |
@@ -64,10 +64,10 @@ A genuinely new page must also be added to the sidebar in
 `website/docs-app/.vitepress/config.ts`, or nobody can reach it.
 
 The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
-config keys; missing entries fail `lint`. `scripts/test-check-config-docs.sh` guards
-that checker. The `lint` job runs `website/docs-app/scripts/check-cli-reference.sh`
-and its self-test, as does website guards for docs-only changes. Keep
-`reference/cli.md` at 500 lines or fewer; consolidate added rows in the same change. The file-size gate exempts skills and third-party vendored directories.
+config keys across the index and topic pages; missing entries fail lint.
+`scripts/test-check-config-docs.sh` guards that checker. The lint job and website
+workflow run `website/docs-app/scripts/check-cli-reference.sh` and its self-test.
+Keep reference topic pages below 400 lines; the file-size gate allows at most 500.
 Other rows remain enforced by review alone.
 
 ## Layout
@@ -209,7 +209,7 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment. GitHub uses the App when configured; local fallback is `GITHUB_TOKEN` or `gh` keyring, while hosted/container requires the App unless
+from the environment. Machine clients may set `AIUR_CLIENT_TOKEN` to a value created with `aiur token create`; clients send it as a bearer credential, and the value is removed from agent environments. A non-loopback bind refuses Basic Auth on every route, so machine clients there need a client token. GitHub uses the App when configured; local fallback is `GITHUB_TOKEN` or `gh` keyring, while hosted/container requires the App unless
 `AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. On a run,
 credential precedence is: an already-exported environment value, then
 `./.env` in the current repository, then `~/.aiur/.env`. Each dotenv file only
