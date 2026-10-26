@@ -31,7 +31,17 @@ defmodule AiurWeb.Router do
 
   pipeline :dashboard_auth_required do
     plug(:fetch_session)
-    plug(:dashboard_basic_auth, required?: true)
+    plug(AiurWeb.ClientTokenAuth, write?: true, required?: true)
+  end
+
+  pipeline :client_token_write do
+    plug(:fetch_session)
+    plug(AiurWeb.ClientTokenAuth, write?: true)
+  end
+
+  pipeline :client_token_read do
+    plug(:fetch_session)
+    plug(AiurWeb.ClientTokenAuth)
   end
 
   pipeline :supervisor_auth do
@@ -133,7 +143,7 @@ defmodule AiurWeb.Router do
 
   # Account and rate-limit snapshot (#5697).
   scope "/" do
-    pipe_through(:dashboard_auth)
+    pipe_through(:client_token_read)
     get("/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :show)
     match(:*, "/api/v1/usage/accounts", AiurWeb.UsageAccountsApiController, :method_not_allowed)
     get("/api/v1/usage", AiurWeb.UsageApiController, :index)
