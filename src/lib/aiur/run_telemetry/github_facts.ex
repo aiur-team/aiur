@@ -2,7 +2,7 @@ defmodule Aiur.RunTelemetry.GitHubFacts do
   @moduledoc "One governed terminal-ticket read; only derived PR scalars leave this module."
 
   alias Aiur.Events.BranchRefStore
-  alias Aiur.GitHub.{CodeOwners, Transport}
+  alias Aiur.GitHub.{Access, CodeOwners}
   alias Aiur.TicketBranch
 
   @query """
@@ -39,7 +39,7 @@ defmodule Aiur.RunTelemetry.GitHubFacts do
   def fetch(ticket, opts \\ []) do
     with {:ok, {owner, repo}} <- repository(opts),
          {:ok, number} <- ticket_number(ticket),
-         {:ok, token} <- Transport.require_token(opts),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, response} <- request(token, owner, repo, number, ticket, opts) do
       normalize(response, opts)
     end
@@ -70,7 +70,7 @@ defmodule Aiur.RunTelemetry.GitHubFacts do
         end
 
       _ ->
-        Transport.parse_repo()
+        Access.parse_repo()
     end
   end
 
@@ -89,7 +89,7 @@ defmodule Aiur.RunTelemetry.GitHubFacts do
   defp request(token, owner, repo, number, ticket, opts) do
     branch = if is_map(ticket), do: ticket[:pr_head_ref] || ticket[:branch_name] || TicketBranch.branch_name(number, ticket[:title]), else: known_branch(number, opts)
     variables = %{"owner" => owner, "name" => repo, "number" => number, "branch" => branch}
-    Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, @query, variables, caller: "analytics_facts")
+    Access.github_graphql(Keyword.get(opts, :request_fun, &Access.default_request_fun/1), token, @query, variables, caller: "analytics_facts")
   end
 
   defp known_branch(number, opts) do
