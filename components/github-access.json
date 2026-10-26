@@ -40,6 +40,7 @@
     "src/lib/aiur/github/resource_store**",
     "src/lib/aiur/github/transport**",
     "src/priv/github_budget*.py",
+    "src/priv/github_budget/**",
     "src/priv/github_guard/gh/**"
   ],
   "facades": [

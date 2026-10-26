@@ -194,7 +194,7 @@ if [ "$command_key" = "issue create" ]; then
   esac
 
   if [ "$flake_followup" -eq 1 ]; then
-    eval "set -- $(python3 -c '
+    eval "set -- $(python3 -I -c '
 import sys
 import shlex
 args = sys.argv[1:]
