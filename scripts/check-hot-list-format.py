@@ -35,6 +35,12 @@ def check(root):
             rows = [row for row in path.read_text().splitlines() if row and not row.startswith('#')]
             if rows != sorted(set(rows)):
                 errors.append(f'{path.relative_to(root)}: entries must be sorted and unique')
+        mapping = root / 'scripts/reference-sections.tsv'
+        if mapping.exists():
+            rows = mapping.read_text().splitlines()
+            if (rows[:1] != ['source\theading\tdestination\tanchor'] or
+                    rows[1:] != sorted(set(rows[1:])) or any(row.count('\t') != 3 for row in rows[1:])):
+                errors.append('scripts/reference-sections.tsv: entries need four columns, sorted and unique')
         for name, attributes in CODE_LISTS.items():
             text = (root / name).read_text()
             for attribute in attributes:

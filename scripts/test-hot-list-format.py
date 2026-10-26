@@ -72,6 +72,15 @@ class HotListFormatTest(unittest.TestCase):
         path.write_text('R-private\tZ.Module\t#1 existing\n' * 2)
         self.assertIn('scripts/components/allowlist/kernel.tsv: entries must be sorted and unique', CHECKER.check(self.root))
 
+    def test_section_map_requires_one_sorted_entry_per_line(self):
+        path = self.root / 'scripts/reference-sections.tsv'
+        header = 'source\theading\tdestination\tanchor\n'
+        path.write_text(header + 'cli.md\t## Z\tcli-launch.md\tz\ncli.md\t## A\tcli-launch.md\ta\n')
+        message = 'scripts/reference-sections.tsv: entries need four columns, sorted and unique'
+        self.assertIn(message, CHECKER.check(self.root))
+        path.write_text(header + 'cli.md\t## A\tcli-launch.md\ta\tcli.md\t## Z\tcli-launch.md\tz\n')
+        self.assertIn(message, CHECKER.check(self.root))
+
     def test_flattened_writer_allowlist_fails(self):
         path = self.root / 'src/test/support/state_writers_allowlist.exs'
         comment, body = path.read_text().split('\n', 1)
