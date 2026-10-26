@@ -32,7 +32,7 @@ defmodule Aiur.Events.CatalogTest do
 
     for entry <- exported do
       assert entry.refs != [] or entry.attrs != [], entry.pattern
-      assert Enum.all?(entry.refs, &(&1 in [:ticket, :pr_number, :head_sha, :decision_id, :decision_version])), entry.pattern
+      assert Enum.all?(entry.refs, &(&1 in [:ticket, :pr_number, :head_sha, :decision_id, :decision_version, :queue_id, :prerequisite, :blocked, :root])), entry.pattern
       assert Enum.all?(entry.attrs, fn {key, type} -> is_atom(key) and allowed_type?(type) end), entry.pattern
       assert approved_export?(entry.pattern), "Unapproved export: #{entry.pattern}"
     end
@@ -61,9 +61,56 @@ defmodule Aiur.Events.CatalogTest do
       assert %Entry{export?: true, refs: [], attrs: [percent: :integer]} = Catalog.lookup("ticket.42.agent.#{suffix}")
     end
 
+    assert %Entry{
+             class: :journaled,
+             export?: true,
+             refs: [:ticket, :decision_id, :decision_version],
+             attrs: [requester_kind: {:enum, ~w(worker executor)}, blocking: :boolean, urgency: {:enum, ~w(low normal high critical)}, cause: {:enum, _}]
+           } =
+             Catalog.lookup("ticket.42.agent.decision.human-needed")
+
+    assert %Entry{class: :live, export?: true, refs: [:ticket, :pr_number]} = Catalog.lookup("ticket.42.pr.closed_unmerged")
+    assert %Entry{class: :live, export?: true, refs: [:ticket, :pr_number], reserved: true} = Catalog.lookup("ticket.42.issue.closed")
+
+    assert %Entry{class: :live, export?: true, refs: [:ticket, :queue_id], attrs: [cause: {:enum, _}]} =
+             Catalog.lookup("ticket.42.queue.promoted")
+
+    assert %Entry{pattern: "ticket.*.queue.#", class: :live, export?: true, refs: [:ticket, :queue_id]} =
+             Catalog.lookup("ticket.42.queue.future")
+
+    assert %Entry{class: :ledgered, export?: true, refs: [:ticket, :prerequisite, :blocked], attrs: [cause: {:enum, _}, blocked: {:list, :id}]} =
+             Catalog.lookup("ticket.42.queue.attention.prerequisite_failed")
+
+    for topic <- ["system.queue.q1.progress", "system.build_order.root.progress"] do
+      assert %Entry{class: :ledgered, export?: true, attrs: [milestone: {:enum, ~w(25 50 75 100)}, percent: :integer, generation: :integer, freshness: {:enum, _}]} = Catalog.lookup(topic)
+    end
+
+    assert %Entry{class: :live, export?: true, attrs: [requested: {:enum, ~w(steer sync async)}, effective: {:enum, ~w(steer sync async)}, effective_reason: {:enum, _}, version: :integer]} =
+             Catalog.lookup("ticket.42.agent.listen-mode.changed")
+
+    assert %Entry{class: :live, export?: true, attrs: [revision: :integer]} = Catalog.lookup("system.capabilities.changed")
+
     for topic <- ["ticket.42.agent.attention.example", "system.dispatch.cycle_stalled"] do
       assert %Entry{class: :ledgered, export?: true, refs: [:ticket], attrs: [severity: {:enum, ~w(info warning error)}, needs_attention: :boolean]} = Catalog.lookup(topic)
     end
+  end
+
+  test "planned topic registrations name their component owners and reserve unproduced entries" do
+    assert %Entry{owner: "commands", reserved: true} = Catalog.lookup("ticket.42.agent.decision.human-needed")
+    assert %Entry{owner: "github-listeners", reserved: true} = Catalog.lookup("ticket.42.issue.closed")
+    assert %Entry{owner: "build-queue"} = Catalog.lookup("ticket.42.queue.attention.prerequisite_failed")
+    assert %Entry{owner: "build-orders"} = Catalog.lookup("system.build_order.root.progress")
+    assert %Entry{owner: "orchestration", reserved: true} = Catalog.lookup("ticket.42.agent.listen-mode.changed")
+    assert %Entry{owner: "identity"} = Catalog.lookup("system.capabilities.changed")
+    assert %Entry{owner: "conversations", reserved: true, export?: false} = Catalog.lookup("executor.conversation.appended")
+  end
+
+  test "human-needed exports no text fields" do
+    entry = Catalog.lookup("ticket.42.agent.decision.human-needed")
+    refute :short_label in entry.refs
+    refute :question in entry.refs
+    refute Keyword.has_key?(entry.attrs, :short_label)
+    refute Keyword.has_key?(entry.attrs, :question)
   end
 
   test "no two catalog entries tie on specificity for an overlapping topic" do
@@ -124,12 +171,16 @@ defmodule Aiur.Events.CatalogTest do
   end
 
   defp allowed_type?({:enum, values}), do: is_list(values) and values != [] and Enum.all?(values, &is_binary/1)
+  defp allowed_type?({:list, :id}), do: true
   defp allowed_type?(type), do: type in [:integer, :boolean, :id, :sha]
 
   defp approved_export?(pattern) do
     Enum.any?(
-      ~w(ticket.*.agent.decision.# ticket.*.pr.opened ticket.*.pr.ready_for_review ticket.*.pr.merged ticket.*.ci.passed ticket.*.ci.failed
-      ticket.*.issue.commented ticket.*.pr.review_comment ticket.*.agent.progress ticket.*.agent.progress.checkin ticket.*.agent.attention.# system.#),
+      ~w(ticket.*.agent.decision.# ticket.*.pr.opened ticket.*.pr.ready_for_review ticket.*.pr.merged ticket.*.pr.closed_unmerged ticket.*.issue.closed
+      ticket.*.ci.passed ticket.*.ci.failed ticket.*.issue.commented ticket.*.pr.review_comment ticket.*.agent.progress ticket.*.agent.progress.checkin
+      ticket.*.agent.attention.# ticket.*.queue.# ticket.*.queue.promoted ticket.*.queue.withdrawn ticket.*.queue.held ticket.*.queue.released ticket.*.queue.overridden
+      ticket.*.queue.removed ticket.*.queue.attention.# system.queue.*.progress system.queue.attention.# system.build_order.*.progress
+      ticket.*.agent.listen-mode.changed system.capabilities.changed system.#),
       &Events.matches?(&1, pattern)
     )
   end

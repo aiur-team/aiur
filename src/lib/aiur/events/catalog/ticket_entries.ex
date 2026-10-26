@@ -149,22 +149,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.ci.rewake", "orchestration"},
     # aiur/allowed_contributors/wake.ex
     {"ticket.*.issue.opened.allowed_contributor", "github"},
-    # aiur/build_queue/pr_observer.ex
-    {"ticket.*.pr.closed_unmerged", "github-listeners"},
     # aiur/events/github_firehose/pull_request.ex
     {"ticket.*.pr.reopened", "github-listeners"},
-    # aiur/build_queue/events.ex
-    {"ticket.*.queue.held", "build-queue"},
-    # aiur/build_queue/events.ex
-    {"ticket.*.queue.overridden", "build-queue"},
-    # aiur/build_queue/events.ex
-    {"ticket.*.queue.promoted", "build-queue"},
-    # aiur/build_queue/events.ex
-    {"ticket.*.queue.released", "build-queue"},
-    # aiur/build_queue/events.ex
-    {"ticket.*.queue.removed", "build-queue"},
-    # aiur/build_queue/events.ex
-    {"ticket.*.queue.withdrawn", "build-queue"},
     # aiur/orchestrator/restack_scheduler.ex
     {"ticket.*.restack.conflict", "orchestration"}
   ]

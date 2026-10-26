@@ -13,6 +13,20 @@ Aiur uses a shared topic exchange to signal coordination between tickets, agents
 
 Events are signals; consumers follow validated references or correlation fields to the durable source of truth.
 
+## Reserved namespaces
+
+These registered namespaces freeze producer ownership before every producer ships; clients re-read the owning API instead of treating an event payload as state.
+
+| Namespace | Owner | Client action |
+| --- | --- | --- |
+| `ticket.<id>.agent.decision.human-needed` | DecisionStore / MP-E2 | Re-read the Decision API. |
+| `ticket.<id>.pr.closed_unmerged`, `ticket.<id>.issue.closed` | Queue readiness / MP-E1 | Re-read queue and pull-request state. |
+| `ticket.<id>.queue.*`, `system.queue.*` | Build queue / MP-E1 | Re-read queue state. |
+| `system.build_order.<root>.progress` | Build orders / MP-E1-C7 | Re-read Build Order progress. |
+| `ticket.<id>.agent.listen-mode.changed` | Listener modes / MP-E7 | Re-read listener-mode state. |
+| `system.capabilities.changed` | Capabilities / MP-R1 | Re-read `GET /api/v1/capabilities`. |
+| `executor.conversation.*` | Conversations / MP-E3 | Reserved only; no event producer exists. |
+
 ## What survives a restart
 
 | Class | Topics | After a restart or disconnect |

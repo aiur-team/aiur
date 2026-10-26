@@ -131,3 +131,27 @@ When you answer a Command in conversation with an attended Executor, it can reco
 Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
 
 Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; delivery-state guards still apply.
+
+## Who can replace an answer
+
+Both revise and supersede use the current active answer's precedence:
+**direct operator > operator relayed by an Executor > Executor or supervisor**.
+A caller can replace an answer of equal or lower precedence while delivery guards
+permit it.
+
+A relayed answer never replaces a direct operator answer; an Executor
+or supervisor cannot replace either human-attributed kind.
+
+Supersede is refused once an answer has been delivered or is in flight.
+Revisions keep their existing delivery and correction follow-up rules.
+
+Answer attribution records `actor_source`, the entry point that accepted it,
+such as `executor_cli` or `supervisor_api`.
+
+An already-answered supervisor API
+conflict includes a `winner` summary with the actor, source, accepted time,
+answer summary, delivery state and whether that caller can replace it.
+
+Older records and calls without a recorded surface use `rpc`, meaning
+“no surface recorded.” Attribution is separate from authentication:
+`human_required` does not stop a same-user process with the distribution cookie.
