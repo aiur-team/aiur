@@ -18,7 +18,7 @@ def compose(adapter='standalone', deny_merge=False):
         if group not in ('core', 'aiur-policy'):
             raise ValueError(f'untagged fragment: {name}')
         include = adapter == 'aiur' or group == 'core'
-        if adapter == 'standalone' and name == '20-b-merge-functions.sh' and deny_merge:
+        if adapter == 'standalone' and name in ('20-b-merge-functions.sh', '20-c2-undecidable.sh') and deny_merge:
             include = True
         if include:
             source = (PARTS / 'gh' / name).read_text()
@@ -27,8 +27,8 @@ def compose(adapter='standalone', deny_merge=False):
             sources.append(source.split('\n', 1)[1])
         if adapter == 'standalone' and name == '15-c-disposition.sh':
             sources.append((PARTS / 'policy-none.sh').read_text())
-        if adapter == 'standalone' and name == '20-c-agent-gate.sh' and deny_merge:
-            sources.append('if merge_or_approve_command "$@"; then\n'
+        if adapter == 'standalone' and name == '20-c3-agent-gate.sh' and deny_merge:
+            sources.append('if merge_or_approve_command "$@" || undecidable_agent_command "$@"; then\n'
                            '  echo "gh-access: merge/approve refused by build policy" >&2\n'
                            '  exit 77\nfi\n')
     return ''.join(sources)

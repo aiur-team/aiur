@@ -163,6 +163,9 @@ sys.exit(result.returncode)
                     'AIUR_GITHUB_BUDGET_ENABLED': '0', 'AIUR_AGENT_WORKSPACE': '',
                     'AIUR_GH_ACCESS_DENY_MERGE': value})
                 self.assertEqual(result.returncode, 77, result.stderr)
+        for args in [('alias', 'set', 'merge-it', 'pr merge'), ('merge-it', '1')]:
+            self.assertEqual(self.run_gh(*args).returncode, 0)
+            self.assertEqual(self.run_gh(*args, binary=denied / 'gh-access').returncode, 77)
         self.assertEqual(self.run_gh('issue', 'create', '--title', 'x').returncode, 0)
         direct = ('api', 'repos/o/r/issues', '-X', 'POST', '-f', 'title=x')
         self.assertEqual(self.run_gh(*direct).returncode, 0)

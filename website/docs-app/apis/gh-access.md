@@ -18,7 +18,9 @@ Build outputs are generated locally. Separate npm/pip packages are deferred.
 `make -C packages/gh-access test` runs the offline stub suite.
 
 Standalone builds allow merge and approval commands. For a build that refuses
-those commands, use `BUILD_FLAGS=--deny-merge` with `make install`.
+those commands, use `BUILD_FLAGS=--deny-merge` with `make install`. That build
+also refuses alias changes and commands it cannot inspect.
+
 Aiur's agent build always includes disposition, provenance, merge/approve and
 undecidable-command policy. Standalone flags cannot disable that policy.
 

@@ -10,7 +10,9 @@ aiur-policy	15-c-disposition.sh
 core	15-d-admission.sh
 aiur-policy	20-a-context.sh
 aiur-policy	20-b-merge-functions.sh
-aiur-policy	20-c-agent-gate.sh
+aiur-policy	20-c1-handoff.sh
+aiur-policy	20-c2-undecidable.sh
+aiur-policy	20-c3-agent-gate.sh
 core	20-d-budget.sh
 core	30-state-cache-shapes.sh
 core	35-state-cache-store.sh
