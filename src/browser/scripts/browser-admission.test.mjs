@@ -19,9 +19,15 @@ test('browser and fixture environment hops preserve admission and exclude creden
     AIUR_BROWSER_GATE_WORKSPACE: '/workspace'
   }
   const browser = browserChildEnvironment({ ...admission, GITHUB_TOKEN: 'secret', AIUR_SUPERVISOR_TOKEN: 'secret' })
-  for (const child of [browser, fixtureServerEnvironment(browser)]) {
-    for (const [name, value] of Object.entries(admission)) assert.equal(child[name], value, name)
+  const fixture = fixtureServerEnvironment(browser)
+  for (const child of [browser, fixture]) {
+    for (const [name, value] of Object.entries(admission)) {
+      if (child === fixture && name === 'BASH_ENV') continue
+      assert.equal(child[name], value, name)
+    }
     assert.equal(child.GITHUB_TOKEN, undefined)
     assert.equal(child.AIUR_SUPERVISOR_TOKEN, undefined)
   }
+  assert.equal(browser.BASH_ENV, admission.BASH_ENV)
+  assert.equal(fixtureServerEnvironment(browser).BASH_ENV, undefined)
 })

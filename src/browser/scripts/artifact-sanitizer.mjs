@@ -83,7 +83,7 @@ export function browserChildEnvironment(environment = process.env, overrides = {
 // can be asserted without spawning the server that module starts on import.
 const fixtureRuntimeNames = [
   realGitName,
-  ...buildAdmissionNames,
+  ...buildAdmissionNames.filter((name) => name !== 'BASH_ENV'),
   'HOME',
   'PATH',
   'TMPDIR',
