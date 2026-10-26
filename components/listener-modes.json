@@ -38,5 +38,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-E7"
+  "added_by": "MP-E7",
+  "goal": "voice"
 }

@@ -27,5 +27,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-N4"
+  "added_by": "MP-N4",
+  "goal": "notify"
 }

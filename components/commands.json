@@ -79,5 +79,6 @@
     "AIUR_CI_READINESS_TOKEN",
     "AIUR_SUPERVISOR_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

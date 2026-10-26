@@ -61,5 +61,6 @@
   "status": "optional",
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

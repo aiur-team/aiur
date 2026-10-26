@@ -4,7 +4,7 @@ defmodule VoiceConverse do
   this module currently owns the instance supervisor and availability.
   """
 
-  alias VoiceConverse.{BootReconciler, Config, ProviderCleanup}
+  alias VoiceConverse.{BootReconciler, Config, ProviderCleanup, SessionRegistry, SessionSupervisor}
 
   @doc "Child spec for one named instance. Raises `ArgumentError` naming the bad field."
   @spec child_spec(keyword() | map() | Config.t()) :: Supervisor.child_spec()
@@ -31,6 +31,36 @@ defmodule VoiceConverse do
     end
   end
 
+  @doc "Starts a conversation in the named VoiceConverse instance."
+  @spec start_session(module(), term(), keyword()) :: {:ok, String.t()} | {:error, atom()}
+  def start_session(instance, target, opts \\ []) do
+    SessionSupervisor.start_session(instance, target, opts)
+  end
+
+  @doc "Relays an audio chunk to a live conversation."
+  @spec push_audio(module(), String.t(), String.t()) :: :ok | {:error, :not_found}
+  def push_audio(instance, conversation_id, audio_b64) do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+      VoiceConverse.Session.push_audio(pid, audio_b64)
+    end
+  end
+
+  @doc "Ends a live conversation with one stable end reason."
+  @spec end_session(module(), String.t(), atom()) :: :ok | {:error, :not_found}
+  def end_session(instance, conversation_id, reason \\ :user_end) do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+      VoiceConverse.Session.end_session(pid, reason)
+    end
+  end
+
+  @doc "Subscribes a process to conversation events."
+  @spec subscribe(module(), String.t(), pid()) :: :ok | {:error, :not_found}
+  def subscribe(instance, conversation_id, subscriber \\ self()) do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+      VoiceConverse.Session.subscribe(pid, subscriber)
+    end
+  end
+
   defp session_availability(config) do
     case Config.check_session_start(config) do
       :ok -> :ok
@@ -41,9 +71,18 @@ defmodule VoiceConverse do
   # Startup order is intentional: the durable cleanup queue comes up first, then reconciliation
   # seals any interrupted transcripts and appends cleanup work before later session children may
   # accept a new conversation.
-  defp children(%Config{transcript: :none}), do: []
+  defp children(%Config{} = config) do
+    session_children = [
+      {Registry, keys: :unique, name: SessionRegistry.name(config.name)},
+      {SessionSupervisor, config}
+    ]
 
-  defp children(%Config{transcript: :file, name: name, transcript_root: root, credentials: credentials}) do
+    transcript_children(config) ++ session_children
+  end
+
+  defp transcript_children(%Config{transcript: :none}), do: []
+
+  defp transcript_children(%Config{transcript: :file, name: name, transcript_root: root, credentials: credentials}) do
     cleanup = Module.concat(name, ProviderCleanup)
 
     [
