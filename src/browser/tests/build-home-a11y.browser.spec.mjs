@@ -66,6 +66,23 @@ test('audit freeze prevents scroll-driven lane replacement', async ({ page }) =>
   await expectAuditLayoutStable(page)
 })
 
+test('audit freeze holds list nodes against a real server diff', async ({ page }) => {
+  const stream = 'audit-freeze-' + test.info().workerIndex
+  expect((await page.request.get('/build-control/stream?key=' + stream)).ok()).toBe(true)
+  await open(page, 'offline', 'list')
+  await settleAnimations(page, '#build-root')
+  const row = page.locator('.lr[data-id]').first(), id = await row.getAttribute('data-id')
+  const before = await row.textContent()
+  await freezeAuditLayout(page)
+  await page.evaluate(() => { window.auditListRow = document.querySelector('.lr[data-id]') })
+  expect((await page.request.get('/build-control/diff?op=title&id=' + encodeURIComponent(id))).ok()).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.auditBlockedUpdates)).toBeGreaterThan(0)
+  expect(await row.textContent()).toBe(before)
+  expect(await page.evaluate(() => window.auditListRow.isConnected)).toBe(true)
+  expect(await page.evaluate(() => window.liveSocket.isConnected())).toBe(true)
+  await expectAuditLayoutStable(page)
+})
+
 test('cards expose complete names and a single roving button stop', async ({ page }) => {
   await open(page)
   const result = await page.evaluate(() => {
