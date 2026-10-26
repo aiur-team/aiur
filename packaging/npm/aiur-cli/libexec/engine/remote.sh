@@ -355,6 +355,12 @@ remote_json_output() {
   ' "$file"
 }
 
+remote_rpc_finish() {
+  local status="$1" request_file="$2" response_file="$3"
+  rm -f -- "$request_file" "$response_file" "$response_file.http-status" "${AIUR_REMOTE_CURL_PID_FILE:-}" "${AIUR_REMOTE_CLEANUP_FILE:-}"
+  return "$status"
+}
+
 remote_build_label() {
   local file="$1" version commit
   version="$(remote_json_field "$file" "error.build.version" 2>/dev/null || true)"
@@ -370,7 +376,7 @@ remote_build_label() {
 
 run_remote_rpc_with_timeout() {
   local expression="$1" name="$AIUR_REMOTE_INSTANCE" runtime token timeout_seconds timeout_ms curl_timeout
-  local request_file response_file http_status curl_status=0 output code reason detail required_scope build
+  local request_file response_file http_status curl_status=0 curl_pid output code reason detail required_scope build rpc_status=0
 
   if [ "$name" = all ]; then run_remote_all_rpc "$expression"; return $?; fi
 
@@ -394,9 +400,10 @@ run_remote_rpc_with_timeout() {
   timeout_seconds="$(control_rpc_timeout_seconds)"
   timeout_ms=$((timeout_seconds * 1000))
   curl_timeout=$((timeout_seconds + 15))
-  request_file="$(mktemp "${TMPDIR:-/tmp}/aiur-remote-request.XXXXXX")"
-  response_file="$(mktemp "${TMPDIR:-/tmp}/aiur-remote-response.XXXXXX")"
-  chmod 600 "$request_file" "$response_file"
+  request_file="$(mktemp "${TMPDIR:-/tmp}/aiur-remote-request.XXXXXX")" || { control_rpc_say "aiur: could not create the remote request file"; return 69; }
+  response_file="$(mktemp "${TMPDIR:-/tmp}/aiur-remote-response.XXXXXX")" || { rm -f -- "$request_file"; control_rpc_say "aiur: could not create the remote response file"; return 69; }
+  chmod 600 "$request_file" "$response_file" || { remote_rpc_finish 69 "$request_file" "$response_file" || true; return 69; }
+  [ -z "${AIUR_REMOTE_CLEANUP_FILE:-}" ] || printf '%s\n%s\n%s.http-status\n' "$request_file" "$response_file" "$response_file" >"$AIUR_REMOTE_CLEANUP_FILE"
 
   if ! printf '%s' "$expression" | AIUR_REMOTE_COMMAND="${AIUR_CONTROL_COMMAND:-control}" AIUR_REMOTE_TIMEOUT_MS="$timeout_ms" AIUR_REMOTE_MAX_SCOPE="${AIUR_REMOTE_MAX_SCOPE:-write}" \
     "$runtime" -e '
@@ -411,88 +418,80 @@ run_remote_rpc_with_timeout() {
         max_scope: process.env.AIUR_REMOTE_MAX_SCOPE,
       }));
     ' >"$request_file"; then
-    rm -f "$request_file" "$response_file"
+    remote_rpc_finish 69 "$request_file" "$response_file" || true
     control_rpc_say "aiur: could not encode the remote control request"
     return 69
   fi
 
-  if http_status="$(printf 'Authorization: Bearer %s\n' "$token" | curl \
-    --silent --show-error --request POST \
-    --max-time "$curl_timeout" \
-    --header @- \
-    --header 'Content-Type: application/json' \
-    --header 'Accept: application/json' \
-    --data-binary "@$request_file" \
-    --output "$response_file" \
-    --write-out '%{http_code}' \
-    "$AIUR_REMOTE_URL/api/v1/control")"; then
-    :
-  else
-    curl_status=$?
-  fi
-  unset token
-  rm -f "$request_file"
+  printf 'Authorization: Bearer %s\n' "$token" | (
+    [ -z "${AIUR_REMOTE_CURL_PID_FILE:-}" ] || printf '%s' "$BASHPID" >"$AIUR_REMOTE_CURL_PID_FILE"
+    exec curl \
+      --silent --show-error --request POST \
+      --max-time "$curl_timeout" \
+      --header @- \
+      --header 'Content-Type: application/json' \
+      --header 'Accept: application/json' \
+      --data-binary "@$request_file" \
+      --output "$response_file" \
+      --write-out '%{http_code}' \
+      "$AIUR_REMOTE_URL/api/v1/control"
+  ) >"$response_file.http-status" &
+  curl_pid=$!
+  if wait "$curl_pid"; then http_status="$(cat "$response_file.http-status" 2>/dev/null || true)"; else curl_status=$?; fi
 
   AIUR_CONTROL_RPC_TIMED_OUT=0
   RELEASE_NODE="$name"
 
   if [ "$curl_status" -ne 0 ]; then
-    rm -f "$response_file"
     control_rpc_say "aiur: could not reach remote instance '$name' (curl exit $curl_status)"
-    return 69
+    rpc_status=69
+  else
+    case "$http_status" in
+      200)
+        if output="$(remote_json_output "$response_file")"; then
+          AIUR_CONTROL_RPC_OUTPUT="$output"
+          AIUR_REMOTE_INSTANCE_ID="$(remote_json_field "$response_file" "instance_id" 2>/dev/null || true)"
+        else
+          control_rpc_say "aiur: remote instance '$name' returned an invalid control response"
+          rpc_status=69
+        fi
+        ;;
+      401)
+        control_rpc_say "aiur: token rejected by $name"
+        rpc_status=77
+        ;;
+      403)
+        required_scope="$(remote_json_field "$response_file" "error.required_scope" 2>/dev/null || true)"
+        [ -n "$required_scope" ] || required_scope="required"
+        control_rpc_say "aiur: $(control_command_label) requires $required_scope scope on $name"
+        rpc_status=77
+        ;;
+      422)
+        code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
+        reason="$(remote_json_field "$response_file" "error.reason" 2>/dev/null || true)"
+        detail="$(remote_json_field "$response_file" "error.detail" 2>/dev/null || true)"
+        build="$(remote_build_label "$response_file")"
+        if [ "$reason" = "unknown_on_build" ] || [ "$reason" = "option_not_allowed" ]; then
+          control_rpc_say "aiur: $(control_command_label) is unsupported on $name ($build)"
+        else
+          control_rpc_say "aiur: $(control_command_label) was refused by $name${reason:+: $reason}${detail:+ ($detail)}${code:+ [$code]}"
+        fi
+        rpc_status=64
+        ;;
+      504)
+        control_rpc_say "aiur: $(control_command_label) timed out on $name; outcome unknown on $name"
+        rpc_status=124
+        ;;
+      400 | 404 | 405 | 413)
+        code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
+        control_rpc_say "aiur: remote instance '$name' refused $(control_command_label) (HTTP $http_status${code:+, $code})"
+        rpc_status=64
+        ;;
+      *)
+        control_rpc_say "aiur: remote instance '$name' failed $(control_command_label) with HTTP ${http_status:-unknown}"
+        rpc_status=69
+        ;;
+    esac
   fi
-
-  case "$http_status" in
-    200)
-      if output="$(remote_json_output "$response_file")"; then
-        AIUR_CONTROL_RPC_OUTPUT="$output"
-        rm -f "$response_file"
-        return 0
-      fi
-      rm -f "$response_file"
-      control_rpc_say "aiur: remote instance '$name' returned an invalid control response"
-      return 69
-      ;;
-    401)
-      rm -f "$response_file"
-      control_rpc_say "aiur: token rejected by $name"
-      return 77
-      ;;
-    403)
-      required_scope="$(remote_json_field "$response_file" "error.required_scope" 2>/dev/null || true)"
-      rm -f "$response_file"
-      [ -n "$required_scope" ] || required_scope="required"
-      control_rpc_say "aiur: $(control_command_label) requires $required_scope scope on $name"
-      return 77
-      ;;
-    422)
-      code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
-      reason="$(remote_json_field "$response_file" "error.reason" 2>/dev/null || true)"
-      detail="$(remote_json_field "$response_file" "error.detail" 2>/dev/null || true)"
-      build="$(remote_build_label "$response_file")"
-      rm -f "$response_file"
-      if [ "$reason" = "unknown_on_build" ] || [ "$reason" = "option_not_allowed" ]; then
-        control_rpc_say "aiur: $(control_command_label) is unsupported on $name ($build)"
-      else
-        control_rpc_say "aiur: $(control_command_label) was refused by $name${reason:+: $reason}${detail:+ ($detail)}${code:+ [$code]}"
-      fi
-      return 64
-      ;;
-    504)
-      rm -f "$response_file"
-      control_rpc_say "aiur: $(control_command_label) timed out on $name; outcome unknown on $name"
-      return 124
-      ;;
-    400 | 404 | 405 | 413)
-      code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
-      rm -f "$response_file"
-      control_rpc_say "aiur: remote instance '$name' refused $(control_command_label) (HTTP $http_status${code:+, $code})"
-      return 64
-      ;;
-    *)
-      rm -f "$response_file"
-      control_rpc_say "aiur: remote instance '$name' failed $(control_command_label) with HTTP ${http_status:-unknown}"
-      return 69
-      ;;
-  esac
+  remote_rpc_finish "$rpc_status" "$request_file" "$response_file"
 }
