@@ -1,8 +1,8 @@
 defmodule Aiur.Config.Schema.Github do
   @moduledoc false
 
-  @external_resource Path.join(__DIR__, "github_app.ex")
-  @external_resource Path.join(__DIR__, "github_credential.ex")
+  @external_resource Path.relative_to(Path.join(__DIR__, "github_app.ex"), File.cwd!(), force: true)
+  @external_resource Path.relative_to(Path.join(__DIR__, "github_credential.ex"), File.cwd!(), force: true)
   use Ecto.Schema
   import Ecto.Changeset
 

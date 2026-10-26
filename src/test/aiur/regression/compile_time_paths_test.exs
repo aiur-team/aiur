@@ -112,6 +112,35 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur_web/streamdeck_key_face_contract.ex" => [
       "@contract_path Path.expand(\"../../priv/streamdeck/key-face-contract.json\", __DIR__)",
       "@external_resource Path.relative_to(@contract_path, File.cwd!(), force: true)"
+    ],
+    # These schema files use compile-time resources only to invalidate structs
+    # whose nested embed defaults are copied into their parents.
+    "aiur/config/schema.ex" => [
+      "@nested_schema_sources Path.wildcard(Path.join(__DIR__, \"schema/*.ex\"))",
+      "do: @external_resource(Path.relative_to(source, File.cwd!(), force: true))"
+    ],
+    "aiur/config/schema/agent.ex" => [
+      "do: @external_resource(Path.relative_to(Path.join(__DIR__, source), File.cwd!(), force: true))"
+    ],
+    "aiur/config/schema/build_order.ex" => [
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"general_epic.ex\"), File.cwd!(), force: true)"
+    ],
+    "aiur/config/schema/decisions.ex" => [
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"decisions_escalation.ex\"), File.cwd!(), force: true)"
+    ],
+    "aiur/config/schema/events.ex" => [
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"events_export.ex\"), File.cwd!(), force: true)"
+    ],
+    "aiur/config/schema/experiments.ex" => [
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"experiments_analyst.ex\"), File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"experiments_auto.ex\"), File.cwd!(), force: true)"
+    ],
+    "aiur/config/schema/tracker.ex" => [
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"github_app.ex\"), File.cwd!(), force: true)",
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"github_credential.ex\"), File.cwd!(), force: true)"
+    ],
+    "aiur/config/schema/voice.ex" => [
+      "@external_resource Path.relative_to(Path.join(__DIR__, \"voice_conversation.ex\"), File.cwd!(), force: true)"
     ]
   }
 

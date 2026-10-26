@@ -45,7 +45,7 @@ end
 defmodule Aiur.Config.Schema.Agent do
   @moduledoc false
   for source <- ~w(codex.ex git_identity.ex pricing_policy.ex),
-      do: @external_resource(Path.join(__DIR__, source))
+      do: @external_resource(Path.relative_to(Path.join(__DIR__, source), File.cwd!(), force: true))
 
   use Ecto.Schema
   import Ecto.Changeset
