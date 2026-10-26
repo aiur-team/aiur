@@ -12,10 +12,11 @@ defmodule Aiur.AgentGitHubGuard do
   alias Aiur.AgentCommandInstaller
   alias Aiur.AgentGitHubGuard.{AgentToken, RemoteInstall, Script}
 
-  @broker_path Path.expand("../../priv/github_budget.py", __DIR__)
+  @broker_root Path.expand("../../priv/github_budget", __DIR__)
+  @broker_paths Enum.map(~w(00_schema 10_admission 20_report_and_cli), &Path.join(@broker_root, &1 <> ".py"))
+  for path <- @broker_paths, do: @external_resource(path)
   @broker_metrics_path Path.expand("../../priv/github_budget_metrics.py", __DIR__)
   @socket_client_path Path.expand("../../priv/github_budget_socket.py", __DIR__)
-  @external_resource @broker_path
   @external_resource @broker_metrics_path
   @external_resource @socket_client_path
   @gh_script Aiur.AgentGitHubGuard.RecursionGuard.splice(Script.gh(), "gh")
@@ -24,7 +25,7 @@ defmodule Aiur.AgentGitHubGuard do
   # workspace on each local dispatch (`Provisioner.maybe_install_agent_support`
   # runs `install/1` on every worker attempt). A workspace therefore runs the
   # broker of the daemon's currently-compiled release — never the stale
-  # `src/priv/github_budget.py` from the workspace's own checkout — which is
+  # `src/priv/github_budget/` from the workspace's own checkout — which is
   # what keeps the shared ledger free of rows a newer broker cannot read (#2307).
   #
   # Staleness is bounded by the daemon's own release, not by dispatch: because
@@ -39,11 +40,11 @@ defmodule Aiur.AgentGitHubGuard do
   # directly: an agent workspace must stay self-contained on a remote worker,
   # and a workspace-local copy that is re-installed on every dispatch is just as
   # fresh once the release moves. The accepted tension is that the agent that
-  # *writes* a broker change exercises it through `Aiur.GitHub.BudgetTest`
-  # (which resolves the broker from the source `priv/`), not through the
+  # *writes* a broker change exercises it through `Aiur.GitHub.BudgetBrokerSourceTest`
+  # (which installs the embedded broker in a test directory), not through the
   # daemon-run broker in its own workspace — the same tension the issue called
   # out for either choice.
-  @broker File.read!(@broker_path)
+  @broker Enum.map_join(@broker_paths, &File.read!/1)
   @broker_metrics File.read!(@broker_metrics_path)
   @socket_client File.read!(@socket_client_path)
   @scripts [

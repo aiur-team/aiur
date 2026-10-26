@@ -33,8 +33,8 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @script_path"
     ],
     "aiur/agent_github_guard.ex" => [
-      "@broker_path Path.expand(\"../../priv/github_budget.py\", __DIR__)",
-      "@external_resource @broker_path",
+      "@broker_root Path.expand(\"../../priv/github_budget\", __DIR__)",
+      "for path <- @broker_paths, do: @external_resource(path)",
       "@broker_metrics_path Path.expand(\"../../priv/github_budget_metrics.py\", __DIR__)",
       "@external_resource @broker_metrics_path",
       "@socket_client_path Path.expand(\"../../priv/github_budget_socket.py\", __DIR__)",
@@ -54,9 +54,9 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@snippet_path Path.expand(\"../../../priv/guard_recursion.sh\", __DIR__)",
       "@external_resource @snippet_path"
     ],
-    "aiur/github/budget.ex" => [
-      "@broker_source_path Path.expand(\"../../../priv/github_budget.py\", __DIR__)",
-      "@external_resource @broker_source_path"
+    "aiur/github/budget_broker_source.ex" => [
+      "@root Path.expand(\"../../../priv\", __DIR__)",
+      "for path <- @paths, do: @external_resource(path)"
     ],
     "aiur/agent_skills.ex" => [
       "The skill files are embedded at COMPILE time (via `@external_resource` +",

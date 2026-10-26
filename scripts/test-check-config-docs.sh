@@ -86,6 +86,27 @@ fi
 grep -q "all 5 config keys are documented" <<<"$output" ||
   fail "expected all 5 keys to be counted, got: $output"
 
+# A split topic contributes keys; deleting it must still report those keys.
+root="$work/split-topic"
+cp -R "$work/pass" "$root"
+reference_file="$root/website/docs-app/reference/configuration.md"
+topic_file="$root/website/docs-app/reference/configuration-tracker.md"
+grep -F 'tracker.github.p95_latency_ms' "$reference_file" >"$topic_file"
+grep -Fv 'tracker.github.p95_latency_ms' "$reference_file" >"$root/index.md"
+mv "$root/index.md" "$reference_file"
+if ! output="$(run_check "$root")"; then
+  fail "a key documented only in a topic should pass, got: $output"
+fi
+grep -q "all 5 config keys are documented" <<<"$output" ||
+  fail "split topics must preserve the complete key count, got: $output"
+rm "$topic_file"
+if output="$(run_check "$root")"; then
+  fail "deleting a topic with a required key must fail, got: $output"
+fi
+grep -q "tracker.github.p95_latency_ms" <<<"$output" ||
+  fail "a missing topic must report its missing key, got: $output"
+echo "check-config-docs guard: split topic inclusion and omission passed"
+
 # --- Case 2: an undocumented key -> fail ------------------------------------
 root="$work/missing"
 scaffold "$root"
