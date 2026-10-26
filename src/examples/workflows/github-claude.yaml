@@ -55,7 +55,7 @@ tracker:
     agent_graphql_limit_per_hour: 600
     agent_search_limit_per_hour: 600
 instance:
-  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  mode: local                        # local | hosted; hosted requires safe boundaries and API-key auth/fallback
   deployment_kind: operator         # operator | consumer; hosted consumers use API keys only
   # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # eligible primary candidates share leader election; secondary never leads
