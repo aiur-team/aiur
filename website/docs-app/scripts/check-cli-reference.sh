@@ -10,7 +10,7 @@ dev_harness="$repo_root/scripts/lib/aiurdev-harness.sh"
 page="$docs_dir/reference/cli.md"
 cli_launch_options_page="$docs_dir/reference/cli-options.md"
 cli_reference_pages=("$page")
-for command_page in "$docs_dir"/reference/*commands*.md; do
+for command_page in "$docs_dir"/reference/*commands*.md "$docs_dir"/reference/cli-*.md; do
   [ -f "$command_page" ] && cli_reference_pages+=("$command_page")
 done
 cli_reference_pages+=("$docs_dir/reference/experiment-statistics.md")
