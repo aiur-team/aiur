@@ -334,7 +334,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       assert reply.payload["status"] == "accepted"
 
       assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
-      assert current.answer.actor == %{kind: :operator, id: "streamdeck"}
+      assert current.answer.actor == %{kind: :operator, id: "streamdeck", source: :rpc}
       assert current.answer.selected_option_id == "ship"
     end
 

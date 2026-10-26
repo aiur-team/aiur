@@ -90,7 +90,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
     assert floor_error =~ "human_required"
     assert relay(decision, store) =~ "answered by operator, relayed by attended-executor"
     assert {:ok, %{answer: answer}} = DecisionStore.get(decision.decision_id, store)
-    assert answer.actor == %{kind: :operator_relayed, id: "attended-executor"}
+    assert answer.actor == %{kind: :operator_relayed, id: "attended-executor", source: :rpc}
     assert answer.operator_quote == "  keep them\n"
     assert answer.relayed_by == "attended-executor"
     assert %DateTime{} = answer.accepted_at
@@ -115,7 +115,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
         assert OperatorRelayCLI.answer(Keyword.merge(params(decision), supersede: true, option_id: "replace", quote: "fabricated", idempotency_key: "relay-overwrite"), decision_store: store) == 1
       end)
 
-    assert errors =~ "operator_answer_present"
+    assert errors =~ "a relayed answer cannot replace it"
 
     revision = %{
       expected_version: 1,
@@ -128,8 +128,8 @@ defmodule Aiur.OperatorRelayAnswerTest do
       rationale: "Relayed correction"
     }
 
-    actor = %{kind: :operator_relayed, id: "attended-executor"}
-    assert {:error, {:answer_invalid, {:operator_relay, :operator_answer_present}}} = DecisionStore.revise(decision.decision_id, revision, [actor: actor], store)
+    actor = %{kind: :operator_relayed, id: "attended-executor", source: :rpc}
+    assert {:error, {:conflict, {:direct_operator_answer, _}}} = DecisionStore.revise(decision.decision_id, revision, [actor: actor], store)
     assert {:ok, unchanged} = DecisionStore.get(decision.decision_id, store)
     # Ticket-comment publication may advance asynchronously; answer and revision state must not.
     assert unchanged.answer == original.answer
@@ -139,7 +139,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
 
     correction = %{expected_version: 1, option_id: "replace", idempotency_key: "operator-revision", rationale: "Operator changed direction"}
     assert {:ok, %{decision: revised}} = DecisionStore.supersede(decision.decision_id, correction, [actor: operator], store)
-    assert Decision.active_answer(revised).actor == operator
+    assert Decision.active_answer(revised).actor == Map.put(operator, :source, :rpc)
     assert Decision.active_answer(revised).selected_option_id == "replace"
     assert revised.answer == original.answer
   end
@@ -163,7 +163,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
     relay(decision, store)
     assert_receive {:worker_delivery, "3005", payload}, 3_000
     assert payload.body =~ "Selected option `keep`: Keep them"
-    assert payload.correlation.actor == %{kind: :operator_relayed, id: "attended-executor"}
+    assert payload.correlation.actor == %{kind: :operator_relayed, id: "attended-executor", source: :rpc}
     assert payload.correlation.decision_id == decision.decision_id
     assert payload.delivery_policy == :interrupt
   end
