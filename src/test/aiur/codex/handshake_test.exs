@@ -88,12 +88,15 @@ defmodule Aiur.Codex.HandshakeTest do
 
     test "quarantines malformed late rate-limit stream output" do
       secret = "person@example.test credential=super-secret"
+      release_file = Path.join(System.tmp_dir!(), "handshake-#{System.unique_integer([:positive])}.release")
 
       port =
         script_port("""
         while IFS= read -r line; do
           case "$line" in
-            *'\"id\":4'*) sleep 1.1; printf '%s\\n' '{"id":4,"result": malformed rate-limit=#{secret}' ;;
+            *'\"id\":4'*)
+              while [ ! -e '#{release_file}' ]; do sleep 0.01; done
+              printf '%s\\n' '{"id":4,"result": malformed rate-limit=#{secret}' ;;
             *'\"id\":5'*) printf '%s\\n' '{"id":5,"result":{"account":{"type":"chatgpt"}}}'; exit 0 ;;
           esac
         done
@@ -107,6 +110,7 @@ defmodule Aiur.Codex.HandshakeTest do
       end
 
       assert {:error, :response_timeout} = Handshake.read_rate_limits(port)
+      File.write!(release_file, "continue")
 
       log =
         capture_log(fn ->

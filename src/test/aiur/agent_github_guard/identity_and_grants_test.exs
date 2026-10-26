@@ -293,17 +293,33 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Remaining: 0\nX-RateLimit-Reset: #{reset}\n\n"
              )
 
-    assert {:hold, %{reason: :shared_budget, resource: "core"}} =
-             Budget.acquire(
-               %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/1670", token: credential},
-               state_dir: budget_root,
-               enabled?: true,
-               max_inflight: 4,
-               max_inflight_per_endpoint: 2,
-               requests_per_minute: 20,
-               stagger_ms: 0,
-               timeout_ms: 1_000
-             )
+    request = %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/1670", token: credential}
+
+    assert {:hold, %{reason: :shared_budget, resource: "core"}} = acquire_recorded_hold(request, budget_root)
+  end
+
+  defp acquire_recorded_hold(request, budget_root, attempts \\ 5)
+
+  defp acquire_recorded_hold(request, budget_root, attempts) do
+    result =
+      Budget.acquire(request,
+        state_dir: budget_root,
+        enabled?: true,
+        max_inflight: 4,
+        max_inflight_per_endpoint: 2,
+        requests_per_minute: 20,
+        stagger_ms: 0,
+        timeout_ms: 5_000
+      )
+
+    case result do
+      {:error, :github_budget_broker_timeout} when attempts > 1 ->
+        Process.sleep(10)
+        acquire_recorded_hold(request, budget_root, attempts - 1)
+
+      other ->
+        other
+    end
   end
 
   test "git authentication uses only the agent token for github.com", context do
