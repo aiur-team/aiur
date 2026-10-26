@@ -18,8 +18,12 @@ defmodule AiurWeb.PublicBindGuard do
 
   @impl Plug
   def call(conn, _opts) do
-    if AiurWeb.EndpointConfig.get(:public_bind, false) and not public_path?(conn) and not supervisor_auth_path?(conn) do
-      AiurWeb.FinancialDataAccess.authenticate_request(conn, browser?: browser_request?(conn), required?: true)
+    if AiurWeb.EndpointConfig.get(:public_bind, false) and not public_path?(conn) and not supervisor_auth_path?(conn) and not machine_api_path?(conn) do
+      if basic_auth_present?(conn) do
+        conn |> send_resp(401, "basic authentication is unavailable on a public bind") |> halt()
+      else
+        AiurWeb.FinancialDataAccess.authenticate_request(conn, browser?: browser_request?(conn), required?: true)
+      end
     else
       conn
     end
@@ -34,6 +38,15 @@ defmodule AiurWeb.PublicBindGuard do
 
   defp supervisor_auth_path?(%Plug.Conn{path_info: ["api", "v1", "decisions" | _]}), do: true
   defp supervisor_auth_path?(_conn), do: false
+
+  defp machine_api_path?(%Plug.Conn{path_info: ["api", "v1" | _]}), do: true
+  defp machine_api_path?(_conn), do: false
+
+  defp basic_auth_present?(conn) do
+    conn
+    |> get_req_header("authorization")
+    |> Enum.any?(&String.starts_with?(String.downcase(&1), "basic "))
+  end
 
   defp browser_request?(%Plug.Conn{path_info: ["api" | _]}), do: false
   defp browser_request?(_conn), do: true

@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 24,
+  "first_id": "tests-1c-16",
+  "last_id": "tests-2-14",
+  "findings": [
+    {
+      "id": "tests-1c-16",
+      "status": "present",
+      "anchor": "src/test/aiur/app_server_test.exs:82",
+      "note": "Fake shell executables remain embedded in AppServer and workspace tests; git setup remains inline. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-17",
+      "status": "present",
+      "anchor": "src/test/aiur/provider_meter_probe_workspace_test.exs:18",
+      "note": "Probe test still creates real home-cache and checkout verification paths; real-state isolation concern remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-18",
+      "status": "present",
+      "anchor": "src/test/aiur/workspace_and_config_test.exs:935",
+      "note": "VM-local unique integer temp names remain in workspace and global startup suites instead of collision-resistant tmp_root!. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-19",
+      "status": "present",
+      "anchor": "src/test/aiur/ssh_test.exs:101",
+      "note": "SSH suite still rewrites process-wide PATH; workflow suite still changes OS process cwd. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-20",
+      "status": "present",
+      "anchor": "src/test/aiur/configuration_reference_test.exs:6",
+      "note": "Configuration reference is still File.read! of website docs at compile time; skill guard asserts wrapped repository prose. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-21",
+      "status": "present",
+      "anchor": "src/test/aiur/agent_environment_test.exs:40",
+      "note": "Environment probe still launches mise/Elixir; lifecycle suite launches child VMs; external-tool coupling remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-23",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator_control_routing_test.exs:21",
+      "note": "Control tests still directly call Orchestrator callbacks on hand-built State; snapshot tests inspect private ETS. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-24",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator_status_test.exs:3386",
+      "note": "Status suite still repeats orchestration/state setup for wake/token cases; schema suite repeats write/parse cycles. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-24"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-25",
+      "status": "present",
+      "anchor": "src/test/aiur/workspace_and_config_test.exs:1862",
+      "note": "Defaults mega-test and multiline mixed API tests remain; cited historical sizes not reasserted. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-26",
+      "status": "changed",
+      "anchor": "src/test/support/test_support.exs:228",
+      "note": "TestSupport still expands serial ExUnit.Case with global setup; pure-looking thrash/control suites use it. Historical 75% census not reasserted. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/linear/client.ex:198",
+      "note": "Linear Client exposes normalize_issue_for_test and Workflow retains process-dictionary path injection; test-oriented production API remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-28",
+      "status": "changed",
+      "anchor": "src/test/support/test_support.exs:86",
+      "note": "Decision-state dir still absent from common isolated key list and manually overridden by suites. Duplicate cache-inspector key has been removed. Provisional disposition retained.",
+      "source_ids": [
+        "tests-1c-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-29",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/decision_expiry_test.exs:28",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1c-29"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-1c-30",
+      "status": "changed",
+      "anchor": "src/test/aiur/orchestrator_control_routing_test.exs:125",
+      "note": "Negative receives now specify 100 ms explicitly; synchronous routing still waits, but old bare-receive population/count is obsolete and no suite-time saving is claimed.",
+      "source_ids": [
+        "tests-1c-30"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-31",
+      "status": "present",
+      "anchor": "src/test/aiur/decision_store_test.exs:1027",
+      "note": "now remains an atom key in the request payload instead of options; fresh-decision assertion does not prove the intended clock advance.",
+      "source_ids": [
+        "tests-1c-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-32",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/os_test.exs:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1c-32"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-1c-33",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/live_e2e_test.exs:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1c-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-1c-34",
+      "status": "present",
+      "anchor": "src/test/aiur/orchestrator_status_test.exs:43",
+      "note": "Fake tracker retains string-key clauses while Linear.Tracker constructs atom-key variables; doubles still lack callback behaviour declarations.",
+      "source_ids": [
+        "tests-1c-34"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-1c-35",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/git_test.exs:113",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-1c-35"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "tests-1c-36",
+      "status": "present",
+      "anchor": "src/test/aiur/agent_chat_broadcast_test.exs:68",
+      "note": "Warning-named test still asserts error/transcript only; missing-directory test still expects success and fallback-name test only checks binary type.",
+      "source_ids": [
+        "tests-1c-36"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-01",
+      "status": "present",
+      "anchor": "src/test/aiur/github/read_cache_test.exs:844",
+      "note": "Read-cache test still stops live app owner and awaits cascade; ResourceStore tests terminate/restart production-supervisor child. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "tests-2-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-02",
+      "status": "present",
+      "anchor": "src/test/aiur/github/view_state_sweep_test.exs:513",
+      "note": "Sweep suite still records owner/repo default ModeRegistry state; readers delete ModeTable entries locally; producer isolation remains incomplete. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-02"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-03",
+      "status": "present",
+      "anchor": "src/test/aiur/github/read_cache_test.exs:45",
+      "note": "ReadCache main suite still polls then starts supervised global replacement; transport suite uses shared application-child helper. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-03"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/transport.ex:79",
+      "note": "require_token still substitutes test-gh-token whenever request_fun is supplied without token; transport test pins seam. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-05",
+      "status": "present",
+      "anchor": "src/test/aiur/github/issues_test.exs:21",
+      "note": "GitHub suites still individually erase/save private token-cache keys and mutate GITHUB_TOKEN; setup variants remain. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-06",
+      "status": "unchanged",
+      "anchor": "src/test/aiur/github/graphql_cost_test.exs:6",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "tests-2-06"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "tests-2-07",
+      "status": "changed",
+      "anchor": "src/test/aiur/usage_ledger/recovery_test.exs:2",
+      "note": "Recovery suite still serial despite temporary private persistence; TestSupport still forces serial common setup. Historical 64% census not current. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-08",
+      "status": "changed",
+      "anchor": "src/test/aiur/github/ci_readiness_test.exs:165",
+      "note": "CI readiness and PR suites still build inline request routers, duplicating default-branch response. Some routers now flunk on fallback, so missing-fallback claim is narrower. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-09",
+      "status": "repaired",
+      "anchor": "src/test/aiur_web/financial_data/change_bridge_test.exs:18",
+      "note": "All cited asynchronous receive families now use explicit 1000 ms waits, including task release and activation. Repaired by aac8a4532024b48e1cbb03073454cfa0832cb6a2 (#2937/#2796); no dedicated U1..U7 finding-owner ticket; retain the existing regression guard and do not reapply this repair. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-10",
+      "status": "present",
+      "anchor": "src/test/aiur/github/agent_cache_bridge_test.exs:46",
+      "note": "Cache bridge still sleeps 120 ms before absent-marker assertion; disabled refresher sleeps 50 ms before negative observation. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-11",
+      "status": "present",
+      "anchor": "src/test/aiur/github/transport_quota_test.exs:253",
+      "note": "Transport admission deadline test retains 1500 ms request bound and real budget broker; 1000 ms stub request leaves timing margin. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-12",
+      "status": "present",
+      "anchor": "src/test/aiur/run_telemetry/github_enricher_test.exs:9",
+      "note": "Enricher tests still unregister app-owned CodeOwners for fallback; singleton substitution concern remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-13",
+      "status": "present",
+      "anchor": "src/test/aiur/github/config_test.exs:290",
+      "note": "GitHub config still empties process PATH and task tests change cwd; VM-global side effects remain. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "tests-2-14",
+      "status": "present",
+      "anchor": "src/test/aiur/github/quota_test.exs:569",
+      "note": "Quota tilde workspace test still writes under System.user_home! and cleans after test; real-home dependence remains. Provisional disposition retained.",
+      "source_ids": [
+        "tests-2-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

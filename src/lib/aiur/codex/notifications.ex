@@ -19,6 +19,16 @@ defmodule Aiur.Codex.Notifications do
 
         continue_after_account_notification(session, state, details.payload["method"])
 
+      {:refused, reason, details} ->
+        Messages.emit_message(
+          state.on_message,
+          :notification,
+          details,
+          TurnEvents.metadata_from_message(session.port, details.payload)
+        )
+
+        {:error, {:turn_unretryable, reason}}
+
       :ignore ->
         {:continue, state}
     end
@@ -45,6 +55,16 @@ defmodule Aiur.Codex.Notifications do
         )
 
         continue_after_account_notification(session, state, details.payload["method"])
+
+      {:refused, reason, details} ->
+        Messages.emit_message(
+          on_message,
+          :notification,
+          details,
+          TurnEvents.metadata_from_message(session.port, details.payload)
+        )
+
+        {:error, {:turn_unretryable, reason}}
 
       :ignore ->
         Messages.emit_message(on_message, :notification, %{payload: payload, raw: payload_string}, metadata)

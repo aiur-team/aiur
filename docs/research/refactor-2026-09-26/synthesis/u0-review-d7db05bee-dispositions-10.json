@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 10,
+  "first_id": "github-b-09",
+  "last_id": "loose-1-06",
+  "findings": [
+    {
+      "id": "github-b-09",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issues.ex:689",
+      "note": "Pinned-tree git grep finds ResourceStore claim/change_validator/forget without production calls and head-ref API only in defining reader/Client wrappers; do_list_issues remains definition-only. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-09"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/resource_store.ex:886",
+      "note": "ResourceStore held_body and held_entry retain same expiry/data selection; Transport/Error wrapper redundancies remain. Provisional disposition retained.",
+      "source_ids": [
+        "github-b-10"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issues.ex:40",
+      "note": "Issues retains conditional/unconditional readers, separate conditional/list pagination and local response-header interpretation; fetch, normalization and hydration remain co-owned. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issue_state.ex:310",
+      "note": "Issues still normalizes prefix/label for extract_state_labels while IssueState removal uses raw case-sensitive String.starts_with?; read/write label-policy divergence remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issue_state.ex:38",
+      "note": "IssueState public add/remove still accept broad 2xx while internal add/delete accept explicit status lists; incompatible success policies remain. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-14",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/transport.ex:87",
+      "note": "Transport.require_token(opts) still emits test-gh-token when request_fun is injected without token; test seam remains reachable from production-shaped calls. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-15",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/view_state_sweep.ex:39",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-15"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-b-16",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/quota.ex:47",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-16"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-b-17",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/write_through.ex:378",
+      "note": "WriteThrough still rescues arbitrary errors to Logger.debug and ok; ResourceStore checkpoint and contention/refused body failures remain logging-only. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-18",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/resource_store.ex:1796",
+      "note": "ResourceStore.with_table still rescues ArgumentError around the caller callback and returns its supplied default, allowing merge callback failures to look storeless/successful. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-19",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/read_cache.ex:512",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-19"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-b-20",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/errors.ex:207",
+      "note": "Errors retryable_github_error matches github_api_status two-tuples while Labels returns three-tuples including label; incompatible error transport remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-21",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/issue_dependencies.ex:139",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-21"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-b-22",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/tracker.ex:62",
+      "note": "Tracker.auth_preflight still probes function_exported? without Code.ensure_loaded? and defaults to ok; lazy release loading can skip preflight. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-23",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issues.ex:346",
+      "note": "Issues retains validator only via ResourceStore.put_etag; ResourceStore observable excludes source, retaining mismatched 304 freshness/documentation policies. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-24",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/resource_store.ex:1180",
+      "note": "ResourceStore list_entries still directly match_objects raw ETS entries without expiry filtering; CatalogStore still consumes list entries as graph facts. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-24"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-25",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/resource_store.ex:1991",
+      "note": "Checkpoint still tab2lists/reduces all entries and holds last_written document; periodic handlers still rearm fixed module constants rather than init options. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-26",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/quota.ex:614",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-26"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-b-27",
+      "status": "changed",
+      "anchor": "src/lib/aiur/build_order/github_graph/reconciliation.ex:88",
+      "note": "ce0d2c450 replaced unconditional sub_issue clear/redeposit with membership_snapshot fence and replace_membership, repairing the webhook race. known_source_atom still omits reconciliation, so source provenance portion remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-27"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-28",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/pull_requests.ex:51",
+      "note": "PullRequests still sends request maps without caller, unlike attributed readers; distinct call sites remain merged into route-derived attribution. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/review_threads/reply.ex:210",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-30"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "github-b-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/read_cache/policy.ex:64",
+      "note": "ReadCache immutable commit shape still maps to comments class and unsafe regex can match repository path segments. Provisional disposition retained.",
+      "source_ids": [
+        "github-b-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-32",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/transport.ex:848",
+      "note": "Transport and GraphQLErrors retain independent poll/integer parsers and defaults; permissive trailing-text parsing remains. Provisional disposition retained.",
+      "source_ids": [
+        "github-b-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-33",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/resource_store.ex:183",
+      "note": "ResourceStore docs still spell GitHubWebhook instead of actual GithubWebhook module; source line references remain historical. Provisional disposition retained.",
+      "source_ids": [
+        "github-b-33"
+      ],
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/quota.ex:26",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-34"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "github-b-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/quota.ex:1017",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "github-b-36",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issue_state.ex:93",
+      "note": "IssueState still fetches current issue then revalidates expected state with forced conditional read; active-label path performs another read. Provisional disposition retained.",
+      "source_ids": [
+        "github-b-36"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-37",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/graphql_cost.ex:118",
+      "note": "GraphQL request processing still independently scans cost, instrumentation, cache/identity and mutation classifications. Provisional disposition retained.",
+      "source_ids": [
+        "github-b-37"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:1",
+      "note": "DecisionStore remains one serialized writer holding request/answer/transport/dispatch/projection/audit responsibilities; original size census is historical. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:4396",
+      "note": "fatal_lifecycle_append_failed still sets writable false and lifecycle failure health with Logger only; follow-up append callers take this terminal path. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-1-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:2184",
+      "note": "Already-appended enrichment event notification still depends on repaired projection remaining writable. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-1-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:765",
+      "note": "write_projection still serializes all current decisions into JsonStore on accepted events; log/current/history retention remains unbounded in this static path. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:4609",
+      "note": "Worker redelivery still calls maybe_start_dispatch directly, which refuses when dispatch monitor is not live; this path bypasses the retrying monitor wrapper. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-1-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_store.ex:1162",
+      "note": "Read-only transport transition casts still silently return noreply state, while accepted batch missing/rejected correlations remain warning-only; async settlement can be lost. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-1-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}
