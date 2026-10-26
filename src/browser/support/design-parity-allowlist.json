@@ -473,11 +473,24 @@
     "selector": ".ax-usage",
     "css": ".ax-ln, .ax-ln:has(.ax-no) { grid-template-columns: 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-ln.t { grid-template-columns: 3.4em 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-pc { white-space: nowrap !important; }",
     "reason": "Mirror the #6426 Build home meter fix in the frozen design reference so parity still checks the complete rendered surface after the percentage column is widened.",
-    "approval": {
-      "status": "pending-sign-off",
-      "by": null,
-      "date": null,
-      "ref": "https://github.com/aiur-team/aiur/issues/6426"
-    }
+    "approval": { "status": "pending-sign-off", "by": null, "date": null, "ref": "https://github.com/aiur-team/aiur/issues/6426" }
+  },
+  {
+    "id": "build-home-filters-percent-width",
+    "spec": "build-home-filters-parity.browser.spec.mjs",
+    "kind": "design-style",
+    "selector": ".ax-usage",
+    "css": ".ax-ln, .ax-ln:has(.ax-no) { grid-template-columns: 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-ln.t { grid-template-columns: 3.4em 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-pc { white-space: nowrap !important; }",
+    "reason": "Mirror the #6426 meter-column layout in the frozen filter-parity reference. Full build-root comparisons remain enforced, including APIS and MODELS rows.",
+    "approval": { "status": "pending-sign-off", "by": null, "date": null, "ref": "https://github.com/aiur-team/aiur/issues/6426" }
+  },
+  {
+    "id": "build-home-motion-percent-width",
+    "spec": "build-home-motion.browser.spec.mjs",
+    "kind": "design-style",
+    "selector": ".ax-usage",
+    "css": ".ax-ln, .ax-ln:has(.ax-no) { grid-template-columns: 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-ln.t { grid-template-columns: 3.4em 10ch minmax(0, 1fr) var(--rsw, 12.5ch) !important; } .ax-pc { white-space: nowrap !important; }",
+    "reason": "Mirror the #6426 meter-column layout in the frozen motion reference. Motion captures still compare every product pixel, including the build-home meter rows.",
+    "approval": { "status": "pending-sign-off", "by": null, "date": null, "ref": "https://github.com/aiur-team/aiur/issues/6426" }
   }
 ]
