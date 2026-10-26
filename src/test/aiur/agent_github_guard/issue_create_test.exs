@@ -34,6 +34,33 @@ defmodule Aiur.AgentGitHubGuard.IssueCreateTest do
     refute args =~ "agent:todo"
   end
 
+  # The flake rewrite runs Python while the guard holds the governed credential,
+  # so it must not import modules from the agent's working directory.
+  test "the flake rewrite ignores a shlex module in the working directory", context do
+    args_file = Path.join(context.workspace, "isolated-args")
+    marker = Path.join(context.workspace, "shlex-imported")
+
+    File.write!(Path.join(context.workspace, "shlex.py"), """
+    open(#{inspect(marker)}, "w").close()
+    def quote(value):
+        return "'" + value.replace("'", "'\\\\''") + "'"
+    """)
+
+    assert {"ok\n", 0} =
+             System.cmd(
+               context.wrapper,
+               ["issue", "create", "--title", "x", "--label", "flake", "--label", "agent:todo"],
+               cd: context.workspace,
+               env: guard_env(context) ++ [{"FAKE_GH_ARGS", args_file}],
+               stderr_to_stdout: true
+             )
+
+    refute File.exists?(marker)
+    args = File.read!(args_file)
+    assert args =~ "agent:parked"
+    refute args =~ "agent:todo"
+  end
+
   test "a Flaky test title is parked even without a flake label", context do
     args_file = Path.join(context.workspace, "created-title-args")
 
