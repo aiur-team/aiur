@@ -5,6 +5,8 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
   import ExUnit.CaptureIO
 
   alias Aiur.AgentControlCLI
+  alias Aiur.GitHub.{OpenIssueSnapshot, ResourceStore}
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.{DispatchCandidates, DispatchPolicy}
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.PauseResume
@@ -92,22 +94,42 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
     issue = %{completed_rework_issue("dependency-retry") | state: "todo", priority: 3}
 
     blocked = %Issue{
-      id: "blocked-p1",
-      identifier: "MT-BLOCKED-P1",
+      id: "3691077",
+      identifier: "owner/repo#3691077",
       title: "Blocked priority 1",
       state: "todo",
       priority: 1,
       dispatch_authorized?: true,
-      blocked_by: [%{id: "blocker-p1", identifier: "MT-BLOCKER", state: "rework", needs: :pr_merged}]
+      blocked_by: []
     }
 
-    configure_completed_revalidation!([issue, blocked], max_concurrent_agents: 3, tracker_active_states: ["todo", "in-progress", "rework"])
+    configure_completed_revalidation!([issue, blocked],
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "sym",
+      max_concurrent_agents: 3,
+      tracker_active_states: ["todo", "in-progress", "rework"]
+    )
+
+    ResourceStore.reset()
+    OpenIssueSnapshot.reset()
+    blocker = %{"number" => 100, "state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+    :ok = ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", "100"), blocker)
+    :ok = ResourceStore.put_resource(ResourceStore.key(:issue_blocked_by, "owner", "repo", blocked.id), [blocker])
+
     {state, entry, _worker, _item_ids} = completed_retention_fixture(issue)
     entry = Map.put(entry, :completed_provenance, true)
     state = put_in(state.running[issue.id], entry)
     state = %{state | last_polled_issues: %{blocked.id => blocked}}
 
-    assert DispatchPolicy.dispatch_decision(blocked, state) == {:skip, :dependency}
+    assert blocked.blocked_by == []
+    assert {:ok, hydrated} = GitHubTracker.cached_blocked_by(blocked)
+    assert [%{id: "100", state: "rework"}] = hydrated.blocked_by
+    assert DispatchPolicy.dispatch_decision(hydrated, state) == {:skip, :dependency}
+    refute Reactivation.completed_replacement_deferred?(state, issue)
+
+    ResourceStore.reset()
+    OpenIssueSnapshot.reset()
     refute Reactivation.completed_replacement_deferred?(state, issue)
   end
 
