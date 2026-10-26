@@ -1,7 +1,7 @@
 defmodule VoiceConverse.Session.Runtime do
   @moduledoc false
 
-  alias VoiceConverse.{Events, TranscriptStore}
+  alias VoiceConverse.{Events, Tools, TranscriptStore}
 
   def open(session, state, phase) do
     provider = state.provider
@@ -93,7 +93,7 @@ defmodule VoiceConverse.Session.Runtime do
       system_prompt: "",
       first_message: nil,
       context: context(state),
-      tools: [],
+      tools: Tools.specs(config, state.target),
       audio_in: :pcm_16000,
       audio_out: :pcm_16000,
       llm: config.llm,

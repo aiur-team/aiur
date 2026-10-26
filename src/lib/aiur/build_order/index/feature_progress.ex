@@ -49,13 +49,12 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
     history_rows = history_member_rows(members, history)
     indexed_rows = Enum.map(members, &all[to_string(&1)])
     rows_known? = complete? and is_list(history_rows) and Enum.all?(history_rows, &known_history_lifecycle?/1)
-    ci_known? = ci_known? and Enum.all?(indexed_rows, &is_map/1)
     ci_wait_ids = indexed_rows |> Enum.filter(&(is_map(&1) and ci_wait_row?(&1))) |> MapSet.new(& &1.num)
 
     %{
       closed: if(rows_known?, do: Enum.count(history_rows, &history_closed?/1)),
       open: if(rows_known?, do: Enum.count(members, &open_history_member?(history, &1, ci_wait_ids))),
-      ci_wait: if(ci_known?, do: Enum.count(indexed_rows, &ci_wait_row?/1))
+      ci_wait: if(ci_known?, do: Enum.count(indexed_rows, &(is_map(&1) and ci_wait_row?(&1))))
     }
   end
 
