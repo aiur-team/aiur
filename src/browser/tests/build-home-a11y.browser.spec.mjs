@@ -46,6 +46,29 @@ test('overlap selectors resolve only to actual card interiors', async ({ page })
   expect(() => expectAuditClean(boardAudit(unowned))).toThrow()
 })
 
+test('Pagination class selectors resolve by lane DOM ownership', async ({ page }) => {
+  const api = 'Pagination · API — short-lived feature epic'
+  const ui = 'Pagination · UI — short-lived feature epic'
+  await page.setContent('<body style="background: white; color: black"><div id="bd-lanes">' +
+    '<i></i><i></i><i></i><i></i>' + [api, ui].map(title =>
+      '<div class="temp bd-lane" title="' + title + '"><em>3</em></div>').join('') +
+    '</div><div id="unrelated" class="bd-lane" title="' + api + '"><em>3</em></div></body>')
+  const cell = { dataset: 'dense', view: 'gantt', theme: 'dark', mode: 'read_only' }
+  const input = target => ({ violations: [{ id: 'color-contrast', nodes: [{ target: [target],
+    any: [{ id: 'color-contrast', data: { contrastRatio: 4.43 } }], all: [], none: [] }] }], incomplete: [] })
+  for (const title of [api, ui]) {
+    const audit = input('.temp.bd-lane:nth-child(5) > em')
+    const measured = await measureContrastBaselines(page, audit, cell)
+    const result = recordContrastBaselines(audit, cell, measured)
+    expectAuditClean(result.audit)
+    expect(result.known.map(entry => entry.id)).toEqual(['lane-count:' + title])
+    await page.locator('#bd-lanes').evaluate(root => root.append(root.children[4]))
+  }
+  const unrelated = input('#unrelated > em')
+  const measured = await measureContrastBaselines(page, unrelated, cell)
+  expect(() => expectAuditClean(recordContrastBaselines(unrelated, cell, measured).audit)).toThrow()
+})
+
 test('cards expose complete names and a single roving button stop', async ({ page }) => {
   await open(page)
   const result = await page.evaluate(() => {
