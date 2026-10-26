@@ -80,8 +80,20 @@ remain blocked on promotion. R5 provider packaging #3456 remains unmerged.
 R6 anchors and the existing conversation facade are merged. Unrelated R3/R4
 work is not a blocker. No missing move SHA is fabricated.
 
-The prior production-readiness plan closes RC-19–RC-22, names C9-T10–T14,
-and distinguishes synchronous answer delivery from the decision.answered wake.
+X-59 handoff: the prior plan stays on `research/refactor-findings` under #2921,
+not in this main PR. The Executor must apply these corrections there to
+`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`:
+
+- Close the four open coordination points: RC-19 puts MP-E1 first in wave 0
+  (U0 gates refactors; U2/U5 preserve MP-E1-C1 hooks); RC-20 sanctions the queue
+  as a caller of the single label-writer seam; RC-21 lands U5's KTD9 trust
+  snapshot before MP-R2-C2-T02 consumes it through TrustClassifier; RC-22 makes
+  the Gemini/ACP capability row conditional on #2870 landing first, otherwise
+  recording a future adapter.
+- Replace `MP-R1-C9-T5` with `MP-R1-C9-T10` through `MP-R1-C9-T14`.
+- State that `decision.answered` only wakes the orchestrator; answer delivery
+  is synchronous through the orchestration delivery-target port (CR-C8-3).
+
 Component-map section 3 updates Paths today from the actual manifest; other
 columns retain their explicitly labelled research design.
 
