@@ -71,7 +71,7 @@ defmodule Aiur.Commands.Answering do
 
   defp prepare_payload(decision_id, payload, opts, store) do
     with {:ok, decision} <- DecisionStore.get(decision_id, store) do
-      questions = Map.get(decision, :questions, [])
+      questions = decision.questions
       answers = Map.get(payload, :question_answers, Map.get(payload, "question_answers"))
 
       encoded =

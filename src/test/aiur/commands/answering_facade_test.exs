@@ -157,6 +157,54 @@ defmodule Aiur.Commands.AnsweringFacadeTest do
              Answering.outcome({:ok, %{status: :accepted, decision: %{decision | pending_for_session?: true}}}, [])
   end
 
+  test "persisted multi-question command accepts and decodes every answer", ctx do
+    decision = multi_question_request(ctx)
+    assert {:ok, stored} = DecisionStore.get(decision.decision_id, ctx.store)
+    assert stored.questions == decision.questions
+    answers = %{"q1" => ["Yes"], "q2" => ["Custom"]}
+    submission = payload() |> Map.delete(:custom_response) |> Map.put(:question_answers, answers)
+    assert %{status: :accepted, decision: accepted} = Answering.answer(decision.decision_id, submission, opts(ctx))
+    answer = Decision.active_answer(accepted)
+    assert Jason.decode!(answer.custom_response)["question_answers"] == answers
+    assert Answering.decode_question_answers(accepted.questions, answer) == {:ok, answers}
+    assert Answering.render_question_answers(accepted.questions, answers) == "Proceed?: Yes\nTarget?: Custom"
+    assert %{status: :duplicate} = Answering.answer(decision.decision_id, submission, opts(ctx))
+    replacement = %{submission | idempotency_key: "replace", question_answers: %{"q1" => ["No"], "q2" => ["Blue"]}}
+    assert %{status: :accepted, decision: replaced} = Answering.supersede(decision.decision_id, replacement, opts(ctx))
+    assert Answering.decode_question_answers(replaced.questions, Decision.active_answer(replaced)) == {:ok, replacement.question_answers}
+  end
+
+  test "incomplete and invalid multi-question submissions never write an answer", ctx do
+    decision = multi_question_request(ctx)
+    assert {:ok, before} = DecisionStore.audit_history(decision.decision_id, ctx.store)
+
+    for submission <- [payload(), Map.put(payload(), :question_answers, %{"q1" => ["Yes"]})] do
+      assert Answering.answer(decision.decision_id, submission, opts(ctx)) == %{status: :error, reason: {:question_answers, :incomplete}}
+    end
+
+    invalid = Map.put(payload(), :question_answers, %{"q1" => ["Unknown"], "q2" => ["Blue"]})
+    assert Answering.answer(decision.decision_id, invalid, opts(ctx)) == %{status: :error, reason: {:question_answers, :invalid}}
+    assert {:ok, ^before} = DecisionStore.audit_history(decision.decision_id, ctx.store)
+    assert {:ok, %{answer: nil}} = DecisionStore.get(decision.decision_id, ctx.store)
+  end
+
+  defp multi_question_request(ctx) do
+    questions = [
+      %{"question_id" => "q1", "question" => "Proceed?", "options" => [%{"id" => "yes", "label" => "Yes"}, %{"id" => "no", "label" => "No"}], "allow_other" => false},
+      %{"question_id" => "q2", "question" => "Target?", "options" => [%{"id" => "blue", "label" => "Blue"}], "allow_other" => true}
+    ]
+
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{question: "Proceed with which target?", blocking: true, source_id: "multi-question"},
+        [ticket: %{identifier: "6398", title: "Facade", url: nil}, source: %{agent_id: "agent", session_id: "session"}, questions: questions],
+        ctx.store
+      )
+
+    assert decision.questions == questions
+    decision
+  end
+
   defp opts(ctx), do: [actor: %{kind: :operator, id: "human"}, actor_source: :device, store: ctx.store]
   defp payload(key \\ "answer"), do: %{expected_version: 1, idempotency_key: key, custom_response: "Proceed", rationale: "Operator choice"}
 end
