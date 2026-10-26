@@ -287,18 +287,22 @@ defmodule Aiur.AppServer.RelayPort do
   def handle_call(:close, from, state) do
     case acknowledge_pending(state) do
       {:ok, state} ->
-        if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
-
-        case send_json(state.socket, %{op: "stop", grace_ms: 10_000}) do
-          :ok ->
-            Process.send_after(self(), :close_timeout, 12_000)
-            {:noreply, %{state | closing: from}}
-
-          {:error, _reason} ->
-            {:stop, :normal, true, state}
-        end
+        close_after_ack(from, state)
 
       {:error, _reason, state} ->
+        {:stop, :normal, true, state}
+    end
+  end
+
+  defp close_after_ack(from, state) do
+    if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
+
+    case send_json(state.socket, %{op: "stop", grace_ms: 10_000}) do
+      :ok ->
+        Process.send_after(self(), :close_timeout, 12_000)
+        {:noreply, %{state | closing: from}}
+
+      {:error, _reason} ->
         {:stop, :normal, true, state}
     end
   end
