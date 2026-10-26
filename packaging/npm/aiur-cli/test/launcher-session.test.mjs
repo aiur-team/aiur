@@ -62,6 +62,27 @@ test("API-key login registers through the local CLI without starting an interact
   expect(readFileSync(captureFile, "utf8")).toContain("DEEPSEEK_API_KEY:");
 });
 
+test("token commands resolve the daemon instance identity before starting the local CLI", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const result = spawnSync("bash", [launcher, "token", "create", "streamdeck"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: path.join(root, "home"),
+      XDG_CONFIG_HOME: path.join(root, "home", ".config"),
+      AIUR_BG_STATE_DIR: path.join(root, "home", ".config", "aiur"),
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  const captured = readFileSync(captureFile, "utf8");
+  expect(captured).toContain("ARGV_FILE:token\ncreate\nstreamdeck");
+  expect(captured).toMatch(/AIUR_INSTANCE_KEY:[a-f0-9]{10}/);
+  expect(captured).toContain(`AIUR_BG_STATE_DIR:${path.join(root, "home", ".config/aiur")}`);
+});
+
 function setupBackgroundLauncher() {
   const { launcher, releaseDir } = setupRealLauncher();
   mkdirSync(path.join(root, "share"), { recursive: true });
