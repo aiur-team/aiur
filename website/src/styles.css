@@ -158,7 +158,6 @@ body { color: var(--aiur-color-fg); font-family: var(--aiur-font-body); -webkit-
 .aiur-footer__links { gap: 22px; }
 @media (min-width: 441px) and (max-width: 720px) { .aiur-features { grid-template-columns: repeat(3, 1fr); } }
 @media (min-width: 441px) and (max-width: 640px) { .aiur-features { grid-template-columns: repeat(2, 1fr); } }
-.aiur-scrollcue { color: var(--term-dim); }
 
 .aiur-banner { gap: 4px 12px; background: var(--aiur-color-pill-bg); }
 .aiur-wordmark { font-weight: 700; }
