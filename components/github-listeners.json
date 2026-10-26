@@ -134,5 +134,6 @@
   "facade_pending": null,
   "private_namespaces": [
     "Aiur.GitHub.Listeners.*"
-  ]
+  ],
+  "goal": "notify"
 }
