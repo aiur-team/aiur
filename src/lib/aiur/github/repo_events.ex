@@ -1,9 +1,9 @@
 defmodule Aiur.GitHub.RepoEvents do
+  alias Aiur.GitHub.Access
+
   @moduledoc """
   GitHub repo-events firehose domain.
   """
-
-  alias Aiur.GitHub.{Errors, Transport}
 
   @doc """
   Fetches `/repos/{owner}/{repo}/events` (the GitHub firehose for the
@@ -37,15 +37,15 @@ defmodule Aiur.GitHub.RepoEvents do
            | {:not_modified, String.t() | nil, pos_integer()}}
           | {:error, term()}
   def fetch_repo_events(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       etag = Keyword.get(opts, :etag)
       page = Keyword.get(opts, :page, 1)
       per_page = Keyword.get(opts, :per_page, 30)
 
       query = URI.encode_query(%{"page" => page, "per_page" => per_page})
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/events?#{query}"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/events?#{query}"
 
       # #2298 item 4: the events firehose is the one endpoint GitHub serves
       # conditionally for free, so the validator is already sent here; the
@@ -59,20 +59,20 @@ defmodule Aiur.GitHub.RepoEvents do
              caller: "repo_events"
            }) do
         {:ok, %{status: 304, headers: headers}} ->
-          {:ok, {:not_modified, Transport.header(headers, "etag") || etag, Transport.poll_interval(headers)}}
+          {:ok, {:not_modified, Access.header(headers, "etag") || etag, Access.poll_interval(headers)}}
 
         {:ok, %{status: 200, headers: headers, body: body}} when is_list(body) ->
           # Mirror the 304 path: preserve the prior etag if GitHub
           # omits the response header (rare but observed behind some
           # caching proxies). Dropping it would force a non-conditional
           # GET on the next poll, re-translating the same page of events.
-          {:ok, {:events, body, Transport.header(headers, "etag") || etag, Transport.poll_interval(headers)}}
+          {:ok, {:events, body, Access.header(headers, "etag") || etag, Access.poll_interval(headers)}}
 
         {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+          {:error, Access.github_status_error(response)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end

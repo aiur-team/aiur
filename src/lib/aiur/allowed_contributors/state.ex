@@ -13,7 +13,7 @@ defmodule Aiur.AllowedContributors.State do
   alias Aiur.AllowedContributors.{Ledger, Source}
   alias Aiur.Events
   alias Aiur.Executor.StatePaths
-  alias Aiur.GitHub.{Config, Transport}
+  alias Aiur.GitHub.{Access, Config}
 
   @refresh_ms 600_000
   @rate_limit 5
@@ -74,7 +74,7 @@ defmodule Aiur.AllowedContributors.State do
       refresh_ms: Keyword.get(opts, :refresh_ms, @refresh_ms),
       config_fun: Keyword.get(opts, :config_fun, &allowed_contributors/0),
       token_fun: Keyword.get(opts, :token_fun, &Config.token/0),
-      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
       publish_fun: Keyword.get(opts, :publish_fun, &Events.publish/3),
       alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Signal.agent_alert/3),
       clock_fun: Keyword.get(opts, :clock_fun, fn -> System.os_time(:millisecond) end),

@@ -15,7 +15,7 @@ defmodule Aiur.LandingWatch.ConflictUpdate do
   `git merge-tree`, for the rebase-only rework comment.
   """
 
-  alias Aiur.GitHub.{CIRecovery, Transport}
+  alias Aiur.GitHub.{Access, CIRecovery}
   alias Aiur.LandingWatch.{Classifier, Journal, TicketLookup}
 
   @caller "landing_watch_conflict_update"
@@ -177,8 +177,8 @@ defmodule Aiur.LandingWatch.ConflictUpdate do
   end
 
   defp enable_auto_merge(id, opts) do
-    with {:ok, token} <- Transport.require_token(opts) do
-      case Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, @auto_merge, %{"id" => id}, caller: @caller) do
+    with {:ok, token} <- Access.require_token(opts) do
+      case Access.github_graphql(Keyword.get(opts, :request_fun, &Access.default_request_fun/1), token, @auto_merge, %{"id" => id}, caller: @caller) do
         {:ok, %{"data" => %{"enablePullRequestAutoMerge" => %{}}}} -> :ok
         {:ok, _} -> {:error, :auto_merge_unconfirmed}
         {:error, _} = error -> error
@@ -233,7 +233,7 @@ defmodule Aiur.LandingWatch.ConflictUpdate do
         {:ok, {remote, []}}
 
       _ ->
-        with {:ok, {owner, repo}} <- Transport.parse_repo(), {:ok, token} <- Transport.require_token(opts) do
+        with {:ok, {owner, repo}} <- Access.parse_repo(), {:ok, token} <- Access.require_token(opts) do
           header = "AUTHORIZATION: basic " <> Base.encode64("x-access-token:" <> token)
           env = [{"GIT_CONFIG_COUNT", "1"}, {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"}, {"GIT_CONFIG_VALUE_0", header}, {"GIT_TERMINAL_PROMPT", "0"}]
           {:ok, {"https://github.com/#{owner}/#{repo}.git", env}}
@@ -242,7 +242,7 @@ defmodule Aiur.LandingWatch.ConflictUpdate do
   end
 
   defp default_cache do
-    {:ok, {owner, repo}} = Transport.parse_repo()
+    {:ok, {owner, repo}} = Access.parse_repo()
     Path.expand("~/.aiur/repo/#{owner}/#{repo}/conflict-files.git")
   end
 

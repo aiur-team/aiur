@@ -1,6 +1,6 @@
 defmodule Aiur.Usage.Provider.Broker do
   @moduledoc false
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Access
   alias Aiur.Usage.ProviderSupport
 
   defstruct [:provider, :observed_at, :age_ms, :freshness, :source, fields: %{}]
@@ -8,7 +8,7 @@ defmodule Aiur.Usage.Provider.Broker do
 
   @spec read(keyword()) :: t()
   def read(opts) do
-    result = Keyword.get_lazy(opts, :broker_usage, &Budget.usage/0)
+    result = Keyword.get_lazy(opts, :broker_usage, &Access.usage/0)
     actors = Map.get(result, :actors)
     observed? = is_list(actors) and actors != []
 

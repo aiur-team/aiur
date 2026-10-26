@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.IssueRelationships do
   @moduledoc false
 
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
   alias Aiur.TrackerIdentity
 
   @max_response_bytes 32_768
@@ -65,7 +65,7 @@ defmodule Aiur.GitHub.IssueRelationships do
       "limit" => Keyword.fetch!(opts, :limit)
     }
 
-    case Transport.github_graphql_response(
+    case Access.github_graphql_response(
            request_fun,
            token,
            @linked_pull_requests_query,
@@ -82,15 +82,15 @@ defmodule Aiur.GitHub.IssueRelationships do
     if Keyword.has_key?(opts, :relationship_request_fun) do
       opts
       |> Keyword.put(:request_fun, Keyword.fetch!(opts, :relationship_request_fun))
-      |> Transport.require_token()
+      |> Access.require_token()
     else
-      Transport.require_token(opts)
+      Access.require_token(opts)
     end
   end
 
   defp relationship_request_fun(opts) do
     Keyword.get_lazy(opts, :relationship_request_fun, fn ->
-      Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
     end)
   end
 
