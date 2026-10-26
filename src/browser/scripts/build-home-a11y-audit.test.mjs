@@ -107,22 +107,18 @@ test('known contrast baselines reject worsening ratios, new elements and rules',
   assert.throws(() => expectAuditClean(recordContrastBaselines(input, { ...cell, theme: 'dark' }, measured).audit))
 })
 
-test('lane-count baseline accepts observed lanes in both modes and rejects an unlisted lane', async () => {
+test('lane-count violations including Bugs and positional Pagination targets are never baselined', async () => {
   const { recordContrastBaselines } = await import('../tests/support/build-home-contrast-baselines.mjs')
-  const cell = { dataset: 'dense', view: 'gantt', theme: 'dark', mode: 'read_only' }
-  for (const title of ['Design', 'Bugs']) {
-    const target = 'div[title="' + title + '"] > em'
-    const input = { violations: [{ id: 'color-contrast', nodes: [{ target: [target],
-      any: [{ id: 'color-contrast', data: { contrastRatio: 4.44 } }], all: [], none: [] }] }], incomplete: [] }
-    const selector = '#bd-lanes > .bd-lane[title="' + title + '"] > em'
-    const measured = { [selector]: { count: 1, ratio: 4.3804, targets: [target] } }
-    const result = recordContrastBaselines(input, cell, measured)
-    if (title === 'Design') {
-      expectAuditClean(result.audit)
-      assert.deepEqual(result.known.map(entry => entry.id), ['lane-count:Design'])
-      expectAuditClean(recordContrastBaselines(input, { ...cell, mode: 'writable' }, measured).audit)
-      assert.throws(() => expectAuditClean(recordContrastBaselines(input, { ...cell, theme: 'light' }, measured).audit))
-    } else {
+  for (const mode of ['read_only', 'writable']) {
+    const cell = { dataset: 'dense', view: 'gantt', theme: 'dark', mode }
+    for (const [title, target] of [['Design', 'div[title="Design"] > em'], ['Bugs', 'div[title="Bugs"] > em'],
+      ['Pagination · API — short-lived feature epic', '.temp.bd-lane:nth-child(5) > em'],
+      ['Pagination · UI — short-lived feature epic', '.temp.bd-lane:nth-child(6) > em']]) {
+      const input = { violations: [{ id: 'color-contrast', nodes: [{ target: [target],
+        any: [{ id: 'color-contrast', data: { contrastRatio: 4.43 } }], all: [], none: [] }] }], incomplete: [] }
+      const selector = '#bd-lanes > .bd-lane[title="' + title + '"] > em'
+      const measured = { [selector]: { count: 1, ratio: 4.3804, targets: [target] } }
+      const result = recordContrastBaselines(input, cell, measured)
       assert.deepEqual(result.known, [])
       assert.throws(() => expectAuditClean(result.audit))
     }

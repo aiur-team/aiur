@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import AxeBuilder from '@axe-core/playwright'
+import { freezeAuditLayout, expectAuditLayoutStable } from './support/build-home-audit-layout.mjs'
 import { measureGlyphContrast, expectGlyphContrast } from './support/build-home-glyph-contrast.mjs'
 import { recordContrastBaselines, measureContrastBaselines } from './support/build-home-contrast-baselines.mjs'
 import { boardAudit, canonicalBoardOverlaps, contrastRatio } from './support/build-home-a11y-audit.mjs'
@@ -46,27 +47,23 @@ test('overlap selectors resolve only to actual card interiors', async ({ page })
   expect(() => expectAuditClean(boardAudit(unowned))).toThrow()
 })
 
-test('Pagination class selectors resolve by lane DOM ownership', async ({ page }) => {
-  const api = 'Pagination · API — short-lived feature epic'
-  const ui = 'Pagination · UI — short-lived feature epic'
-  await page.setContent('<body style="background: white; color: black"><div id="bd-lanes">' +
-    '<i></i><i></i><i></i><i></i>' + [api, ui].map(title =>
-      '<div class="temp bd-lane" title="' + title + '"><em>3</em></div>').join('') +
-    '</div><div id="unrelated" class="bd-lane" title="' + api + '"><em>3</em></div></body>')
-  const cell = { dataset: 'dense', view: 'gantt', theme: 'dark', mode: 'read_only' }
-  const input = target => ({ violations: [{ id: 'color-contrast', nodes: [{ target: [target],
-    any: [{ id: 'color-contrast', data: { contrastRatio: 4.43 } }], all: [], none: [] }] }], incomplete: [] })
-  for (const title of [api, ui]) {
-    const audit = input('.temp.bd-lane:nth-child(5) > em')
-    const measured = await measureContrastBaselines(page, audit, cell)
-    const result = recordContrastBaselines(audit, cell, measured)
-    expectAuditClean(result.audit)
-    expect(result.known.map(entry => entry.id)).toEqual(['lane-count:' + title])
-    await page.locator('#bd-lanes').evaluate(root => root.append(root.children[4]))
-  }
-  const unrelated = input('#unrelated > em')
-  const measured = await measureContrastBaselines(page, unrelated, cell)
-  expect(() => expectAuditClean(recordContrastBaselines(unrelated, cell, measured).audit)).toThrow()
+test('audit freeze prevents scroll-driven lane replacement', async ({ page }) => {
+  await open(page, 'dense', 'gantt')
+  await settleAnimations(page, '#build-root')
+  await freezeAuditLayout(page)
+  await page.evaluate(() => {
+    const vp = document.querySelector('#bd-vp')
+    window.auditScrollTop = vp.scrollTop
+    window.auditLaneCounts = [...document.querySelectorAll('#bd-lanes > .bd-lane > em')]
+    vp.scrollTop = 0
+    vp.dispatchEvent(new Event('scroll'))
+  })
+  // Cover the real 250ms poll and 220ms debounced column work, without faking them.
+  await page.waitForTimeout(700)
+  expect(await page.evaluate(() => window.auditLaneCounts.length)).toBeGreaterThan(0)
+  expect(await page.evaluate(() => window.auditLaneCounts.every(el => el.isConnected))).toBe(true)
+  await page.evaluate(() => { document.querySelector('#bd-vp').scrollTop = window.auditScrollTop })
+  await expectAuditLayoutStable(page)
 })
 
 test('cards expose complete names and a single roving button stop', async ({ page }) => {
@@ -231,7 +228,9 @@ for (const dataset of ['live', 'dense', 'newrepo', 'noqueue', 'offline', 'unknow
         await open(page, dataset, view, mode)
         await page.locator('html').evaluate((html, selected) => { html.dataset.theme = selected }, theme)
         await settleAnimations(page, '#build-root')
+        await freezeAuditLayout(page)
         const audit = await new AxeBuilder({ page }).include('#bd-vp').exclude('.bd-cx[aria-hidden="true"]').analyze()
+        await expectAuditLayoutStable(page)
         await test.info().attach('axe-audit', { body: JSON.stringify(audit), contentType: 'application/json' })
         const cell = { dataset, view, theme, mode }
         const measurements = await measureContrastBaselines(page, audit, cell)

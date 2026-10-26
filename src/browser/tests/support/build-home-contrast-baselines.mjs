@@ -2,12 +2,7 @@
 // Fixed DOM selectors and cells prevent this inventory from swallowing new nodes.
 import { measureTextContrast } from './build-home-glyph-contrast.mjs'
 export const contrastBaselines = [
-  ...['Design', 'Pagination · API — short-lived feature epic',
-    'Pagination · UI — short-lived feature epic'].map(title => ({
-    id: 'lane-count:' + title, kind: 'violations', selector: '#bd-lanes > .bd-lane[title="' + title + '"] > em',
-    ratio: 4.43, plainRatio: 4.3804, followup: '#6291',
-    cells: { dataset: 'dense', view: 'gantt', theme: 'dark' }
-  })),
+  // Settled Now-anchored audits need no lane-count exemption.
   ...[['live', '607'], ['dense', '1309'], ['newrepo', '603'], ['offline', '607'],
     ['unknowns', '607'], ['unknowns', '9005'], ['unknowns', 'pack:alpha']].map(([dataset, id]) => ({
     id: 'promotion:' + dataset + ':' + id, kind: 'violations',
