@@ -5,10 +5,13 @@ defmodule Aiur.ControlCLI.CiWait do
   def print(snapshot) do
     snapshot
     |> Map.get(:ci_wait, [])
+    # The snapshot also carries human-review rows for the Executor sweep.
+    |> Enum.filter(&(&1[:tracker_state] in [nil, "ci-wait"]))
     |> Enum.sort_by(& &1.identifier)
     |> Enum.each(fn ci ->
       failures = ci |> Map.get(:failures, []) |> Enum.map_join(", ", & &1.name)
-      IO.puts("CI WAIT #{ci.identifier} PR ##{ci[:pr_number] || "unknown"}: #{ci[:recovery] || ci[:decision] || "unobserved"}#{if failures == "", do: "", else: " (#{failures})"}")
+      state = if ci[:pending_reason] == :draft_pull_request, do: "draft_pr", else: ci[:recovery] || ci[:pending_reason] || ci[:decision] || "unobserved"
+      IO.puts("CI WAIT #{ci.identifier} PR ##{ci[:pr_number] || "unknown"}: #{state}#{if failures == "", do: "", else: " (#{failures})"}")
     end)
   end
 end

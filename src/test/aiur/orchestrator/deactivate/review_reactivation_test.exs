@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Deactivate.ReviewReactivationTest do
   alias Aiur.AgentQueueStore
   alias Aiur.Issue
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.Dispatcher
 
   describe "issue.commented firehose reactivation (subscriber wiring)" do
     test "wakes a :deactivated agent:rework entry on a trusted comment with no unresolved threads" do
@@ -25,16 +26,16 @@ defmodule Aiur.Orchestrator.Deactivate.ReviewReactivationTest do
         File.mkdir_p!(test_root)
         Application.put_env(:aiur, :memory_tracker_recipient, self())
 
-        Application.put_env(:aiur, :memory_tracker_issues, [
-          %Issue{
-            id: issue_id,
-            identifier: issue_identifier,
-            state: "rework",
-            title: "Rework completed, review still open",
-            description: "",
-            labels: []
-          }
-        ])
+        ticket = %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "rework",
+          title: "Rework completed, review still open",
+          description: "",
+          labels: []
+        }
+
+        Application.put_env(:aiur, :memory_tracker_issues, [ticket])
 
         state = %Orchestrator.State{
           running: %{
@@ -64,12 +65,25 @@ defmodule Aiur.Orchestrator.Deactivate.ReviewReactivationTest do
         {:noreply, next} = Orchestrator.handle_info({:event, event}, state)
 
         entry = Map.fetch!(next.running, issue_id)
+        # The wake spawns a real agent runner that later runs before_run with
+        # whatever config is global then — another test's hook once it starts (#4935).
+        assert is_pid(entry.pid)
+        on_exit(fn -> stop_woken_worker(entry.pid) end)
         refute get_in(entry, [:control, :status]) == :deactivated
 
-        # No label write happens on this path — that is what keeps #2422's
-        # rework loop closed. The memory tracker reports every state update to
-        # `self()`, so a stray write would be observable here.
-        refute_receive {:memory_tracker_state_update, ^issue_id, _state}, 200
+        # The guarded claim makes the live worker visible as in-progress. It
+        # does not reopen #2422: this unchanged review has no unresolved thread,
+        # and the next poll sees the running owner and cannot dispatch again.
+        assert_receive {:memory_tracker_state_update, ^issue_id, "in-progress"}, 1_000
+
+        poll_issue = %{ticket | state: "in-progress", state_labels: ["in-progress"], labels: ["agent:in-progress"]}
+
+        next =
+          Dispatcher.choose_issues(next, [poll_issue], runner: fn _, _, _ -> flunk("live rework owner must not dispatch again") end)
+
+        assert Map.has_key?(next.running, issue_id)
+        assert MapSet.member?(next.claimed, issue_id)
+        refute_received {:memory_tracker_state_update, ^issue_id, _}
 
         # The comment travels with the wake. Without this the agent respawns
         # into an unchanged ticket with no idea what it was woken for, and the
@@ -296,5 +310,11 @@ defmodule Aiur.Orchestrator.Deactivate.ReviewReactivationTest do
         File.rm_rf(test_root)
       end
     end
+  end
+
+  defp stop_woken_worker(pid) do
+    ref = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    receive_barrier({:DOWN, ^ref, :process, ^pid, _reason})
   end
 end

@@ -38,6 +38,31 @@ defmodule Aiur.CodingAgent.RoutingTest do
                )
     end
 
+    test "a rejected backend is skipped for new claims" do
+      state = %{"backends" => %{"claude" => %{"auth_rejected" => true}}}
+
+      assert {:ok, %Issue{selected_backend: "codex"}} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: ["claude", "codex"],
+                 configured_backends: ["claude", "codex"],
+                 state: state
+               )
+    end
+
+    test "a rejected routed backend holds the claim rather than dispatching" do
+      state = %{"backends" => %{"claude" => %{"auth_rejected" => true}}}
+
+      assert {:all_limited, ["claude"]} =
+               CodingAgent.select_for_dispatch(issue(["complexity:3"]), routing_backend: "claude", state: state)
+    end
+
+    test "a rejected default backend holds an unlabelled claim" do
+      state = %{"backends" => %{"claude" => %{"auth_rejected" => true}}}
+
+      assert {:all_limited, ["claude"]} =
+               CodingAgent.select_for_dispatch(issue([]), backends: [], default_backend: "claude", state: state)
+    end
+
     # The 2026-09-26 khala incident. Every ticket carried a `complexity:` label
     # and `agent.routing` named claude at every level, so a routed backend
     # short-circuited with no availability check and the fleet kept dispatching

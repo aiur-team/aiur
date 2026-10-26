@@ -1,58 +1,52 @@
 import { test, expect } from '@playwright/test'
-import { writeFile } from 'node:fs/promises'
-import { PARITY_VIEWPORTS, FIXTURE_META, parityContextOptions, openDesign, productUrl, guardNetwork, compareParityPixels } from '../support/design-parity.mjs'
-import { dashboardCredentials } from './support/layout-worker.mjs'
+import { PARITY_VIEWPORTS, openParityPair, expectDesignParity } from '../support/design-parity.mjs'
 
-// C9-T01 makes this a pixel gate after the loading styles and drawing hook land.
-for (const viewport of [PARITY_VIEWPORTS[0], PARITY_VIEWPORTS[2]]) {
+for (const viewport of PARITY_VIEWPORTS) {
   for (const theme of ['dark', 'light']) for (const palette of ['gruvbox', 'aiur']) {
     const name = `loading-${viewport.viewport.width}-${theme}-${palette}`
-    test(`report: ${name}`, async ({ browser }, testInfo) => {
+    test(`gate: ${name}`, async ({ browser }) => {
       const cell = { ...viewport, theme, palette, dataset: 'live' }
-      const designContext = await browser.newContext(parityContextOptions(cell))
-      const productContext = await browser.newContext({ ...parityContextOptions(cell), baseURL: testInfo.project.use.baseURL, httpCredentials: dashboardCredentials })
-      const pair = { design: await designContext.newPage(), product: await productContext.newPage(), cell }
+      const pair = await openParityPair(browser, cell, { phase: 'loading' })
       try {
-        await openDesign(pair.design, cell, { phase: 'loading' })
-        // Report the actual product, including fonts/styles not shipped by this ticket.
-        await guardNetwork(pair.product, [new URL(testInfo.project.use.baseURL).origin])
-        await pair.product.clock.setFixedTime(FIXTURE_META.now)
-        await pair.product.addInitScript(({ theme, palette }) => {
-          localStorage.setItem('aiur-theme', theme)
-          localStorage.setItem('aiur-palette', palette)
-          localStorage.setItem('aiur-nav-collapsed', '0')
-        }, cell)
-        await pair.product.bringToFront()
-        await pair.product.goto(productUrl('hold'))
-        await expect(pair.product.locator('.phx-connected')).toBeVisible()
         await expect(pair.product.locator('#build-root')).toHaveAttribute('data-build-state', 'loading')
-        const observed = await pair.product.evaluate(() => ({ theme: document.documentElement.dataset.theme, palette: document.documentElement.dataset.palette ?? 'unavailable', now: Date.now() }))
-        expect(observed.now).toBe(FIXTURE_META.now)
-        let difference = 'matched'
-        try { await compareParityPixels(pair, { name, region: '#bd-vp' }) }
-        catch (error) {
-          if (!/pixels.*different|Expected.*(?:px|width|height)|Screenshot comparison failed|Expected an image/s.test(error.message)) throw error
-          difference = error.message
-          testInfo.annotations.push({ type: 'pixel-report', description: 'Pending C9-T01 gate; see loading report' })
-        }
-        await expect(pair.product.locator('#build-root')).toHaveAttribute('data-build-state', 'loading')
-        await writeFile(testInfo.outputPath('loading-report.txt'), JSON.stringify({ requested: { theme, palette }, observed, difference }, null, 2))
-        await testInfo.attach('loading-report', { path: testInfo.outputPath('loading-report.txt'), contentType: 'text/plain' })
-        const images = []
+        // Keep the real, connected loading frame after the bounded server read expires.
+        await pair.product.evaluate(() => window.liveSocket.disconnect())
         for (const side of ['design', 'product']) {
-          const image = await pair[side].locator('#bd-vp').screenshot({ animations: 'disabled' })
-          await testInfo.attach(`${side}-loading`, { body: image, contentType: 'image/png' })
-          images.push(`<figure><figcaption>${side}</figcaption><img src="data:image/png;base64,${image.toString('base64')}"></figure>`)
+          await pair[side].evaluate(() => document.fonts.ready)
+          // Stop CSS motion before layout/capture, rather than cancelling and resuming
+          // animations around each screenshot (which retains timing-dependent paint).
+          await pair[side].addStyleTag({ content: `
+            .bd-vpw, .bd-vpw *, .bd-vpw::before, .bd-vpw::after,
+            .bd-vpw *::before, .bd-vpw *::after {
+              animation: none !important; transition: none !important;
+            }
+          ` })
         }
-        const html = `<div style="display:flex;gap:16px">${images.join('')}</div><style>figure{margin:0;width:50%}img{width:100%}</style>`
-        await writeFile(testInfo.outputPath('side-by-side.html'), html)
-        const report = await productContext.newPage()
-        await report.setViewportSize({ width: 1600, height: 1000 })
-        await report.setContent(html)
-        await report.screenshot({ path: testInfo.outputPath('side-by-side.png'), fullPage: true })
-        await testInfo.attach('side-by-side-image', { path: testInfo.outputPath('side-by-side.png'), contentType: 'image/png' })
-        await testInfo.attach('side-by-side', { path: testInfo.outputPath('side-by-side.html'), contentType: 'text/html' })
-      } finally { await designContext.close(); await productContext.close() }
+        // Isolate the measured host from unrelated sticky chrome and align its raster origin.
+        // Preserve the real host width, viewport height, contents and production styles.
+        for (const side of ['design', 'product']) {
+          await pair[side].locator('.bd-vpw').evaluate(el => {
+            const width = el.getBoundingClientRect().width
+            Object.assign(el.style, { position: 'fixed', top: '0', left: '0', zIndex: '2147483647', width: width + 'px' })
+          })
+        }
+        for (const side of ['design', 'product']) await expect(pair[side].locator('#bd-sb')).toHaveClass(/\boff\b/)
+        // Flush layout and paint after freezing styles and aligning the raster origin.
+        for (const side of ['design', 'product']) {
+          const frames = pair[side].evaluate(() => new Promise(resolve =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))))
+          if (side === 'design') await pair[side].clock.runFor(40)
+          await frames
+        }
+        // Both sides use stable captures of the already-frozen state.
+        await expectDesignParity(pair, { name: `c9t01-sb-off-${name}`, region: '.bd-vpw', preserveAnimations: true })
+        await expect(pair.product.locator('#build-root')).toHaveAttribute('data-build-state', 'loading')
+      } finally { await pair.close() }
     })
+    for (const dataset of ['live', 'dense']) for (const state of ['top', 'act', 'hover', 'drag']) {
+      test(`c9t01-sb-${state}-${dataset}-${name}`, () => {
+        test.fixme(true, 'awaiting MP-E8-C9-T03: board content determines scrollbar geometry')
+      })
+    }
   }
 }

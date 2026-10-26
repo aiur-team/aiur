@@ -22,6 +22,7 @@ defmodule Aiur.AgentResourceGuard do
 
   use GenServer
 
+  alias Aiur.AgentResourceGuard.Attention
   alias Aiur.AgentResourceGuard.BusyLoop
   alias Aiur.AgentResourceGuard.RunawayGroups
   alias Aiur.ProcessTree
@@ -30,13 +31,19 @@ defmodule Aiur.AgentResourceGuard do
   @default_interval_ms 1_000
   @busy_window_ms 10_000
   @orphan_scan_every_ticks 10
+  # AlertFeed projects the whole ledger, so attention reconciliation runs less often than enforcement.
+  @attention_reconcile_every_ticks 30
   @alert_topic "system.agent.synthetic_load_cap"
   @load_generator_comms ~w(yes stress stress-ng)
 
   @type proc_info :: %{pid: pos_integer(), comm: String.t(), cmdline: String.t()}
   @type trim_result :: %{root_pid: pos_integer() | nil, cap: non_neg_integer(), killed: [pos_integer()], reported: [pos_integer()], workspace: Path.t() | nil}
   # Busy-loop sample history, plus the pids already reported without a kill.
-  @type tracked :: %{optional(:reported) => MapSet.t(pos_integer()), optional(BusyLoop.key()) => map()}
+  @type tracked :: %{
+          optional(:reported) => MapSet.t(pos_integer()),
+          optional(:attention_reconcile_ticks) => non_neg_integer(),
+          optional(BusyLoop.key()) => map()
+        }
   @type orphan :: %{pid: pos_integer(), cwd: Path.t()}
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -63,12 +70,17 @@ defmodule Aiur.AgentResourceGuard do
       orphans_fun = Keyword.get(opts, :orphans_fun, &configured_workspace_orphans/0)
       sample_fun = Keyword.get(opts, :sample_fun, &BusyLoop.sample/1)
 
-      roots = entries_fun.() |> agent_root_pids()
+      entries = entries_fun.()
+      roots = agent_root_pids(entries)
       orphans = Enum.reject(orphans_fun.(), &(&1.pid in roots))
       orphan_pids = MapSet.new(orphans, & &1.pid)
+      # One /proc scan per tick, and none without agents: a pgrep per tree node took minutes on a loaded host (#4882).
+      opts = tick_children_opts(opts, roots)
       # An orphan can still sit in an agent's tree when a subreaper below the
       # root adopted it; it is reaped as an orphan, not counted toward the cap.
       trees = Enum.map(roots, &{&1, &1 |> collect_descendants(opts) |> Enum.uniq() |> Enum.reject(fn pid -> pid in orphan_pids end)})
+      # A root nested in another's tree (the agent under its relay) owns its subtree, so a generator is reported once.
+      trees = Enum.map(trees, fn {root, pids} -> {root, pids -- List.flatten(for {inner, sub} <- trees, inner in pids, do: [inner | sub])} end)
 
       samples =
         (Enum.flat_map(trees, &elem(&1, 1)) ++ Enum.map(orphans, & &1.pid))
@@ -77,19 +89,36 @@ defmodule Aiur.AgentResourceGuard do
 
       now_ms = Keyword.get_lazy(opts, :now_ms, fn -> System.monotonic_time(:millisecond) end)
       {already_reported, tracked} = Map.pop(tracked, :reported, MapSet.new())
+      {attention_reconcile_ticks, tracked} = Map.pop(tracked, :attention_reconcile_ticks, 0)
       {busy, tracked} = BusyLoop.advance(tracked, samples, now_ms, Keyword.get(opts, :busy_window_ms, @busy_window_ms))
-      opts = opts |> Keyword.put(:busy_pids, busy) |> Keyword.put_new_lazy(:kill_detected, &configured_kill_detected/0)
+      busy = MapSet.union(busy, all_core_spinners(trees, tracked, Keyword.get_lazy(opts, :cores, &System.schedulers_online/0)))
+      opts = opts |> Keyword.put(:busy_pids, busy) |> Keyword.put(:root_tickets, root_tickets(entries)) |> Keyword.put_new_lazy(:kill_detected, &configured_kill_detected/0)
 
       found = Enum.flat_map(trees, &trim_root(&1, cap, opts)) ++ reap_orphans(orphans, opts)
 
       # A process left running is still flagged on the next tick; report it once.
       results =
         found
+        |> Enum.map(fn result -> %{result | reported: Enum.filter(result.reported, fn pid -> process_alive?(pid, opts) end)} end)
         |> Enum.map(&%{&1 | reported: Enum.reject(&1.reported, fn pid -> pid in already_reported end)})
         |> Enum.reject(&(&1.killed == [] and &1.reported == []))
 
       Enum.each(results, &report(&1, opts))
+      tracked = Map.put(tracked, :attention_reconcile_ticks, attention_reconcile_ticks)
+      tracked = reconcile_attention(opts, tracked)
       {results, Map.put(tracked, :reported, found |> Enum.flat_map(& &1.reported) |> MapSet.new())}
+    end
+  end
+
+  defp reconcile_attention(opts, tracked) do
+    ticks = Map.get(tracked, :attention_reconcile_ticks, 0) + 1
+    interval = Keyword.get(opts, :attention_reconcile_every_ticks, @attention_reconcile_every_ticks)
+
+    if ticks >= interval do
+      Attention.reconcile(Keyword.put_new(opts, :process_info_fun, &proc_info/1))
+      Map.put(tracked, :attention_reconcile_ticks, 0)
+    else
+      Map.put(tracked, :attention_reconcile_ticks, ticks)
     end
   end
 
@@ -168,6 +197,10 @@ defmodule Aiur.AgentResourceGuard do
     |> Enum.uniq()
   end
 
+  defp root_tickets(entries) do
+    for {{:os_pid, pid}, :agent, meta} <- entries, ticket = meta[:ticket], is_binary(ticket), into: %{}, do: {pid, ticket}
+  end
+
   @doc false
   @spec synthetic_load_generator?(proc_info()) :: boolean()
   def synthetic_load_generator?(%{comm: comm, cmdline: cmdline}) do
@@ -179,8 +212,8 @@ defmodule Aiur.AgentResourceGuard do
   @doc false
   @spec collect_descendants(pos_integer(), keyword()) :: [pos_integer()]
   def collect_descendants(pid, opts \\ []) when is_integer(pid) and pid > 0 do
-    children_fun = Keyword.get(opts, :children_fun, &children/1)
-    children = children_fun.(pid)
+    opts = Keyword.put_new_lazy(opts, :children_fun, fn -> proc_children_fun(opts) end)
+    children = Keyword.fetch!(opts, :children_fun).(pid)
     children ++ Enum.flat_map(children, &collect_descendants(&1, opts))
   end
 
@@ -241,6 +274,18 @@ defmodule Aiur.AgentResourceGuard do
     Process.send_after(self(), :tick, interval_ms)
   end
 
+  # A tree spinning on every core at once is no flake repro to wait out: flag it
+  # on the first sample pair instead of after the busy window.
+  defp all_core_spinners(trees, tracked, cores) do
+    spinning = for {{pid, _start}, %{since: since}} <- tracked, is_integer(since), into: MapSet.new(), do: pid
+
+    trees
+    |> Enum.map(fn {_root, pids} -> Enum.filter(pids, &(&1 in spinning)) end)
+    |> Enum.filter(&(length(&1) >= cores))
+    |> List.flatten()
+    |> MapSet.new()
+  end
+
   defp trim_root({root_pid, descendants}, cap, opts) do
     kill_fun = Keyword.get(opts, :kill_fun, &ProcessTree.graceful_kill/1)
     load_pids = descendants |> Enum.filter(&load_generator?(&1, opts)) |> Enum.sort()
@@ -282,6 +327,8 @@ defmodule Aiur.AgentResourceGuard do
     info != nil and synthetic_load_generator?(info)
   end
 
+  defp process_alive?(pid, opts), do: Keyword.get(opts, :process_info_fun, &proc_info/1).(pid) != nil
+
   defp report(%{workspace: workspace, cap: cap, killed: killed, reported: reported, root_pid: root_pid}, opts) do
     what = if root_pid, do: "exceeded the synthetic load cap of #{cap}", else: "left orphaned synthetic load running"
     info_fun = Keyword.get(opts, :process_info_fun, &proc_info/1)
@@ -291,10 +338,16 @@ defmodule Aiur.AgentResourceGuard do
 
     left = if reported == [], do: "", else: ", left #{length(reported)} running (report-only; set agent.synthetic_load_kill_detected to kill)"
 
-    Keyword.get(opts, :alert_fun, &Aiur.Signal.alert/2).(@alert_topic,
+    # The Executor's wake stream carries identifiers only, so a known ticket is
+    # raised as that ticket's attention; an orphan has none (#4882).
+    ticket = Map.get(Keyword.get(opts, :root_tickets, %{}), root_pid)
+    topic = if ticket, do: "ticket.#{ticket}.agent.attention.synthetic-load", else: @alert_topic
+
+    Keyword.get(opts, :alert_fun, &Aiur.Signal.alert/2).(topic,
+      issue: ticket,
       message: "Agent workspace #{workspace || "(unknown, agent pid #{root_pid})"} #{what}; killed #{length(killed)} load generator process(es)#{left}",
       reason: "synthetic CPU load generators (by name or busy-loop behaviour) are capped per agent and flagged once orphaned; killed=#{inspect(killed)} reported=#{inspect(reported)}",
-      needs_attention: false,
+      needs_attention: ticket != nil,
       severity: "warning"
     )
   end
@@ -356,30 +409,22 @@ defmodule Aiur.AgentResourceGuard do
     end
   end
 
-  defp children(pid) when is_integer(pid) and pid > 0 do
-    case System.find_executable("pgrep") do
-      nil ->
-        []
+  defp tick_children_opts(opts, []), do: opts
+  defp tick_children_opts(opts, _roots), do: Keyword.put_new_lazy(opts, :children_fun, fn -> proc_children_fun(opts) end)
 
-      pgrep ->
-        case Aiur.ProcessExhaustion.cmd(pgrep, ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
-          {out, 0} -> parse_pid_list(out)
-          _other -> []
-        end
-    end
-  rescue
-    _ -> []
+  defp proc_children_fun(opts) do
+    index = Keyword.get(opts, :children_index_fun, fn -> children_index("/proc") end).()
+    &Map.get(index, &1, [])
   end
 
-  defp parse_pid_list(out) when is_binary(out) do
-    out
-    |> String.split()
-    |> Enum.flat_map(fn value ->
-      case Integer.parse(value) do
-        {pid, ""} when pid > 0 -> [pid]
-        _ -> []
-      end
-    end)
+  defp children_index(proc_dir) do
+    case File.ls(proc_dir) do
+      {:ok, entries} ->
+        Enum.group_by(for(entry <- entries, {pid, ""} <- [Integer.parse(entry)], %{ppid: ppid} <- [proc_stat(proc_dir, pid)], do: {ppid, pid}), &elem(&1, 0), &elem(&1, 1))
+
+      _ ->
+        %{}
+    end
   end
 
   defp proc_info(pid) when is_integer(pid) and pid > 0 do

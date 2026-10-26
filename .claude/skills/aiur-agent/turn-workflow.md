@@ -1,9 +1,10 @@
 # Running a turn
 
 In every repository, mark completed, self-reviewed work ready **before**
-entering `agent:ci-wait`. Drafts never pass CI, including a draft fast-gate pass.
-Only the full required-check set passing on the current head SHA permits
+entering `agent:ci-wait`. Drafts never permit handoff, even with green checks.
+All required checks passing on the current head SHA permit
 `agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
+Aiur PRs run fast checks; the full suite runs in the merge queue or on forced-full PRs.
 
 ## Label lifecycle
 
@@ -59,10 +60,12 @@ in the workpad rather than falling back to raw label edits.
 8. Smaller asks may skip brainstorm, plan, or review when the extra step would
    be overhead, but err on the side of using these skills when in doubt.
 9. Before CI or review handoff, assess the exact PR head against the configured
-   base using `dev-loop.md`'s integration checklist. Harmless staleness passes;
-   conflicts or changed-file overlap allow up to 3 integrations per handoff
-   without asking. Record attempts in the workpad; unavailable assessments block
-   handoff rather than imply safety.
+   base using `dev-loop.md`'s integration checklist. During `human-review` or
+   `ci-wait`, integrate only when GitHub reports the exact PR head as
+   `CONFLICTING` or a newer base commit fixes a failing required check, naming
+   the commit and check. A reviewer request alone does not authorize a merge.
+   File overlap and base movement alone do not require a push. Record required conflict resolution in the workpad;
+   unavailable assessments block handoff rather than imply safety.
 10. When implementation and draft-PR self-review are complete and only CI
     remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
     draft, then move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and
@@ -70,12 +73,13 @@ in the workpad rather than falling back to raw label edits.
     A stub standing where an acceptance criterion should be means the work is
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
-11. On a delivered full required-check pass for the current head SHA, verify
-    the PR is ready and assess current-base integration safety. No overlap or
-    conflicts permits `agent:human-review` even if the head is stale. If unsafe,
-    follow `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. After
-    the third integration, emit a non-blocking Executor alert; keep going if the
-    base is safe. Never open a blocking decision for base integration. Use
+11. On a delivered required-check pass for the current head SHA, verify
+    the PR is ready and assess current-base integration safety. Any head that
+    is not `CONFLICTING` permits `agent:human-review` even if stale or overlapping.
+    If GitHub reports `CONFLICTING` or a newer base commit fixes a failing
+    required check, follow
+    `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. Never open a
+    blocking decision for base integration. Use
     `aiur_set_ticket_state` for that
     move: the daemon's CI-pass handoff has
     already relabelled the ticket `agent:in-progress`, so a hand-written

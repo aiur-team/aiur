@@ -31,7 +31,7 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolverTest do
        }}
     end
 
-    assert {:ok, "PRRT_kwDOabc123"} = ThreadResolver.resolve("PRRC_kwDOabc123", request_fun: request_fun)
+    assert {:ok, "PRRT_kwDOabc123"} = ThreadResolver.resolve("PRRC_kwDOabc123", token: "test-gh-token", request_fun: request_fun)
   end
 
   # Acceptance #2326: the resolver consults the comment→thread map the poller's
@@ -46,6 +46,7 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolverTest do
              ThreadResolver.resolve("PRRC_kwDOabc123",
                repo: "owner/repo",
                comment_id: 9_101,
+               token: "test-gh-token",
                request_fun: fn _request -> flunk("the map must answer before any GraphQL call") end
              )
   end
@@ -65,6 +66,7 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolverTest do
              ThreadResolver.resolve("PRRC_kwDOabc123",
                repo: "owner/repo",
                comment_id: 9_999,
+               token: "test-gh-token",
                request_fun: request_fun
              )
   end
@@ -72,17 +74,17 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolverTest do
   test "answers :not_resolvable when the node is not a review comment" do
     request_fun = fn _request -> {:ok, %{status: 200, body: %{"data" => %{"node" => %{"id" => "PR_other"}}}}} end
 
-    assert :not_resolvable = ThreadResolver.resolve("PRRC_kwDOabc123", request_fun: request_fun)
+    assert :not_resolvable = ThreadResolver.resolve("PRRC_kwDOabc123", token: "test-gh-token", request_fun: request_fun)
   end
 
   test "answers :not_resolvable when the lookup errors" do
     request_fun = fn _request -> {:error, :network} end
 
-    assert :not_resolvable = ThreadResolver.resolve("PRRC_kwDOabc123", request_fun: request_fun)
+    assert :not_resolvable = ThreadResolver.resolve("PRRC_kwDOabc123", token: "test-gh-token", request_fun: request_fun)
   end
 
   test "answers :not_resolvable without ever calling the transport when there is no node id" do
-    assert :not_resolvable = ThreadResolver.resolve("", request_fun: fn _request -> flunk("transport must not be called") end)
-    assert :not_resolvable = ThreadResolver.resolve(nil, request_fun: fn _request -> flunk("transport must not be called") end)
+    assert :not_resolvable = ThreadResolver.resolve("", token: "test-gh-token", request_fun: fn _request -> flunk("transport must not be called") end)
+    assert :not_resolvable = ThreadResolver.resolve(nil, token: "test-gh-token", request_fun: fn _request -> flunk("transport must not be called") end)
   end
 end

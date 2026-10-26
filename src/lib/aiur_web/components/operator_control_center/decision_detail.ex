@@ -13,6 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
 
@@ -29,6 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
         decision={@decision}
         state={@action_state}
         writable={@writable}
+        live_connected={@live_connected}
       />
       <DecisionRevisionAction.decision_revision_action decision={@decision} state={@action_state} writable={@writable} />
 
@@ -80,6 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
               <li :for={entry <- @history_rows}>
                 <span class="timeline-time mono">{format_datetime(entry.changed_at)}</span>
                 <strong>{humanize(entry.change)}</strong>
+                <p :if={present?(Map.get(entry, :operator_quote))}>Operator quote: {entry.operator_quote}</p>
                 <p :if={present?(entry.rationale)}>{entry.rationale}</p>
                 <div class="timeline-facts">
                   <span class="actor-tag">
@@ -104,7 +107,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
       </div>
 
       <footer class="decision-detail-footer">
-        <.link patch={@collapse_path} class="btn ghost">Collapse details</.link>
+        <.link patch={@collapse_path} class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost">Collapse details</.link>
       </footer>
     </div>
     """

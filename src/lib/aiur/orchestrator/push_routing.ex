@@ -12,9 +12,9 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.{Commands, Config, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, GithubBudgetPause, PauseResume, State}
+  alias Aiur.Orchestrator.{Dispatcher, GithubBudgetPause, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.PushRouting.{AutoResume, ClearedDependency}
+  alias Aiur.Orchestrator.PushRouting.PrBodyEvidence
 
   @doc false
   @spec reconcile_pending_auto_resumes(State.t()) :: State.t()
@@ -32,7 +32,14 @@ defmodule Aiur.Orchestrator.PushRouting do
           :terminal | :removed,
           (Issue.t() -> {:ok, Issue.t()} | {:error, term()})
         ) :: State.t()
-  defdelegate maybe_resume_blockee_on_cleared_dependency(state, blockee, blocker, clearance \\ :terminal, blocked_by_hydrator \\ &Dispatcher.default_blocked_by_hydrator/1), to: ClearedDependency
+  defdelegate maybe_resume_blockee_on_cleared_dependency(
+                state,
+                blockee,
+                blocker,
+                clearance \\ :terminal,
+                blocked_by_hydrator \\ &Dispatcher.default_blocked_by_hydrator/1
+              ),
+              to: ClearedDependency
 
   @doc false
   @spec recheck_cleared_dependency_pauses(
@@ -41,7 +48,13 @@ defmodule Aiur.Orchestrator.PushRouting do
           [term()],
           (Issue.t() -> {:ok, Issue.t()} | {:error, term()})
         ) :: State.t()
-  defdelegate recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, polled_issues \\ [], blocked_by_hydrator \\ &Dispatcher.default_blocked_by_hydrator/1), to: ClearedDependency
+  defdelegate recheck_cleared_dependency_pauses(
+                state,
+                fetch_issue_states_fun,
+                polled_issues \\ [],
+                blocked_by_hydrator \\ &Dispatcher.default_blocked_by_hydrator/1
+              ),
+              to: ClearedDependency
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -63,7 +76,8 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   @spec maybe_pause_on_request(State.t(), String.t() | integer()) :: State.t()
-  def maybe_pause_on_request(%State{} = state, identifier), do: maybe_pause_on_request(state, identifier, %{})
+  def maybe_pause_on_request(%State{} = state, identifier),
+    do: maybe_pause_on_request(state, identifier, %{})
 
   @spec maybe_pause_on_request(State.t(), String.t() | integer(), map()) :: State.t()
   def maybe_pause_on_request(%State{} = state, identifier, event) do
@@ -94,7 +108,14 @@ defmodule Aiur.Orchestrator.PushRouting do
     if nonblocking_question_pause?(identifier, pause_reason, event) do
       state
     else
-      {_reply, state} = PauseResume.request_pause(state, running_entry, Map.get(running_entry, :issue), pause_reason)
+      {_reply, state} =
+        PauseResume.request_pause(
+          state,
+          running_entry,
+          Map.get(running_entry, :issue),
+          pause_reason
+        )
+
       state
     end
   end
@@ -116,8 +137,13 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   @doc false
   @spec recover_github_budget_pause(State.t(), String.t(), pos_integer(), integer()) :: State.t()
-  def recover_github_budget_pause(%State{} = state, identifier, generation, now_ms \\ System.system_time(:millisecond)),
-    do: GithubBudgetPause.recover_expired(state, identifier, generation, now_ms)
+  def recover_github_budget_pause(
+        %State{} = state,
+        identifier,
+        generation,
+        now_ms \\ System.system_time(:millisecond)
+      ),
+      do: GithubBudgetPause.recover_expired(state, identifier, generation, now_ms)
 
   @doc false
   @spec record_blocker_branch_push(State.t(), String.t() | integer(), map()) :: State.t()
@@ -128,7 +154,14 @@ defmodule Aiur.Orchestrator.PushRouting do
           {:ok, %{} = pending_unblock} ->
             topic = "ticket.#{blocker_identifier}.agent.unblocked"
             unblock_key = topic <> ":" <> pending_unblock.sha
-            AutoResume.resume_and_maybe_ack_unblock(state, blocker_identifier, topic, pending_unblock, unblock_key)
+
+            AutoResume.resume_and_maybe_ack_unblock(
+              state,
+              blocker_identifier,
+              topic,
+              pending_unblock,
+              unblock_key
+            )
 
           {:ok, nil} ->
             state
@@ -141,6 +174,10 @@ defmodule Aiur.Orchestrator.PushRouting do
         state
     end
   end
+
+  @doc false
+  @spec check_pr_body_head(State.t(), String.t() | integer(), map(), keyword()) :: State.t()
+  defdelegate check_pr_body_head(state, identifier, event, opts \\ []), to: PrBodyEvidence, as: :check
 
   @doc false
   @spec validated_unblock_metadata(String.t() | integer(), map()) ::
@@ -170,31 +207,50 @@ defmodule Aiur.Orchestrator.PushRouting do
     do: state
 
   @spec maybe_mark_sleeping(State.t(), String.t() | integer()) :: State.t()
-  def maybe_mark_sleeping(%State{} = state, identifier) do
+  def maybe_mark_sleeping(state, identifier) do
+    {next, effects} = sleeping_effects(state, identifier)
+    TicketTransition.apply_effects(next, effects)
+  end
+
+  @spec sleeping_effects(State.t(), String.t() | integer()) ::
+          {State.t(), [Aiur.Orchestrator.Effect.t()]}
+  def sleeping_effects(%State{} = state, identifier) do
     case State.find_running_by_identifier(state.running, identifier) do
       running_entry when is_map(running_entry) ->
         existing_status =
           (Map.get(running_entry, :control) || %{}) |> Map.get(:status, :working)
 
         if existing_status == :working do
-          Orchestrator.transition_control_status(state, running_entry, :sleeping, "stream.idle_close")
+          {state, [{:transition_control, running_entry, :sleeping, "stream.idle_close"}]}
         else
-          state
+          {state, []}
         end
 
       _ ->
-        state
+        {state, []}
     end
   end
 
-  @spec maybe_resume_blockees_on_unblocked(State.t(), String.t() | integer(), String.t(), map()) :: State.t()
+  @spec maybe_resume_blockees_on_unblocked(State.t(), String.t() | integer(), String.t(), map()) ::
+          State.t()
   def maybe_resume_blockees_on_unblocked(%State{} = state, blocker_identifier, topic, metadata) do
     unblock_key = topic <> ":" <> metadata.sha
 
     case BranchRefStore.register_unblock(metadata.ref, metadata.sha) do
-      :ready -> AutoResume.resume_and_maybe_ack_unblock(state, blocker_identifier, topic, metadata, unblock_key)
-      :pending -> state
-      :error -> state
+      :ready ->
+        AutoResume.resume_and_maybe_ack_unblock(
+          state,
+          blocker_identifier,
+          topic,
+          metadata,
+          unblock_key
+        )
+
+      :pending ->
+        state
+
+      :error ->
+        state
     end
   end
 
@@ -206,7 +262,10 @@ defmodule Aiur.Orchestrator.PushRouting do
 
     state.running
     |> Map.values()
-    |> Enum.reduce(state, &AutoResume.resume_or_record_merged_blockee(&2, &1, blocker_identifier, topic))
+    |> Enum.reduce(
+      state,
+      &AutoResume.resume_or_record_merged_blockee(&2, &1, blocker_identifier, topic)
+    )
   end
 
   @doc false
@@ -222,7 +281,10 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   defp prepare_agent_pause(entry, event) do
     payload = event_payload(event)
-    blocker_identifier = Map.get(payload, :blocker_identifier) || Map.get(payload, "blocker_identifier")
+
+    blocker_identifier =
+      Map.get(payload, :blocker_identifier) || Map.get(payload, "blocker_identifier")
+
     reason = Map.get(payload, :reason) || Map.get(payload, "reason")
 
     cond do
@@ -232,7 +294,10 @@ defmodule Aiur.Orchestrator.PushRouting do
         prepared =
           entry
           |> Map.put(:blocker_pause_generation, generation)
-          |> Map.put(:blocker_pause, %{blocker_identifier: to_string(blocker_identifier), generation: generation})
+          |> Map.put(:blocker_pause, %{
+            blocker_identifier: to_string(blocker_identifier),
+            generation: generation
+          })
           |> clear_budget_pause_context()
 
         {prepared, :blocker_dependency}

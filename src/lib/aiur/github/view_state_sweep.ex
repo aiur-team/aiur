@@ -81,8 +81,7 @@ defmodule Aiur.GitHub.ViewStateSweep do
   require Logger
 
   alias Aiur.Config
-  alias Aiur.GitHub.{ResourceStore, Transport}
-  alias Aiur.Webhooks
+  alias Aiur.GitHub.Access
 
   # Sources are supplied by the application composition root.
   @sources []
@@ -137,9 +136,9 @@ defmodule Aiur.GitHub.ViewStateSweep do
     state = %{
       interval: Keyword.get(opts, :interval_ms) || configured_interval_ms(),
       sources: Keyword.get(opts, :sources, @sources),
-      repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
-      token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
-      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+      repo_fun: Keyword.get(opts, :repo_fun, &Access.parse_repo/0),
+      token_fun: Keyword.get(opts, :token_fun, &Access.require_token/0),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
       # Resolved once at boot: the repository is a boot-time configuration fact,
       # and re-resolving it on every sweep would shell out to `git remote` on
       # each tick for no benefit.
@@ -236,7 +235,7 @@ defmodule Aiur.GitHub.ViewStateSweep do
   defp check_issue_head(%{repo: {owner, repo}} = state) do
     case state.token_fun.() do
       {:ok, token} ->
-        url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&sort=updated&direction=desc&per_page=100"
+        url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues?state=open&sort=updated&direction=desc&per_page=100"
 
         case state.request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @head_response_bytes}) do
           {:ok, %{status: 200, body: body}} when is_list(body) ->
@@ -278,7 +277,11 @@ defmodule Aiur.GitHub.ViewStateSweep do
   defp record_head_activity(_full_name, nil), do: :ok
 
   defp record_head_activity(full_name, head) do
-    Webhooks.record_activity(full_name, observation: {:issue_head, head})
+    case Application.get_env(:aiur, :github_activity_recorder) do
+      {module, function} -> apply(module, function, [full_name, [observation: {:issue_head, head}]])
+      nil -> :ok
+    end
+
     :ok
   end
 
@@ -300,7 +303,7 @@ defmodule Aiur.GitHub.ViewStateSweep do
 
   defp store_max_open_updated_at(full_name) do
     full_name
-    |> then(&ResourceStore.list_type(:issue, &1))
+    |> then(&Access.list_type(:issue, &1))
     |> Enum.map(fn {_key, body} -> body end)
     |> Enum.filter(&(Map.get(&1, "state") == "open"))
     |> Enum.map(&Map.get(&1, "updated_at"))

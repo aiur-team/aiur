@@ -2,7 +2,25 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
   @moduledoc false
 
   alias Aiur.BuildOrder.Lifecycle
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
+  alias Aiur.Orchestrator
+
+  @spec current_poll_labels() :: map()
+  def current_poll_labels do
+    case Orchestrator.dashboard_snapshot() do
+      {:current, snapshot, _freshness} ->
+        [:running, :retrying, :idle]
+        |> Enum.flat_map(&Map.get(snapshot, &1, []))
+        |> Enum.reduce(%{}, &put_live_labels/2)
+
+      _unavailable ->
+        %{}
+    end
+  rescue
+    _error -> %{}
+  catch
+    _kind, _reason -> %{}
+  end
 
   @spec load([map()]) :: %{optional({String.t(), String.t()}) => map()}
   def load(packs) do
@@ -10,9 +28,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
     |> Enum.map(& &1.repository)
     |> Enum.uniq()
     |> Map.new(fn {owner, repo} = repository ->
-      issues = ResourceStore.list(:issue, owner, repo)
-      labels = ResourceStore.list(:issue_labels, owner, repo)
-      sub_issues = ResourceStore.list(:sub_issue, owner, repo)
+      issues = Access.list(:issue, owner, repo)
+      labels = Access.list(:issue_labels, owner, repo)
+      sub_issues = Access.list(:sub_issue, owner, repo)
       {repository, %{issues: issues_by_number(issues), labels: labels, members: member_numbers(sub_issues)}}
     end)
   end
@@ -102,4 +120,14 @@ defmodule AiurWeb.BuildOrder.PlanningSource.LivePackProgress do
 
   defp issue_label_names(labels) when is_list(labels), do: Enum.map(labels, &Map.get(&1, "name"))
   defp issue_label_names(_labels), do: []
+
+  defp put_live_labels(row, labels_by_identity) do
+    case {Map.get(row, :tracker_identity), Map.get(row, :labels)} do
+      {%Aiur.TrackerIdentity{} = identity, [_ | _] = labels} ->
+        Map.put(labels_by_identity, Aiur.TrackerIdentity.github_key(identity), labels)
+
+      _row ->
+        labels_by_identity
+    end
+  end
 end

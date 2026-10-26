@@ -14,13 +14,17 @@ defmodule Aiur.Config.Schema do
     BuildOrder,
     BuildQueue,
     Codex,
+    Compaction,
+    DashboardAuth,
     Decisions,
     ElevenLabs,
     EnvResolver,
     Errors,
     Events,
+    Executor,
     Experiments,
     Hooks,
+    Instance,
     MergePolicy,
     Monitoring,
     Observability,
@@ -32,44 +36,71 @@ defmodule Aiur.Config.Schema do
     Server,
     Tracker,
     Upgrade,
+    Usage,
+    Voice,
     Webhooks,
     Worker,
     Workspace
   }
 
-  # Embedded struct defaults must rebuild when the agent schema changes.
+  # Embedded struct defaults must rebuild when their nested schemas change.
   require Agent
+  require Instance
   require Tracker
+  require BuildQueue
+  require Experiments
+  require Voice
+  require Workspace
 
   @primary_key false
 
   @type t :: %__MODULE__{}
 
   embedded_schema do
+    # @config-reference config-configuration-00 max_vertical_panes
+    # @config-detail max_vertical_panes | integer | 3 | Caps visible agent chat panes. |
     field(:max_vertical_panes, :integer, default: 3)
+    # @config-reference config-configuration-00 pre_warmed_sessions
+    # @config-detail pre_warmed_sessions | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
     field(:pre_warmed_sessions, :integer, default: 3)
+    # @config-reference config-configuration-00 max_log_history_mb
+    # @config-detail max_log_history_mb | integer | 1000 | Caps persistent log history in MB. |
     field(:max_log_history_mb, :integer, default: 1000)
+    # @config-reference config-configuration-00 prompt_file
+    # @config-detail prompt_file | string | nil | Per-repository Liquid prompt template. |
+    # @config-reference config-configuration-00 hooks_file
+    # @config-detail hooks_file | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
     field(:prompt_file, :string)
+    # @config-reference config-configuration-00 debug
+    # @config-detail debug | boolean | false | Enables debug-level file logging without the CLI debug flag; background runs already retain normal-level logs. |
     field(:debug, :boolean, default: false)
     # Configurable Executor takeover advisory alerts (#1182). `0` disables the
     # corresponding alert; negative values are rejected by the changeset.
+    # @config-reference config-configuration-00 executor_takeover_first_alert_hours
+    # @config-detail executor_takeover_first_alert_hours | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
     field(:executor_takeover_first_alert_hours, :integer, default: 8)
+    # @config-reference config-configuration-00 executor_takeover_continuous_alert_hours
+    # @config-detail executor_takeover_continuous_alert_hours | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
     field(:executor_takeover_continuous_alert_hours, :integer, default: 1)
 
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:instance, Instance, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:compaction, Compaction, on_replace: :update, defaults_to_struct: true)
     embeds_one(:decisions, Decisions, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:merge_policy, MergePolicy, on_replace: :update, defaults_to_struct: true)
     embeds_one(:monitoring, Monitoring, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:dashboard_auth, DashboardAuth, on_replace: :update, defaults_to_struct: true)
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:experiments, Experiments, on_replace: :update, defaults_to_struct: true)
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
+    # Keep new prewarm defaults present even when a config omits the whole block.
     embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)
     embeds_one(:alerts, Alerts, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pr_health, PrHealth, on_replace: :update, defaults_to_struct: true)
@@ -78,7 +109,11 @@ defmodule Aiur.Config.Schema do
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:voice, Voice, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:usage, Usage, on_replace: :update, defaults_to_struct: true)
+    # Keep the Executor sweep settings in the same parsed settings snapshot.
+    embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -190,16 +225,20 @@ defmodule Aiur.Config.Schema do
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_first_alert_hours")
     |> validate_raw_non_negative_integer(attrs, "executor_takeover_continuous_alert_hours")
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
+    |> cast_embed(:instance, with: &Instance.changeset/2)
+    |> cast_embed(:executor, with: &Executor.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
+    |> cast_embed(:compaction, with: &Compaction.changeset/2)
     |> cast_embed(:decisions, with: &Decisions.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:merge_policy, with: &MergePolicy.changeset/2)
     |> cast_embed(:monitoring, with: &Monitoring.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
+    |> cast_embed(:dashboard_auth, with: &DashboardAuth.changeset/2)
     |> cast_embed(:opencode, with: &Opencode.changeset/2)
     |> cast_embed(:experiments, with: &Experiments.changeset/2)
     |> cast_embed(:events, with: &Events.changeset/2)
@@ -211,7 +250,9 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
+    |> cast_embed(:voice, with: &Voice.changeset/2)
     |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
+    |> cast_embed(:usage, with: &Usage.changeset/2)
   end
 
   # Ecto's integer cast truncates a float (1.5 -> 1) and coerces a numeric
@@ -261,8 +302,9 @@ defmodule Aiur.Config.Schema do
     agent = %{settings.agent | codex: codex, mix_scheduler_cap: settings.agent.mix_scheduler_cap || 4}
 
     elevenlabs = resolve_elevenlabs(settings.elevenlabs)
+    instance = %{settings.instance | ignore: settings.instance.ignore || %Aiur.Config.Schema.Instance.Ignore{}}
 
-    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs}
+    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs, instance: instance}
   end
 
   defp resolve_elevenlabs(%ElevenLabs{enabled: false} = elevenlabs),

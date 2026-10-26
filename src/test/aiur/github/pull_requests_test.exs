@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.PullRequestsTest do
 
   alias Aiur.GitHub.PullRequests
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -399,6 +399,21 @@ defmodule Aiur.GitHub.PullRequestsTest do
                  before_base_repair_fun: fn -> :ok end
                )
     end
+  end
+
+  test "updates a pull request body through the metered daemon transport" do
+    body = "Closes #5794\n"
+
+    request_fun = fn request ->
+      assert request.method == :patch
+      assert request.url =~ "/repos/owner/repo/pulls/42"
+      assert request.caller == "agent_handoff_body"
+      assert request.token == "test-gh-token"
+      assert request.body == %{"body" => body}
+      {:ok, %{status: 200, body: %{"number" => 42, "body" => body}}}
+    end
+
+    assert {:ok, %{"number" => 42, "body" => ^body}} = PullRequests.update_body(42, body, request_fun: request_fun)
   end
 
   describe "pull_request_has_label?/2" do

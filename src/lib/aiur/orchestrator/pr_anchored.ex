@@ -6,10 +6,9 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue, TicketBranch}
+  alias Aiur.{Config, Issue, Signal, TicketBranch}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, TrackerTasks, WorkspaceCleanup}
+  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, TicketTransition, TrackerTasks, WorkspaceCleanup}
 
   @pr_anchored_state "pr-watch"
 
@@ -168,7 +167,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
           {"PR comment was deferred because the agent capacity is full", "free an agent slot and retry the PR comment"}
       end
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{issue.identifier}.agent.attention.pr_anchored_dispatch_#{cause}",
       "#{message} (PR ##{issue.identifier})",
       issue: to_string(issue.identifier),
@@ -241,7 +240,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
         "held it on #{signal} for all #{attempt} attempts. The unit carries no agent:* label and no " <>
         "tracker row, so nothing will retry it — comment on the PR again once the host recovers."
 
-    Alerts.emit_system("system.dispatch.pr_anchored_held",
+    Signal.alert("system.dispatch.pr_anchored_held",
       reason: reason,
       needs_attention: true,
       severity: "warning"
@@ -371,7 +370,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
         if TrackerTasks.same_runner?(entry, running_entry) do
           Logger.warning("PR-anchored PR is no longer open; stopping: issue_id=#{issue_id} pr=#{pr_number}")
 
-          current = Orchestrator.terminate_running_issue(current, issue_id, false)
+          current = TicketTransition.apply_effect(current, {:terminate, issue_id, false})
           cleanup_pr_anchored_workspace(issue_id, entry)
           current
         else

@@ -10,7 +10,7 @@ defmodule Aiur.CodingAgent.RouteFailure do
   |---|---|---|---|---|
   | Usage / rate limit (429) | `:usage_limit` | yes | **yes**, with `reset_at` | the existing quota alert |
   | Transient (5xx, timeout, malformed body) | `:transient` | for **this claim only** | **never** | yes |
-  | Auth rejected (401) | `:auth_rejected` | **no** | never | yes |
+  | Auth rejected (401) | `:auth_rejected` | skip backend | persistent backend hold | once per backend |
   | Anything else | `:fatal` | no | never | no (surfaced by the caller) |
 
   The two load-bearing distinctions:
@@ -23,17 +23,17 @@ defmodule Aiur.CodingAgent.RouteFailure do
   claim along and raises an attention, and leaves the ledger untouched. This is
   the conflation that hides an outage.
 
-  **A 401 must not fall through.** It is the one failure that looks like an
-  outage but is a config error: a key that is present and wrong. Advancing
-  would silently move the fleet's spend onto the next route — very plausibly a
-  paid OpenRouter path — and leave a broken credential undetected for as long
-  as the fallback holds. A typo'd key stopping the fleet is loud, and loud is
-  the point.
+  **A 401 pauses its backend.** The credential is persisted as rejected, one
+  dashboard attention is raised, and later claims skip that backend until its
+  credential changes. Other configured backends remain available.
   """
 
-  alias Aiur.Alerts
-  alias Aiur.Config.RoutingValue
+  require Logger
+
+  alias Aiur.CodingAgent.ProviderCredential
   alias Aiur.Issue
+  alias Aiur.ModelAvailability
+  alias Aiur.Signal
 
   @type class :: :usage_limit | :transient | :auth_rejected | :fatal
 
@@ -42,7 +42,11 @@ defmodule Aiur.CodingAgent.RouteFailure do
   def classify(:rate_limited), do: :usage_limit
   def classify({:http_error, 429, _detail}), do: :usage_limit
   def classify(:unauthorized), do: :auth_rejected
-  def classify({:http_error, status, _detail}) when status in [401, 403], do: :auth_rejected
+
+  def classify({:turn_failed, details}) when is_map(details),
+    do: if(unauthorized_status?(details), do: :auth_rejected, else: :fatal)
+
+  def classify({:http_error, status, _detail}) when status == 401, do: :auth_rejected
   def classify({:http_error, status, _detail}) when status >= 500, do: :transient
   def classify(:invalid_response), do: :transient
   def classify(:invalid_response_body), do: :transient
@@ -52,6 +56,40 @@ defmodule Aiur.CodingAgent.RouteFailure do
   def classify(%{reason: :timeout}), do: :transient
   def classify(%Req.TransportError{}), do: :transient
   def classify(_reason), do: :fatal
+
+  defp unauthorized_status?(details) when is_map(details) do
+    Enum.any?(details, fn
+      {key, value}
+      when key in [
+             "status",
+             :status,
+             "status_code",
+             :status_code,
+             "statusCode",
+             :statusCode,
+             "api_error_status",
+             :api_error_status,
+             "apiErrorStatus",
+             :apiErrorStatus,
+             "http_status",
+             :http_status,
+             "httpStatus",
+             :httpStatus
+           ] ->
+        value in [401, "401"]
+
+      {_key, value} when is_map(value) ->
+        unauthorized_status?(value)
+
+      {_key, value} when is_list(value) ->
+        Enum.any?(value, &unauthorized_status?(&1))
+
+      _ ->
+        false
+    end)
+  end
+
+  defp unauthorized_status?(_details), do: false
 
   @doc """
   Whether the claim may advance to the next `agent.priority` route.
@@ -85,14 +123,38 @@ defmodule Aiur.CodingAgent.RouteFailure do
   end
 
   defp emit(:auth_rejected, issue, route, _reason, opts) do
-    emit_system(
-      issue,
-      "auth_rejected",
-      opts,
-      "Route #{route} rejected aiur's credential (401). Dispatch has NOT fallen through to the next " <>
-        "agent.priority entry: a bad key would otherwise move spend silently onto another route and " <>
-        "stay hidden. Fix or remove the credential for #{RoutingValue.routing_backend(route)}."
-    )
+    backend = ModelAvailability.backend_key(route)
+    settings = Aiur.Config.settings!()
+
+    availability_opts = Keyword.get(opts, :availability_opts, [])
+
+    fingerprint =
+      ProviderCredential.fingerprint_for_mode(settings.instance.mode, backend, settings, System.get_env()) ||
+        "unavailable"
+
+    path =
+      if settings.instance.mode == "hosted",
+        do: Path.join(System.get_env("AIUR_BG_STATE_DIR") || Path.expand("~/.config/aiur"), "model-usage.json"),
+        else: ModelAvailability.path()
+
+    availability_opts = Keyword.put_new(availability_opts, :path, path)
+
+    case ModelAvailability.auth_rejected_alert_once(backend, fingerprint, availability_opts) do
+      {:ok, :first} ->
+        Signal.alert("system.provider.auth_rejected.#{backend}",
+          reason:
+            "The #{backend} provider rejected its credential (HTTP 401). Dispatch is paused for this backend until its credential changes or Aiur restarts without a fingerprintable login. Other configured backends remain available.",
+          needs_attention: true,
+          severity: "critical"
+        )
+
+      {:ok, :already_held} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Could not persist provider auth hold backend=#{backend} reason=#{inspect(reason)}")
+        emit_system(issue, "auth_rejected", opts, "The #{backend} provider rejected its credential (HTTP 401), but the dispatch hold could not be persisted.")
+    end
   end
 
   defp emit(:transient, issue, route, reason, opts) do
@@ -109,7 +171,7 @@ defmodule Aiur.CodingAgent.RouteFailure do
   defp emit(_class, _issue, _route, _reason, _opts), do: :ok
 
   defp emit_system(issue, suffix, opts, reason) do
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.route.#{suffix}",
       issue: issue,
       workspace: Keyword.get(opts, :workspace),

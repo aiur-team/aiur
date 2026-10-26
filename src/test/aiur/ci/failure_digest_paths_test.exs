@@ -53,7 +53,7 @@ defmodule Aiur.CI.FailureDigestPathsTest do
       end
     end
 
-    FailureDigest.build(sha, request_fun: request)
+    FailureDigest.build(sha, token: "test-gh-token", request_fun: request)
   end
 
   defp ok(body), do: {:ok, %{status: 200, body: body, headers: []}}

@@ -6,9 +6,14 @@ and may use an agent with `aiur-monitor` as an assistant. When an agent is told
 to use `aiur-run`, that agent is the Executor.
 
 This role owns the system of work. It receives the requirements, ticket
-contracts, and Build Order from the Feature Planner that used `aiur-build`. At
+contracts, and feature collection from the Feature Planner using `aiur-build`. At
 runtime, GitHub owns ticket facts and Aiur owns agent activity, progress,
 alerts, and events; planning documents preserve approved intent.
+
+Experiment wakes (`experiments:auto`): `system.experiment.<id>.preregister`
+starts analyst pre-registration; `.report_due` starts the report flow (X6).
+Read `report_reason`; report insufficient data honestly. Ignore `.cancelled`.
+Topic IDs encode dots as `%2E`.
 
 ## Contents
 
@@ -26,18 +31,13 @@ alerts, and events; planning documents preserve approved intent.
 
 ## Establish the authority envelope
 
-Before consulting repository documentation, read
-`~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
-run-specific handoff; GitHub and Aiur still provide the authoritative live
-ticket and runtime state. Keep this single living document current whenever the
-operator gives a directive, frames the run's request, supplies context that
-cannot be recovered from the repository/history, or changes the Executor's
-role or authority. A directive not written into the handoff has not been
-recorded. When replacing an Executor, rewrite it wholesale with the next
+Before consulting repository documentation, read `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
+run-specific handoff; GitHub and Aiur still provide the authoritative live ticket and runtime state. Keep this single living document current whenever the
+operator gives a directive, frames the run's request, supplies context that cannot be recovered from the repository/history, or changes the Executor's
+role or authority. A directive not written into the handoff has not been recorded. When replacing an Executor, rewrite it wholesale with the next
 Executor's ranked work and hazards; never append another dated checkpoint.
 
-Record these decisions before making the corresponding mutations. Reuse clear
-answers already present in the request or handoff instead of asking again.
+Record these decisions before making the corresponding mutations. Reuse clear answers already present in the request or handoff instead of asking again.
 
 - ticket scope or the GitHub selector that defines it;
 - whether the Executor may create newly discovered tickets;
@@ -78,24 +78,23 @@ Classify every discovered finding before creating work:
   create or dispatch an individual feature-run ticket.
 - **Optimization:** preserve evidence for a separately authorized run.
 
-When creation is authorized, encode that classification in the same creation
-request. Executable work receives the configured lifecycle todo label
-(`agent:todo` in the standard workflow); deferred work receives `needs-triage`
-or `human:todo` and states why. Build Order roots carry `build-order`, while
-explicitly named `Epic:` containers carry `epic`; both are hierarchy and remain
-undispatched. Never split
-issue creation and disposition across two requests: failure of the label edit
-otherwise leaves an invisible ticket that looks complete to the findings
-ledger but can never be claimed.
+## Continuous-build intake
 
-This is mechanical on both filing surfaces. Agent workspaces resolve `gh`
-through Aiur's wrapper, while the repository `PreToolUse` hook checks Executor
-Bash commands before they run. Both refuse an `issue create` with no disposition
-and refuse direct REST or GraphQL issue creation that bypasses the checked label
-flags. The aiur-build publication validator separately refuses a Build Order
-whose executable members are projected undispatched. Use
-`gh issue create --label ...`; keep `gh issue list --search 'no:label'` as the
-independent safety-net audit before treating a queue as empty.
+Every authorized new feature, epic, bug batch, or experiment joins the repository's
+single continuous build by default. Follow [the intake procedure](continuous-build-intake.md)
+for feature collection and `feature:<slug>` labels,
+native `blocked_by` links where real, queue membership, and placement read-back.
+New features never create standalone Build Order roots; existing roots remain history.
+Only an explicit operator exclusion leaves filed work outside the build: park it
+with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
+in the ledger under the convergence policy above.
+
+“Prioritize” means place the work ahead of the previous next-up using priority labels and queue ordering, then report what it displaced. A label alone is not placement. Verify the collection, projected labels, prerequisites, membership, and effective start order before reporting intake complete.
+
+Use `agent:queued` in the same creation request for executable members; the queue
+promotes ready members to `agent:todo`. Never create first and label later.
+
+**Give every new ticket a home-page epic.** After issue creation returns its number, run `aiur epic list` for the configured general keys, then `aiur epic set <epic> <ids…>` once per epic (up to 200 ids). Defaults are `bugs`, `design`, `infra`, `docs`; repositories can change them. An unknown key is refused with the list of valid keys; read it rather than guess. For feature members, use `aiur feature add <slug> <ids…>` instead. If unsure, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. Epic assignment is local Aiur state; if it fails, report the failure and continue filing. When promoting or retro-classifying many tickets, group ids by epic. If feature ownership conflicts, use `aiur feature add <slug> <ids…> --move` only when the ticket really changed feature.
 
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
@@ -172,6 +171,16 @@ Pass the event's current decision version, exactly one option or custom answer,
 a rationale, and an idempotency key. Use a stable `--executor-id` for the run
 when available (the CLI otherwise records `aiur-cli`), so replay stays
 idempotent and stale events cannot overwrite a later answer.
+
+If the human has already answered in the attended conversation, use
+`operator-relay-answer` with the current version, one choice, a verbatim
+`--quote`, stable `--relayed-by` identity and an idempotency key. The operator
+must first enable `executor.relay_operator_answers`. The distinct
+`operator_relayed` actor and info alert preserve who decided and who recorded.
+Never enable this policy yourself or substitute an operator-attributed API.
+If disabled, report that relay recording is disabled and direct the operator
+to the dashboard. Use its revision/moot flow to correct a relay, or relay a
+corrected answer with `--supersede` before delivery.
 
 A decided answer that no agent has received yet can still be changed. It is
 addressed to the ticket, so a later worker of the same ticket receives it.
@@ -266,6 +275,7 @@ count detached from ready work.
 
 ## Recovery ladder
 
+Prefer `aiurdev restart --keep-agents` for fleet upgrades. Save `aiurdev agents --json` before; afterward compare `aiurdev status --handoff --json`: every issue is adopted with the same provider pid and session id, or has a fallback reason. Verify `aiurdev alerts` records `system.restart.handoff.completed`, adopted tickets have no startup-claim release, and a ready ticket dispatches within one poll interval. [Restart semantics](../../../../website/docs-app/reference/cli.md#restart-semantics) cover failed-build recovery.
 A fleet-wide quiet board is a blockage, not idleness, and none of its causes
 log anything. Clear the fleet-level gates before triaging any single agent: run
 bare `aiurdev resume` first, because the global pause switch survives daemon
@@ -276,9 +286,7 @@ prewarm record `~/.aiur/repo/<owner>/<repo>/base-record.json` matches the
 every dispatch tick silently (issue #1404); and allow for the post-restart
 dispatch ramp.
 
-Alerts persist across daemon restarts and tokens (#1231), so the actionable list
-keeps naming long-merged tickets. Check alert timestamps and trust the live
-state table over the alert list.
+Alerts persist across restarts (#1231). Check timestamps and trust the live table over stale alerts.
 
 A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`
@@ -409,8 +417,11 @@ instead of issuing the same directive indefinitely. Once all conditions hold:
    rules — live in the repo's `AGENTS.md` (`Tests must fail without the
    production change they guard` and `Computed ages and collapsed causes`);
    cross-reference those sections rather than restating them;
-4. use `ce-code-review` when Compound Engineering is available, adding the
-   relevant security, data, frontend, backend, or design lens for the change;
+4. check `Local tests`: policy matches `aiur status`, `Tested head` is current,
+   `Base` and `Selection` cover the diff, and command results prove what ran;
+   stale, incomplete or failed evidence blocks approval. Use `ce-code-review`
+   when available, adding the relevant security, data, frontend, backend or
+   design lens for the change;
 5. reconcile duplicates and contradictions, classifying each finding under the
    convergence policy before routing it;
 6. return contained findings to the existing ticket as rework; create a new
@@ -477,24 +488,17 @@ invent a GitHub message. The normal attempt is what creates the failed suite,
 so this path surfaces the reason immediately after the first refusal instead of
 requiring a second `--admin` attempt.
 
-The declaration requires every blocking CI job as required status checks,
-including `build`, `test`, and `workflow security`, with strict status checks
-enabled, and the gate is enforced once that declaration is applied to the live
-ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
-that declaration on every PR and merge, so a regressed gate fails CI visibly.
-Before every merge, run `scripts/check-stack-order.sh <pr>` (see `merge-order-gate.md`).
-Wait for required checks and review; never merge a pending, failing, or stale head.
-
-A solo operator cannot merge a branch they authored through the gate
-(issue #1437). This used to bite hardest on the periodic `develop` -> `main`
-promotion; that promotion is retired now that `main` is the integration branch,
-but the rule still governs any Executor-authored branch.
-With a two-owner CODEOWNERS entry plus `require_code_owner_review`
-and `require_last_push_approval`, the only in-gate path is a bot approval, which
-defeats the gate; `--admin` does not bypass it. Any approved maintenance window
-must change only the review-side rules while leaving the required-status-check
-rule active. Back up and re-read the ruleset to confirm the review-side change
-rather than trusting the write.
+Read the active `merge_policy` from `aiur status`, not memory or a reviewer
+brief. Before every merge run `scripts/check-stack-order.sh <pr>` (see
+`merge-order-gate.md`), then use only
+`aiur pr merge <N> --reviewed-sha <full-reviewed-head-sha>`.
+Never replace it with `gh pr merge`, `--admin`, or scratch scripts.
+With `ci: wait`, all required checks must pass on the reviewed head.
+With `pending_ok`, reviewed local-test evidence for that head and configured
+mode plus enabled main watching may permit pending CI; failed checks and
+full-CI labels/paths still block. Respect command refusals and queue routing.
+On `system.main.ci.failed`, inspect the watcher’s fixer ticket and progress.
+Do not fix main by hand unless the fixer is stalled and takeover is authorized.
 
 ## Ticket close-out
 

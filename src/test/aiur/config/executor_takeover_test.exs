@@ -56,4 +56,23 @@ defmodule Aiur.Config.ExecutorTakeoverTest do
       assert is_integer(Config.executor_takeover_continuous_alert_hours())
     end
   end
+
+  describe "Executor sweep thresholds" do
+    test "defaults unreviewed PR threshold to ten minutes and honors overrides" do
+      assert {:ok, default} = Schema.parse(%{})
+      assert default.executor.sweep.unreviewed_pr_minutes == 10
+
+      assert {:ok, configured} =
+               Schema.parse(%{"executor" => %{"sweep" => %{"unreviewed_pr_minutes" => 25}}})
+
+      assert configured.executor.sweep.unreviewed_pr_minutes == 25
+    end
+
+    test "rejects non-positive unreviewed PR thresholds" do
+      for value <- [0, -1, 1.5, "10"] do
+        assert {:error, {:invalid_workflow_config, _}} =
+                 Schema.parse(%{"executor" => %{"sweep" => %{"unreviewed_pr_minutes" => value}}})
+      end
+    end
+  end
 end

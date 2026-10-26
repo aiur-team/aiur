@@ -3,12 +3,17 @@ defmodule Aiur.OptimisticStart.DispatchIntegrationTest do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Events.SubscriptionStore
-  alias Aiur.Orchestrator.{AutoSubscriptions, Dispatcher, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, Dispatcher, OptimisticLedger, State}
   alias Aiur.StartTrigger.ProgressStore
 
   @sha String.duplicate("a", 40)
 
   setup do
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, OptimisticLedger)
+    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, OptimisticLedger) end)
+    ledger_root = Aiur.TestSupport.tmp_root!("optimistic-dispatch-ledger")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(ledger_root) end)
+    start_supervised!({OptimisticLedger, path: Path.join(ledger_root, "starts.json")})
     :ets.new(Hints.table_name(), [:named_table, :set])
     :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
     blocker = to_string(System.unique_integer([:positive]))
@@ -55,6 +60,23 @@ defmodule Aiur.OptimisticStart.DispatchIntegrationTest do
     assert telemetry.primary == record.primary
     assert telemetry.pr_base == record.pr_base
     assert telemetry.started_at == DateTime.to_iso8601(record.started_at)
+    send(state.running[ctx.issue.id].pid, :stop)
+  end
+
+  test "start mode retains evaluated optimism when the blocker merges during binding", ctx do
+    subscriber = fn dependent, blocker ->
+      :ok = AutoSubscriptions.subscribe_for_declared_blocker(dependent, blocker)
+      ProgressStore.record(ctx.blocker, %{stage: :pr_merged, source: :webhook})
+      :sys.get_state(ProgressStore)
+      :ok
+    end
+
+    state = dispatch(ctx, blocker_subscriber: subscriber, blocker_ref_lookup: fn _ -> %{ref: "refs/heads/aiur/#{ctx.blocker}-work", sha: @sha} end)
+    assert_receive :spawned, 1_000
+    assert state.running[ctx.issue.id].start_mode == :optimistic
+    assert [%{identifier: blocker, sha: @sha}] = state.running[ctx.issue.id].optimistic_start.blockers
+    assert blocker == ctx.blocker
+    assert_received {:lifecycle, %{event: "dispatch", start_mode: "optimistic", optimistic_blockers: [^blocker]}}
     send(state.running[ctx.issue.id].pid, :stop)
   end
 

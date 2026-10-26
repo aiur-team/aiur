@@ -7,10 +7,12 @@ defmodule AiurWeb.Routes.Api do
       # Agent-write endpoints driven from the browser/API. Writes are enabled by
       # default; set `observability.dashboard_writable: false` to make them read-only.
       scope "/" do
-        pipe_through([:dashboard_auth, :api_write, :require_writable])
+        pipe_through([:client_token_write, :api_write, :require_writable])
 
         post("/api/v1/refresh", AiurWeb.ObservabilityApiController, :refresh)
         match(:*, "/api/v1/refresh", AiurWeb.ObservabilityApiController, :method_not_allowed)
+        post("/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :cancel)
+        match(:*, "/api/v1/:issue_identifier/cancel", AiurWeb.TicketCancelApiController, :method_not_allowed)
         post("/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :send_message)
         match(:*, "/api/v1/:issue_identifier/messages", AiurWeb.ObservabilityApiController, :method_not_allowed)
         post("/api/v1/:issue_identifier/pause", AiurWeb.ObservabilityApiController, :pause)
@@ -27,7 +29,7 @@ defmodule AiurWeb.Routes.Api do
       # working in read-only mode: the TUI's tmux pane key bindings (interrupt/hide,
       # see aiur.tmux.conf) and the RC claude lifecycle-hook sink (#367).
       scope "/" do
-        pipe_through([:dashboard_auth, :api_write])
+        pipe_through([:client_token_write, :api_write])
 
         post("/api/v1/pane/interrupt", AiurWeb.ObservabilityApiController, :pane_interrupt)
         match(:*, "/api/v1/pane/interrupt", AiurWeb.ObservabilityApiController, :method_not_allowed)
@@ -42,7 +44,7 @@ defmodule AiurWeb.Routes.Api do
   defmacro reads_and_catch_all do
     quote do
       scope "/" do
-        pipe_through(:dashboard_auth)
+        pipe_through(:client_token_read)
 
         get("/api/v1/state", AiurWeb.ObservabilityApiController, :state)
         get("/api/v1/streamdeck/grid", AiurWeb.ObservabilityApiController, :streamdeck_grid)

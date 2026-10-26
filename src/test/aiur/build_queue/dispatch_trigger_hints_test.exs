@@ -5,7 +5,7 @@ defmodule Aiur.BuildQueue.DispatchTriggerHintsTest do
 
   test "effective queue trigger reaches dispatch and retains rank and hold" do
     :ets.new(Hints.table_name(), [:named_table, :set])
-    document = %{queues: [%{id: "q", held: false, start_trigger: :pr_opened}], items: [%{issue_id: "12", queue_id: "q", hold: nil}]}
+    document = %{queues: [%{id: "q", rank: 0, held: false, start_trigger: :pr_opened}], items: [%{issue_id: "12", queue_id: "q", position: 3, hold: nil}]}
     projections = [%{issue_id: "12", state: :waiting, rank: {-2, 0, 3, 0, "12"}}]
 
     Reconcile.write_hints(projections, MapSet.new(["12"]), document)

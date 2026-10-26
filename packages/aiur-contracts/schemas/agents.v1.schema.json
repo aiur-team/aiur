@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/agents.v1.schema.json",
+  "title": "AgentsStatus",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": {
+      "const": "aiur.agents"
+    },
+    "contract_version": {
+      "const": 1
+    },
+    "running": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/runningAgent"
+      }
+    }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "running"
+  ],
+  "$defs": {
+    "runningAgent": {
+      "title": "AgentsStatusEntry",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "identifier": {
+          "type": "string"
+        },
+        "issue_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider_pid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "codex_app_server_pid": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "adopted_from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "identifier",
+        "issue_id",
+        "session_id",
+        "provider_pid",
+        "adopted_from"
+      ]
+    }
+  }
+}

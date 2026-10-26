@@ -40,7 +40,7 @@ defmodule Aiur.Claude.TranscriptTailer do
           | {:on_backfill_message, (Aiur.AgentEvents.transcript_event() -> any())}
           | {:on_turn_end, (turn_end_signal() -> any())}
           | {:turn_id, String.t() | nil}
-          | {:from, :start | :end}
+          | {:from, :start | :end | non_neg_integer()}
           | {:backfill_until, non_neg_integer()}
           | {:interval_ms, pos_integer() | nil}
           | {:name, GenServer.name()}
@@ -59,6 +59,10 @@ defmodule Aiur.Claude.TranscriptTailer do
   @spec poll(GenServer.server()) :: {:ok, non_neg_integer()}
   def poll(server), do: GenServer.call(server, :poll)
 
+  @doc false
+  @spec handoff_cursor(GenServer.server()) :: map()
+  def handoff_cursor(server), do: GenServer.call(server, :handoff_cursor)
+
   @impl true
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
@@ -72,6 +76,7 @@ defmodule Aiur.Claude.TranscriptTailer do
       case Keyword.get(opts, :from, :end) do
         :end -> current_size(path)
         :start -> 0
+        offset when is_integer(offset) and offset >= 0 -> offset
       end
 
     state = %{
@@ -90,6 +95,9 @@ defmodule Aiur.Claude.TranscriptTailer do
   end
 
   @impl true
+  def handle_call(:handoff_cursor, _from, state),
+    do: {:stop, :normal, Map.take(state, [:path, :offset, :backfill_until]), state}
+
   def handle_call(:poll, _from, state) do
     {emitted, state} = read_new(state)
     {:reply, {:ok, emitted}, state}

@@ -76,11 +76,12 @@ class RunSummaryKpisTest(unittest.TestCase):
         self.assertGreaterEqual(kpis["cpu_hours"], 0)
         self.assertEqual(kpis["peak_concurrency"], 1)
         self.assertEqual(kpis["cap"], 10)
-        self.assertGreaterEqual(kpis["wasted_slot_hours"], 0)
+        self.assertIsNone(kpis["wasted_slot_hours"])
+        self.assertTrue(kpis["fleet_pressure"]["wasted_slot_hours_partial"])
 
     def test_cpu_seconds_and_concurrency_on_a_bigger_stream(self):
-        # A stream large enough that CPU-hours and wasted slot-hours survive
-        # rounding exercises the real numbers, not just zero-placeholders.
+        # A legacy stream keeps the concurrency and CPU KPIs even without
+        # fleet-capacity samples to support a wasted-capacity total.
         dataset = reducer.reduce_files([SESSION_A, SESSION_B])
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "big.ndjson"
@@ -89,7 +90,8 @@ class RunSummaryKpisTest(unittest.TestCase):
             summary = reducer.boot_summary(big, "boot-x")
         kpis = render.run_summary_kpis(summary, cap=2)
         self.assertGreater(kpis["cpu_hours"], 0)
-        self.assertGreater(kpis["wasted_slot_hours"], 0)
+        self.assertIsNone(kpis["wasted_slot_hours"])
+        self.assertTrue(kpis["fleet_pressure"]["wasted_slot_hours_partial"])
         self.assertEqual(kpis["peak_concurrency"], 2)
 
     def test_top_cost_includes_ticket_actors(self):
@@ -206,6 +208,32 @@ class RunSummaryKpisTest(unittest.TestCase):
         # visible instead of presenting the latest 4 as the peak's capacity.
         self.assertIn("capacity 2..4 (latest 4)", text)
         self.assertIn("queued 6; capacity 2..4", text)
+
+    def test_wasted_capacity_uses_each_observed_cap_and_marks_missing_samples_partial(self):
+        summary = {
+            "actors": {
+                "_daemon": {
+                    "samples": [
+                        {"timestamp_ms": 1000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1, "fleet_agents_effective": 4},
+                        {"timestamp_ms": 2000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1, "fleet_agents_effective": 2},
+                        {"timestamp_ms": 3000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1},
+                    ]
+                }
+            }
+        }
+
+        cap_2 = render.fleet_pressure(summary, cap=2)
+        cap_16 = render.fleet_pressure(summary, cap=16)
+        self.assertAlmostEqual(cap_2["wasted_slot_hours"], 4 * 5 / 3600)
+        self.assertEqual(cap_2["wasted_slot_hours"], cap_16["wasted_slot_hours"])
+        self.assertTrue(cap_2["wasted_slot_hours_partial"])
+
+        summary["actors"]["_daemon"]["samples"] = [
+            {"timestamp_ms": 1000, "fleet_capacity_status": "current", "fleet_agents_occupied": 1}
+        ]
+        pressure = render.fleet_pressure(summary)
+        self.assertIsNone(pressure["wasted_slot_hours"])
+        self.assertTrue(pressure["wasted_slot_hours_partial"])
 
     def test_missing_peak_concurrency_renders_unavailable_never_zero(self):
         summary = {

@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   ## Why a separate module
 
-  `Aiur.Codex.DynamicTool` stays thin: the `aiur_declare_blocker` and
+  `Aiur.AgentTools.Dispatch` stays thin: the `aiur_declare_blocker` and
   `aiur_unblock` tools become 5-line shims that delegate here, the same
   way `execute_linear_graphql/2` delegates to `Aiur.Linear.Client.graphql/3`.
 
@@ -32,7 +32,7 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   require Logger
 
-  alias Aiur.GitHub.{Client, Transport}
+  alias Aiur.GitHub.{Access, Client}
 
   @max_depth 100
   @graph_frontier_size 100
@@ -117,7 +117,10 @@ defmodule Aiur.GitHub.IssueDependencies do
   end
 
   defp check_not_already_present(current_number, blocker_id, client_opts) do
-    case Client.fetch_blocked_by(current_number, client_opts) do
+    # A dependency pause can arrive after the declaration was made through a
+    # different path. The daemon's held blocked_by list may predate that write,
+    # so use GitHub's native edge list before starting cycle traversal.
+    case Client.fetch_blocked_by(current_number, Keyword.put(client_opts, :revalidate, true)) do
       {:ok, existing} -> presence_for(existing, blocker_id)
       {:error, reason} -> {:error, reason}
     end
@@ -272,14 +275,14 @@ defmodule Aiur.GitHub.IssueDependencies do
   defp fetch_blocking_graph_pages([], _cursors, edges, _opts), do: {:ok, edges}
 
   defp fetch_blocking_graph_pages(nodes, cursors, edges, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :graph_request_fun, Keyword.get(opts, :request_fun, &Transport.default_request_fun/1))
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :graph_request_fun, Keyword.get(opts, :request_fun, &Access.default_request_fun/1))
       cursor_variables = Map.new(cursors, fn {node, cursor} -> {"after_#{node}", cursor} end)
       variables = Map.merge(%{"owner" => owner, "repo" => repo}, cursor_variables)
 
       request_fun
-      |> Transport.github_graphql(token, blocking_query(nodes), variables, caller: :issue_dependencies)
+      |> Access.github_graphql(token, blocking_query(nodes), variables, caller: :issue_dependencies)
       |> continue_blocking_graph_pages(nodes, edges, opts)
     end
   end

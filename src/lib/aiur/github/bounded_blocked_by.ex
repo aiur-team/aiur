@@ -56,7 +56,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
       only the tracker repository.
   """
 
-  alias Aiur.GitHub.{DependenciesApi, OpenIssueSnapshot, ResourceStore, Transport}
+  alias Aiur.GitHub.{Access, DependenciesApi, OpenIssueSnapshot}
 
   @default_max_age_ms :timer.minutes(15)
 
@@ -76,16 +76,22 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
   Answers the raw blocker objects for `issue_number`, each carrying a state no
   older than `max_age_ms/0`. The shape is the endpoint's, so the caller
   normalizes it exactly as it normalizes a fresh read.
+
+  `cache_only: true` answers `{:error, :cache_miss}` instead of reading. Adding
+  `record_max_age_ms: :infinity` answers from held records of any age: last-known
+  evidence for ordering work, never for a dispatch decision.
   """
   @spec fetch(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def fetch(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo() do
+    with {:ok, {owner, repo}} <- Access.parse_repo() do
       max_age_ms = max_age_ms()
 
       open_issues = OpenIssueSnapshot.fetch(owner, repo, max_age_ms)
 
-      with {:ok, edges} <- fresh_edges(ResourceStore.key(:issue_blocked_by, owner, repo, issue_number), max_age_ms),
-           {:ok, blockers} <- current_blockers(edges, {owner, repo}, open_issues, max_age_ms) do
+      record_max_age_ms = Keyword.get(opts, :record_max_age_ms, max_age_ms)
+
+      with {:ok, edges} <- fresh_edges(Access.key(:issue_blocked_by, owner, repo, issue_number), record_max_age_ms),
+           {:ok, blockers} <- current_blockers(edges, {owner, repo}, open_issues, record_max_age_ms) do
         {:ok, blockers}
       else
         :stale -> read_or_miss(issue_number, owner, repo, opts)
@@ -94,7 +100,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
   end
 
   defp read_or_miss(issue_number, owner, repo, opts) do
-    if Keyword.get(opts, :cache_only, false), do: {:error, :cache_miss}, else: read_blockers(issue_number, owner, repo, opts)
+    if Keyword.get(opts, :cache_only, false), do: {:error, :cache_miss}, else: read_blockers(issue_number, owner, repo, Keyword.delete(opts, :record_max_age_ms))
   end
 
   defp current_blockers(edges, {owner, repo} = tracker_repo, open_issues, max_age_ms) when is_list(edges) do
@@ -117,7 +123,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
   defp fresh_edges(nil, _max_age_ms), do: :stale
 
   defp fresh_edges(key, max_age_ms) do
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, %{data: edges, fetched_at_ms: fetched_at_ms}} when is_list(edges) ->
         if within?(fetched_at_ms, max_age_ms), do: {:ok, edges}, else: :stale
 
@@ -132,7 +138,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
   defp fresh_blocker(nil, _max_age_ms), do: :stale
 
   defp fresh_blocker(key, max_age_ms) do
-    case ResourceStore.fetch(key) do
+    case Access.fetch_resource(key) do
       {:ok, %{data: blocker, full_body_at_ms: full_body_at_ms}} when is_map(blocker) ->
         if within?(full_body_at_ms, max_age_ms), do: {:ok, blocker, full_body_at_ms}, else: :stale
 
@@ -141,6 +147,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
     end
   end
 
+  defp within?(at_ms, :infinity) when is_integer(at_ms), do: true
   defp within?(at_ms, max_age_ms) when is_integer(at_ms), do: System.system_time(:millisecond) - at_ms <= max_age_ms
   defp within?(_at_ms, _max_age_ms), do: false
 
@@ -183,7 +190,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
         :ok
 
       key ->
-        ResourceStore.update_resource(key, &merge_blocker(&1, blocker), source: :fetch, version: &updated_at/1)
+        Access.update_resource(key, &merge_blocker(&1, blocker), source: :fetch, version: &updated_at/1)
         :ok
     end
   end
@@ -210,7 +217,7 @@ defmodule Aiur.GitHub.BoundedBlockedBy do
   # body that names none.
   defp blocker_key(%{"number" => number} = blocker, owner, repo) when is_integer(number) or is_binary(number) do
     {blocker_owner, blocker_repo} = blocker_repository(blocker, owner, repo)
-    ResourceStore.key(:issue, blocker_owner, blocker_repo, to_string(number))
+    Access.key(:issue, blocker_owner, blocker_repo, to_string(number))
   end
 
   defp blocker_key(_blocker, _owner, _repo), do: nil

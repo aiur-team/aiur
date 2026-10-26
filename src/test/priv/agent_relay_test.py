@@ -1,4 +1,5 @@
 """Exercise the real detached relay through its Unix socket."""
+# Cohesion: black-box coverage for one detached-relay socket/journal protocol.
 import base64
 import json
 import importlib.util
@@ -51,17 +52,21 @@ class RelayTest(unittest.TestCase):
         path = self.directory / "spec.json"
         path.write_text(json.dumps(spec))
         completed = subprocess.run([sys.executable, str(SCRIPT), "--directory", str(self.directory),
-                                    "--spec", str(path)], capture_output=True, timeout=5)
+                                    "--spec", str(path)], capture_output=True, timeout=15)
         self.assertEqual(completed.returncode, 0, completed.stderr.decode())
-        self.wait(lambda: (self.directory / "ctl.sock").exists())
+        self.wait(lambda: socket_mode(self.directory) == 0o600)
         self.assertFalse(path.exists())
         self.assertEqual((self.directory.stat().st_mode & 0o777), 0o700)
-        self.assertEqual(((self.directory / "ctl.sock").stat().st_mode & 0o777), 0o600)
 
     def connect(self, generation=None, offset=0):
         client = socket.socket(socket.AF_UNIX)
         client.settimeout(5)
-        client.connect(str(self.directory / "ctl.sock"))
+        # Via an fd path: a long $TMPDIR would exceed the 108-byte AF_UNIX limit.
+        directory = os.open(self.directory, os.O_PATH)
+        try:
+            client.connect(f"/proc/self/fd/{directory}/ctl.sock")
+        finally:
+            os.close(directory)
         self.clients.append(client)
         stream = client.makefile("rb")
         self.addCleanup(stream.close)
@@ -81,17 +86,37 @@ class RelayTest(unittest.TestCase):
         self.assertTrue(line, "unexpected controller disconnect")
         return json.loads(line)
 
+    def read_frame(self, client, stream):
+        frame = self.read(stream)
+        if frame.get("op") == "frame":
+            self.send(client, op="ack", offset=frame["offset"])
+        return frame
+
     def test_launcher_exit_roundtrip_and_stderr(self):
         self.start("import sys\nfor line in sys.stdin:\n print(line.rstrip('\\n'), flush=True)\n print('diagnostic', file=sys.stderr, flush=True)")
         client, stream, hello = self.connect(1)
         self.assertEqual(hello["spawn_nonce"], "nonce")
         self.send(client, op="stdin", line="hello\n")
-        frames = [self.read(stream), self.read(stream)]
+        frames = [self.read_frame(client, stream), self.read_frame(client, stream)]
         self.assertEqual({f["line"] for f in frames}, {"hello", "diagnostic"})
         self.assertEqual([f["offset"] for f in frames], sorted(f["offset"] for f in frames))
         journal = (self.directory / "out.journal").read_text().splitlines()
         self.assertCountEqual(journal, ["hello", "diagnostic"])
         self.assertFalse((self.directory / "err.log").exists())
+
+    def test_stdout_and_stderr_frames_preserve_child_write_order(self):
+        code = (
+            "import os\n"
+            "for index in range(100):\n"
+            " os.write(2, f'warning-{index}\\n'.encode())\n"
+            " os.write(1, f'frame-{index}\\n'.encode())"
+        )
+        self.start(code)
+        self.wait(lambda: json.loads((self.directory / "relay.json").read_text())["exit_status"] == 0)
+        client, stream, _ = self.connect(1)
+        frames = [self.read_frame(client, stream) for _ in range(200)]
+        expected = [line for index in range(100) for line in (f"warning-{index}", f"frame-{index}")]
+        self.assertEqual([frame["line"] for frame in frames], expected)
 
     def test_provider_environment_is_exactly_the_scrubbed_spec(self):
         previous = os.environ.get("AIUR_RELAY_SECRET_TEST")
@@ -103,20 +128,23 @@ class RelayTest(unittest.TestCase):
                 os.environ.pop("AIUR_RELAY_SECRET_TEST")
             else:
                 os.environ["AIUR_RELAY_SECRET_TEST"] = previous
-        _, stream, _ = self.connect(1)
-        self.assertEqual(self.read(stream)["line"], "scrubbed")
+        client, stream, _ = self.connect(1)
+        self.assertEqual(self.read_frame(client, stream)["line"], "scrubbed")
 
     def test_detach_replays_only_unacked_frames(self):
         self.start()
         client, stream, _ = self.connect(1)
         self.send(client, op="stdin", line="one\ntwo\n")
-        first, second = self.read(stream), self.read(stream)
+        first = self.read(stream)
         self.send(client, op="ack", offset=first["offset"])
+        second = self.read(stream)
         self.send(client, op="detach")
         self.assertEqual(stream.readline(), b"")
         new_client, new_stream, hello = self.connect(2, first["offset"])
         self.assertEqual(hello["acked_offset"], first["offset"])
-        self.assertEqual(self.read(new_stream), second)
+        replayed = self.read(new_stream)
+        self.assertEqual(replayed, second)
+        self.send(new_client, op="ack", offset=replayed["offset"])
         self.send(new_client, op="stdin", line="three\n")
         third = self.read(new_stream)
         self.assertEqual(third["line"], "three")
@@ -126,8 +154,9 @@ class RelayTest(unittest.TestCase):
         self.start()
         client, stream, _ = self.connect(1)
         self.send(client, op="stdin", line="x" * (1024 * 1024) + "\nretained\n")
-        first, second = self.read(stream), self.read(stream)
+        first = self.read(stream)
         self.send(client, op="ack", offset=first["offset"])
+        second = self.read(stream)
         self.send(client, op="hello")
         self.assertEqual(self.read(stream)["acked_offset"], first["offset"])
         self.assertEqual((self.directory / "out.journal").read_bytes(), b"retained\n")
@@ -147,18 +176,23 @@ class RelayTest(unittest.TestCase):
         self.send(invalid, op="attach", generation=4, from_offset=1)
         self.assertEqual(self.read(invalid_stream)["op"], "error")
         self.send(first, op="stdin", line="still-owned\n")
-        self.assertEqual(self.read(first_stream)["line"], "still-owned")
+        first_frame = self.read(first_stream)
+        self.assertEqual(first_frame["line"], "still-owned")
         second, second_stream, _ = self.connect(4)
         self.assertEqual(first_stream.readline(), b"")
-        self.assertEqual(self.read(second_stream)["line"], "still-owned")
+        replayed = self.read(second_stream)
+        self.assertEqual(replayed["line"], "still-owned")
+        self.send(second, op="ack", offset=replayed["offset"])
         self.send(second, op="stdin", line="fenced\n")
-        self.assertEqual(self.read(second_stream)["line"], "fenced")
+        self.assertEqual(self.read_frame(second, second_stream)["line"], "fenced")
 
     def test_exit_while_detached_replays_frames_before_status(self):
         self.start("import time\ntime.sleep(.1)\nprint('last', flush=True)\nraise SystemExit(7)")
         self.wait(lambda: json.loads((self.directory / "relay.json").read_text())["exit_status"] == 7)
-        _, stream, _ = self.connect(1)
-        self.assertEqual(self.read(stream)["line"], "last")
+        client, stream, _ = self.connect(1)
+        frame = self.read(stream)
+        self.assertEqual(frame["line"], "last")
+        self.send(client, op="ack", offset=frame["offset"])
         self.assertEqual(self.read(stream), {"op": "exit", "status": 7})
 
     def test_invalid_utf8_is_preserved_as_bytes(self):
@@ -249,6 +283,7 @@ class RelayTest(unittest.TestCase):
                 timestamp = (datetime.now(timezone.utc) - timedelta(days=2)).timestamp()
                 os.utime(directory, (timestamp, timestamp))
         (root / "symlink").symlink_to(root / "old-manifestless", target_is_directory=True)
+        sys.path.insert(0, str(SCRIPT.parent))
         module_spec = importlib.util.spec_from_file_location("agent_relay", SCRIPT)
         relay = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(relay)
@@ -264,6 +299,13 @@ class RelayTest(unittest.TestCase):
         self.assertEqual(self.read(stream)["op"], "error")
         _, _, hello = self.connect()
         self.assertEqual(hello["acked_offset"], 0)
+
+
+def socket_mode(directory):
+    try:
+        return (directory / "ctl.sock").stat().st_mode & 0o777
+    except FileNotFoundError:
+        return None
 
 
 if __name__ == "__main__":

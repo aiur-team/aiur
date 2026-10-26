@@ -1,0 +1,109 @@
+{
+  "id": "harness-adapters",
+  "name": "Coding agent integrations",
+  "layer": 2,
+  "kind": "in-app",
+  "paths": [
+    "src/lib/aiur/agent_tools/**",
+    "src/lib/aiur/app_server/**",
+    "src/lib/aiur/claude/**",
+    "src/lib/aiur/codex/**",
+    "src/lib/aiur/codex_prober.ex",
+    "src/lib/aiur/coding_agent.ex",
+    "src/lib/aiur/coding_agent/**",
+    "src/lib/aiur/harness/**",
+    "src/lib/aiur/model_availability.ex",
+    "src/lib/aiur/model_availability/**",
+    "src/lib/aiur/model_catalog.ex",
+    "src/lib/aiur/model_discovery.ex",
+    "src/lib/aiur/model_discovery/**",
+    "src/lib/aiur/muse/**",
+    "src/lib/aiur/open_ai_compat/**",
+    "src/lib/aiur/rtk.ex",
+    "src/lib/aiur/rtk_startup_check.ex",
+    "src/priv/agent_relay.py",
+    "src/priv/claude_hook_spool.py"
+  ],
+  "facades": [
+    "Aiur.AgentTools.Catalog",
+    "Aiur.AgentTools.Dispatch",
+    "Aiur.AgentTools.EmitEvent",
+    "Aiur.AppServer.ProviderTurnLedger",
+    "Aiur.AppServer.RelayPort",
+    "Aiur.AppServer.ToolCallLedger",
+    "Aiur.AppServer.TurnLoop",
+    "Aiur.CodexProber",
+    "Aiur.CodingAgent",
+    "Aiur.CodingAgent.Backend",
+    "Aiur.CodingAgent.HeadroomDispatch",
+    "Aiur.CodingAgent.Models",
+    "Aiur.CodingAgent.RouteFailure",
+    "Aiur.Harness.Capabilities",
+    "Aiur.ModelAvailability",
+    "Aiur.ModelCatalog",
+    "Aiur.ModelDiscovery",
+    "Aiur.Rtk"
+  ],
+  "facade_pending": null,
+  "requires": [
+    "agent-sandbox",
+    "config",
+    "identity",
+    "kernel",
+    "signal"
+  ],
+  "optional": [
+    "accounting"
+  ],
+  "owns": {
+    "config": [
+      "agent"
+    ],
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CODEX_HOME",
+      "OPENAI_API_KEY"
+    ],
+    "state": [],
+    "capabilities": [
+      "remote_control"
+    ]
+  },
+  "prior": [
+    "CA",
+    "CDX",
+    "CLD",
+    "OAI"
+  ],
+  "shared_with": [
+    "orchestration"
+  ],
+  "dependency_kind": "required",
+  "summary": "Connects Aiur to coding agents and supports their messaging and session controls.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "reference/configuration.md"
+  ],
+  "config": [
+    "agent"
+  ],
+  "env": [
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CODEX_HOME",
+    "OPENAI_API_KEY"
+  ],
+  "capabilities": [
+    "remote_control"
+  ],
+  "private_namespaces": [
+    "Aiur.Claude.",
+    "Aiur.Codex.",
+    "Aiur.Muse.",
+    "Aiur.OpenAICompat."
+  ]
+}

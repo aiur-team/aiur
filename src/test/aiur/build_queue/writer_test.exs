@@ -36,7 +36,7 @@ defmodule Aiur.BuildQueue.WriterTest do
     observations = input(first.document).observations |> Map.update!("1", &%{&1 | open?: false, state_reason: "completed", observed_at_ms: 2_000})
     {_, next} = Planner.plan(%{input(first.document) | observations: observations})
     run(first.document, next, first.writer)
-    assert calls() == [promote("1"), {:notify_demand, ["1"]}, promote("2"), {:notify_demand, ["2"]}]
+    assert calls() == [promote("1"), {:notify_demand, ["1"]}, {:remove_label, "1", "agent:queued"}, promote("2"), {:notify_demand, ["2"]}]
   end
 
   test "pacing: 30 ready at 20 per minute writes 20 now and 10 next window" do
@@ -187,6 +187,23 @@ defmodule Aiur.BuildQueue.WriterTest do
     assert failed.status == :writes_paused
     assert calls() == [{:ensure_labels, ["agent:queued"]}]
     assert failed.document.intents == []
+  end
+
+  test "marker attempt retains pre-existing todo provenance from its queue request", %{document: document} do
+    request = %Model.Intent{
+      id: "queue-add-marker-request",
+      issue_id: "1",
+      action: :mark,
+      target_labels: ~w(agent:queued agent:todo),
+      recorded_at_ms: 900,
+      preexisting_todo?: true,
+      outcome: nil
+    }
+
+    result = run(%{document | intents: [request]}, [{:mark, "1"}])
+
+    assert [%{id: "queue-add-marker-request", preexisting_todo?: true}, %{action: :mark, outcome: :ok, preexisting_todo?: true}] =
+             result.document.intents
   end
 
   test "reconciliation during backoff does not retry early", %{document: document} do

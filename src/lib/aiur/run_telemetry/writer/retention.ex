@@ -4,7 +4,7 @@ defmodule Aiur.RunTelemetry.Writer.Retention do
   require Logger
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Retention, Summaries}
+  alias Aiur.RunTelemetry.{LedgerRetention, Summaries}
   alias Aiur.RunTelemetry.Writer.Encoding
 
   @doc false
@@ -36,7 +36,7 @@ defmodule Aiur.RunTelemetry.Writer.Retention do
     if rolled.sequence != state.sequence do
       opts = rolled.retention |> Keyword.put(:now, rolled.clock.())
 
-      case Retention.prune(rolled.path, opts) do
+      case LedgerRetention.prune(rolled.path, opts) do
         :ok -> :ok
         {:error, reason} -> Logger.warning("run_telemetry retention_failed path=#{rolled.path} reason=#{inspect(reason)}")
       end
@@ -54,7 +54,7 @@ defmodule Aiur.RunTelemetry.Writer.Retention do
   defp prune_historical_boots(state) do
     opts = state.retention |> Keyword.put(:now, state.clock.()) |> Keyword.put(:protected_boot_id, state.boot_id)
 
-    case Retention.prune(state.path, opts) do
+    case LedgerRetention.prune(state.path, opts) do
       :ok ->
         %{state | bytes_since_prune: 0}
 

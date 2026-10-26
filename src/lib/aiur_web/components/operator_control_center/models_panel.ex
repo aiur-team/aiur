@@ -2,18 +2,22 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
   @moduledoc """
   The MODELS pane of the Units provider strip, drawn to the Claude design
   (`ax-usage` / `ax-ln`): one row per provider, a logo column, then one line per
-  meter that reads `[tag] percent bar reset↻`.
+  meter with a full-width bar beneath its label, percentage and reset.
 
-  Every line is a fixed grid, so a tag, a percentage, a bar and a reset each own
-  one track and can never overlap. A provider with several accounts keeps one
+  Every line is a fixed grid, so a tag, percentage and reset cannot overlap and
+  every bar uses the same full content width. A provider with several accounts keeps one
   named line per account (operator directive, #3751) instead of the design's
-  split bar. Reset times show the recycle icon and the time; window age,
-  freshness and scope live in the line's tooltip, not in repeated text.
+  split bar. Every bar and percentage shows remaining quota. Reset times show
+  the recycle icon and the time; window age, freshness and scope live in the
+  line's tooltip, not in repeated text.
   """
 
   use Phoenix.Component
 
-  import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 3]
+  alias Aiur.Accounts.UsageReadings
+  alias AiurWeb.RemainingMeter
+
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [remaining_class: 1]
 
   @seconds_per_day 86_400
   @seconds_per_hour 3_600
@@ -65,7 +69,16 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
           title={line.title}
         >
           <span :if={line.tag} class="rs-tg">{line.tag}</span>
+          <span :if={line.stale?} class="rs-stale" aria-label="stale usage">stale</span>
           <span class={classes(["rs-pc", tone(line.percent)])}>{percent_text(line.percent)}</span>
+          <span class="rs-rs">
+            <span :if={line.reset}>{line.reset}<em :if={line.window}>/{line.window}</em></span>
+            <svg :if={line.reset} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 11a8 8 0 0 0-14.8-3.5M4 13a8 8 0 0 0 14.8 3.5" /><path d="M4 3.5V8h4.5M20 20.5V16h-4.5" />
+            </svg>
+            <b :if={line.amount} class="rs-usd">{line.amount}</b>
+            <span :if={line.note} class="rs-no">{line.note}</span>
+          </span>
           <span
             class={classes(["rs-meter", is_nil(line.percent) && "is-unknown"])}
             role="progressbar"
@@ -74,15 +87,7 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
             aria-valuemax="100"
             aria-valuenow={line.percent}
           >
-            <i :if={is_number(line.percent) and line.percent > 0} class={meter_class(line.percent, 80, 90)} style={"width:#{bar_width(line.percent)}%"}></i>
-          </span>
-          <span class="rs-rs">
-            <span :if={line.reset}>{line.reset}<em :if={line.window}>/{line.window}</em></span>
-            <svg :if={line.reset} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 11a8 8 0 0 0-14.8-3.5M4 13a8 8 0 0 0 14.8 3.5" /><path d="M4 3.5V8h4.5M20 20.5V16h-4.5" />
-            </svg>
-            <b :if={line.amount} class="rs-usd">{line.amount}</b>
-            <span :if={line.note} class="rs-no">{line.note}</span>
+            <i :if={is_number(line.percent) and line.percent > 0} class={remaining_class(line.percent)} style={"width:#{bar_width(line.percent)}%"}></i>
           </span>
         </div>
       </div>
@@ -100,11 +105,15 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
     accounts = accounts(card)
     windows = windows(card, accounts)
     tagged? = accounts != []
+    usage = Map.get(card, :usage)
+    usage_age = if is_map(usage), do: Map.get(usage, :age_ms), else: :unavailable
+    usage_freshness = if is_map(usage), do: Map.get(usage, :freshness)
 
     account_lines = Enum.map(accounts, &account_line(&1, now))
-    window_lines = Enum.map(windows, &window_line(&1, tagged?, now))
+    window_lines = Enum.map(windows, &window_line(&1, tagged?, now, usage_age, usage_freshness))
+    headroom_lines = if card.provider == :codex and Map.has_key?(card, :headroom), do: [headroom_line(card.headroom)], else: []
 
-    case account_lines ++ window_lines do
+    case account_lines ++ window_lines ++ headroom_lines do
       [] -> [fallback_line(card)]
       lines -> lines
     end
@@ -125,7 +134,7 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
   end
 
   defp account_line(account, now) do
-    percent = if is_number(account.percent), do: account.percent
+    percent = account.percent
     reset = percent && reset_label(Map.get(account, :resets_at), now)
     age = if is_integer(account.age_seconds), do: "#{account.age_seconds}s old", else: "age unknown"
 
@@ -136,13 +145,47 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       reset: reset,
       window: reset && "7d",
       note: if(is_nil(percent), do: "unknown"),
-      stale?: account.freshness not in [:fresh, "fresh"],
-      aria_label: "#{account.name} weekly usage",
-      title: "#{account.name} · weekly #{title_percent(percent)} · #{account.freshness}, #{age}#{title_reset(reset)}"
+      stale?: account.freshness in [:stale, "stale"],
+      aria_label: "#{account.name} weekly remaining",
+      title:
+        "#{account.name} · weekly #{if is_number(percent), do: "#{format_percent(100 - percent)}% used (#{format_percent(percent)}% left)", else: "usage unknown"} · #{account.freshness}, #{age}#{title_error(Map.get(account, :last_error))}#{title_reset(reset)}"
     })
   end
 
-  defp window_line(%{kind: :credit} = window, tagged?, _now) do
+  defp headroom_line(%{status: :observed, remaining_percent: remaining} = headroom) do
+    age = age_text(Map.get(headroom, :age_seconds))
+
+    line(%{
+      tag: "headroom",
+      account: "codex-headroom",
+      percent: remaining,
+      note: "#{remaining}% left · #{age} old",
+      aria_label: "Codex headroom",
+      title: "Codex headroom · #{remaining}% remaining · observed #{age} ago"
+    })
+  end
+
+  defp headroom_line(%{status: status} = headroom) do
+    reason = Map.get(headroom, :reason, "Headroom unavailable")
+    age = age_text(Map.get(headroom, :age_seconds))
+
+    line(%{
+      tag: "headroom",
+      account: "codex-headroom",
+      note: "#{reason} · #{age} old",
+      stale?: status == :stale,
+      aria_label: "Codex headroom",
+      title: "Codex headroom · #{reason} · #{age} old"
+    })
+  end
+
+  defp age_text(age) when is_integer(age), do: "#{age}s"
+  defp age_text(_unknown), do: "age unknown"
+  defp usage_age_label(age_ms) when is_integer(age_ms), do: " · usage observed #{age_text(div(age_ms, 1_000))} ago"
+  defp usage_age_label(:unavailable), do: ""
+  defp usage_age_label(_unknown), do: " · usage age unknown"
+
+  defp window_line(%{kind: :credit} = window, tagged?, _now, usage_age, usage_freshness) do
     percent = credit_percent(window)
     amount = credit_amount(window)
 
@@ -151,12 +194,13 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       percent: percent,
       amount: amount,
       note: if(is_nil(amount), do: credit_status(window)),
-      aria_label: "#{Map.get(window, :name, "Credits")} usage",
-      title: "Prepaid credits · #{amount || credit_status(window)}#{if percent, do: " · #{format_percent(percent)}% spent"}"
+      stale?: usage_freshness in [:stale, "stale"],
+      aria_label: "#{Map.get(window, :name, "Credits")} remaining",
+      title: "Prepaid credits · #{amount || credit_status(window)}#{if percent, do: " · #{format_percent(percent)}% left"}#{usage_age_label(usage_age)}"
     })
   end
 
-  defp window_line(window, tagged?, now) do
+  defp window_line(window, tagged?, now, usage_age, usage_freshness) do
     percent = window_percent(window)
     reset = percent && reset_label(Map.get(window, :resets_at), now)
     name = Map.get(window, :name, "Limit")
@@ -167,8 +211,11 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       reset: reset,
       window: reset && window_span(window),
       note: if(is_nil(percent), do: "unknown"),
-      aria_label: "#{name} usage",
-      title: "#{name} · #{title_percent(percent)}#{title_reset(reset)}"
+      # Same cutoff as the account lines and `aiur accounts`: an unmarked old
+      # number reads as current (#5747).
+      stale?: usage_freshness in [:stale, "stale"] or UsageReadings.stale?(Map.get(window, :observed_at), now),
+      aria_label: "#{name} remaining",
+      title: "#{name} · #{title_percent(percent)}#{if is_number(percent), do: " (#{format_percent(100 - percent)}% used)"}#{title_reset(reset)}#{usage_age_label(usage_age)}"
     })
   end
 
@@ -176,7 +223,8 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
   # explicitly unknown bar (unknown is not zero), or its durable last-known
   # standing when the dispatch-limits ledger holds one.
   defp fallback_line(%{durable_observation: %{percent: percent}}) do
-    line(%{percent: percent, aria_label: "Last known usage", title: "Last known usage · #{percent}%"})
+    remaining = RemainingMeter.percent(percent)
+    line(%{percent: remaining, aria_label: "Last known remaining", title: "Last known usage · #{remaining}% left"})
   end
 
   defp fallback_line(card) do
@@ -211,11 +259,13 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
     name |> to_string() |> String.split([" ", "("], trim: true) |> List.first("limit") |> String.downcase()
   end
 
-  defp window_percent(%{used_percent: percent}) when is_number(percent), do: percent
-  defp window_percent(%{meter: %{kind: :exact, now: percent}}) when is_number(percent), do: percent
+  defp window_percent(%{remaining_percent: percent}) when is_number(percent), do: RemainingMeter.clamp(percent)
+  defp window_percent(%{meter: %{kind: :exact, now: percent}}) when is_number(percent), do: RemainingMeter.clamp(percent)
+  defp window_percent(%{used_percent: percent}) when is_number(percent), do: RemainingMeter.percent(percent)
   defp window_percent(_window), do: nil
 
-  defp credit_percent(%{used_percent: percent}) when is_number(percent), do: percent
+  defp credit_percent(%{remaining_percent: percent}) when is_number(percent), do: RemainingMeter.clamp(percent)
+  defp credit_percent(%{used_percent: percent}) when is_number(percent), do: RemainingMeter.percent(percent)
   defp credit_percent(_window), do: nil
 
   defp credit_amount(%{credits: %{amount: amount}}) when is_number(amount), do: "$" <> :erlang.float_to_binary(amount / 1, decimals: 2)
@@ -227,13 +277,16 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
   # The design prints whole percentages. A window that is nearly but not fully
   # spent never rounds up to a full-looking 100%.
   defp percent_text(nil), do: ""
-  defp percent_text(percent) when percent >= 100, do: "100%"
-  defp percent_text(percent) when percent > 99, do: "99%"
-  defp percent_text(percent) when percent > 0 and percent < 1, do: "<1%"
-  defp percent_text(percent), do: "#{round(percent)}%"
+  defp percent_text(percent) when percent >= 99.5, do: "100% left"
+  defp percent_text(percent) when percent > 99, do: "99% left"
+  defp percent_text(percent) when percent > 0 and percent < 1, do: "<1% left"
+  defp percent_text(percent), do: "#{round(percent)}% left"
+
+  defp title_error(nil), do: ""
+  defp title_error(reason), do: " · last error #{reason}"
 
   defp title_percent(nil), do: "usage unknown"
-  defp title_percent(percent), do: "#{format_percent(percent)}% used"
+  defp title_percent(percent), do: "#{format_percent(percent)}% left"
 
   defp title_reset(nil), do: ""
   defp title_reset(reset), do: " · next reset #{reset}"
@@ -245,12 +298,14 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
 
   defp classes(names), do: names |> Enum.filter(&is_binary/1) |> Enum.join(" ")
 
-  defp tone(percent) do
-    case meter_class(percent, 80, 90) do
+  defp tone(percent) when is_number(percent) do
+    case remaining_class(percent) do
       "" -> nil
       class -> class
     end
   end
+
+  defp tone(_unknown), do: nil
 
   defp bar_width(percent), do: percent |> max(0) |> min(100)
 

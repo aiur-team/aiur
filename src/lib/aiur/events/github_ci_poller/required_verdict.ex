@@ -4,32 +4,68 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
 
   A failing check that no ruleset or branch protection requires cannot block a
   merge, so it must not send the ticket to rework. A cancelled run with no
-  newer run is missing CI, not failed CI: the workflow is re-run through the
-  API rather than handed to a worker, whose only tool is a push.
+  newer run is missing CI, not failed CI.
 
-  The re-run needs Actions read and write on the daemon credential. Without it
-  GitHub refuses the call, the refusal is logged, and the head stays pending.
+  A cancelled run stays pending so the recovery layer can make one bounded
+  rerun attempt for the current head.
   """
 
-  require Logger
-
-  alias Aiur.GitHub.Transport
+  alias Aiur.Events.GithubCIPoller.CancelledRun
 
   @spec settle(map(), [map()], String.t(), keyword()) :: map()
-  def settle(%{decision: :failed, failures: failures} = result, _runs, _head_sha, opts) do
-    if required_failure?(failures, opts), do: result, else: %{result | decision: :passed, failures: []}
+  def settle(result, runs, head_sha, opts) do
+    if required_checks_unavailable?(opts),
+      do: unavailable(result, opts),
+      else: settle_known(result, runs, head_sha, opts)
   end
 
-  def settle(%{decision: :pending, pending_reason: :check_runs_incomplete, failures: failures} = result, runs, head_sha, opts) do
-    if cancelled_only?(runs) and not required_failure?(failures, opts) do
-      rerun_cancelled(head_sha, opts)
-      %{result | pending_reason: :ci_cancelled, failures: []}
-    else
-      result
+  defp settle_known(%{decision: :failed, failures: failures} = result, runs, _head_sha, opts) do
+    cond do
+      CancelledRun.cancelled?(%{"event" => "pull_request"}, runs) ->
+        Map.merge(result, %{decision: :pending, pending_reason: :ci_cancelled, failures: []})
+
+      required_failure?(failures, opts) ->
+        result
+
+      true ->
+        %{result | decision: :passed, failures: []}
     end
   end
 
-  def settle(result, _runs, _head_sha, _opts), do: result
+  defp settle_known(
+         %{decision: :pending, pending_reason: :check_runs_incomplete, failures: failures} =
+           result,
+         runs,
+         _head_sha,
+         opts
+       ) do
+    cond do
+      cancelled_only?(runs) and required_failure?(failures, opts) ->
+        result |> Map.put(:decision, :failed) |> Map.delete(:pending_reason)
+
+      cancelled_only?(runs) ->
+        %{result | pending_reason: :ci_cancelled, failures: []}
+
+      true ->
+        result
+    end
+  end
+
+  defp settle_known(result, _runs, _head_sha, _opts), do: result
+
+  defp required_checks_unavailable?(opts),
+    do: match?({:error, _}, Keyword.fetch!(opts, :required_checks))
+
+  defp unavailable(result, opts) do
+    {:error, reason} = Keyword.fetch!(opts, :required_checks)
+
+    Map.merge(result, %{
+      decision: :pending,
+      pending_reason: :required_checks_unavailable,
+      failures: [],
+      error: reason
+    })
+  end
 
   @spec passed?(%{name: String.t(), app_id: integer() | nil}, [map()], [map()]) :: boolean()
   def passed?(%{name: name, app_id: app_id}, runs, statuses) do
@@ -38,11 +74,15 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
         Map.get(run, "conclusion") in ~w(success neutral) and
         (app_id in [nil, -1] or get_in(run, ["app", "id"]) == app_id)
     end) or
-      (app_id in [nil, -1] and Enum.any?(statuses, &(Map.get(&1, "context") == name and Map.get(&1, "state") == "success")))
+      (app_id in [nil, -1] and
+         Enum.any?(
+           statuses,
+           &(Map.get(&1, "context") == name and Map.get(&1, "state") == "success")
+         ))
   end
 
-  # With no required list (none configured, or the read failed) every failure
-  # decides, as it did before required checks were known.
+  # With no required checks configured, every failure decides. A failed read
+  # is quarantined before this fallback can classify any failure.
   defp required_failure?(failures, opts) do
     case Keyword.fetch!(opts, :required_checks) do
       {:ok, [_ | _] = required} ->
@@ -57,53 +97,5 @@ defmodule Aiur.Events.GithubCIPoller.RequiredVerdict do
   defp cancelled_only?(runs) do
     Enum.all?(runs, &(Map.get(&1, "status") == "completed")) and
       Enum.any?(runs, &(Map.get(&1, "conclusion") == "cancelled"))
-  end
-
-  # One attempt per head: a re-run cancelled again, or refused because the
-  # credential lacks Actions access, must not spend calls on every poll.
-  # ponytail: remembered in :persistent_term for the daemon's lifetime, one
-  # small term per head and never erased. Move to a bounded table if that grows.
-  defp rerun_cancelled(head_sha, opts) do
-    with false <- :persistent_term.get({__MODULE__, head_sha}, false),
-         {:ok, {owner, repo}} <- repo(Keyword.get(opts, :repo)),
-         {:ok, token} <- Transport.require_token(opts) do
-      :persistent_term.put({__MODULE__, head_sha}, true)
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      base = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs"
-
-      request_fun
-      |> Transport.fetch_json_map(token, "#{base}?head_sha=#{head_sha}&per_page=100", caller: "ci_cancelled_rerun")
-      |> rerun_latest_cancelled(request_fun, token, base, head_sha)
-    end
-  end
-
-  defp rerun_latest_cancelled({:ok, %{"workflow_runs" => workflow_runs}}, request_fun, token, base, head_sha) when is_list(workflow_runs) do
-    workflow_runs
-    |> Enum.group_by(&Map.get(&1, "workflow_id"))
-    |> Enum.map(fn {_workflow, runs} -> Enum.max_by(runs, &Map.get(&1, "run_started_at", "")) end)
-    |> Enum.filter(&(Map.get(&1, "conclusion") == "cancelled"))
-    |> Enum.each(&rerun(request_fun, token, "#{base}/#{Map.get(&1, "id")}/rerun", head_sha))
-  end
-
-  defp rerun_latest_cancelled(other, _request_fun, _token, _base, head_sha) do
-    Logger.warning("GithubCIPoller cancelled-run lookup failed: head_sha=#{head_sha} reason=#{inspect(other)}")
-  end
-
-  defp rerun(request_fun, token, url, head_sha) do
-    request = Transport.put_caller(%{method: :post, url: url, token: token, body: %{}}, caller: "ci_cancelled_rerun")
-
-    case request_fun.(request) do
-      {:ok, %{status: 201}} -> Logger.info("GithubCIPoller re-ran cancelled workflow: head_sha=#{head_sha} url=#{url}")
-      other -> Logger.warning("GithubCIPoller re-run refused: head_sha=#{head_sha} url=#{url} reason=#{inspect(other)}")
-    end
-  end
-
-  defp repo(nil), do: Transport.parse_repo()
-
-  defp repo(repo) when is_binary(repo) do
-    case String.split(repo, "/") do
-      [owner, name] -> {:ok, {owner, name}}
-      _ -> {:error, {:invalid_github_repo, repo}}
-    end
   end
 end

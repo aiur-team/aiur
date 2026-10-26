@@ -87,7 +87,12 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
         {:ok,
          %{
            status: 200,
-           body: %{"number" => 4242, "state" => "open", "head" => %{"ref" => "x"}, "updated_at" => "2026-01-01T00:00:00Z"},
+           body: %{
+             "number" => 4242,
+             "state" => "open",
+             "head" => %{"ref" => "x"},
+             "updated_at" => "2026-01-01T00:00:00Z"
+           },
            headers: [{"etag", ~s("v1")}]
          }}
       end
@@ -98,7 +103,9 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
       end
 
       assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: first)
-      assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: second)
+
+      assert {:ok, %{"number" => 4242}} =
+               Client.fetch_open_pull_request(4242, request_fun: second)
 
       assert_receive {:requested, request}, 1000
       assert request.etag == ~s("v1")
@@ -193,13 +200,9 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
                Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
     end
 
-    # #2298 item 1: the busiest REST call site routes through `ResourceStore`
-    # under the `:branch_pull_request` key, so a second cycle on an unchanged
-    # branch revalidates with `If-None-Match` instead of paying full price for
-    # the open-pull-request listing again. Asserted on the request map itself
-    # (the validator is what the transport turns into the header), then on the
-    # `304` being served back as the held pull request.
-    test "a second cycle on an unchanged branch issues a conditional request" do
+    # The repo-scoped listing validator is re-used on the next strict lookup.
+    # Assert the request carries it and the held list answers the 304.
+    test "a second lookup on an unchanged listing issues a conditional request" do
       parent = self()
       etag = ~s("open-pulls-v1")
 
@@ -207,7 +210,13 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
         case Map.get(request, :etag) do
           nil ->
             send(parent, :unconditional)
-            {:ok, %{status: 200, headers: [{"etag", etag}], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+
+            {:ok,
+             %{
+               status: 200,
+               headers: [{"etag", etag}],
+               body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]
+             }}
 
           ^etag ->
             send(parent, :conditional)
@@ -239,6 +248,7 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
 
       request_fun = fn request ->
         send(parent, {:request, request})
+
         {:ok, %{status: 200, headers: [], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
       end
 
@@ -293,6 +303,112 @@ defmodule Aiur.GitHub.Client.PullRequestsTest do
   end
 
   describe "fetch_commit_ci_status/2" do
+    test "strictly revalidates both CI endpoints and reuses only the 304-confirmed bodies" do
+      check_key = ResourceStore.key(:commit_ci_check_runs, "owner", "repo", "etag-sha:1")
+      status_key = ResourceStore.key(:commit_ci_status, "owner", "repo", "etag-sha")
+
+      on_exit(fn ->
+        ResourceStore.drop_data(check_key)
+        ResourceStore.drop_data(status_key)
+      end)
+
+      parent = self()
+
+      first = fn %{url: url} ->
+        cond do
+          String.ends_with?(url, "/check-runs?filter=latest&per_page=100") ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "check_runs" => [
+                   %{"name" => "lint", "status" => "completed", "conclusion" => "success"}
+                 ]
+               },
+               headers: [{"etag", ~s("runs-v1")}]
+             }}
+
+          String.ends_with?(url, "/status") ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "success", "statuses" => []},
+               headers: [{"etag", ~s("status-v1")}]
+             }}
+        end
+      end
+
+      second = fn request ->
+        send(parent, {:conditional_request, request.url, Map.get(request, :etag)})
+        {:ok, %{status: 304, headers: [{"etag", Map.get(request, :etag)}]}}
+      end
+
+      assert {:ok, expected} = Client.fetch_commit_ci_status("etag-sha", request_fun: first)
+      assert {:ok, ^expected} = Client.fetch_commit_ci_status("etag-sha", request_fun: second)
+      assert_received {:conditional_request, runs_url, ~s("runs-v1")}
+      assert runs_url =~ "/check-runs?"
+      assert_received {:conditional_request, status_url, ~s("status-v1")}
+      assert String.ends_with?(status_url, "/status")
+    end
+
+    test "revalidates every check-run page instead of trusting page one's ETag for the whole list" do
+      first_page_key = ResourceStore.key(:commit_ci_check_runs, "owner", "repo", "paged-sha:1")
+      second_page_key = ResourceStore.key(:commit_ci_check_runs, "owner", "repo", "paged-sha:2")
+      status_key = ResourceStore.key(:commit_ci_status, "owner", "repo", "paged-sha")
+      keys = [first_page_key, second_page_key, status_key]
+      on_exit(fn -> Enum.each(keys, &ResourceStore.drop_data/1) end)
+
+      page_two =
+        "https://api.github.com/repos/owner/repo/commits/paged-sha/check-runs?filter=latest&per_page=100&page=2"
+
+      parent = self()
+
+      first = fn %{url: url} ->
+        cond do
+          url =~ "page=2" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"check_runs" => [%{"name" => "second", "status" => "completed"}]},
+               headers: [{"etag", ~s("runs-p2")}]
+             }}
+
+          url =~ "/check-runs?" ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"check_runs" => [%{"name" => "first", "status" => "completed"}]},
+               headers: [{"etag", ~s("runs-p1")}, {"link", "<#{page_two}>; rel=\"next\""}]
+             }}
+
+          true ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "success", "statuses" => []},
+               headers: [{"etag", ~s("status-v1")}]
+             }}
+        end
+      end
+
+      second = fn request ->
+        send(parent, {:revalidated_page, request.url, Map.get(request, :etag)})
+        {:ok, %{status: 304, headers: [{"etag", Map.get(request, :etag)}]}}
+      end
+
+      assert {:ok, %{check_runs: [%{"name" => "first"}, %{"name" => "second"}]}} =
+               Client.fetch_commit_ci_status("paged-sha", request_fun: first)
+
+      assert {:ok, %{check_runs: [%{"name" => "first"}, %{"name" => "second"}]}} =
+               Client.fetch_commit_ci_status("paged-sha", request_fun: second)
+
+      assert_received {:revalidated_page, first_url, ~s("runs-p1")}
+      assert first_url =~ "/check-runs?"
+      assert_received {:revalidated_page, ^page_two, ~s("runs-p2")}
+      assert_received {:revalidated_page, status_url, ~s("status-v1")}
+      assert String.ends_with?(status_url, "/status")
+    end
+
     test "fetches both latest check runs and legacy commit statuses for the head SHA" do
       request_fun = fn %{method: :get, url: url} ->
         cond do

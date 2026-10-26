@@ -55,7 +55,7 @@ defmodule AiurWeb.StreamdeckCommandsTest do
     }
 
     assert {:ok, %{decision: decision}} =
-             DecisionStore.request(payload, [ticket: @ticket, source: @source, now: now], store)
+             Aiur.DecisionStoreCase.request(store, payload, ticket: @ticket, source: @source, now: now)
 
     decision
   end

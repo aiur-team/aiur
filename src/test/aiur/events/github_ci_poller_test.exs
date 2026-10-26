@@ -74,6 +74,28 @@ defmodule Aiur.Events.GithubCIPollerTest do
     assert result.review_decision == "APPROVED"
   end
 
+  test "normalizes REST pull request conflicts into the lifecycle result" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 71, "head" => pr_head("aiur/42", "conflict-head"), "base" => %{"ref" => "main"}, "mergeable" => false}]
+           }}
+
+        String.contains?(url, "/check-runs?") ->
+          {:ok, %{status: 200, body: %{"check_runs" => []}}}
+
+        String.ends_with?(url, "/status") ->
+          {:ok, %{status: 200, body: %{"state" => "pending", "statuses" => []}}}
+      end
+    end
+
+    assert {:ok, %{errors: [], results: [%{mergeable: "CONFLICTING", head_sha: "conflict-head"}]}} =
+             poll(["42"], request_fun: request_fun)
+  end
+
   test "a ready (non-draft) batched PR reports draft false" do
     batch = %{
       "42" => %{
@@ -113,7 +135,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
             mergeable: "MERGEABLE",
             merge_state_status: "BLOCKED",
             auto_merge_request: nil,
-            merge_queue_entry: nil
+            merge_queue_entry: nil,
+            approved_review_head_sha: "parked-head"
           }
         },
         check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "success"}],
@@ -134,7 +157,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
                   mergeable: "MERGEABLE",
                   merge_state_status: "BLOCKED",
                   auto_merge_request: nil,
-                  merge_queue_entry: nil
+                  merge_queue_entry: nil,
+                  approved_review_head_sha: "parked-head"
                 }
               ]
             }} = poll(["42"], ci_batch: ci_batch, base_branch: "main")
@@ -297,6 +321,34 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [%{decision: :pending, target: "42"}],
               errors: [{"42", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
             }} = poll(["42"], request_fun: request_fun)
+  end
+
+  test "retries a pull request lookup after a cleared local budget hold" do
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), -1, :second)}
+
+    request_fun = fn %{url: url} ->
+      if String.contains?(url, "/pulls?") do
+        attempt = Agent.get_and_update(calls, fn n -> {n + 1, n + 1} end)
+
+        if attempt == 1 do
+          {:error, {:aiur, :locally_held, hold}}
+        else
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 71, "head" => pr_head("aiur/42", "current-sha"), "base" => %{"ref" => "main"}}]
+           }}
+        end
+      else
+        {:ok, %{status: 200, body: %{"check_runs" => [], "statuses" => [], "state" => "success"}}}
+      end
+    end
+
+    assert {:ok, %{errors: [], results: [%{decision: :passed, head_sha: "current-sha"}]}} =
+             poll(["42"], request_fun: request_fun, local_hold_sleep_fun: fn _ -> flunk("expired hold must retry immediately") end)
+
+    assert Agent.get(calls, & &1) > 1
   end
 
   test "uses the current PR head on every poll after a re-push" do

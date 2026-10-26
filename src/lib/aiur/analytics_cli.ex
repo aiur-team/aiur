@@ -206,7 +206,8 @@ defmodule Aiur.AnalyticsCLI do
         IO.puts(["Memory headroom: ", to_string(metrics["mem_headroom_pct"]), "%"])
         IO.puts(["PRs merged: ", to_string(metrics["merged"])])
         IO.puts(["Tickets done: ", to_string(metrics["done"]), "/", to_string(metrics["total"])])
-        IO.puts(["Wasted capacity: ", wasted_capacity(metrics["wasted_slot_hours"])])
+        partial = if metrics["wasted_slot_hours_partial"], do: " (partial; missing cap observations)", else: ""
+        IO.puts(["Wasted capacity: ", wasted_capacity(metrics["wasted_slot_hours"]), partial])
         pressure = model["pressure"] || %{}
 
         IO.puts([

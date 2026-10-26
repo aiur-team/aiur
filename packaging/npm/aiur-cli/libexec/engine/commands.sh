@@ -38,53 +38,39 @@ parse_issue_targets() {
   [ "${#parsed_targets[@]}" -gt 0 ]
 }
 cmd_status() {
-  [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
-  [ "$#" -eq 0 ] || die "status does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.status()"
-}
-
-# `aiur usage` — Codex/Claude limit headroom from the daemon's meter
-# projection, each value carrying the age of its observation.
-cmd_usage() {
-  [ "$#" -eq 0 ] || die "usage does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.usage()"
-}
-
-cmd_accounts() {
-  local json_arg=false harness="" arg encoded expression
-  for arg in "$@"; do
-    case "$arg" in
-      --json)
-        [ "$json_arg" = false ] || die "accounts accepts --json only once"
-        json_arg=true
-        ;;
-      --all)
-        ;;
-      -*)
-        die "accounts accepts an optional harness and --json"
-        ;;
-      *)
-        [ -z "$harness" ] || die "accounts accepts only one harness"
-        harness="$arg"
-        ;;
-    esac
-  done
-
-  resolve_release || return $?
-  prepare_distribution || die "distribution setup failed; cannot contact aiur"
-  resolve_control_identity_from_records
-  if [ "$(probe_node_liveness)" = "down" ]; then
-    # The local one-shot CLI renders the identity and marks usage unavailable.
-    # It never makes a provider request.
-    run_local_cli accounts "$@"
+  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
+    [ ! -f "$engine_dir/aiur-mise-doctor" ] || bash "$engine_dir/aiur-mise-doctor" --check || true
+  fi
+  if [ "$#" -eq 0 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.status()"
   else
-    if [ -n "$harness" ]; then
-      encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
-      expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
+    local handoff=0 json=false arg
+    for arg in "$@"; do
+      case "$arg" in
+        --handoff) handoff=1 ;;
+        --json) json=true ;;
+        *) die "status accepts --handoff [--json]" ;;
+      esac
+    done
+    [ "$handoff" -eq 1 ] || die "status --json requires --handoff"
+    if [ "$json" = true ]; then
+      run_control_rpc "Aiur.Handoff.CLI.report(json: true)"
     else
-      expression="Aiur.AgentControlCLI.accounts($json_arg)"
+      local rpc_status=0 diagnostic crash_evidence
+      aiur_resolve_identity
+      run_control_rpc "Aiur.Handoff.CLI.report(json: false)" || rpc_status=$?
+      diagnostic="$(aiur_restart_diagnostic_path)"
+      if [ -s "$diagnostic" ]; then
+        echo "LAST KEEP-AGENTS RESTART (durable launcher evidence):" >&2
+        sed 's/^/  /' "$diagnostic" >&2
+      fi
+      crash_evidence="$(aiur_restart_crash_evidence_path)"
+      if [ -s "$crash_evidence" ]; then
+        echo "PREVIOUS DAEMON EXIT EVIDENCE:" >&2
+        sed 's/^/  /' "$crash_evidence" >&2
+      fi
+      return "$rpc_status"
     fi
-    run_control_rpc "$expression"
   fi
 }
 
@@ -92,6 +78,7 @@ cmd_pause_resume() {
   local command="$1"
   shift
 
+  [ "$command" != park ] || { [ "$#" -gt 0 ] && parse_issue_targets "$@" && [ "$parsed_all" -eq 0 ]; } || { echo "aiur: park expects explicit issue IDs (e.g. aiur park 44 45)" >&2; exit 64; }
   # Bare `aiur pause` / `aiur resume` (no IDs, no --all) flips the single
   # global pause switch: a daemon-wide halt distinct from per-agent pause.
   if [ "$#" -eq 0 ]; then
@@ -112,6 +99,19 @@ cmd_pause_resume() {
   fi
 
   run_control_rpc "$expression"
+}
+
+cmd_executor_ownership() {
+  local command="$1"
+  shift
+  local owner="${AIUR_EXECUTOR_OWNER:-${USER:-executor}}"
+  owner="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/^-*//; s/-*$//' | cut -c1-30)"
+  [ -n "$owner" ] || owner=executor
+  if ! parse_issue_targets "$@" || [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: $command expects explicit issue IDs (e.g. aiur $command 44 45)" >&2
+    exit 64
+  fi
+  run_control_rpc "Aiur.AgentControlCLI.${command}($(elixir_list_literal "${parsed_targets[@]}"), \"$owner\")"
 }
 
 # `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
@@ -152,6 +152,16 @@ cmd_message() {
   local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\" or aiur message 44 --message-id ID \"ship it\")"
   local message_id="" message_id_given=0
 
+  if [ "${1:-}" = "--status" ]; then
+    shift
+    if [ "$#" -ne 1 ] || [[ ! "$1" =~ ^[1-9][0-9]*$ ]]; then
+      echo "aiur: message --status expects a positive request id" >&2
+      exit 64
+    fi
+    run_control_rpc "Aiur.AgentControlCLI.message_status($1)"
+    return
+  fi
+
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
     echo "$usage" >&2
@@ -187,6 +197,9 @@ cmd_message() {
 
   local encoded
   encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
+  # The daemon may use one 30 s queue write plus one 30 s keyed lookup to
+  # reconcile a boundary timeout. Leave headroom for the CLI's own reply.
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
   if [ -n "$message_id" ]; then
     run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"), \"$message_id\")"
   else
@@ -197,8 +210,14 @@ cmd_message() {
 # `aiur agents` — concise one-line-per-agent state + current activity from a
 # live node (the headless equivalent of the dashboard / aiur-status skill).
 cmd_agents() {
-  [ "$#" -eq 0 ] || die "agents does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.agents()"
+  if [ "$#" -eq 1 ] && [ "$1" = --json ]; then
+    run_control_rpc "Aiur.Handoff.CLI.agents()"
+  elif [ "$#" -eq 1 ] && [ "$1" = --all ]; then
+    run_control_rpc "Aiur.AgentControlCLI.agents(all: true)"
+  else
+    [ "$#" -eq 0 ] || die "agents accepts only --all or --json"
+    run_control_rpc "Aiur.AgentControlCLI.agents()"
+  fi
 }
 
 # `aiur commands` — read the dashboard's retained Decision projection without
@@ -275,10 +294,15 @@ cmd_cleanup_stale() {
 }
 
 # `aiur set <key> <value>` — runtime config overrides without editing
-# `.aiur/config`. Currently: `aiur set max-agents N`.
+# `.aiur/config`. `max-agents` remains the session-only compatibility path.
 cmd_set() {
-  local key="${1:-}"
+  local key="${1:-}" caller_cwd caller_agent_workspace_env="${AIUR_AGENT_WORKSPACE:-}"
   shift 2>/dev/null || true
+
+  caller_cwd="$(pwd -P)"
+  local encoded_caller_cwd encoded_caller_agent_workspace_env
+  encoded_caller_cwd="$(printf '%s' "$caller_cwd" | base64 | tr -d '\n')"
+  encoded_caller_agent_workspace_env="$(printf '%s' "$caller_agent_workspace_env" | base64 | tr -d '\n')"
 
   case "$key" in
     max-agents)
@@ -289,9 +313,38 @@ cmd_set() {
       fi
       run_control_rpc "Aiur.AgentControlCLI.set_max_agents($n)"
       ;;
-    *)
-      echo "aiur: unknown setting: ${key:-(none)} (supported: max-agents)" >&2
+    --list)
+      if [ "$#" -eq 0 ]; then
+        run_control_rpc "Aiur.AgentControlCLI.list_settings()"
+      elif [ "$#" -eq 1 ] && [ "$1" = "--json" ]; then
+        run_control_rpc "Aiur.AgentControlCLI.list_settings(json: true)"
+      else
+        echo "aiur: usage: aiur set --list [--json]" >&2
+        exit 64
+      fi
+      ;;
+    --unset)
+      if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
+        echo "aiur: usage: aiur set --unset <key>" >&2
+        exit 64
+      fi
+      local unset_key
+      unset_key="$(printf '%s' "$1" | base64 | tr -d '\n')"
+      run_control_rpc "Aiur.AgentControlCLI.unset_setting(Base.decode64!(\"$unset_key\"), caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\"))"
+      ;;
+    "")
+      echo "aiur: usage: aiur set <key> <json> | --list [--json] | --unset <key>" >&2
       exit 64
+      ;;
+    *)
+      if [ "$#" -ne 1 ]; then
+        echo "aiur: usage: aiur set <key> <json>" >&2
+        exit 64
+      fi
+      local encoded_key encoded_value
+      encoded_key="$(printf '%s' "$key" | base64 | tr -d '\n')"
+      encoded_value="$(printf '%s' "$1" | base64 | tr -d '\n')"
+      run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\"))"
       ;;
   esac
 }

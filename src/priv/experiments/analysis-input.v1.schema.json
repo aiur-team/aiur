@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "aiur.experiment-analysis-input/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "spec", "registered_at", "annotations", "rows", "input_sha256"],
+  "properties": {
+    "schema_version": {"const": "aiur.experiment-analysis-input/v1"},
+    "spec": {"type": "object"},
+    "registered_at": {"type": ["string", "null"], "format": "date-time"},
+    "taken_at": {"type": ["string", "null"], "format": "date-time"},
+    "annotations": {"type": "array", "items": {"type": "object"}},
+    "input_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "metric_metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["strata_metadata"],
+        "properties": {
+          "strata_metadata": {
+            "type": "object",
+            "propertyNames": {"minLength": 1},
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["post_treatment"],
+              "properties": {"post_treatment": {"type": "boolean"}}
+            }
+          }
+        }
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "unit_id", "group", "value", "censored", "strata", "observed_at"],
+        "properties": {
+          "metric": {"type": "string", "minLength": 1},
+          "unit_id": {"type": "string", "minLength": 1},
+          "group": {"type": "string", "minLength": 1},
+          "value": {"type": "number"},
+          "censored": {"type": "boolean"},
+          "strata": {"type": "object"},
+          "observed_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  }
+}

@@ -6,9 +6,10 @@ defmodule Aiur.AppServer.Adapter do
   require Logger
 
   alias Aiur.{AgentEnvironment, Config}
+  alias Aiur.AgentEnvironment.ProviderAuth
+  alias Aiur.AgentTools.Dispatch
   alias Aiur.AppServer.{Messages, RelayPort, Transport, TurnLoop, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Codex.DynamicTool
   alias Aiur.ProcessTree
 
   @port_line_bytes 1_048_576
@@ -60,7 +61,7 @@ defmodule Aiur.AppServer.Adapter do
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
-        DynamicTool.execute(tool, arguments)
+        Dispatch.execute(tool, arguments)
       end)
 
     case pause_latched?(session) do
@@ -81,6 +82,8 @@ defmodule Aiur.AppServer.Adapter do
     # settled, and letting it survive would let a stale banner mislabel an
     # unrelated later failure as a quota pause.
     StreamDiagnostics.clear(session.port)
+    # Each turn starts and ends without load an earlier tool command left behind.
+    Transport.reap_orphans(session.port)
 
     case backend.start_turn(session, prompt, issue) do
       {:ok, turn_id} ->
@@ -125,6 +128,7 @@ defmodule Aiur.AppServer.Adapter do
           |> TurnState.initialize_turn_tracking()
 
         loop_result = TurnLoop.receive_loop(session, state)
+        Transport.reap_orphans(session.port)
 
         handle_turn_result(
           backend,
@@ -167,14 +171,27 @@ defmodule Aiur.AppServer.Adapter do
 
   def classify_stream_failure(_backend, _diagnostics), do: :unclassified
 
-  @spec start_port(Path.t(), String.t()) :: {:ok, port() | pid()} | {:error, :bash_not_found}
+  @spec start_port(Path.t(), String.t()) :: {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end, [])
 
   @doc false
-  @spec start_port(Path.t(), String.t(), (port() | pid() -> term()), keyword()) :: {:ok, port() | pid()} | {:error, :bash_not_found}
+  @spec start_port(Path.t(), String.t(), (port() | pid() -> term()), keyword()) :: {:ok, port() | pid()} | {:error, term()}
   def start_port(workspace, command, on_port_started, opts \\ []) when is_function(on_port_started, 1) and is_list(opts) do
+    case ProviderAuth.stage(workspace, Keyword.get(opts, :env, [])) do
+      {:ok, provider_env, auth_file} ->
+        opts = opts |> Keyword.put(:env, provider_env) |> Keyword.put(:provider_auth_file, auth_file)
+        result = start_staged_port(workspace, command, on_port_started, opts, provider_env)
+        if match?({:error, _}, result), do: ProviderAuth.cleanup(auth_file)
+        result
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp start_staged_port(workspace, command, on_port_started, opts, provider_env) do
     if Config.settings!().agent.relay and Keyword.get(opts, :relay, true) do
-      env = AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, []))
+      env = AgentEnvironment.workspace_env(workspace) ++ port_env(provider_env)
 
       case RelayPort.start(workspace, command, env, opts) do
         {:ok, relay} ->
@@ -212,7 +229,12 @@ defmodule Aiur.AppServer.Adapter do
               ~c"-c",
               # workspace_env/1 has already removed the operator's BASH_ENV or
               # replaced it with Aiur's immutable build-admission hook.
-              String.to_charlist(AgentEnvironment.scrub_shell_command(command, trusted_bash_env: true))
+              String.to_charlist(
+                AgentEnvironment.scrub_shell_command(
+                  ProviderAuth.shell_command(Keyword.get(opts, :provider_auth_file), command),
+                  trusted_bash_env: true
+                )
+              )
             ],
             cd: String.to_charlist(workspace),
             env: AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, [])),

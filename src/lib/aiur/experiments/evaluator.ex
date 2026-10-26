@@ -12,7 +12,7 @@ defmodule Aiur.Experiments.Evaluator do
 
     case normalize_window(window, ctx) do
       {:ok, window} ->
-        ctx = if event_refs?(refs, catalog), do: Common.prepare_context(window, ctx), else: ctx
+        ctx = if event_refs?(refs, catalog), do: Common.prepare_context(Map.get(ctx, :interval_window, window), ctx), else: ctx
 
         refs
         |> Enum.group_by(fn ref -> ref |> String.split("/", parts: 2) |> hd() end)

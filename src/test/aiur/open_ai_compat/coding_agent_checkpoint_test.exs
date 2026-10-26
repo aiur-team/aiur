@@ -1,5 +1,6 @@
 defmodule Aiur.OpenAICompat.CodingAgentCheckpointTest do
   use ExUnit.Case, async: true
+  @moduletag :r7_characterization
   use Aiur.TestSupport.OpenAICompatAgent
 
   alias Aiur.OpenAICompat.CodingAgent

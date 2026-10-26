@@ -12,19 +12,13 @@ import sys
 import tempfile
 
 repo = Path(sys.argv[1])
+sys.path.insert(0, str(repo / 'scripts'))
+from components.public_fixtures import fixture_component as component, complete_fixture, verify_format
 with_node = '--with-node' in sys.argv[2:]
 with_elixir = '--with-elixir' in sys.argv[2:]
 selected = set(sys.argv[2:]) - {'--with-node', '--with-elixir'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
-
-
-def component(cid, paths):
-    return dict(id=cid, name=cid, layer=0, kind='required', paths=paths,
-                facades=['Aiur.' + cid.title()], facade_pending=None,
-                requires=[], optional=[], owns={k: [] for k in ('config', 'env', 'state', 'capabilities')}, prior=[])
-
-
 def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, declarations=None, rules='ownership', links=None):
     if selected and name not in selected:
         return
@@ -40,7 +34,7 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
                 'src/lib/aiur/config/paths.ex': '  def fixture_dir, do: "/fixture"\n'}
             components[0]['paths'].extend(declarations)
             components[0]['owns'].update(config=['fixture', 'scalar'], env=['AIUR_FIXTURE'], state=['fixture_dir'])
-        manifest = dict(manifest_version=1, components=components)
+        manifest = dict(manifest_version=1, directory_published=False, components=components, features=[])
         if change:
             change(manifest)
         (root / 'components.json').write_text(json.dumps(manifest))
@@ -58,6 +52,8 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
             path.write_text(content)
         if git:
             subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+            for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+                subprocess.run(['git', '-C', str(root), 'config', key, value], check=True)
             subprocess.run(['git', '-C', str(root), 'add', '--', *files, *declarations], check=True)
             (root / 'src/lib/untracked.ex').touch()
         import os
@@ -71,12 +67,8 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
         for message in messages:
             assert message in output, f'{name}: missing {message!r}: {output}'
         if format:
-            content = (root / 'components.json').read_bytes()
-            assert json.loads(content) == dict(manifest, components=sorted(components, key=lambda c: (c['layer'], c['id'])))
-            subprocess.run(args, env=env, check=True, capture_output=True)
-            assert (root / 'components.json').read_bytes() == content, f'{name}: formatting not idempotent'
+            verify_format(root, args, manifest, components, name)
         print(f'PASS: {name}')
-
 
 check('owned_once_passes', [component('a', ['src/lib/a/**']), component('b', ['packages/b/**'])],
       ['src/lib/a/a.ex', 'src/lib/a/nested/b.ex', 'packages/b/package.json'],
@@ -115,16 +107,21 @@ check('unknown_dependency_fails', [dict(component('a', []), requires=['absent'])
       ('/components/0/requires: unknown component absent',))
 check('duplicate_component_fails', [component('a', []), component('a', [])], [], 2, ('duplicate component id',))
 check('relative_paths_required', [component('a', ['../src/lib/a.ex'])], [], 2, ('/components/0/paths',))
-check('binary_kind_required', [dict(component('a', []), kind='experimental')], [], 2, ('/components/0/kind',))
+check('public_kind_required', [dict(component('a', []), kind='experimental')], [], 2, ('/components/0/kind',))
 check('boolean_layer_rejected', [dict(component('a', []), layer=True)], [], 2, ('/components/0/layer',))
 check('private_namespaces_supported', [dict(component('a', ['src/lib/a.ex']), private_namespaces=['Aiur.Codex.'])], ['src/lib/a.ex'])
-check('future_public_fields_supported', [dict(component('a', ['src/lib/a.ex']), summary='A', status='core', install={'type': 'included'}, docs=['concepts/build-orders.md'], feature_id='MP-R1')],
+check('future_public_fields_supported', [dict(component('a', ['src/lib/a.ex']), summary='Provides fixture behavior.', status='core', install={'type': 'included'}, docs=['concepts/build-orders.md'], feature_id='MP-R1')],
       ['src/lib/a.ex'], change=lambda m: m.update(features=[], directory_published=False))
 check('required_property_fails', [component('a', [])], [], 2, ('/components/0/name: required property',),
       change=lambda m: m['components'][0].pop('name'))
 check('empty_name_fails', [dict(component('a', []), name='')], [], 2, ('/components/0/name: empty string',))
 check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])], ['src/lib/a.ex'], 2,
       ('/components/0/paths: duplicate items',))
+from components.public_fixtures import run as public_checks
+public_checks(component, check)
+from components.config_ownership_fixtures import run as config_checks
+config_checks(component, check)
+
 if with_node:
     def imports(name, source, code=0, messages=(), dependencies=None, extra=None, links=None):
         files = {'packages/a/package.json': json.dumps(dict(name='a', dependencies=dependencies or {})),
@@ -193,11 +190,11 @@ if with_node:
             extra={'src/lib/foo.ex': '@external_resource(\n  "../../packages/a/x.json"\n)'})
     imports('resource_alias_chain_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@path "../../packages/a/x.json"\n@resource @path\n@external_resource @resource'})
-    imports('external_resource_allowlisted', '', messages=('allowlisted', 'MP-R6 owns'),
+    imports('streamdeck_external_resource_into_package_rejected', '', 1, ('R-reverse-resource', 'packages/streamdeck/src/key-face-contract.json'),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',
                    'packages/streamdeck/package.json': '{"name":"streamdeck"}'})
-    imports('allowlist_is_path_specific', '', 1, ('R-reverse-resource',),
+    imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@external_resource "../../../packages/a/other.json"'})
 
@@ -233,14 +230,14 @@ check('repo_state_path_without_owner_fails', [repo_owner], [], 1, ("'experiments
       change=lambda m: m['components'][0]['owns']['state'].remove('experiments_path'), declarations=repo_declarations)
 check('unknown_shared_component_fails', [dict(owner, shared_with=['absent'])], [], 2,
       ('unknown component absent',), declarations=declarations)
-for kind, name in [('config', 'bad.section'), ('env', 'lowercase'), ('state', 'repo_name')]:
+for kind, name in [('config', 'bad..section'), ('env', 'lowercase'), ('state', 'repo_name')]:
     check(f'invalid_{kind}_format_fails', [owner], [], 2, ('invalid string',),
           change=lambda m, k=kind, n=name: m['components'][0]['owns'][k].append(n), declarations=declarations)
 if not selected or 'real_tree_passes' in selected:
     ran.add('real_tree_passes')
     result = subprocess.run([sys.executable, str(checker), '--rules', 'ownership'], text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert '23 sections, 7 fields, 71 env vars, 27 state paths owned once' in result.stdout
+    assert __import__('re').search(r'^components: \d+ sections, \d+ fields, \d+ env vars, \d+ state paths owned once$', result.stdout, __import__('re').MULTILINE), result.stdout
     print('PASS: real_tree_passes')
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
@@ -258,6 +255,8 @@ if with_node and (not selected or 'missing_typescript_exits_2' in selected):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copyfile(checker, root / 'check-components.py')
+        shutil.copyfile(repo / 'scripts/check-env-example.py', root / 'check-env-example.py')
+        shutil.copyfile(repo / 'scripts/check-config-docs.py', root / 'check-config-docs.py')
         shutil.copytree(repo / 'scripts/components', root / 'components', ignore=shutil.ignore_patterns('node_modules'))
         result = subprocess.run([sys.executable, str(root / 'check-components.py')],
                                 env=dict(os.environ, AIUR_COMPONENTS_ROOT=str(repo)), capture_output=True, text=True)
@@ -270,8 +269,6 @@ if with_elixir and not shutil.which('elixir'):
 if not with_elixir:
     print('SKIP: Elixir reference fixtures (use --with-elixir in lint)')
 else:
-    import os
-
     def reference_check(name, fixture, code=0, messages=(), source=None, change=None, args=(), verify=None):
         if selected and name not in selected:
             return
@@ -280,6 +277,7 @@ else:
             root = Path(directory)
             shutil.copytree(repo / 'scripts/components/fixtures' / fixture, root, dirs_exist_ok=True)
             shutil.copyfile(repo / 'components.schema.json', root / 'components.schema.json')
+            complete_fixture(root)
             if source is not None:
                 (root / 'src/lib/a.ex').write_text(source)
             if change:
@@ -294,22 +292,26 @@ else:
             if verify:
                 verify(root, command)
             print(f'PASS: {name}')
-
     def use_experiments_contract(root):
         manifest = json.loads((root / 'components.json').read_text())
-        shipped = next(c for c in json.loads((repo / 'components.json').read_text())['components'] if c['id'] == 'experiments')
+        sys.path.insert(0, str(repo / 'scripts'))
+        from components.manifest import read_manifest
+        shipped = next(c for c in read_manifest(repo)['components'] if c['id'] == 'experiments')
         manifest['components'][0]['forbid'] = shipped['forbid']
         (root / 'components.json').write_text(json.dumps(manifest))
 
     reference_check('experiments_forbid_orchestrator', 'experiments_forbid_orchestrator', 1,
                     ('R-forbid experiments -> Aiur.Orchestrator',), change=use_experiments_contract)
     reference_check('undeclared_dependency_fails', 'undeclared_dependency_fails', 1, ('R-declared a -> B.Facade',))
+    from components.github_access_fixtures import run as access_checks; access_checks(reference_check)
     reference_check('declared_facade_passes', 'declared_facade_passes')
     # Future-regression guard: component routes import the kit, never the shell.
     reference_check('component_route_kit_passes', 'component_routes', messages=('R-down: 0',))
     reference_check('component_route_shell_fails', 'component_routes', 1,
                     ('R-down commands -> AiurWeb.Router',),
                     source='defmodule AiurWeb.Routes.Decisions do\n  require AiurWeb.Router\nend\n')
+    from components.harness_fixtures import run as harness_checks; harness_checks(reference_check, repo)
+    from components.event_bus_fixtures import run as bus_checks; bus_checks(reference_check, repo)
     reference_check('private_module_fails', 'private_module_fails', 1, ('R-private a -> B.Internal',))
     reference_check('facade_star_allows_any', 'facade_star_allows_any')
     reference_check('alias_resolution_counts', 'alias_resolution_counts', 1, ('R-private a -> B.Internal',))
@@ -354,6 +356,8 @@ else:
 
     def committed_fixture(root):
         subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+        for key, value in [('gc.auto', '0'), ('maintenance.auto', 'false'), ('gc.autoDetach', 'false')]:
+            subprocess.run(['git', '-C', str(root), 'config', key, value], check=True)
         subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
         subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
                         'commit', '-qm', 'Fixture baseline'], check=True)
@@ -397,8 +401,8 @@ else:
         path = root / 'components.json'
         manifest = json.loads(path.read_text())
         a, b = manifest['components']
-        a.update(layer=source_layer, kind=source_kind)
-        b.update(layer=target_layer, kind=target_kind)
+        a.update(layer=source_layer, dependency_kind=source_kind)
+        b.update(layer=target_layer, dependency_kind=target_kind)
         if target_kind == 'optional':
             a.update(requires=[], optional=['b'])
         if cycle:
@@ -481,12 +485,16 @@ else:
                                     env=dict(os.environ, PATH=directory), capture_output=True, text=True)
             assert result.returncode == 2 and 'Elixir missing; install via mise' in result.stderr, result.stderr
             print('PASS: missing_elixir_exits_2')
-
+from components.docs_fixtures import run as docs_fixtures; ran.update(docs_fixtures(repo, selected))
+if with_elixir and (not selected or 'component_debt_reports_both_directions' in selected):
+    subprocess.run([sys.executable, str(repo / 'scripts/test-component-promotion-report.py')], check=True)
+    ran.add('component_debt_reports_both_directions')
 assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
-print('check-components guard: all selected cases passed')
 PY
-
+python3 "$repo_root/scripts/test-components-seam-merge.py" && python3 "$repo_root/scripts/test-component-state-files.py" "$repo_root"
 if [[ " $* " == *" --with-elixir "* ]]; then
   python3 "$repo_root/scripts/test-components-seams.py"
   python3 "$repo_root/scripts/test-pr-lifecycle-components.py"
+  python3 "$repo_root/scripts/test-github-components.py"
 fi
+printf '%s\n' 'check-components guard: all selected cases passed'

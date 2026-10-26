@@ -3,42 +3,25 @@ defmodule Aiur.GitHub.Client do
   GitHub REST API client for issue tracking via labels.
   """
 
-  alias Aiur.{Issue, TestTicketScope}
+  alias Aiur.{Issue, TestTicketScope, TicketBranch}
 
-  alias Aiur.GitHub.{
-    AuthPreflight,
-    Comments,
-    CompareStatus,
-    CycleFetchCache,
-    DependenciesApi,
-    Errors,
-    HumanReviewGate,
-    Issues,
-    IssueState,
-    PullRequests,
-    RepoEvents,
-    ResourceFetch,
-    ResourceStore,
-    ReviewThreads,
-    Teams,
-    Transport
-  }
+  alias Aiur.GitHub.{Access, Comments, CompareStatus, DependenciesApi, HumanReviewGate, Issues, IssueState, PullRequests, RepoEvents, ReviewThreads, Teams}
 
   alias Aiur.GitHub.CiReadiness
 
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
-  def preflight_auth(opts \\ []), do: AuthPreflight.preflight_auth(opts)
+  def preflight_auth(opts \\ []), do: Access.preflight_auth(opts)
 
   @spec ensure_preflight(keyword()) :: :ok | {:error, term()}
-  def ensure_preflight(opts \\ []), do: AuthPreflight.ensure_preflight(opts)
+  def ensure_preflight(opts \\ []), do: Access.ensure_preflight(opts)
 
   @spec check_ci_readiness(keyword()) :: {:ok, CiReadiness.result()} | {:error, term()}
   def check_ci_readiness(opts \\ []), do: CiReadiness.check(opts)
 
   @spec format_auth_preflight_error(term()) :: String.t()
-  def format_auth_preflight_error(reason), do: AuthPreflight.format_auth_preflight_error(reason)
+  def format_auth_preflight_error(reason), do: Access.format_auth_preflight_error(reason)
 
-  @type classification :: Errors.classification()
+  @type classification :: Access.classification()
 
   @doc """
   Classifies a GitHub transport failure or HTTP response into the structured
@@ -58,7 +41,7 @@ defmodule Aiur.GitHub.Client do
   pattern-match the classification and recover the specifics.
   """
   @spec classify_error({:error, term()} | map()) :: {:github, classification(), map()}
-  def classify_error(error), do: Errors.classify_error(error)
+  def classify_error(error), do: Access.classify_error(error)
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []), do: Issues.fetch_candidate_issues(opts) |> TestTicketScope.filter_result()
@@ -163,50 +146,84 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request_for_branch(issue_number, opts \\ []) do
-    CycleFetchCache.fetch({:open_pull_request_for_branch, to_string(issue_number)}, fn ->
-      fetch_open_pull_request_for_branch_stored(issue_number, opts)
+    Access.cycle_fetch({:open_pull_request_for_branch, to_string(issue_number)}, fn ->
+      Access.cycle_fetch({:open_pull_request_listing, repo_full_name(opts)}, fn ->
+        fetch_open_pull_request_listing_stored(opts)
+      end)
+      |> case do
+        {:ok, pull_requests} -> {:ok, Enum.find(pull_requests, &ticket_pull_request?(&1, issue_number))}
+        {:error, _reason} = error -> error
+      end
     end)
+  end
+
+  @spec fetch_open_pull_requests_for_branches([String.t() | integer()], keyword()) ::
+          {:ok, %{optional(String.t()) => map() | nil}} | {:error, term()}
+  def fetch_open_pull_requests_for_branches(issue_numbers, opts \\ []) when is_list(issue_numbers) do
+    case fetch_open_pull_request_listing_stored(opts) do
+      {:ok, pull_requests} ->
+        {:ok, Map.new(issue_numbers, &{to_string(&1), Enum.find(pull_requests, fn pr -> ticket_pull_request?(pr, &1) end)})}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
-    CycleFetchCache.fetch({:open_pull_requests_for_branch, to_string(issue_number)}, fn ->
+    Access.cycle_fetch({:open_pull_requests_for_branch, to_string(issue_number)}, fn ->
       PullRequests.fetch_open_pull_requests_for_branch(issue_number, opts)
     end)
   end
 
-  # The busiest REST call site in the daemon (#2265): the three per-cycle
-  # pollers each ask "is there an open pull request for this ticket's branch"
-  # once per ticket. Routing through `ResourceFetch` under the dedicated
-  # `:branch_pull_request_listing` key makes every repeat read a conditional
-  # revalidate — a `304` GitHub does not bill — instead of a full-price listing.
-  # The key is deliberately NOT `:branch_pull_request`: that key is the *pull
-  # request* resource, written by the webhook deposit and the human-review gate,
-  # whose validators describe the PR body (a derived hash, or none) and would
-  # clobber or be clobbered by the listing validator those three writers share
-  # (#2126). The listing gets its own key so its page-1 validator survives
-  # contact. The held result (the found PR, or nil) is served back on `304`,
-  # which is the same page-one contract
-  # `fetch_open_pull_request_for_branch_conditional/2` documents.
-  defp fetch_open_pull_request_for_branch_stored(issue_number, opts) do
-    key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo_full_name(opts), issue_number)
+  # Every target asks the same repository-wide listing. Keep a conditional,
+  # repo-scoped response across cycles and share the freshly checked result
+  # across targets in the current cycle. This keeps the listing validator
+  # separate from `:branch_pull_request`, whose validator describes one PR body.
+  defp fetch_open_pull_request_listing_stored(opts) do
+    key = Access.key_for_repo(:branch_pull_request_listing_all, repo_full_name(opts), "open")
 
     fetcher = fn fetch_opts ->
-      PullRequests.fetch_open_pull_request_for_branch_conditional(
-        issue_number,
-        Keyword.merge(opts,
-          etag: Keyword.get(fetch_opts, :etag),
-          caller: "open_pull_request_for_branch"
-        )
-      )
+      PullRequests.fetch_open_pull_requests_conditional(Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag), caller: "open_pull_request_for_branch"))
     end
 
-    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "open pull request for branch") do
-      {:ok, pull_request, _meta} -> {:ok, pull_request}
-      {:error, reason} -> {:error, reason}
+    case Access.resource_need(key, fetcher, freshness: Access.resource_decision(), reason: "open pull request listing") do
+      {:ok, pull_requests, _meta} ->
+        deposit_ticket_pull_requests(repo_full_name(opts), pull_requests)
+        {:ok, pull_requests}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp deposit_ticket_pull_requests(repo, pull_requests) do
+    Enum.each(pull_requests, fn
+      %{"head" => %{"ref" => branch}} = pull_request when is_binary(branch) ->
+        case TicketBranch.ticket_id(branch) do
+          nil ->
+            :ok
+
+          ticket_id ->
+            key = Access.key_for_repo(:branch_pull_request_listing, repo, ticket_id)
+
+            Access.deposit_unless_older(key, pull_request,
+              source: :poll,
+              version: Map.get(pull_request, "updated_at"),
+              etag: nil
+            )
+        end
+
+      _other ->
+        :ok
+    end)
+  end
+
+  defp ticket_pull_request?(%{"head" => %{"ref" => branch}}, issue_number) when is_binary(branch),
+    do: TicketBranch.ticket_branch?(branch, issue_number)
+
+  defp ticket_pull_request?(_pull_request, _issue_number), do: false
 
   defp repo_full_name(opts) do
     case Keyword.get(opts, :repo) do
@@ -214,7 +231,7 @@ defmodule Aiur.GitHub.Client do
         repo
 
       _other ->
-        case Transport.parse_repo() do
+        case Access.parse_repo() do
           {:ok, {owner, repo}} -> "#{owner}/#{repo}"
           _other -> nil
         end
@@ -257,7 +274,7 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_issue_comments_conditional(issue_number, opts \\ []) do
-    CycleFetchCache.fetch({:issue_comments_conditional, to_string(issue_number), comment_cursor_key(opts)}, fn ->
+    Access.cycle_fetch({:issue_comments_conditional, to_string(issue_number), comment_cursor_key(opts)}, fn ->
       Comments.fetch_issue_comments_conditional(issue_number, opts)
     end)
   end
@@ -298,7 +315,7 @@ defmodule Aiur.GitHub.Client do
   # it only holds the validator for the post-expiry read (see the `:pull`
   # moduledoc paragraph in `ReadCache.Policy`).
   defp fetch_open_pull_request_stored(pr_number, opts) do
-    key = ResourceStore.key_for_repo(:pull_request, repo_full_name(opts), pr_number)
+    key = Access.key_for_repo(:pull_request, repo_full_name(opts), pr_number)
 
     fetcher = fn fetch_opts ->
       PullRequests.fetch_open_pull_request_conditional(
@@ -310,7 +327,7 @@ defmodule Aiur.GitHub.Client do
       )
     end
 
-    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "open pull request") do
+    case Access.resource_need(key, fetcher, freshness: Access.resource_decision(), reason: "open pull request") do
       {:ok, pull_request, _meta} -> {:ok, pull_request}
       {:error, reason} -> {:error, reason}
     end
@@ -347,7 +364,7 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_unaddressed_pr_review_thread_comments(pr_number, opts \\ []) do
-    CycleFetchCache.fetch({:review_thread_comments, to_string(pr_number)}, fn ->
+    Access.cycle_fetch({:review_thread_comments, to_string(pr_number)}, fn ->
       ReviewThreads.fetch_unaddressed_pr_review_thread_comments(pr_number, opts)
     end)
   end
@@ -378,6 +395,10 @@ defmodule Aiur.GitHub.Client do
   @spec pull_request_approved_at_head?(integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def pull_request_approved_at_head?(pr_number, opts \\ []),
     do: HumanReviewGate.pull_request_approved_at_head?(pr_number, opts)
+
+  @spec pull_request_approval(integer(), keyword()) :: {:ok, {String.t(), String.t() | nil}} | {:error, term()}
+  def pull_request_approval(pr_number, opts \\ []),
+    do: HumanReviewGate.pull_request_approval(pr_number, opts)
 
   @spec fetch_classified_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}

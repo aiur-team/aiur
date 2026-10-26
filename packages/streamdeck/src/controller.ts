@@ -230,7 +230,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       if (
         state.commandsView === "detail" &&
         state.selectedCommand !== null &&
-        isAnswerable(state.selectedCommand.status) &&
+        isAnswerable(state.selectedCommand) &&
         (state.selectedOption !== null || state.commandDictation)
       ) {
         // The knob becomes Approve: pressing it is the deliberate second action

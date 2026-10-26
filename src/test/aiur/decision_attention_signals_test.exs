@@ -205,6 +205,7 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                  "question" => "Use either reversible operational option?",
                  "blocking" => true,
                  "authority" => "human_required",
+                 "context" => %{"authority_basis" => "security"},
                  "reversibility" => "reversible",
                  "options" => [
                    %{"id" => "one", "label" => "One", "risk" => "low"},
@@ -230,6 +231,7 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                  "question" => "Still actionable?",
                  "blocking" => true,
                  "authority" => "human_required",
+                 "context" => %{"authority_basis" => "security"},
                  "source_id" => "live-blocking-1"
                },
                ticket: @ticket,

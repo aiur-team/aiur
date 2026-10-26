@@ -36,6 +36,10 @@ defmodule Aiur.VoiceTest do
     def synthesizer, do: Aiur.VoiceTest.Synthesizer
     @impl true
     def configured?, do: true
+    @impl true
+    def child_specs, do: [Aiur.VoiceTest.Transcriber]
+    @impl true
+    def quota_snapshot, do: %{state: :observed, window: %{used_percent: 10, reset_at: nil}}
   end
 
   defmodule Unconfigured do

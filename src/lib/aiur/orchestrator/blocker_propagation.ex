@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.BlockerPropagation do
   @moduledoc "Debounced, bounded propagation along direct blocker push edges; retries share the same queue and cap."
   require Logger
   alias Aiur.{BuildQueue, Config, Issue, Tracker}
-  alias Aiur.Events.{BranchRefStore, Publisher}
+  alias Aiur.{Events, Events.BranchRefStore}
   alias Aiur.Orchestrator.{PushRouting, RestackScheduler, State, TrackerTasks}
   alias Aiur.Stacking.StackBaseEvidence
   alias Aiur.Workspace.Restack
@@ -106,7 +106,10 @@ defmodule Aiur.Orchestrator.BlockerPropagation do
     %{state | tracker_tasks: Map.new(state.tracker_tasks, fn {ref, task} -> {ref, if(task.key == {:propagate, issue.id}, do: Map.put(task, :blocker, job.push.blocker), else: task)} end)}
   end
 
-  defp idle?(state, %Issue{} = issue), do: not Map.has_key?(state.running, issue.id) and issue.state not in ["done", "closed", "cancelled", "canceled", "rework", "error"]
+  defp idle?(state, %Issue{} = issue),
+    do:
+      not Map.has_key?(state.running, issue.id) and
+        issue.state not in ["done", "closed", "cancelled", "canceled", "budget-exhausted", "rework", "error"]
 
   defp run(job) do
     opts = [
@@ -135,7 +138,7 @@ defmodule Aiur.Orchestrator.BlockerPropagation do
   end
 
   defp complete(state, job, {:ok, {:pushed, sha}}) do
-    publish = Keyword.get(job.opts, :publish, &Publisher.publish/2)
+    publish = Keyword.get(job.opts, :publish, &Events.publish/2)
     publish.("ticket.#{job.issue.identifier}.branch.push", %{ref: "refs/heads/#{job.branch}", sha: sha, previous_sha: job.head, source: :system})
     finish(state)
   end

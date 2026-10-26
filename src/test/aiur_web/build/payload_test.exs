@@ -5,13 +5,28 @@ defmodule AiurWeb.Build.PayloadTest do
   @dir Path.expand("../../fixtures/build_home", __DIR__)
 
   test "fixtures reach the full strict schema (future fixture guard)" do
-    for name <- ~w(live dense newrepo noqueue offline) do
+    for name <- FixtureSource.datasets() -- ~w(unavailable hold) do
       {:ok, data} = FixtureSource.full(dataset: name)
       assert Payload.validate(Payload.snapshot(data, "epoch", 0)) == :ok
     end
 
     hostile = @dir |> Path.join("hostile.json") |> File.read!() |> Jason.decode!()
     assert Payload.validate(hostile["snapshot"]) == :ok
+  end
+
+  test "read failures retain their cause in valid error envelopes" do
+    for reason <- [:timeout, :index_not_running, :read_failed, :epic_config_unavailable, :settings_loading, :invalid_data] do
+      assert Payload.validate(Payload.error(reason)) == :ok
+    end
+  end
+
+  test "runtime reason states remain valid in the Now wire payload" do
+    data = fixture()
+    row = get_in(data, ["sections", "now", Access.at(0)])
+    data = put_in(data, ["sections", "now", Access.at(0), "agent", "state"], "paused-usage-limit")
+
+    assert is_map(row)
+    assert Payload.validate(Payload.snapshot(data, "epoch", 1)) == :ok
   end
 
   for {name, path, value, expected} <- [
@@ -51,10 +66,47 @@ defmodule AiurWeb.Build.PayloadTest do
     assert {"counts.bugs", :missing} in errors
   end
 
-  test "every source must be present" do
-    data = fixture() |> update_in(["sources"], &Map.delete(&1, "queue"))
+  test "feature progress is keyed by a feature-local epic and preserves unknown counts" do
+    progress = %{
+      "f-pag-api" => %{
+        "feature" => "pag",
+        "label" => "Pagination · API",
+        "closed" => nil,
+        "open" => 1,
+        "ci_wait" => nil,
+        "unpublished" => 2,
+        "total" => nil,
+        "observed_at" => 1_791_408_000_000,
+        "wave" => "0b",
+        "summary" => "API work",
+        "icon" => nil,
+        "code" => "MP-E8",
+        "plan_version" => "v1",
+        "extras" => nil,
+        "root_number" => 3042,
+        "root_title" => "Home / Build page",
+        "start_date" => "2026-10-01",
+        "reason" => "states unavailable · CI state unknown · planned count unavailable"
+      }
+    }
+
+    data = put_in(fixture(), ["feature_progress"], %{"features" => progress, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => nil, "reason" => nil})
+    assert Payload.validate(data) == :ok
+
+    data = put_in(data, ["feature_progress", "features"], %{"pag" => progress["f-pag-api"]})
     assert {:error, errors} = Payload.validate(data)
-    assert {"sources.queue", :missing} in errors
+    assert {"feature_progress.features.pag", :reference} in errors
+  end
+
+  test "every source must be present" do
+    for key <- ~w(history features queue agents index open_tickets) do
+      data = fixture() |> update_in(["sources"], &Map.delete(&1, key))
+      assert {:error, errors} = Payload.validate(data)
+      assert {"sources.#{key}", :missing} in errors
+    end
+
+    data = fixture() |> put_in(["sources", "open_tickets", "state"], "unsupported") |> put_in(["sources", "open_tickets", "truncated"], true)
+    assert Payload.validate(data) == :ok
   end
 
   test "locked usage cannot carry values" do
@@ -112,8 +164,8 @@ defmodule AiurWeb.Build.PayloadTest do
       end)
 
     IO.puts("build payload census mean_row_bytes=#{Float.round(bytes / rows, 2)} rows=#{rows}")
-    # Required agent names (397.84 -> 411.43) and start_src (-> 431.69) raise the fixture census.
-    assert bytes / rows <= 440
+    # Realistic PR chips raise the frozen census from 492.33 to 512.98 bytes per row.
+    assert bytes / rows <= 525
 
     for name <- ~w(live dense) do
       {:ok, data} = FixtureSource.snapshot(dataset: name)

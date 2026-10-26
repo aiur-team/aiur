@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .optimistic import optimistic_build_lines
 from .render import (
     _display,
     _duration_display,
@@ -65,6 +66,7 @@ def build_report_rows(build_summary: dict) -> list[dict]:
                 "cpu_seconds": _ticket_cpu_seconds(build_summary, number),
                 "backends": ticket_backends(ticket),
                 "observed": True,
+                **({"optimistic": ticket["optimistic"]} if ticket.get("optimistic") else {}),
             }
         )
 
@@ -130,6 +132,7 @@ def render_build_report(build_summary: dict, slug: str) -> str:
         )
 
     lines.append("")
+    lines.extend(optimistic_build_lines(build_summary))
     lines.append("Notes")
     lines.append("  - Wall-clock spans dispatch through the latest lifecycle boundary across every boot.")
     lines.append("  - Active time sums closed phase intervals (idle gaps elided).")

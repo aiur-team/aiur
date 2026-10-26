@@ -1,9 +1,9 @@
 defmodule Aiur.BuildQueue do
   @moduledoc "Supervised build queue reconciliation, paced label writes and local ordered-list commands."
 
-  alias Aiur.BuildQueue.{ReadModel, Server}
+  alias Aiur.BuildQueue.{Attention, LastRead, ReadModel, Server}
 
-  @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused
+  @type status :: :running | :disabled | :unsupported_tracker | :store_unavailable | :writes_paused | :read_timeout
 
   @spec child(boolean()) :: module() | nil
   def child(false), do: nil
@@ -14,12 +14,23 @@ defmodule Aiur.BuildQueue do
     if Process.whereis(Server), do: GenServer.call(Server, :status), else: absent_status()
   end
 
-  @doc "Returns the version 1 public read model from held projections; no upstream requests or label writes."
+  @doc """
+  Returns the version 1 public read model from held projections; no upstream requests or label writes.
+
+  A timed-out call returns the last model the server served, stale-marked, or `:read_timeout` when it never served one.
+  """
   @spec show(GenServer.server()) :: map()
   def show(server \\ Server) do
-    GenServer.call(server, :read_model)
+    GenServer.call(server, :read_model, 1_000)
   catch
-    :exit, {:noproc, _} -> ReadModel.unavailable(absent_status())
+    :exit, {:noproc, _} ->
+      ReadModel.unavailable(absent_status())
+
+    :exit, {:timeout, _} ->
+      case LastRead.carry(server, System.system_time(:millisecond)) do
+        {:ok, model} -> model
+        :none -> ReadModel.unavailable(:read_timeout)
+      end
   end
 
   @spec reconcile_now() :: :ok | {:error, status()}
@@ -28,6 +39,17 @@ defmodule Aiur.BuildQueue do
   catch
     :exit, {:noproc, _} -> {:error, :disabled}
   end
+
+  @doc "Serializes guard-owned attentions with queue reconciliation."
+  @spec optimistic_attention(:open | :resolve, String.t(), map()) :: :ok | {:error, term()}
+  def optimistic_attention(action, id, payload) do
+    GenServer.call(Server, {:optimistic_attention, action, id, payload})
+  catch
+    :exit, {:noproc, _} -> {:error, :disabled}
+  end
+
+  @spec transient_optimistic_attention(String.t(), map(), boolean()) :: :ok | {:error, term()}
+  def transient_optimistic_attention(id, payload, resolved?), do: Attention.transient(:optimistic_blocker_failed, id, payload, resolved?)
 
   @spec add([String.t()], String.t(), keyword()) :: :ok | {:error, term()}
   def add(ids, queue, opts \\ []), do: mutate({:add, ids, Keyword.put(opts, :queue, queue)})
@@ -66,7 +88,7 @@ defmodule Aiur.BuildQueue do
   def clear(opts), do: mutate({:clear, opts})
 
   @doc "Clears item holds and overrides, or releases all items and the hold in a queue by ID."
-  @spec release(String.t(), GenServer.server()) :: :ok | {:error, term()}
+  @spec release(String.t(), GenServer.server()) :: :ok | {:ok, [String.t()]} | {:error, term()}
   def release(target, server \\ Server) when is_binary(target) do
     GenServer.call(server, {:release, target})
   catch

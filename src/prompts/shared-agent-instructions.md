@@ -1,3 +1,7 @@
+## Manual-only acceptance checks
+
+When an acceptance step requires a hands-on run your issue workspace cannot perform (for example, a real CLI/TUI smoke or a physical Stream Deck dictation), do not raise an operator decision and do not pause. Finish the automated work, mark the PR ready, and add each exact step to its PR body under `## Local tests` as `Post-deploy check: <exact steps>`. Name any required operator or hardware, such as `Post-deploy check: dictate “start run” and confirm the command appears in the dashboard (operator: physical Stream Deck).` Do not claim the check ran in the workspace.
+
 ## Shared Agent Instructions
 
 You're an Aiur agent working a ticket. The prompt below carries your ticket +
@@ -55,6 +59,25 @@ checks on the current head SHA.
 
 ### Local pre-handoff checks
 
+In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
+`aiurdev pre-pr`) from the branch checkout. Paste its complete result block
+into the PR body; it records the configured base SHA and each gate result,
+without merging the base into the PR branch.
+The command never pushes and refuses a dirty checkout. Once a PR exists, it
+waits for GitHub to report the pushed head, then rewrites the body's
+`Tested head:` and `Base:` lines as plain SHAs; it fails if `gh` cannot read
+the PR. Before the PR exists it skips that step, so the order at handoff is:
+push, `gh pr create`, run `aiur pre-pr` again to refresh the body, then hand
+off. `aiur_set_ticket_state` refuses `ci-wait` and `human-review` while the
+body fails `mix pr_body.check` at the PR head, a stale `Tested head` included.
+
+Every PR body must follow `.github/pull_request_template.md`, including its
+`## Local tests` evidence. Before each handoff, run
+`scripts/pre-handoff-guards <PR_JSON_FILE> <BASE_SHA>` with fresh PR metadata;
+CI uses the same `scripts/pre-handoff-guards.list` for every event. In tests,
+use `Aiur.TestCleanup.rm_rf!/1` instead of bare `File.rm_rf` or
+`File.rm_rf!`, including inside `on_exit`.
+
 For changes in the Aiur repository, before marking the PR ready or handing
 off to CI/review, run all required checks and fix any failures:
 
@@ -71,10 +94,31 @@ tests in a new test file. Never grow the oversized file.
 These checks supplement the scoped compile, format, and affected-test gate; CI still runs the authoritative
 full required-check set. Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
 
+### Slow shared build gate
+
+The shared build gate serializes expensive commands and reports queue position
+and progress. A command waiting or running slowly at that gate is not a failure:
+keep waiting for it to finish instead of retrying it, ending the session, or
+setting `agent:error`. Use `agent:error` only for a real blocker that prevents
+the work from continuing.
+
+If a genuine time limit means you must stop before validation finishes, preserve
+the workspace and hand the ticket back through its resume path. With an open PR,
+use `aiur_set_ticket_state({"state": "rework"})`. Without a PR, do not change
+the ticket to an error state: end the turn with the workspace and workpad intact
+so Aiur's normal continuation/recycle path can resume it. Never set
+`agent:error` just because time ran out; the next dispatch should continue from
+the existing workspace rather than restart setup.
+
 ### Unrelated CI flakes
 
 If the only failure is a flaky test unrelated to your change, file the
 flake as its own ticket with the CI run id (or link its existing ticket).
+File flake and other non-feature follow-ups with `needs-triage` and the
+instance's parked label (`agent:parked`, or `nuc:parked` on NUC); never include
+a dispatch state label such as `agent:todo` or `nuc:todo`. New non-feature
+tickets wait for operator triage unless they block merging. Quarantine-first
+applies to tests that fail on `main` or in a merge group.
 NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
 A flaky test blocks CI, not the ticket's implementation. State in the PR
 that the only failure is the known flake, link the flake ticket and CI run,
@@ -102,15 +146,18 @@ queued only for a real merge conflict.
 
 ### Never refresh an approved PR
 
-Once a PR is approved, do not merge or rebase `$AIUR_BASE_BRANCH` into its
-branch unless GitHub reports it `CONFLICTING`
-(`gh pr view --json mergeable,reviewDecision`). The merge queue tests the
-merge, so branch freshness buys nothing, while every push cancels the
-in-flight CI run and can dismiss the approval. A red, cancelled, or missing
-check is never a reason to merge the base: a base merge can restart CI but
-cannot fix it. When the PR is `CONFLICTING`, integrate once and say why in a PR
-comment. The agent `git` guard refuses a push to a PR that is in the merge
-queue unless it is conflicting or has changes requested.
+When a ticket is in `agent:human-review` or `agent:ci-wait`, do not merge or
+rebase `$AIUR_BASE_BRANCH` into its PR branch just because the base moved, files
+overlap, CI is red/cancelled/missing, or a freshness check says it is behind.
+The merge queue tests each PR on the current base. Integrate the base in these
+states only when GitHub reports the PR `CONFLICTING`
+(`gh pr view --json mergeable,reviewDecision`), or when a specific newer base
+commit fixes a failing required check. Name that commit and check before
+refreshing the branch. This rule applies in every ticket state, including
+`rework`: a reviewer request, red CI by itself, and ordinary base movement do
+not authorize a base-only merge. A mergeable head gets no merge-only commits.
+The agent `git` guard refuses a push to a PR that is in the merge queue unless
+it is conflicting or has changes requested.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 
@@ -135,6 +182,11 @@ calls, the blocker → stub-then-fetch flow, and attentions.
 cross-ticket event** — don't rely on memory for the allowlisted names; the skill
 fails loud with the valid forms if you guess wrong. Two reflexes override normal
 work ordering, so they're worth stating up front:
+
+When a governed GitHub command fails with a guard diagnostic, include that exact
+diagnostic in any alert or decision about the failure. The guard's stderr is the
+source of the broker, hold, or deadline reason; do not replace it with a generic
+"GitHub is stuck" summary.
 
 - **Blocking another agent is your highest priority.** If another ticket is
   paused on a decision or stub from you (you've been declared a blocker via
@@ -204,7 +256,7 @@ The Executor’s only at-a-glance signal for "how far is each agent" is the prog
 - `30`–`50`: implementation in flight
 - `60`–`80`: code typed, in self-review or CI
 - `90`: PR pushed, last fixes / final review pass
-- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. This is the signal that turns the Executor’s bar green and tells Aiur to release your agent slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the Executor.
+- `100`: emit exactly **once**, right before you flip the issue label to `agent:human-review` — regardless of which CE phases ran this turn. It only turns the Executor’s bar green; it does not release your agent slot. The `agent:human-review` state move ends your turn, and that is what frees the slot. Complexity:1 paths that skip `ce-brainstorm` / `ce-plan` / `ce-review` still emit the 100% sample at the label flip. Don't emit 100 before the label flip — a premature 100 lies about the state, and the bar greening before the PR is actually ready will confuse the Executor.
 
 **The `label` field.** Names your cleanup-aware tail so the Executor can see what you budgeted. Keep it ≤ 80 chars. Format: `"<phase>: <what you're doing now>, <tail you're budgeting>"`.
 
@@ -241,6 +293,34 @@ emit_event(name: "progress", payload: %{
 ```
 
 Two emits this turn; cap respected.
+
+### Status note (`progress.status`)
+
+Keep a short status note current so the Executor (and the voice assistant)
+can see what you are doing and why without stopping you. It is the short,
+machine-readable head of your Agent Workpad, not a replacement for it.
+
+```
+emit_event(name: "progress.status", message: "<one line>", payload: %{
+  doing: "<what you are doing right now>",
+  why: "<the reason, or the plan step it serves>",
+  next: "<the next 1-3 steps>",
+  waiting_on: "<CI, review, a Command, or empty>",
+  asks: "<what you want from the operator, or empty>",
+  risks: "<what may go wrong or what you are unsure of, or empty>",
+  pr: "<PR number, or empty>",
+  updated_reason: "phase" | "long_step" | "command" | "turn_end" | "refresh"
+})
+```
+
+Write or update it: (a) at each phase boundary, paired with the `progress`
+emit; (b) before a step you expect to take more than about 3 minutes (a long
+test run, a big refactor); (c) when you open a Command; (d) at the end of each
+turn; (e) when Aiur asks for a refresh (`status.refresh`). `doing` is
+required. Limits: `message` one line, 200 bytes; `doing`, `why`, `next`,
+`asks` 200 bytes each; `waiting_on` 120; `risks` 160; `pr` 16; the whole
+payload 1,280 bytes; 6 notes per turn.
+Keep it true, short, and in plain words. Never paste logs.
 
 ### Executor check-ins (`operator.progress_request`)
 
@@ -342,3 +422,12 @@ constructing an alternate harness. Executor-root manual test runs are allowed
 only outside agent turns.
 
 A resumed dependent with `refs/aiur/restack/pending/<branch>` or `refs/aiur/restack/conflict/<branch>` must inspect that receipt and follow the restack recipe before ordinary base integration. The startup hook preserves local divergence and conflict receipts for you to reconcile.
+
+### Never generate real CPU load
+
+Never run `yes`, `stress`, or a shell busy loop such as
+`while :; do :; done` to reproduce a load-sensitive flake, and never start one
+per core. Inject the load through the code's test seam instead. Aiur reports
+such loops to the Executor as your ticket's attention, naming your workspace,
+and kills them where configured. The `aiur-agent` skill's `conventions.md` has
+the full rule.

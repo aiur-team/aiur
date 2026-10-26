@@ -20,7 +20,7 @@ defmodule AiurWeb.StaticAssetsCssTest do
     expected =
       Enum.join(
         [
-          File.read!(Path.join(@static_root, "dashboard-fonts.css")),
+          @static_root |> Path.join("aiur-style/fonts.css") |> File.read!() |> String.replace("url('./fonts/", "url('/aiur-style/fonts/"),
           Enum.map_join(parts(), &File.read!/1),
           File.read!(Path.join(@static_root, "dashboard-palette.css"))
         ],

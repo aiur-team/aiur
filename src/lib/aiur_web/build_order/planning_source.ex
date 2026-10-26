@@ -27,7 +27,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
   alias Aiur.DisplaySanitizer
-  alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
 
@@ -416,39 +415,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp membership_snapshot do
     snapshot = Application.get_env(:aiur, :build_order_planning_membership_snapshot, &CurrentRunMembership.snapshot/0).()
 
-    Map.put_new(snapshot, :labels_by_identity, current_poll_labels())
+    Map.put_new(snapshot, :labels_by_identity, LivePackProgress.current_poll_labels())
   rescue
     _error -> %{health: :unavailable}
   catch
     _kind, _reason -> %{health: :unavailable}
-  end
-
-  # `StatusReport` is the in-memory result of the orchestrator's normal
-  # tracker poll. Reading it adds no GitHub traffic and lets ticket-backed
-  # members show current labels while their issue remains in the run snapshot.
-  defp current_poll_labels do
-    case StatusReport.snapshot_api() do
-      snapshot when is_map(snapshot) ->
-        [:running, :retrying, :idle]
-        |> Enum.flat_map(&Map.get(snapshot, &1, []))
-        |> Enum.reduce(%{}, &put_live_labels/2)
-
-      _unavailable ->
-        %{}
-    end
-  rescue
-    _error -> %{}
-  catch
-    _kind, _reason -> %{}
-  end
-
-  defp put_live_labels(row, labels_by_identity) do
-    case {Map.get(row, :tracker_identity), valid_labels(Map.get(row, :labels))} do
-      {%TrackerIdentity{} = identity, [_ | _] = labels} ->
-        Map.put(labels_by_identity, TrackerIdentity.github_key(identity), labels)
-
-      _row ->
-        labels_by_identity
-    end
   end
 end

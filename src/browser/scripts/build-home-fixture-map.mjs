@@ -24,23 +24,32 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
     lines: p.lines ? p.lines.map(line => ({ ...window(line), tag: line.tag, tip: line.tip,
       hold_until: time(line, 'hold_until') })) : null,
     stale: p.stale ?? false, observed_at: time(p, 'observed_at'), note: optional(p, 'note') });
+  const byId = Object.fromEntries(sections.flatMap(sec => data[sec]).map(t => [t.id, t]));
+  const state = t => t.status === 'done' ? 'cleared' : t.status === 'failed' ? 'terminal_unsatisfied' : 'blocking';
   const row = (t, ord) => ({ id: id(t.id), num: t.num, title: t.title, type: t.type, epic: optional(t, 'epic'), feature: optional(t, 'feature'),
     also: t.also, cx: optional(t, 'cx'), pts: optional(t, 'pts'), sec: t.sec, ord,
     start: time(t, 'start'), start_src: t.start == null ? 'unknown' : (t.start_src ?? 'label'), end: time(t, 'end'), created: time(t, 'created'), status: t.status,
     pct: optional(t, 'pct'), agent: t.agent ? { ...t.agent, name: Object.hasOwn(labels, t.agent.model) ? labels[t.agent.model] : null } : null, est: optional(t, 'est'), override: t.override ? { hours: t.override.hours, reason: t.override.reason, by: t.override.by ?? null, at: time(t.override, 'at') } : null,
-    added: t.added ?? false, deps: t.deps.map(id), wave: optional(t, 'wave'), qpos: optional(t, 'qpos'),
+    added: t.added ?? false, deps: t.deps.map(id), children: (data.children[t.id] ?? []).map(id),
+    dep_states: Object.fromEntries(t.deps.map(dep => [id(dep), state(byId[dep])])), deps_missing: 0, wave: optional(t, 'wave'), qpos: optional(t, 'qpos'),
     cue: t.cue ? { held: optional(t.cue, 'held'), promoted: t.cue.promoted ? meta.now - duration(t.cue.promoted) : null,
       wait: optional(t.cue, 'wait'), waitAny: t.cue.waitAny ?? false, failed: optional(t.cue, 'failed'), blockedChain: t.cue.blockedChain ?? false } : null,
-    pr: null });
+    // fixture only: the design's mock PR rule
+    pr: t.agent && t.start && (t.sec === 'hist' || Math.max(.12, t.pct / 100) >= .55)
+      ? { num: 200 + t.num % 300, state: t.sec === 'hist' ? (t.status === 'failed' ? 'closed' : 'merged') : 'open' } : null });
   return { v: 1, kind: 'snapshot', epoch: 'fixture', generation: 0, now: meta.now, writable: true,
+    capacity: { max: 4, observed_at: meta.now, stale: false },
     repo: { url: 'https://github.com/example/aiur-fixture/' }, epics: data.epics,
-    features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null, stats: stats(featureStats[k]) }])),
+    features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null, oldest: data.hist.filter(t => t.feature === k || t.also.includes(k)).reduce((a, t) => t.end == null ? a : a == null ? Math.trunc(t.end) : Math.min(a, Math.trunc(t.end)), null), stats: stats(featureStats[k]) }])),
     order: data.order, counts: Object.fromEntries(data.order.map(k => [k, data.counts[k] ?? 0])),
     sections: Object.fromEntries(sections.map(sec => [sec, data[sec].map(row)])),
     history: { from: null, more: false, total: data.hist.length, undated: 0, tz: meta.tz },
-    sources: Object.fromEntries(['history', 'features', 'queue', 'agents', 'index'].map(k => [k, { state: 'ok', observed_at: meta.now, reason: null }])),
+    sources: Object.fromEntries(['history', 'features', 'queue', 'agents', 'index', 'open_tickets', 'estimates'].map(k => [k, { state: 'ok', observed_at: meta.now, reason: null, ...(k === 'open_tickets' ? { truncated: false } : {}) }])),
     usage: { state: 'authorized', observed_at: meta.now,
       apis: [provider({ name: 'GitHub', icon: 'github', lines: usage.apis.filter(a => ['core', 'gql'].includes(a.tag))
-        .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) })],
-      providers: usage.models.map(provider) }, daemon };
+        .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) }),
+        ...usage.apis.filter(a => a.tag === 'credits').map(a => provider({ name: 'Search', icon: 'bars', lines: [{ ...a, acc: [a.pct ?? null], tip: a.rows }] }))],
+      providers: usage.models.map(provider) }, daemon,
+    // The design datasets carry no feature-progress facts, so the block reports them unavailable.
+    feature_progress: { features: {}, observed_at: meta.now, plan_version: null, extras: null, reason: 'states unavailable · CI state unknown · planned count unavailable' } };
 }

@@ -3,8 +3,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.{Alerts, Issue}
-  alias Aiur.GitHub.{Config, Errors, ReadCache, StatePolicy, Transport}
+  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
+  alias Aiur.{GitHub.DispatchAuthorization.TimelineFetch, Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw
@@ -13,7 +13,6 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # every dispatch attempt) is exactly the failure this table avoids: ETS is
   # reference-counted and GC-agnostic. Only the small fingerprint/decision/alert
   # caches stay in `:persistent_term` (#2298 rework B4).
-  @timeline_table :aiur_github_dispatch_authorization_timelines
   @max_cache_entries 1_000
   @deferral_alert_threshold 5
 
@@ -52,22 +51,15 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
   end
 
-  # SECURITY INVARIANT — provenance of the TRIGGER LABEL is the only thing that
-  # authorizes dispatch. There is deliberately no creator short-circuit.
+  # Verified label provenance is primary; App fixers and registered local provenance are narrow exceptions.
   #
-  # There used to be one: an issue whose creator was in `allowed_users` was
-  # dispatched with no label check at all. Agents create issues with that same
-  # credential, so an agent could file a ticket, label it `agent:todo`, and have
-  # it dispatched with no human anywhere in the loop — a self-sustaining work
-  # queue. It also meant that for any trusted-creator issue, a label applied by
-  # an outsider (or no verifiable `labeled` event at all) still dispatched.
+  # Creator allowlisting alone previously let agents enqueue their own work.
   #
   # Who *filed* a ticket says nothing about whether anyone decided it should
   # run. Requiring the verified label applier costs one timeline fetch per
   # issue — verified decisions are cached per `{id, label, updated_at}` — and makes "an actor
   # in `allowed_users` moved this into a dispatch state" the single, auditable
-  # precondition. If you reintroduce a short-circuit, agent-filed work becomes
-  # self-authorizing again.
+  # precondition; agent-authored markers never confer authority.
   def authorize(%Issue{} = issue, owner, repo, prefix, opts) do
     authorize_label_applier(issue, owner, repo, prefix, allowed_users(opts), opts)
   end
@@ -77,9 +69,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   def clear_cache do
     :persistent_term.erase(@cache_key)
 
-    if :ets.whereis(@timeline_table) != :undefined do
-      :ets.delete_all_objects(@timeline_table)
-    end
+    TimelineCache.clear()
 
     :ok
   end
@@ -124,14 +114,15 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # own state machine. Note this deliberately does NOT extend to any other
   # actor: an outsider re-labelling a ticket still revokes, because "latest
   # applier wins" is what stops a hostile relabel from riding a stale approval.
-  defp apply_label_decision({:verified, actor, event_id, prefix_appliers}, issue, allowed_users, opts) do
+  defp apply_label_decision({:verified, actor, event_id, prefix_appliers, label_actors}, issue, allowed_users, opts) do
     triaged_by = Enum.find(prefix_appliers, &member?(allowed_users, &1))
 
     {authorized?, source} =
       cond do
+        MainFixer.authorized?(issue, opts) and aiur_actor?(actor, opts) -> {true, "main_watch_fixer"}
         member?(allowed_users, actor) -> {true, "label_applier"}
         aiur_actor?(actor, opts) and not is_nil(triaged_by) -> {true, "prior_triage:#{triaged_by}"}
-        true -> {false, "label_applier"}
+        true -> LocalProvenance.decision(issue, actor, label_actors, opts)
       end
 
     log_decision(
@@ -213,13 +204,13 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp fetch_decision(issue, label, prefix, owner, repo, opts) do
-    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
-      case fetch_timeline_ladder(request_fun, token, owner, repo, issue, @timeline_page_sizes) do
+      case TimelineFetch.run(&fetch_timeline_ladder/6, [request_fun, token, owner, repo, issue, TimelineCache.page_sizes(owner, repo, issue.id, @timeline_page_sizes)], opts) do
         {:ok, events, new_etag, single_page?, per_page} ->
-          store_timeline(issue.id, new_etag, events, single_page?, per_page)
+          TimelineCache.put(owner, repo, issue.id, new_etag, events, single_page?, per_page)
           decide_fetched_timeline(issue, label, prefix, events, owner, repo)
 
         {:reused, events} ->
@@ -251,7 +242,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # as a provenance verdict.
   defp fetch_timeline_ladder(request_fun, token, owner, repo, issue, [per_page | smaller]) do
     url = timeline_url(owner, repo, issue.id, per_page)
-    held = held_timeline(issue.id, per_page)
+    held = TimelineCache.get(owner, repo, issue.id, per_page)
 
     case fetch_timeline(request_fun, token, url, held, page_budget(per_page)) do
       {:ok, events, etag, single_page?} ->
@@ -275,7 +266,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp timeline_url(owner, repo, issue_id, per_page),
-    do: "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}/timeline?per_page=#{per_page}"
+    do: "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}/timeline?per_page=#{per_page}"
 
   # Total event reach is the invariant, not the page count: a smaller page just
   # means more of them.
@@ -329,7 +320,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp continue_timeline_pages(request_fun, token, page, response, pages_left, events) do
     first_etag = response_etag(response, nil)
 
-    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+    case Access.parse_next_page_url(Map.get(response, :headers, [])) do
       nil -> {:ok, events ++ prune_events(page), first_etag, true}
       next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
     end
@@ -340,7 +331,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp fetch_timeline_pages(request_fun, token, url, pages_left, events, first_etag) do
     case request_fun.(timeline_request(url, token, nil)) do
       {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
           nil -> {:ok, events ++ prune_events(page), first_etag, false}
           next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
         end
@@ -363,10 +354,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp timeline_fetch_error({:ok, %{status: 200}}), do: {:error, :timeline_truncated}
 
   defp timeline_fetch_error({:ok, %{status: status} = response}),
-    do: {:error, {:timeline_fetch_failed, Errors.github_status_error(Map.put(response, :status, status))}}
+    do: {:error, {:timeline_fetch_failed, Access.github_status_error(Map.put(response, :status, status))}}
 
   defp timeline_fetch_error({:error, reason}),
-    do: {:error, {:timeline_fetch_failed, Errors.classify_error({:error, reason})}}
+    do: {:error, {:timeline_fetch_failed, Access.classify_error({:error, reason})}}
 
   defp timeline_fetch_error(_response), do: {:error, :invalid_timeline_response}
 
@@ -383,44 +374,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp response_etag(response, fallback) do
-    Transport.header(Map.get(response, :headers, []), "etag") || fallback
+    Access.header(Map.get(response, :headers, []), "etag") || fallback
   end
 
-  defp next_page?(response), do: not is_nil(Transport.parse_next_page_url(Map.get(response, :headers, [])))
-
-  # The timeline cache is keyed by issue id and holds the validator for page 1,
-  # the held events, and whether those events came from a single page — the only
-  # case a page-1 `304` is allowed to answer.
-  #
-  # It also holds the `per_page` its validator was minted against: a page-1 ETag
-  # for one page size says nothing about page 1 at another, so a ladder retry must
-  # neither present it nor be answered from a snapshot taken at a different page
-  # size.
-  defp held_timeline(issue_id, per_page) when is_binary(issue_id) do
-    case :ets.lookup(timeline_table(), issue_id) do
-      [{^issue_id, %{per_page: ^per_page} = held}] -> held
-      _other -> nil
-    end
-  end
-
-  defp held_timeline(_issue_id, _per_page), do: nil
-
-  defp store_timeline(issue_id, etag, events, single_page?, per_page) when is_binary(issue_id) do
-    table = timeline_table()
-
-    :ets.insert(
-      table,
-      {issue_id, %{etag: etag, events: events, single_page?: single_page?, per_page: per_page}}
-    )
-
-    if :ets.info(table, :size) > @max_cache_entries do
-      :ets.delete_all_objects(table)
-    end
-
-    :ok
-  end
-
-  defp store_timeline(_issue_id, _etag, _events, _single_page?, _per_page), do: :ok
+  defp next_page?(response), do: not is_nil(Access.parse_next_page_url(Map.get(response, :headers, [])))
 
   defp reusable?(%{single_page?: true, etag: etag, events: events})
        when is_binary(etag) and etag != "" and is_list(events),
@@ -428,18 +385,11 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp reusable?(_held), do: false
 
-  defp timeline_table do
-    case :ets.whereis(@timeline_table) do
-      :undefined -> :ets.new(@timeline_table, [:named_table, :public, :set, read_concurrency: true])
-      _other -> @timeline_table
-    end
-  end
-
   defp timeline_decision(issue, label, prefix, events) do
     case latest_label_event(events, label) do
       %{id: event_id, actor: actor} ->
         if is_binary(actor) do
-          decision = {:verified, actor, event_id, prefix_label_appliers(events, prefix)}
+          decision = {:verified, actor, event_id, prefix_label_appliers(events, prefix), LocalProvenance.label_actors(events, prefix)}
           cache_decision(issue, label, event_id, decision)
           decision
         else
@@ -478,7 +428,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp invalidate_incomplete_timeline(id, owner, repo) when is_binary(id) do
     case Integer.parse(id) do
       {number, ""} when number > 0 ->
-        ReadCache.invalidate([{:number, String.downcase(owner), String.downcase(repo), number}])
+        Access.invalidate([{:number, String.downcase(owner), String.downcase(repo), number}])
 
       _other ->
         :ok
@@ -710,7 +660,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp bounded_deferral_cache(deferrals), do: deferrals
 
   defp alert_persistent_deferral(issue, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       deferral_topic(issue.id),
       "Dispatch remains deferred for issue #{issue.identifier || issue.id} after #{@deferral_alert_threshold} consecutive checks (#{inspect(reason)}).",
       issue: issue,
@@ -721,7 +671,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp alert_deferral_resolved(%Issue{id: id} = issue) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       deferral_topic(id) <> ".resolved",
       "Dispatch authorization checks have recovered for issue #{issue.identifier || id}.",
       issue: issue,
@@ -737,7 +687,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp bounded_alert_cache(alerted), do: alerted
 
   defp alert_ambiguity(issue, reason) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "github.dispatch_authorization.ambiguous",
       "Dispatch denied for issue #{issue.identifier || issue.id}: label provenance could not be verified (#{inspect(reason)}).",
       issue: issue.identifier || issue.id,
@@ -752,7 +702,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # response cap even at the smallest page size, which is an Aiur limit to raise,
   # not a ticket to re-triage.
   defp alert_transport_limit(issue, {:transport_limit, reason}) do
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "github.dispatch_authorization.timeline_unreadable",
       "Dispatch deferred for issue #{issue.identifier || issue.id}: its GitHub timeline could not be " <>
         "read within Aiur's #{@max_timeline_response_bytes}-byte response cap (#{inspect(reason)}). " <>

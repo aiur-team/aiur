@@ -10,6 +10,10 @@
     "metrics"
   ],
   "properties": {
+    "auto": {
+      "type": "boolean",
+      "default": false
+    },
     "schema_version": {
       "const": 1
     },
@@ -251,6 +255,24 @@
                 }
               }
             ]
+          },
+          "strata_metadata": {
+            "type": "object",
+            "propertyNames": {
+              "minLength": 1
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "post_treatment"
+              ],
+              "properties": {
+                "post_treatment": {
+                  "type": "boolean"
+                }
+              }
+            }
           }
         }
       }

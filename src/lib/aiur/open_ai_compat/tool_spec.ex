@@ -1,7 +1,7 @@
 defmodule Aiur.OpenAICompat.ToolSpec do
   @moduledoc false
 
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Catalog
 
   @builtin [
     %{
@@ -106,7 +106,7 @@ defmodule Aiur.OpenAICompat.ToolSpec do
   def format_validation_error({:invalid_argument_types, names}),
     do: "invalid arguments: #{Enum.join(names, ", ")}"
 
-  defp all, do: @builtin ++ DynamicTool.tool_specs()
+  defp all, do: @builtin ++ Catalog.specs()
 
   defp decode_arguments(arguments) when is_map(arguments), do: {:ok, arguments}
 

@@ -29,10 +29,10 @@ defmodule Aiur.JsonStore do
   fsyncs the descriptor, then renames into place. Atomic from any concurrent
   reader's perspective.
   """
-  @spec write!(Path.t(), term()) :: :ok
-  def write!(path, term) when is_binary(path) do
+  @spec write!(Path.t(), term(), keyword()) :: :ok
+  def write!(path, term, opts \\ []) when is_binary(path) do
     File.mkdir_p!(Path.dirname(path))
-    :ok = Fs.atomic_write(path, Jason.encode!(term), fsync: true)
+    :ok = Fs.atomic_write(path, Jason.encode!(term), [fsync: true] ++ Keyword.take(opts, [:mode]))
     :ok
   end
 

@@ -35,6 +35,14 @@ defmodule Aiur.ControlCLI.Reasons do
   def format_reason({:state_concurrency_limit_reached, state}),
     do: "state concurrency limit reached for #{state}"
 
+  def format_reason({:optimistic_share, %{running: running, cap: cap}}),
+    do: "optimistic share full (#{running}/#{cap})"
+
+  def format_reason({:max_concurrent_agents_reached, %{used: used, active: active, paused_holds: holds, limit: limit, max: max}}) do
+    envelope = if limit < max, do: "; load envelope limit #{limit} is below max-agents #{max}", else: ""
+    "max concurrent agents reached: #{used} of #{limit} slots used (#{active} active, #{holds} held by paused entries)#{envelope}"
+  end
+
   def format_reason({:blocked_on_decision, %{decision_ids: [_ | _] = ids}}),
     do: "ticket is held by open blocking decision #{Enum.join(ids, ", ")}; answer it (see `aiurdev commands`), then resume"
 
@@ -147,7 +155,13 @@ defmodule Aiur.ControlCLI.Reasons do
         not_routable_to_worker: "ticket is not routable to a worker",
         dispatch_not_authorized: "tracker label provenance does not authorize dispatch",
         pause_override_still_present: "tracker pause override is still present",
-        ticket_parked: "ticket is parked from fleet dispatch; unpark it, then resume",
+        ticket_parked: "ticket is parked from fleet dispatch; resume it explicitly to clear the park marker",
+        ticket_executor_owned: "ticket is held by the Executor; release its owner marker before fleet dispatch",
+        park_pending: "park marker write is still pending; wait for it before resume",
+        park_marker_clear_failed: "park marker could not be cleared",
+        agent_not_paused: "agent is not paused; pause it first",
+        resume_pending: "a resume is pending for this agent",
+        reservation_not_held: "its pause (CI wait, dependency, duration or usage limit) does not hold a slot",
         worker_not_running: "the agent is registered as working but its worker process is gone; the next poll reconciles it, then resume",
         worker_not_started: "the agent's replacement worker is still starting; retry once it is running",
         waiting_for_dependencies: "ticket is waiting for dependencies",

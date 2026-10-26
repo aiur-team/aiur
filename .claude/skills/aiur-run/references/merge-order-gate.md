@@ -1,7 +1,7 @@
 ### Merge order gate
 
-Run this before **every** `gh pr merge`, including `--admin` merges, which skip
-any required check:
+Run this before **every** `aiur pr merge <N> --reviewed-sha <sha>`.
+Direct `gh pr merge` and `--admin` are not Executor merge paths:
 
 ```bash
 <loaded-aiur-run-skill>/scripts/check-stack-order.sh <pr-number> <owner/repo> \

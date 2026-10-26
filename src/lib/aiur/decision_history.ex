@@ -2,21 +2,19 @@ defmodule Aiur.DecisionHistory do
   @moduledoc """
   Read-only Executor history projected from `Aiur.DecisionStore` records.
 
-  The store remains the only source of truth. This module gives dashboard and
-  API consumers one newest-first shape while preserving uncertainty:
-  actor types are used only when a canonical record states them explicitly.
-  OCC-1 request records have source-agent metadata but no separate mutation
-  actor, so they are identified as ticket-agent activity rather than guessed to
-  be human or supervising-agent decisions.
+  The store remains the source of truth; this module exposes newest-first history
+  and attributes OCC-1 requests to their source agent.
   """
 
   alias Aiur.{Decision, DecisionDelegation, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionStore}
+  alias Aiur.DecisionHistory.EventProjection
 
   @default_limit 50
   @actor_types %{
     "human" => :human_operator,
     "human_operator" => :human_operator,
     "operator" => :human_operator,
+    "operator_relayed" => :operator_relayed,
     "executor" => :executor,
     "supervisor" => :supervising_agent,
     "supervising_agent" => :supervising_agent,
@@ -34,6 +32,7 @@ defmodule Aiur.DecisionHistory do
     "decision_dismissed" => :dismissed,
     "dismissed" => :dismissed,
     "executor_escalated" => :executor_escalated,
+    "authority_reclassified" => :authority_reclassified,
     "answered" => :answered,
     "revised" => :revised,
     "superseded" => :superseded,
@@ -131,6 +130,7 @@ defmodule Aiur.DecisionHistory do
       choice: choice(record, answer, revision_answer),
       rationale: first_value([value(record, :rationale), value(revision, :reason), value(answer, :rationale)]),
       supervisor_basis: supervisor_basis(answer, revision_answer),
+      operator_quote: first_value([value(revision_answer, :operator_quote), value(answer, :operator_quote)]),
       dispatch_result: value(record, :dispatch_result),
       acknowledgement_result: value(record, :acknowledgement_result),
       revision_of: revision_of,
@@ -173,84 +173,9 @@ defmodule Aiur.DecisionHistory do
     }
 
     event
-    |> event_record(base, revisions)
+    |> EventProjection.record(base, revisions)
     |> project_record()
   end
-
-  defp event_record(%DecisionEvent{type: :answer_recorded, data: answer}, base, _revisions),
-    do: Map.merge(base, %{answer: answer, event_kind: :answered})
-
-  defp event_record(%DecisionEvent{type: :decision_expired, data: data}, base, _revisions),
-    do: Map.merge(base, %{actor: data.actor, rationale: data.reason_class, event_kind: :expired})
-
-  defp event_record(%DecisionEvent{type: :decision_mooted, data: data}, base, _revisions),
-    do: Map.merge(base, %{actor: data.actor, rationale: data.reason_class, event_kind: :mooted})
-
-  defp event_record(%DecisionEvent{type: :decision_dismissed, data: data}, base, _revisions),
-    do: Map.merge(base, %{actor: data.actor, event_kind: :dismissed})
-
-  defp event_record(%DecisionEvent{type: :revision_recorded, data: revision}, base, _revisions),
-    do: Map.merge(base, %{revision: revision, revision_result: :recorded})
-
-  defp event_record(%DecisionEvent{type: :revision_dispatched, data: data}, base, revisions) do
-    Map.merge(base, %{
-      revision: Map.get(revisions, data.action_id),
-      action_id: data.action_id,
-      revision_result: :dispatched,
-      dispatch_result: :queued
-    })
-  end
-
-  defp event_record(%DecisionEvent{type: :revision_no_longer_applicable, data: data}, base, revisions) do
-    Map.merge(base, %{
-      revision: Map.get(revisions, data.action_id),
-      action_id: data.action_id,
-      revision_result: :no_longer_applicable,
-      dispatch_result: :not_applicable
-    })
-  end
-
-  defp event_record(%DecisionEvent{type: :follow_up_required, data: data}, base, revisions) do
-    Map.merge(base, %{
-      revision: Map.get(revisions, data.action_id),
-      action_id: data.action_id,
-      follow_up_required: true,
-      follow_up_slug: data.slug,
-      follow_up_required_at: base.recorded_at
-    })
-  end
-
-  defp event_record(%DecisionEvent{type: :follow_up_handled, data: data}, base, revisions) do
-    Map.merge(base, %{
-      revision: Map.get(revisions, data.action_id),
-      action_id: data.action_id,
-      actor: data.actor,
-      follow_up_required: true,
-      follow_up_handled: true,
-      follow_up_slug: data.slug,
-      follow_up_handled_at: base.recorded_at
-    })
-  end
-
-  defp event_record(%DecisionEvent{type: :executor_escalated, data: data}, base, _revisions) do
-    Map.merge(base, %{actor: data.actor, escalated_to_operator: true, escalation_reason: data.detail})
-  end
-
-  defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
-       when type in [:dispatch_queued, :dispatch_outcome_unknown, :delivered, :restored, :consumed, :failed] do
-    base
-    |> Map.merge(action_context(Map.get(actions, data.action_id)))
-    |> Map.merge(%{action_id: data.action_id, dispatch_result: type})
-  end
-
-  defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
-       when type in [:acknowledged, :resolved] do
-    base
-    |> Map.merge(action_context(Map.get(actions, data.action_id)))
-    |> Map.merge(%{action_id: data.action_id, actor: data.actor, acknowledgement_result: type})
-  end
-
-  defp event_record(_event, base, _revisions), do: base
 
   defp request_contexts(records) do
     Enum.reduce(records, %{}, fn
@@ -277,10 +202,6 @@ defmodule Aiur.DecisionHistory do
         actions
     end)
   end
-
-  defp action_context(%Aiur.DecisionAnswer{} = answer), do: %{answer: answer}
-  defp action_context(%DecisionRevision{} = revision), do: %{revision: revision}
-  defp action_context(_action), do: %{}
 
   defp latest_context(contexts) when map_size(contexts) == 0, do: nil
   defp latest_context(contexts), do: contexts |> Map.values() |> Enum.max_by(& &1.version)
@@ -333,6 +254,7 @@ defmodule Aiur.DecisionHistory do
 
   defp normalize_actor_type(_type), do: :unknown
 
+  defp actor_type_label(:operator_relayed), do: "Operator (relayed)"
   defp actor_type_label(:human_operator), do: "Operator"
   defp actor_type_label(:executor), do: "Executor"
   defp actor_type_label(:supervising_agent), do: "Supervising agent"
@@ -340,6 +262,7 @@ defmodule Aiur.DecisionHistory do
   defp actor_type_label(:system), do: "System"
   defp actor_type_label(:unknown), do: "Unknown source"
 
+  defp default_actor_label(:operator_relayed, id), do: "answered by operator, relayed by #{id}"
   defp default_actor_label(:human_operator, _id), do: actor_type_label(:human_operator)
   defp default_actor_label(:executor, _id), do: actor_type_label(:executor)
   defp default_actor_label(type, id), do: id || actor_type_label(type)

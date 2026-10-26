@@ -5,7 +5,8 @@ defmodule Aiur.Experiments.ConfigTest do
   test "absent experiments config supplies the complete downstream settings" do
     assert {:ok, settings} = Schema.parse(%{})
 
-    assert Map.from_struct(settings.experiments) == %{
+    assert Map.from_struct(settings.experiments) |> Map.delete(:auto) == %{
+             analyst: %Schema.Experiments.Analyst{auto_request: true},
              enabled: true,
              default_min_samples: 15,
              default_before_days: 14,

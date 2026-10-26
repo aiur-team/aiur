@@ -3,8 +3,9 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   require Logger
 
-  alias Aiur.{Alerts, CurrentRunMembership, Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{OptimisticLedger, State}
+  alias Aiur.{CurrentRunMembership, Issue, Signal, TrackerIdentity}
+  alias Aiur.Orchestrator.{OptimisticLedger, State, TelemetryEvents}
+  alias Aiur.Signal
 
   @membership_observe_timeout 5_000
   @terminal_verification_attempt_limit 5
@@ -15,6 +16,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
 
   def record(%Issue{} = issue, lifecycle, observe_membership_fun)
       when is_function(observe_membership_fun, 2) do
+    :ok = TelemetryEvents.terminal(issue, lifecycle)
     if lifecycle in [:completed, :cancelled], do: OptimisticLedger.close_observed(issue)
 
     case Issue.tracker_identity(issue) do
@@ -61,6 +63,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
            timeout: @membership_observe_timeout
          ) do
       {:ok, _result} ->
+        capture_terminal(identity, lifecycle)
         :ok
 
       {:error, reason} ->
@@ -88,7 +91,7 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
   def terminal_lifecycle(_state), do: :completed
 
   defp alert_terminal_verification_abandoned(issue, count) do
-    Alerts.emit_system("ticket.#{issue.identifier}.terminal_verification_abandoned",
+    Signal.alert("ticket.#{issue.identifier}.terminal_verification_abandoned",
       issue: issue.identifier,
       message: "Terminal verification abandoned for #{issue.identifier} after #{count} attempts.",
       reason: "Tracker refresh or membership persistence remained unresolved after #{count} attempts; stopped retaining the ticket.",
@@ -96,6 +99,14 @@ defmodule Aiur.Orchestrator.MembershipLifecycle do
       severity: "warning",
       central: true
     )
+  end
+
+  defp capture_terminal(identity, lifecycle) do
+    Signal.terminal_capture(identity, lifecycle)
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp safely_observe(observe_membership_fun, identity, lifecycle) do

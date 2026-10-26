@@ -26,6 +26,11 @@ defmodule Aiur.MainWatch.StateTest do
     assert {_, [{"system.main.ci.failed", %{sha: "c"}}]} = State.observe(state, changed, 3)
   end
 
+  test "current verdict retains the source event" do
+    {state, []} = State.observe(State.new(), Map.put(observation("queue-sha", 10, "success"), :event, "merge_group"), 10)
+    assert state.event == "merge_group"
+  end
+
   test "known flakes emit informational event while unknown or truncated evidence stays red" do
     known = %FailureDigest{signature: "known", flake_only: true, tests: [%{identity: "flaky", classification: :known_flake}]}
     observation = %{observation("a", 1, "failure") | digest: known}
@@ -39,11 +44,18 @@ defmodule Aiur.MainWatch.StateTest do
 
   test "recovery emits once and pending or cancelled runs cannot replace completed state" do
     {state, [_]} = observe(State.new(), "a", 1, "failure")
-    {state, [{"system.main.ci.failed.resolved", %{sha: "b"}}]} = observe(state, "b", 2, "success")
+    {state, [{"system.main.ci.failed.resolved", %{sha: "b", red_since: 1, recovered_at: 2}}]} = observe(state, "b", 2, "success")
     assert state.last_green_sha == "b"
     assert state.red_since == nil
     {state, []} = observe(state, "b", 2, "success")
     for conclusion <- [nil, "cancelled"], do: assert({^state, []} = observe(state, "c", 3, conclusion))
+  end
+
+  test "recovery window starts when the first red workflow run starts" do
+    started = observation("red", 20, "failure") |> Map.put(:started_at, 10)
+    {state, [{"system.main.ci.failed", _payload}]} = State.observe(State.new(), started, 20)
+    assert state.red_since == 10
+    {_, [{"system.main.ci.failed.resolved", %{red_since: 10, recovered_at: 30}}]} = observe(state, "green", 30, "success")
   end
 
   test "history does not emit old red before newest completed green" do

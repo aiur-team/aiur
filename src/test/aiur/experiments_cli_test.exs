@@ -3,6 +3,7 @@ defmodule Aiur.ExperimentsCLITest do
   import ExUnit.CaptureIO
   alias Aiur.{Experiments, ExperimentsCLI}
   alias Aiur.Experiments.Paths
+  alias AiurWeb.Experiments.Source
 
   defmodule FixturePack do
     @behaviour Aiur.Experiments.MetricPack
@@ -25,7 +26,7 @@ defmodule Aiur.ExperimentsCLITest do
         }
       ]
 
-    def observations(_ids, _window, _context), do: %{}
+    def observations(_ids, window, _context), do: %{"start" => {%{state: :captured}, [%{unit_id: "fixture-1", value: 12, at: window.start}]}}
   end
 
   setup do
@@ -36,10 +37,13 @@ defmodule Aiur.ExperimentsCLITest do
       if previous_packs, do: Application.put_env(:aiur, :experiment_metric_packs, previous_packs), else: Application.delete_env(:aiur, :experiment_metric_packs)
     end)
 
-    root = Path.join(System.tmp_dir!(), "experiments-cli-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("experiments-cli")
     previous = Application.get_env(:aiur, :experiments_dir)
     previous_base = Application.get_env(:aiur, :repo_base_root)
-    Application.put_env(:aiur, :repo_base_root, Path.join(root, "repo"))
+    # Keep repository state in the suite root, which lives until after_suite;
+    # a late writer must not race deletion of a per-test state root.
+    state_root = Path.join(Application.fetch_env!(:aiur, :test_run_root), "experiments-cli-#{System.pid()}-#{System.unique_integer([:positive])}")
+    Application.put_env(:aiur, :repo_base_root, state_root)
     Application.put_env(:aiur, :experiments_dir, root)
 
     on_exit(fn ->
@@ -48,7 +52,8 @@ defmodule Aiur.ExperimentsCLITest do
       Aiur.TestCleanup.rm_rf!(root)
     end)
 
-    if !Process.whereis(Aiur.PubSub), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     start_supervised!(Aiur.Experiments.Store)
     :ok
   end
@@ -117,6 +122,41 @@ defmodule Aiur.ExperimentsCLITest do
     end
   end
 
+  test "confirmed abandonment is audited and hidden from default and page lists" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("abandon smoke") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+
+    assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :abandon, argv: [spec["id"], "--reason", "smoke complete"]) == 64 end) =~ "abandon <id>"
+    assert capture_io(fn -> assert ExperimentsCLI.run(verb: :abandon, argv: [spec["id"], "--reason", "smoke complete", "--confirm"]) == 0 end) =~ "abandoned"
+
+    assert {:ok, detail} = Experiments.fetch(spec["id"])
+    assert detail.spec["status"] == "abandoned"
+    assert Enum.any?(detail.journal, &(&1["kind"] == "abandoned" and &1["reason"] == "smoke complete" and &1["actor"] == "operator"))
+    assert {:ok, []} = Experiments.list()
+    assert {:ok, []} = Experiments.list(status: nil)
+    assert {:ok, [%{id: id, status: "abandoned"}]} = Experiments.list(status: "abandoned")
+    assert id == spec["id"]
+
+    previous_facade = Application.get_env(:aiur, :experiments_facade)
+    Application.put_env(:aiur, :experiments_facade, Experiments)
+
+    try do
+      assert {:ok, []} = Source.index()
+    after
+      if previous_facade, do: Application.put_env(:aiur, :experiments_facade, previous_facade), else: Application.delete_env(:aiur, :experiments_facade)
+    end
+  end
+
+  test "abandon list filtering keeps incomplete summary rows" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("corrupt summary") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+    File.write!(Paths.file(spec["id"], "spec.json"), "{")
+    File.rm!(Path.join(Paths.root(), "index.json"))
+
+    assert {:ok, [%{id: id, error: :unreadable}]} = Experiments.list()
+    assert id == spec["id"]
+  end
+
   test "a tag line leaves timestamp resolution to the spec" do
     stop_supervised(Aiur.Experiments.Store)
     start_supervised!({Aiur.Experiments.Store, defaults: [resolve_time: fn "v1" -> {:ok, "2026-10-09T00:00:00Z"} end]})
@@ -129,16 +169,57 @@ defmodule Aiur.ExperimentsCLITest do
     assert get_in(Jason.decode!(output), ["design", "change", "time"]) == "2026-10-09T00:00:00Z"
   end
 
-  test "create warns honestly that a baseline was not frozen" do
-    warning =
-      capture_io(:stderr, fn ->
-        capture_io(fn ->
-          assert ExperimentsCLI.run(verb: :create, argv: ["--title", "warning", "--line", "manual:warning@2026-10-09T00:00:00Z", "--metric", "delivery/start"]) == 0
-        end)
-      end)
+  test "create freezes the baseline and reports its window, count and coverage" do
+    clock = ~U[2026-10-08 00:00:00Z]
+    stop_supervised(Aiur.Experiments.Store)
+    start_supervised!({Aiur.Experiments.Store, catalog_context: %{clock: fn -> clock end}})
 
-    assert warning == "baseline not frozen: freeze is not available in this build\n"
+    change_at = DateTime.add(clock, -1, :second)
+    change_at_text = DateTime.to_iso8601(change_at)
+    window_start = change_at |> DateTime.add(-14 * 86_400) |> DateTime.to_iso8601()
+    argv = ["--title", "frozen", "--line", "manual:frozen@#{change_at_text}", "--metric", "delivery/start"]
+
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: argv) == 0 end)
+    assert output =~ "froze before window #{window_start}..#{change_at_text}: 1 observations"
+    assert output =~ ~s|coverage delivery/start={"state":"captured"} (n=1)|
+    {:ok, [row]} = Experiments.list()
+    assert Enum.map(Experiments.journal(row.id), & &1["kind"]) == ["created", "frozen"]
+    {:ok, detail} = Experiments.fetch(row.id)
+    assert [%{"window_name" => "before", "observation_count" => 1, "revision" => 1}] = detail.snapshots
+    shown = capture_io(fn -> assert ExperimentsCLI.run(verb: :show, argv: [row.id]) == 0 end)
+    assert shown =~ "1 observations"
+    assert shown =~ "(n=1)"
   end
+
+  test "no-freeze opts out and explicit freeze requires a reason for revisions" do
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :create, argv: quick_args("optout") ++ ["--no-freeze", "--json"]) == 0 end)
+    spec = Jason.decode!(output)
+    refute Map.has_key?(spec, "frozen_snapshot")
+    assert {:ok, %{snapshots: []}} = Experiments.fetch(spec["id"])
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec["id"], "--json"]) == 0 end)
+    assert Jason.decode!(output)["observation_count"] == 1
+    assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec["id"]]) == 1 end) =~ "revision r1 already exists; --reason is required"
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec["id"], "--reason", "new evidence", "--json"]) == 0 end)
+    assert Jason.decode!(output)["revision"] == 2
+    assert {:ok, %{snapshots: snapshots}} = Experiments.fetch(spec["id"])
+    assert Enum.map(snapshots, & &1["revision"]) == [1, 2]
+  end
+
+  test "freeze rejects a window absent from an A/B design as invalid usage" do
+    attrs = %{
+      title: "ab",
+      design: %{kind: "ab", cohorts: [%{id: "a", label: "A", where: %{attr: "backend", op: "eq", value: "a"}}, %{id: "b", label: "B", where: %{attr: "backend", op: "eq", value: "b"}}], control: "a"},
+      metrics: [%{ref: "delivery/start"}]
+    }
+
+    assert {:ok, spec} = Experiments.create(attrs, freeze: false)
+    assert capture_io(:stderr, fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec.id, "--window", "before"]) == 64 end) =~ "--window before|after|observation"
+    assert {:ok, %{snapshots: []}} = Experiments.fetch(spec.id)
+    output = capture_io(fn -> assert ExperimentsCLI.run(verb: :freeze, argv: [spec.id, "--json"]) == 0 end)
+    assert Jason.decode!(output)["window_name"] == "observation"
+  end
+
+  defp quick_args(title), do: ["--title", title, "--line", "manual:#{title}@2026-10-09T00:00:00Z", "--metric", "delivery/start"]
 
   test "control RPC transports errors and creation notices using protocol markers" do
     missing = capture_io(fn -> assert Aiur.AgentControlCLI.experiments(verb: :show, argv: ["missing"]) == :ok end)
@@ -150,9 +231,11 @@ defmodule Aiur.ExperimentsCLITest do
     assert usage =~ "__AIUR_CONTROL_ERROR__:aiur: experiments expects"
     assert usage =~ "__AIUR_CONTROL_EXIT__:64"
     created = capture_io(fn -> Aiur.AgentControlCLI.experiments(verb: :create, argv: ["--title", "rpc", "--line", "manual:rpc@2026-10-09T00:00:00Z", "--metric", "delivery/start", "--json"]) end)
-    assert created =~ "__AIUR_CONTROL_ERROR__:baseline not frozen: freeze is not available in this build"
+    refute created =~ "__AIUR_CONTROL_ERROR__"
     assert created =~ "__AIUR_CONTROL_EXIT__:0"
     [json | _markers] = String.split(created, "\n", trim: true)
     assert Jason.decode!(json)["title"] == "rpc"
+    assert Jason.decode!(json)["frozen_snapshot"]["observation_count"] == 1
+    assert Jason.decode!(json)["frozen_snapshot"]["metrics"]["delivery/start"]["coverage"] == %{"state" => "captured"}
   end
 end

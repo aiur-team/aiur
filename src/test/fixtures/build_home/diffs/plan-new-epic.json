@@ -1,0 +1,58 @@
+{
+  "v": 1,
+  "kind": "diff",
+  "epoch": "fixture",
+  "generation": 1,
+  "now": 1791408000000,
+  "upsert": [
+    {
+      "id": "900001",
+      "num": 900001,
+      "title": "Cursor pagination for /tickets",
+      "type": "feature",
+      "epic": "design",
+      "feature": "pag",
+      "also": [],
+      "cx": 3,
+      "pts": 3,
+      "sec": "plan",
+      "ord": 0,
+      "start": null,
+      "start_src": "unknown",
+      "end": null,
+      "created": 1790727381819,
+      "status": "queued",
+      "pct": 0,
+      "agent": null,
+      "est": 5.5,
+      "override": null,
+      "added": false,
+      "deps": [
+        "597"
+      ],
+      "children": [
+        "615",
+        "621",
+        "622",
+        "631"
+      ],
+      "dep_states": {
+        "597": "cleared"
+      },
+      "deps_missing": 0,
+      "wave": 1,
+      "qpos": 1,
+      "cue": {
+        "held": null,
+        "promoted": 1791407640000,
+        "wait": null,
+        "waitAny": false,
+        "failed": null,
+        "blockedChain": false
+      },
+      "pr": null
+    }
+  ],
+  "remove": [],
+  "set": {}
+}

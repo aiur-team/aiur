@@ -22,10 +22,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   What this module still answers, and why each has to stay here:
 
-    * `:open_pull_request` — the number, head/base refs, `reviewDecision` and
-      head commit date. REST has no single call that returns review decision,
-      and branch-to-PR discovery over REST is a `?head=` query plus a paginated
-      scan of every open pull request when the branch is not the legacy one.
+    * `:open_pull_request` — the number, head/base refs, review and merge
+      readiness, ready-for-review time, and head commit date. These facts are
+      stored in the existing branch-PR cache for the Executor sweep. REST has
+      no single call that returns review decision, and branch-to-PR discovery
+      over REST is a `?head=` query plus a paginated scan of every open pull
+      request when the branch is not the legacy one.
     * `:review_thread_comments` — resolution state per inline thread, which the
       REST review-comment endpoints do not expose. Emitted only for a target
       whose threads were actually part of the query; a target discovered
@@ -64,8 +66,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   require Logger
 
+  alias Aiur.GitHub.{Access, DeliveredPullRequest, ExecutorSweepPRCache, PollSnapshots, ReviewThreads}
   alias Aiur.GitHub.CommentPollBatch.Query
-  alias Aiur.GitHub.{DeliveredPullRequest, GraphQLCost, PollSnapshots, ResourceStore, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -78,9 +80,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
   def fetch(targets, opts \\ []) when is_list(targets) do
     targets = targets |> Enum.map(&to_string/1) |> Enum.uniq() |> Enum.filter(&positive_number?/1)
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       repo_identity = owner <> "/" <> repo
       started_at_ms = System.system_time(:millisecond)
 
@@ -187,7 +189,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     query = Query.build(indexed)
     variables = %{"owner" => owner, "repo" => repo}
 
-    case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
+    case Access.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
       {:ok, body} ->
         report_batch_cost(query, variables, body)
 
@@ -207,14 +209,14 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   # One debug line per call, so the before/after of any connection-size change
   # is observable without reading the quota ledger. The estimate is the shape
-  # cost computed before sending (`GraphQLCost.estimate/1`); the measured cost
+  # cost computed before sending (`Access.estimate_graphql_cost/1`); the measured cost
   # is GitHub's own `rateLimit { cost }` from the response, which the transport
   # injects on every document. A batch call is one document over up to 33
   # targets, so this fires at most once per poll cycle per chunk — not per
   # target, and not per comment.
   defp report_batch_cost(query, variables, body) do
-    estimate = GraphQLCost.estimate(query)
-    measured = GraphQLCost.reported(%{body: body})
+    estimate = Access.estimate_graphql_cost(query)
+    measured = Access.reported_graphql_cost(%{body: body})
 
     Logger.debug(fn ->
       "comment_poll_batch cost report " <>
@@ -251,7 +253,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp deposit_thread_comment(owner, repo, thread_id, comment) do
     with database_id when is_integer(database_id) <- Map.get(comment, "databaseId"),
-         key when not is_nil(key) <- ResourceStore.key(:pr_review_comment_thread, owner, repo, database_id) do
+         key when not is_nil(key) <- Access.key(:pr_review_comment_thread, owner, repo, database_id) do
       remember_comment_thread(key, thread_id)
     else
       _other -> :ok
@@ -261,7 +263,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # The mapping is a constant fact, so a repeat deposit of the same value is
   # declined inside the store's swap rather than re-stamped every cycle.
   defp remember_comment_thread(key, thread_id) do
-    ResourceStore.update_resource(
+    Access.update_resource(
       key,
       fn
         ^thread_id -> :unchanged
@@ -361,6 +363,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp target_batch(entry, _direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
 
+    if is_map(pull_request), do: ExecutorSweepPRCache.capture(entry.repo_identity, entry.target, pull_request_payload(pull_request))
+
     cond do
       cached_threads_match?(entry, pull_request) ->
         Map.put(batch, :review_thread_comments, ReviewThreads.unaddressed_thread_comments(entry.cached_threads, opts))
@@ -415,34 +419,30 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 
   defp normalize_pull_request(pull_request, threads_included?) do
-    %{
-      :kind => :pull_request,
-      :threads_included? => threads_included?,
-      "number" => Map.get(pull_request, "number"),
-      "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
-      "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
-      "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
-      # The draft flag feeds poll-side draft-to-ready detection (#2707). A
-      # scalar on a node the query already selects adds no rate-limit points.
-      "draft" => Map.get(pull_request, "isDraft"),
-      # Review-staleness context for the rework gate (#1756). `reviewDecision`
-      # is nil until the first review lands; `head_committed_at` is the commit
-      # date of the head commit the reviews are (or are not) talking about.
-      # Both stay on the identity field set, so a branch-discovered pull request
-      # keeps full review-freshness context and the gate never goes inert
-      # because of the comment inversion.
-      "review_decision" => Map.get(pull_request, "reviewDecision"),
-      "head_committed_at" => head_committed_at(pull_request),
-      review_threads: review_thread_nodes(pull_request),
-      review_threads_page_info: review_thread_page_info(pull_request)
-    }
-  end
-
-  defp head_committed_at(pull_request) do
-    case get_in(pull_request, ["commits", "nodes"]) do
-      [_ | _] = nodes -> nodes |> List.last() |> get_in(["commit", "committedDate"])
-      _other -> nil
-    end
+    Map.merge(
+      %{
+        :kind => :pull_request,
+        :threads_included? => threads_included?,
+        "number" => Map.get(pull_request, "number"),
+        "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
+        "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
+        "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
+        # The draft flag feeds poll-side draft-to-ready detection (#2707). A
+        # scalar on a node the query already selects adds no rate-limit points.
+        "draft" => Map.get(pull_request, "isDraft"),
+        # Review-staleness context for the rework gate (#1756). `reviewDecision`
+        # is nil until the first review lands; `head_committed_at` is the commit
+        # date of the head commit the reviews are (or are not) talking about.
+        # Both stay on the identity field set, so a branch-discovered pull request
+        # keeps full review-freshness context and the gate never goes inert
+        # because of the comment inversion.
+        "review_decision" => Map.get(pull_request, "reviewDecision"),
+        "head_committed_at" => ExecutorSweepPRCache.head_committed_at(pull_request),
+        review_threads: review_thread_nodes(pull_request),
+        review_threads_page_info: review_thread_page_info(pull_request)
+      },
+      ExecutorSweepPRCache.normalize(pull_request)
+    )
   end
 
   defp review_thread_nodes(pull_request) do

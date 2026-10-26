@@ -37,9 +37,9 @@ shared [dictated-input note](dictated-input.md).
 - Move the issue to `agent:in-progress` and keep one `## Agent Workpad` comment
   current. When implementation and draft-PR self-review are complete, mark the
   PR ready before moving to `agent:ci-wait` and ending the turn. Drafts never
-  pass CI in any repository. Only after the full required-check set passes on
+  permit handoff. Only after all required checks pass on
   the current head SHA, flip to `agent:human-review`. Do **not** self-merge — always await
-  human review.
+  human review. Aiur PRs run fast checks; the merge queue runs the full suite.
 - **Every state move is `aiur_set_ticket_state({ "state": "<state>" })`, never
   `gh issue edit --add-label` / `--remove-label`.** The daemon relabels your
   ticket too, so a label you name for removal may already be gone — the removal
@@ -57,17 +57,19 @@ shared [dictated-input note](dictated-input.md).
   has the page map.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
-- Integration safety is your responsibility. Before CI or human-review
-  handoff, assess the exact PR head against its configured base. Harmless
-  staleness passes; conflicts or changed-file overlap require integration,
-  up to 3 integrations per handoff without asking, each followed by relevant
-  local tests and format, size, components gates. After the third, emit a
-  non-blocking Executor alert; keep going if the base is safe. Never open a
-  blocking decision for base integration. Record attempts in `dev-loop.md`.
+- Integration safety is your responsibility. During `human-review` or
+  `ci-wait`, integrate the configured base only when GitHub reports the exact
+  PR head as `CONFLICTING` or a newer base commit fixes a failing required
+  check (name the commit and check). A reviewer request alone does not
+  authorize integration. File overlap and base movement
+  alone do not require a push; the merge queue tests the PR on current base.
+  Never open a blocking decision for base integration. Record any required
+  conflict resolution in `dev-loop.md`.
   A PR already in the merge queue is left alone: never dequeue it, or ask the
   Executor to, in order to update its branch.
 - **Events:** `emit_event(name, message, payload?)` publishes to
-  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
+  `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`;
+  `optimistic.integrated` uses `ticket.<id>.optimistic.integrated`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
   `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
   readiness signals. A manual `aiur_subscribe` pattern must begin with

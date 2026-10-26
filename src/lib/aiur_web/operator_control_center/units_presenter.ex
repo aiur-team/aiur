@@ -5,12 +5,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   Provider reads happen in `load/2`; projection, selection changes, tokens, and
   lookup remain pure so LiveView rendering never reaches a provider.
   """
+
+  import AiurWeb.OperatorControlCenter.UnitsPresenter.Catalog, only: [catalog_status: 1, catalog_message: 3]
+
   alias Aiur.{CurrentRunMembership, TicketActivity, TrackerIdentity}
   alias Aiur.Projections.{UnitsPolicy, UnitsRow}
   alias Aiur.Projections.UnitsRow.Sources
-  alias AiurWeb.OperatorControlCenter.{RowToken, UnitsPresentation}
+  alias AiurWeb.OperatorControlCenter.RowToken
 
-  @type catalog_status :: :ready | :empty | :stale | :unavailable
+  @startup_loading_timeout_ms 600_000
+
+  @type catalog_status :: :ready | :empty | :stale | :unavailable | :loading
 
   @spec load(map(), keyword()) :: map()
   def load(payload, opts \\ [])
@@ -43,7 +48,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
         issue_facts: issue_source(status)
       })
 
-    status = catalog_status(snapshot)
+    startup_elapsed_ms = Map.get(payload, :startup_elapsed_ms, Aiur.Boot.elapsed_ms())
+
+    status =
+      cond do
+        Map.get(payload, :daemon_starting?) == true and startup_elapsed_ms < @startup_loading_timeout_ms -> :loading
+        Map.get(payload, :daemon_starting?) == true -> :unavailable
+        true -> catalog_status(snapshot)
+      end
 
     %{
       status: status,
@@ -54,6 +66,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   def load(_payload, _opts), do: load(%{})
+
+  @doc false
+  @spec starting_catalog() :: map()
+  def starting_catalog do
+    %{status: :loading, message: "The daemon is starting.", truncated?: false, snapshot: %{rows: [], truncated?: false}}
+  end
+
+  @doc false
+  @spec starting_catalog(map()) :: map()
+  def starting_catalog(%{units: %{} = units} = payload) do
+    Map.put(payload, :units, Map.merge(units, %{status: :loading, message: "The daemon is starting."}))
+  end
+
+  def starting_catalog(payload) when is_map(payload), do: Map.put(payload, :units, starting_catalog())
 
   @spec project(map(), UnitsPolicy.selection() | term()) :: map()
   def project(%{snapshot: %{rows: rows}} = catalog, selection) when is_list(rows) do
@@ -213,7 +239,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
          internal_row when not is_nil(internal_row) <- Map.get(internal_by_identity, Sources.key(identity)) do
       public_row
       |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
+      |> Map.put(:usage_limit_reset_at, Map.get(internal_row, :usage_limit_reset_at))
       |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
+      |> Map.put(:turn_count, Map.get(internal_row, :turn_count))
+      |> Map.put(:turn_count_observed?, Map.get(internal_row, :turn_count_observed?) == true)
     else
       _missing_identity_or_snapshot -> public_row
     end
@@ -299,125 +328,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
   defp safe_rows(_fleet, _bucket), do: []
 
-  defp catalog_status(%{health: %{membership: :unavailable}, rows: []}), do: :unavailable
-  defp catalog_status(%{health: %{membership: :unavailable}}), do: :stale
-  defp catalog_status(%{health: %{membership: :degraded}}), do: :stale
-
-  defp catalog_status(%{health: %{membership: status}, rows: []})
-       when status not in [:healthy, :available],
-       do: :unavailable
-
-  defp catalog_status(%{health: %{membership: status}})
-       when status not in [:healthy, :available],
-       do: :stale
-
-  defp catalog_status(%{freshness: %{membership: %{status: status}}}) when status in [:stale, :unknown, :unavailable],
-    do: :stale
-
-  # A degraded fleet source must be visible on the catalog itself: a stale
-  # `Active 0` and a current `Active 0` mean different things, so the catalog
-  # is never presented as ready while the fleet view behind it is last-known-good.
-  defp catalog_status(%{rows: []} = snapshot), do: if(fleet_view_degraded?(snapshot), do: :stale, else: :empty)
-  defp catalog_status(snapshot), do: if(fleet_view_degraded?(snapshot), do: :stale, else: :ready)
-
-  defp fleet_view_degraded?(snapshot) do
-    fleet_health(snapshot) not in [:healthy, :available] or
-      fleet_freshness_degraded?(snapshot)
-  end
-
-  # A fleet view only counts as "stale" once it is genuinely old; a snapshot
-  # marked stale a few seconds after its last publish is still effectively
-  # current and must not demote the catalog to last-known-good. The row
-  # projection admits rows on the same window, so the catalog's status and its
-  # contents can never disagree about which fleet views still count.
-  #
-  # `Sources.fleet_stale_after_seconds/0` is read at call time rather than
-  # captured into a module attribute: the window derives from the effective poll
-  # cadence, which changes at runtime with idle backoff, and a compile-time
-  # capture would freeze it at whatever the cadence was when this module built.
-  #
-  # A `:stale` freshness is only a degradation once the view is actually old;
-  # `:unknown`/`:unavailable` have no age to compare and stay degraded. A stale
-  # view with no age at all cannot be judged against the window, and the row
-  # projection drops it for exactly that reason — so the catalog must not then
-  # call itself ready over the rows that disappeared.
-  defp fleet_freshness_degraded?(snapshot) do
-    case {fleet_freshness_status(snapshot), fleet_age_seconds(snapshot)} do
-      {:stale, age_seconds} when is_integer(age_seconds) -> age_seconds >= Sources.fleet_stale_after_seconds()
-      {:stale, _no_age} -> true
-      {status, _age_seconds} when status in [:unknown, :unavailable] -> true
-      _freshness -> false
-    end
-  end
-
-  defp fleet_health(snapshot), do: snapshot |> Map.get(:health, %{}) |> Map.get(:status, :unknown)
-
-  defp fleet_freshness_status(snapshot) do
-    case snapshot |> Map.get(:freshness, %{}) |> Map.get(:status) do
-      %{status: status} -> status
-      status when is_atom(status) -> status
-      _freshness -> :unknown
-    end
-  end
-
-  defp fleet_age_seconds(snapshot) do
-    case snapshot |> Map.get(:freshness, %{}) |> Map.get(:status) do
-      %{age_seconds: age_seconds} when is_integer(age_seconds) and age_seconds >= 0 -> age_seconds
-      _freshness -> nil
-    end
-  end
-
-  defp catalog_message(:ready, _membership, _snapshot), do: nil
-  defp catalog_message(:empty, _membership, _snapshot), do: "No units in this run yet."
-
-  # Never quote a healthy membership as the reason for a stale catalog: the
-  # cause is whichever source is actually degraded.
-  defp catalog_message(:stale, membership, snapshot),
-    do: membership_fault(membership) || stale_source_message(snapshot)
-
-  defp catalog_message(:unavailable, membership, _snapshot),
-    do: membership_fault(membership) || "Fleet data is unavailable."
-
-  defp membership_fault(membership) do
-    case Map.get(membership, :health) do
-      health when health in [:healthy, :available] -> nil
-      _degraded_or_unknown -> Map.get(membership, :health_message)
-    end
-  end
-
-  defp stale_source_message(snapshot) do
-    cond do
-      fleet_health(snapshot) not in [:healthy, :available] ->
-        "#{stale_lead(snapshot)} Fleet data is unavailable."
-
-      fleet_freshness_degraded?(snapshot) ->
-        "Fleet updates are pending." <> fleet_age_phrase(snapshot)
-
-      true ->
-        stale_lead(snapshot)
-    end
-  end
-
-  # The stale lead is intentionally plain: the dashboard no longer tells the
-  # operator that a view is out of date, so the message names the current state
-  # without "last saw" vocabulary.
-  defp stale_lead(%{rows: []}), do: "No live units."
-  defp stale_lead(_snapshot), do: "The fleet is still counting units."
-
-  defp fleet_age_phrase(snapshot) do
-    case fleet_age_seconds(snapshot) do
-      nil -> ""
-      age_seconds -> " Last updated #{UnitsPresentation.age_label(age_seconds)} ago."
-    end
-  end
-
+  defp count_status(%{status: :loading}), do: :loading
   defp count_status(%{status: :unavailable}), do: :unavailable
   defp count_status(%{status: :stale}), do: :partial
   defp count_status(%{truncated?: true}), do: :partial
   defp count_status(%{snapshot: %{truncated?: true}}), do: :partial
   defp count_status(_catalog), do: :exact
 
-  defp display_counts(_rows, _selection, :unavailable) do
+  defp display_counts(_rows, _selection, count_status) when count_status in [:unavailable, :loading] do
     [:scope | UnitsPolicy.conditions()]
     |> Map.new(&{&1, nil})
   end
@@ -425,6 +343,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   defp display_counts(rows, selection, _count_status), do: UnitsPolicy.counts(rows, selection)
 
   defp display_total(_rows, :unavailable), do: nil
+  defp display_total(_rows, :loading), do: nil
   defp display_total(rows, _count_status), do: length(rows)
 
   defp catalog_revision(catalog) do

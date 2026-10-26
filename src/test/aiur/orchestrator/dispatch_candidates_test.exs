@@ -73,6 +73,15 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
     assert order([ready, held]) == [held, ready]
   end
 
+  test "future regression guard: ready p1 without a queue hint precedes p3 and unprioritized tickets" do
+    p1 = candidate(701, 1)
+    p3 = candidate(702, 3)
+    unprioritized = candidate(703, nil)
+
+    assert Enum.map(DispatchCandidates.order([p3, unprioritized, p1], DispatchPolicy.terminal_state_set()), & &1.id) ==
+             [p1.id, p3.id, unprioritized.id]
+  end
+
   test "a blocker closed in the current store stops lowering its dependent's priority" do
     held = candidate(1, 1)
     ready = candidate(2, 2)
@@ -82,7 +91,10 @@ defmodule Aiur.Orchestrator.DispatchCandidatesTest do
     assert order([ready, held]) == [held, ready]
   end
 
-  defp order(issues), do: DispatchCandidates.order(issues, DispatchPolicy.terminal_state_set())
+  defp order(issues) do
+    {chain, held} = DispatchCandidates.partition(issues, DispatchPolicy.terminal_state_set())
+    Enum.map(chain ++ held, & &1.id) |> Enum.map(fn id -> Enum.find(issues, &(&1.id == id)) end)
+  end
 
   defp cache_holds(issues) do
     blocker = %{"number" => 100, "state" => "open", "labels" => [%{"name" => "sym:todo"}]}

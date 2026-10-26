@@ -1,6 +1,8 @@
 defmodule Aiur.PRLifecycle.HealthScannerTest do
   use Aiur.TestSupport
+  import ExUnit.CaptureLog
 
+  alias Aiur.GitHub.LocalHold
   alias Aiur.PRLifecycle.HealthScanner
 
   @now ~U[2026-08-22 22:00:00Z]
@@ -28,6 +30,7 @@ defmodule Aiur.PRLifecycle.HealthScannerTest do
       stale_hours: Keyword.get(opts, :stale_hours, @stale_hours),
       open_prs_fetcher: Keyword.get(opts, :open_prs_fetcher, fn -> {:ok, []} end),
       reviews_fetcher: Keyword.get(opts, :reviews_fetcher, fn _ -> {:ok, []} end),
+      local_hold_opts: LocalHold.caller_opts(opts),
       human_mergers_fun: Keyword.get(opts, :human_mergers_fun, fn -> ["its-everdred"] end),
       comment_fun: Keyword.get(opts, :comment_fun, fn _, _ -> :ok end),
       alert_fun: Keyword.get(opts, :alert_fun, fn _, _ -> :ok end),
@@ -58,6 +61,17 @@ defmodule Aiur.PRLifecycle.HealthScannerTest do
       {_unmergeable, stale} = HealthScanner.evaluate([old, recent, draft], @stale_hours, @now, ["its-everdred"])
 
       assert [^old] = stale
+    end
+
+    test "skips a PR whose branch names another instance's ticket (#5803)" do
+      path = Workflow.workflow_file_path()
+      write_workflow_file!(path)
+      write_workflow_file_atomic!(path, File.read!(path) <> "\ninstance:\n  ignore:\n    tickets: [4121]\n")
+      :ok = Aiur.WorkflowStore.force_reload()
+      native = pr(2152, %{"created_at" => "2026-08-18T00:00:00Z", "head" => %{"ref" => "aiur/2152-native"}, "user" => %{"login" => "its-everdred"}})
+      foreign = pr(2153, %{"created_at" => "2026-08-18T00:00:00Z", "head" => %{"ref" => "aiur/4121-foreign"}, "user" => %{"login" => "its-everdred"}})
+
+      assert {[^native], [^native]} = HealthScanner.evaluate([native, foreign], @stale_hours, @now, ["its-everdred"])
     end
 
     test "flags a PR exactly at the threshold" do
@@ -177,6 +191,44 @@ defmodule Aiur.PRLifecycle.HealthScannerTest do
       state = HealthScanner.tick(state)
       refute_receive {:alert, _}, 100
       assert state.alerted == MapSet.new()
+    end
+
+    test "retries an expired local hold on reviews lookup without logging a failure" do
+      stale = pr(2147, %{"created_at" => "2026-08-18T00:00:00Z"})
+      parent = self()
+
+      hold = %{
+        reason: :shared_budget,
+        resource: "core",
+        reset_at: DateTime.add(DateTime.utc_now(), -1, :second)
+      }
+
+      error =
+        {:error, {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}}
+
+      state =
+        base_state(
+          open_prs_fetcher: fn -> {:ok, [stale]} end,
+          reviews_fetcher: fn 2147 ->
+            attempt = Process.get(:reviews_attempt, 0) + 1
+            Process.put(:reviews_attempt, attempt)
+            send(parent, {:reviews_attempt, attempt})
+            if attempt == 1, do: error, else: {:ok, [%{"state" => "APPROVED"}]}
+          end,
+          local_hold_sleep_fun: fn _ms -> flunk("expired hold must retry without sleeping") end
+        )
+
+      log =
+        capture_log(fn ->
+          state = HealthScanner.tick(state)
+          send(parent, {:scanner_state, state})
+        end)
+
+      assert_receive {:reviews_attempt, 1}, 1_000
+      assert_receive {:reviews_attempt, 2}, 1_000
+      assert_receive {:scanner_state, %{reviewed: reviewed}}, 1_000
+      assert MapSet.member?(reviewed, 2147)
+      refute log =~ "PRHealthScanner stale-PR reviews fetch failed"
     end
 
     test "does not alert a recent PR" do

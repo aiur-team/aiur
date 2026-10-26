@@ -16,11 +16,12 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Queue do
     @moduledoc "A named list or imported build order."
     @enforce_keys [:id, :name, :kind, :root, :held, :generation, :created_at]
-    defstruct @enforce_keys ++ [start_trigger: nil]
+    defstruct @enforce_keys ++ [start_trigger: nil, rank: 0]
 
     @type t :: %__MODULE__{
             id: String.t(),
             name: String.t(),
+            rank: non_neg_integer(),
             start_trigger: Aiur.StartTrigger.trigger() | nil,
             kind: :list | :build_order,
             root: pos_integer() | nil,
@@ -75,7 +76,7 @@ defmodule Aiur.BuildQueue.Model do
   defmodule Intent do
     @moduledoc "A durable label write intent and its outcome."
     @enforce_keys [:id, :issue_id, :action, :target_labels, :recorded_at_ms, :outcome]
-    defstruct @enforce_keys
+    defstruct @enforce_keys ++ [preexisting_todo?: false]
 
     @type t :: %__MODULE__{
             id: String.t(),
@@ -83,6 +84,7 @@ defmodule Aiur.BuildQueue.Model do
             action: :promote | :withdraw | :mark | :unmark,
             target_labels: [String.t()],
             recorded_at_ms: non_neg_integer(),
+            preexisting_todo?: boolean(),
             outcome: nil | :ok | {:error, term()}
           }
   end

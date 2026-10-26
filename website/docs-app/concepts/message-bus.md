@@ -33,7 +33,7 @@ Wakes for non-Executor topics that arrive while the Executor listener is down ar
 
 | Name | Operator meaning |
 | --- | --- |
-| `progress` / `progress.checkin` | Current completion estimate for the Units progress bar. |
+| `progress` / `progress.checkin` | Current completion estimate for the Units progress bar and Build page Live cards. |
 | `progress.<slug>` | A named milestone inside the ticket. |
 | `decision.<slug>` | A ticket-level decision or design choice. |
 | `decision.acknowledged` | The target began applying a durable Executor answer. |
@@ -61,6 +61,7 @@ Wakes for non-Executor topics that arrive while the Executor listener is down ar
 | `ticket.<id>.pr.review_comment` | A trusted PR review comment or thread arrived. |
 | `ticket.<id>.ci.passed` | Terminal CI passed. |
 | `ticket.<id>.ci.failed` | Terminal CI failed. |
+| `ticket.<id>.usage.spend_cap_reached` | The ticket's known API-equivalent USD spend reached its persisted cap. Payload contract: `aiur.ticket_spend_cap_reached` v1. |
 
 Progress milestones use current, resolved or partially resolved facts. Only the highest crossed threshold (25%, 50%, 75% or 100%) is announced per observation.
 
@@ -167,6 +168,7 @@ See [GitHub](/apis/github) for polling, rate budgets, and optional webhook setup
 - A coordination fact with an identity or routing information goes to the topic exchange.
 - A local "re-read this state" notification goes to PubSub with a version. Consumers re-read the owning store; the notification is not the source of truth.
 - Persist first, publish with the durable event ID, then notify local subscribers. [Commands](/concepts/commands) follow this order.
+- Ticket spend-cap exhaustion follows the same order. Its owning store retains the terminal fence and event ID; consumers that miss the live notification re-read `GET /api/v1/<id>/spend-cap`.
 - Bridges run from the exchange to PubSub only; do not turn a local notification into a coordination fact.
 
 Signals, not state — see the [opening rule](#topic-shape).

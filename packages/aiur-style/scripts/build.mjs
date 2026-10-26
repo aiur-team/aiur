@@ -1,74 +1,50 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
+import { buildSync } from 'esbuild';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-import fs from 'fs';
-import { buildTokens } from '../src/tokens/build.mjs';
-import path from 'path';
-import { execFileSync } from 'child_process';
-import { fileURLToPath } from 'url';
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { buildTokens, tokens } from '../src/tokens/build.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.resolve(__dirname, '..');
-const distDir = path.resolve(packageRoot, process.argv[2] ?? 'dist');
-const srcCssDir = path.join(packageRoot, 'src', 'css');
-const distCssDir = path.join(distDir, 'css');
+const cssDir = path.join(packageRoot, 'src/css');
+// vitepress.css ships as its own entry point; every other source becomes dist/css/<file>.
+export const componentCssFiles = () =>
+  fs.readdirSync(cssDir).filter(file => file.endsWith('.css') && file !== 'vitepress.css').sort();
+// Font loading is opt-in; consumers adopt fonts.css in their migration.
+export const isBundled = file => file !== 'fonts.css';
+// Individual CSS lives one directory deeper than the consolidated stylesheet.
+export const readableCss = css => css.replaceAll("'./fonts/", "'../fonts/");
 
-// Ensure dist directory exists
-if (!fs.existsSync(distDir)) {
-  fs.mkdirSync(distDir, { recursive: true });
-}
-
-if (!fs.existsSync(distCssDir)) {
-  fs.mkdirSync(distCssDir, { recursive: true });
-}
-
-// Run TypeScript compiler
-console.log('Building TypeScript...');
-try {
-  execFileSync(path.join(packageRoot, 'node_modules', '.bin', 'tsc'), ['--project', path.join(packageRoot, 'tsconfig.json'), '--outDir', path.join(distDir, 'js')], {
-    cwd: packageRoot,
-    stdio: 'inherit'
+export function build(outputDir = path.join(packageRoot, 'dist')) {
+  fs.mkdirSync(path.join(outputDir, 'css'), { recursive: true });
+  execFileSync(path.join(packageRoot, 'node_modules/.bin/tsc'),
+    ['--project', path.join(packageRoot, 'tsconfig.json'), '--outDir', outputDir],
+    { cwd: packageRoot, stdio: 'inherit' });
+  buildSync({ entryPoints: [path.join(packageRoot, 'gallery/react.tsx')], bundle: true,
+    outfile: path.join(packageRoot, 'gallery/dist/react.js'), format: 'esm', jsx: 'automatic' });
+  const contents = componentCssFiles().map(file => {
+    const css = fs.readFileSync(path.join(cssDir, file), 'utf8').replace(/\r\n/g, '\n');
+    fs.writeFileSync(path.join(outputDir, 'css', file), readableCss(css));
+    return isBundled(file) ? css : '';
   });
-  console.log('✓ TypeScript compiled');
-} catch (error) {
-  console.error('✗ TypeScript compilation failed');
-  process.exit(1);
-}
-
-// Concatenate CSS files in sorted order
-console.log('Building CSS...');
-try {
-  const cssFiles = fs.readdirSync(srcCssDir)
-    .filter(f => f.endsWith('.css'))
-    .sort();
-
-  if (cssFiles.length === 0) {
-    console.warn('⚠ No CSS files found in src/css/');
+  fs.writeFileSync(path.join(outputDir, 'aiur-style.css'), buildTokens(outputDir) + contents.join('\n').replace(/\n[ \t]*}/g, ' }'));
+  fs.mkdirSync(path.join(outputDir, 'init'), { recursive: true });
+  fs.copyFileSync(path.join(packageRoot, 'src/init/theme-init.js'), path.join(outputDir, 'init/theme-init.js'));
+  fs.copyFileSync(path.join(cssDir, 'fonts.css'), path.join(outputDir, 'fonts.css'));
+  for (const directory of ['fonts', 'assets']) {
+    fs.cpSync(path.join(packageRoot, directory), path.join(outputDir, directory), { recursive: true });
   }
-
-  // Concatenate all CSS into main file with LF line endings
-  const tokenCss = buildTokens(distDir);
-  const cssContent = tokenCss + cssFiles
-    .map(file => {
-      const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
-      return content.replace(/\r\n/g, '\n');
-    })
-    .join('\n');
-
-  const mainCssPath = path.join(distDir, 'aiur-style.css');
-  fs.writeFileSync(mainCssPath, cssContent, { encoding: 'utf8' });
-  console.log(`✓ CSS concatenated to dist/aiur-style.css (${cssFiles.length} files)`);
-
-  // Copy individual CSS files to dist/css/
-  cssFiles.forEach(file => {
-    const srcPath = path.join(srcCssDir, file);
-    const destPath = path.join(distCssDir, file);
-    const content = fs.readFileSync(srcPath, 'utf8').replace(/\r\n/g, '\n');
-    fs.writeFileSync(destPath, content, { encoding: 'utf8' });
-  });
-  console.log(`✓ CSS files copied to dist/css/`);
-} catch (error) {
-  console.error('✗ CSS build failed:', error.message);
-  process.exit(1);
+  // VitePress uses .dark even when the host prefers light; derive its bridge from tokens.
+  const darkTokens = Object.entries(tokens.dark).map(([name, value]) =>
+    `    --aiur-${name.replaceAll('.', '-')}: ${value};`).join('\n');
+  fs.writeFileSync(path.join(outputDir, 'vitepress.css'),
+    `@layer aiur.tokens {\n  html.dark {\n    color-scheme: dark;\n${darkTokens}\n  }\n}\n` +
+    fs.readFileSync(path.join(cssDir, 'vitepress.css'), 'utf8'));
 }
 
-console.log('✓ Build complete');
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  build(path.resolve(packageRoot, process.argv[2] ?? 'dist'));
+  console.log('✓ Build complete');
+}

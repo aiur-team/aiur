@@ -77,6 +77,7 @@ defmodule Aiur.Events.Sanitizer do
     payload
     |> scrub_commits()
     |> scrub_pr()
+    |> scrub_post_deploy_checks()
     |> scrub_comment()
     |> scrub_review()
     |> scrub_ci_failure()
@@ -151,7 +152,7 @@ defmodule Aiur.Events.Sanitizer do
   characters — so by the time `Aiur.Events.Publisher` asks "did Aiur write
   this?", the marker it would look for has been erased by Aiur's own safety
   pass. Without this, an agent's own `/aiur` comment arrives unmarked on the
-  `Aiur.Orchestrator.CommandScan` path, reads as human, and republishes with
+  `Aiur.GitHub.Listeners.CommandScan.Scan` path, reads as human, and republishes with
   `bypass_contamination: true` — the self-loop the marker exists to prevent.
 
   The flag is an atom key, so it cannot arrive from GitHub: every externally
@@ -189,21 +190,24 @@ defmodule Aiur.Events.Sanitizer do
   @spec stamp_author_trust(map(), keyword()) :: map()
   def stamp_author_trust(payload, opts \\ []) when is_map(payload) do
     author = Map.get(payload, :author) || Keyword.get(opts, :actor)
-    trusted? = author_trusted?(author)
+    trusted? = author_trusted?(author, opts)
     Map.put(payload, :author_trusted?, trusted?)
   end
 
-  defp author_trusted?(nil), do: false
+  defp author_trusted?(nil, _opts), do: false
 
-  defp author_trusted?(author) when is_binary(author) do
-    classifier().trusted?(author)
+  defp author_trusted?(author, opts) when is_binary(author) do
+    case Keyword.fetch(opts, :trust_fun) do
+      {:ok, trust_fun} -> trust_fun.(author)
+      :error -> classifier().trusted?(author)
+    end
   rescue
     _ -> false
   catch
     :exit, _ -> false
   end
 
-  defp author_trusted?(_), do: false
+  defp author_trusted?(_, _opts), do: false
 
   defp classifier, do: Application.get_env(:aiur, Aiur.Events.TrustClassifier)
 
@@ -236,6 +240,13 @@ defmodule Aiur.Events.Sanitizer do
   end
 
   defp scrub_pr(payload), do: payload
+
+  defp scrub_post_deploy_checks(%{post_deploy_checks: checks} = payload) when is_list(checks) do
+    checks = checks |> Enum.filter(&is_binary/1) |> Enum.take(20) |> Enum.map(&clean(&1, :issue_body))
+    Map.put(payload, :post_deploy_checks, checks)
+  end
+
+  defp scrub_post_deploy_checks(payload), do: payload
 
   defp scrub_comment(%{comment: comment} = payload) when is_map(comment) do
     comment = update_string(comment, "body", &clean(&1, :comment_body))

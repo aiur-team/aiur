@@ -3,7 +3,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   Retires the daemon read cache for the resources a delivery names.
   """
 
-  alias Aiur.GitHub.ReadCache
+  alias Aiur.Config.TrackerSettings
+  alias Aiur.GitHub.{Access, PollSnapshots}
 
   # A delivery is a fact about GitHub state that arrived for free, and the
   # `ReadCache` entries about the resources it touches are stale from that
@@ -24,14 +25,74 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   # whole repository's cache for a change that made nothing it serves stale —
   # paying a full re-fetch on the very path this ticket exists to stop charging.
   @spec invalidate_read_cache(String.t(), map(), String.t()) :: :ok
+  def invalidate_read_cache("pull_request", payload, repo) do
+    invalidate_ci_snapshot(payload, repo)
+    clear_open_pull_request_listing(repo)
+
+    case delivery_numbers("pull_request", payload) do
+      [number | _] -> Access.invalidate_number(repo, number)
+      [] -> Access.invalidate_repo(repo)
+    end
+  end
+
+  def invalidate_read_cache(event_type, _payload, repo)
+      when event_type in ["branch_protection_rule", "repository_ruleset", "repository"],
+      do: Access.invalidate_repo_config(repo)
+
+  def invalidate_read_cache("push", payload, repo) do
+    if base_branch_push?(payload), do: Access.invalidate_repo_config(repo)
+    invalidate_numbered_delivery("push", payload, repo)
+  end
+
   def invalidate_read_cache(event_type, _payload, _repo)
       when event_type in ["sub_issues", "issue_dependencies"],
       do: :ok
 
   def invalidate_read_cache(event_type, payload, repo) do
+    invalidate_numbered_delivery(event_type, payload, repo)
+  end
+
+  defp invalidate_numbered_delivery(event_type, payload, repo) do
     case delivery_numbers(event_type, payload) do
-      [] -> ReadCache.invalidate_repo(repo)
-      numbers -> Enum.each(numbers, &ReadCache.invalidate_number(repo, &1))
+      [] -> Access.invalidate_repo(repo)
+      numbers -> Enum.each(numbers, &Access.invalidate_number(repo, &1))
+    end
+  end
+
+  defp base_branch_push?(%{"ref" => ref} = payload) when is_binary(ref) do
+    ref == "refs/heads/" <> TrackerSettings.base_branch() or
+      is_nil(default_branch_ref(payload)) or ref == default_branch_ref(payload)
+  end
+
+  defp base_branch_push?(_payload), do: true
+
+  defp default_branch_ref(payload) do
+    case get_in(payload, ["repository", "default_branch"]) do
+      branch when is_binary(branch) and branch != "" -> "refs/heads/" <> branch
+      _unset -> nil
+    end
+  end
+
+  defp invalidate_ci_snapshot(payload, repo) do
+    case get_in(payload, ["pull_request", "head", "ref"]) do
+      branch when is_binary(branch) ->
+        case Aiur.TicketBranch.ticket_id(branch) do
+          ticket when is_binary(ticket) -> PollSnapshots.invalidate_ci_contexts(repo, ticket)
+          _other -> :ok
+        end
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp clear_open_pull_request_listing(repo) do
+    case String.split(repo, "/") do
+      [owner, name] when owner != "" and name != "" ->
+        Access.clear(:branch_pull_request_listing_all, owner, name)
+
+      _invalid_repo ->
+        :ok
     end
   end
 
@@ -41,7 +102,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   # one sequence, so a delivery about either retires the single shared
   # `{:number, ...}` identity.
   #
-  # Retiring goes through `ReadCache.invalidate_number/2`, which marks the
+  # Retiring goes through `Access.invalidate_number/2`, which marks the
   # numbered issue-or-pull-request and, unconditionally, the repository's
   # collections. The collections marker goes on *every* delivery, not only on
   # actions that create or destroy a set member: a `labeled` delivery changes
@@ -68,7 +129,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
         "issue_comment" ->
           [get_in(payload, ["issue", "number"])]
 
-        event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
+        event
+        when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
           [get_in(payload, ["pull_request", "number"])]
 
         "issues" ->

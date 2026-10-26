@@ -52,6 +52,69 @@ defmodule Aiur.AgentRunner.SessionResume do
   def session_resumed?(%{resumed: true}), do: true
   def session_resumed?(_session), do: false
 
+  # A very large resumed thread can lose its transport at every turn start
+  # (#4561), and each retry resumes the same thread again. After this many
+  # consecutive dispatches whose resumed first turn failed to start with
+  # `port_closed`, forget the thread so the next dispatch starts fresh from the
+  # workpad and branch.
+  @resume_port_closed_limit 2
+
+  # Called with the result of a dispatch's FIRST turn only: a later turn's
+  # port loss is not a resume failure. Returns `result` unchanged. Best-effort:
+  # a handle write failure must never change the run's outcome.
+  @doc false
+  @spec track_resume_turn_start(map(), String.t(), term(), keyword()) :: term()
+  def track_resume_turn_start(session, identifier, result, opts \\ []) do
+    note_resume_turn_start(session, identifier, result, opts)
+    result
+  rescue
+    error ->
+      Logger.warning("Could not track resumed turn start for #{identifier}: #{inspect(error)}")
+      result
+  end
+
+  defp note_resume_turn_start(%{resumed: true, thread_id: thread_id} = session, identifier, {:error, {:turn_start_failed, :port_closed}}, opts)
+       when is_binary(thread_id) do
+    count = SessionHandle.record_resume_failure(identifier, thread_id, opts)
+
+    if count >= @resume_port_closed_limit do
+      diagnostics = CodingAgent.stream_diagnostics(Map.get(session, :port))
+
+      Logger.warning(
+        "Resumed thread lost its transport at turn start #{count} times for #{identifier} thread_id=#{thread_id}; next attempt starts a fresh session stream_diagnostics=#{inspect(diagnostics)}"
+      )
+
+      SessionHandle.drop_thread(identifier, opts)
+    end
+  end
+
+  defp note_resume_turn_start(%{resumed: true}, identifier, _result, opts),
+    do: SessionHandle.reset_resume_failures(identifier, opts)
+
+  defp note_resume_turn_start(_session, _identifier, _result, _opts), do: :ok
+
+  # First-turn prompt opts. A resumed thread already carries the original task
+  # and full prior turn history, so it continues rather than replaying the
+  # cold-start prompt. A fresh session that replaced an abandoned thread has no
+  # such history but does have prior work (branch, workspace, workpad), so it
+  # gets the continuation prompt with a note about the abandoned thread.
+  @doc false
+  @spec put_first_turn_opts(keyword(), map(), String.t(), keyword()) :: keyword()
+  def put_first_turn_opts(opts, session, identifier, handle_opts \\ []) do
+    resumed? = session_resumed?(session)
+    opts = Keyword.put(opts, :resumed, resumed?)
+
+    if not resumed? and SessionHandle.abandoned_thread?(identifier, handle_opts),
+      do: Keyword.merge(opts, prior_work: true, abandoned_thread: true),
+      else: opts
+  end
+
+  @doc false
+  @spec fresh_turn_completed(map(), String.t(), keyword()) :: :ok
+  def fresh_turn_completed(session, identifier, opts \\ [])
+  def fresh_turn_completed(%{resumed: false}, identifier, opts), do: SessionHandle.clear_abandoned_thread(identifier, opts)
+  def fresh_turn_completed(_session, _identifier, _opts), do: :ok
+
   # Session-lifecycle log carrying full issue context (per docs/logging.md,
   # which scopes issue-context start/completion logging to AgentRunner). Only
   # logs when a resume was attempted, distinguishing a true resume from a
@@ -111,10 +174,10 @@ defmodule Aiur.AgentRunner.SessionResume do
   # thread. Skips anything that can't be resumed later (non-resumable backend,
   # remote worker, no thread id) so we never leave a misleading handle.
   @doc false
-  @spec persist_session_handle(map(), String.t(), worker_host()) :: :ok
-  def persist_session_handle(session, identifier, worker_host) do
+  @spec persist_session_handle(map(), String.t(), worker_host(), keyword()) :: :ok
+  def persist_session_handle(session, identifier, worker_host, handle_opts \\ []) do
     case session_handle_to_save(session, worker_host) do
-      {:ok, attrs} -> persist_handle_best_effort(identifier, attrs)
+      {:ok, attrs} -> persist_handle_best_effort(identifier, attrs, handle_opts)
       :skip -> :ok
     end
   end

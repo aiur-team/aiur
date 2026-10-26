@@ -110,7 +110,7 @@ export async function selectProductDataset(page, dataset) {
 }
 
 export async function openProduct(page, cell, opts = {}) {
-  const { dataset = cell.dataset ?? 'live', phase = 'board', productRoute = '/build' } = opts
+  const { dataset = cell.dataset ?? 'live', phase = 'board', productRoute = '/' } = opts
   if (!['board', 'loading', 'shell'].includes(phase)) throw new Error(`unknown parity phase ${phase}`)
   await prepare(page, phase, 'product', opts.motion, opts.pauseAtSelector)
   const origin = new URL(test.info().project.use.baseURL).origin
@@ -152,16 +152,26 @@ export async function openParityPair(browser, cell, opts = {}) {
   }
 }
 
-export async function captureStable(target, opts, page) {
+export async function captureStable(target, opts, page, viewportClip = false) {
   let previous
+  const screenshotOptions = {
+    ...opts,
+    // Keep the native track and its layout width, but remove the thumb's
+    // scroll-position-dependent paint from sequential reference captures.
+    style: `${opts.style ?? ''}\n* { scrollbar-color: transparent transparent !important; }\n*::-webkit-scrollbar-thumb { background: transparent !important; }`
+  }
   for (let attempt = 0; attempt < 10; attempt++) {
     // Locator screenshots scroll into view, disturbing motion under measurement.
     const shoot = async () => {
-      if (!page) return target.screenshot(opts)
+      if (!page) return target.screenshot(screenshotOptions)
       const box = await target.boundingBox()
       if (!box) throw new Error('unreachable screenshot region')
       const offset = await page.evaluate(() => ({ x: scrollX, y: scrollY }))
-      return page.screenshot({ ...opts, fullPage: true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
+      const viewport = viewportClip ? page.viewportSize() : null
+      // Expanding an already-visible clip fires responsive relayouts and clears locks.
+      const visible = viewport && !offset.x && !offset.y && box.x >= 0 && box.y >= 0
+        && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height
+      return page.screenshot({ ...screenshotOptions, fullPage: viewportClip ? !visible : true, clip: { ...box, x: box.x + offset.x, y: box.y + offset.y } })
     }
     let png
     try { png = await shoot() }
@@ -186,38 +196,85 @@ async function one(page, region, side) {
   return target
 }
 
+async function settleRegionImages(page, region) {
+  await page.locator(region).evaluate(async root => {
+    const images = [...root.querySelectorAll('img')]
+    await Promise.all(images.map(image => image.decode()))
+  })
+}
+
 export async function capturePairEvidence(pair) {
   for (const side of ['design', 'product']) {
     if (!pair[side].isClosed()) await pair[side].screenshot({ path: test.info().outputPath(`${side}.png`), animations: 'disabled', caret: 'hide', scale: 'device' })
   }
 }
 
-export async function expectDesignParity(pair, { name, region, fullPage = false, preserveAnimations = false }) {
+export async function expectDesignParity(pair, { name, region, fullPage = false, preserveAnimations = false, clipToViewport = false, viewportClip = false }) {
   const time = preserveAnimations ? await pair.design.evaluate(() => Date.now()) : FIXTURE_META.now
   await assertCellState(pair.design, pair.cell, time)
   await assertCellState(pair.product, pair.cell, time)
-  await compareParityPixels(pair, { name, region, fullPage, preserveAnimations })
+  await compareParityPixels(pair, { name, region, fullPage, preserveAnimations, clipToViewport, viewportClip })
 }
 
-export async function compareParityPixels(pair, { name, region, fullPage = false, preserveAnimations = false }) {
+export async function compareParityPixels(pair, { name, region, fullPage = false, preserveAnimations = false, clipToViewport = false, viewportClip = false }) {
   const { designMask, productMask } = await applyAllowlist(pair, pair.cell)
+  // #5614: the imported design predates the live-top toggle (band-scroll.js syncNowBtn); apply the same rule to both
+  // sides, so the JS-less transplant and the design page match the product. Drop this when the design is re-imported.
+  for (const page of [pair.design, pair.product]) await page.evaluate(() => {
+    const vp = document.querySelector('#bd-vp'), band = document.querySelector('#bd-now')
+    if (vp && band) vp.classList.toggle('live-top', Math.abs(band.getBoundingClientRect().top - (vp.getBoundingClientRect().top + 46)) < 6)
+  })
+  // A region capture must not mask unrelated chrome that overlaps its raster origin.
+  if (region) {
+    for (const [page, masks] of [[pair.design, designMask], [pair.product, productMask]]) {
+      const target = page.locator(region)
+      const inside = target.or(target.locator('*'))
+      for (let i = 0; i < masks.length; i++) masks[i] = masks[i].and(inside)
+    }
+  }
   // Hold screenshot animation state once, avoiding cancel/resume repaint drift.
   if (!preserveAnimations) for (const page of [pair.design, pair.product]) await page.evaluate(() => document.getAnimations().forEach(a => Number.isFinite(a.effect?.getComputedTiming().endTime) ? a.finish() : a.cancel()))
+  // The fake clock does not drive CSS: ambient loops (e.g. the .bd-glow halo) bleed into regions and defeat the settle guard (#4851).
+  else for (const page of [pair.design, pair.product]) await page.evaluate(() => {
+    window.parityHeld = document.getAnimations().filter(a => a.playState === 'running' && a.effect?.getTiming().iterations === Infinity)
+    window.parityHeld.forEach(a => { a.pause(); a.currentTime = 0 })
+  })
+  try { await captureParityPixels(pair, { name, region, fullPage, preserveAnimations, designMask, productMask, clipToViewport, viewportClip }) }
+  finally { if (preserveAnimations) for (const page of [pair.design, pair.product]) if (!page.isClosed()) await page.evaluate(() => window.parityHeld?.forEach(a => a.play())) }
+}
+
+async function visibleRegionBox(page, target) {
+  const box = await target.boundingBox(), viewport = page.viewportSize()
+  if (!box || !viewport) throw new Error('viewport region has no bounds')
+  const x = Math.max(0, box.x), y = Math.max(0, box.y)
+  const width = Math.min(viewport.width, box.x + box.width) - x
+  const height = Math.min(viewport.height, box.y + box.height) - y
+  if (width <= 0 || height <= 0) throw new Error('viewport region is not visible')
+  return { x, y, width, height }
+}
+
+async function captureParityPixels(pair, { name, region, fullPage, preserveAnimations, designMask, productMask, clipToViewport, viewportClip }) {
   const design = region ? await one(pair.design, region, 'design') : pair.design
   const product = region ? await one(pair.product, region, 'product') : pair.product
+  if (clipToViewport && !region) throw new Error('clipToViewport requires a region')
+  const clips = clipToViewport
+    ? await Promise.all([[pair.design, design], [pair.product, product]].map(([page, target]) => visibleRegionBox(page, target)))
+    : null
+  if (clips) expect(clips[1], 'visible region geometry must match').toEqual(clips[0])
   const opts = { animations: preserveAnimations ? 'allow' : 'disabled', caret: 'hide', scale: 'device', maskColor: '#ff00ff', ...(region ? {} : { fullPage }) }
   await pair.design.bringToFront()
-  const png = await captureStable(design, { ...opts, mask: designMask }, preserveAnimations && region ? pair.design : undefined)
+  if (region) await settleRegionImages(pair.design, region)
+  const png = await captureStable(clips ? pair.design : design, { ...opts, ...(clips ? { clip: clips[0], fullPage: false } : {}), mask: designMask }, (preserveAnimations || viewportClip) && region && !clips ? pair.design : undefined, viewportClip)
   await pair.product.bringToFront()
+  if (region) await settleRegionImages(pair.product, region)
   checkPage(pair.design)
   checkPage(pair.product)
   const file = test.info().snapshotPath(`${name}.png`, { kind: 'screenshot' })
   await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, png)
-  if (preserveAnimations && region) {
-    const actual = await captureStable(product, { ...opts, mask: productMask }, pair.product)
-    expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
-  } else await expect(product).toHaveScreenshot(`${name}.png`, { ...opts, mask: productMask, threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
+  // Use the same capture protocol on both sides, including rounded image clips.
+  const actual = await captureStable(clips ? pair.product : product, { ...opts, ...(clips ? { clip: clips[1], fullPage: false } : {}), mask: productMask }, (preserveAnimations || viewportClip) && region && !clips ? pair.product : undefined, viewportClip)
+  expect(actual).toMatchSnapshot(`${name}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: PARITY_FLOOR })
   checkPage(pair.design)
   checkPage(pair.product)
 }

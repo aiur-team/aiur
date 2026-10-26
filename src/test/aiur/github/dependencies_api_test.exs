@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DependenciesApiTest do
 
   alias Aiur.GitHub.{DependenciesApi, ResourceStore}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
   @dependencies_api_version "2026-03-10"
 
   setup do

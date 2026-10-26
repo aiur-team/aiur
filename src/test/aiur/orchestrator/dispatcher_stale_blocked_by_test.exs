@@ -20,10 +20,14 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
 
   use Aiur.TestSupport
 
+  defmodule TodoClaimTracker do
+    def update_issue_state(_issue_id, _state, _opts), do: :ok
+  end
+
   alias Aiur.GitHub.{Quota, ResourceStore}
   alias Aiur.Orchestrator.{Dispatcher, State}
 
-  @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
 
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
@@ -126,6 +130,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
         nil,
         nil,
         issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+        todo_dispatch_tracker: TodoClaimTracker,
         # PR-head capture is unrelated to dependency hydration and must not hit its HTTP double.
         rework_head_fetcher: fn _identifier -> {:ok, nil} end,
         runner: runner
