@@ -59,16 +59,16 @@ the change falsifies before writing anything new.
 | Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
 | Model or behavior explanation | `website/docs-app/concepts/` |
 | Skills | `website/docs-app/skills.md` |
+| New or changed component | `components.json` (the Components page regenerates) |
 
-A genuinely new page must also be added to the sidebar in
-`website/docs-app/.vitepress/config.ts`, or nobody can reach it.
+Add genuinely new pages to the sidebar in `website/docs-app/.vitepress/config.ts`.
 
 The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
 config keys across the index and topic pages; missing entries fail lint.
 `scripts/test-check-config-docs.sh` guards that checker. The lint job and website
 workflow run `website/docs-app/scripts/check-cli-reference.sh` and its self-test.
+`scripts/check-components.py --docs` checks the component row; other rows use review.
 Keep reference topic pages below 400 lines; the file-size gate allows at most 500.
-Other rows remain enforced by review alone.
 
 ## Layout
 
