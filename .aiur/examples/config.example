@@ -321,6 +321,7 @@ alerts:
 #   export:
 #     enabled: false
 #     webhook_url: https://consumer.example.com/webhooks/aiur
+#     allow_private_destinations: false # opt in only for trusted dev/intranet endpoints
 #     subject_id: "5695"             # optional exact ticket or job ID
 #     max_pending_events: 10000
 #     retry_ms: 5000

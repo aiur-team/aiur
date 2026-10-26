@@ -10,7 +10,7 @@ defmodule Aiur.Events.DurableConsumer do
   Cursors are dense per-source positions (see `Aiur.Events.DurableConsumer.Source`),
   which is why this is not used with event ids. A live record past `cursor + 1`
   re-enters catch-up instead of being applied out of order; a handler error or
-  unavailable source retries after `retry_ms`.
+  unavailable source retries with capped exponential backoff and jitter.
   """
 
   # aiur:event-bus-boundary-member
@@ -27,7 +27,10 @@ defmodule Aiur.Events.DurableConsumer do
           handler: {module(), term()},
           cursor_path: Path.t(),
           replay_batch: pos_integer(),
-          retry_ms: non_neg_integer()
+          retry_ms: non_neg_integer(),
+          retry_max_ms: non_neg_integer(),
+          jitter_fun: (non_neg_integer() -> non_neg_integer()),
+          schedule_fun: (pid(), term(), non_neg_integer() -> reference())
         ]
 
   @spec start_link(opts()) :: GenServer.on_start()
@@ -41,6 +44,8 @@ defmodule Aiur.Events.DurableConsumer do
 
     :ok = smod.subscribe(sopts, self())
 
+    retry_ms = Keyword.get(opts, :retry_ms, 5_000)
+
     state = %{
       smod: smod,
       sopts: sopts,
@@ -48,7 +53,11 @@ defmodule Aiur.Events.DurableConsumer do
       hs: hstate,
       path: path,
       batch: Keyword.get(opts, :replay_batch, 500),
-      retry_ms: Keyword.get(opts, :retry_ms, 5_000),
+      retry_ms: retry_ms,
+      retry_max_ms: max(retry_ms, Keyword.get(opts, :retry_max_ms, 60_000)),
+      retry_attempt: 0,
+      jitter_fun: Keyword.get(opts, :jitter_fun, &random_jitter/1),
+      schedule_fun: Keyword.get(opts, :schedule_fun, &Process.send_after/3),
       cursor: load_cursor(path),
       mode: :catching_up,
       outage: false
@@ -87,7 +96,7 @@ defmodule Aiur.Events.DurableConsumer do
     case state.smod.replay(state.sopts, state.cursor, state.batch) do
       {:ok, records} ->
         case deliver_all(state, records) do
-          {:ok, state} when length(records) < state.batch -> %{state | mode: :live, outage: false}
+          {:ok, state} when length(records) < state.batch -> reset_retry(%{state | mode: :live, outage: false})
           {:ok, state} -> catch_up(state)
           {:error, state} -> retry(state)
         end
@@ -118,7 +127,11 @@ defmodule Aiur.Events.DurableConsumer do
     else
       case state.hmod.handle_record(record, state.hs) do
         {:ok, hs} ->
-          {:ok, persist(%{state | hs: hs}, pos)}
+          {:ok, state |> Map.put(:hs, hs) |> persist(pos) |> reset_retry()}
+
+        {:discard, reason, hs} ->
+          Logger.warning("durable consumer discarded permanent failure at #{pos}: #{inspect(reason)}")
+          {:ok, state |> Map.put(:hs, hs) |> persist(pos) |> reset_retry()}
 
         {:error, reason} ->
           Logger.warning("durable consumer handler failed at #{pos}: #{inspect(reason)}")
@@ -135,9 +148,27 @@ defmodule Aiur.Events.DurableConsumer do
   end
 
   defp retry(state) do
-    Process.send_after(self(), :catch_up, state.retry_ms)
-    %{state | mode: :waiting}
+    attempt = state.retry_attempt + 1
+    base_delay = min(state.retry_ms * Integer.pow(2, min(attempt - 1, 20)), state.retry_max_ms)
+    jitter_window = div(base_delay, 4)
+    delay = min(base_delay + bounded_jitter(state.jitter_fun, jitter_window), state.retry_max_ms)
+    state.schedule_fun.(self(), :catch_up, delay)
+    %{state | mode: :waiting, retry_attempt: attempt}
   end
+
+  defp reset_retry(state), do: %{state | retry_attempt: 0}
+
+  defp bounded_jitter(jitter_fun, window) do
+    case jitter_fun.(window) do
+      value when is_integer(value) and value >= 0 -> min(value, window)
+      _invalid -> 0
+    end
+  rescue
+    _error -> 0
+  end
+
+  defp random_jitter(0), do: 0
+  defp random_jitter(window), do: :rand.uniform(window + 1) - 1
 
   defp persist(state, cursor) do
     JsonStore.write!(state.path, %{"cursor" => cursor})

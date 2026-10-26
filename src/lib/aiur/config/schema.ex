@@ -100,6 +100,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:dashboard_auth, DashboardAuth, on_replace: :update, defaults_to_struct: true)
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:experiments, Experiments, on_replace: :update, defaults_to_struct: true)
+    # The root default owns the fully-expanded nested Events struct, including export defaults.
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
     # Keep new prewarm defaults present even when a config omits the whole block.
     embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)

@@ -52,12 +52,18 @@ defmodule Aiur.Events.DurableConsumerTest do
     # kill_at/fail_at fire once, gated by the `once` Agent.
     @impl true
     def handle_record(%{"seq" => pos}, %{test: test, once: once} = state) do
-      if pos == state.fail_at and Agent.get_and_update(once, &{&1, false}) do
-        {:error, :nope}
-      else
-        send(test, {:handled, pos})
-        if pos == state.kill_at and Agent.get_and_update(once, &{&1, false}), do: Process.exit(self(), :kill)
-        {:ok, state}
+      cond do
+        pos == state.discard_at ->
+          send(test, {:discarded, pos})
+          {:discard, :permanent, state}
+
+        pos == state.fail_at and Agent.get_and_update(once, &{&1, false}) ->
+          {:error, :nope}
+
+        true ->
+          send(test, {:handled, pos})
+          if pos == state.kill_at and Agent.get_and_update(once, &{&1, false}), do: Process.exit(self(), :kill)
+          {:ok, state}
       end
     end
 
@@ -81,13 +87,15 @@ defmodule Aiur.Events.DurableConsumerTest do
   defp read_cursor(ctx), do: ctx.cursor_path |> File.read!() |> Jason.decode!() |> Map.fetch!("cursor")
 
   defp start(ctx, source, extra \\ %{}, opts \\ []) do
-    hs = Map.merge(%{test: self(), once: ctx.once, kill_at: nil, fail_at: nil}, extra)
+    hs = Map.merge(%{test: self(), once: ctx.once, kill_at: nil, fail_at: nil, discard_at: nil}, extra)
 
-    start_supervised!(
-      {DurableConsumer,
-       [name: :"dc_#{System.unique_integer([:positive])}", source: source, handler: {TestHandler, hs}, cursor_path: ctx.cursor_path, retry_ms: 0] ++
-         opts}
-    )
+    consumer_opts =
+      Keyword.merge(
+        [name: :"dc_#{System.unique_integer([:positive])}", source: source, handler: {TestHandler, hs}, cursor_path: ctx.cursor_path, retry_ms: 0],
+        opts
+      )
+
+    start_supervised!({DurableConsumer, consumer_opts})
   end
 
   defp sync(pid), do: :sys.get_state(pid)
@@ -177,6 +185,44 @@ defmodule Aiur.Events.DurableConsumerTest do
     assert_handled([1, 2, 3])
     sync(pid)
     assert read_cursor(ctx) == 3
+  end
+
+  test "permanent handler failure advances the cursor and continues", ctx do
+    agent = fake(1..3)
+    pid = start(ctx, {FakeDurableSource, agent}, %{discard_at: 2})
+    assert_receive {:handled, 1}, 1_000
+    assert_receive {:discarded, 2}, 1_000
+    assert_receive {:handled, 3}, 1_000
+    sync(pid)
+    assert read_cursor(ctx) == 3
+  end
+
+  test "retries with capped exponential backoff and bounded jitter", ctx do
+    agent = fake(1..1)
+    FakeDurableSource.fail_next_replay(agent, 4)
+    test = self()
+
+    schedule_fun = fn pid, message, delay ->
+      send(test, {:scheduled, pid, message, delay})
+      make_ref()
+    end
+
+    pid =
+      start(ctx, {FakeDurableSource, agent}, %{},
+        retry_ms: 100,
+        retry_max_ms: 500,
+        jitter_fun: & &1,
+        schedule_fun: schedule_fun
+      )
+
+    for delay <- [125, 250, 500, 500] do
+      assert_receive {:scheduled, ^pid, :catch_up, ^delay}, 1_000
+      send(pid, :catch_up)
+    end
+
+    assert_receive {:handled, 1}, 1_000
+    assert :sys.get_state(pid).retry_attempt == 0
+    assert read_cursor(ctx) == 1
   end
 
   test "JournalSource reads the same records as the fake", ctx do

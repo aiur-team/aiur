@@ -2,7 +2,7 @@ defmodule Aiur.Events.Outbound.Delivery do
   @moduledoc "Supervises at-least-once signed webhook delivery from the export journal."
   # aiur:event-bus-boundary-member
 
-  alias Aiur.Config.Paths
+  alias Aiur.Config.{Paths, WebhookDestination}
   alias Aiur.Events.DurableConsumer
   alias Aiur.Events.Outbound.{ExportJournal, Webhook}
 
@@ -27,8 +27,11 @@ defmodule Aiur.Events.Outbound.Delivery do
           url: Keyword.get(opts, :url, export.webhook_url),
           secret: Keyword.get_lazy(opts, :secret, fn -> System.fetch_env!("AIUR_OUTBOUND_WEBHOOK_SECRET") end),
           subject_id: Keyword.get(opts, :subject_id, export.subject_id),
+          allow_private_destinations: Keyword.get(opts, :allow_private_destinations, Map.get(export, :allow_private_destinations, false)),
           request_timeout_ms: Keyword.get(opts, :request_timeout_ms, export.request_timeout_ms),
           request_fun: Keyword.get(opts, :request_fun, &Req.post/1),
+          resolve_fun: Keyword.get(opts, :resolve_fun, &WebhookDestination.resolve/2),
+          alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_system/2),
           clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)
         )
 
@@ -38,7 +41,10 @@ defmodule Aiur.Events.Outbound.Delivery do
         handler: {Webhook, handler},
         cursor_path: cursor_path,
         replay_batch: Keyword.get(opts, :replay_batch, 500),
-        retry_ms: Keyword.get(opts, :retry_ms, export.retry_ms)
+        retry_ms: Keyword.get(opts, :retry_ms, export.retry_ms),
+        retry_max_ms: Keyword.get(opts, :retry_max_ms, max(export.retry_ms, 60_000)),
+        jitter_fun: Keyword.get(opts, :jitter_fun, &random_jitter/1),
+        schedule_fun: Keyword.get(opts, :schedule_fun, &Process.send_after/3)
       )
     end
   end
@@ -49,4 +55,7 @@ defmodule Aiur.Events.Outbound.Delivery do
       _ -> with {:ok, dir} <- Paths.outbound_events_state_dir(), do: {:ok, Path.join(dir, "delivery-cursor.json")}
     end
   end
+
+  defp random_jitter(0), do: 0
+  defp random_jitter(window), do: :rand.uniform(window + 1) - 1
 end

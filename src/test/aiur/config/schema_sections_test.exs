@@ -61,6 +61,7 @@ defmodule Aiur.Config.SchemaSectionsTest do
       assert settings.events.custom_events_per_turn_max == 5
       assert settings.events.codeowners_refresh_seconds == 3_600
       refute settings.events.export.enabled
+      refute settings.events.export.allow_private_destinations
       assert settings.events.export.webhook_url == nil
       assert settings.events.export.subject_id == nil
       assert settings.events.export.max_pending_events == 10_000
@@ -119,6 +120,25 @@ defmodule Aiur.Config.SchemaSectionsTest do
 
         assert message =~ "events.export.webhook_url"
       end
+
+      for webhook_url <- ["https://127.0.0.1/events", "https://169.254.169.254/latest/meta-data", "https://[::1]/events"] do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"events" => %{"export" => %{"webhook_url" => webhook_url}}})
+
+        assert message =~ "events.export.webhook_url"
+      end
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "events" => %{
+                   "export" => %{
+                     "webhook_url" => "https://127.0.0.1/events",
+                     "allow_private_destinations" => true
+                   }
+                 }
+               })
+
+      assert settings.events.export.allow_private_destinations
 
       for export <- [
             %{"subject_id" => " "},

@@ -67,7 +67,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
   end
 
   test "invalid types name the export key" do
-    for key <- ["enabled", "retention_days", "retention_max_events"] do
+    for key <- ["enabled", "allow_private_destinations", "retention_days", "retention_max_events"] do
       assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"events" => %{"export" => %{key => "invalid"}}})
       assert message =~ "events.export.#{key}"
     end
@@ -79,6 +79,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
     assert {:ok, events} = YamlElixir.read_from_string(String.replace(block, ~r/^# /m, ""))
 
     assert events["events"]["export"] == %{
+             "allow_private_destinations" => false,
              "enabled" => false,
              "max_pending_events" => 10_000,
              "request_timeout_ms" => 15_000,

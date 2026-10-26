@@ -30,6 +30,22 @@ defmodule Aiur.Events.Outbound.Event do
   @cancel_exit_statuses ["normal", "shutdown", "killed", "noproc", "unknown"]
   @decimal ~r/^[0-9]+(?:\.[0-9]+)?$/
 
+  @doc "Returns whether an internal topic can produce a versioned external event."
+  @spec exportable_topic?(String.t()) :: boolean()
+  def exportable_topic?(topic) when is_binary(topic) do
+    case String.split(topic, ".") do
+      ["ticket", _identifier, "lifecycle", "changed"] -> true
+      ["ticket", _identifier, "usage", "changed"] -> true
+      ["ticket", _identifier, "usage", "spend_cap_reached"] -> true
+      ["ticket", _identifier, "cancel", "result"] -> true
+      ["ticket", _identifier, "agent", "progress"] -> true
+      ["ticket", _identifier, "agent", "progress", suffix] when suffix in ["checkin", "phase"] -> true
+      _other -> false
+    end
+  end
+
+  def exportable_topic?(_topic), do: false
+
   @spec normalize(map(), DateTime.t()) :: {:ok, map()} | :drop
   def normalize(
         %{

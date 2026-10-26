@@ -22,6 +22,8 @@ defmodule Aiur.Events.Outbound.ExportJournal do
   @bindings [
     "ticket.*.lifecycle.changed",
     "ticket.*.usage.changed",
+    "ticket.*.usage.spend_cap_reached",
+    "ticket.*.cancel.result",
     "ticket.*.agent.progress",
     "ticket.*.agent.progress.checkin",
     "ticket.*.agent.progress.phase"
@@ -33,19 +35,25 @@ defmodule Aiur.Events.Outbound.ExportJournal do
   end
 
   @doc "Admits from the shared publisher when outbound export is running."
-  @spec maybe_ingest(map()) :: {:ok, pos_integer()} | {:error, term()} | :drop | :not_running
-  def maybe_ingest(event) when is_map(event) do
+  @spec maybe_ingest(map(), timeout()) :: {:ok, pos_integer()} | {:error, term()} | :drop | :not_running
+  def maybe_ingest(event, timeout \\ 100) when is_map(event) do
     case Process.whereis(__MODULE__) do
       nil -> :not_running
-      server -> ingest(server, event)
+      server -> ingest(server, event, timeout)
     end
   catch
     :exit, reason -> {:error, {:journal_unavailable, reason}}
   end
 
   @doc "Synchronously admits an internal event; primarily useful at explicit producer boundaries."
+  @spec ingest(map()) :: {:ok, pos_integer()} | {:error, term()} | :drop
+  def ingest(event), do: ingest(__MODULE__, event, 5_000)
+
   @spec ingest(GenServer.server(), map()) :: {:ok, pos_integer()} | {:error, term()} | :drop
-  def ingest(server \\ __MODULE__, event), do: GenServer.call(server, {:ingest, event})
+  def ingest(server, event), do: ingest(server, event, 5_000)
+
+  @spec ingest(GenServer.server(), map(), timeout()) :: {:ok, pos_integer()} | {:error, term()} | :drop
+  def ingest(server, event, timeout), do: GenServer.call(server, {:ingest, event}, timeout)
 
   @impl Aiur.Events.DurableConsumer.Source
   def subscribe(server, consumer), do: GenServer.call(server, {:subscribe, consumer})

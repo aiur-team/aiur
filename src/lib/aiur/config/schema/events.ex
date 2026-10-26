@@ -7,6 +7,8 @@ defmodule Aiur.Config.Schema.Events do
 
   require EventsExport
   @primary_key false
+  @type t :: %__MODULE__{}
+
   embedded_schema do
     embeds_one(:export, EventsExport, on_replace: :update, defaults_to_struct: true)
 

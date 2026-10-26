@@ -41,7 +41,10 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
          export: %{webhook_url: "https://consumer.example.test/aiur", subject_id: nil, request_timeout_ms: 1_000, retry_ms: 1},
          secret: "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
          request_fun: request_fun,
-         retry_ms: 1}
+         resolve_fun: &resolve_public/2,
+         retry_ms: 1,
+         retry_max_ms: 4,
+         jitter_fun: fn _window -> 0 end}
       )
 
     assert {:ok, 1} = ExportJournal.ingest(journal, %{external: event()})
@@ -49,6 +52,53 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
     assert_receive {:attempt, 2, ^body}, 1_000
     assert :sys.get_state(delivery).cursor == 1
     assert {:ok, %{"cursor" => 1}} = JsonStore.read(ctx.cursor_path)
+  end
+
+  test "a permanent 4xx is skipped with attention so the next event can be delivered", ctx do
+    journal =
+      start_supervised!(
+        {ExportJournal,
+         name: nil,
+         exchange: nil,
+         journal_path: Path.join(ctx.dir, "events.ndjson"),
+         cursor_path: ctx.cursor_path,
+         normalize_fun: fn %{external: event}, _now -> {:ok, event} end,
+         max_pending_events: 10}
+      )
+
+    test = self()
+
+    request_fun = fn opts ->
+      event_id = opts |> Keyword.fetch!(:body) |> Jason.decode!() |> Map.fetch!("event_id")
+      send(test, {:delivered, event_id})
+      {:ok, %Req.Response{status: if(event_id == "evt_101", do: 422, else: 204)}}
+    end
+
+    alert_fun = fn topic, opts ->
+      send(test, {:alert, topic, opts})
+      :ok
+    end
+
+    delivery =
+      start_supervised!(
+        {Delivery,
+         name: nil,
+         source: {ExportJournal, journal},
+         cursor_path: ctx.cursor_path,
+         export: %{webhook_url: "https://consumer.example.test/aiur", subject_id: nil, request_timeout_ms: 1_000, retry_ms: 10},
+         secret: "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+         request_fun: request_fun,
+         resolve_fun: &resolve_public/2,
+         alert_fun: alert_fun}
+      )
+
+    assert {:ok, 1} = ExportJournal.ingest(journal, %{external: event()})
+    assert {:ok, 2} = ExportJournal.ingest(journal, %{external: %{event() | "event_id" => "evt_102"}})
+    assert_receive {:delivered, "evt_101"}, 1_000
+    assert_receive {:alert, "system.outbound_events.delivery.permanent_failure", _opts}, 1_000
+    assert_receive {:delivered, "evt_102"}, 1_000
+    assert :sys.get_state(delivery).cursor == 2
+    assert {:ok, %{"cursor" => 2}} = JsonStore.read(ctx.cursor_path)
   end
 
   defp event do
@@ -62,4 +112,7 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
       "data" => %{"lifecycle" => "running", "source" => "tracker", "observed_at" => "2026-10-25T00:00:00Z"}
     }
   end
+
+  defp resolve_public("https://consumer.example.test/aiur", false),
+    do: {:ok, "https://93.184.216.34/aiur", "consumer.example.test"}
 end

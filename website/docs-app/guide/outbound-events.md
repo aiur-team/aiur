@@ -19,6 +19,7 @@ events:
   export:
     enabled: true
     webhook_url: https://consumer.example.com/webhooks/aiur
+    allow_private_destinations: false
     # subject_id: "5695"       # optional exact ticket or job ID
     max_pending_events: 10000
     retry_ms: 5000
@@ -28,6 +29,14 @@ events:
 Aiur refuses startup when export is enabled without a correctly formed secret.
 The URL must use HTTPS and cannot contain userinfo or a fragment. Redirects are
 not followed, so the signed body is sent only to the configured origin.
+
+By default, literal and DNS-resolved loopback, link-local, metadata, RFC1918,
+CGNAT, ULA, and unspecified addresses are rejected. Aiur resolves the host for
+every attempt and pins the connection to the validated address, while retaining
+the original hostname for TLS and the Host header.
+
+Set `allow_private_destinations: true` only for a trusted development or
+intranet receiver.
 
 ## Verify before parsing
 
@@ -66,9 +75,17 @@ wire change adds another schema version instead of changing v1 in place.
 
 ## Retry and queue behavior
 
-Aiur persists an event before attempting delivery. A transport failure,
-redirect, or non-2xx response leaves the durable cursor unchanged and retries
-the identical event body. Only a 2xx response acknowledges it.
+Aiur persists an exportable event before attempting delivery. Transport errors,
+redirects, 408, 429, and 5xx responses leave the durable cursor unchanged and
+retry the identical event body with capped exponential backoff and jitter.
+
+A 2xx response acknowledges it. Other 4xx responses are permanent: Aiur raises a
+needs-attention alert, advances past that event, and continues the queue.
+
+Internal event publication is fail-open. Non-exportable topics bypass the
+export journal; exportable topics receive a short durability budget so a slow
+disk cannot stall orchestration. A journal timeout or admission failure is
+reported and the internal event still fans out.
 
 The queue is bounded by `max_pending_events`. A full queue never evicts pending
 events and raises a needs-attention alert. The alert resolves after acknowledged
