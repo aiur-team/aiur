@@ -1,4 +1,5 @@
 import { initTabs } from './tabs.js';
+const instances = new WeakMap();
 async function copyText(text) {
     try {
         if (navigator.clipboard) {
@@ -25,6 +26,9 @@ async function copyText(text) {
     }
 }
 export function initCommand(el, options = {}) {
+    const existing = instances.get(el);
+    if (existing)
+        return existing;
     const text = el.querySelector('.aiur-command__text');
     const row = el.querySelector('.aiur-command__row');
     const prompt = el.querySelector('.aiur-command__prompt');
@@ -91,5 +95,17 @@ export function initCommand(el, options = {}) {
         options.onCopy?.(value, kind);
     }
     button.addEventListener('click', copy);
-    return { destroy() { destroyed = true; reset(); tabs?.destroy(); button.removeEventListener('click', copy); } };
+    const instance = {
+        destroy() {
+            if (instances.get(el) !== instance)
+                return;
+            destroyed = true;
+            reset();
+            tabs?.destroy();
+            button.removeEventListener('click', copy);
+            instances.delete(el);
+        },
+    };
+    instances.set(el, instance);
+    return instance;
 }

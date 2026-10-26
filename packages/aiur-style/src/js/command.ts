@@ -6,6 +6,8 @@ export interface CommandOptions {
   labels?: { prompt?: string; command?: string };
 }
 
+const instances = new WeakMap<HTMLElement, { destroy(): void }>();
+
 async function copyText(text: string): Promise<void> {
   try {
     if (navigator.clipboard) { await navigator.clipboard.writeText(text); return; }
@@ -24,6 +26,8 @@ async function copyText(text: string): Promise<void> {
 }
 
 export function initCommand(el: HTMLElement, options: CommandOptions = {}): { destroy(): void } {
+  const existing = instances.get(el);
+  if (existing) return existing;
   const text = el.querySelector<HTMLElement>('.aiur-command__text')!;
   const row = el.querySelector<HTMLElement>('.aiur-command__row')!;
   const prompt = el.querySelector<HTMLElement>('.aiur-command__prompt');
@@ -81,5 +85,16 @@ export function initCommand(el: HTMLElement, options: CommandOptions = {}): { de
     options.onCopy?.(value, kind);
   }
   button.addEventListener('click', copy);
-  return { destroy() { destroyed = true; reset(); tabs?.destroy(); button.removeEventListener('click', copy); } };
+  const instance = {
+    destroy() {
+      if (instances.get(el) !== instance) return;
+      destroyed = true;
+      reset();
+      tabs?.destroy();
+      button.removeEventListener('click', copy);
+      instances.delete(el);
+    },
+  };
+  instances.set(el, instance);
+  return instance;
 }

@@ -56,26 +56,79 @@ test('width assertion rejects a box pinned to the Prompt width', async ({ page }
 
 test('keyboard wraps, Home/End, Enter/Space, roving focus and panel relationships', async ({ page }) => {
   const tabs = page.getByRole('tab');
+  async function expectRovingFocus(index: number) {
+    for (let i = 0; i < names.length; i++) {
+      await expect(tabs.nth(i)).toHaveAttribute('tabindex', i === index ? '0' : '-1');
+    }
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('tabpanel')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(tabs.nth(index)).toBeFocused();
+  }
   await tabs.first().focus();
   for (const [key, index] of [['ArrowLeft', 4], ['ArrowRight', 0], ['End', 4], ['Home', 0], ['ArrowRight', 1]] as const) {
     await page.keyboard.press(key);
     await expect(tabs.nth(index)).toBeFocused();
     await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('[role="tabpanel"]')).toHaveAttribute('aria-labelledby', await tabs.nth(index).getAttribute('id') as string);
-    await expect(page.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
+    await expectRovingFocus(index);
     await expect(page.locator(`${root} .aiur-command__text`)).toHaveText(commands[index]);
   }
   await expect(tabs.nth(1)).toHaveCSS('outline-style', 'solid');
   await tabs.nth(2).focus();
   await page.keyboard.press('Enter');
   await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
+  await expectRovingFocus(2);
   await tabs.nth(3).focus();
   await page.keyboard.press('Space');
   await expect(tabs.nth(3)).toHaveAttribute('aria-selected', 'true');
+  await expectRovingFocus(3);
   await page.keyboard.press('Tab');
   await expect(page.getByRole('tabpanel')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.locator(`${root} .aiur-command__copy`)).toBeFocused();
+});
+
+test('command initialization is idempotent and destroy permits reinitialization', async ({ page }) => {
+  await page.evaluate(async () => {
+    const { initCommand } = await import('../dist/js/index.js');
+    const el = document.querySelector<HTMLElement>('#command-tabs')!;
+    (window as any).copyWrites = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      writeText: async (text: string) => { (window as any).copyWrites.push(text); },
+    } });
+    (window as any).originalCommand = initCommand(el);
+    initCommand(el);
+  });
+  const tabs = page.getByRole('tab');
+  await tabs.first().focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(tabs.nth(1)).toBeFocused();
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`${root} .aiur-command__text`)).toHaveText(commands[1]);
+
+  await page.locator(`${root} .aiur-command__copy`).click();
+  await expect(page.locator(`${root} [role="status"]`)).toHaveText('Copied');
+  expect(await page.evaluate(() => (window as any).copyWrites)).toEqual([commands[1]]);
+  await tabs.nth(1).focus();
+
+  await page.evaluate(() => (window as any).originalCommand.destroy());
+  await page.keyboard.press('ArrowRight');
+  await expect(tabs.nth(1)).toBeFocused();
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+
+  await page.evaluate(async () => {
+    const { initCommand } = await import('../dist/js/index.js');
+    const el = document.querySelector<HTMLElement>('#command-tabs')!;
+    initCommand(el);
+    // A stale instance must not remove the new instance from the registry.
+    (window as any).originalCommand.destroy();
+    initCommand(el);
+  });
+  await page.keyboard.press('ArrowRight');
+  await expect(tabs.nth(2)).toBeFocused();
+  await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator(`${root} .aiur-command__text`)).toHaveText(commands[2]);
 });
 
 test('copy writes every active tab and announces success for 1500ms', async ({ page, context }) => {
