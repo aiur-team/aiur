@@ -40,12 +40,21 @@ defmodule Aiur.ExecutorWakeInboxTest do
   test "pending reads cached journal records after startup", %{opts: opts} do
     File.mkdir_p!(Path.dirname(opts[:path]))
     File.write!(opts[:path], Jason.encode!(record(1, "42")) <> "\n")
-    start_supervised!({ExecutorWakeInbox, opts})
+    test_pid = self()
 
-    File.rm!(opts[:path])
-    File.mkdir!(opts[:path])
+    replay_fun = fn path, validator ->
+      send(test_pid, :journal_replayed)
+      Aiur.Journal.replay(path, validator)
+    end
+
+    start_supervised!({ExecutorWakeInbox, Keyword.put(opts, :replay_fun, replay_fun)})
 
     assert [%{"wake_id" => 1, "ticket" => "42"}] = ExecutorWakeInbox.pending(__MODULE__)
+    refute_received :journal_replayed
+
+    :ok = Aiur.Journal.append(opts[:path], record(2, "43"))
+    assert [%{"wake_id" => 1}, %{"wake_id" => 2}] = ExecutorWakeInbox.pending(__MODULE__)
+    assert_received :journal_replayed
   end
 
   test "coalesces by topic class and ticket while keeping the latest identifiers", %{opts: opts} do

@@ -13,8 +13,8 @@ defmodule Aiur.UsageLedger.RetirementTest do
     %{root: root, name: name}
   end
 
-  defp start_ledger(root, name) do
-    Store.start_link(name: name, state_dir: root, filesystem_sync_fun: fn -> :ok end)
+  defp start_ledger(root, name, opts \\ []) do
+    Store.start_link(Keyword.merge([name: name, state_dir: root, filesystem_sync_fun: fn -> :ok end], opts))
   end
 
   defp append_n(name, count) do
@@ -67,7 +67,7 @@ defmodule Aiur.UsageLedger.RetirementTest do
   end
 
   test "a floor persisted before the segment is reclaimed still drops the retired prefix on boot", context do
-    {:ok, ledger} = start_ledger(context.root, context.name)
+    {:ok, ledger} = start_ledger(context.root, context.name, checkpoint_interval: 1)
     append_n(context.name, 5)
     GenServer.stop(ledger)
 

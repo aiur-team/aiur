@@ -10,10 +10,12 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   alias Aiur.Signal
 
   @doc false
-  @spec unread_records(map()) :: {:ok, [map()]} | {:error, term()}
+  @spec unread_records(map()) :: {:ok, [map()], map()} | {:error, term()}
   def unread_records(state) do
-    cursor = current_cursor(state)
-    {:ok, Enum.filter(state.records, &(&1["wake_id"] > cursor))}
+    with {:ok, state} <- refresh_records(state) do
+      cursor = current_cursor(state)
+      {:ok, Enum.filter(state.records, &(&1["wake_id"] > cursor)), state}
+    end
   end
 
   @doc false
@@ -23,14 +25,14 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
     additions = Enum.reject(records, &MapSet.member?(known, &1["wake_id"]))
 
     with :ok <- append_new_records(state.path, additions) do
-      {:ok, %{state | records: state.records ++ additions}}
+      {:ok, %{state | records: state.records ++ additions, journal_signature: journal_signature(state.path)}}
     end
   end
 
   @doc false
   @spec durable_records(map()) :: {:ok, [map()]} | {:error, term()}
   def durable_records(state) do
-    case Journal.replay(state.path, &validate_record/1) do
+    case state.replay_fun.(state.path, &validate_record/1) do
       {:ok, records, nil} -> {:ok, records}
       {:ok, _records, corruption} -> {:error, corruption}
       {:error, reason} -> {:error, reason}
@@ -140,7 +142,8 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
          next_wake_id: Enum.max([cursor, quarantined_max | durable_ids ++ pending_ids]) + 1,
          cursor: cursor,
          pending_count: Enum.count(records, &(&1["wake_id"] > cursor)),
-         records: records
+         records: records,
+         journal_signature: journal_signature(path)
        }}
     end
   end
@@ -162,6 +165,25 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   @doc false
   @spec current_cursor(map()) :: non_neg_integer()
   def current_cursor(state), do: max(state.cursor, read_cursor(state.cursor_path))
+
+  defp refresh_records(state) do
+    signature = journal_signature(state.path)
+
+    if signature == state.journal_signature do
+      {:ok, state}
+    else
+      with {:ok, records} <- durable_records(state) do
+        {:ok, %{state | records: records, journal_signature: signature}}
+      end
+    end
+  end
+
+  defp journal_signature(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, stat} -> {stat.size, stat.mtime}
+      _ -> :unavailable
+    end
+  end
 
   @doc false
   @spec refresh_cursor(map()) :: map()
@@ -212,7 +234,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
       end
 
     cursor = report_dropped_unread(state, unread -- retained_unread)
-    %{state | records: retained, cursor: cursor, pending_count: length(retained_unread)}
+    %{state | records: retained, cursor: cursor, pending_count: length(retained_unread), journal_signature: journal_signature(state.path)}
   end
 
   defp report_dropped_unread(state, []), do: state.cursor
