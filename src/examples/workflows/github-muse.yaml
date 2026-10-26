@@ -261,3 +261,11 @@ netlify:
   # account_id: your-netlify-team-id
   poll_seconds: 900
   credit_alert_threshold: 100
+
+# Command escalation policy (defaults; routing consumes these settings).
+# decisions:
+#   escalation:
+#     enabled: true
+#     executor_ack_ms: 300000
+#     executor_answer_ms: 900000
+#     urgent_factor: 0.5

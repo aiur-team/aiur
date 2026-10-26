@@ -131,6 +131,18 @@ defmodule Aiur.Config.ObservabilitySettings do
     Aiur.Config.settings!().observability.dashboard_writable
   end
 
+  @spec decision_escalation() :: %{enabled: boolean(), ack_ms: pos_integer(), answer_ms: pos_integer(), urgent_factor: float()}
+  def decision_escalation do
+    escalation = Aiur.Config.settings!().decisions.escalation
+
+    %{
+      enabled: escalation.enabled,
+      ack_ms: escalation.executor_ack_ms,
+      answer_ms: escalation.executor_answer_ms,
+      urgent_factor: escalation.urgent_factor
+    }
+  end
+
   @spec supervisor_decision_policy() :: %{
           allowed_kinds: [String.t()],
           allow_non_reversible: boolean()

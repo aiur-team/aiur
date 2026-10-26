@@ -291,8 +291,14 @@ An exported value wins, followed by the global file and then the repository file
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-17 -->
 | --- | --- | --- | --- |
+| `decisions.escalation.enabled` | boolean | true | Enables escalation of Executor Commands to the operator. |
+| `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
+| `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |
+| `decisions.escalation.urgent_factor` | float | 0.5 | Multiplies both deadlines for urgent Commands; greater than 0 and at most 1. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
 | `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
+
+Escalation policy: a Command routed to the Executor moves to you after 5 minutes without acknowledgement or 15 minutes without an answer by default. Urgent Commands halve both deadlines. Set `enabled: false` to disable escalation. Omitted sections use the defaults. Routing integration consumes this policy separately.
 
 These policy keys never grant transport access by themselves. The supervisor API also requires `AIUR_SUPERVISOR_TOKEN`; mutations require the writable and origin gates described above.
 
