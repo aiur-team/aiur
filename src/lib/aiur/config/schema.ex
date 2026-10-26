@@ -49,6 +49,7 @@ defmodule Aiur.Config.Schema do
   require Instance
   require Tracker
   require BuildQueue
+  require Events
   require Experiments
   require Voice
   require Workspace
