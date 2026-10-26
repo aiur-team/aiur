@@ -28,7 +28,7 @@ defmodule Aiur.GitHub.AgentBudgetSocket do
 
   @spec request(Path.t(), [String.t()], timeout()) :: {:ok, String.t()} | {:error, term()}
   def request(path, args, timeout \\ 120_000) when is_binary(path) and is_list(args) do
-    case :gen_tcp.connect({:local, String.to_charlist(path)}, 0, [:local, :binary, packet: :line, active: false], timeout) do
+    case :gen_tcp.connect({:local, String.to_charlist(listen_path(path))}, 0, [:local, :binary, packet: :line, active: false], timeout) do
       {:ok, socket} ->
         result =
           with :ok <- :gen_tcp.send(socket, Jason.encode!(%{args: args}) <> "\n"),
