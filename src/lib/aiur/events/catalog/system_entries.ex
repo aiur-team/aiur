@@ -104,6 +104,14 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.netlify.credits_low", "executor-attention"},
     # aiur/usage/alerts.ex
     {"system.netlify.credits_low.resolved", "executor-attention"},
+    # aiur/events/outbound/webhook.ex
+    {"system.outbound_events.delivery.permanent_failure", "event-bus"},
+    # aiur/events/outbound/export_journal.ex
+    {"system.outbound_events.queue.capacity", "event-bus"},
+    # aiur/events/outbound/export_journal.ex
+    {"system.outbound_events.queue.capacity.resolved", "event-bus"},
+    # aiur/events/outbound/export_journal.ex
+    {"system.outbound_events.queue.storage", "event-bus"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
     # aiur/landing_watch/pr_rerun.ex
