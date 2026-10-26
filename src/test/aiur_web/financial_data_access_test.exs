@@ -203,6 +203,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
              "/commands/:decision_id",
              "/build",
              "/analytics",
+             "/instances",
              "/post-deploy",
              "/streamdeck",
              "/experiments",
