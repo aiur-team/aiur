@@ -1,7 +1,8 @@
 defmodule Aiur.Config.Schema do
   @moduledoc false
 
-  @nested_schema_sources Path.wildcard("lib/aiur/config/schema/*.ex")
+  # Embed defaults are copied into parent structs at compile time.
+  @nested_schema_sources Path.wildcard(Path.join(__DIR__, "schema/*.ex"))
   for source <- @nested_schema_sources, do: @external_resource(source)
 
   use Ecto.Schema
@@ -47,11 +48,7 @@ defmodule Aiur.Config.Schema do
     Workspace
   }
 
-  # Require alone misses nested embeds; track every nested schema source.
-  @nested_schema_sources Path.wildcard("lib/aiur/config/schema/*.ex")
-  for source <- @nested_schema_sources, do: @external_resource(source)
-
-  # Embedded struct defaults must rebuild when their nested schemas change.
+  # Keep the direct module dependencies used by these embed declarations.
   require Agent
   require Decisions
   require Instance

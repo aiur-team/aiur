@@ -2,51 +2,95 @@ defmodule Aiur.Config.SchemaTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Config.Schema
+  alias Aiur.Config.Schema.{Agent, BuildOrder, Decisions, Events, Experiments, Github, Voice}
 
   test "tracks every nested schema source as a compile resource" do
-    resources =
-      Schema.__info__(:attributes)
-      |> Keyword.get_values(:external_resource)
-      |> List.flatten()
-      |> Enum.map(&Path.expand(&1, File.cwd!()))
+    schema_directory = Path.expand("../../../lib/aiur/config/schema", __DIR__)
 
-    nested_sources = Path.wildcard("lib/aiur/config/schema/*.ex") |> Enum.map(&Path.expand/1)
+    resources =
+      external_resources(Schema)
+
+    nested_sources = Path.wildcard(Path.join(schema_directory, "*.ex")) |> Enum.map(&Path.expand/1)
 
     assert nested_sources != []
     assert Enum.all?(nested_sources, &(&1 in resources))
   end
 
-  test "incremental Mix compilation refreshes defaults from nested schemas" do
+  test "nested embed modules track external child schema sources" do
+    schema_directory = Path.expand("../../../lib/aiur/config/schema", __DIR__)
+
+    expected_sources = [
+      {Decisions, ["decisions_escalation.ex"]},
+      {Events, ["events_export.ex"]},
+      {Agent, ["codex.ex", "git_identity.ex", "pricing_policy.ex"]},
+      {Github, ["github_app.ex", "github_credential.ex"]},
+      {Experiments, ["experiments_analyst.ex", "experiments_auto.ex"]},
+      {BuildOrder, ["general_epic.ex"]},
+      {Voice, ["voice_conversation.ex"]}
+    ]
+
+    for {module, sources} <- expected_sources do
+      resources = external_resources(module)
+
+      for source <- sources do
+        assert Path.join(schema_directory, source) in resources,
+               "#{inspect(module)} must track #{source}"
+      end
+    end
+
+    assert {:ok, parsed} = Schema.parse(%{})
+    assert parsed.decisions.escalation.enabled
+    assert parsed.events.export.retention_days == 7
+  end
+
+  test "incremental Mix compilation refreshes a three-level embedded default" do
     fixture = Path.join(System.tmp_dir!(), "aiur-schema-compile-#{System.unique_integer([:positive])}")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(fixture) end)
 
-    create_incremental_compile_fixture!(fixture, schema_tracks_decisions_source?())
+    create_incremental_compile_fixture!(
+      fixture,
+      tracks_source?(Schema, "decisions.ex"),
+      tracks_source?(Schema, "decisions_escalation.ex"),
+      tracks_source?(Decisions, "decisions_escalation.ex")
+    )
+
     assert {_, 0} = compile_fixture(fixture)
     assert fixture_default(fixture) == "true"
 
-    decision_source = Path.join(fixture, "lib/schema/decision.ex")
-    File.write!(decision_source, String.replace(File.read!(decision_source), "default: true", "default: false"))
+    leaf_source = Path.join(fixture, "lib/schema/escalation.ex")
+    File.write!(leaf_source, String.replace(File.read!(leaf_source), "default: true", "default: false"))
 
     assert {output, 0} = compile_fixture(fixture)
-    assert output =~ "Compiling 2 files"
+    assert output =~ "Compiling 3 files"
     assert fixture_default(fixture) == "false"
   end
 
-  defp schema_tracks_decisions_source? do
-    schema_source = Path.expand("lib/aiur/config/schema/decisions.ex", File.cwd!())
-
-    Schema.__info__(:attributes)
+  defp external_resources(module) do
+    module.__info__(:attributes)
     |> Keyword.get_values(:external_resource)
     |> List.flatten()
-    |> Enum.map(&Path.expand(&1, File.cwd!()))
-    |> Enum.member?(schema_source)
+    |> Enum.map(&Path.expand/1)
   end
 
-  defp create_incremental_compile_fixture!(fixture, tracks_decisions_source?) do
+  defp tracks_source?(module, relative_path) do
+    schema_directory = Path.expand("../../../lib/aiur/config/schema", __DIR__)
+    Path.join(schema_directory, relative_path) in external_resources(module)
+  end
+
+  defp create_incremental_compile_fixture!(fixture, root_tracks_middle_source?, root_tracks_leaf_source?, middle_tracks_leaf_source?) do
     ecto = Path.expand("../../../deps/ecto", __DIR__)
     decimal = Path.expand("../../../deps/decimal", __DIR__)
     telemetry = Path.expand("../../../deps/telemetry", __DIR__)
-    resource_declaration = if tracks_decisions_source?, do: ~S|@external_resource "lib/schema/decision.ex"|, else: ""
+
+    root_resources =
+      [
+        if(root_tracks_middle_source?, do: ~S|@external_resource "lib/schema/decisions.ex"|),
+        if(root_tracks_leaf_source?, do: ~S|@external_resource "lib/schema/escalation.ex"|)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+
+    middle_resource = if middle_tracks_leaf_source?, do: ~S|@external_resource "lib/schema/escalation.ex"|, else: ""
 
     File.mkdir_p!(Path.join(fixture, "lib/schema"))
 
@@ -62,8 +106,8 @@ defmodule Aiur.Config.SchemaTest do
     end
     """)
 
-    File.write!(Path.join(fixture, "lib/schema/decision.ex"), """
-    defmodule SchemaFixture.Decision do
+    File.write!(Path.join(fixture, "lib/schema/escalation.ex"), """
+    defmodule SchemaFixture.Escalation do
       use Ecto.Schema
       embedded_schema do
         field :enabled, :boolean, default: true
@@ -71,25 +115,35 @@ defmodule Aiur.Config.SchemaTest do
     end
     """)
 
-    File.write!(Path.join(fixture, "lib/schema.ex"), """
-    defmodule SchemaFixture do
-      #{resource_declaration}
+    File.write!(Path.join(fixture, "lib/schema/decisions.ex"), """
+    defmodule SchemaFixture.Decisions do
+      #{middle_resource}
       use Ecto.Schema
       embedded_schema do
-        embeds_one :decision, SchemaFixture.Decision, defaults_to_struct: true
+        embeds_one :escalation, SchemaFixture.Escalation, defaults_to_struct: true
+      end
+    end
+    """)
+
+    File.write!(Path.join(fixture, "lib/schema.ex"), """
+    defmodule SchemaFixture do
+      #{root_resources}
+      use Ecto.Schema
+      embedded_schema do
+        embeds_one :decisions, SchemaFixture.Decisions, defaults_to_struct: true
       end
       def parse, do: Ecto.Changeset.cast(%__MODULE__{}, %{}, []) |> Ecto.Changeset.apply_changes()
-      def default, do: parse().decision.enabled
+      def default, do: parse().decisions.escalation.enabled
     end
     """)
   end
 
   defp compile_fixture(fixture) do
-    System.cmd("mix", ["compile"], cd: fixture, stderr_to_stdout: true)
+    System.cmd("mix", ["compile"], cd: fixture)
   end
 
   defp fixture_default(fixture) do
-    {output, 0} = System.cmd("mix", ["run", "--no-start", "-e", "IO.write(SchemaFixture.default())"], cd: fixture, stderr_to_stdout: true)
+    {output, 0} = System.cmd("mix", ["run", "--no-start", "-e", "IO.write(SchemaFixture.default())"], cd: fixture)
     String.trim(output)
   end
 

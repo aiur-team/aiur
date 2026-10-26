@@ -1,5 +1,7 @@
 defmodule Aiur.Config.Schema.Events do
   @moduledoc false
+
+  @external_resource Path.join(__DIR__, "events_export.ex")
   use Ecto.Schema
   import Ecto.Changeset
 

@@ -44,6 +44,10 @@ end
 
 defmodule Aiur.Config.Schema.Agent do
   @moduledoc false
+
+  @external_resource Path.join(__DIR__, "codex.ex")
+  @external_resource Path.join(__DIR__, "git_identity.ex")
+  @external_resource Path.join(__DIR__, "pricing_policy.ex")
   use Ecto.Schema
   import Ecto.Changeset
 
