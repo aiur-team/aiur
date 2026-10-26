@@ -45,6 +45,14 @@ defmodule Aiur.Events.CatalogCensusTest do
     assert topics(source) == ["ticket.*.ci.*", "ticket.*.agent.attention.*", "system.capabilities.changed"]
   end
 
+  test "a non-reserved entry without a producer fails the census" do
+    stale = %Aiur.Events.Catalog.Entry{pattern: "ticket.*.future.unpublished", class: :live, owner: "event-bus"}
+    reserved = %{stale | reserved: true}
+
+    assert ["ticket.*.future.unpublished"] = unproduced_patterns([stale], [])
+    assert [] = unproduced_patterns([reserved], [])
+  end
+
   # This census only scans topic literals under the known prefixes above. It
   # cannot discover topics assembled from variables or an unlisted namespace.
   # Parse literals rather than scanning interpolations with a regex: nested
@@ -100,4 +108,11 @@ defmodule Aiur.Events.CatalogCensusTest do
   defp registered_pattern("executor.decision." <> _), do: "executor.#"
   defp registered_pattern("executor.command.*"), do: "executor.command.*"
   defp registered_pattern(topic), do: topic
+
+  defp unproduced_patterns(entries, producer_topics) do
+    for entry <- entries,
+        not entry.reserved,
+        not Enum.any?(producer_topics, &Aiur.Events.matches?(entry.pattern, &1)),
+        do: entry.pattern
+  end
 end

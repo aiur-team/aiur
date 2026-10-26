@@ -240,7 +240,7 @@ defmodule Aiur.DecisionStore.AnswerAfterRunTest do
                DecisionStore.supersede(
                  id,
                  %{"idempotency_key" => "supersede-2", "expected_version" => 1, "option_id" => "hold", "rationale" => "Changed direction."},
-                 [actor: %{kind: :executor, id: "executor"}],
+                 [actor: %{kind: :operator, id: "operator"}],
                  pid
                )
 
