@@ -246,11 +246,19 @@ defmodule VoiceConverse.Session do
   end
 
   defp handle_provider_event(%Events.ToolCall{} = event, state) do
-    record = %{type: "tool_call", call_id: event.call_id, name: event.name, params: event.params, at: now(state)}
+    broadcast_event = redact_tool_call(state, event)
+
+    record = %{
+      type: "tool_call",
+      call_id: broadcast_event.call_id,
+      name: broadcast_event.name,
+      params: broadcast_event.params,
+      at: now(state)
+    }
 
     case persist(state, record) do
       {:ok, state} ->
-        broadcast(state, event)
+        broadcast(state, broadcast_event)
         {result, state} = handle_tool(state, event)
 
         result_record = %{
@@ -334,6 +342,15 @@ defmodule VoiceConverse.Session do
   end
 
   defp handle_tool(state, event), do: {Tools.handle(state, event), state}
+
+  defp redact_tool_call(state, %Events.ToolCall{name: "propose_instruction", params: params} = event) do
+    %{event | params: Map.update(params, "text", "", &redact_text(state, &1))}
+  end
+
+  defp redact_tool_call(_state, event), do: event
+
+  defp redact_text(state, text) when is_binary(text), do: redact(state, text)
+  defp redact_text(_state, text), do: text
 
   defp persist(state, record) do
     case TranscriptStore.append(state.store, record) do

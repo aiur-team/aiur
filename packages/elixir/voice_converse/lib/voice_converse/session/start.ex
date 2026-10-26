@@ -7,9 +7,9 @@ defmodule VoiceConverse.Session.Start do
   def state(config, target, id, opts) do
     clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
 
-    with {:ok, descriptor} <- describe_target(config, target),
-         :ok <- Config.check_session_start(config),
+    with :ok <- Config.check_session_start(config),
          :ok <- target_alive?(config, target),
+         {:ok, descriptor} <- describe_target(config, target),
          {:ok, provider, provider_opts} <- provider(config, opts),
          :ok <- preflight(provider, Runtime.preflight_spec(config, target, provider, provider_opts)),
          :ok <- SessionLimits.under_daily_cap?(config),

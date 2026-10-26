@@ -70,13 +70,21 @@ defmodule VoiceConverse.Drafts do
   def confirm(_projection, _draft_id, %{source: source}, _opts) when source != :client_socket, do: {:error, :not_client}
 
   def confirm(%__MODULE__{} = projection, draft_id, %{source: :client_socket, principal: _principal}, opts),
-    do: transition(projection, draft_id, :confirmed, opts)
+    do: do_transition(projection, draft_id, :confirmed, opts)
 
   def confirm(_projection, _draft_id, _principal, _opts), do: {:error, :not_client}
 
   @spec transition(t(), String.t(), status(), keyword()) ::
-          {:ok, Draft.t(), t()} | {:error, :invalid_transition | :not_found}
-  def transition(%__MODULE__{} = projection, draft_id, next_status, opts \\ []) do
+          {:ok, Draft.t(), t()} | {:error, :invalid_transition | :not_client | :not_found}
+  def transition(projection, draft_id, next_status, opts \\ [])
+
+  def transition(%__MODULE__{}, _draft_id, :confirmed, _opts), do: {:error, :not_client}
+
+  def transition(%__MODULE__{} = projection, draft_id, next_status, opts) do
+    do_transition(projection, draft_id, next_status, opts)
+  end
+
+  defp do_transition(%__MODULE__{} = projection, draft_id, next_status, opts) do
     with {:ok, draft} <- fetch(projection, draft_id),
          true <- MapSet.member?(@transitions, {draft.status, next_status}) || {:error, :invalid_transition} do
       draft = %{draft | status: next_status, at: Keyword.get(opts, :at, now())}

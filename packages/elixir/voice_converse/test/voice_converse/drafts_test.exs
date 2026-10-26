@@ -39,11 +39,23 @@ defmodule VoiceConverse.DraftsTest do
     for {from, to, allowed?} <- transition_cases() do
       projection = put_status(projection, draft, from)
 
-      if allowed? do
-        assert {:ok, %{status: ^to}, _projection} = Drafts.transition(projection, draft.draft_id, to, at: @at)
+      if to == :confirmed do
+        result =
+          Drafts.confirm(projection, draft.draft_id, %{source: :client_socket, principal: %{id: "operator"}}, at: @at)
+
+        if allowed? do
+          assert {:ok, %{status: ^to}, _projection} = result
+        else
+          assert {:error, :invalid_transition} = result
+          assert {:ok, %{status: ^from}} = Drafts.fetch(projection, draft.draft_id)
+        end
       else
-        assert {:error, :invalid_transition} = Drafts.transition(projection, draft.draft_id, to, at: @at)
-        assert {:ok, %{status: ^from}} = Drafts.fetch(projection, draft.draft_id)
+        if allowed? do
+          assert {:ok, %{status: ^to}, _projection} = Drafts.transition(projection, draft.draft_id, to, at: @at)
+        else
+          assert {:error, :invalid_transition} = Drafts.transition(projection, draft.draft_id, to, at: @at)
+          assert {:ok, %{status: ^from}} = Drafts.fetch(projection, draft.draft_id)
+        end
       end
     end
   end
@@ -82,6 +94,13 @@ defmodule VoiceConverse.DraftsTest do
       assert {:error, :not_client} = Drafts.confirm(projection, draft.draft_id, %{source: source}, at: @at)
       assert {:ok, %{status: :proposed}} = Drafts.fetch(projection, draft.draft_id)
     end
+  end
+
+  test "transition cannot confirm a draft directly" do
+    {:ok, draft, projection} = propose(Drafts.new())
+
+    assert {:error, :not_client} = Drafts.transition(projection, draft.draft_id, :confirmed, at: @at)
+    assert {:ok, %{status: :proposed}} = Drafts.fetch(projection, draft.draft_id)
   end
 
   test "invalid text is refused without creating a draft" do
