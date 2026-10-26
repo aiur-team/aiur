@@ -3,8 +3,8 @@ defmodule Aiur.GitHub.Access.WrapperTest do
   @moduletag :tmp_dir
   alias Aiur.AgentGitHubGuard
   alias Aiur.AgentGitHubGuard.Script
-  alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Access.{Wrapper, WrapperRecursion, WrapperSource}
+  alias Aiur.GitHub.HostCommand
 
   @hash_path Path.expand("../../../../priv/github_guard/aiur-gh.sha256", __DIR__)
 
