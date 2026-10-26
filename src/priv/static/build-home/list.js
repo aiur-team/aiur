@@ -128,10 +128,18 @@ function featureListHTML(D, state, now) {
   const summary = Number.isFinite(closed) && Number.isFinite(total) ? `${closed} / ${total} tickets closed across all features` : '— tickets closed across all features';
   const totalReasons = globallyUnknown ? [globallyUnknown] : [Number.isFinite(closed) ? null : 'states unavailable', Number.isFinite(ci) ? null : 'CI state unknown', Number.isFinite(unpublished) ? null : 'planned count unavailable'].filter(Boolean);
   const totalsLine = `${summary} · ${Number.isFinite(unpublished) ? unpublished : '—'} planned tickets not published yet · ${Number.isFinite(ci) ? ci : '—'} waiting on CI${totalReasons.length ? ` · ${totalReasons.join(' · ')}` : ''}`;
-  const bar = (c, o, u, reason, cls = '') => {
-    const denominator = Number.isFinite(c) && Number.isFinite(o) && Number.isFinite(u) ? c + o + u : 0;
+  const bar = (c, o, u, reason, cls = '', total = null) => {
+    const complete = Number.isFinite(c) && Number.isFinite(o) && Number.isFinite(u);
+    const denominator = Number.isFinite(total) ? total : complete ? c + o + u : 0;
     const width = n => denominator > 0 ? Math.max(0, n / denominator * 100) : 0;
-    return `<div class="fp-bar ${cls}${reason ? ' unknown' : ''}" role="img" aria-label="${esc(reason || `${c} closed, ${o} published open, ${u} planned not published`)}">${reason ? '<i class="fp-unknown"></i>' : `<i class="fp-closed" style="width:${width(c)}%"></i><i class="fp-open" style="width:${width(o)}%"></i><i class="fp-unpublished" style="width:${width(u)}%"></i>`}</div>`;
+    if (denominator <= 0 || !Number.isFinite(c)) {
+      return `<div class="fp-bar ${cls} unknown" role="img" aria-label="${esc(reason || 'Progress unavailable')}"><i class="fp-unknown"></i></div>`;
+    }
+    const known = c + (Number.isFinite(o) ? o : 0) + (Number.isFinite(u) ? u : 0);
+    const unknown = Math.max(0, denominator - known);
+    const segments = `<i class="fp-closed" style="width:${width(c)}%"></i>${Number.isFinite(o) ? `<i class="fp-open" style="width:${width(o)}%"></i>` : ''}${Number.isFinite(u) ? `<i class="fp-unpublished" style="width:${width(u)}%"></i>` : ''}${unknown > 0 ? `<i class="fp-unknown" style="width:${width(unknown)}%"></i>` : ''}`;
+    const label = `${c} closed${Number.isFinite(o) ? `, ${o} published open` : ''}${Number.isFinite(u) ? `, ${u} planned not published` : ''}${unknown > 0 ? `, ${unknown} unknown` : ''}`;
+    return `<div class="fp-bar ${cls}${unknown > 0 ? ' unknown' : ''}" role="img" aria-label="${esc(reason || label)}">${segments}</div>`;
   };
   const groupKey = x => typeof x.progress?.wave === 'string' && x.progress.wave.length ? x.progress.wave : `feature:${x.key}`;
   const grouped = new Map();
@@ -155,15 +163,15 @@ function featureListHTML(D, state, now) {
       : reason || 'not published yet — 0 of planned tickets on GitHub';
     const summary = p?.summary ? `<small class="fp-summary">${esc(p.summary)}</small>` : '';
     const code = p?.code ? `<small class="fp-code">${esc(p.code)}</small>` : '';
-    const laneText = lanes.map(x => `${esc(laneCaption(x.epic))}: ${Number.isFinite(x.progress?.closed) ? x.progress.closed : '—'} / ${Number.isFinite(x.progress?.total) ? x.progress.total : '—'}`).join(' · ');
-    return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(feature.label)}">${icon}</span><span class="fp-name"><b>${esc(feature.label)}</b>${code}${summary}<small class="fp-summary">${laneText}</small></span>${bar(c, Number.isFinite(o) && Number.isFinite(p?.ci_wait) ? o + p.ci_wait : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter')}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;
+    const laneText = lanes.filter(x => !(laneCaption(x.epic) === 'Unassigned' && x.progress?.total === 0)).map(x => `${esc(laneCaption(x.epic))}: ${Number.isFinite(x.progress?.closed) ? x.progress.closed : '—'} / ${Number.isFinite(x.progress?.total) ? x.progress.total : '—'}`).join(' · ');
+    return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(feature.label)}">${icon}</span><span class="fp-name"><b>${esc(feature.label)}</b>${code}${summary}<small class="fp-summary">${laneText}</small></span>${bar(c, Number.isFinite(o) && Number.isFinite(p?.ci_wait) ? o + p.ci_wait : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter', t)}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;
   }).join('')}</section>`).join('');
   const legend = '<div class="fp-legend"><span><i class="closed"></i>Closed</span><span><i class="open"></i>Published, open</span><span><i class="unpublished"></i>Planned, not published</span></div>';
   const version = D.feature_progress?.plan_version || 'plan version unavailable';
   const first = values.map(x => x.progress).find(Boolean) || {};
   const rootTitle = first.root_title || 'Feature progress';
   const rootDetails = [first.root_number ? `root #${first.root_number}` : 'root unknown', first.start_date || 'start date unknown', `data as of ${Number.isFinite(observed) ? new Date(observed).toLocaleString() : '—'} · ${ageLabel}`].join(' · ');
-  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(rootTitle)}</h1><p>${esc(rootDetails)}</p></div><div class="fp-overall"><b>${pctText}</b><span>${esc(totalsLine)}</span></div>${bar(closed, opened, unpublished, Number.isFinite(closed) && Number.isFinite(opened) && Number.isFinite(unpublished) ? null : 'Progress unavailable', 'fp-total')}${legend}</header><div class="fp-groups">${rows || '<p>No features available</p>'}</div><footer>Progress is closed / all tickets in the feature, rounded down; closed includes done, failed, and not-planned tickets. Planned counts from ${esc(version)}. ${Number.isFinite(D.feature_progress?.extras) ? D.feature_progress.extras : '—'} published tickets outside the plan are included in totals.</footer></article>`;
+  return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(rootTitle)}</h1><p>${esc(rootDetails)}</p></div><div class="fp-overall"><b>${pctText}</b><span>${esc(totalsLine)}</span></div>${bar(closed, opened, unpublished, Number.isFinite(closed) && Number.isFinite(total) ? null : 'Progress unavailable', 'fp-total', total)}${legend}</header><div class="fp-groups">${rows || '<p>No features available</p>'}</div><footer>Progress is closed / all tickets in the feature, rounded down; closed includes done, failed, and not-planned tickets. Planned counts from ${esc(version)}. ${Number.isFinite(D.feature_progress?.extras) ? D.feature_progress.extras : '—'} published tickets outside the plan are included in totals.</footer></article>`;
 }
 function laneCaption(epic) {
   if (/^f-bo-\d+$/.test(epic.key)) return 'Unassigned';

@@ -92,6 +92,47 @@ test('feature list shows a proportional bar for known membership', async ({ page
   await expect(closed).toBeVisible()
   await expect(closed).toHaveAttribute('style', /width:30%/)
 })
+test('feature list keeps known closed progress solid when other counts are unknown', async ({ page }) => {
+  await open(page, '?view=list')
+  await page.getByRole('tab', { name: 'Features' }).click()
+  const entries = [
+    ['f-part-2', 'part2', 'Wave 1 refactor (part 2/3)', '1', 88, 6, 0, 94],
+    ['f-part-3', 'part3', 'Wave 1 refactor (part 3/3)', '1', 49, 20, 0, 71],
+    ['f-other', 'other', 'Other work', '2', 298, 32, 0, 330],
+    ['f-bo-6368', 'unassigned', 'Unassigned tickets', '2', 0, 0, 0, 0]
+  ]
+  const features = Object.fromEntries(entries.map(([epic, slug, label]) => [slug, { label, hue: 272, epics: [epic] }]))
+  const epics = Object.fromEntries(entries.map(([key, , label]) => [key, { feature: entries.find(entry => entry[0] === key)[1], label: key.startsWith('f-bo-') ? 'Build Order 6368' : label }]))
+  const progress = {
+    features: Object.fromEntries(entries.map(([key, slug, summary, wave, closed, open, unpublished, total]) => [key, {
+      feature: slug, closed, open, ci_wait: slug === 'part3' || slug === 'part2' ? null : 0,
+      unpublished, total, observed_at: Date.now(), wave, summary, extras: 0, reason: null
+    }])),
+    observed_at: Date.now(), plan_version: 'v1', extras: 0
+  }
+  await page.evaluate(({ features, epics, progress }) => {
+    const { ctx, fx } = window.m
+    ctx.D.features = features
+    ctx.D.epics = epics
+    ctx.D.feature_progress = progress
+    ctx.snap.features = features
+    ctx.snap.epics = epics
+    ctx.snap.feature_progress = progress
+    fx.renderList()
+  }, { features, epics, progress })
+
+  const overall = page.locator('.fp-total')
+  await expect(page.locator('.fp-overall')).toContainText('435 / 495')
+  await expect(page.locator('.fp-overall')).toContainText('CI state unknown')
+  await expect(overall.locator('.fp-closed')).toHaveAttribute('style', /width:87\.8/)
+  await expect(overall.locator('.fp-unknown')).toHaveAttribute('style', /width:12\.1/)
+  const part2 = page.locator('.fp-row').filter({ hasText: 'Wave 1 refactor (part 2/3)' })
+  const part3 = page.locator('.fp-row').filter({ hasText: 'Wave 1 refactor (part 3/3)' })
+  await expect(part2.locator('.fp-closed')).toHaveAttribute('style', /width:93\.6/)
+  await expect(part3.locator('.fp-closed')).toHaveAttribute('style', /width:69\.0/)
+  await expect(part3.locator('.fp-unknown')).toHaveAttribute('style', /width:30\.985/)
+  await expect(page.locator('.fp-row')).not.toContainText('Unassigned: 0 / 0')
+})
 for (const slug of ['nope', 'constructor', 'toString']) test(`unknown ${slug} stays inactive in graph, compact and list`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message))
   await open(page, `?feature=${slug}&fmode=compact`)
