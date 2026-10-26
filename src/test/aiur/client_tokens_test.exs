@@ -5,8 +5,6 @@ defmodule Aiur.ClientTokensTest do
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-client-tokens-#{System.unique_integer([:positive])}")
     path = Path.join(root, "client-tokens.json")
-    File.mkdir_p!(root)
-    File.chmod!(root, 0o755)
     previous = Application.get_env(:aiur, :client_tokens_path)
     Application.put_env(:aiur, :client_tokens_path, path)
 
@@ -16,6 +14,16 @@ defmodule Aiur.ClientTokensTest do
     end)
 
     {:ok, path: path}
+  end
+
+  test "uses an existing token directory without changing its permissions", %{path: path} do
+    directory = Path.dirname(path)
+    File.mkdir_p!(directory)
+    File.chmod!(directory, 0o755)
+
+    assert {:ok, token} = Aiur.ClientTokens.create("existing-directory")
+    assert {:ok, "existing-directory", "write"} = Aiur.ClientTokens.authenticate(token)
+    assert (File.stat!(directory).mode &&& 0o777) == 0o755
   end
 
   test "stores only a hash, lists metadata, authenticates, and revokes", %{path: path} do

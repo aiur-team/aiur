@@ -100,13 +100,40 @@ defmodule Aiur.ClientTokens do
     try do
       directory = Path.dirname(path)
 
-      with :ok <- File.mkdir_p(directory),
-           :ok <- File.chmod(directory, 0o700),
+      with :ok <- secure_directory(directory),
            :ok <- File.write(temporary, Jason.encode!(records), [:binary, :exclusive]),
            :ok <- File.chmod(temporary, 0o600),
            do: File.rename(temporary, path)
     after
       File.rm(temporary)
+    end
+  end
+
+  defp secure_directory(directory) do
+    case File.stat(directory) do
+      {:ok, _stat} ->
+        :ok
+
+      {:error, :enoent} ->
+        create_secure_directory(directory)
+
+      {:error, :eperm} ->
+        :ok
+
+      error ->
+        error
+    end
+  end
+
+  defp create_secure_directory(directory) do
+    with :ok <- File.mkdir_p(directory), do: chmod_directory(directory)
+  end
+
+  defp chmod_directory(directory) do
+    case File.chmod(directory, 0o700) do
+      :ok -> :ok
+      {:error, :eperm} -> :ok
+      error -> error
     end
   end
 
