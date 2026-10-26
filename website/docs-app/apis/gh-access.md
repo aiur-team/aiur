@@ -32,8 +32,11 @@ line. Only the real `gh` child receives that credential; helper processes do not
 By default, state is under `~/.aiur/github-budget`, shared with Aiur agents on
 the same host. Answers and budget rows are separated by credential. Using a
 different root creates a separate ledger and store. Preserve the same root and
-credential to share state with agents. This is a policy boundary, not a
-capability boundary: a process running as your user can still read your files.
+credential to share state with agents.
+
+This is a policy boundary, not a capability boundary: a process running as your user can still read your files.
+
+Settings retain their `AIUR_GITHUB_*` names.
 
 | Setting | Default / effect |
 | --- | --- |
@@ -56,8 +59,10 @@ The [shared-read contract](/apis/github-agent-cache) applies unchanged:
 verdicts, including CI state and merge/review decisions, are never shared at
 any age. Eligible repository GETs and selected JSON reads are kept byte for
 byte for 60 seconds. Concurrent identical readers share one fetch; writes
-invalidate affected answers. External changes require an Aiur delivery or poll
-to invalidate early, otherwise eligible answers age out.
+invalidate affected answers.
+
+External changes require an Aiur delivery or poll to invalidate early; otherwise
+eligible answers age out.
 
 The [budget and holds contract](/apis/github-budgets) also applies. When an
 enabled budget cannot coordinate (including a missing broker), the call fails
