@@ -39,7 +39,7 @@ defmodule Aiur.Commands.SuggestedResponsesTest do
     assert message == "Command #{d.decision_id}: too_few_options"
     assert opts[:severity] == :info
     assert opts[:needs_attention] == false
-    assert opts[:exchange_payload] == %{decision_id: d.decision_id, reason: :too_few_options}
+    assert opts[:exchange_payload] == %{decision_id: d.decision_id, suggested_response_reason: :too_few_options}
     assert opts[:dedup_key] == {:suggested_responses, d.decision_id}
     assert opts[:issue] == "979"
     refute message =~ d.question

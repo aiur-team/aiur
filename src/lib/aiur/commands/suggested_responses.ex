@@ -1,8 +1,10 @@
 defmodule Aiur.Commands.SuggestedResponses do
   @moduledoc false
 
-  alias Aiur.Commands.{RequestContent, Requester}
-  alias Aiur.{Alerts, Config}
+  alias Aiur.Alerts
+  alias Aiur.Commands.RequestContent
+  alias Aiur.Commands.Requester
+  alias Aiur.Config
 
   @spec validate(Aiur.Decision.t(), keyword()) :: :ok | {:error, term()}
   def validate(decision, opts) do
@@ -31,7 +33,7 @@ defmodule Aiur.Commands.SuggestedResponses do
         dedup_key: {:suggested_responses, decision.decision_id},
         needs_attention: false,
         reason: "suggested_responses:#{reason}",
-        exchange_payload: %{decision_id: decision.decision_id, reason: reason}
+        exchange_payload: %{decision_id: decision.decision_id, suggested_response_reason: reason}
       )
     end
 
