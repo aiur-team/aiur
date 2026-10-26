@@ -109,6 +109,14 @@ defmodule Aiur.ControlCall.EngineCensusTest do
     end
   end
 
+  test "the fleet executor wait fixture is accepted by the remote control parser" do
+    path = Path.expand("../../../../packaging/npm/aiur-cli/test/fixtures/control-read-commands.json", __DIR__)
+    fixture = path |> File.read!() |> Jason.decode!()
+    command = hd(fixture["remote_write_commands"])
+
+    assert {:ok, %{scope: :write}} = ControlCall.parse(command["expression"], remote: true)
+  end
+
   test "real engine wrappers emit allowlisted expressions with their expected scope" do
     for {name, command, expected_scope, env} <- @wrapper_cases do
       expression = capture_rpc(command, env)

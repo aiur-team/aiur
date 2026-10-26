@@ -187,8 +187,9 @@ per-machine Executors, then use `aiur --instance all executor-wait --as
 <executor-id> --json` in its loop. The CLI waits on every registered instance
 and returns records as soon as one instance has wakes; each instance has its
 own deferred-ack cursor, so a retry after interruption redelivers uncommitted
-wakes. Use `--instance <name>` to wait on one remote instance. Remote waits
-require an explicit `--as` identity and cap `--timeout` at 600 seconds.
+wakes. Handle any records printed even when an unreachable instance makes the
+command exit nonzero. Use `--instance <name>` to wait on one remote instance.
+Remote waits require an explicit `--as` identity and cap `--timeout` at 600 seconds.
 
 Include `--debug` only when authorized. It controls evidence capture and never
 authorizes filing or commenting on an issue; those mutations require separately

@@ -1,4 +1,4 @@
-# Read-only fan-out for `aiur --instance all`. Sourced after remote.sh.
+# Fan-out for `aiur --instance all`. Sourced after remote.sh.
 
 remote_all_has_arg() {
   local needle="$1" arg
@@ -140,11 +140,18 @@ run_remote_all_executor_wait() {
     index=$((index + 1))
   done <<<"$records"
   while :; do
-    if remote_wait_has_delivered_records "$result_dir" "${#names[@]}"; then
-      for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+    if remote_wait_has_delivered_records "$result_dir" "${!names[@]}"; then
+      for index in "${!names[@]}"; do
+        curl_pid_file="$result_dir/$index.curl_pid"
+        if [ -f "$curl_pid_file" ]; then
+          curl_pid="$(cat "$curl_pid_file")"
+          printf '1' >"$result_dir/$index.cancelled"
+          kill -TERM -- "-$curl_pid" 2>/dev/null || kill "$curl_pid" 2>/dev/null || true
+        fi
+      done
       for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
       for index in "${!names[@]}"; do
-        if [ ! -f "$result_dir/$index.status" ]; then
+        if [ ! -f "$result_dir/$index.status" ] || [ -f "$result_dir/$index.cancelled" ]; then
           # A cancelled request was never acknowledged, so its wakes remain available.
           printf '0' >"$result_dir/$index.status"
           printf '{"status":"timeout","role":"owner","records":[]}\n' >"$result_dir/$index.output"
@@ -191,21 +198,18 @@ run_remote_all_executor_wait() {
 }
 
 remote_wait_has_delivered_records() {
-  local result_dir="$1" count="$2" runtime
-  runtime="$(remote_js_runtime)"
-  "$runtime" -e '
-    const fs = require("node:fs");
-    const [dir, count] = process.argv.slice(1);
-    for (let index = 0; index < Number(count); index++) {
-      if (fs.existsSync(`${dir}/${index}.status`) && fs.readFileSync(`${dir}/${index}.status`, "utf8") === "0") {
-        const raw = fs.readFileSync(`${dir}/${index}.output`, "utf8");
-        for (const line of raw.split(/\r?\n/)) {
-          try { const payload = JSON.parse(line); if (payload.status === "woken" && payload.records?.length) process.exit(0); } catch (_) {}
-        }
-      }
-    }
-    process.exit(1);
-  ' "$result_dir" "$count"
+  local result_dir="$1" index status raw
+  shift
+  for index in "$@"; do
+    [ -f "$result_dir/$index.status" ] || continue
+    status="$(cat "$result_dir/$index.status")"
+    [ "$status" = 0 ] || continue
+    raw="$(cat "$result_dir/$index.output" 2>/dev/null || true)"
+    case "$raw" in
+      *'"status":"woken"'*'"records":['*']'*) return 0 ;;
+    esac
+  done
+  return 1
 }
 
 run_remote_all_wait_instance() {
@@ -223,6 +227,8 @@ run_remote_all_wait_instance() {
   [[ "$cursor" =~ ^(0|[1-9][0-9]*)$ ]] || cursor=0
   printf '%s' "$cursor" >"$result_dir/$index.sent_cursor"
   expression="Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: true, defer_ack: true, ack_through: $cursor, as: \"$as\")"
+  AIUR_REMOTE_CURL_PID_FILE="$result_dir/$index.curl_pid"
+  export AIUR_REMOTE_CURL_PID_FILE
   run_remote_rpc_with_timeout "$expression" 2>"$result_dir/$index.error" || status=$?
   printf '%s' "$status" >"$result_dir/$index.status"
   printf '%s' "${AIUR_CONTROL_RPC_OUTPUT:-}" >"$result_dir/$index.output"
@@ -246,10 +252,6 @@ render_remote_all_wait_results() {
       if (status === "unsupported") { rows.push({instance, status: "unsupported", records: [], detail: read(`${dir}/${index}.error`).trim()}); return; }
       if (status !== "0") {
         const detail = read(`${dir}/${index}.error`).trim();
-        if (status === "1" && detail.includes("acknowledge")) {
-          rows.push({instance, status: "reset", records: [], instance_id: read(`${dir}/${index}.instance_id`), previous_instance: read(`${dir}/${index}.previous_instance`), detail});
-          return;
-        }
         highest = Math.max(highest, Number(status) || 69);
         rows.push({instance, status: "error", records: [], detail});
         return;
@@ -260,7 +262,17 @@ render_remote_all_wait_results() {
       if (!payload || !["woken", "timeout", "error"].includes(payload.status)) { highest = Math.max(highest, 69); rows.push({instance, status: "error", records: [], detail: "invalid executor-wait JSON"}); return; }
       payload.instance_id = read(`${dir}/${index}.instance_id`);
       const previous = read(`${dir}/${index}.previous_instance`);
-      const reset = payload.status === "error" && payload.stage === "acknowledge" || (previous && payload.instance_id && previous !== payload.instance_id);
+      const reset = payload.status === "error" && payload.stage === "acknowledge" && String(payload.detail || "").includes("journal_reset") || (previous && payload.instance_id && previous !== payload.instance_id);
+      if (payload.status === "error") {
+        if (reset) {
+          payload.records = [];
+          payload.status = "reset";
+        } else {
+          highest = Math.max(highest, Number(status) || 1);
+          rows.push({instance, ...payload});
+          return;
+        }
+      }
       if (reset) { payload.records = []; payload.status = "timeout"; payload._cursor_reset = true; }
       if (payload.instance_id && payload.status !== "error") {
         fs.writeFileSync(`${dir}/${index}.cursor`, reset ? "0" : read(`${dir}/${index}.sent_cursor`));

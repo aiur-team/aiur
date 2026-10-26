@@ -85,7 +85,7 @@ export function runRemoteEngine(setup, args, env = {}) {
   });
 }
 
-export function startServer({ name = "default", status = 200, body, barrierFile, barrierCount = 0, onRequest }) {
+export function startServer({ name = "default", status = 200, body, barrierFile, barrierCount = 0, onRequest, delayMs = 0 }) {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error(`invalid fake server name: ${name}`);
   const serverScript = path.join(root, `remote-server-${name}.mjs`);
   const readyFile = path.join(root, `remote-server-${name}.port`);
@@ -121,6 +121,7 @@ export function startServer({ name = "default", status = 200, body, barrierFile,
       "        await Bun.sleep(10);",
       "      }",
       "    }",
+      "    if (Number(process.env.AIUR_TEST_DELAY_MS) > 0) await Bun.sleep(Number(process.env.AIUR_TEST_DELAY_MS));",
       "    return new Response(JSON.stringify(response.body), {",
       "      status: response.status,",
       "      headers: { 'content-type': 'application/json' },",
@@ -144,6 +145,7 @@ export function startServer({ name = "default", status = 200, body, barrierFile,
       AIUR_TEST_BARRIER: barrierFile || "",
       AIUR_TEST_BARRIER_COUNT: String(barrierCount),
       AIUR_TEST_ON_REQUEST: onRequest || "",
+      AIUR_TEST_DELAY_MS: String(delayMs),
       AIUR_TEST_REQUEST_COUNT_FILE: path.join(root, `remote-count-${name}`),
     },
     stdout: "ignore",

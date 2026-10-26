@@ -272,12 +272,11 @@ cmd_executor_moot() {
 
 cmd_executor_wait() {
   local timeout=300 json=0 defer_ack=0 ack_through="" as="" arg
-  local explicit_timeout=0
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
-      --timeout) shift; timeout="${1:-}"; explicit_timeout=1 ;;
-      --timeout=*) timeout="${arg#--timeout=}"; explicit_timeout=1 ;;
+      --timeout) shift; timeout="${1:-}" ;;
+      --timeout=*) timeout="${arg#--timeout=}" ;;
       --json) json=1 ;;
       --defer-ack) defer_ack=1 ;;
       --ack-through) shift; ack_through="${1:-}" ;;
@@ -289,10 +288,6 @@ cmd_executor_wait() {
     shift
   done
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-wait --timeout expects a positive integer" >&2; exit 64; }
-  if [ -n "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$explicit_timeout" -eq 1 ] && [ "$timeout" -gt 600 ]; then
-    echo "aiur: remote executor-wait --timeout cannot exceed 600 seconds" >&2
-    exit 64
-  fi
   executor_validate_consumer_id "$as" "executor-wait"
   if [ -n "$ack_through" ]; then [[ "$ack_through" =~ ^(0|[1-9][0-9]*)$ ]] || { echo "aiur: executor-wait --ack-through expects a non-negative integer" >&2; exit 64; }; fi
   local json_arg=false; [ "$json" -eq 1 ] && json_arg=true
