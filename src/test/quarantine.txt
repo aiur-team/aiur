@@ -20,3 +20,4 @@ Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalida
 Aiur.Workspace.RestackGitTest	cancelled git retains the workspace lock until its process group drains	#6306	2026-12-31
 AiurWeb.CapabilityErrorTest	degraded dependency returns 409 with the typed envelope and current identity	#6345	2026-12-31
 AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31
+Aiur.LandingWatch.UnlinkedPrTest	unlinked approved PR is skipped while linked PRs route and the watcher stays running	#6375	2027-01-24
