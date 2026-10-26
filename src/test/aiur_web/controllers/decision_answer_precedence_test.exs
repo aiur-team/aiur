@@ -83,7 +83,8 @@ defmodule AiurWeb.DecisionAnswerPrecedenceTest do
     def decide(_id, _payload, _opts), do: {:error, {:conflict, {:already_decided, "answer-1"}}}
   end
 
-  test "winner read failure preserves 409 without a winner" do
+  # Future regression guard: the pre-existing generic conflict handler also returns 409.
+  test "future regression guard: winner read failure preserves 409 without a winner" do
     response =
       api_conn(:unavailable_store)
       |> put_private(:decision_api, UnavailableWinnerApi)

@@ -1,7 +1,7 @@
 defmodule Aiur.Commands.ActorSource do
   @moduledoc "Closed entry-point attribution vocabulary. Source never grants authority."
 
-  @sources [:rpc, :dashboard_session, :basic_auth, :device, :cli, :relay_cli, :executor_cli, :supervisor_api]
+  @sources [:rpc, :dashboard_session, :basic_auth, :device, :streamdeck, :cli, :relay_cli, :executor_cli, :supervisor_api]
 
   @spec from_opts(keyword()) :: atom()
   def from_opts(opts) do

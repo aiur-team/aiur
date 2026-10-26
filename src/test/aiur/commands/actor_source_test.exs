@@ -4,7 +4,7 @@ defmodule Aiur.Commands.ActorSourceTest do
   alias Aiur.DecisionAnswer
 
   test "entry-point options accept only closed atoms" do
-    for source <- [:rpc, :dashboard_session, :basic_auth, :device, :cli, :relay_cli, :executor_cli, :supervisor_api] do
+    for source <- [:rpc, :dashboard_session, :basic_auth, :device, :streamdeck, :cli, :relay_cli, :executor_cli, :supervisor_api] do
       assert ActorSource.from_opts(actor_source: source) == source
     end
 
