@@ -24,11 +24,6 @@ defmodule Aiur.GitHub.Budget do
 
   @release_topic "github:budget:lease_release"
 
-  # Keep this source-tree path strictly compile-time-only so changes to the
-  # broker invalidate the module. Runtime calls resolve `priv/` from the
-  # installed application because release layouts do not retain this checkout.
-  @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
-  @external_resource @broker_source_path
   @retry_floor_ms 5
   @priority_key :aiur_github_budget_priority
 
@@ -89,8 +84,8 @@ defmodule Aiur.GitHub.Budget do
       path when is_binary(path) and path != "" -> path
       # Tests inject a broker variant (e.g. one without the `reconcile`
       # subcommand) through the `:broker_path` option; production always uses
-      # the broker shipped in `priv/`.
-      _missing -> :aiur |> :code.priv_dir() |> to_string() |> Path.join("github_budget.py")
+      # the compile-time assembly in the installed application.
+      _missing -> Path.join(:code.priv_dir(:aiur), "github_budget.py")
     end
   end
 

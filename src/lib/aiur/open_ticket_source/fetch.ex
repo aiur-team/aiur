@@ -3,7 +3,7 @@ defmodule Aiur.OpenTicketSource.Fetch do
 
   require Logger
 
-  alias Aiur.GitHub.{Issues, Transport}
+  alias Aiur.GitHub.{Access, Issues}
   alias Aiur.Issue
   alias Aiur.OpenTicketSource.Snapshot
 
@@ -31,7 +31,7 @@ defmodule Aiur.OpenTicketSource.Fetch do
   defp github_fetch(state) do
     with {:ok, {owner, repo}} <- state.repo_fun.(),
          {:ok, token} <- state.token_fun.() do
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
       fetch_pages(state, url, token, owner, repo, [], @max_pages)
     else
       # A missing repo or token is a configuration fault, and every other failure
@@ -57,7 +57,7 @@ defmodule Aiur.OpenTicketSource.Fetch do
           |> Enum.reject(&pull_request?/1)
           |> Enum.map(&ticket(Issues.normalize_issue(&1, owner, repo, state.label_prefix)))
 
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
           nil -> {:ok, flatten([tickets | acc]), false}
           next_url -> fetch_pages(state, next_url, token, owner, repo, [tickets | acc], pages_left - 1)
         end

@@ -4,6 +4,7 @@ defmodule Aiur.AppServer.RelayPort do
   require Logger
 
   alias Aiur.{AgentEnvironment, Boot, Config, ProcessReaper, ProcessTree}
+  alias Aiur.AgentEnvironment.ProviderAuth
   alias Aiur.Config.Paths
 
   @spec start(Path.t(), String.t(), list(), keyword()) :: {:ok, pid()} | {:error, term()}
@@ -98,7 +99,14 @@ defmodule Aiur.AppServer.RelayPort do
     spec_path = Path.join(directory, "spawn.json")
 
     spec = %{
-      argv: [System.find_executable("bash"), "-c", AgentEnvironment.scrub_shell_command(command, trusted_bash_env: true)],
+      argv: [
+        System.find_executable("bash"),
+        "-c",
+        AgentEnvironment.scrub_shell_command(
+          ProviderAuth.shell_command(Keyword.get(opts, :provider_auth_file), command),
+          trusted_bash_env: true
+        )
+      ],
       cwd: workspace,
       env: launch_env(env),
       backend: Keyword.get(opts, :backend, "app_server"),

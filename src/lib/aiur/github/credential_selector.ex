@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.CredentialSelector do
   @moduledoc """
   Picks which credential a GitHub request spends.
 
-  The broker was already per-credential — every table in `priv/github_budget.py`
+  The broker was already per-credential — every table in `priv/github_budget/`
   leads with `token_key` — so what was missing was never storage, it was a
   chooser. This is the chooser.
 

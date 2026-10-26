@@ -12,12 +12,14 @@ CODE_LISTS = {
     'src/test/aiur/application/children_test.exs': ('terminal_only', 'dashboard', 'always'),
     'src/test/aiur/application_child_order_test.exs': ('existing_children', 'flags'),
     'src/lib/aiur/run_telemetry/run_context.ex': ('volatile',),
+    'src/lib/aiur/run_telemetry/event_fields.ex': ('fields',),
+    'src/lib/aiur/run_telemetry/window_event_sources/ci_runs.ex': ('events',),
     'src/lib/aiur/run_telemetry/dataset.ex': ('carried_point_events',),
     'src/lib/aiur/run_telemetry/writer/encoding.ex': ('carried_point_events',),
     'src/lib/aiur/run_telemetry/sampler/process_tree.ex': ('metric_fields',),
     'src/lib/aiur/run_telemetry/dataset/source.ex': ('supported_kinds',),
     'src/lib/aiur/run_telemetry/procfs.ex': ('vanished_reasons',),
-    'src/lib/aiur/run_telemetry/sampler.ex': ('fleet_fields', 'fleet_admission_fields'),
+    'src/lib/aiur/run_telemetry/sampler.ex': ('fleet_fields', 'fleet_admission_fields', 'build_fields'),
 }
 
 
@@ -35,6 +37,12 @@ def check(root):
             rows = [row for row in path.read_text().splitlines() if row and not row.startswith('#')]
             if rows != sorted(set(rows)):
                 errors.append(f'{path.relative_to(root)}: entries must be sorted and unique')
+        mapping = root / 'scripts/reference-sections.tsv'
+        if mapping.exists():
+            rows = mapping.read_text().splitlines()
+            if (rows[:1] != ['source\theading\tdestination\tanchor'] or
+                    rows[1:] != sorted(set(rows[1:])) or any(row.count('\t') != 3 for row in rows[1:])):
+                errors.append('scripts/reference-sections.tsv: entries need four columns, sorted and unique')
         for name, attributes in CODE_LISTS.items():
             text = (root / name).read_text()
             for attribute in attributes:

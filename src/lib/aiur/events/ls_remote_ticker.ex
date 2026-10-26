@@ -32,7 +32,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   alias Aiur.Events
   alias Aiur.Events.{BranchRefStore, BranchRewriteClassifier, GithubKeys}
   alias Aiur.Git
-  alias Aiur.GitHub.Connectivity
+  alias Aiur.GitHub.Access
 
   @default_interval_ms 30_000
   @default_remote "origin"
@@ -106,7 +106,7 @@ defmodule Aiur.Events.LsRemoteTicker do
 
       {:error, reason} ->
         Logger.debug("LsRemoteTicker poll failed: #{inspect(reason)}")
-        note_connectivity_failure(state, Connectivity.classify_ls_remote(reason))
+        note_connectivity_failure(state, Access.connectivity_classify_ls_remote(reason))
 
       other ->
         Logger.warning("LsRemoteTicker unexpected ls_remote result: #{inspect(other)}")
@@ -117,7 +117,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   defp note_connectivity_success(state) do
     %{
       state
-      | connectivity: Connectivity.note_success(state.connectivity, :ls_remote),
+      | connectivity: Access.connectivity_note_success(state.connectivity, :ls_remote),
         next_delay_ms: state.interval_ms
     }
   end
@@ -126,7 +126,7 @@ defmodule Aiur.Events.LsRemoteTicker do
   # blocker once a sustained DNS/auth streak crosses the escalation threshold.
   defp note_connectivity_failure(state, classification) do
     {streaks, delay_ms} =
-      Connectivity.record_failure(
+      Access.connectivity_record_failure(
         state.connectivity,
         :ls_remote,
         classification,
