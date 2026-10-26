@@ -53,6 +53,9 @@ defmodule Aiur.OperatorRelayCLI do
   defp error_detail({:answer_invalid, {:operator_relay, :disabled}}),
     do: "recording is disabled; the operator must enable executor.relay_operator_answers"
 
+  defp error_detail({:conflict, {:direct_operator_answer, _action_id}}),
+    do: "the operator answered this Command directly; a relayed answer cannot replace it"
+
   defp error_detail(reason), do: "cannot record answer (#{inspect(reason)})"
 
   defp error(deps, reason, code) do

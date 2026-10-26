@@ -47,6 +47,20 @@ defmodule Aiur.Config.Schema do
     Workspace
   }
 
+  # Require alone misses nested embeds; track every nested schema source.
+  @nested_schema_sources Path.wildcard("lib/aiur/config/schema/*.ex")
+  for source <- @nested_schema_sources, do: @external_resource(source)
+
+  # Embedded struct defaults must rebuild when their nested schemas change.
+  require Agent
+  require Decisions
+  require Instance
+  require Tracker
+  require BuildQueue
+  require Events
+  require Experiments
+  require Voice
+  require Workspace
   @primary_key false
 
   @type t :: %__MODULE__{}
