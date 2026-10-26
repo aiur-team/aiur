@@ -40,6 +40,8 @@ defmodule VoiceConverse.Testing.FakeProvider do
 
   @impl true
   def preflight(spec) do
+    notify(spec, :preflight)
+
     case fake_opt(spec, :preflight_error) do
       nil -> :ok
       %Events.Error{} = error -> {:error, error}
@@ -48,6 +50,9 @@ defmodule VoiceConverse.Testing.FakeProvider do
 
   @impl true
   def open(%{owner: owner} = spec) when is_pid(owner) do
+    notify(spec, :open)
+    if observer = fake_opt(spec, :open_observer), do: send(observer, {:fake_provider, :open_spec, spec})
+
     case fake_opt(spec, :open_error) do
       %Events.Error{} = error ->
         {:error, error}
@@ -116,6 +121,10 @@ defmodule VoiceConverse.Testing.FakeProvider do
   defp record(ref, call), do: Agent.update(ref, &%{&1 | calls: [call | &1.calls]})
 
   defp fake_opt(spec, key), do: spec |> Map.get(:fake, []) |> Keyword.get(key)
+
+  defp notify(spec, event) do
+    if observer = fake_opt(spec, :observer), do: send(observer, {:fake_provider, event})
+  end
 
   @word_ms 250
 
