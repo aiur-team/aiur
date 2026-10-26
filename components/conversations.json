@@ -51,5 +51,6 @@
   "env": [],
   "capabilities": [
     "conversations.read"
-  ]
+  ],
+  "goal": "steer"
 }
