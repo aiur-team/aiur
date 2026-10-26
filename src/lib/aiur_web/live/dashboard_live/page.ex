@@ -3,6 +3,7 @@ defmodule AiurWeb.DashboardLive.Page do
 
   use Phoenix.Component
 
+  alias Aiur.Instance.Roster.Presentation, as: RosterPresentation
   alias AiurWeb.DashboardLive.CommandHistory
   alias AiurWeb.DashboardLive.Commands
   alias AiurWeb.DashboardLive.Controls
@@ -30,7 +31,6 @@ defmodule AiurWeb.DashboardLive.Page do
   alias AiurWeb.OperatorControlCenter.UnitsTable
   alias AiurWeb.OperatorControlCenter.UnitsURL
   alias AiurWeb.OperatorControlCenter.UsageSummaryPresenter
-  alias Aiur.Instance.Roster.Presentation, as: RosterPresentation
 
   @doc false
   @spec page(map()) :: Phoenix.LiveView.Rendered.t()
