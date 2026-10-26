@@ -1,6 +1,6 @@
 defmodule Aiur.Netlify.Client do
   @moduledoc "Read-only Netlify API client for account credit and deploy usage."
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
 
   @caller "netlify_usage"
 
@@ -62,7 +62,7 @@ defmodule Aiur.Netlify.Client do
 
   @spec default_request(map()) :: {:ok, map()} | {:error, term()}
   def default_request(%{url: url, token: token, caller: @caller} = request) do
-    Transport.off_process_request(request, fn ->
+    Access.off_process_request(request, fn ->
       case Req.get(url, headers: [{"Authorization", "Bearer " <> token}, {"Accept", "application/json"}], receive_timeout: 20_000, retry: false) do
         {:ok, response} -> {:ok, %{status: response.status, body: response.body}}
         {:error, _} -> {:error, :request_failed}
