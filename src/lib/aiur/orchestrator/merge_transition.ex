@@ -1,9 +1,7 @@
 defmodule Aiur.Orchestrator.MergeTransition do
   @moduledoc false
 
-  alias Aiur.GitHub.{Config, IssueState}
-  alias Aiur.GitHub.Errors, as: GitHubErrors
-  alias Aiur.GitHub.LocalHold
+  alias Aiur.GitHub.{Access, Config, IssueState}
   alias Aiur.Orchestrator.TicketTransition
 
   @terminal_write_attempts 3
@@ -46,7 +44,7 @@ defmodule Aiur.Orchestrator.MergeTransition do
   defp retryable_terminal_write_error?({:github, kind, _detail}, _retry_local_hold?)
        when kind in [:local_hold, :rate_limited], do: false
 
-  defp retryable_terminal_write_error?(reason, _retry_local_hold?), do: GitHubErrors.retryable_github_error?(reason)
+  defp retryable_terminal_write_error?(reason, _retry_local_hold?), do: Access.retryable_github_error?(reason)
 
   @spec write_terminal_target(
           term(),
@@ -57,9 +55,9 @@ defmodule Aiur.Orchestrator.MergeTransition do
   def write_terminal_target("done", identifier, update_issue_state_fun, opts) do
     retry_terminal_write(
       fn ->
-        LocalHold.run(
+        Access.with_transient_retry(
           fn -> update_issue_state_fun.(to_string(identifier), "done") end,
-          LocalHold.caller_opts(
+          Access.transient_retry_opts(
             opts
             |> Keyword.put(:local_hold_max_wait_ms, 3_600_000)
             |> Keyword.put(:local_hold_wait_for_reset, true)

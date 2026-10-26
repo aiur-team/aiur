@@ -17,7 +17,6 @@ R-optional	Aiur.ExecutorAttention.CLI	MP-R1-C9-T11 delegates executor verbs
 R-optional	Aiur.ExecutorCommandCLI	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorSweep.CLI	#5211 routes the optional sweep CLI through the shared control-protocol guard
 R-optional	Aiur.GitHub.Config	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
-R-optional	Aiur.GitHub.HostCommand	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.GitHub.Labels	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Opencode.SessionWriterRegistry	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.OpencodeTheme	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

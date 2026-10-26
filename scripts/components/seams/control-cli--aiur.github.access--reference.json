@@ -1,0 +1,15 @@
+{
+  "from": "control-cli",
+  "to_module": "Aiur.GitHub.Access",
+  "kind": "reference",
+  "reason": "#3826: existing GitHub access integration binds through the public access contract",
+  "only_paths": [
+    "src/lib/aiur.ex",
+    "src/lib/aiur/application/children.ex",
+    "src/lib/aiur/pr_merge/record.ex",
+    "src/lib/aiur/test_reset.ex",
+    "src/lib/aiur/test_reset/cleanup.ex",
+    "src/lib/aiur/test_reset/tickets.ex",
+    "src/lib/mix/tasks/workspace.before_remove.ex"
+  ]
+}

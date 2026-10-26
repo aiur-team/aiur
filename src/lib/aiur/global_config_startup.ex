@@ -1,8 +1,8 @@
 defmodule Aiur.GlobalConfigStartup do
   @moduledoc "Pre-dispatch setup when a run uses shared home-directory settings."
   alias Aiur.Bounded
+  alias Aiur.GitHub.{Access, Labels}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.{Labels, Transport}
   alias Aiur.Workflow
 
   @spec prepare() :: :ok | {:error, String.t()}
@@ -79,7 +79,7 @@ defmodule Aiur.GlobalConfigStartup do
   defp credential(_), do: {:error, "GitHub credential missing. Set GITHUB_TOKEN in ~/.aiur/.env, configure GitHub App credentials, or use gh auth login."}
 
   defp ensure_labels(owner, repo, token, prefix, opts) do
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
     required = Labels.state_labels(prefix) ++ Labels.reason_modifier_labels(prefix) ++ Labels.marker_labels(prefix) ++ Labels.complexity_labels()
 
     with {:ok, existing} <- existing_labels(owner, repo, token, request, 1, []),
@@ -96,7 +96,7 @@ defmodule Aiur.GlobalConfigStartup do
     do: {:error, :label_page_limit}
 
   defp existing_labels(owner, repo, token, request, page, acc) do
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/labels?per_page=100&page=#{page}"
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/labels?per_page=100&page=#{page}"
 
     case request.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: labels}} when is_list(labels) ->

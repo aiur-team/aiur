@@ -55,7 +55,6 @@
         "kind",
         "paths",
         "facades",
-        "facade_pending",
         "requires",
         "optional",
         "owns",
@@ -288,6 +287,7 @@
             }
           },
           "then": {
+            "required": ["facade_pending"],
             "properties": {
               "facade_pending": {
                 "type": "string",
