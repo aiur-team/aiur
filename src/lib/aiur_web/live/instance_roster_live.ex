@@ -66,6 +66,8 @@ defmodule AiurWeb.InstanceRosterLive do
             </div>
           <% :disabled -> %>
             <p data-empty-reason="lease_store_disabled">Instance roster is unavailable because no shared lease store is configured.</p>
+          <% {:error, :repository_unavailable} -> %>
+            <p role="alert" data-empty-reason="repository_unavailable">Instance roster is unavailable because the repository identity could not be resolved.</p>
           <% {:error, _reason} -> %>
             <p role="alert" data-empty-reason="lease_store_unavailable">Instance roster could not be read from the shared lease store.</p>
         <% end %>

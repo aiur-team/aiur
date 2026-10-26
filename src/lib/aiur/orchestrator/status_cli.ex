@@ -169,6 +169,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
     end)
   end
 
+  defp render_instance_roster({:error, :repository_unavailable}), do: IO.puts("INSTANCES unavailable (repository identity could not be resolved)")
   defp render_instance_roster({:error, _reason}), do: IO.puts("INSTANCES unavailable (shared lease store could not be read)")
   defp render_instance_roster(_disabled), do: :ok
   defp state_label(state), do: state |> to_string() |> String.upcase()

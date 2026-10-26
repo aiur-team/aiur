@@ -3,6 +3,7 @@ defmodule AiurWeb.InstanceRosterLiveTest do
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
+  alias Aiur.Instance.Roster
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Endpoint
 
@@ -103,6 +104,21 @@ defmodule AiurWeb.InstanceRosterLiveTest do
     {:ok, view, _html} = live(build_conn(), "/instances")
 
     assert has_element?(view, "[data-empty-reason=lease_store_unavailable]", "Instance roster could not be read from the shared lease store.")
+  end
+
+  test "dashboard surfaces an unavailable repository identity as the roster cause" do
+    Application.put_env(:aiur, :instance_roster_fun, fn ->
+      Roster.list(
+        list_fun: fn _ -> {:ok, []} end,
+        repository_fun: fn -> nil end
+      )
+    end)
+
+    {:ok, roster_view, _html} = live(build_conn(), "/instances")
+    {:ok, units_view, _units_html} = live(build_conn(), "/units")
+
+    assert has_element?(roster_view, "[data-empty-reason=repository_unavailable]", "Instance roster is unavailable because the repository identity could not be resolved.")
+    assert has_element?(units_view, "#instance-agent-list [data-empty-reason=repository_unavailable]", "Agent roster is unavailable because the repository identity could not be resolved.")
   end
 
   test "dashboard roster explains when the shared store is disabled" do

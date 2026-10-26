@@ -74,4 +74,12 @@ defmodule Aiur.Instance.RosterTest do
   test "store errors remain errors rather than an empty roster" do
     assert {:error, :offline} = Roster.list(list_fun: fn _ -> {:error, :offline} end)
   end
+
+  test "missing repository identity makes the roster unavailable with its cause" do
+    assert {:error, :repository_unavailable} =
+             Roster.list(
+               list_fun: fn _ -> {:ok, []} end,
+               repository_fun: fn -> nil end
+             )
+  end
 end

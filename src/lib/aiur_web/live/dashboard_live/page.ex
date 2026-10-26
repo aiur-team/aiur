@@ -204,6 +204,8 @@ defmodule AiurWeb.DashboardLive.Page do
                     {row.agent["identifier"] || "unknown ticket"} — {row.agent["state"] || "unknown"} — {row.instance.instance_id}<span :if={row.instance.state == :stale}> (stale)</span> (observed {RosterPresentation.age(row.instance.age_ms)} ago)
                   </li>
                 </ul>
+              <% {:error, :repository_unavailable} -> %>
+                <p role="alert" data-empty-reason="repository_unavailable">Agent roster is unavailable because the repository identity could not be resolved.</p>
               <% {:error, _reason} -> %>
                 <p role="alert" data-empty-reason="lease_store_unavailable">Agent roster is unavailable because the shared lease store could not be read.</p>
             <% end %>

@@ -20,14 +20,18 @@ defmodule Aiur.Instance.Roster do
 
     case result do
       {:ok, records} when is_list(records) ->
-        leader = leader(opts)
+        case leader(opts) do
+          {:error, reason} ->
+            {:error, reason}
 
-        rows =
-          records
-          |> Enum.map(&present(&1, now_ms, now, stale_after_ms, retention_ms))
-          |> Enum.map(&put_leader(&1, leader))
+          leader ->
+            rows =
+              records
+              |> Enum.map(&present(&1, now_ms, now, stale_after_ms, retention_ms))
+              |> Enum.map(&put_leader(&1, leader))
 
-        {:ok, %{observed_at: now, age_ms: 0, instances: Enum.reject(rows, & &1.removed?)}}
+            {:ok, %{observed_at: now, age_ms: 0, instances: Enum.reject(rows, & &1.removed?)}}
+        end
 
       {:error, :store_not_configured} ->
         :disabled
@@ -43,16 +47,22 @@ defmodule Aiur.Instance.Roster do
   defp leader(opts) do
     case Keyword.get(opts, :leader_fun) do
       fun when is_function(fun, 0) -> fun.()
-      _ -> current_repository_leader()
+      _ -> current_repository_leader(opts)
     end
   rescue
     _ -> :unknown
   end
 
-  defp current_repository_leader do
-    case GitHubConfig.repo() do
-      repository when is_binary(repository) -> LeaseStore.leader(repository)
-      _ -> :unknown
+  defp current_repository_leader(opts) do
+    repository =
+      case Keyword.get(opts, :repository_fun) do
+        fun when is_function(fun, 0) -> fun.()
+        _ -> GitHubConfig.repo()
+      end
+
+    case repository do
+      repository when is_binary(repository) and repository != "" -> LeaseStore.leader(repository)
+      _ -> {:error, :repository_unavailable}
     end
   end
 
