@@ -12,7 +12,7 @@ defmodule Aiur.DecisionStore.Audit do
   alias Aiur.DecisionPubSub
   alias Aiur.DecisionRevision
   alias Aiur.DecisionStore.Answers
-  alias Aiur.ExecutorEvents.Requested
+  alias Aiur.ExecutorEvents
 
   @recent_audit_limit 50
   @system_follow_up_actor %{kind: :system, id: "decision-store"}
@@ -25,7 +25,7 @@ defmodule Aiur.DecisionStore.Audit do
 
   @spec notify(term(), term(), term()) :: term()
   def notify(decision, event_id, state) do
-    payload = if Requester.executor?(decision), do: Requested.payload(decision), else: DecisionProjection.to_json_safe(decision)
+    payload = if Requester.executor?(decision), do: ExecutorEvents.requested_payload(decision), else: DecisionProjection.to_json_safe(decision)
 
     try do
       case Topics.publish(decision, "requested", payload, event_id) do
