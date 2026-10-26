@@ -30,7 +30,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   @dispatch_authorization_patterns [
     {DispatchAuthorization, :authorize, :_},
     {DispatchAuthorization, :authorize_label_applier, :_},
-    {DispatchAuthorization, :fetch_timeline, :_}
+    {DispatchAuthorization.Timeline, :fetch_timeline, :_}
   ]
 
   defmodule SlowTracker do
