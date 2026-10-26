@@ -6,6 +6,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.TerminalPRTest do
   alias Aiur.CiLifecycleTestSupport.RecordingGitHubClient
   alias Aiur.Events.GithubCIPoller
   alias Aiur.GitHub.{CIPollBatch, CIPollBatchTestSupport}
+  alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.State
 
   setup :ci_lifecycle_setup
@@ -78,16 +80,52 @@ defmodule Aiur.Orchestrator.CiLifecycle.TerminalPRTest do
   test "a terminal PR poll does not churn a human-review ticket back to ci-wait" do
     identifier = "42"
     ticket = issue(identifier, "human-review")
-    result = terminal_poll_result(ticket, :merged, false)
+    batch = terminal_poll_batch(ticket, :merged, false)
     state = running_state(ticket, self(), :working, [])
+    parent = self()
 
-    next = Enum.reduce(1..3, state, fn _, acc -> poll_ci(acc, ticket, result) end)
+    next =
+      Enum.reduce(1..3, state, fn _, acc ->
+        CiLifecycle.poll_github_ci(%{acc | last_ci_poll_started_at_ms: nil},
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [ticket]} end,
+          ci_batch: batch,
+          ci_poller: fn [^identifier], opts ->
+            {:ok, %{results: [result], errors: []}} = GithubCIPoller.poll([identifier], opts)
+            send(parent, {:terminal_result, result})
+            {:ok, %{results: [result], errors: []}}
+          end,
+          required_check_fetcher: fn _opts -> {:ok, []} end,
+          request_fun: fn _request -> flunk("terminal PRs must skip base repair and CI evaluation") end,
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end
+        )
+      end)
 
+    assert_received {:terminal_result, result}
+    assert result.pending_reason == :pr_merged
+    assert PrLessReview.no_pull_request?(result)
     refute_received {:tracker_update, ^identifier, _state, _opts}
     assert next.running[identifier].issue.state == "human-review"
   end
 
   defp terminal_poll_result(ticket, state, closes_ticket?) do
+    batch = terminal_poll_batch(ticket, state, closes_ticket?)
+
+    assert {:ok, %{results: [result], errors: []}} =
+             GithubCIPoller.poll([ticket.identifier],
+               ci_batch: batch,
+               base_branch: "main",
+               required_check_fetcher: fn _opts -> {:ok, []} end,
+               request_fun: fn _request -> flunk("terminal PRs must skip base repair and CI evaluation") end
+             )
+
+    assert result.decision == :pending
+    assert result.pending_reason == if(state == :merged, do: :pr_merged, else: :pr_closed_unmerged)
+    assert result.pull_request["state"] == if(state == :merged, do: "merged", else: "closed")
+    result
+  end
+
+  defp terminal_poll_batch(ticket, state, closes_ticket?) do
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
@@ -112,18 +150,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.TerminalPRTest do
                  branch_names_by_target: %{ticket.identifier => "aiur/#{ticket.identifier}-ci-batch"}
                )
 
-      assert {:ok, %{results: [result], errors: []}} =
-               GithubCIPoller.poll([ticket.identifier],
-                 ci_batch: batch,
-                 base_branch: "main",
-                 required_check_fetcher: fn _opts -> {:ok, []} end,
-                 request_fun: fn _request -> flunk("terminal PRs must skip base repair and CI evaluation") end
-               )
-
-      assert result.decision == :pending
-      assert result.pending_reason == if(state == :merged, do: :pr_merged, else: :pr_closed_unmerged)
-      assert result.pull_request["state"] == if(state == :merged, do: "merged", else: "closed")
-      result
+      batch
     after
       restore_env("GITHUB_TOKEN", previous_token)
     end
