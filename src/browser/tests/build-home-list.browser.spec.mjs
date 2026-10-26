@@ -149,7 +149,7 @@ test('Features list renders counts, proportional segments, unknowns and focus re
   await expect(page.locator('.fp-row').nth(1)).toContainText('states unavailable')
   await expect(page.locator('.fp-row').nth(1).locator('.fp-numbers > b')).not.toHaveText('0%')
   await expect(page.locator('.fp-row').nth(1).locator('.fp-bar')).toHaveClass(/unknown/)
-  await expect(page.locator('.fp-row').nth(1).locator('.fp-icon')).toHaveAttribute('aria-label', 'Khala · server')
+  await expect(page.locator('.fp-row').nth(1).locator('.fp-icon')).toHaveAttribute('aria-label', 'Khala chat')
   expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
   await page.emulateMedia({ colorScheme: 'dark' })
   expect((await new AxeBuilder({ page }).include('.fp-card').analyze()).violations).toEqual([])
