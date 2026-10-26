@@ -446,6 +446,7 @@ run_remote_rpc_with_timeout() {
     200)
       if output="$(remote_json_output "$response_file")"; then
         AIUR_CONTROL_RPC_OUTPUT="$output"
+        AIUR_REMOTE_INSTANCE_ID="$(remote_json_field "$response_file" "instance_id" 2>/dev/null || true)"
         rm -f "$response_file"
         return 0
       fi

@@ -50,15 +50,19 @@ export function setupRemoteLauncher(registry) {
 }
 
 export function runRemote(setup, args, env = {}) {
+  const home = env.HOME || setup.home;
+  const remoteState = path.join(home, ".aiur", "remote-state");
+  mkdirSync(remoteState, { recursive: true });
   return runShim({
     args,
     fakeBin: setup.fakeBin,
     env: {
-      HOME: setup.home,
+      HOME: home,
       PATH: `${setup.fakeBin}:${process.env.PATH}`,
       AIUR_BG_STATE_DIR: path.join(root, "state"),
       AIUR_TEST_OUT: captureFile,
       AIUR_TOKEN_T: "remote-secret-token",
+      AIUR_REMOTE_STATE_DIR: remoteState,
       ...env,
     },
   });
@@ -81,7 +85,7 @@ export function runRemoteEngine(setup, args, env = {}) {
   });
 }
 
-export function startServer({ name = "default", status = 200, body, barrierFile, barrierCount = 0 }) {
+export function startServer({ name = "default", status = 200, body, barrierFile, barrierCount = 0, onRequest }) {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error(`invalid fake server name: ${name}`);
   const serverScript = path.join(root, `remote-server-${name}.mjs`);
   const readyFile = path.join(root, `remote-server-${name}.port`);
@@ -101,6 +105,14 @@ export function startServer({ name = "default", status = 200, body, barrierFile,
       "      authorization: request.headers.get('authorization'),",
       "      body: JSON.parse(requestBody),",
       "    }) + '\\n');",
+      "    if (process.env.AIUR_TEST_ON_REQUEST) {",
+      "      const countFile = process.env.AIUR_TEST_REQUEST_COUNT_FILE;",
+      "      let count = 0; try { count = Number(readFileSync(countFile, 'utf8')); } catch (_) {}",
+      "      writeFileSync(countFile, String(count + 1));",
+      "      const handler = (await import(process.env.AIUR_TEST_ON_REQUEST)).default;",
+      "      const dynamic = await handler(JSON.parse(requestBody), count + 1);",
+      "      if (dynamic) return new Response(JSON.stringify(dynamic.body), { status: dynamic.status || 200, headers: { 'content-type': 'application/json' } });",
+      "    }",
       "    if (process.env.AIUR_TEST_BARRIER) {",
       "      appendFileSync(process.env.AIUR_TEST_BARRIER, process.env.AIUR_TEST_SERVER_NAME + '\\n');",
       "      const deadline = Date.now() + 5000;",
@@ -131,6 +143,8 @@ export function startServer({ name = "default", status = 200, body, barrierFile,
       AIUR_TEST_SERVER_NAME: name,
       AIUR_TEST_BARRIER: barrierFile || "",
       AIUR_TEST_BARRIER_COUNT: String(barrierCount),
+      AIUR_TEST_ON_REQUEST: onRequest || "",
+      AIUR_TEST_REQUEST_COUNT_FILE: path.join(root, `remote-count-${name}`),
     },
     stdout: "ignore",
     stderr: "pipe",
