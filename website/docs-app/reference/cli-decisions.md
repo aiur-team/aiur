@@ -54,6 +54,7 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 `origin`, `native`, `questions`, and `short_label`. Legacy Commands default to a
 worker requester and an `emit_event` origin (`attention` for legacy attentions);
 the label falls back to `context.short_summary`, capped at 40 characters.
+
 `native` exposes only `harness`, `hold`, and `question_ids`; internal correlation
 references are excluded. The HTTP projection includes `payload_version: 2` only
 when stored v2 attribution is non-default. The persisted v1 snapshot is unchanged.

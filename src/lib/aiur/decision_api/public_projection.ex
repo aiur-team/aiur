@@ -1,9 +1,10 @@
 defmodule Aiur.DecisionApi.PublicProjection do
   @moduledoc false
 
-  alias Aiur.{Decision, DecisionSanitizer}
   alias Aiur.Commands.Projection
+  alias Aiur.Decision
   alias Aiur.DecisionApi.PublicLifecycleProjection
+  alias Aiur.DecisionSanitizer
 
   @spec encode(Decision.t()) :: map()
   def encode(%Decision{} = decision) do
