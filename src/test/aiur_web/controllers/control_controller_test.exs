@@ -85,7 +85,7 @@ defmodule AiurWeb.ControlControllerTest do
     output = ExUnit.CaptureIO.capture_io(fn -> assert :ok = Aiur.ClientTokensCLI.run(["create", "cli-control", "--scope", "read"]) end)
     token = String.trim(output)
 
-    response = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"}))
+    response = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.executor_subscriptions()"}))
     assert response.status == 200
     assert String.ends_with?(Jason.decode!(response.resp_body)["output"], "__AIUR_CONTROL_EXIT__:0\n")
     refute File.exists?(audit_path)
