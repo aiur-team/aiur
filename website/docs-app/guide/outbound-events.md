@@ -61,10 +61,13 @@ durable atomic store.
 
 All events use the same canonical identifier-only envelope: `v`, `instance`,
 `seq`, `id`, `topic`, `class`, `occurred_at`, `observed_at`, `source`, `refs`,
-`attrs`, `payload_version`, and the reserved `anchor`. `seq` is the dense export
-order; `(instance, id)` is the event identity and is not an ordering cursor.
-Ticket and job correlation are `refs.ticket` and `refs.job_id`; a configured
-`subject_id` matches either value exactly.
+`attrs`, `payload_version`, and the reserved `anchor`.
+
+`seq` is the dense export order; `(instance, id)` is the event identity and is
+not an ordering cursor. Ticket and job correlation are `refs.ticket` and
+`refs.job_id`; a configured `subject_id` matches either value exactly.
+
+The supported outbound families are:
 
 | Event | Topic family |
 | --- | --- |
@@ -77,6 +80,7 @@ Ticket and job correlation are `refs.ticket` and `refs.job_id`; a configured
 Each family has a separate v1 JSON Schema constraining its topic, references,
 and attributes, while the shared envelope is built by the event bus. Treat an
 event as a refresh signal and re-read the owning API for authoritative state.
+
 Unknown topics or newer `v` values require a newer contract package; a breaking
 wire change adds another schema version instead of changing v1 in place.
 

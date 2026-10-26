@@ -107,7 +107,7 @@ defmodule Aiur.Events.Outbound.PublisherAdmissionTest do
     assert {:ok, _id, _subscribers} =
              Publisher.publish("ticket.5695.issue.commented", %{body: "not externally exportable"}, issue_number: 5695)
 
-    refute_receive {:normalized, "ticket.5695.issue.commented"}
+    refute_receive {:normalized, "ticket.5695.issue.commented"}, 100
     assert {:ok, []} = ExportJournal.replay(journal, 0, 10)
     refute Event.exportable_topic?("ticket.5695.issue.commented")
   end
