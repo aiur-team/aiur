@@ -1,0 +1,18 @@
+[
+  {"v":1,"type":"start","target":{"id":"ticket-42"}},
+  {"v":1,"type":"audio","data_b64":"AA=="},
+  {"v":1,"type":"text","text":"hello"},
+  {"v":1,"type":"confirm_draft","draft_id":"draft-1","edited_text":"edited"},
+  {"v":1,"type":"discard_draft","draft_id":"draft-1"},
+  {"v":1,"type":"end"},
+  {"v":1,"type":"state","state":"listening"},
+  {"v":1,"type":"transcript","kind":"final","text":"hello"},
+  {"v":1,"type":"agent_text","turn_id":"turn-1","text":"hi","final":true},
+  {"v":1,"type":"agent_audio","turn_id":"turn-1","format":"pcm_16000","data_b64":"AA=="},
+  {"v":1,"type":"interrupted","turn_id":"turn-1"},
+  {"v":1,"type":"draft","draft_id":"draft-1","kind":"instruction","target":{"id":"ticket-42"},"text":"do it","status":"proposed"},
+  {"v":1,"type":"delivery","draft_id":"draft-1","message_id":"message-1","status":"delivered"},
+  {"v":1,"type":"context_gap","source":"briefing","message":"Context is stale."},
+  {"v":1,"type":"error","code":"provider_error","message":"Provider error."},
+  {"v":1,"type":"ended","reason":"user_end"}
+]

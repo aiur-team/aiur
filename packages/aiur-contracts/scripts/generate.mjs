@@ -29,6 +29,11 @@ const outputs = [
       'ticket-spend-cap-reached.v1.schema.json',
     ],
   },
+  {
+    name: 'VoiceConverseContract',
+    target: new URL('../src/voice-converse.generated.ts', import.meta.url),
+    refs: ['voice-converse.v1.schema.json'],
+  },
 ];
 
 for (const output of outputs) {
