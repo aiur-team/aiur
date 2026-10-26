@@ -98,6 +98,13 @@ defmodule Aiur.Events.CatalogTest do
     end
   end
 
+  test "computed alert resolutions remain ledgered rather than falling back to live or logged" do
+    for suffix <- ~w(agent.paused merge.attribution_check_failed pr.human_review_without_pr pr.parked_ready pr.tested_head_stale) do
+      topic = "ticket.42.#{suffix}.resolved"
+      assert %Entry{class: :ledgered, export?: false, owner: "orchestration"} = Catalog.lookup(topic)
+    end
+  end
+
   defp assert_pr_refs(topic, attrs) do
     assert %Entry{export?: true, refs: [:ticket, :pr_number, :head_sha], attrs: ^attrs} = Catalog.lookup(topic)
   end

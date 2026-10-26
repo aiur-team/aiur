@@ -71,12 +71,14 @@ defmodule Aiur.Events.CatalogCensusTest do
 
   defp add_topic(topic, acc, dynamic?) do
     if topic?(topic) and (dynamic? or not String.contains?(topic, ["*", "#"])) do
-      normalized = topic |> String.split(".") |> Enum.map_join(".", fn segment -> if String.contains?(segment, "*"), do: "*", else: segment end)
+      normalized = topic |> String.split(".") |> Enum.map_join(".", &normalize_segment/1)
       [normalized | acc]
     else
       acc
     end
   end
+
+  defp normalize_segment(segment), do: if(String.contains?(segment, "*"), do: "*", else: segment)
 
   defp topic?(topic) do
     String.starts_with?(topic, ["ticket.", "system.", "executor." | @legacy_prefixes]) and

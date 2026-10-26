@@ -30,6 +30,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.pause.*", "agent-sandbox"},
     # aiur/orchestrator/issue_sync/transition_alerts.ex
     {"ticket.*.agent.paused", "orchestration"},
+    # aiur/orchestrator/issue_sync/transition_alerts.ex
+    {"ticket.*.agent.paused.resolved", "orchestration"},
     # aiur/orchestrator/operator_messages/calls.ex
     {"ticket.*.agent.provider_delivery_failed", "orchestration"},
     # aiur/orchestrator/rate_limit_fallback_transition.ex
@@ -72,6 +74,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.issue.label.added.agent.todo", "orchestration"},
     # aiur/orchestrator/comment_wake/merge_audit.ex
     {"ticket.*.merge.attribution_check_failed", "orchestration"},
+    # aiur/alerts/stale_not_closed.ex
+    {"ticket.*.merge.attribution_check_failed.resolved", "orchestration"},
     # aiur/orchestrator/merge_order_audit.ex
     {"ticket.*.merge.out-of-order", "orchestration"},
     # aiur/orchestrator/comment_wake/merge_audit.ex
@@ -94,10 +98,16 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.pr.draft_ci_wait.resolved", "orchestration"},
     # aiur/orchestrator/ci_lifecycle/pr_less_review.ex
     {"ticket.*.pr.human_review_without_pr", "orchestration"},
+    # aiur/orchestrator/ci_lifecycle/pr_less_review.ex
+    {"ticket.*.pr.human_review_without_pr.resolved", "orchestration"},
     # aiur/orchestrator/ci_lifecycle/parked_ready_alert.ex
     {"ticket.*.pr.parked_ready", "orchestration"},
+    # aiur/orchestrator/ci_lifecycle/parked_ready_alert.ex
+    {"ticket.*.pr.parked_ready.resolved", "orchestration"},
     # aiur/orchestrator/push_routing/pr_body_evidence.ex
     {"ticket.*.pr.tested_head_stale", "orchestration"},
+    # aiur/orchestrator/push_routing/pr_body_evidence.ex
+    {"ticket.*.pr.tested_head_stale.resolved", "orchestration"},
     # aiur/orchestrator/membership_lifecycle.ex
     {"ticket.*.terminal_verification_abandoned", "orchestration"},
     # aiur/orchestrator/spend_cap/runtime.ex
