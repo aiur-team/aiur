@@ -72,7 +72,7 @@ defmodule AiurWeb.ControlControllerTest do
 
   test "endpoint parses a valid control request body for a read token", %{read_token: token} do
     response =
-      conn(:post, "/api/v1/control", Jason.encode!(Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})))
+      conn(:post, "/api/v1/control", Jason.encode!(Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.executor_subscriptions()"})))
       |> put_req_header("content-type", "application/json")
       |> put_req_header("authorization", "Bearer " <> token)
       |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
@@ -96,19 +96,21 @@ defmodule AiurWeb.ControlControllerTest do
     previous_writable = AiurWeb.Endpoint.config(:dashboard_writable)
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, false)
 
-    on_exit(fn -> Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable) end)
+    try do
+      read_response = post_control(read_token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"}))
+      assert read_response.status == 200
 
-    read_response = post_control(read_token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"}))
-    assert read_response.status == 200
-
-    write_response = post_control(write_token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.set_max_agents(3)"}))
-    assert write_response.status == 403
-    assert Jason.decode!(write_response.resp_body)["error"]["reason"] == "dashboard_read_only"
-    assert Aiur.Orchestrator.max_concurrent_agents() == previous_cap
-    assert [record] = audit_records(path)
-    assert record["scope"] == "write"
-    assert record["outcome"] == "refused"
-    assert record["call"] == "Aiur.AgentControlCLI.set_max_agents/1"
+      write_response = post_control(write_token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.set_max_agents(3)"}))
+      assert write_response.status == 403
+      assert Jason.decode!(write_response.resp_body)["error"]["reason"] == "dashboard_read_only"
+      assert Aiur.Orchestrator.max_concurrent_agents() == previous_cap
+      assert [record] = audit_records(path)
+      assert record["scope"] == "write"
+      assert record["outcome"] == "refused"
+      assert record["call"] == "Aiur.AgentControlCLI.set_max_agents/1"
+    after
+      Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable)
+    end
   end
 
   test "write token executes and audits a write call", %{write_token: token, audit_path: path, previous_cap: previous_cap} do
