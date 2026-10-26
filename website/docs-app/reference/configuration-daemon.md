@@ -191,6 +191,12 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 | `events.block_state_debounce_seconds` | integer | 10 | Debounces blocked/unblocked transitions. |
 | `events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval. |
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
+| `events.export.enabled` | boolean | false | Enables signed outbound webhook delivery. |
+| `events.export.max_pending_events` | integer | 10000 | Maximum admitted events waiting for acknowledgement. |
+| `events.export.request_timeout_ms` | integer | 15000 | Per-attempt webhook request timeout. |
+| `events.export.retry_ms` | integer | 5000 | Delay before retrying a failed delivery. |
+| `events.export.subject_id` | string | nil | Delivers only events for this exact ticket or job identifier. |
+| `events.export.webhook_url` | string | nil | HTTPS endpoint receiving outbound event POSTs. |
 
 ## upgrade
 
