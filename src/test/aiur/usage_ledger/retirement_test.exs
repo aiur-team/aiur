@@ -84,7 +84,11 @@ defmodule Aiur.UsageLedger.RetirementTest do
     {:ok, ledger} = start_ledger(context.root, context.name)
     first = envelope(%{})
     {:ok, _} = GenServer.call(context.name, {:append, first})
-    append_n(context.name, 2_400)
+
+    for index <- 1..2_400 do
+      key = "codex:" <> String.duplicate("k", 240) <> "-#{index}"
+      {:ok, _} = GenServer.call(context.name, {:append, envelope(%{idempotency_key: key})})
+    end
 
     assert {:ok, %{retired_through: 2_401}} = Store.retire(context.name, 2_401)
     assert File.stat!(Path.join(context.root, "checkpoint.json")).size < 1_048_576
