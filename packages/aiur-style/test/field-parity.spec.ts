@@ -20,7 +20,7 @@ for (const theme of ['dark', 'light']) {
     });
     const before = PNG.sync.read(Buffer.from(await page.locator('canvas').evaluate(el => (el as HTMLCanvasElement).toDataURL().split(',')[1]), 'base64'));
     await page.evaluate(async () => {
-      const { createFlowField } = await import('/dist/js/field.js');
+      const { createFlowField } = await import('../dist/js/field.js');
       (window as any).field = createFlowField(document.querySelector('canvas')!);
       await new Promise(requestAnimationFrame);
     });

@@ -18,7 +18,7 @@ async function tabPixelsMatch(page: Page) {
     const actual = canvas.toDataURL();
     const comparison = canvas.cloneNode() as HTMLCanvasElement;
     canvas.parentElement!.append(comparison);
-    const { createFlowField } = await import('/dist/js/field.js');
+    const { createFlowField } = await import('../dist/js/field.js');
     const field = createFlowField(comparison);
     await new Promise(requestAnimationFrame);
     const matches = actual === comparison.toDataURL();
