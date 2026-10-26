@@ -121,7 +121,7 @@ test('clipboard fallback restores focus and failure never announces success', as
 
 test('custom options, prompt glyph and destroy clean up behavior', async ({ page }) => {
   await page.evaluate(async () => {
-    const { initCommand } = await import('/dist/js/index.js');
+    const { initCommand } = await import('../dist/js/index.js');
     const single = document.querySelector<HTMLElement>('#command-single')!;
     const clone = single.cloneNode(true) as HTMLElement;
     clone.id = 'custom';
@@ -142,7 +142,7 @@ test('soon controls are disabled and small widths wrap without overflowing', asy
   await expect(page.locator('#command-soon')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.locator('#command-soon button')).toBeDisabled();
   await page.evaluate(async () => {
-    const { initCommand } = await import('/dist/js/index.js');
+    const { initCommand } = await import('../dist/js/index.js');
     const clone = document.querySelector('#command-tabs')!.cloneNode(true) as HTMLElement;
     clone.id = 'soon-tabs';
     clone.classList.add('aiur-command--soon');
