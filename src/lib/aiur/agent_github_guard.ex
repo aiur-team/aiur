@@ -11,7 +11,6 @@ defmodule Aiur.AgentGitHubGuard do
 
   alias Aiur.AgentCommandInstaller
   alias Aiur.AgentGitHubGuard.{RemoteInstall, Script}
-
   alias Aiur.GitHub.Access.Wrapper
   @git_script Aiur.AgentGitHubGuard.RecursionGuard.splice(Aiur.AgentGitHubGuard.GitScript.compose(Script.git()), "git")
   @scripts List.insert_at(Wrapper.scripts(), 1, {"git", @git_script})
