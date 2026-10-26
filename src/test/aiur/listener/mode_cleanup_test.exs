@@ -8,13 +8,11 @@ defmodule Aiur.Listener.ModeCleanupTest do
     root = Aiur.TestSupport.tmp_root!("listener-mode-cleanup")
     Aiur.TestSupport.put_runtime_state_dir!(Path.join(root, "runtime"))
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", workspace_root: Path.join(root, "workspaces"))
-    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
-    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "98761")
+    Aiur.TestScopeGuard.put_ticket_scope!("98761")
     previous_docker = Application.get_env(:aiur, :docker_cleanup_command)
     Application.put_env(:aiur, :docker_cleanup_command, fn _, _, _ -> {"", 0} end)
 
     on_exit(fn ->
-      if previous_scope, do: System.put_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope), else: System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
       if previous_docker, do: Application.put_env(:aiur, :docker_cleanup_command, previous_docker), else: Application.delete_env(:aiur, :docker_cleanup_command)
       Aiur.TestCleanup.rm_rf!(root, unset: [:runtime_state_dir])
     end)
