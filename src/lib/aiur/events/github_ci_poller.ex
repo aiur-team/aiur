@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCIPoller do
   require Logger
 
   alias Aiur.Events.GithubCIPoller.{ApprovalCarry, BaseRepair, Evaluation, Recovery}
-  alias Aiur.GitHub.{CiReadiness, Client, LocalHold}
+  alias Aiur.GitHub.{Access, CiReadiness, Client}
   alias Aiur.Stacking.StackBaseEvidence
 
   @type target :: String.t() | integer()
@@ -115,9 +115,9 @@ defmodule Aiur.Events.GithubCIPoller do
           {:ok, pull_request}
 
         :missing ->
-          LocalHold.run(
+          Access.with_transient_retry(
             fn -> Client.fetch_open_pull_request_for_branch(target, opts) end,
-            LocalHold.caller_opts(opts)
+            Access.transient_retry_opts(opts)
           )
       end
 

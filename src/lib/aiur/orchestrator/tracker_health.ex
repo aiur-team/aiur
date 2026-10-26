@@ -7,9 +7,8 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   require Logger
 
   alias Aiur.{Config, Signal}
+  alias Aiur.GitHub.{Access, Listeners}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
-  alias Aiur.GitHub.Listeners
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
@@ -22,7 +21,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def note_github_connectivity_success(%State{} = state, source) do
     %{
       state
-      | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source),
+      | github_connectivity: Access.connectivity_note_success(state.github_connectivity, source),
         github_poll_delays: Map.delete(state.github_poll_delays, source)
     }
     |> update_comment_backoff()
@@ -43,13 +42,13 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     end
 
     {streaks, alerts} =
-      GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
+      Access.connectivity_note_failure(state.github_connectivity, source, classification)
 
     Enum.each(alerts, &emit_github_connectivity_alert/1)
 
     backoff_ms =
       classification
-      |> GitHubConnectivity.backoff_ms(connectivity_streak_count(streaks, source), detail)
+      |> Access.connectivity_backoff_ms(connectivity_streak_count(streaks, source), detail)
       |> normalize_github_backoff_ms(state)
 
     %{
@@ -87,7 +86,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     end
   end
 
-  defp normalize_github_backoff_ms(:escalate, _state), do: GitHubConnectivity.max_backoff_ms()
+  defp normalize_github_backoff_ms(:escalate, _state), do: Access.connectivity_max_backoff_ms()
 
   defp normalize_github_backoff_ms(delay_ms, _state) when is_integer(delay_ms) and delay_ms >= 0,
     do: delay_ms
@@ -359,7 +358,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def github_next_poll_delay_ms(_state), do: nil
 
   defp emit_github_connectivity_alert(alert) do
-    message = GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())
+    message = Access.connectivity_alert_message(alert, repo: Aiur.GitHub.Config.repo())
 
     Signal.agent_alert("system.github.connectivity_lost", message,
       reason: message,
