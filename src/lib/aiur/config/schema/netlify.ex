@@ -3,6 +3,8 @@ defmodule Aiur.Config.Schema.Netlify do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{}
+
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-24 netlify.enabled
