@@ -9,6 +9,12 @@ defmodule Aiur.Workspace.Context do
       Enum.any?(labels, &(normalize_issue_state(&1) == "agent:todo"))
   end
 
+  @spec in_progress?(map()) :: boolean()
+  def in_progress?(%{issue_state: issue_state, issue_labels: labels}) do
+    normalize_issue_state(issue_state) == "in-progress" or
+      Enum.any?(labels, &(normalize_issue_state(&1) == "agent:in-progress"))
+  end
+
   @spec worker_host_for_log(String.t() | nil) :: String.t()
   def worker_host_for_log(nil), do: "local"
   def worker_host_for_log(worker_host), do: worker_host

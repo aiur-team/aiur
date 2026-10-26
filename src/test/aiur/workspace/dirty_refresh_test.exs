@@ -23,7 +23,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
     end
   end
 
-  test "before_run preserves dirty leftover workspaces when retry still carries todo label" do
+  test "before_run preserves dirty WIP when in-progress state still carries a todo label" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-retry")
 
     try do
@@ -37,7 +37,9 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
         labels: ["agent:todo"]
       }
 
-      assert_stale_refresh_saved!(workspace, issue.identifier, trace_root, issue)
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert trace_path(trace_root, issue) |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end
@@ -82,7 +84,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
   # uncommitted work is its legitimate WIP — base movement must NOT kill it.
   # The fix skips the origin/main refresh non-fatally and leaves the WIP intact
   # so the agent keeps working on its branch (it rebases/merges at PR time).
-  test "before_run skips refresh and preserves WIP for dirty in-progress resume (does not retry-exhaust the agent)" do
+  test "before_run preserves dirty WIP for in-progress tickets with a stale todo label" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-protect-resume")
 
     try do
@@ -93,7 +95,7 @@ defmodule Aiur.WorkspaceDirtyRefreshTest do
         identifier: "LIVE-1",
         title: "Protect resume workspace",
         state: "in-progress",
-        labels: ["agent:in-progress"]
+        labels: ["agent:todo", "agent:in-progress"]
       }
 
       # :ok (not {:error, ...}) is what keeps the agent alive: run_on_worker_host

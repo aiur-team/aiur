@@ -74,6 +74,16 @@ defmodule Aiur.Workspace.Refresh do
 
         {:error, {:workspace_owned, Ownership.current(issue_context.issue_identifier)}}
 
+      # An issue explicitly in progress owns its dirty checkout even if the
+      # tracker still carries a stale todo label. Continuing is safer than
+      # recreating it or failing before the turn starts (#6371).
+      Context.in_progress?(issue_context) ->
+        Logger.info(
+          "Skipping before_run configured-base refresh: in-progress agent has uncommitted WIP #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
+        )
+
+        finalize_before_run_workspace(workspace, issue_context, worker_host)
+
       # A fresh todo dispatch that lands on a dirty *leftover* workspace
       # (#577): recreate the workspace clean off the configured base and re-run
       # before_run. The dirty content can still be an agent's unsaved work (a

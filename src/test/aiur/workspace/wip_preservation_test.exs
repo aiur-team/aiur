@@ -77,6 +77,18 @@ defmodule Aiur.Workspace.WipPreservationTest do
                  "worker-1"
                )
     end
+
+    test "in-progress state wins over a stale todo label and consumes one before_run attempt", %{test_root: test_root} do
+      identifier = "WIP-STALE-LABEL-#{System.unique_integer([:positive])}"
+      {workspace, trace_root} = dirty_refresh_fixture!(test_root, identifier)
+      File.write!(Path.join(workspace, "README.md"), "uncommitted rework\n")
+      issue = %Issue{id: "issue-#{identifier}", identifier: identifier, title: "WIP", state: "in-progress", labels: ["agent:todo", "agent:in-progress"]}
+
+      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert File.read!(Path.join(workspace, "README.md")) == "uncommitted rework\n"
+      assert trace_count(trace_path(trace_root, issue)) == 1
+      assert git!(["-C", workspace, "status", "--porcelain"]) =~ "README.md"
+    end
   end
 
   describe "agent runner" do
