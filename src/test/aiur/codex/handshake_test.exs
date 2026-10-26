@@ -56,6 +56,7 @@ defmodule Aiur.Codex.HandshakeTest do
     test "quarantines valid late rate-limit responses" do
       secret = "person@example.test credential=super-secret"
       release_file = Path.join(System.tmp_dir!(), "handshake-#{System.unique_integer([:positive])}.release")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(release_file) end)
 
       port =
         script_port("""
@@ -91,6 +92,7 @@ defmodule Aiur.Codex.HandshakeTest do
     test "quarantines malformed late rate-limit stream output" do
       secret = "person@example.test credential=super-secret"
       release_file = Path.join(System.tmp_dir!(), "handshake-#{System.unique_integer([:positive])}.release")
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(release_file) end)
 
       port =
         script_port("""

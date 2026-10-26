@@ -293,18 +293,19 @@ defmodule Aiur.AgentGitHubGuard.IdentityAndGrantsTest do
                FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Remaining: 0\nX-RateLimit-Reset: #{reset}\n\n"
              )
 
-    request = %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/1670", token: credential}
+    db_path = Path.join(budget_root, "budget.sqlite3")
+    token_key = Budget.token_key(credential)
 
-    assert {:hold, %{reason: :shared_budget, resource: "core"}} =
-             Budget.acquire(request,
-               state_dir: budget_root,
-               enabled?: true,
-               max_inflight: 4,
-               max_inflight_per_endpoint: 2,
-               requests_per_minute: 20,
-               stagger_ms: 0,
-               timeout_ms: 5_000
-             )
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               "-c",
+               "import json, sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); rows = conn.execute('SELECT resource, until_ms FROM resource_holds WHERE token_key = ?', (sys.argv[2],)).fetchall(); print(json.dumps({'resource_holds': [{'resource': resource, 'until_ms': until_ms} for resource, until_ms in rows]}))",
+               db_path,
+               token_key
+             ])
+
+    assert %{"resource_holds" => [%{"resource" => "core", "until_ms" => until_ms}]} = Jason.decode!(snapshot)
+    assert until_ms > System.os_time(:millisecond)
   end
 
   test "git authentication uses only the agent token for github.com", context do
