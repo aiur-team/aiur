@@ -105,11 +105,11 @@
 .rs-ln {
   display: grid;
   grid-template-columns: 8ch minmax(0, 1fr) 12.5ch;
-  grid-template-rows: 1rem 5px;
+  grid-template-rows: 11px 5px;
   align-items: center;
   column-gap: 0.5rem;
   row-gap: 1px;
-  min-height: 22px;
+  height: 17px;
   min-width: 0;
   font: 600 0.68rem/1 "JetBrains Mono", "SFMono-Regular", monospace;
   cursor: default;

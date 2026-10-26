@@ -77,6 +77,62 @@ test('API meters show remaining labels and widths while unknown stays unfilled',
   await expect(meters.nth(5).locator('.ax-seg i')).toHaveCount(0)
   await expect(meters.nth(1)).toHaveAttribute('data-tip', /2,500 of 5,000 left.*50% left/)
 })
+
+test('meter percentage labels stay inside their rows at desktop and phone widths', async ({ page }) => {
+  const u = fixture('n2')
+  u.apis[0].lines[0].acc = [57]
+  u.apis[0].lines[1].acc = [7]
+  u.providers[0].session.acc = [8]
+  u.providers[0].weekly.acc = [8]
+
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    await paint(page, u)
+
+    for (const card of ['.api', '.mdl']) {
+      const labels = await page.locator(`${card} .ax-ln .ax-pc`).evaluateAll((elements) => elements
+        .filter((label) => label.textContent.trim())
+        .map((label) => {
+          const labelBox = label.getBoundingClientRect()
+          const rowBox = label.closest('.ax-ln').getBoundingClientRect()
+          const barBox = label.closest('.ax-ln').querySelector('.ax-bar').getBoundingClientRect()
+          const resetBox = label.closest('.ax-ln').querySelector('.ax-rs').getBoundingClientRect()
+          return {
+            text: label.textContent.trim(),
+            labelTop: labelBox.top,
+            labelBottom: labelBox.bottom,
+            rowTop: rowBox.top,
+            rowBottom: rowBox.bottom,
+            barWidth: barBox.width,
+            resetLeft: resetBox.left,
+            resetRight: resetBox.right,
+            rowLeft: rowBox.left,
+            rowRight: rowBox.right
+          }
+        }))
+
+      expect(labels.length, `${card} labels should render at ${width}px`).toBeGreaterThan(1)
+      for (const label of labels) {
+        expect(label.labelTop, `${card} ${label.text} starts inside its row at ${width}px`).toBeGreaterThanOrEqual(label.rowTop)
+        expect(label.labelBottom, `${card} ${label.text} ends inside its row at ${width}px`).toBeLessThanOrEqual(label.rowBottom)
+        expect(label.barWidth, `${card} ${label.text} bar remains visible at ${width}px`).toBeGreaterThan(0)
+        expect(label.resetLeft, `${card} ${label.text} reset stays in its row at ${width}px`).toBeGreaterThanOrEqual(label.rowLeft)
+        expect(label.resetRight, `${card} ${label.text} reset stays in its row at ${width}px`).toBeLessThanOrEqual(label.rowRight)
+      }
+
+      for (let index = 1; index < labels.length; index++) {
+        expect(labels[index - 1].labelBottom, `${card} adjacent percentages do not overlap at ${width}px`)
+          .toBeLessThanOrEqual(labels[index].labelTop)
+      }
+    }
+
+    await expect(page.locator('.api .ax-pc').nth(0)).toHaveText('43% left')
+    await expect(page.locator('.api .ax-pc').nth(1)).toHaveText('93% left')
+    await expect(page.locator('.mdl .ax-pc').first()).toHaveText('92% left')
+    await expect(page.locator('.mdl .ax-pc').nth(1)).toHaveText('92% left')
+  }
+})
+
 test('unknown and ended resets, stale ages, holds and notes are truthful', async ({ page }) => {
   await paint(page, fixture('unknown'))
   await expect(page.locator('.mdl .ax-rs')).toHaveText('reset unknown')

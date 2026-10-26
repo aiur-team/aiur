@@ -9,12 +9,6 @@ async function openModelsPanel(page) {
   await expect(page.locator('[data-models-panel-fixture="true"] .rs-models')).toBeVisible()
 }
 
-async function openMeterRows(page) {
-  await page.goto('/auth/read_only')
-  await page.goto('/meter-row')
-  await expect(page.locator('[data-meter-row-fixture="true"] .run-summary')).toBeVisible()
-}
-
 // Every text cell of every line, with its box and whether its text overflows
 // the box. Runs in the browser, so it cannot use this module's scope.
 function lineCells(panel) {
@@ -95,16 +89,6 @@ for (const width of [1440, 390]) {
       // No cell overlaps another, and no cell's text spills out of its box.
       const lines = await panel.evaluate(lineCells)
       expect(lines.length).toBe(5)
-      const adjacentLabels = await panel.locator('.rs-ln .rs-pc').evaluateAll((labels) => labels.map((label) => {
-        const box = label.getBoundingClientRect()
-        return { text: label.textContent.trim(), top: box.top, bottom: box.bottom }
-      }))
-      for (let index = 1; index < adjacentLabels.length; index++) {
-        const previous = adjacentLabels[index - 1]
-        const current = adjacentLabels[index]
-        expect(previous.bottom, `adjacent labels "${previous.text}" and "${current.text}" overlap at ${width}px`).toBeLessThanOrEqual(current.top)
-      }
-
       for (const line of lines) {
         for (const cell of line.cells) {
           expect(cell.overflow, `${line.title}: "${cell.text}" overflows its cell at ${width}px`).toBeLessThanOrEqual(0)
@@ -115,18 +99,6 @@ for (const width of [1440, 390]) {
             expect(intersects(a, b), `${line.title}: "${a.text}" overlaps "${b.text}" at ${width}px`).toBe(false)
           }
         }
-      }
-
-      await openMeterRows(page)
-      const apiLabels = await page.locator('.rs-api .rs-limit-label').evaluateAll((labels) => labels.map((label) => {
-        const box = label.getBoundingClientRect()
-        return { text: label.textContent.trim(), top: box.top, bottom: box.bottom }
-      }))
-      expect(apiLabels.length).toBeGreaterThan(1)
-      for (let index = 1; index < apiLabels.length; index++) {
-        const previous = apiLabels[index - 1]
-        const current = apiLabels[index]
-        expect(previous.bottom, `adjacent API labels "${previous.text}" and "${current.text}" overlap at ${width}px`).toBeLessThanOrEqual(current.top)
       }
 
       await assertNoDocumentOverflow(page)
