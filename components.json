@@ -19,6 +19,18 @@
       "to_module": "AiurWeb.Sockets.*",
       "kind": "reference",
       "reason": "RC-39: downward composition of optional component sockets"
+    },
+    {
+      "from": "web-shell",
+      "to_module": "Aiur.ControlCall",
+      "kind": "reference",
+      "reason": "MIC-002: the authenticated web adapter invokes the shared allowlisted control-call contract"
+    },
+    {
+      "from": "web-shell",
+      "to_module": "Aiur.AgentControlCLI",
+      "kind": "reference",
+      "reason": "MIC-002: the endpoint caps executor-wait calls using the shared control facade identity"
     }
   ],
   "features": [
