@@ -243,6 +243,11 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       send(inherited_task, :continue)
       receive_barrier({:DOWN, ^ref, :process, ^inherited_task, _reason})
 
+      # The released task intentionally performs a real GitHub comment read
+      # before the page opens. Exclude that setup traffic so this assertion
+      # measures only requests caused by opening /units.
+      Agent.update(counter, fn _requests -> [] end)
+
       assert {:ok, view, html} = live(build_conn(), "/units")
       assert html =~ "dashboard-shell", "/units did not render the dashboard shell"
       assert html =~ "usage-watch", "/units rendered a shell but not its own content"
