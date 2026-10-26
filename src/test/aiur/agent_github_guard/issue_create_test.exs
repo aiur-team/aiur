@@ -39,6 +39,7 @@ defmodule Aiur.AgentGitHubGuard.IssueCreateTest do
   test "the flake rewrite ignores a shlex module in the working directory", context do
     args_file = Path.join(context.workspace, "isolated-args")
     marker = Path.join(context.workspace, "shlex-imported")
+
     File.write!(Path.join(context.workspace, "shlex.py"), """
     open(#{inspect(marker)}, "w").close()
     def quote(value):
