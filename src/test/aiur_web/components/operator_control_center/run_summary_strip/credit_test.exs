@@ -407,5 +407,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripCreditTest do
 
     assert unavailable_html =~ "Estimated credits: unavailable"
     refute unavailable_html =~ "Estimated credits: 0.0"
+    refute unavailable_html =~ "0 sites"
   end
 end

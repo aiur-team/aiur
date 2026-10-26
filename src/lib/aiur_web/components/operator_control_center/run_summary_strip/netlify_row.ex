@@ -35,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.NetlifyRow do
           Estimated credits: {Float.round(@remaining * 1.0, 1)} · runway {format_runway(@runway)} · observed {format_age(@age)} ago
         </span>
         <span :if={not @ready? || not is_number(@remaining)} class="rs-limit-meta">Estimated credits: unavailable</span>
-        <span :if={is_map(@account)} class="rs-limit-meta">{length(@sites)} sites · {if(@exceeded, do: "usage exceeded", else: "within usage limits")}</span>
+        <span :if={@ready? && is_map(@account)} class="rs-limit-meta">{length(@sites)} sites · {if(@exceeded, do: "usage exceeded", else: "within usage limits")}</span>
       </div>
     </div>
     """

@@ -3,7 +3,9 @@ Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file
 
 Runtime overrides set with `aiur set` are operator-owned and stored per instance without changing this YAML. The daemon cooperatively refuses mutations when raw caller path evidence matches its configured or live agent workspaces; #6075 tracks authenticated operator-token enforcement.
 
-Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`. Precedence: `set max-agents`, runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `--unset <key>` restores YAML.
+Live keys: `agent.max_concurrent_builds`, `agent.max_concurrent_agents_by_state`, `agent.priority`, `agent.routing`, `build_queue.max_active_sets`, `instance.ignore.tickets`, `instance.owns`, `instance.pool`.
+
+Precedence: session `set max-agents` (agent cap), runtime overrides, YAML, defaults. `aiur set --list` shows provenance; `aiur set --unset <key>` restores YAML.
 
 ## Environment variables
 Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
@@ -58,6 +60,7 @@ Aiur watches nonterminal tickets in the run scope and, once a ticket's **converg
 | CI | Current state when available, for tickets already alerted. |
 
 A ticket that becomes terminal or leaves the run scope resolves its active advisory and forgets its convergence state; a re-opened ticket starts a fresh episode.
+
 ## tracker
 
 The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a matching open local request and nonce; daemon authorship alone grants no trust.
@@ -104,6 +107,7 @@ The [analysis-ticket exception](/apis/github-auth#who-aiur-trusts) requires a ma
 | `tracker.restack_after_blocker_merge` | boolean | true | Fast-forward restack idle GitHub dependents after a blocker squash-merges. Requires git 2.40+. Live agents restack themselves; false disables only the daemon path. |
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
+
 ## polling
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-02 -->
@@ -153,11 +157,13 @@ Freshness thresholds follow this cadence. You do not set them separately.
   a freshly restarted fleet starts at the base interval, and a live fleet with
   dispatchable tickets keeps the base interval so work is not left waiting
   behind a backed-off sweep (#2138).
+
 ## monitoring
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-03 -->
 | --- | --- | --- | --- |
 | `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
+
 ## webhooks
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-04 -->
@@ -168,6 +174,7 @@ Freshness thresholds follow this cadence. You do not set them separately.
 | `webhooks.sweep_interval_seconds` | integer | 60 | How often proven repos are checked for silence. |
 
 See [GitHub polling and webhooks](/apis/github-polling) for the setup story and runtime states.
+
 ## workspace
 
 The `wip_*` keys bound the save of uncommitted work described in [Saved uncommitted work](/reference/cli#saved-uncommitted-work).
@@ -289,6 +296,7 @@ The `aiur run` upgrade-version notice is optional and opt-out: it caches with a 
 environment-variable equivalents; the check also stays silent in CI runs.
 
 ## alerts
+
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-13 -->
 | --- | --- | --- | --- |
 | `alerts.alerts_file` | string path or nil | bundled alerts file | Topic-to-sound YAML map. |
@@ -296,21 +304,23 @@ environment-variable equivalents; the check also stays silent in CI runs.
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
 
-
 ## usage
+
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
 | --- | --- | --- | --- |
 | `usage.alerts` | map | %{} | Per-provider low-usage alert thresholds; each threshold is remaining percent from 0 to 100. |
 
 ## netlify
-| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-23 -->
+
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-24 -->
 | --- | --- | --- | --- |
-| `netlify.enabled` | boolean | false | Enable read-only Netlify usage polling and the dashboard card. |
-| `netlify.account_id` | string | nil | Netlify team or account ID to read. |
-| `netlify.poll_seconds` | integer | 900 | Netlify usage polling interval in seconds. |
+| `netlify.account_id` | string | nil | Netlify team/account ID to read. |
 | `netlify.credit_alert_threshold` | integer | 0 | Emit a low-credit alert at or below this estimated balance; 0 disables the threshold. |
+| `netlify.enabled` | boolean | false | Enable the read-only Netlify usage poller and dashboard card. |
+| `netlify.poll_seconds` | integer | 900 | Netlify usage polling interval in seconds. |
 
 ## elevenlabs
+
 Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
 
 This optional section configures voice features; `aiur init` records declines as `enabled: false` and skips them on resume.
