@@ -17,5 +17,4 @@ Aiur.OrchestratorStatusCliCapacityTest	*	#6236	2026-12-31
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.ProcessTreeTest	future regression guard: tree cleanup kills the root and both background children	#6182	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
-Aiur.Workspace.RestackGitTest	cancelled git retains the workspace lock until its process group drains	#6306	2026-12-31
 AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31
