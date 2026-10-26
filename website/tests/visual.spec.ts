@@ -101,6 +101,16 @@ for (const theme of themes) {
         })
       }
 
+      if (viewport.name === 'desktop') {
+        test('docs component directory survives diagram failure', async ({ page }) => {
+          await page.route('**/chunks/flowDiagram-*.js', (route) => route.abort())
+          await page.goto('/docs/reference/components')
+          await expect(page.getByRole('status').filter({ hasText: 'Diagram unavailable.' })).toBeVisible()
+          await expect(page.locator('#component-voice-stt')).toBeVisible()
+          await expect(page.locator('.directory-diagram svg')).toHaveCount(0)
+        })
+      }
+
       test('docs product switcher open', async ({ page }) => {
         await page.goto('/docs/')
         const button = page.locator('#product-switcher-button')
