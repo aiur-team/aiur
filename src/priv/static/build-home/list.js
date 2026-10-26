@@ -155,7 +155,7 @@ function featureListHTML(D, state, now) {
       : reason || 'not published yet — 0 of planned tickets on GitHub';
     const summary = p?.summary ? `<small class="fp-summary">${esc(p.summary)}</small>` : '';
     const code = p?.code ? `<small class="fp-code">${esc(p.code)}</small>` : '';
-    const laneText = lanes.map(x => `${esc(x.epic.label)}: ${Number.isFinite(x.progress?.closed) ? x.progress.closed : '—'} / ${Number.isFinite(x.progress?.total) ? x.progress.total : '—'}`).join(' · ');
+    const laneText = lanes.map(x => `${esc(laneCaption(x.epic))}: ${Number.isFinite(x.progress?.closed) ? x.progress.closed : '—'} / ${Number.isFinite(x.progress?.total) ? x.progress.total : '—'}`).join(' · ');
     return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(feature.label)}">${icon}</span><span class="fp-name"><b>${esc(feature.label)}</b>${code}${summary}<small class="fp-summary">${laneText}</small></span>${bar(c, Number.isFinite(o) && Number.isFinite(p?.ci_wait) ? o + p.ci_wait : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter')}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;
   }).join('')}</section>`).join('');
   const legend = '<div class="fp-legend"><span><i class="closed"></i>Closed</span><span><i class="open"></i>Published, open</span><span><i class="unpublished"></i>Planned, not published</span></div>';
@@ -164,6 +164,14 @@ function featureListHTML(D, state, now) {
   const rootTitle = first.root_title || 'Feature progress';
   const rootDetails = [first.root_number ? `root #${first.root_number}` : 'root unknown', first.start_date || 'start date unknown', `data as of ${Number.isFinite(observed) ? new Date(observed).toLocaleString() : '—'} · ${ageLabel}`].join(' · ');
   return `<article class="fp-card"><header class="fp-head"><div><h1>${esc(rootTitle)}</h1><p>${esc(rootDetails)}</p></div><div class="fp-overall"><b>${pctText}</b><span>${esc(totalsLine)}</span></div>${bar(closed, opened, unpublished, Number.isFinite(closed) && Number.isFinite(opened) && Number.isFinite(unpublished) ? null : 'Progress unavailable', 'fp-total')}${legend}</header><div class="fp-groups">${rows || '<p>No features available</p>'}</div><footer>Progress is closed / all tickets in the feature, rounded down; closed includes done, failed, and not-planned tickets. Planned counts from ${esc(version)}. ${Number.isFinite(D.feature_progress?.extras) ? D.feature_progress.extras : '—'} published tickets outside the plan are included in totals.</footer></article>`;
+}
+function laneCaption(epic) {
+  if (/^f-bo-\d+$/.test(epic.key)) return 'Unassigned';
+  if (/^f-bo-\d+-.+/.test(epic.key)) {
+    const separator = epic.label.lastIndexOf(' · ');
+    if (separator >= 0) return epic.label.slice(separator + 3);
+  }
+  return epic.label;
 }
 function renderListImpl() {
   const vp = ctx.vp, rows = () => [...vp.querySelectorAll('.lr[data-id]')], previous = rows();
