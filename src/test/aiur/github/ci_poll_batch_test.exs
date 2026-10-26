@@ -82,14 +82,32 @@ defmodule Aiur.GitHub.CIPollBatchTest do
   end
 
   test "a closed ticket PR is returned with its merged state for lifecycle routing" do
-    closed_pr = pull_request() |> Map.put("state", "CLOSED") |> Map.put("mergedAt", "2026-10-20T00:00:00Z")
+    closed_pr =
+      pull_request()
+      |> Map.put("state", "CLOSED")
+      |> Map.put("mergedAt", "2026-10-20T00:00:00Z")
+      |> Map.put("closingIssuesReferences", %{
+        "nodes" => [%{"number" => 42}],
+        "pageInfo" => %{"hasNextPage" => false}
+      })
 
     request_fun = fn %{body: body} ->
       assert body["query"] =~ "states: [OPEN, CLOSED]"
+      assert body["query"] =~ "closingIssuesReferences(first: 100)"
       ci_response(closed_pr)
     end
 
-    assert {:ok, %{"42" => %{pull_request: %{"number" => 77, "state" => "merged"}}}} =
+    assert {:ok,
+            %{
+              "42" => %{
+                pull_request: %{
+                  "number" => 77,
+                  "state" => "merged",
+                  "closing_issue_numbers" => [42],
+                  "closing_issues_complete?" => true
+                }
+              }
+            }} =
              CIPollBatch.fetch(["42"], request_fun: request_fun, branch_names_by_target: %{"42" => "aiur/42-ci-batch"})
   end
 

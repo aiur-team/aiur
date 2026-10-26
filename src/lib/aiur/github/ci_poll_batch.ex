@@ -233,6 +233,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp pull_request_fields(_entry) do
     """
     number state mergedAt createdAt headRefName headRefOid baseRefName baseRefOid
+    closingIssuesReferences(first: 100) { nodes { number } pageInfo { hasNextPage } }
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     #{CIPollBatchReadyReview.fields()}
@@ -375,12 +376,15 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp normalize_pull_request(node) do
     {contexts, contexts_overflow} = get_in(node, ["commits", "nodes"]) |> List.wrap() |> List.last() |> status_contexts()
     {check_runs, statuses} = Enum.split_with(contexts, &(Map.get(&1, "__typename") == "CheckRun"))
+    closing_issues = Map.get(node, "closingIssuesReferences") || %{}
 
     %{
       pull_request:
         %{
           "number" => Map.get(node, "number"),
           "state" => if(is_binary(Map.get(node, "mergedAt")), do: "merged", else: String.downcase(to_string(Map.get(node, "state", "open")))),
+          "closing_issue_numbers" => get_in(closing_issues, ["nodes"]) |> List.wrap() |> Enum.map(&Map.get(&1, "number")),
+          "closing_issues_complete?" => get_in(closing_issues, ["pageInfo", "hasNextPage"]) != true,
           "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
           "base" => %{"ref" => Map.get(node, "baseRefName"), "sha" => Map.get(node, "baseRefOid")}
         }
