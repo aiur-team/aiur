@@ -34,6 +34,7 @@ defmodule Aiur.Listener.ModeCleanupTest do
   test "startup terminal sweep clears persisted listener modes" do
     previous = Application.get_env(:aiur, :memory_tracker_issues)
     Application.put_env(:aiur, :memory_tracker_issues, [%Aiur.Issue{id: "98761", identifier: "98761", state: "Done"}])
+
     try do
       assert {:ok, _record} = ModeStore.put("98761", :steer, 0, %{actor: :system})
       path = ModeStore.path_for("98761")

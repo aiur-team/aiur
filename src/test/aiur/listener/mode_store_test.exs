@@ -86,6 +86,7 @@ defmodule Aiur.Listener.ModeStoreTest do
   test "write failure returns a structured error and preserves the existing record", %{opts: opts} do
     assert {:ok, record} = ModeStore.put("1", :async, 0, %{actor: :human}, opts)
     File.chmod!(opts[:dir], 0o500)
+
     try do
       assert {:error, {:write_failed, _reason}} = ModeStore.put("1", :sync, 1, %{actor: :human}, opts)
       assert ModeStore.get("1", opts) == record

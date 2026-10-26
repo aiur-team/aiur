@@ -30,8 +30,8 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   require Logger
 
   alias Aiur.Alerts.ClosedTicket
-  alias Aiur.Listener.ModeStore
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
+  alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.{ClosedTicketTranscriptArchive, DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 

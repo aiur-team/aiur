@@ -14,7 +14,8 @@
     "config",
     "event-bus",
     "harness-adapters",
-    "identity"
+    "identity",
+    "kernel"
   ],
   "optional": [],
   "owns": {
