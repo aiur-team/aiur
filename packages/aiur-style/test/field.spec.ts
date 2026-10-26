@@ -28,6 +28,39 @@ async function tabPixelsMatch(page: Page, switchTab = true) {
   }, switchTab);
 }
 
+for (const unavailable of ['2D context', 'ResizeObserver']) {
+  test(`field returns an inert handle without ${unavailable}`, async ({ page }) => {
+    await page.goto('field.html?legacy');
+    const result = await page.evaluate(async (unavailable) => {
+      const { createFlowField } = await import('../dist/js/field.js');
+      const canvas = document.querySelector('canvas')!;
+      canvas.removeAttribute('aria-hidden');
+      const resizeObserver = window.ResizeObserver;
+      const requestFrame = window.requestAnimationFrame;
+      let frames = 0;
+      window.requestAnimationFrame = () => { frames++; return 0; };
+      if (unavailable === '2D context') Object.defineProperty(canvas, 'getContext', { value: () => null });
+      else (window as any).ResizeObserver = undefined;
+      try {
+        const field = createFlowField(canvas);
+        field.redraw();
+        field.rebuild();
+        document.dispatchEvent(new CustomEvent('aiur:themechange'));
+        document.dispatchEvent(new CustomEvent('aiur:layoutchange'));
+        window.dispatchEvent(new Event('resize'));
+        field.destroy();
+        field.destroy();
+        await Promise.resolve();
+        return { debug: field.debug(), aria: canvas.getAttribute('aria-hidden'), frames };
+      } finally {
+        window.ResizeObserver = resizeObserver;
+        window.requestAnimationFrame = requestFrame;
+      }
+    }, unavailable);
+    expect(result).toEqual({ debug: { obstacles: [] }, aria: 'true', frames: 0 });
+  });
+}
+
 test('field R-TAB-1: command obstacle follows tab rect inside one frame', async ({ page }) => {
   await open(page);
   const result = await page.evaluate(async () => {

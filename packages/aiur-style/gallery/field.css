@@ -5,7 +5,7 @@ h1 { font-family: 'Bungee', sans-serif; font-size: 72px; line-height: 1; margin:
 p { margin: 0; text-align: center; }
 .tagline { max-width: 320px; }
 .aiur-command { max-width: 100%; box-sizing: border-box; padding: 16px; border: 1px solid var(--aiur-color-line); border-radius: 11px; }
-button { color: inherit; background: transparent; border: 0; padding: 8px; cursor: pointer; }
+button { font: inherit; color: inherit; background: transparent; border: 0; padding: 8px; cursor: pointer; }
 button[aria-selected="true"] { border-bottom: 1px solid currentColor; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 360px; margin: 14px 0 0; line-height: 1.7; }
+pre { font-family: 'JetBrains Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 360px; margin: 14px 0 0; line-height: 1.7; }
 .hug { max-width: 340px; line-height: 1.6; }

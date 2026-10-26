@@ -20,14 +20,8 @@ export interface FlowFieldOptions {
 export declare function createFlowField(canvas: HTMLCanvasElement, opts?: FlowFieldOptions): {
     redraw: () => void;
     rebuild: () => void;
+    destroy: () => void;
     debug: () => {
-        obstacles: {
-            cx: number;
-            cy: number;
-            hx: number;
-            hy: number;
-            r: number;
-        }[];
+        obstacles: Obstacle[];
     };
-    destroy(): void;
 };

@@ -32,10 +32,13 @@ export interface FlowFieldOptions {
 }
 
 export function createFlowField(canvas: HTMLCanvasElement, opts: FlowFieldOptions = {}) {
+  canvas.setAttribute('aria-hidden', 'true');
   const host = opts.host ?? canvas.parentElement;
   const ctx = canvas.getContext('2d');
-  if (!host || !ctx) throw new Error('Flow field requires a host and a 2D canvas context');
-  canvas.setAttribute('aria-hidden', 'true');
+  if (!host || !ctx || typeof ResizeObserver === 'undefined') {
+    const noop = () => {};
+    return { redraw: noop, rebuild: noop, destroy: noop, debug: () => ({ obstacles: [] as Obstacle[] }) };
+  }
   const ANGLE = (opts.angleDeg ?? -118) * (Math.PI / 180);
   const dir = { x: Math.cos(ANGLE), y: Math.sin(ANGLE) };
   const nrm = { x: -dir.y, y: dir.x };
