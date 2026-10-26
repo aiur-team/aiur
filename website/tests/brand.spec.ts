@@ -1,3 +1,4 @@
+// One browser contract covers cross-site theme persistence and shared marketing component accessibility.
 import { expect, test } from '@playwright/test'
 
 const themes = ['light', 'dark'] as const
@@ -208,4 +209,10 @@ test('shared command tabs support keyboard selection and announce copies', async
   await expect(page.locator('#nextSteps')).toHaveAttribute('aria-hidden', 'true')
   await expect(page.getByRole('button', { name: 'Dark mode', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('heading', { name: 'Aiur', exact: true })).toBeVisible()
+})
+
+test('light marketing scroll cue meets text contrast', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('aiur-theme', 'light'))
+  await page.goto('/')
+  expect(contrastRatio(...await renderedColors(page.locator('.aiur-scrollcue')))).toBeGreaterThanOrEqual(4.5)
 })
