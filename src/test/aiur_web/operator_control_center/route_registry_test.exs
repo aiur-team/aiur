@@ -62,6 +62,14 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
     assert route.description == "Live run utilization."
   end
 
+  test "registers the shared instance roster route" do
+    assert {:ok, route} = RouteRegistry.route(:instances, %{})
+    assert route.path == "/instances"
+    assert route.owner == :instances
+    refute route in RouteRegistry.routes(%{})
+    assert RouteRegistry.current_route(:instances) == route
+  end
+
   test "keeps direct Decision URLs inside the Commands route" do
     assert {:ok, %{path: "/commands"}} = RouteRegistry.route(:commands, %{})
     assert %{id: :commands} = RouteRegistry.current_route(:decisions)

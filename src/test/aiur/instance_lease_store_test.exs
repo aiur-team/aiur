@@ -209,11 +209,13 @@ defmodule Aiur.Instance.LeaseStoreTest do
         end)
 
         assert LeaseStore.claim(key, server: left) == :acquired
+        assert {:ok, [^key]} = LeaseStore.owned_tickets(server: left)
         assert LeaseStore.claim(key, server: right) == :held
         assert LeaseStore.holder(key, server: right) == {:held, left_id}
         assert LeaseStore.owned?(key, server: left, instance_id: left_id)
         refute LeaseStore.owned?(key, server: right, instance_id: right_id)
         assert :ok = LeaseStore.release(key, server: left)
+        assert {:ok, []} = LeaseStore.owned_tickets(server: left)
 
         results =
           [
