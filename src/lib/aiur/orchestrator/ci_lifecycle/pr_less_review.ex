@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PrLessReview do
   alias Aiur.Signal
   require Logger
 
-  @no_pr_reasons [:open_pr_not_yet_visible, :open_pr_no_longer_visible]
+  @no_pr_reasons [:open_pr_not_yet_visible, :open_pr_no_longer_visible, :pr_merged, :pr_closed_unmerged]
 
   @doc "True when the CI poll found no open PR for the ticket."
   @spec no_pull_request?(map()) :: boolean()
