@@ -3,13 +3,15 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
 
   alias Aiur.{AgentEnvironment, AgentGitHubGuard, AgentProcessLog}
   alias Aiur.AgentEnvironment.Contributor
-  alias Aiur.GitHub.{AgentEnvironmentContributor, Budget}
+  alias Aiur.Claude.Repl.Command
+  alias Aiur.GitHub.{AgentBudgetSocket, AgentEnvironmentContributor, Budget}
 
   @credentials ~w(
                   AIUR_CLIENT_TOKEN AIUR_SECRET_KEY_BASE CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY OPENAI_API_KEY
                   GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN
                   GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH
-                  GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY NETLIFY_AUTH_TOKEN
+                  GITHUB_APP_NEW_SECRET AIUR_TOKEN_NUC AIUR_GITHUB_BUDGET_KEY AIUR_LEASE_DATABASE_URL
+                  NETLIFY_AUTH_TOKEN
                 )
   @fixture Path.expand("../../fixtures/agent_environment_contributor.json", __DIR__)
 
@@ -47,6 +49,8 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     env = Application.fetch_env!(:aiur, :env)
     budget = Application.fetch_env!(:aiur, :github_budget_dir)
     budget_settings = Application.fetch_env(:aiur, :github_budget_settings_override)
+    lease_database_url = Application.fetch_env(:aiur, :lease_database_url)
+    lease_database_url_env = System.get_env("AIUR_LEASE_DATABASE_URL")
 
     # Freeze baseline inputs independently of later changes to production defaults.
     Application.put_env(:aiur, :github_budget_settings_override, %{
@@ -60,11 +64,20 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     })
 
     Application.put_env(:aiur, :github_budget_dir, Path.join(root, "budget"))
+    Application.delete_env(:aiur, :lease_database_url)
+    System.delete_env("AIUR_LEASE_DATABASE_URL")
 
     on_exit(fn ->
       Application.put_env(:aiur, :agent_environment_contributors, registry)
       Application.put_env(:aiur, :env, env)
       Application.put_env(:aiur, :github_budget_dir, budget)
+
+      case lease_database_url do
+        {:ok, value} -> Application.put_env(:aiur, :lease_database_url, value)
+        :error -> Application.delete_env(:aiur, :lease_database_url)
+      end
+
+      restore_env("AIUR_LEASE_DATABASE_URL", lease_database_url_env)
 
       case budget_settings do
         {:ok, value} -> Application.put_env(:aiur, :github_budget_settings_override, value)
@@ -94,6 +107,32 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     for name <- @credentials, do: assert(Map.fetch!(port, String.to_charlist(name)) == false)
     shell = shell_env(AgentEnvironment, context)
     for name <- @credentials, do: refute(Map.has_key?(shell, name))
+  end
+
+  test "agent budget socket env requires shared storage and is never sent to remote agents", context do
+    local_env = AgentEnvironmentContributor.port_env(context.workspace, opts()) |> Map.new()
+    assert Map.fetch!(local_env, ~c"AIUR_GITHUB_BUDGET_SOCKET") == false
+
+    remote_exports = AgentEnvironmentContributor.shell_exports(context.workspace, opts())
+    refute remote_exports =~ "export AIUR_GITHUB_BUDGET_SOCKET="
+
+    local_claude_without_store =
+      Command.build_command(context.workspace, nil, nil, false, "rc-name", nil, nil)
+
+    refute local_claude_without_store =~ "export AIUR_GITHUB_BUDGET_SOCKET="
+
+    Application.put_env(:aiur, :lease_database_url, "postgres://shared-store/aiur")
+    configured_env = AgentEnvironmentContributor.port_env(context.workspace, opts()) |> Map.new()
+    assert Map.fetch!(configured_env, ~c"AIUR_GITHUB_BUDGET_SOCKET") == String.to_charlist(AgentBudgetSocket.socket_path())
+
+    configured_remote_exports = AgentEnvironmentContributor.shell_exports(context.workspace, opts())
+    refute configured_remote_exports =~ "export AIUR_GITHUB_BUDGET_SOCKET="
+
+    local_claude_command =
+      Command.build_command(context.workspace, nil, nil, false, "rc-name", nil, nil)
+
+    assert local_claude_command =~
+             "export AIUR_GITHUB_BUDGET_SOCKET=#{Aiur.Shell.escape(AgentBudgetSocket.socket_path())}"
   end
 
   test "regression guard: empty registry still scrubs inherited credentials", context do

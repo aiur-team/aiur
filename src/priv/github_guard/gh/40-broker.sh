@@ -1,5 +1,11 @@
 # Fragment of the assembled `gh` guard (Aiur.AgentGitHubGuard.Script); not a standalone script.
 budget_command() {
+  if [ -n "${AIUR_GITHUB_BUDGET_SOCKET:-}" ] && [ -x "$(dirname "$budget_broker")/aiur-github-budget-socket" ]; then
+    python3 -I "$(dirname "$budget_broker")/aiur-github-budget-socket" "$AIUR_GITHUB_BUDGET_SOCKET" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
+    budget_socket_status=$?
+    if [ "$budget_socket_status" -ne 75 ]; then return "$budget_socket_status"; fi
+    printf '%s\n' 'aiur: daemon GitHub budget socket unavailable; falling back to per-host ledger' >&2
+  fi
   if [ -n "$budget_identity_key" ]; then
     python3 -I "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
   else
@@ -169,6 +175,11 @@ budget_acquire() {
       unset budget_failure
       return 75
     fi
+    case "$budget_result" in
+      *"daemon GitHub budget socket unavailable; falling back to per-host ledger"*)
+        printf '%s\n' 'aiur: daemon GitHub budget socket unavailable; falling back to per-host ledger' >&2
+        ;;
+    esac
     unset budget_ignore_flag budget_cache_flags
 
     # The broker's response is the last non-empty line of its output. Stderr is
