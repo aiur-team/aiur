@@ -3,7 +3,7 @@ defmodule AiurWeb.Build.Usage do
   alias Aiur.{Accounts, CodingAgent, ModelAvailability}
   alias Aiur.Accounts.UsageReadings
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
-  alias Aiur.GitHub.Quota, as: GitHubQuota
+  alias Aiur.GitHub.Access
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
@@ -43,15 +43,15 @@ defmodule AiurWeb.Build.Usage do
   end
 
   defp github_snapshot(opts) do
-    server = Keyword.get(opts, :github_server, GitHubQuota)
+    server = Keyword.get(opts, :github_server, Access.quota_server())
     now_ms = Keyword.get(opts, :github_cache_now_ms, System.monotonic_time(:millisecond))
 
-    case GitHubQuota.cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
+    case Access.quota_cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
       {:ok, snapshot, _age_ms, observed_at_ms} ->
         {{:ok, snapshot}, observed_at_ms}
 
       :miss ->
-        github = isolated(fn -> {:ok, GitHubQuota.snapshot!(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+        github = isolated(fn -> {:ok, Access.cost_report(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
         {github, if(match?({:ok, _}, github), do: System.system_time(:millisecond))}
     end
   end

@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   require Logger
 
-  alias Aiur.GitHub.{Config, Errors, LocalProvenance, MainFixer, ReadCache, StatePolicy, TimelineCache, Transport}
+  alias Aiur.GitHub.{Access, Config, LocalProvenance, MainFixer, StatePolicy, TimelineCache}
   alias Aiur.{GitHub.DispatchAuthorization.TimelineFetch, Issue, Signal}
 
   @cache_key {__MODULE__, :timeline_cache}
@@ -204,7 +204,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp fetch_decision(issue, label, prefix, owner, repo, opts) do
-    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
@@ -266,7 +266,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp timeline_url(owner, repo, issue_id, per_page),
-    do: "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}/timeline?per_page=#{per_page}"
+    do: "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}/timeline?per_page=#{per_page}"
 
   # Total event reach is the invariant, not the page count: a smaller page just
   # means more of them.
@@ -320,7 +320,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp continue_timeline_pages(request_fun, token, page, response, pages_left, events) do
     first_etag = response_etag(response, nil)
 
-    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+    case Access.parse_next_page_url(Map.get(response, :headers, [])) do
       nil -> {:ok, events ++ prune_events(page), first_etag, true}
       next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
     end
@@ -331,7 +331,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp fetch_timeline_pages(request_fun, token, url, pages_left, events, first_etag) do
     case request_fun.(timeline_request(url, token, nil)) do
       {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
           nil -> {:ok, events ++ prune_events(page), first_etag, false}
           next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
         end
@@ -354,10 +354,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp timeline_fetch_error({:ok, %{status: 200}}), do: {:error, :timeline_truncated}
 
   defp timeline_fetch_error({:ok, %{status: status} = response}),
-    do: {:error, {:timeline_fetch_failed, Errors.github_status_error(Map.put(response, :status, status))}}
+    do: {:error, {:timeline_fetch_failed, Access.github_status_error(Map.put(response, :status, status))}}
 
   defp timeline_fetch_error({:error, reason}),
-    do: {:error, {:timeline_fetch_failed, Errors.classify_error({:error, reason})}}
+    do: {:error, {:timeline_fetch_failed, Access.classify_error({:error, reason})}}
 
   defp timeline_fetch_error(_response), do: {:error, :invalid_timeline_response}
 
@@ -374,10 +374,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp response_etag(response, fallback) do
-    Transport.header(Map.get(response, :headers, []), "etag") || fallback
+    Access.header(Map.get(response, :headers, []), "etag") || fallback
   end
 
-  defp next_page?(response), do: not is_nil(Transport.parse_next_page_url(Map.get(response, :headers, [])))
+  defp next_page?(response), do: not is_nil(Access.parse_next_page_url(Map.get(response, :headers, [])))
 
   defp reusable?(%{single_page?: true, etag: etag, events: events})
        when is_binary(etag) and etag != "" and is_list(events),
@@ -428,7 +428,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp invalidate_incomplete_timeline(id, owner, repo) when is_binary(id) do
     case Integer.parse(id) do
       {number, ""} when number > 0 ->
-        ReadCache.invalidate([{:number, String.downcase(owner), String.downcase(repo), number}])
+        Access.invalidate([{:number, String.downcase(owner), String.downcase(repo), number}])
 
       _other ->
         :ok
