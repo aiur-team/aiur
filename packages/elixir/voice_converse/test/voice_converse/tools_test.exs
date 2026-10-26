@@ -1,7 +1,7 @@
 defmodule VoiceConverse.ToolsTest do
   use ExUnit.Case, async: false
 
-  alias VoiceConverse.{Briefing, Config, Events, SessionRegistry, TranscriptStore}
+  alias VoiceConverse.{Briefing, Config, Drafts, Events, SessionRegistry, TranscriptStore}
   alias VoiceConverse.Testing.{FakeCommandSource, FakeProvider, StaticCredentials}
 
   setup do
@@ -67,12 +67,116 @@ defmodule VoiceConverse.ToolsTest do
     assert_receive {:fake_provider, :tool_result, "call-1", %{text: "Unknown tool.", is_error: true}}
   end
 
+  test "propose_instruction creates a proposed draft and sends nothing", %{root: root, name: name} do
+    id = start!(root, name, %{id: "target"}, redactor: fn _ -> "[redacted]" end)
+    provider = provider(name, id)
+
+    :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "Bearer secret"}))
+
+    assert_receive {:voice_conversation, ^id,
+                    %Events.ToolCall{name: "propose_instruction", params: %{"text" => "[redacted]"}}}
+
+    assert_receive {:voice_conversation, ^id,
+                    {:draft,
+                     %{
+                       draft_id: draft_id,
+                       kind: "instruction",
+                       status: "proposed",
+                       text: "[redacted]",
+                       target: %{id: "target"}
+                     }}}
+
+    assert draft_id =~ ~r/\Avd_[A-Za-z0-9_-]{22}\z/
+
+    assert_receive {:fake_provider, :tool_result, "call-1", %{text: text, is_error: false}}
+    assert text == "Draft #{draft_id} is waiting for the operator to confirm. Do not say it was sent."
+    refute Enum.any?(FakeProvider.calls(provider), &match?({:send_user_text, _}, &1))
+
+    assert {:ok, records, _meta} = TranscriptStore.read(root, id)
+    refute inspect(records) =~ "secret"
+    assert Enum.any?(records, &(&1["type"] == "tool_call" and &1["params"]["text"] == "[redacted]"))
+    assert Enum.any?(records, &(&1["type"] == "draft" and &1["draft_id"] == draft_id and &1["status"] == "proposed"))
+  end
+
+  test "a draft is durable before subscribers receive it", %{root: root, name: name} do
+    test_pid = self()
+
+    event_broadcast = fn subscribers, id, event ->
+      if match?({:draft, _}, event) do
+        send(test_pid, {:draft_ready_to_broadcast, id})
+
+        receive do
+          :release_draft_broadcast -> :ok
+        end
+      end
+
+      Enum.each(Map.keys(subscribers), &send(&1, {:voice_conversation, id, event}))
+    end
+
+    id = start!(root, name, %{id: "target"}, event_broadcast: event_broadcast)
+    provider = provider(name, id)
+
+    :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "ship this"}))
+
+    assert_receive {:draft_ready_to_broadcast, ^id}
+    assert {:ok, records, _meta} = TranscriptStore.read(root, id)
+    assert Enum.any?(records, &(&1["type"] == "draft" and &1["status"] == "proposed"))
+
+    {:ok, session} = SessionRegistry.lookup(name, id)
+    send(session, :release_draft_broadcast)
+    assert_receive {:voice_conversation, ^id, {:draft, %{status: "proposed"}}}
+  end
+
+  test "provider confirmation-like tools leave drafts proposed", %{root: root, name: name} do
+    id = start!(root, name, %{id: "target"})
+    provider = provider(name, id)
+    :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "ship this"}))
+
+    assert_receive {:voice_conversation, ^id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
+    assert_receive {:fake_provider, :tool_result, "call-1", %{is_error: false}}
+
+    for tool_name <- ["confirm_draft", "confirm", "send"] do
+      :ok = FakeProvider.emit(provider, %Events.ToolCall{call_id: tool_name, name: tool_name, params: %{}})
+      assert_receive {:fake_provider, :tool_result, ^tool_name, %{is_error: true}}
+      assert_draft_status(name, id, draft_id, :proposed)
+    end
+
+    refute Enum.any?(FakeProvider.calls(provider), &match?({:send_user_text, _}, &1))
+  end
+
+  test "provider transcript confirmation words leave drafts proposed", %{root: root, name: name} do
+    id = start!(root, name, %{id: "target"})
+    provider = provider(name, id)
+    :ok = FakeProvider.emit(provider, tool_call("propose_instruction", %{"text" => "ship this"}))
+
+    assert_receive {:voice_conversation, ^id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
+    assert_receive {:fake_provider, :tool_result, "call-1", %{is_error: false}}
+
+    :ok = FakeProvider.emit(provider, %Events.UserTranscript{text: "yes, confirm and send it", final?: true})
+
+    :ok =
+      FakeProvider.emit(provider, %Events.AgentText{turn_id: "assistant", text: "Confirmed, sending now", final?: true})
+
+    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}
+    assert_receive {:voice_conversation, ^id, %Events.AgentText{final?: true}}
+    assert_draft_status(name, id, draft_id, :proposed)
+    refute Enum.any?(FakeProvider.calls(provider), &match?({:send_user_text, _}, &1))
+  end
+
   test "tool specifications use host detail sections and optional CommandSource", %{root: root, name: name} do
     target = %{id: "target", sections: [%{id: "notes", description: "Host notes"}]}
     _id = start!(root, name, target, command_source: FakeCommandSource, fake: [open_observer: self()])
 
     assert_receive {:fake_provider, :open_spec, %{tools: tools}}
-    assert Enum.map(tools, & &1.name) == ["get_status", "get_details", "list_open_commands", "end_conversation"]
+
+    assert Enum.map(tools, & &1.name) == [
+             "get_status",
+             "get_details",
+             "list_open_commands",
+             "propose_instruction",
+             "end_conversation"
+           ]
+
     assert Enum.at(tools, 1).parameters["properties"]["section"]["enum"] == ["notes"]
   end
 
@@ -98,7 +202,8 @@ defmodule VoiceConverse.ToolsTest do
         command_source: Keyword.get(opts, :command_source),
         provider: {FakeProvider, []},
         llm: "test-model",
-        cloud_disclosure_accepted: true
+        cloud_disclosure_accepted: true,
+        redactor: Keyword.get(opts, :redactor, &VoiceConverse.Redact.redact/1)
       )
 
     start_supervised!(VoiceConverse.child_spec(config))
@@ -109,7 +214,13 @@ defmodule VoiceConverse.ToolsTest do
       |> Keyword.put(:script, [%Events.ProviderConversationId{id: "provider-session"}])
       |> Keyword.put_new(:call_observer, self())
 
-    {:ok, id} = VoiceConverse.start_session(name, target, client: self(), provider: {FakeProvider, fake})
+    {:ok, id} =
+      VoiceConverse.start_session(
+        name,
+        target,
+        Keyword.merge([client: self(), provider: {FakeProvider, fake}], Keyword.drop(opts, [:fake, :redactor]))
+      )
+
     assert_receive {:voice_conversation_state, ^id, :connecting}
     assert_receive {:voice_conversation_state, ^id, :listening}
     id
@@ -118,6 +229,11 @@ defmodule VoiceConverse.ToolsTest do
   defp provider(name, id) do
     {:ok, session} = SessionRegistry.lookup(name, id)
     :sys.get_state(session).provider_ref
+  end
+
+  defp assert_draft_status(name, id, draft_id, status) do
+    {:ok, session} = SessionRegistry.lookup(name, id)
+    assert {:ok, %{status: ^status}} = :sys.get_state(session).drafts |> Drafts.fetch(draft_id)
   end
 
   defp tool_call(name, params \\ %{}), do: %Events.ToolCall{call_id: "call-1", name: name, params: params}
