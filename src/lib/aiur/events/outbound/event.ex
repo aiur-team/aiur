@@ -2,8 +2,8 @@ defmodule Aiur.Events.Outbound.Event do
   @moduledoc "Normalizes allowlisted internal facts into versioned outbound event maps."
   # aiur:event-bus-boundary-member
 
-  alias Aiur.{TicketObservation, TrackerIdentity}
   alias Aiur.Events.{Catalog, Envelope}
+  alias Aiur.{TicketObservation, TrackerIdentity}
 
   @progress_sources ["progress", "progress.checkin", "progress.phase"]
   @lifecycles ["queued", "retrying", "allocated", "running", "paused", "waiting", "replaced", "completed", "cancelled"]
