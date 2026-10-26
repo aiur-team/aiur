@@ -10,10 +10,10 @@ async function open(page: Page, query = '') {
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
-async function tabPixelsMatch(page: Page) {
-  return page.evaluate(async () => {
+async function tabPixelsMatch(page: Page, switchTab = true) {
+  return page.evaluate(async (switchTab) => {
     const canvas = document.querySelector('canvas')!;
-    (document.querySelector('#prompt-tab') as HTMLElement).click();
+    if (switchTab) (document.querySelector('#prompt-tab') as HTMLElement).click();
     await new Promise(requestAnimationFrame);
     const actual = canvas.toDataURL();
     const comparison = canvas.cloneNode() as HTMLCanvasElement;
@@ -25,7 +25,7 @@ async function tabPixelsMatch(page: Page) {
     field.destroy();
     comparison.remove();
     return matches;
-  });
+  }, switchTab);
 }
 
 test('field R-TAB-1: command obstacle follows tab rect inside one frame', async ({ page }) => {
@@ -48,18 +48,20 @@ test('field R-TAB-1: command obstacle follows tab rect inside one frame', async 
 });
 
 test('field R-TAB-1 canvas equals rebuilt geometry inside one frame', async ({ page }) => {
-  await open(page);
+  await open(page, '?no-hug');
+  expect(await tabPixelsMatch(page, false)).toBe(true);
   expect(await tabPixelsMatch(page)).toBe(true);
 });
 
 test('field R-TAB-1 negative: vendored pre-AS-05 fails the same pixel assertion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('field.html?legacy');
+  await page.goto('field.html?legacy&no-hug');
   await page.evaluate(() => document.fonts.ready);
   const source = transformSync(readFileSync(new URL('./fixtures/field-pre-as05.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'esm' }).code;
   await page.evaluate(() => document.body.style.setProperty('--line', getComputedStyle(document.querySelector('canvas')!).getPropertyValue('--aiur-color-field-line')));
   await page.addScriptTag({ type: 'module', content: `${source}\nwindow.legacy = createFlowField();` });
   await page.evaluate(() => new Promise(requestAnimationFrame));
+  expect(await tabPixelsMatch(page, false)).toBe(true);
   const matches = await tabPixelsMatch(page);
   test.fail(true, 'Pre-AS-05 rebuilds only on window resize; the command keepout stays stale.');
   expect(matches).toBe(true);
