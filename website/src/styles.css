@@ -147,8 +147,6 @@ body { color: var(--aiur-color-fg); font-family: var(--aiur-font-body); -webkit-
   .github-link svg { width: 17px; height: 17px; display: block; }
 
 /* Structural compatibility; approved drifts are applied separately. */
-.aiur-theme-toggle { width: 42px; height: 42px; }
-.aiur-theme-toggle svg { width: 19px; height: 19px; }
 .aiur-command__row { line-height: normal; }
 .aiur-command__text { letter-spacing: .01em; flex: 1; }
 .aiur-command__prompt { color: var(--aiur-color-accent); }
