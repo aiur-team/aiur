@@ -61,6 +61,34 @@ defmodule Aiur.Events.EnvelopeTest do
              Envelope.to_external(Map.delete(event(), :ticket_observation), instance: "host/default")
   end
 
+  test "serializes every exported catalog entry's references and attrs" do
+    for entry <- @exported_entries do
+      topic = topic_for(entry.pattern)
+
+      assert {:ok, envelope} =
+               Envelope.to_external(event(Map.merge(ref_values(entry.refs), attr_values(entry.attrs)), topic),
+                 instance: "host/default",
+                 catalog: fn ^topic -> entry end
+               )
+
+      assert envelope["refs"] == expected_refs(entry.refs, topic)
+      assert envelope["attrs"] == expected_attrs(entry.attrs)
+    end
+  end
+
+  test "validates bounded identifier-list refs and attrs" do
+    topic = "ticket.42.queue.attention.prerequisite_failed"
+    catalog = fn ^topic -> Catalog.lookup(topic) end
+
+    assert {:ok, %{"refs" => %{"blocked" => ["ticket-7"]}, "attrs" => %{"blocked" => ["ticket-7"]}}} =
+             Envelope.to_external(event(%{blocked: ["ticket-7"]}, topic), instance: "host/default", catalog: catalog)
+
+    for blocked <- [["ticket-7", "not an identifier"], List.duplicate("ticket-7", 101)] do
+      assert {:ok, %{"refs" => %{"blocked" => nil}, "attrs" => %{"blocked" => nil}}} =
+               Envelope.to_external(event(%{blocked: blocked}, topic), instance: "host/default", catalog: catalog)
+    end
+  end
+
   @tag timeout: 180_000
   property "every exported event has only its catalog-defined fields" do
     check all(
@@ -97,4 +125,35 @@ defmodule Aiur.Events.EnvelopeTest do
   defp topic_for("ticket.*.agent.attention.#"), do: "ticket.42.agent.attention.example"
   defp topic_for("system.#"), do: "system.dispatch.cycle_stalled"
   defp topic_for(pattern), do: pattern |> String.replace("*", "42") |> String.replace("#", "example")
+
+  defp ref_values(refs) do
+    refs
+    |> Enum.reject(&(&1 == :ticket))
+    |> Map.new(&{&1, ref_value(&1)})
+  end
+
+  defp expected_refs(refs, topic), do: Map.new(refs, &{Atom.to_string(&1), ref_value(&1, topic)})
+
+  defp ref_value(:ticket, "ticket." <> rest), do: rest |> String.split(".", parts: 2) |> List.first()
+  defp ref_value(:ticket, _topic), do: nil
+  defp ref_value(ref, _topic), do: ref_value(ref)
+
+  defp ref_value(:pr_number), do: 2210
+  defp ref_value(:head_sha), do: "abc1234"
+  defp ref_value(:decision_id), do: "decision-1"
+  defp ref_value(:decision_version), do: 1
+  defp ref_value(:queue_id), do: "queue-1"
+  defp ref_value(:prerequisite), do: "ticket-7"
+  defp ref_value(:blocked), do: ["ticket-7"]
+  defp ref_value(:root), do: "root-1"
+
+  defp attr_values(attrs), do: Map.new(attrs, &{elem(&1, 0), attr_value(elem(&1, 1))})
+  defp expected_attrs(attrs), do: Map.new(attrs, &{elem(&1, 0) |> Atom.to_string(), attr_value(elem(&1, 1))})
+
+  defp attr_value({:enum, [value | _values]}), do: value
+  defp attr_value({:list, :id}), do: ["ticket-7"]
+  defp attr_value(:integer), do: 1
+  defp attr_value(:boolean), do: true
+  defp attr_value(:id), do: "identifier-1"
+  defp attr_value(:sha), do: "abc1234"
 end

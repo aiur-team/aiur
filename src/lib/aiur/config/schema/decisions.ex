@@ -5,17 +5,22 @@ defmodule Aiur.Config.Schema.Decisions do
 
   import Ecto.Changeset
 
+  alias Aiur.Config.Schema.Decisions.Escalation
+  require Escalation
+
   @max_allowed_kinds 100
   @max_kind_length 100
 
   @primary_key false
 
   @type t :: %__MODULE__{
+          escalation: Escalation.t(),
           supervisor_allowed_kinds: [String.t()],
           supervisor_allow_non_reversible: boolean()
         }
 
   embedded_schema do
+    embeds_one(:escalation, Aiur.Config.Schema.Decisions.Escalation, on_replace: :update, defaults_to_struct: true)
     # @config-reference config-configuration-17 decisions.supervisor_allowed_kinds
     # @config-detail decisions.supervisor_allowed_kinds | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
     field(:supervisor_allowed_kinds, {:array, :string}, default: [])
@@ -28,6 +33,7 @@ defmodule Aiur.Config.Schema.Decisions do
   def changeset(schema, attrs) do
     schema
     |> cast(attrs, [:supervisor_allowed_kinds, :supervisor_allow_non_reversible], empty_values: [])
+    |> cast_embed(:escalation)
     |> validate_change(:supervisor_allowed_kinds, &validate_allowed_kinds/2)
     |> update_change(:supervisor_allowed_kinds, &normalize_allowed_kinds/1)
   end
