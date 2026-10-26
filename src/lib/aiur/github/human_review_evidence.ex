@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.HumanReviewEvidence do
   @moduledoc false
 
   alias Aiur.Events.GithubCIPoller.ApprovalCarry
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
   alias Aiur.LocalTestEvidence
 
   @spec verify(map(), map()) :: :ok | {:error, term()}
@@ -64,9 +64,9 @@ defmodule Aiur.GitHub.HumanReviewEvidence do
   end
 
   defp compare_commits(context, ancestor, head) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo() do
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/compare/#{ancestor}...#{head}?per_page=100"
-      Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_evidence_advance")
+    with {:ok, {owner, repo}} <- Access.parse_repo() do
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/compare/#{ancestor}...#{head}?per_page=100"
+      Access.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_evidence_advance")
     end
   end
 

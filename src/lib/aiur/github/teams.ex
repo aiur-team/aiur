@@ -1,9 +1,9 @@
 defmodule Aiur.GitHub.Teams do
+  alias Aiur.GitHub.Access
+
   @moduledoc """
   GitHub organization team membership domain.
   """
-
-  alias Aiur.GitHub.{Errors, Transport}
 
   @doc """
   Lists the logins of every member of `team_slug` inside `org`. Used by
@@ -15,9 +15,9 @@ defmodule Aiur.GitHub.Teams do
   @spec fetch_team_members(String.t(), String.t(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
   def fetch_team_members(org, team_slug, opts \\ []) do
-    with {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/orgs/#{org}/teams/#{team_slug}/members?per_page=100"
+    with {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/orgs/#{org}/teams/#{team_slug}/members?per_page=100"
       fetch_member_logins(request_fun, token, url, [])
     end
   end
@@ -31,7 +31,7 @@ defmodule Aiur.GitHub.Teams do
       {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
         if Enum.all?(body, &(member_login_list(&1) != [])) do
           new_logins = Enum.flat_map(body, &member_login_list/1)
-          next = Transport.parse_next_page_url(headers)
+          next = Access.parse_next_page_url(headers)
           fetch_member_logins(request_fun, token, next, acc ++ new_logins)
         else
           {:error, :invalid_team_response}
@@ -41,10 +41,10 @@ defmodule Aiur.GitHub.Teams do
         {:error, :invalid_team_response}
 
       {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
 
       _invalid_response ->
         {:error, :invalid_team_response}

@@ -48,6 +48,20 @@ defmodule Aiur.AppServer.Adapter.PortTest do
     assert_receive {^port, {:data, {:eol, "1"}}}, 1_000
   end
 
+  test "provider auth reaches the real child after scrub with only its selected credential" do
+    workspace = Aiur.TestSupport.tmp_root!("aiur-provider-auth-port")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(workspace) end)
+
+    command = "env | grep -E '^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY|OPENAI_API_KEY)=' || true"
+
+    assert {:ok, port} =
+             Adapter.start_port(workspace, command, fn _port -> :ok end, env: [{"CLAUDE_CODE_OAUTH_TOKEN", "selected-subscription"}])
+
+    assert_receive {^port, {:data, {:eol, "CLAUDE_CODE_OAUTH_TOKEN=selected-subscription"}}}, 2_000
+    refute_receive {^port, {:data, {:eol, _other_credential}}}, 100
+  end
+
   test "registers a spawned port before start_port returns" do
     parent = self()
 

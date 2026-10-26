@@ -7,11 +7,9 @@ defmodule Aiur.Init.GitHub do
 
   alias Aiur.{Codeowners.Edit, Config, Workflow}
   alias Aiur.Config.EnvRef
-  alias Aiur.GitHub.BotIdentity
+  alias Aiur.GitHub.{Access, BotIdentity}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
-  alias Aiur.GitHub.Transport
 
   @config_file_name ".aiur/config"
   @env_file_name ".env"
@@ -242,7 +240,7 @@ defmodule Aiur.Init.GitHub do
 
   @spec detect_github_login() :: String.t() | nil
   @spec detect_github_login(([String.t()], keyword() -> {String.t(), non_neg_integer()})) :: String.t() | nil
-  def detect_github_login(command_fun \\ &HostCommand.run/2) do
+  def detect_github_login(command_fun \\ &Access.host_command/2) do
     # The operator identity must come from the local `gh` login, not the
     # daemon's credential. Clear both direct token overrides and the governed
     # credential-file override so the host keyring is the only authentication
@@ -274,7 +272,7 @@ defmodule Aiur.Init.GitHub do
   instead of crashing. `request_fun` is injectable for tests.
   """
   @spec detect_bot_account((map() -> {:ok, map()} | {:error, term()})) :: String.t() | nil
-  def detect_bot_account(request_fun \\ &Transport.default_request_fun/1) do
+  def detect_bot_account(request_fun \\ &Access.default_request_fun/1) do
     with {:ok, token} <- require_github_token(),
          {:ok, login} <- BotIdentity.fetch_authenticated_viewer_login(request_fun, token) do
       Edit.normalize_login(login)
@@ -320,7 +318,7 @@ defmodule Aiur.Init.GitHub do
   # The default `command_fun` for `detect_default_branch/2`: `gh` goes through
   # the budget guard and names the daemon's credential, so the wizard's repo
   # probe is admitted and recorded like every other call (#2353).
-  defp host_command("gh", args, opts), do: HostCommand.run(args, Keyword.put(opts, :bot_token, true))
+  defp host_command("gh", args, opts), do: Access.host_command(args, Keyword.put(opts, :bot_token, true))
   defp host_command(command, args, opts), do: System.cmd(command, args, opts)
 
   @doc false

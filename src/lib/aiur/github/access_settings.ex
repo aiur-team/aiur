@@ -4,11 +4,10 @@ defmodule Aiur.GitHub.AccessSettings do
 
   alias Aiur.Config
   alias Aiur.Config.Schema.Agent
+  alias Aiur.GitHub.{Access, HoldPressure, QueueCost}
   alias Aiur.GitHub.Access.Settings
   alias Aiur.GitHub.AuthPolicy
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Credential
-  alias Aiur.GitHub.{HoldPressure, QueueCost}
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
 
@@ -104,14 +103,14 @@ defmodule Aiur.GitHub.AccessSettings do
   end
 
   defp credential(entry) do
-    %Credential{
+    Access.credential(
       id: entry.id,
       kind: String.to_existing_atom(entry.kind),
       identity: entry.identity,
       token_env: entry.token_env,
       source: if(entry.kind == "app_installation", do: :app, else: :env),
       writes?: entry.writes == true and entry.kind != "human"
-    }
+    )
   end
 
   defp plain(value) when is_struct(value), do: value |> Map.from_struct() |> plain()

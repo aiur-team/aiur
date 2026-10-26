@@ -1,11 +1,11 @@
 defmodule Aiur.AgentGitHubGuard.AgentToken do
+  alias Aiur.GitHub.Access
+
   @moduledoc """
   The credential file the agent `gh` guard reads for governed calls (#2356).
   """
 
   require Logger
-
-  alias Aiur.GitHub.Budget
 
   @filename "agent-token"
 
@@ -15,7 +15,7 @@ defmodule Aiur.AgentGitHubGuard.AgentToken do
   in any environment.
   """
   @spec path() :: Path.t()
-  def path, do: Path.join(Budget.state_dir(), @filename)
+  def path, do: Path.join(Access.budget_state_dir(), @filename)
 
   @doc """
   Writes the bot PAT to the guard's credential file.
@@ -136,7 +136,7 @@ defmodule Aiur.AgentGitHubGuard.AgentToken do
 
   defp ensure_token_parent(path, opts) do
     if path == path() do
-      Budget.ensure_state_dir(Keyword.drop(opts, [:path, :token, :env_reader, :remote_host]))
+      Access.ensure_budget_state_dir(Keyword.drop(opts, [:path, :token, :env_reader, :remote_host]))
     else
       case File.mkdir_p(Path.dirname(path)) do
         :ok -> :ok

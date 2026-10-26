@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.Config
   alias Aiur.ControlCLI.CiWait
   alias Aiur.ExecutorAttention
-  alias Aiur.GitHub.Budget.FleetSnapshot
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.HoldPressure
   alias Aiur.Instance.{LeaseStore, Roster}
   alias Aiur.Orchestrator
@@ -180,7 +180,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   defp held_tickets(_), do: "unknown"
 
   defp print_github_budget_scope do
-    IO.puts(FleetSnapshot.status_line(LeaseStore.configured?()))
+    IO.puts(Access.fleet_budget_status_line(LeaseStore.configured?()))
   end
 
   defp header_sections do

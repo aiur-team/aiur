@@ -42,6 +42,14 @@ defmodule Aiur.Config.Schema.Instance do
     # @config-detail instance.mode | string | `local` | `hosted` enables fail-closed startup, reload, and dispatch checks for permission, network, credential, Remote Control, local-pane, and REPL isolation. Current production backends remain ineligible until #5701. Read once at daemon start; change it with a restart. |
     field(:mode, :string, default: "local")
 
+    # Operator deployments use the owner's subscription credentials; consumer
+    # deployments are restricted to API keys. Kept separate from `mode`, which
+    # controls hosted execution isolation rather than billing identity.
+    # @config-reference config-configuration-00 instance.deployment_kind
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail instance.deployment_kind | string | `operator` | Selects credential owner. Hosted operators may use subscriptions; consumers use API keys only. |
+    field(:deployment_kind, :string, default: "operator")
+
     # @config-reference config-configuration-00 instance.id
     # @config-detail instance.id | string | host and state directory | Stable id used by the shared multi-instance coordination store; read once at boot. Set `AIUR_LEASE_DATABASE_URL` to the same TLS PostgreSQL URL on each instance to enable shared ticket claims, repository leader election, and live-instance heartbeats. Remote certificates must chain to system CA roots; configured-store failures block new dispatch and live-instance reads. |
     field(:id, :string)
@@ -71,8 +79,9 @@ defmodule Aiur.Config.Schema.Instance do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:mode, :role, :id, :roster_stale_retention_ms, :owns, :pool], empty_values: [])
+    |> cast(attrs, [:mode, :deployment_kind, :role, :id, :roster_stale_retention_ms, :owns, :pool], empty_values: [])
     |> validate_inclusion(:mode, ["local", "hosted"])
+    |> validate_inclusion(:deployment_kind, ["operator", "consumer"])
     |> validate_number(:roster_stale_retention_ms, greater_than_or_equal_to: 0)
     |> validate_inclusion(:role, ["primary", "secondary"])
     |> validate_length(:id, min: 1, max: 200)
