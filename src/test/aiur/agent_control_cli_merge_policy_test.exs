@@ -105,8 +105,21 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
 
   defp start_landing_watcher(expected_state) do
     parent = self()
+    handler_id = {__MODULE__, make_ref()}
     journal_path = Path.join(Aiur.TestSupport.tmp_root!("landing-watch-cli"), "journal.json")
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:aiur, :landing_watch, :poll, :stop],
+        fn _event, _measurements, _metadata, test_pid ->
+          send(test_pid, :landing_watch_poll_stopped)
+        end,
+        parent
+      )
+
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(Path.dirname(journal_path)) end)
+    on_exit(fn -> :telemetry.detach(handler_id) end)
 
     watcher =
       start_supervised!(
@@ -120,24 +133,14 @@ defmodule Aiur.AgentControlCLIMergePolicyTest do
            if expected_state == :running, do: {:ok, []}, else: {:error, :denied}
          end,
          runner_queue_fun: fn _observations, _opts -> :ok end,
+         queue_reconcile_fun: fn _observations, _opts -> :ok end,
          journal_path: journal_path}
       )
 
-    assert_receive :landing_watch_observed, 100
-    assert_landing_watch_state!(watcher, expected_state)
+    assert_receive :landing_watch_observed, 1_000
+    assert_receive :landing_watch_poll_stopped, 1_000
+    assert %{watcher: ^expected_state} = Aiur.LandingWatch.state(watcher)
     watcher
-  end
-
-  defp assert_landing_watch_state!(watcher, expected_state, attempts \\ 100)
-  defp assert_landing_watch_state!(_watcher, _expected_state, 0), do: flunk("LandingWatch did not reach its expected test-owned state")
-
-  defp assert_landing_watch_state!(watcher, expected_state, attempts) do
-    if Aiur.LandingWatch.state(watcher).watcher == expected_state do
-      :ok
-    else
-      Process.sleep(1)
-      assert_landing_watch_state!(watcher, expected_state, attempts - 1)
-    end
   end
 
   defp status_output do
