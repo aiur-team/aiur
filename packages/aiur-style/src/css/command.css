@@ -1,0 +1,20 @@
+@layer aiur.components {
+  .aiur-command {
+    display: inline-flex; flex-direction: column; width: max-content; max-width: 100%; min-width: 0; position: relative;
+    border: 1px solid var(--aiur-color-pill-bd); background: var(--aiur-color-pill-bg);
+    border-radius: var(--aiur-radius-box); backdrop-filter: blur(3px);
+  }
+  /* Align the row and tablist with the box's outside edges, including its border. */
+  .aiur-command > .aiur-tabs, .aiur-command__row { margin-inline: -1px; }
+  .aiur-command__row {
+    display: flex; align-items: center; gap: 14px; padding: 11px 14px 11px 18px;
+    font: 14px/1.5 var(--aiur-font-mono); min-width: 0;
+  }
+  .aiur-command__text { font: inherit; overflow-wrap: anywhere; min-width: 0; }
+  .aiur-command__prompt { color: var(--aiur-color-muted); flex: none; }
+  .aiur-command__prompt[hidden] { display: none; }
+  .aiur-command__copy.aiur-button { width: 28px; height: 28px; padding: 5px; border-radius: 7px; flex: none; margin-left: auto; }
+  .aiur-command__copy.is-copied { --aiur-button-fg: var(--aiur-color-accent); --aiur-button-hover-fg: var(--aiur-color-accent); }
+  .aiur-command--soon > :not(.aiur-command__soon) { opacity: .42; filter: grayscale(1); }
+  .aiur-command__soon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 6px 12px; white-space: nowrap; border-radius: 7px; background: var(--aiur-color-bg); font: 12px/1 var(--aiur-font-mono); pointer-events: none; }
+}
