@@ -68,6 +68,7 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
       remote_repo_slug_export() <>
       agent_comment_marker_export() <>
+      budget_socket_export(opts) <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(AgentGitHubGuard.quota_dir(workspace))}\n" <>
@@ -163,6 +164,14 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       {~c"AIUR_GITHUB_BUDGET_SOCKET", AgentBudgetSocket.socket_path() |> String.to_charlist()}
     else
       {~c"AIUR_GITHUB_BUDGET_SOCKET", false}
+    end
+  end
+
+  defp budget_socket_export(opts) do
+    if Keyword.get(opts, :local_claude_repl, false) and LeaseStore.configured?() do
+      "export AIUR_GITHUB_BUDGET_SOCKET=#{Aiur.Shell.escape(AgentBudgetSocket.socket_path())}\n"
+    else
+      "unset AIUR_GITHUB_BUDGET_SOCKET\n"
     end
   end
 end
