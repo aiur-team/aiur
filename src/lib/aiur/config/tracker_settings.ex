@@ -128,6 +128,21 @@ defmodule Aiur.Config.TrackerSettings do
     Aiur.Config.settings!().events.codeowners_refresh_seconds
   end
 
+  @spec events_export_enabled?() :: boolean()
+  def events_export_enabled? do
+    Aiur.Config.settings!().events.export.enabled
+  end
+
+  @spec events_export_retention_days() :: pos_integer()
+  def events_export_retention_days do
+    Aiur.Config.settings!().events.export.retention_days
+  end
+
+  @spec events_export_retention_max_events() :: pos_integer()
+  def events_export_retention_max_events do
+    Aiur.Config.settings!().events.export.retention_max_events
+  end
+
   @spec workspace_root() :: Path.t()
   def workspace_root do
     Aiur.Config.settings!().workspace.root
