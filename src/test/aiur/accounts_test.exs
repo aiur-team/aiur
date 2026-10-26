@@ -80,7 +80,7 @@ defmodule Aiur.AccountsTest do
   end
 
   test "Codex profile copies only shared config and skills and reads identity metadata", %{home: home} do
-    source = Path.join(home, ".codex")
+    source = CodexAccounts.profile_root()
     File.mkdir_p!(Path.join(source, "skills"))
     File.write!(Path.join(source, "config.toml"), "model = 'test'")
 

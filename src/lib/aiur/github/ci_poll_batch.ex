@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{CIPollBatchReadyReview, DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
+  alias Aiur.GitHub.{Access, CIPollBatchReadyReview, DeliveredPullRequest, MergeQueue, PollSnapshots}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -68,9 +68,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   end
 
   defp do_fetch(targets, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       repo_identity = owner <> "/" <> repo
 
       # Per-target displacement (#2310): a target a delivery answered is dropped
@@ -194,7 +194,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp fetch_chunk(request_fun, token, owner, repo, entries) do
     indexed = Enum.with_index(entries)
 
-    case Transport.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo}, caller: :ci_poll_batch) do
+    case Access.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo}, caller: :ci_poll_batch) do
       {:ok, body} ->
         case get_in(body, ["data", "repository"]) do
           %{} = repository -> {:ok, match_entries(indexed, repository)}

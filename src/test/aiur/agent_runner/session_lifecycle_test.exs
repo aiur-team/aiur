@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   alias Aiur.Accounts.UsageReadings
   alias Aiur.AgentRunner
   alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.SessionOptions
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.SessionHandle
@@ -113,6 +114,28 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "model resolution in resolve_session_options/3" do
+    test "deployment auth env contains only the selected backend credential" do
+      inherited = %{
+        "CLAUDE_CODE_OAUTH_TOKEN" => "subscription-token",
+        "ANTHROPIC_API_KEY" => "anthropic-key",
+        "OPENAI_API_KEY" => "openai-key",
+        "CODEX_HOME" => "/state/codex"
+      }
+
+      assert [{"CLAUDE_CODE_OAUTH_TOKEN", "subscription-token"}] =
+               SessionOptions.deployment_auth_env("claude", "operator", inherited)
+
+      assert [{"ANTHROPIC_API_KEY", "anthropic-key"}] =
+               SessionOptions.deployment_auth_env("claude", "consumer", inherited)
+
+      assert [{"CODEX_HOME", "/state/codex"}, {"OPENAI_API_KEY", "openai-key"}] =
+               SessionOptions.deployment_auth_env("codex", "consumer", inherited)
+
+      assert [] = SessionOptions.deployment_auth_env("codex", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "consumer", inherited, false)
+    end
+
     test "a generic codex tag reaches the backend as the newest version in that family" do
       issue = %Issue{id: "issue-alias", identifier: "ALIAS", selected_backend: "codex", labels: ["model:codex-sol"]}
 

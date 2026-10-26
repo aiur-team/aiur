@@ -6,7 +6,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
-  alias Aiur.GitHub.{BlockerProgress, Config}
+  alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
 
   @doc """
@@ -132,7 +132,7 @@ defmodule Aiur.Application.Children do
       Aiur.DecisionDispatchTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
-      Aiur.GitHub.AppTokenRefresher,
+      Access.app_token_refresher_child_spec([]),
       # The next three are passive tables a GitHub request consults, started in
       # the order a request touches them: choose a credential, then look for a
       # cached answer, then price and admit what is left. Neither of the first
@@ -144,21 +144,21 @@ defmodule Aiur.Application.Children do
       # Owns the per-credential rate-limit table the selector reads. First of the
       # three because selection happens in `default_request_fun`, outside the
       # cache: a request has picked its credential before a lookup is attempted.
-      Aiur.GitHub.CredentialHeadroom,
+      Access.credential_headroom_child_spec([]),
       # The daemon's read-through cache, owning the tables `Aiur.GitHub.Transport`
       # consults on every request. It starts before `Quota` and before anything
       # that polls, because a request issued while its tables do not exist is a
       # request that pays: the lookup degrades to a miss rather than failing, and
       # a miss is the full price. Reads never call this process.
-      Aiur.GitHub.ReadCache,
-      Aiur.GitHub.Quota,
+      Access.read_cache_child_spec([]),
+      Access.quota_child_spec([]),
       # Turns the budget-broker-timeout retry rate into a signal (#2464): a
       # queryable retry event per backoff plus one dwelled degraded alert. The
       # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
       # owns the sliding-window rate and alert latch.
-      Aiur.GitHub.BrokerTimeout,
+      Access.broker_timeout_child_spec([]),
       Aiur.GitHub.HoldPressure,
-      Aiur.GitHub.BudgetBroker,
+      Access.budget_broker_child_spec([]),
       Aiur.Voice.child_specs(),
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
@@ -174,11 +174,11 @@ defmodule Aiur.Application.Children do
       # comment — and so the first poll sweep already has last run's ETags.
       # Owns open-issue close signals (#2714); a poll-writer-owned table would die with it.
       Aiur.GitHub.OpenIssueSnapshot,
-      Aiur.GitHub.ResourceStore,
+      Access.resource_store_child_spec([]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
-      Aiur.GitHub.AgentCacheBridge,
+      Access.agent_cache_bridge_child_spec([]),
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.Capabilities.Monitor,

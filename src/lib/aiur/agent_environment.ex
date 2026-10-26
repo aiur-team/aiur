@@ -30,7 +30,11 @@ defmodule Aiur.AgentEnvironment do
   @doc false
   @spec provider_credential_env_names() :: [String.t()]
   def provider_credential_env_names do
-    Enum.uniq(Names.provider_credential() ++ CredentialScrub.inherited_env_names(Names.provider_api_key_pattern()))
+    Enum.uniq(
+      ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"] ++
+        Names.provider_credential() ++
+        CredentialScrub.inherited_env_names(Names.provider_api_key_pattern())
+    )
   end
 
   @doc """

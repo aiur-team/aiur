@@ -3,9 +3,8 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
 
   require Logger
 
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Errors
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.DispatchPolicy
@@ -34,6 +33,31 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     end
   end
 
+  defp finalize_terminal_policy_failure(issue_id, identifier, failure, opts) do
+    case terminal_policy_state_writer(opts).(identifier, "error", terminal_policy_write_opts(opts)) do
+      :ok ->
+        message = terminal_policy_alert_message(failure)
+
+        Signal.agent_alert("ticket.#{identifier}.agent.attention.hosted-authentication-refused", message,
+          issue: identifier,
+          reason: message,
+          needs_attention: true,
+          severity: "warning",
+          central: true
+        )
+
+        :alert_emitted
+
+      {:error, {:stale_issue_state, expected, actual}} when expected != actual ->
+        handle_stale_exhaustion_write(issue_id, identifier, actual, {:stale_issue_state, expected, actual})
+
+      {:error, reason} ->
+        Logger.warning("Failed moving hosted-auth-refused issue identifier=#{identifier} to error state: #{inspect(reason)}")
+        emit_error_state_write_failed(identifier, reason)
+        {:error, {:no_state_label_written, identifier}}
+    end
+  end
+
   @doc false
   @spec start_exhausted_state_write(State.t(), String.t(), String.t(), term(), map()) :: State.t()
   def start_exhausted_state_write(state, issue_id, identifier, reason, metadata) do
@@ -46,6 +70,20 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
     end)
   end
 
+  @doc false
+  @spec start_terminal_policy_state_write(State.t(), String.t(), String.t(), term(), keyword()) :: State.t()
+  def start_terminal_policy_state_write(state, issue_id, identifier, failure, opts \\ []) do
+    release = Map.get(state.released_claims, issue_id)
+    opts = Keyword.merge(exhausted_write_options(state, issue_id), opts)
+
+    TrackerTasks.run(
+      state,
+      {:terminal_policy_failure, issue_id},
+      fn -> finalize_terminal_policy_failure(issue_id, identifier, failure, opts) end,
+      fn current, result -> apply_terminal_policy_state_write(current, issue_id, release, result) end
+    )
+  end
+
   defp exhausted_write_options(state, issue_id) do
     case Map.get(state.last_polled_issues, issue_id) do
       %Issue{state: issue_state} when is_binary(issue_state) -> [expected_state: issue_state]
@@ -56,6 +94,14 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   defp apply_exhausted_state_write(current, issue_id, release, result) do
     if Map.get(current.released_claims, issue_id) == release and not Map.has_key?(current.running, issue_id) do
       maybe_mark_observed_error_alert(current, issue_id, result == :alert_emitted)
+    else
+      current
+    end
+  end
+
+  defp apply_terminal_policy_state_write(current, issue_id, release, result) do
+    if Map.get(current.released_claims, issue_id) == release and not Map.has_key?(current.running, issue_id) do
+      maybe_mark_observed_error_alert(current, issue_id, result == :alert_emitted, :terminal_policy_failure)
     else
       current
     end
@@ -80,13 +126,13 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   # which treats it as permanent.
   defp transient_exhaustion_reason?(%{__struct__: struct} = reason)
        when struct in [Req.TransportError, Mint.TransportError] do
-    Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
+    Access.retryable_github_error?(Access.classify_error({:error, reason}))
   end
 
   defp transient_exhaustion_reason?({:issue_state_refresh_failed, reason}),
     do: transient_exhaustion_reason?(reason)
 
-  defp transient_exhaustion_reason?(reason), do: Errors.retryable_github_error?(reason)
+  defp transient_exhaustion_reason?(reason), do: Access.retryable_github_error?(reason)
 
   # Exposed (`@doc false`) as a test seam: the distinct `{:error,
   # {:no_state_label_written, _}}` return is the F3 "do not report success for a
@@ -187,9 +233,9 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   # no fixed task timeout for this reason; LocalHold still bounds each wait and
   # limits repeated holds.
   defp write_after_budget_hold(identifier, state_name, opts) do
-    LocalHold.run(
+    Access.with_transient_retry(
       fn -> TicketTransition.write_state(identifier, state_name, Keyword.put(opts, :writer, :retry_engine)) end,
-      LocalHold.caller_opts(opts) |> Keyword.put(:max_wait_ms, 3_600_000)
+      Access.transient_retry_opts(opts) |> Keyword.put(:max_wait_ms, 3_600_000)
     )
   end
 
@@ -217,14 +263,32 @@ defmodule Aiur.Orchestrator.RetryEngine.Exhaustion do
   end
 
   defp maybe_mark_observed_error_alert(state, issue_id, true) do
-    %{
-      state
-      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
-        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, :retry_exhausted)
-    }
+    maybe_mark_observed_error_alert(state, issue_id, true, :retry_exhausted)
   end
 
   defp maybe_mark_observed_error_alert(state, _issue_id, false), do: state
+
+  defp maybe_mark_observed_error_alert(state, issue_id, true, cause) do
+    %{
+      state
+      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, cause)
+    }
+  end
+
+  defp maybe_mark_observed_error_alert(state, _issue_id, false, _cause), do: state
+
+  defp terminal_policy_state_writer(opts) do
+    Keyword.get(opts, :state_writer, fn identifier, state_name, write_opts ->
+      write_after_budget_hold(identifier, state_name, write_opts)
+    end)
+  end
+
+  defp terminal_policy_write_opts(opts), do: Keyword.drop(opts, [:state_writer])
+
+  defp terminal_policy_alert_message({:unsafe_hosted_authentication, provider, auth_class}) do
+    "Hosted execution refused #{provider} authentication class #{auth_class}; the unsafe profile will not be retried automatically."
+  end
 
   defp retry_exhausted_error_suffix(error) when is_binary(error) and error != "", do: " Last error: #{error}"
   defp retry_exhausted_error_suffix(error) when is_atom(error) or is_tuple(error) or is_map(error), do: " Last error: #{inspect(error)}"
