@@ -3,7 +3,9 @@
   "name": "Agent listener modes",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/listener/mode_store.ex"
+  ],
   "facades": [
     "*"
   ],
@@ -18,7 +20,9 @@
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
+    "state": [
+      "file: <runtime_state_dir>/listen-modes/*.json"
+    ],
     "capabilities": []
   },
   "prior": [],
@@ -30,7 +34,7 @@
   ],
   "dependency_kind": "required",
   "summary": "Routes messages to agents using steer, synchronous or asynchronous delivery.",
-  "status": "planned",
+  "status": "experimental",
   "install": {
     "type": "included"
   },
