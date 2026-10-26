@@ -351,6 +351,8 @@ defmodule Aiur.UsageLedger.StoreTest do
     first = envelope(%{})
 
     assert {:ok, %{position: 1}} = append(name, first)
+    assert {:ok, checkpoint} = Checkpoint.load(Path.join(root, "checkpoint.json"))
+    assert checkpoint.position == 0
     GenServer.stop(pid)
 
     {:ok, restarted} = start_store(root, name)
