@@ -331,7 +331,7 @@ guard against a *future* regression — but say so in the test name or a
 comment, and do not count it toward covering this change.
 
 The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
-discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
+discipline", `.claude/skills/aiur-run/references/review-and-merge.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
 
@@ -425,7 +425,7 @@ rather than taken on faith. Before evaluating whether a cache, classifier, or
 cadence change is correct, count what it will actually see in production. That
 one question settled all three above without deep analysis. The reviewer-side
 check lives in the `aiur-run` skill
-("Saving claims are measured, not estimated", `.claude/skills/aiur-run/SKILL.md`);
+("Saving claims are measured, not estimated", `.claude/skills/aiur-run/references/review-and-merge.md`);
 this section is the author-side rule so the check happens before review, not
 for the first time in review.
 

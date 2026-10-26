@@ -93,6 +93,33 @@ defmodule Aiur.AiurSkillSurfaceTest do
     end
   end
 
+  test "Executor entry routes every split reference to an existing file" do
+    root = Path.join(@repo_root, ".claude/skills/aiur-run")
+    entry = File.read!(Path.join(root, "SKILL.md"))
+
+    routed =
+      ~r/\]\((references\/[^)#]+\.md)(?:#[^)]*)?\)/
+      |> Regex.scan(entry)
+      |> Enum.map(fn [_, path] -> path end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    assert routed ==
+             Enum.sort(
+               ~w(references/executor.md references/run-contract.md references/monitoring.md references/command-decisions.md references/meta-analysis.md references/driving.md references/review-and-merge.md)
+             )
+
+    for path <- routed do
+      assert File.regular?(Path.join(root, path)), "missing routed Executor reference #{path}"
+    end
+
+    executor = File.read!(Path.join(root, "references/executor.md"))
+
+    for [_, target] <- Regex.scan(~r/\]\(([^)#]+\.md)(?:#[^)]*)?\)/, executor) do
+      assert File.regular?(Path.expand(target, Path.join(root, "references"))), "missing Executor reference #{target}"
+    end
+  end
+
   defp assert_codex_skill_symlink_resolves_to_claude(skill) do
     claude_skill = Path.join([@repo_root, ".claude", "skills", skill])
     codex_skill = Path.join([@repo_root, ".codex", "skills", skill])

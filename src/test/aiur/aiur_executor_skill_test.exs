@@ -7,7 +7,7 @@ defmodule Aiur.AiurExecutorSkillTest do
   @creation_rule_marker "same creation request"
   @creation_rule_docs ~w(
     .claude/skills/aiur-agent/conventions.md
-    .claude/skills/aiur-run/SKILL.md
+    .claude/skills/aiur-run/references/run-contract.md
     .claude/skills/aiur-run/references/executor.md
     .claude/skills/aiur-meta/SKILL.md
     .claude/skills/aiur-build/SKILL.md
@@ -15,7 +15,7 @@ defmodule Aiur.AiurExecutorSkillTest do
   @label_token ~r/^[a-z][a-z0-9-]*(?::[a-z0-9-]+)?$/
 
   test "Executor guidance gives review subagents per-agent scratchpads and worktree isolation (#2362)" do
-    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/references/review-and-merge.md"))
 
     # the class-closing fix: each subagent gets its own scratchpad, mirroring
     # the already-per-agent tasks/<agentId>.output, and sharing is explicit
@@ -124,8 +124,10 @@ defmodule Aiur.AiurExecutorSkillTest do
     assert run_skill =~ "does **not** advance the durable cursor"
     assert run_skill =~ "cannot substitute for `executor-wait`"
     assert run_skill =~ "WAKES CURSOR <id>\nPENDING <count>"
-    assert run_skill =~ "executor-fast-forward <wake-id>"
-    assert run_skill =~ "Never use it merely because the backlog is large"
+    monitoring = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/references/monitoring.md"))
+
+    assert monitoring =~ "executor-fast-forward <wake-id>"
+    assert monitoring =~ "Never use it merely because the backlog is large"
   end
 
   test "Executor decision relay covers backend push, RC, and the Decisions log" do
@@ -147,11 +149,9 @@ defmodule Aiur.AiurExecutorSkillTest do
 
   test "Executor protects a finite feature boundary" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
-    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     executor = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/references/executor.md"))
 
     monitor_skill = one_line(monitor_skill)
-    run_skill = one_line(run_skill)
     executor = one_line(executor)
 
     assert executor =~ "Protect convergence"
@@ -160,13 +160,14 @@ defmodule Aiur.AiurExecutorSkillTest do
     assert executor =~ "creation exceeds completion"
     assert executor =~ "freeze new ticket creation"
     assert executor =~ "deferred findings ledger"
-    assert run_skill =~ "prefer contained rework"
+    driving = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/references/driving.md")) |> one_line()
+    assert driving =~ "prefer contained rework"
     assert monitor_skill =~ "completed versus created/promoted tickets"
   end
 
   test "needs-attention relay is an independent wake path for the Executor cadence" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
-    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/references/command-decisions.md"))
     relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))
 
     monitor_skill = one_line(monitor_skill)
