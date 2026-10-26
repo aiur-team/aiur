@@ -1,15 +1,17 @@
 defmodule VoiceConverse.Testing.FakeBriefingSource do
   @moduledoc """
   Stateless fake. The target is a map; optional keys: `:briefing`, `:sleep_ms` (delay before
-  `brief/1` answers), `:exit` (`brief/1` exits).
+  `brief/1` answers), `:exit` (`brief/1` exits), and `:describe_exit` (`describe_target/1` exits).
   """
   @behaviour VoiceConverse.Ports.BriefingSource
 
   alias VoiceConverse.Briefing
 
   @impl true
-  def describe_target(t),
-    do: %{id: Map.get(t, :id, "fake"), kind: Map.get(t, :kind, :fake), title: Map.get(t, :title, "Fake")}
+  def describe_target(t) do
+    if t[:describe_exit], do: exit(:boom)
+    %{id: Map.get(t, :id, "fake"), kind: Map.get(t, :kind, :fake), title: Map.get(t, :title, "Fake")}
+  end
 
   @impl true
   def brief(t) do
