@@ -50,10 +50,11 @@ defmodule Aiur.DecisionEvent do
 
   # A timed-out dispatch may still be queued; the store later adopts that item (#2717).
   @outcome_unknown_types [:dispatch_outcome_unknown]
-  @types @types ++ @outcome_unknown_types
+  @types @types ++ @outcome_unknown_types ++ Aiur.Commands.EventData.fact_types()
 
   @type type ::
           :requested
+          | :request_attributed
           | :enriched
           | :decision_expired
           | :decision_dismissed
