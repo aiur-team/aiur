@@ -140,8 +140,10 @@ A caller can replace an answer of equal or lower precedence while delivery guard
 permit it.
 
 A relayed answer never replaces a direct operator answer; an Executor
-or supervisor cannot replace either human-attributed kind. Once an answer has
-been delivered or is in flight, it cannot be replaced.
+or supervisor cannot replace either human-attributed kind.
+
+Supersede is refused once an answer has been delivered or is in flight.
+Revisions keep their existing delivery and correction follow-up rules.
 
 Answer attribution records `actor_source`, the entry point that accepted it,
 such as `executor_cli` or `supervisor_api`.
