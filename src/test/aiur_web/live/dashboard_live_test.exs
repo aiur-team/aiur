@@ -3188,7 +3188,7 @@ defmodule AiurWeb.DashboardLiveTest do
              )
 
     action_id = decided["action"]["action_id"]
-    assert decided["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert decided["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
     assert reload_view(view) =~ "Use the canonical path"
 
     assert {:ok, revised} =
@@ -3198,10 +3198,7 @@ defmodule AiurWeb.DashboardLiveTest do
                api_opts
              )
 
-    assert revised["action"]["answer"]["actor"] == %{
-             "kind" => "supervisor",
-             "id" => "supervising-agent"
-           }
+    assert revised["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
 
     detail_html = reload_view(view)
     assert detail_html =~ "Use the corrected path"
