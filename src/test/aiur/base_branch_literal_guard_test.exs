@@ -49,6 +49,10 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
     # This recovery protocol's event topic and PR comment are fixed identifiers.
     "aiur/landing_watch.ex" => [~S|"system.main.ci.failed.resolved"|],
     "aiur/landing_watch/pr_rerun.ex" => [~S|"main CI recovered"|],
+    "aiur/events/github_ci_poller/repo_wide_failure.ex" => [
+      ~S|"system.main.ci.repo_wide_failure.#{suffix}"|,
+      ~S|"Required PR checks match the latest failing main run; affected PRs remain in CI wait until main is green."|
+    ],
     # Fixer topics and evidence markers are protocol identifiers, independent of the base branch.
     "aiur/main_watch/fixer.ex" => [
       ~S|"system.main.fixer.failed"|,
