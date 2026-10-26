@@ -248,9 +248,14 @@ defmodule Aiur.AppServer.RelayPort do
   def handle_call(:manual_acknowledgements, _from, state), do: {:reply, :ok, %{state | manual_ack?: true}}
 
   def handle_call(:acknowledge, _from, %{pending_offset: offset} = state) when is_integer(offset) do
-    state = acknowledge_pending(state)
-    if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
-    {:reply, :ok, state}
+    case acknowledge_pending(state) do
+      {:ok, state} ->
+        if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
+        {:reply, :ok, state}
+
+      {:error, reason, state} ->
+        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, {:error, reason}, state}
+    end
   end
 
   def handle_call(:acknowledge, _from, state), do: {:reply, :ok, state}
@@ -263,22 +268,37 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   def handle_call(:detach, _from, state) do
-    state = acknowledge_pending(state)
-    :ok = send_json(state.socket, %{op: "detach"})
-    :gen_tcp.close(state.socket)
-    {:stop, :normal, state.metadata, state}
+    case acknowledge_pending(state) do
+      {:ok, state} ->
+        case send_json(state.socket, %{op: "detach"}) do
+          :ok ->
+            :gen_tcp.close(state.socket)
+            {:stop, :normal, state.metadata, state}
+
+          {:error, reason} ->
+            {:stop, {:shutdown, {:relay_send_failed, :detach, reason}}, {:error, reason}, state}
+        end
+
+      {:error, reason, state} ->
+        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, {:error, reason}, state}
+    end
   end
 
   def handle_call(:close, from, state) do
-    state = acknowledge_pending(state)
-    if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
+    case acknowledge_pending(state) do
+      {:ok, state} ->
+        if is_nil(state.pending_offset), do: :inet.setopts(state.socket, active: :once)
 
-    case send_json(state.socket, %{op: "stop", grace_ms: 10_000}) do
-      :ok ->
-        Process.send_after(self(), :close_timeout, 12_000)
-        {:noreply, %{state | closing: from}}
+        case send_json(state.socket, %{op: "stop", grace_ms: 10_000}) do
+          :ok ->
+            Process.send_after(self(), :close_timeout, 12_000)
+            {:noreply, %{state | closing: from}}
 
-      {:error, _reason} ->
+          {:error, _reason} ->
+            {:stop, :normal, true, state}
+        end
+
+      {:error, _reason, state} ->
         {:stop, :normal, true, state}
     end
   end
@@ -292,9 +312,15 @@ defmodule Aiur.AppServer.RelayPort do
   @impl true
   def handle_info({:tcp, socket, line}, %{socket: socket} = state) do
     state = consume(state.pending <> line, %{state | pending: ""})
-    state = if state.manual_ack? and is_nil(state.closing), do: state, else: acknowledge_pending(state)
-    if is_nil(state.pending_offset), do: :inet.setopts(socket, active: :once)
-    {:noreply, state}
+
+    case acknowledge_incoming(state) do
+      {:ok, state} ->
+        rearm_socket(state, socket)
+        {:noreply, state}
+
+      {:error, reason, state} ->
+        {:stop, {:shutdown, {:relay_send_failed, :ack, reason}}, state}
+    end
   end
 
   def handle_info({:tcp_closed, _socket}, state) do
@@ -333,12 +359,23 @@ defmodule Aiur.AppServer.RelayPort do
   end
 
   defp acknowledge_pending(%{pending_offset: offset} = state) when is_integer(offset) do
-    :ok = send_json(state.socket, %{op: "ack", offset: offset})
-    state = %{state | pending_offset: nil, metadata: Map.put(state.metadata, :acked_offset, offset)}
-    consume(state.pending, %{state | pending: ""})
+    case send_json(state.socket, %{op: "ack", offset: offset}) do
+      :ok ->
+        state = %{state | pending_offset: nil, metadata: Map.put(state.metadata, :acked_offset, offset)}
+        {:ok, consume(state.pending, %{state | pending: ""})}
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
   end
 
-  defp acknowledge_pending(state), do: state
+  defp acknowledge_pending(state), do: {:ok, state}
+
+  defp acknowledge_incoming(%{manual_ack?: true, closing: nil} = state), do: {:ok, state}
+  defp acknowledge_incoming(state), do: acknowledge_pending(state)
+
+  defp rearm_socket(%{pending_offset: nil}, socket), do: :inet.setopts(socket, active: :once)
+  defp rearm_socket(_state, _socket), do: :ok
 
   defp deliver(%{"op" => "frame", "offset" => offset, "line" => text} = frame, state) do
     line = if Map.has_key?(frame, "line_base64"), do: Base.decode64!(frame["line_base64"]), else: text
