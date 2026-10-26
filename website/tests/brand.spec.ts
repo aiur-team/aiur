@@ -166,3 +166,23 @@ async function renderedColors(locator: import('@playwright/test').Locator): Prom
     return [toHex(foreground), toHex(background)]
   })
 }
+
+test('marketing features use the shared 720px breakpoint', async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 700, height: 900 })
+  await page.goto('/')
+  await page.evaluate(() => document.fonts.ready)
+  const grid = page.locator('.aiur-features')
+  await grid.scrollIntoViewIfNeeded()
+  const screenshot = testInfo.outputPath('features-700px.png')
+  await grid.screenshot({ path: screenshot })
+  await testInfo.attach('features-700px', { path: screenshot, contentType: 'image/png' })
+  const columns = () => grid.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)
+  expect(await columns()).toBe(2)
+  await page.setViewportSize({ width: 720, height: 900 })
+  expect(await columns()).toBe(2)
+  await page.setViewportSize({ width: 721, height: 900 })
+  expect(await columns()).toBe(3)
+  await page.setViewportSize({ width: 440, height: 900 })
+  expect(await columns()).toBe(1)
+})
