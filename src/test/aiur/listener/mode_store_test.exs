@@ -68,9 +68,10 @@ defmodule Aiur.Listener.ModeStoreTest do
 
   test "corrupt, malformed and forward version records fall back without deleting evidence", %{opts: opts} do
     path = ModeStore.path_for("1", opts)
-    File.mkdir_p!(Path.dirname(path))
+    assert {:ok, _record} = ModeStore.put("1", :async, 0, %{actor: :human}, opts)
+    future = path |> File.read!() |> Jason.decode!() |> Map.put("schema_version", 2) |> Jason.encode!()
 
-    for bytes <- ["{broken", "[]", "null", ~s({"schema_version":1,"version":"bad"}), ~s({"schema_version":2})] do
+    for bytes <- ["{broken", "[]", "null", ~s({"schema_version":1,"version":"bad"}), future] do
       File.write!(path, bytes)
       assert ModeStore.get("1", opts) == %{requested: :sync, version: 0, actor: :default, updated_at: nil}
       assert File.read!(path) == bytes
