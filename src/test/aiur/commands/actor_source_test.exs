@@ -2,6 +2,7 @@ defmodule Aiur.Commands.ActorSourceTest do
   use ExUnit.Case, async: true
   alias Aiur.Commands.ActorSource
   alias Aiur.DecisionAnswer
+  alias Aiur.DecisionEvent.Codec
 
   test "entry-point options accept only closed atoms" do
     for source <- [:rpc, :dashboard_session, :basic_auth, :device, :streamdeck, :cli, :relay_cli, :executor_cli, :supervisor_api] do
@@ -28,10 +29,10 @@ defmodule Aiur.Commands.ActorSourceTest do
 
   test "event actor codec retains recognized source without inventing one for old records" do
     actor = %{kind: :operator, id: "human", source: :dashboard_session}
-    assert {:ok, event} = Aiur.DecisionEvent.Codec.normalize_data(:decision_deferred, %{actor: actor}, "decision", 1, nil)
+    assert {:ok, event} = Codec.normalize_data(:decision_deferred, %{actor: actor}, "decision", 1, nil)
     assert event.actor.source == :dashboard_session
-    assert Aiur.DecisionEvent.Codec.data_to_json_safe(:decision_deferred, event)["actor"]["source"] == "dashboard_session"
-    assert {:ok, legacy} = Aiur.DecisionEvent.Codec.normalize_data(:decision_deferred, %{actor: %{kind: :operator, id: "human"}}, "decision", 1, nil)
+    assert Codec.data_to_json_safe(:decision_deferred, event)["actor"]["source"] == "dashboard_session"
+    assert {:ok, legacy} = Codec.normalize_data(:decision_deferred, %{actor: %{kind: :operator, id: "human"}}, "decision", 1, nil)
     refute Map.has_key?(legacy.actor, :source)
   end
 end

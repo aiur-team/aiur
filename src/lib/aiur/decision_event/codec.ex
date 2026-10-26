@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionEvent.Codec do
   @moduledoc false
 
+  alias Aiur.Commands.ActorSource
   alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionRevision}
   alias Aiur.DecisionEvent.{AuthorityReclassification, Validation}
   @identity_max 256
@@ -248,7 +249,7 @@ defmodule Aiur.DecisionEvent.Codec do
 
     with {:ok, kind} <- decode_actor_kind(kind),
          {:ok, id} <- Validation.bounded_optional(Validation.get(actor, :id), @identity_max, :actor_id) do
-      {:ok, Aiur.Commands.ActorSource.preserve(%{kind: kind, id: id}, actor)}
+      {:ok, ActorSource.preserve(%{kind: kind, id: id}, actor)}
     end
   end
 
@@ -296,7 +297,7 @@ defmodule Aiur.DecisionEvent.Codec do
   def data_to_json_safe(:enriched, data) do
     %{
       "decision" => DecisionProjection.to_json_safe(data.decision),
-      "actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor),
+      "actor" => ActorSource.to_json_safe(data.actor),
       "expected_version" => data.expected_version
     }
   end
@@ -304,16 +305,16 @@ defmodule Aiur.DecisionEvent.Codec do
   def data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_event_json_safe(answer)
 
   def data_to_json_safe(:decision_dismissed, data) do
-    %{"actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor)}
+    %{"actor" => ActorSource.to_json_safe(data.actor)}
   end
 
   def data_to_json_safe(:decision_deferred, data) do
-    %{"actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor)}
+    %{"actor" => ActorSource.to_json_safe(data.actor)}
   end
 
   def data_to_json_safe(:executor_escalated, data) do
     %{
-      "actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor),
+      "actor" => ActorSource.to_json_safe(data.actor),
       "detail" => data.detail
     }
   end
@@ -323,14 +324,14 @@ defmodule Aiur.DecisionEvent.Codec do
   def data_to_json_safe(:decision_expired, data) do
     %{
       "reason_class" => data.reason_class,
-      "actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor)
+      "actor" => ActorSource.to_json_safe(data.actor)
     }
   end
 
   def data_to_json_safe(:decision_mooted, data) do
     base = %{
       "reason_class" => data.reason_class,
-      "actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor)
+      "actor" => ActorSource.to_json_safe(data.actor)
     }
 
     case data.detail do
@@ -354,7 +355,7 @@ defmodule Aiur.DecisionEvent.Codec do
     %{
       "action_id" => data.action_id,
       "slug" => data.slug,
-      "actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor),
+      "actor" => ActorSource.to_json_safe(data.actor),
       "detail" => data.detail
     }
   end
@@ -377,7 +378,7 @@ defmodule Aiur.DecisionEvent.Codec do
   def data_to_json_safe(type, data) when type in @actor_types do
     %{
       "action_id" => data.action_id,
-      "actor" => Aiur.Commands.ActorSource.to_json_safe(data.actor),
+      "actor" => ActorSource.to_json_safe(data.actor),
       "source" => %{
         "agent_id" => data.source.agent_id,
         "session_id" => data.source.session_id,

@@ -1,5 +1,6 @@
 defmodule Aiur.DecisionAnswerPrecedenceTest do
   use ExUnit.Case, async: false
+  alias Aiur.Commands.ConflictSummary
   alias Aiur.{Decision, DecisionStore}
 
   setup do
@@ -71,7 +72,7 @@ defmodule Aiur.DecisionAnswerPrecedenceTest do
     raw = Map.merge(payload(:operator, "first"), %{actor_source: "dashboard_session", actor: %{source: "device"}})
     assert {:ok, %{decision: answered}} = DecisionStore.answer(decision.decision_id, raw, [actor: %{kind: :operator, id: "human", source: :device}], store)
     assert answered.answer.actor.source == :rpc
-    assert Aiur.Commands.ConflictSummary.for(answered, %{kind: :executor}).actor_source == :rpc
+    assert ConflictSummary.for(answered, %{kind: :executor}).actor_source == :rpc
     assert {:ok, %{decision: revised}} = replace(:supersede, store, answered, :operator)
     assert Decision.active_answer(revised).actor.source == :device
     stop_supervised!(DecisionStore)

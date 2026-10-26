@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Answers do
 
   require Logger
 
+  alias Aiur.Commands.ActorSource
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -102,7 +103,7 @@ defmodule Aiur.DecisionStore.Answers do
   def fetch_actor(opts) do
     case Keyword.fetch(opts, :actor) do
       {:ok, actor} when is_map(actor) ->
-        actor = Map.put(actor, :source, Aiur.Commands.ActorSource.from_opts(opts))
+        actor = Map.put(actor, :source, ActorSource.from_opts(opts))
 
         case DecisionAnswer.normalize_actor(actor) do
           {:ok, normalized} -> {:ok, normalized}

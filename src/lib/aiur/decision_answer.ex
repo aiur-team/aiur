@@ -9,6 +9,7 @@ defmodule Aiur.DecisionAnswer do
   part of `content_hash`, so an identical retry compares equal.
   """
 
+  alias Aiur.Commands.ActorSource
   alias Aiur.{DecisionDelegation, DecisionValidation, SecretRedactor}
 
   @identity_max 200
@@ -183,7 +184,7 @@ defmodule Aiur.DecisionAnswer do
       "selected_option_id" => answer.selected_option_id,
       "custom_response" => answer.custom_response,
       "rationale" => answer.rationale,
-      "actor" => Aiur.Commands.ActorSource.to_json_safe(answer.actor),
+      "actor" => ActorSource.to_json_safe(answer.actor),
       "accepted_at" => DateTime.to_iso8601(answer.accepted_at),
       "content_hash" => answer.content_hash
     }
@@ -233,7 +234,7 @@ defmodule Aiur.DecisionAnswer do
 
     with {:ok, kind} <- actor_kind(kind),
          {:ok, id} <- bounded_optional(id, @identity_max, :actor_id) do
-      {:ok, Aiur.Commands.ActorSource.preserve(%{kind: kind, id: id}, actor)}
+      {:ok, ActorSource.preserve(%{kind: kind, id: id}, actor)}
     end
   end
 
