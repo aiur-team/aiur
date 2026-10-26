@@ -5,3 +5,4 @@ BrowserSpec	src/browser/tests/build-home-list-parity.browser.spec.mjs	#6061	2026
 BrowserSpec	src/browser/tests/build-home-render.browser.spec.mjs	#6153	2026-11-07
 BrowserSpec	src/browser/tests/home-css-parity.browser.spec.mjs	#6137	2026-11-07
 BrowserSpec	src/browser/tests/build-home-conversation.browser.spec.mjs	#6089	2026-11-07
+BrowserSpec	src/browser/tests/build-home-a11y.browser.spec.mjs	#6385	2026-11-07
