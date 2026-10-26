@@ -7,6 +7,8 @@ defmodule Aiur.Events.Catalog do
   live events. Catalog tests reject overlapping patterns with equal scores.
   """
 
+  # aiur:event-bus-boundary-member
+
   alias Aiur.Events
   alias Aiur.Events.Catalog.{Entries, Entry}
 

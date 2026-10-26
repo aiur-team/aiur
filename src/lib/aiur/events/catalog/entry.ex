@@ -1,6 +1,8 @@
 defmodule Aiur.Events.Catalog.Entry do
   @moduledoc "A topic's durability, ownership and identifier-only export contract."
 
+  # aiur:event-bus-boundary-member
+
   @type class :: :ephemeral | :live | :ledgered | :logged | :journaled
   @type attr_type :: {:enum, [String.t()]} | :integer | :boolean | :id | :sha
   @type t :: %__MODULE__{

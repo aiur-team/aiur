@@ -1,6 +1,8 @@
 defmodule Aiur.Events.Catalog.SystemEntries do
   @moduledoc false
 
+  # aiur:event-bus-boundary-member
+
   alias Aiur.Events.Catalog.Entry
 
   # Flat producer census; kept together to audit system alert classification.

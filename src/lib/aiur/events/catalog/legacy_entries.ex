@@ -1,6 +1,8 @@
 defmodule Aiur.Events.Catalog.LegacyEntries do
   @moduledoc false
 
+  # aiur:event-bus-boundary-member
+
   alias Aiur.Events.Catalog.Entry
 
   @alerts [

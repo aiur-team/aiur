@@ -1,6 +1,8 @@
 defmodule Aiur.Events.Catalog.Entries do
   @moduledoc false
 
+  # aiur:event-bus-boundary-member
+
   alias Aiur.Events.Catalog.{AttentionEntries, Entry, GithubSystemEntries, LegacyEntries, SystemEntries, TicketEntries}
 
   # aiur/decision_store/{requests,persistence,audit}.ex
