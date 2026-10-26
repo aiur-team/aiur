@@ -42,7 +42,17 @@ defmodule AiurWeb.Api.UsageControllerTest do
   end
 
   test "provider routes use the same versioned envelope as the CLI" do
-    opts = [meter_views: %{}, github_quota: %{state: :unknown, windows: %{}}, broker_usage: %{}, ticket_usage: %{}]
+    netlify = %{
+      provider: :netlify,
+      state: :unavailable,
+      reason: :no_valid_audit_anchor,
+      observed_at: DateTime.utc_now(),
+      age_ms: 0,
+      freshness: :unavailable,
+      fields: %{credits: %{estimated_remaining: nil}}
+    }
+
+    opts = [meter_views: %{}, github_quota: %{state: :unknown, windows: %{}}, broker_usage: %{}, ticket_usage: %{}, netlify_usage: netlify]
     previous = Application.get_env(:aiur, :usage_read_opts)
     Application.put_env(:aiur, :usage_read_opts, opts)
 
@@ -57,6 +67,9 @@ defmodule AiurWeb.Api.UsageControllerTest do
     summary = request(:get, "/api/v1/usage")
     assert summary.status == 200
     assert Jason.decode!(summary.resp_body) == Aiur.Usage.json_snapshot(opts)
+    netlify_response = request(:get, "/api/v1/usage/netlify")
+    assert netlify_response.status == 200
+    assert Jason.decode!(netlify_response.resp_body) == elem(CLI.payload("netlify", opts), 1)
   end
 
   test "provider API rejects unknown providers and protects both route forms" do

@@ -59,16 +59,16 @@ the change falsifies before writing anything new.
 | Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
 | Model or behavior explanation | `website/docs-app/concepts/` |
 | Skills | `website/docs-app/skills.md` |
+| New or changed component | `components/<name>.json` (the Components page regenerates) |
 
-A genuinely new page must also be added to the sidebar in
-`website/docs-app/.vitepress/config.ts`, or nobody can reach it.
+Add genuinely new pages to the sidebar in `website/docs-app/.vitepress/config.ts`, or nobody can reach them.
 
 The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
 config keys across the index and topic pages; missing entries fail lint.
 `scripts/test-check-config-docs.sh` guards that checker. The lint job and website
 workflow run `website/docs-app/scripts/check-cli-reference.sh` and its self-test.
+`scripts/check-components.py --docs` checks the component row; other rows use review.
 Keep reference topic pages below 400 lines; the file-size gate allows at most 500.
-Other rows remain enforced by review alone.
 
 ## Layout
 
@@ -168,10 +168,10 @@ logs written inside each workspace include:
   (`Aiur.AlertFeed`) reads its `alert` events, and agent crash reasons must
   persist here (#708); don't stop writing it.
 
-Call-correlated completion or failure evidence for asynchronously published
-agent events is daemon-owned at `<run-log-root>/log/event-publications.ndjson`.
-It must not live under an agent-writable workspace; the offline delivery
-collector joins it to the transcript by ticket and tool-call identity.
+Daemon-owned records live at `<run-log-root>/log/`: event publications,
+remote control-call writes and refusals (`control-audit.ndjson`). They must not
+live under an agent-writable workspace; the offline collector joins publications
+to transcripts by ticket and tool-call identity.
 
 When resuming an issue that was already in progress, inspect the transcript
 logs, daemon publication outcomes, and workpad comment before changing code. Don't
@@ -221,7 +221,7 @@ bearer-safe bytes with no surrounding whitespace. An absent or empty value
 disables the API, while a present non-empty unusable value aborts startup.
 Google browser sign-in uses `AIUR_GOOGLE_CLIENT_ID` / `AIUR_GOOGLE_CLIENT_SECRET` from dotenv and requires the machine Basic Auth credentials. Restart after changing `dashboard_auth`.
 Hosted `instance.deployment_kind: operator` uses `CLAUDE_CODE_OAUTH_TOKEN` and persistent `CODEX_HOME`; `consumer` uses `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` only. Local mode keeps CLI profile authentication.
-Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, and `OPENROUTER_MANAGEMENT_KEY` (credits meter).
+Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, and `OPENROUTER_MANAGEMENT_KEY` (credits meter). Netlify usage reads use `NETLIFY_AUTH_TOKEN` from the environment or dotenv; the token is kept out of agent environments and logs.
 `AIUR_SECRET_KEY_BASE` (64+ bytes) overrides dashboard signing; otherwise Aiur stores a mode-0600 key per instance under `~/.aiur/instances/`. Hosted mode can set `AIUR_SECRETS_FROM_ENV=1` to disable dotenv; startup and `aiur status` list missing credential names only. Set `AIUR_STATE_PERSISTENT=1` only when state survives restarts; otherwise set `AIUR_SECRET_KEY_BASE`.
 `AIUR_LEASE_DATABASE_URL` optionally configures the shared PostgreSQL coordination store for multi-instance ticket leases, repository leader leases, and instance heartbeats. Every participating instance must use the same TLS PostgreSQL URL; new dispatch, leader election, and live-instance reads fail closed when the configured store is unreachable. The credential is removed from agent environments.
 `aiur run --container` requires `AIUR_ERLANG_COOKIE` (at least 16 letters, digits, `_` or `-`) or a mounted `AIUR_COOKIE_FILE`; it never reads `releases/COOKIE`, and `docker exec` control commands must use the same cookie. See [the CLI reference](website/docs-app/reference/cli.md) for details.
@@ -331,7 +331,7 @@ guard against a *future* regression — but say so in the test name or a
 comment, and do not count it toward covering this change.
 
 The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
-discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
+discipline", `.claude/skills/aiur-run/references/review-and-merge.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
 
@@ -425,7 +425,7 @@ rather than taken on faith. Before evaluating whether a cache, classifier, or
 cadence change is correct, count what it will actually see in production. That
 one question settled all three above without deep analysis. The reviewer-side
 check lives in the `aiur-run` skill
-("Saving claims are measured, not estimated", `.claude/skills/aiur-run/SKILL.md`);
+("Saving claims are measured, not estimated", `.claude/skills/aiur-run/references/review-and-merge.md`);
 this section is the author-side rule so the check happens before review, not
 for the first time in review.
 

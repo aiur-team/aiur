@@ -334,7 +334,7 @@ defmodule Aiur.AgentRunner.ToolExecutor.DecisionRequestsTest do
                  actor: %{kind: :executor, id: "executor-1"}
                )
 
-      assert answer.actor == %{kind: :executor, id: "executor-1"}
+      assert answer.actor == %{kind: :executor, id: "executor-1", source: :rpc}
     end
 
     test "an unknown attention slug cannot create a correlated structured Decision" do

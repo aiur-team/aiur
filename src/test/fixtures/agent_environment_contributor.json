@@ -79,6 +79,7 @@
     "MISE_TRUSTED_CONFIG_PATHS": "<workspace>",
     "MIX_HOME": "<root>/repo/owner/name/.aiur-mix",
     "MOONSHOT_API_KEY": false,
+    "NETLIFY_AUTH_TOKEN": false,
     "OPENAI_API_KEY": false,
     "OPENROUTER_API_KEY": false,
     "OPENROUTER_MANAGEMENT_KEY": false,
@@ -90,7 +91,8 @@
     "TMPDIR": "<workspace>/.aiur-runtime/tmp",
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
     "ZDOTDIR": "/dev/null",
-    "npm_config_cache": "<root>/repo/owner/name/.aiur-npm-cache"
+    "npm_config_cache": "<root>/repo/owner/name/.aiur-npm-cache",
+    "AIUR_GITHUB_BUDGET_SOCKET": false
   },
   "github_shell": {
     "AIUR_AGENT_BIN": "<workspace>/.aiur-runtime/bin",
@@ -209,6 +211,7 @@
     "MISE_TRUSTED_CONFIG_PATHS": "<workspace>",
     "MIX_HOME": "<root>/repo/aiur-team/aiur/.aiur-mix",
     "MOONSHOT_API_KEY": false,
+    "NETLIFY_AUTH_TOKEN": false,
     "OPENAI_API_KEY": false,
     "OPENROUTER_API_KEY": false,
     "OPENROUTER_MANAGEMENT_KEY": false,
@@ -220,7 +223,8 @@
     "TMPDIR": "<workspace>/.aiur-runtime/tmp",
     "TMPPREFIX": "<workspace>/.aiur-runtime/tmp/zsh-",
     "ZDOTDIR": "/dev/null",
-    "npm_config_cache": "<root>/repo/aiur-team/aiur/.aiur-npm-cache"
+    "npm_config_cache": "<root>/repo/aiur-team/aiur/.aiur-npm-cache",
+    "AIUR_GITHUB_BUDGET_SOCKET": false
   },
   "linear_shell": {
     "AIUR_AGENT_BIN": "<workspace>/.aiur-runtime/bin",

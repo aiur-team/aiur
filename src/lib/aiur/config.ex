@@ -217,6 +217,8 @@ defmodule Aiur.Config do
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings
   defdelegate max_vertical_panes(), to: Aiur.Config.TrackerSettings
   defdelegate max_log_history_mb(), to: Aiur.Config.TrackerSettings
+  @spec netlify_settings() :: Aiur.Config.Schema.Netlify.t()
+  def netlify_settings, do: settings!().netlify
   defdelegate workspace_hooks(), to: Aiur.Config.TrackerSettings
   defdelegate hook_timeout_ms(), to: Aiur.Config.TrackerSettings
   defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings
@@ -232,6 +234,7 @@ defmodule Aiur.Config do
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  defdelegate decision_escalation(), to: Aiur.Config.ObservabilitySettings
   defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_render_interval_ms(), to: Aiur.Config.ObservabilitySettings

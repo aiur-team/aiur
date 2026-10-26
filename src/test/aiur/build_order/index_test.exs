@@ -207,6 +207,51 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert index.feature_progress.features["f-bo-99-ui"].wave == "3"
   end
 
+  test "root progress counts history members missing from index rows" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    root = row(99, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..102, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    parent = %{owner: "acme", repository: "widgets", number: 99}
+    closed_member = row(100, %{parent: parent, labels: ["build-lane:core"]})
+    missing_index_member = row(101, %{parent: parent, labels: ["build-lane:core"], end: :unknown})
+    indexed_member = row(102, %{parent: parent, labels: ["build-lane:core"], lifecycle: %Lifecycle{state: :open}})
+    feature = %{slug: "bo-99", label: "Build order", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}], from: nil, to: :none, baseline: :none}
+    registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
+
+    p =
+      put_in(parts([root, closed_member, missing_index_member, indexed_member]), [:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+      |> put_in([:now, :rows], %{"102" => now_row(102)})
+
+    assert {:ok, index} = assemble(p)
+    assert Map.has_key?(index.all, "101") == false
+    assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :total]) == %{closed: 2, open: 1, ci_wait: 0, total: 3}
+    refute index.feature_progress.features["f-bo-99-core"].reason =~ "CI state unknown"
+    assert index.feature_progress.features["f-bo-99-core"].root_number == 99
+    assert index.feature_progress.features["f-bo-99-core"].start_date == Date.to_iso8601(DateTime.to_date(root.created_at))
+  end
+
+  test "root progress stays unknown when a member lifecycle is unknown" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    root = row(99, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..102, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    parent = %{owner: "acme", repository: "widgets", number: 99}
+    closed_member = row(100, %{parent: parent, labels: ["build-lane:core"]})
+    unknown_member = row(101, %{parent: parent, labels: ["build-lane:core"], lifecycle: %Lifecycle{state: :unknown}})
+    open_member = row(102, %{parent: parent, labels: ["build-lane:core"], lifecycle: %Lifecycle{state: :open}})
+    feature = %{slug: "bo-99", label: "Build order", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}], from: now(), to: :none, baseline: :none}
+    registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
+
+    p =
+      put_in(parts([root, closed_member, unknown_member, open_member]), [:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+
+    assert {:ok, index} = assemble(p)
+    progress = index.feature_progress.features["f-bo-99-core"]
+    assert progress.closed == nil
+    assert progress.open == nil
+    assert progress.total == 3
+    assert progress.reason == "states unavailable · planned count unavailable"
+  end
+
   test "root epic matches all local pack lanes when its epic key has no lane suffix" do
     ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
     members = Enum.map(100..134, &row(&1, %{parent: %{owner: "acme", repository: "widgets", number: 1363}, labels: ["build-lane:core"]}))

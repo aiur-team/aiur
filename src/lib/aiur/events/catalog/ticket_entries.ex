@@ -1,0 +1,173 @@
+defmodule Aiur.Events.Catalog.TicketEntries do
+  @moduledoc false
+
+  # aiur:event-bus-boundary-member
+
+  alias Aiur.Events.Catalog.Entry
+
+  @alerts [
+    # aiur/orchestrator/rate_limit_fallback/redispatch.ex
+    {"ticket.*.agent.account_handoff", "orchestration"},
+    # aiur/orchestrator/push_routing/cleared_dependency.ex
+    {"ticket.*.agent.auto_resume_deferred", "orchestration"},
+    # aiur/orchestrator/auto_resume.ex
+    {"ticket.*.agent.auto_resume_exhausted", "orchestration"},
+    # aiur/orchestrator/push_routing/cleared_dependency.ex
+    {"ticket.*.agent.dependency_cleared", "orchestration"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"ticket.*.agent.error.tokens_exhausted", "agent-runner"},
+    # aiur/executor_sweep/wake.ex
+    {"ticket.*.agent.executor-sweep.finding", "executor-attention"},
+    # aiur/orchestrator/issue_sync/transition_alerts.ex
+    {"ticket.*.agent.handoff.human_review", "orchestration"},
+    # aiur/orchestrator/lifecycle_fence_expiry.ex
+    {"ticket.*.agent.lifecycle_fence_expired", "orchestration"},
+    # aiur/orchestrator/dispatcher/shared_lease_dispatch.ex
+    {"ticket.*.agent.model_fallback_waiting", "orchestration"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"ticket.*.agent.noop_turns_bounded", "agent-runner"},
+    # aiur/orchestrator/retry_engine/agent_down.ex
+    {"ticket.*.agent.orphan_reaped", "orchestration"},
+    # aiur/pause_containment.ex
+    {"ticket.*.agent.pause.*", "agent-sandbox"},
+    # aiur/orchestrator/issue_sync/transition_alerts.ex
+    {"ticket.*.agent.paused", "orchestration"},
+    # aiur/orchestrator/issue_sync/transition_alerts.ex
+    {"ticket.*.agent.paused.resolved", "orchestration"},
+    # aiur/orchestrator/operator_messages/calls.ex
+    {"ticket.*.agent.provider_delivery_failed", "orchestration"},
+    # aiur/orchestrator/rate_limit_fallback_transition.ex
+    {"ticket.*.agent.rate_limit_fallback_write_failed", "orchestration"},
+    # aiur/orchestrator/retry_engine/scheduling.ex
+    {"ticket.*.agent.retry_exhausted", "orchestration"},
+    # aiur/orchestrator/comment_wake/reactivation.ex
+    {"ticket.*.agent.review_feedback_delivery_deferred", "orchestration"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"ticket.*.agent.rework_findings_open", "agent-runner"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"ticket.*.agent.rework_handoff", "orchestration"},
+    # aiur/coding_agent/route_failure.ex
+    {"ticket.*.agent.route.*", "harness-adapters"},
+    # aiur/orchestrator/event_topics.ex
+    {"ticket.*.agent.stalled", "orchestration"},
+    # aiur/orchestrator/event_topics.ex
+    {"ticket.*.agent.stalled.resolved", "orchestration"},
+    # aiur/orchestrator/dispatcher/budget_trip.ex
+    {"ticket.*.agent.thrash_circuit_open", "orchestration"},
+    # aiur/orchestrator/issue_sync/transition_alerts.ex
+    {"ticket.*.agent.unpaused", "orchestration"},
+    # aiur/agent_runner/turn_alerts.ex
+    {"ticket.*.agent.usage_limit_exhausted", "agent-runner"},
+    # aiur/orchestrator/operator_messages/control_alerts.ex
+    {"ticket.*.ci.wait", "orchestration"},
+    # aiur/orchestrator/merged_ticket_reconciler.ex
+    {"ticket.*.dependency.merged_blocker_reconciled", "orchestration"},
+    # aiur/orchestrator/merged_ticket_reconciler.ex
+    {"ticket.*.dependency.merged_pr_remaining_open", "orchestration"},
+    # aiur/orchestrator/github_budget_pause.ex
+    {"ticket.*.github-budget.escalation", "orchestration"},
+    # aiur/orchestrator/operator_messages/control_alerts.ex
+    {"ticket.*.github-budget.wait", "orchestration"},
+    # aiur/orchestrator/issue_sync/transition_alerts.ex
+    {"ticket.*.issue.label.added.agent.*", "orchestration"},
+    # aiur/orchestrator/issue_sync/transition_alerts.ex
+    {"ticket.*.issue.label.added.agent.human-review", "orchestration"},
+    # aiur/orchestrator/dispatcher.ex
+    {"ticket.*.issue.label.added.agent.todo", "orchestration"},
+    # aiur/orchestrator/comment_wake/merge_audit.ex
+    {"ticket.*.merge.attribution_check_failed", "orchestration"},
+    # aiur/alerts/stale_not_closed.ex
+    {"ticket.*.merge.attribution_check_failed.resolved", "orchestration"},
+    # aiur/orchestrator/merge_order_audit.ex
+    {"ticket.*.merge.out-of-order", "orchestration"},
+    # aiur/orchestrator/comment_wake/merge_audit.ex
+    {"ticket.*.merge.unauthorized_merger", "orchestration"},
+    # aiur/orchestrator/ci_lifecycle/approval_carry_alert.ex
+    {"ticket.*.pr.approval_carried", "orchestration"},
+    # aiur/events/github_ci_poller/recovery.ex
+    {"ticket.*.pr.ci_recovery.*", "github-listeners"},
+    # aiur/landing_watch/pr_rerun.ex
+    {"ticket.*.pr.ci_recovery.rerun_limit", "orchestration"},
+    # aiur/landing_watch.ex
+    {"ticket.*.pr.ci_recovery.rerun_skipped", "orchestration"},
+    # aiur/orchestrator/draft_alert_lifecycle.ex
+    {"ticket.*.pr.draft_approved_green", "orchestration"},
+    # aiur/orchestrator/draft_alert_lifecycle.ex
+    {"ticket.*.pr.draft_approved_green.resolved", "orchestration"},
+    # aiur/orchestrator/draft_alert_lifecycle.ex
+    {"ticket.*.pr.draft_ci_wait", "orchestration"},
+    # aiur/orchestrator/draft_alert_lifecycle.ex
+    {"ticket.*.pr.draft_ci_wait.resolved", "orchestration"},
+    # aiur/orchestrator/ci_lifecycle/pr_less_review.ex
+    {"ticket.*.pr.human_review_without_pr", "orchestration"},
+    # aiur/orchestrator/ci_lifecycle/pr_less_review.ex
+    {"ticket.*.pr.human_review_without_pr.resolved", "orchestration"},
+    # aiur/orchestrator/ci_lifecycle/parked_ready_alert.ex
+    {"ticket.*.pr.parked_ready", "orchestration"},
+    # aiur/orchestrator/ci_lifecycle/parked_ready_alert.ex
+    {"ticket.*.pr.parked_ready.resolved", "orchestration"},
+    # aiur/orchestrator/push_routing/pr_body_evidence.ex
+    {"ticket.*.pr.tested_head_stale", "orchestration"},
+    # aiur/orchestrator/push_routing/pr_body_evidence.ex
+    {"ticket.*.pr.tested_head_stale.resolved", "orchestration"},
+    # aiur/orchestrator/membership_lifecycle.ex
+    {"ticket.*.terminal_verification_abandoned", "orchestration"},
+    # aiur/orchestrator/spend_cap/runtime.ex
+    {"ticket.*.usage.spend_cap_partial", "orchestration"},
+    # aiur/orchestrator/spend_cap/runtime.ex
+    {"ticket.*.usage.spend_cap_partial.resolved", "orchestration"},
+    # aiur/orchestrator/spend_cap/store.ex
+    {"ticket.*.usage.spend_cap_reached", "orchestration"},
+    # aiur/workspace.ex
+    {"ticket.*.workspace.*", "workspace"},
+    # aiur/workspace/dirty_guard.ex
+    {"ticket.*.workspace.dirty_kept", "workspace"},
+    # aiur/agent_runner/workspace_guard.ex
+    {"ticket.*.workspace.live_session", "agent-runner"},
+    # aiur/agent_runner/workspace_guard.ex
+    {"ticket.*.workspace.ownership_hold", "agent-runner"},
+    # aiur/workspace/wip_preservation/notices.ex
+    {"ticket.*.workspace.wip_discarded", "workspace"},
+    # aiur/workspace/wip_preservation.ex
+    {"ticket.*.workspace.wip_preservation_failed", "workspace"},
+    # aiur/workspace/wip_preservation/artifact.ex
+    {"ticket.*.workspace.wip_preservation_incomplete", "workspace"},
+    # aiur/workspace/wip_preservation/artifact.ex
+    {"ticket.*.workspace.wip_preserved", "workspace"},
+    # aiur/workspace/ownership/retention.ex
+    {"ticket.*.workspace.workspace_lease_retained", "workspace"},
+    # aiur/workspace/ownership/retention.ex
+    {"ticket.*.workspace.workspace_lease_retained.resolved", "workspace"}
+  ]
+
+  @live [
+    # aiur/events/branch_rewrite_classifier.ex
+    {"ticket.*.branch.force-push", "github-listeners"},
+    # aiur/events/github_keys.ex
+    {"ticket.*.branch.push", "github-listeners"},
+    # aiur/orchestrator/ci_lifecycle/wait_rewake.ex
+    {"ticket.*.ci.rewake", "orchestration"},
+    # aiur/allowed_contributors/wake.ex
+    {"ticket.*.issue.opened.allowed_contributor", "github"},
+    # aiur/events/github_firehose/pull_request.ex
+    {"ticket.*.pr.reopened", "github-listeners"},
+    # aiur/orchestrator/restack_scheduler.ex
+    {"ticket.*.restack.conflict", "orchestration"}
+  ]
+
+  @logged [
+    # aiur/agent_tools/emit_event.ex
+    {"ticket.*.agent.pause.request", "harness-adapters"},
+    # aiur/orchestrator/push_routing.ex
+    {"ticket.*.agent.unblocked", "orchestration"},
+    # aiur/agent_tools/emit_event.ex
+    {"ticket.*.optimistic.integrated", "harness-adapters"}
+  ]
+
+  @entries Enum.map(@alerts, fn {pattern, owner} -> %Entry{pattern: pattern, class: :ledgered, owner: owner} end) ++
+             Enum.map(@live, fn {pattern, owner} -> %Entry{pattern: pattern, class: :live, owner: owner} end) ++
+             Enum.map(@logged, fn {pattern, owner} -> %Entry{pattern: pattern, class: :logged, owner: owner} end)
+
+  @spec entries() :: [Entry.t()]
+  def entries, do: @entries
+end

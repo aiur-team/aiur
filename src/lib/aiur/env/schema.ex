@@ -196,6 +196,7 @@ defmodule Aiur.Env.Schema do
     {"MOONSHOT_API_KEY", type: :secret, group: :provider_keys, purpose: "Moonshot backend key; used when a backend config names this env var."},
     {"OPENROUTER_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter backend key; used when a backend config names this env var.", fetch: "openrouter.ai -> Keys -> Create key"},
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},
+    {"NETLIFY_AUTH_TOKEN", type: :secret, group: :provider_keys, purpose: "Netlify read-only usage API credential; never logged or sent to agents."},
     {"CLAUDE_CODE_OAUTH_TOKEN",
      type: :secret, group: :provider_keys, purpose: "Claude Code subscription token for an operator deployment; pass only to Claude workers and never configure on a consumer instance."},
     {"ANTHROPIC_API_KEY", type: :secret, group: :provider_keys, purpose: "Anthropic API key for Claude API billing; consumer deployments require this instead of subscription auth."},

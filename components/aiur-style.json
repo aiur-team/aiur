@@ -25,8 +25,12 @@
   "install": {
     "type": "included"
   },
-  "docs": [],
+  "docs": [
+    "archon/index.md",
+    "khala/index.md"
+  ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

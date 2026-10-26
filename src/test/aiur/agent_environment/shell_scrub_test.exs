@@ -7,6 +7,19 @@ defmodule Aiur.AgentEnvironment.ShellScrubTest do
 
   alias Aiur.AgentEnvironment
 
+  test "Netlify usage token is scrubbed from agent environments" do
+    previous = System.get_env("NETLIFY_AUTH_TOKEN")
+    System.put_env("NETLIFY_AUTH_TOKEN", "netlify-secret")
+    on_exit(fn -> if previous, do: System.put_env("NETLIFY_AUTH_TOKEN", previous), else: System.delete_env("NETLIFY_AUTH_TOKEN") end)
+
+    assert {~c"NETLIFY_AUTH_TOKEN", false} in AgentEnvironment.workspace_env("/work/aiur/5823")
+    assert "NETLIFY_AUTH_TOKEN" in AgentEnvironment.provider_credential_env_names()
+
+    command = AgentEnvironment.scrub_shell_command("env | grep '^NETLIFY_AUTH_TOKEN=' || true")
+    {output, 0} = System.cmd("bash", ["-lc", command], env: [{"NETLIFY_AUTH_TOKEN", "netlify-secret"}])
+    assert output == ""
+  end
+
   test "identifies inherited Erlang distribution environment names" do
     assert AgentEnvironment.erlang_distribution_env_name?("ERL_AFLAGS")
     assert AgentEnvironment.erlang_distribution_env_name?("ERL_LIBS")

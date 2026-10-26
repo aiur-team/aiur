@@ -56,7 +56,7 @@ defmodule AiurWeb.BuildLiveCommandTest do
     stored = stored_answer(store, decision)
     assert stored.selected_option_id == "persist"
     # The trusted dashboard identity (test_helper's AIUR_DASHBOARD_USERNAME), never a client value.
-    assert stored.actor == %{kind: :operator, id: "operator"}
+    assert stored.actor == %{kind: :operator, id: "operator", source: :rpc}
     assert reply.action_id == stored.action_id
   end
 

@@ -181,6 +181,7 @@ export default withMermaid(defineConfig({
             { text: 'GitHub webhooks', link: '/apis/github-webhooks' },
             { text: 'GitHub credentials', link: '/apis/github-auth' },
             { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
+            { text: 'Standalone gh-access', link: '/apis/gh-access' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
             { text: 'ElevenLabs', link: '/apis/elevenlabs' }
           ]
@@ -200,7 +201,8 @@ export default withMermaid(defineConfig({
             { text: 'Merge Policy', link: '/reference/merge-policy' },
             { text: 'PR checks', link: '/reference/pr-checks' },
             { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
-            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
+            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' },
+            { text: 'Components', link: '/reference/components' }
           ]
         }
       ]
