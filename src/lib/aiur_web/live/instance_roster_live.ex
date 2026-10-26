@@ -2,8 +2,8 @@ defmodule AiurWeb.InstanceRosterLive do
   @moduledoc "Read-only dashboard view of instances registered in the shared lease store."
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.Instance.Roster
   alias Aiur.Instance.Roster.Presentation
+  alias AiurWeb.InstanceRosterData
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, Overview, RouteRegistry}
 
   @impl true
@@ -16,7 +16,7 @@ defmodule AiurWeb.InstanceRosterLive do
       |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
       |> assign(:tracker_kind, safe(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, safe(&Aiur.Config.agent_kind/0, "agent unavailable"))
-      |> assign(:roster, roster())
+      |> assign(:roster, InstanceRosterData.read())
 
     if connected?(socket), do: Process.send_after(self(), :instance_roster_tick, 10_000)
     {:ok, socket}
@@ -31,7 +31,7 @@ defmodule AiurWeb.InstanceRosterLive do
 
   def handle_info(:instance_roster_tick, socket) do
     Process.send_after(self(), :instance_roster_tick, 10_000)
-    {:noreply, assign(socket, :roster, roster())}
+    {:noreply, assign(socket, :roster, InstanceRosterData.read())}
   end
 
   def handle_info(message, socket), do: DashboardShell.handle_info(message, socket)
@@ -79,15 +79,6 @@ defmodule AiurWeb.InstanceRosterLive do
   defp held_tickets(tickets) when is_list(tickets) and tickets != [], do: Enum.join(tickets, ", ")
   defp held_tickets([]), do: "none"
   defp held_tickets(_), do: "unknown"
-
-  defp roster do
-    case Application.get_env(:aiur, :instance_roster_fun) do
-      fun when is_function(fun, 0) -> fun.()
-      _ -> Roster.list()
-    end
-  rescue
-    _error -> {:error, :store_unavailable}
-  end
 
   defp safe(fun, fallback) do
     fun.() |> to_string()

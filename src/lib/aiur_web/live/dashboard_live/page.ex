@@ -83,6 +83,7 @@ defmodule AiurWeb.DashboardLive.Page do
       )
       |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
+      |> Map.put_new(:instance_agent_roster, :disabled)
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
       |> Map.put_new(:voice_capabilities, %{})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
@@ -189,6 +190,25 @@ defmodule AiurWeb.DashboardLive.Page do
             count_status={@units_view[:count_status] || :unavailable}
           />
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
+          <section :if={@instance_agent_roster != :disabled} id="instance-agent-list" aria-labelledby="instance-agent-list-title">
+            <h3 id="instance-agent-list-title">Agents across instances</h3>
+            <%= case @instance_agent_roster do %>
+              <% {:ok, %{instances: _instances}} -> %>
+                <p :if={instance_agent_rows(@instance_agent_roster) == []}>No agents have been reported by any instance.</p>
+                <ul>
+                  <li :for={row <- instance_agent_rows(@instance_agent_roster)}
+                      data-agent-instance={row.instance.instance_id}
+                      data-instance-state={row.instance.state}
+                      data-observation-age-ms={row.instance.age_ms}>
+                    {row.agent["identifier"] || "unknown ticket"} — {row.agent["state"] || "unknown"} — {row.instance.instance_id}<span :if={row.instance.state == :stale}> (stale)</span> (observed {div(row.instance.age_ms, 1_000)} seconds ago)
+                  </li>
+                </ul>
+              <% {:error, _reason} -> %>
+                <p role="alert" data-empty-reason="lease_store_unavailable">Agent roster is unavailable because the shared lease store could not be read.</p>
+              <% _disabled -> %>
+                <p data-empty-reason="lease_store_disabled">Agent roster is unavailable because no shared lease store is configured.</p>
+            <% end %>
+          </section>
         </section>
 
         <%!-- The searched view, so the reveal batches and counts the matches
@@ -232,6 +252,14 @@ defmodule AiurWeb.DashboardLive.Page do
     </DashboardShell.dashboard_shell>
     """
   end
+
+  defp instance_agent_rows({:ok, %{instances: instances}}) when is_list(instances) do
+    Enum.flat_map(instances, fn instance ->
+      Enum.map(Map.get(instance, :agents) || [], &%{agent: &1, instance: instance})
+    end)
+  end
+
+  defp instance_agent_rows(_unavailable), do: []
 
   defp tracker_kind, do: to_string(Aiur.Config.tracker_kind())
   defp agent_kind, do: to_string(Aiur.Config.agent_kind())

@@ -101,6 +101,25 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
     refute String.contains?(output, <<27>>)
   end
 
+  test "status reports an unavailable configured instance roster" do
+    previous_url = Application.get_env(:aiur, :lease_database_url)
+    Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+
+    on_exit(fn ->
+      if previous_url, do: Application.put_env(:aiur, :lease_database_url, previous_url), else: Application.delete_env(:aiur, :lease_database_url)
+    end)
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(
+          instance_roster: {:error, :offline},
+          fleet_view: {:ok, %{statuses: []}, %{status: :current, reason: nil, age_seconds: 0}}
+        )
+      end)
+
+    assert output =~ "INSTANCES unavailable (shared lease store could not be read)"
+  end
+
   test "status prints empty and populated tables", %{orchestrator: pid} do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     empty_output = capture_io(fn -> AgentControlCLI.status() end)

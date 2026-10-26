@@ -50,7 +50,7 @@ defmodule AiurWeb.InstanceRosterLiveTest do
              agent_count: nil,
              agent_capacity: nil,
              held_tickets: [],
-             agents: []
+             agents: [%{"identifier" => "acme/widgets#42", "state" => "paused"}]
            }
          ]
        }}
@@ -91,8 +91,32 @@ defmodule AiurWeb.InstanceRosterLiveTest do
     assert has_element?(view, ~s([data-agent-instance="home-a"][data-observation-age-ms="10000"]), "acme/widgets#41 — running — home-a")
     assert has_element?(view, "[data-instance-state=stale]", "container-b")
     assert has_element?(view, ~s([data-instance-state=stale][data-age-ms="90000"]))
+    assert has_element?(view, "[data-instance-state=stale] h3", "(stale)")
     assert has_element?(view, "[data-instance-state=stale]", "Leader: unknown; agents: unknown / unknown")
-    refute render(view) =~ "container-b idle"
+    assert has_element?(view, ~s([data-agent-instance="container-b"][data-observation-age-ms="90000"]), "acme/widgets#42 — paused — container-b")
+  end
+
+  test "dashboard roster explains an unavailable shared store" do
+    Application.put_env(:aiur, :instance_roster_fun, fn -> {:error, :offline} end)
+
+    {:ok, view, _html} = live(build_conn(), "/instances")
+
+    assert has_element?(view, "[data-empty-reason=lease_store_unavailable]", "Instance roster could not be read from the shared lease store.")
+  end
+
+  test "dashboard roster explains when the shared store is disabled" do
+    Application.put_env(:aiur, :instance_roster_fun, fn -> :disabled end)
+
+    {:ok, view, _html} = live(build_conn(), "/instances")
+
+    assert has_element?(view, "[data-empty-reason=lease_store_disabled]", "Instance roster is unavailable because no shared lease store is configured.")
+  end
+
+  test "main dashboard agent list names each instance and observation age" do
+    {:ok, view, _html} = live(build_conn(), "/units")
+
+    assert has_element?(view, ~s(#instance-agent-list [data-agent-instance="home-a"][data-observation-age-ms="10000"]), "acme/widgets#41 — running — home-a")
+    assert has_element?(view, ~s(#instance-agent-list [data-agent-instance="container-b"][data-observation-age-ms="90000"]), "acme/widgets#42 — paused — container-b (stale)")
   end
 
   defp restore(key, nil), do: Application.delete_env(:aiur, key)

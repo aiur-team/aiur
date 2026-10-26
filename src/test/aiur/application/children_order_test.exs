@@ -27,6 +27,25 @@ defmodule Aiur.Application.ChildrenOrderTest do
       end
     end
 
+    test "lease store starts before the heartbeat publisher" do
+      previous_url = Application.get_env(:aiur, :lease_database_url)
+      Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+
+      on_exit(fn ->
+        if previous_url,
+          do: Application.put_env(:aiur, :lease_database_url, previous_url),
+          else: Application.delete_env(:aiur, :lease_database_url)
+      end)
+
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
+      lease_store = Enum.find_index(mods, &(&1 == Aiur.Instance.LeaseStore))
+      heartbeat = Enum.find_index(mods, &(&1 == Aiur.Instance.Heartbeat))
+
+      assert is_integer(lease_store)
+      assert is_integer(heartbeat)
+      assert lease_store < heartbeat
+    end
+
     test "the ActiveTurns table owner starts before agent tasks in every run shape" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],

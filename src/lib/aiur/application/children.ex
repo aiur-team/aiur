@@ -337,7 +337,7 @@ defmodule Aiur.Application.Children do
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
     store_children =
       if LeaseStore.configured?(),
-        do: [{Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}, LeaseStore],
+        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
         else: []
 
     services =
