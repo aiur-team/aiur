@@ -4,7 +4,7 @@ defmodule Aiur.Commands.Answering.QuestionAnswers do
   @spec encode(map(), list(), term()) :: {:ok, map()} | {:error, term()}
   def encode(payload, questions, answers) do
     with :ok <- validate(questions, answers) do
-      encoded = Jason.encode!(%{kind: "question_answers", question_answers: answers, text: render(questions, answers)})
+      encoded = Jason.encode!(%{kind: "question_answers", question_answers: answers})
 
       {:ok,
        payload

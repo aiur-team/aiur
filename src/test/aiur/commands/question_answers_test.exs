@@ -10,8 +10,7 @@ defmodule Aiur.Commands.QuestionAnswersTest do
 
     assert Jason.decode!(payload["custom_response"]) == %{
              "kind" => "question_answers",
-             "question_answers" => answers,
-             "text" => "Proceed?: Yes\nColors?: Custom, Blue"
+             "question_answers" => answers
            }
 
     refute Map.has_key?(payload, :option_id)
@@ -45,6 +44,18 @@ defmodule Aiur.Commands.QuestionAnswersTest do
     assert Answering.decode_question_answers(questions(), %{custom_response: nil, selected_option_id: "yes"}) == {:ok, %{"first" => ["Yes"]}}
     assert Answering.decode_question_answers(questions(), %{custom_response: "Other", selected_option_id: nil}) == {:ok, %{"first" => ["Other"]}}
     assert Answering.decode_question_answers([], %{custom_response: "Other"}) == {:error, {:question_answers, :invalid}}
+  end
+
+  test "maximum labelled multi-select answers fit the existing response bound" do
+    questions =
+      for q <- 1..4 do
+        %{question_id: "q#{q}", question: "Question #{q}", multi_select: true, allow_other: false, options: for(o <- 1..4, do: %{label: String.duplicate("a", 199) <> Integer.to_string(o)})}
+      end
+
+    answers = Map.new(questions, &{&1.question_id, Enum.map(&1.options, fn option -> option.label end)})
+    assert {:ok, payload} = QuestionAnswers.encode(%{expected_version: 1, idempotency_key: "bounded"}, questions, answers)
+    assert {:ok, normalized} = DecisionAnswer.normalize(payload, decision_id: "decision", decision_version: 1, actor: %{kind: :operator, id: "human"})
+    assert Jason.decode!(normalized.custom_response)["question_answers"] == answers
   end
 
   defp questions do
