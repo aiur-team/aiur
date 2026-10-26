@@ -20,7 +20,7 @@ defmodule Aiur.Config.Schema.Decisions do
         }
 
   embedded_schema do
-    embeds_one(:escalation, Escalation, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:escalation, Aiur.Config.Schema.Decisions.Escalation, on_replace: :update, defaults_to_struct: true)
     # @config-reference config-configuration-17 decisions.supervisor_allowed_kinds
     # @config-detail decisions.supervisor_allowed_kinds | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
     field(:supervisor_allowed_kinds, {:array, :string}, default: [])
