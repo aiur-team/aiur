@@ -1,7 +1,7 @@
 defmodule Aiur.Events.Export.ExporterTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
-  alias Aiur.Events.{Exchange, Export, Journal}
+  alias Aiur.Events.{Envelope, Exchange, Export, Journal}
   alias Aiur.Events.Export.{Exporter, Layout}
 
   setup do
@@ -168,7 +168,8 @@ defmodule Aiur.Events.Export.ExporterTest do
     start_supervised!({Exporter, ctx.opts})
     receive_barrier({:appended, 1, _})
     path = Layout.segment(ctx.dir, 1)
-    record = %{"type" => "event", "seq" => 2, "v" => 1, "id" => 4, "topic" => "ticket.42.pr.merged", "instance" => "test/instance"}
+    {:ok, envelope} = Envelope.to_external(event(4), instance: "test/instance")
+    record = Map.merge(envelope, %{"type" => "event", "seq" => 2})
     File.write!(path, Jason.encode!(record) <> "\n{half", [:append])
     bytes = File.read!(path)
     assert {:ok, %{records: [%{"type" => "gap", "seq" => 1}]}} = Export.read(0, 10, ["#"])

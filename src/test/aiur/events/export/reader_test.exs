@@ -1,6 +1,6 @@
 defmodule Aiur.Events.Export.ReaderTest do
   use ExUnit.Case, async: false
-  alias Aiur.Events.Export
+  alias Aiur.Events.{Envelope, Export}
 
   test "500 matching records page across segments while ignoring other topics" do
     root = Path.join(System.tmp_dir!(), "export-reader-#{System.unique_integer([:positive])}")
@@ -20,7 +20,8 @@ defmodule Aiur.Events.Export.ReaderTest do
     records =
       for seq <- 1..1200 do
         topic = if rem(seq, 2) == 0, do: "ticket.42.pr.merged", else: "ticket.43.pr.merged"
-        %{"type" => "event", "v" => 1, "seq" => seq, "id" => seq, "topic" => topic, "instance" => "test/instance"}
+        {:ok, envelope} = Envelope.to_external(%{id: seq, topic: topic}, instance: "test/instance")
+        Map.merge(envelope, %{"type" => "event", "seq" => seq})
       end
 
     for {chunk, first} <- [{Enum.take(records, 700), 1}, {Enum.drop(records, 700), 701}] do
