@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Persistence do
 
   require Logger
 
+  alias Aiur.Commands.RequestAttributes
   alias Aiur.Boot
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
@@ -23,11 +24,12 @@ defmodule Aiur.DecisionStore.Persistence do
   @spec repair_projection(term()) :: term()
   def repair_projection(state), do: ProjectionRecovery.repair(state, &notify_projection_event/3)
 
+  defp notify_projection_event(_decision, %{type: :request_attributed}, _state), do: :ok
   defp notify_projection_event(decision, %{type: :requested} = event, state), do: Audit.notify(decision, ProjectionRecovery.cursor_id(event), state)
   defp notify_projection_event(decision, event, _state), do: notify_lifecycle(decision, event, ProjectionRecovery.cursor_id(event))
 
   @spec persist_and_notify(term(), term(), term()) :: term()
-  def persist_and_notify(decision, event_id, state) do
+  def persist_and_notify({decision, attrs}, event_id, state) do
     with {:ok, event} <-
            DecisionEvent.new(:requested, decision.decision_id, decision.version, decision,
              event_id: event_id,
@@ -57,7 +59,13 @@ defmodule Aiur.DecisionStore.Persistence do
             audit_history: Map.update(state.audit_history, decision.decision_id, [event], &(&1 ++ [event])),
             recent_audit: Audit.remember_recent_audit(state.recent_audit, event)
         }
+
+      {new_state, current, last_event_id} = RequestAttributes.append(new_state, current, attrs, event.event_id)
+
+      new_state =
+        new_state
         |> ProjectionRecovery.enqueue(current, event)
+        |> Map.put(:last_event_id, last_event_id)
         |> repair_projection()
 
       {:reply, {:ok, %{status: :accepted, decision: current}}, new_state}
@@ -191,6 +199,8 @@ defmodule Aiur.DecisionStore.Persistence do
 
     repair_projection(next_state)
   end
+
+  defp lifecycle_version(:request_attributed, decision, _data), do: decision.version
 
   defp lifecycle_version(_type, _decision, %DecisionAnswer{decision_version: version}), do: version
   defp lifecycle_version(_type, _decision, %DecisionRevision{decision_version: version}), do: version

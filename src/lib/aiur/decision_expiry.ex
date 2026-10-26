@@ -16,6 +16,7 @@ defmodule Aiur.DecisionExpiry do
 
   require Logger
 
+  alias Aiur.Commands.Requester
   alias Aiur.Commands.DeliveryTarget
   alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionStore}
 
@@ -104,7 +105,7 @@ defmodule Aiur.DecisionExpiry do
   end
 
   defp expired_candidate?(decision, active, now, grace_seconds) do
-    decision.decision_status == :open and
+    not Requester.executor?(decision) and decision.decision_status == :open and
       not (decision.blocking and is_nil(decision.answer)) and
       not waiting_on_operator?(decision) and
       not MapSet.member?(active, decision.ticket.identifier) and
