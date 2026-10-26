@@ -45,7 +45,7 @@ defmodule Aiur.Events.Export.WiringTest do
 
   test "export failure is cataloged but never exported" do
     entry = Catalog.lookup("system.events.export_unavailable")
-    assert entry.class == :logged
+    assert entry.class == :ledgered
     refute entry.export?
   end
 end

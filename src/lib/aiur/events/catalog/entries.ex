@@ -14,7 +14,7 @@ defmodule Aiur.Events.Catalog.Entries do
 
   @core [
     # application/export_children.ex; never export the feed's own failure.
-    %Entry{pattern: "system.events.export_unavailable", class: :logged, owner: "event-bus"},
+    %Entry{pattern: "system.events.export_unavailable", class: :ledgered, owner: "event-bus"},
     # aiur/agent_runner/tool_executor.ex; aiur/agent_tools/emit_event.ex
     %Entry{pattern: "ticket.*.agent.#", class: :logged, owner: "harness-adapters"},
     %Entry{pattern: "ticket.*.agent.custom.#", class: :logged, owner: "harness-adapters"},

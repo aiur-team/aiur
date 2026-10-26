@@ -94,8 +94,7 @@
     "env": [],
     "state": [
       "file: <runtime_state_dir>/event-id.json",
-      "file: <runtime_state_dir>/subscriptions/*.json",
-      "events_export_dir"
+      "file: <runtime_state_dir>/subscriptions/*.json"
     ],
     "capabilities": []
   },
