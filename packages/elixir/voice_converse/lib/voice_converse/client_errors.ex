@@ -12,7 +12,7 @@ defmodule VoiceConverse.ClientErrors do
     %{code: :provider_quota, kinds: [:end_reason, :error_code], retry: :none, copy_key: "voice.error.provider_quota"},
     %{code: :provider_auth, kinds: [:error_code], retry: :none, copy_key: "voice.error.provider_auth"},
     %{code: :provider_unavailable, kinds: [:error_code], retry: :later, copy_key: "voice.error.provider_unavailable"},
-    %{code: :provider_error, kinds: [:end_reason, :error_code], retry: :once, copy_key: "voice.error.provider_error"},
+    %{code: :provider_error, kinds: [:end_reason, :error_code], retry: :now, copy_key: "voice.error.provider_error"},
     %{code: :transport_lost, kinds: [:end_reason, :error_code], retry: :now, copy_key: "voice.error.transport_lost"},
     %{code: :daemon_restart, kinds: [:end_reason], retry: :not_applicable, copy_key: "voice.ended.daemon_restart"},
     %{code: :privacy_preflight_failed, kinds: [:error_code], retry: :none, copy_key: "voice.error.privacy_preflight"},
@@ -36,7 +36,7 @@ defmodule VoiceConverse.ClientErrors do
   @spec table() :: [map()]
   def table, do: @table
 
-  @spec retry(atom()) :: :none | :now | :later | :once | :not_applicable | nil
+  @spec retry(atom()) :: :none | :now | :later | :not_applicable | nil
   def retry(code), do: lookup(code, :retry)
 
   @spec copy_key(atom()) :: String.t() | nil

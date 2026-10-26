@@ -6,8 +6,8 @@ defmodule VoiceConverse.Session do
     Config,
     Events,
     ProviderCleanup,
+    SessionLimits,
     SessionRegistry,
-    TranscriptIndex,
     TranscriptStore
   }
 
@@ -120,7 +120,7 @@ defmodule VoiceConverse.Session do
          :ok <- target_alive?(config, target),
          {:ok, provider, provider_opts} <- provider(config, opts),
          :ok <- preflight(provider, provider_spec(config, target, provider, provider_opts)),
-         :ok <- under_daily_cap?(config),
+         :ok <- SessionLimits.under_daily_cap?(config),
          {:ok, store} <- open_transcript(config, target, id, provider, opts) do
       state = %{
         id: id,
@@ -176,18 +176,6 @@ defmodule VoiceConverse.Session do
       end
     else
       :ok
-    end
-  end
-
-  defp under_daily_cap?(%Config{limits: %{daily_minutes_cap: nil}}), do: :ok
-  defp under_daily_cap?(%Config{limits: %{daily_minutes_cap: 0}}), do: {:error, :cost_cap}
-  defp under_daily_cap?(%Config{transcript: :none}), do: :ok
-
-  defp under_daily_cap?(%Config{transcript_root: root, limits: %{daily_minutes_cap: cap}}) do
-    case TranscriptIndex.minutes_today(root) do
-      minutes when is_integer(minutes) and minutes < cap -> :ok
-      minutes when is_integer(minutes) -> {:error, :cost_cap}
-      _ -> {:error, :unknown}
     end
   end
 
@@ -331,7 +319,15 @@ defmodule VoiceConverse.Session do
       {:ok, state} ->
         broadcast(state, event)
         state = if reset_idle?, do: reset_idle_timer(state), else: state
-        {:noreply, transition(state, next_state)}
+
+        case SessionLimits.under_daily_cap?(state.config,
+               now: state.clock.(),
+               open_sessions: fn -> [%{started_at: state.started_at}] end
+             ) do
+          :ok -> {:noreply, transition(state, next_state)}
+          {:error, :cost_cap} -> stop_on_timeout(state, :cost_cap)
+          {:error, _code} -> stop_unknown(state)
+        end
 
       {:error, state} ->
         stop_unknown(state)
