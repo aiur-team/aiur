@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { browserChildEnvironment, fixtureServerEnvironment } from './artifact-sanitizer.mjs'
 
-test('browser and fixture environment hops preserve admission and exclude credentials', () => {
+test('browser and fixture child environments preserve gate hooks and exclude credentials', () => {
   const admission = {
-    BASH_ENV: '/release/priv/build_gate.bash',
+    BASH_ENV: '/release/agent-shell-environment.bash',
+    AIUR_BUILD_GATE_HOOK: '/release/priv/build_gate.bash',
+    AIUR_AGENT_BIN: '/workspace/.aiur-runtime/bin',
     AIUR_BUILD_GATE_BIN: '/workspace/.aiur-runtime/build-bin',
     AIUR_BUILD_GATE_DIR: '/host/gate',
     AIUR_BUILD_GATE_LOCK_DIR: '/host/gate.locks',
@@ -20,14 +22,23 @@ test('browser and fixture environment hops preserve admission and exclude creden
   }
   const browser = browserChildEnvironment({ ...admission, GITHUB_TOKEN: 'secret', AIUR_SUPERVISOR_TOKEN: 'secret' })
   const fixture = fixtureServerEnvironment(browser)
+
   for (const child of [browser, fixture]) {
-    for (const [name, value] of Object.entries(admission)) {
-      if (child === fixture && name === 'BASH_ENV') continue
-      assert.equal(child[name], value, name)
-    }
+    for (const [name, value] of Object.entries(admission)) assert.equal(child[name], value, name)
     assert.equal(child.GITHUB_TOKEN, undefined)
     assert.equal(child.AIUR_SUPERVISOR_TOKEN, undefined)
   }
-  assert.equal(browser.BASH_ENV, admission.BASH_ENV)
-  assert.equal(fixtureServerEnvironment(browser).BASH_ENV, undefined)
+})
+
+test('browser child environment forwards the hook variables the shell needs to load the build gate', () => {
+  const source = {
+    BASH_ENV: '/agent/agent-shell-environment.bash',
+    AIUR_BUILD_GATE_HOOK: '/release/priv/build_gate.bash',
+    AIUR_AGENT_BIN: '/workspace/.aiur-runtime/bin'
+  }
+  const child = browserChildEnvironment(source)
+  assert.deepEqual(
+    [child.BASH_ENV, child.AIUR_BUILD_GATE_HOOK, child.AIUR_AGENT_BIN],
+    [source.BASH_ENV, source.AIUR_BUILD_GATE_HOOK, source.AIUR_AGENT_BIN]
+  )
 })
