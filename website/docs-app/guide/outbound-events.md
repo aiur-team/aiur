@@ -47,6 +47,7 @@ five-minute window.
 
 Atomically claim `webhook-id` in durable storage before processing it to reject
 a replay inside that window and to make at-least-once delivery idempotent.
+The ID is `<instance>/<id>` and must match those two fields in the signed body.
 
 The independently installable `@aiur/contracts` package includes versioned JSON
 Schemas, generated TypeScript types, golden fixtures, and an executable
@@ -58,19 +59,25 @@ durable atomic store.
 
 ## Event envelope
 
-All events include `contract`, `contract_version`, `event_id`, `event_type`,
-`emitted_at`, and `ticket_id`; run events also include `job_id`, and a
-configured `subject_id` matches either identifier exactly.
+All events use the same canonical identifier-only envelope: `v`, `instance`,
+`seq`, `id`, `topic`, `class`, `occurred_at`, `observed_at`, `source`, `refs`,
+`attrs`, `payload_version`, and the reserved `anchor`. `seq` is the dense export
+order; `(instance, id)` is the event identity and is not an ordering cursor.
+Ticket and job correlation are `refs.ticket` and `refs.job_id`; a configured
+`subject_id` matches either value exactly.
 
-| Event | Contract |
+| Event | Topic family |
 | --- | --- |
-| Ticket lifecycle | `aiur.ticket_lifecycle_event` v1 |
-| Ticket progress | `aiur.ticket_progress_event` v1 |
-| Ticket usage | `aiur.ticket_usage_event` v1 |
-| Spend-cap transition | `aiur.ticket_spend_cap_reached` v1 |
-| Cancellation result | `aiur.ticket_cancel` v1 |
+| Ticket lifecycle | `ticket.<id>.lifecycle.changed` |
+| Ticket progress | `ticket.<id>.agent.progress`, `.progress.checkin`, or `.progress.phase` |
+| Ticket usage | `ticket.<id>.usage.changed` |
+| Spend-cap transition | `ticket.<id>.usage.spend_cap_reached` |
+| Cancellation result | `ticket.<id>.cancel.result` |
 
-Treat additive fields and unknown event types as forward-compatible. A breaking
+Each family has a separate v1 JSON Schema constraining its topic, references,
+and attributes, while the shared envelope is built by the event bus. Treat an
+event as a refresh signal and re-read the owning API for authoritative state.
+Unknown topics or newer `v` values require a newer contract package; a breaking
 wire change adds another schema version instead of changing v1 in place.
 
 ## Retry and queue behavior

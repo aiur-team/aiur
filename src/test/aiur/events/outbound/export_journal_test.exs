@@ -18,9 +18,9 @@ defmodule Aiur.Events.Outbound.ExportJournalTest do
     journal = start_journal(ctx, exchange: exchange)
     :ok = ExportJournal.subscribe(journal, self())
 
-    internal = %{external: external_event("evt_101", "5695")}
+    internal = %{external: external_event(101, "5695")}
     assert 1 = Exchange.publish("ticket.5695.agent.progress", internal, exchange)
-    assert_receive {:durable_record, %{"seq" => 1, "event" => %{"event_id" => "evt_101"}} = record}, 1_000
+    assert_receive {:durable_record, %{"seq" => 1, "event_id" => "host/default/101", "event" => %{"id" => 101, "seq" => 1}} = record}, 1_000
     assert {:ok, [^record]} = ExportJournal.replay(journal, 0, 10)
 
     :ok = stop_supervised(ExportJournal)
@@ -38,15 +38,15 @@ defmodule Aiur.Events.Outbound.ExportJournalTest do
 
     journal = start_journal(ctx, max_pending_events: 2, alert_fun: alert_fun)
 
-    assert {:ok, 1} = ExportJournal.ingest(journal, %{external: external_event("evt_1", "5695")})
-    assert {:ok, 2} = ExportJournal.ingest(journal, %{external: external_event("evt_2", "5695")})
-    assert {:error, :capacity_exhausted} = ExportJournal.ingest(journal, %{external: external_event("evt_3", "5695")})
+    assert {:ok, 1} = ExportJournal.ingest(journal, %{external: external_event(1, "5695")})
+    assert {:ok, 2} = ExportJournal.ingest(journal, %{external: external_event(2, "5695")})
+    assert {:error, :capacity_exhausted} = ExportJournal.ingest(journal, %{external: external_event(3, "5695")})
     assert_receive {:alert, "system.outbound_events.queue.capacity", opts}, 1_000
     assert opts[:needs_attention]
     assert {:ok, [%{"seq" => 1}, %{"seq" => 2}]} = ExportJournal.replay(journal, 0, 10)
 
     JsonStore.write!(ctx.cursor_path, %{"cursor" => 1})
-    assert {:ok, 3} = ExportJournal.ingest(journal, %{external: external_event("evt_3", "5695")})
+    assert {:ok, 3} = ExportJournal.ingest(journal, %{external: external_event(3, "5695")})
     assert_receive {:alert, "system.outbound_events.queue.capacity.resolved", resolved_opts}, 1_000
     refute resolved_opts[:needs_attention]
     assert {:reset, 2} = ExportJournal.replay(journal, 0, 10)
@@ -57,7 +57,11 @@ defmodule Aiur.Events.Outbound.ExportJournalTest do
   end
 
   test "refuses to start from an interior-corrupt queue", ctx do
-    File.write!(ctx.journal_path, ~s({"version":1,"seq":1,"event_id":"evt_1","event":{"event_id":"evt_1"}}\nnot-json\n))
+    File.write!(
+      ctx.journal_path,
+      ~s({"version":1,"seq":1,"event_id":"host/default/1","event":{"instance":"host/default","id":1,"seq":1}}\nnot-json\n)
+    )
+
     Process.flag(:trap_exit, true)
 
     assert {:error, {:journal_unavailable, {:corrupt, 2, _reason}}} =
@@ -71,8 +75,8 @@ defmodule Aiur.Events.Outbound.ExportJournalTest do
     end
 
     journal = start_journal(ctx, append_fun: append_fun)
-    assert {:ok, 1} = ExportJournal.ingest(journal, %{external: external_event("evt_1", "5695")})
-    assert {:ok, [%{"seq" => 1, "event_id" => "evt_1"}]} = ExportJournal.replay(journal, 0, 10)
+    assert {:ok, 1} = ExportJournal.ingest(journal, %{external: external_event(1, "5695")})
+    assert {:ok, [%{"seq" => 1, "event_id" => "host/default/1"}]} = ExportJournal.replay(journal, 0, 10)
   end
 
   defp start_journal(ctx, opts) do
@@ -86,6 +90,7 @@ defmodule Aiur.Events.Outbound.ExportJournalTest do
       exchange: nil,
       journal_path: ctx.journal_path,
       cursor_path: ctx.cursor_path,
+      instance: "host/default",
       max_pending_events: 10,
       clock: fn -> ~U[2026-10-25 00:00:00Z] end,
       normalize_fun: fn %{external: event}, _now -> {:ok, event} end
@@ -94,13 +99,18 @@ defmodule Aiur.Events.Outbound.ExportJournalTest do
 
   defp external_event(event_id, ticket_id) do
     %{
-      "contract" => "aiur.ticket_progress_event",
-      "contract_version" => 1,
-      "event_id" => event_id,
-      "event_type" => "ticket.progress.changed",
-      "emitted_at" => "2026-10-25T00:00:00Z",
-      "ticket_id" => ticket_id,
-      "data" => %{"percent" => 40, "source" => "progress"}
+      "v" => 1,
+      "instance" => "host/default",
+      "id" => event_id,
+      "topic" => "ticket.#{ticket_id}.agent.progress",
+      "class" => "logged",
+      "occurred_at" => "2026-10-25T00:00:00Z",
+      "observed_at" => "2026-10-25T00:00:00Z",
+      "source" => "agent",
+      "refs" => %{"ticket" => ticket_id, "job_id" => "run-#{ticket_id}"},
+      "attrs" => %{"percent" => 40, "progress_source" => "progress"},
+      "payload_version" => 1,
+      "anchor" => nil
     }
   end
 end

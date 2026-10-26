@@ -57,7 +57,7 @@ defmodule Aiur.Events.Outbound.EventTest do
       |> Map.merge(%{
         id: 104,
         topic: "ticket.5693.usage.spend_cap_reached",
-        ticket_observation: observation(spend_identity, 104, %{kind: :legacy, name: "spend_cap"}, "5693")
+        ticket_observation: observation(spend_identity, 104, %{kind: :legacy, name: "spend_cap"}, "5693", ~U[2026-10-24 20:01:00Z])
       })
 
     cancel_identity = identity("5698")
@@ -68,20 +68,23 @@ defmodule Aiur.Events.Outbound.EventTest do
       |> Map.merge(%{
         id: 105,
         topic: "ticket.5698.cancel.result",
-        ticket_observation: observation(cancel_identity, 105, %{kind: :legacy, name: "outbound_source"}, nil)
+        ticket_observation: observation(cancel_identity, 105, %{kind: :legacy, name: "outbound_source"}, nil, ~U[2026-10-23 12:00:00Z])
       })
 
-    assert {:ok, lifecycle_event} = Event.normalize(lifecycle, @emitted_at)
-    assert {:ok, progress_event} = Event.normalize(progress, DateTime.add(@emitted_at, 1, :second))
-    assert {:ok, usage_event} = Event.normalize(usage, DateTime.add(@emitted_at, 2, :second))
-    assert {:ok, spend_cap_event} = Event.normalize(spend_cap, ~U[2026-10-24 20:01:00Z])
-    assert {:ok, cancel_result_event} = Event.normalize(cancel_result, ~U[2026-10-23 12:00:00Z])
+    opts = [instance: "host/default"]
+    assert {:ok, lifecycle_event} = Event.normalize(lifecycle, @emitted_at, opts)
+    assert {:ok, progress_event} = Event.normalize(progress, DateTime.add(@emitted_at, 1, :second), opts)
+    assert {:ok, usage_event} = Event.normalize(usage, DateTime.add(@emitted_at, 2, :second), opts)
+    assert {:ok, spend_cap_event} = Event.normalize(spend_cap, ~U[2026-10-24 20:01:00Z], opts)
+    assert {:ok, cancel_result_event} = Event.normalize(cancel_result, ~U[2026-10-23 12:00:00Z], opts)
 
-    assert lifecycle_event == fixture("ticket-lifecycle-event.v1.json")
-    assert progress_event == fixture("ticket-progress-event.v1.json")
-    assert usage_event == fixture("ticket-usage-event.v1.json")
-    assert spend_cap_event == fixture("ticket-spend-cap-reached-event.v1.json")
-    assert cancel_result_event == fixture("ticket-cancel-result-event.v1.json")
+    assert lifecycle_event == fixture_without_seq("ticket-lifecycle-event.v1.json")
+    assert progress_event == fixture_without_seq("ticket-progress-event.v1.json")
+    assert usage_event == fixture_without_seq("ticket-usage-event.v1.json")
+    assert spend_cap_event == fixture_without_seq("ticket-spend-cap-reached-event.v1.json")
+    assert cancel_result_event == fixture_without_seq("ticket-cancel-result-event.v1.json")
+
+    assert Event.delivery_id(lifecycle_event) == {:ok, "host/default/101"}
   end
 
   test "drops unattributed, malformed, and non-allowlisted internal events" do
@@ -130,12 +133,13 @@ defmodule Aiur.Events.Outbound.EventTest do
         ticket_observation: observation(identity, 7, %{kind: :legacy, name: "outbound_source"})
       })
 
-    assert :drop = Event.normalize(unattributed, @emitted_at)
-    assert :drop = Event.normalize(malformed, @emitted_at)
-    assert :drop = Event.normalize(malformed_usage, @emitted_at)
-    assert :drop = Event.normalize(invalid_amount, @emitted_at)
-    assert :drop = Event.normalize(mismatched_event_id, @emitted_at)
-    assert :drop = Event.normalize(%{id: 3, topic: "ticket.5695.issue.commented"}, @emitted_at)
+    opts = [instance: "host/default"]
+    assert :drop = Event.normalize(unattributed, @emitted_at, opts)
+    assert :drop = Event.normalize(malformed, @emitted_at, opts)
+    assert :drop = Event.normalize(malformed_usage, @emitted_at, opts)
+    assert :drop = Event.normalize(invalid_amount, @emitted_at, opts)
+    assert :drop = Event.normalize(mismatched_event_id, @emitted_at, opts)
+    assert :drop = Event.normalize(%{id: 3, topic: "ticket.5695.issue.commented"}, @emitted_at, opts)
   end
 
   defp acknowledgement do
@@ -174,7 +178,9 @@ defmodule Aiur.Events.Outbound.EventTest do
     @fixtures |> Path.join(name) |> File.read!() |> Jason.decode!()
   end
 
-  defp observation(identity, event_id, source, run_id \\ "run-5695-1") do
+  defp fixture_without_seq(name), do: name |> fixture() |> Map.delete("seq")
+
+  defp observation(identity, event_id, source, run_id \\ "run-5695-1", observed_at \\ @observed_at) do
     %TicketObservation{
       status: :joinable,
       reason: nil,
@@ -182,8 +188,8 @@ defmodule Aiur.Events.Outbound.EventTest do
       source: source,
       event_id: event_id,
       provenance: %{run_id: run_id},
-      occurred_at: @observed_at,
-      observed_at: @observed_at,
+      occurred_at: observed_at,
+      observed_at: observed_at,
       attributes: %{}
     }
   end

@@ -30,7 +30,7 @@ The consumer can subscribe globally or narrow the configured subscription to one
 ### Actors and flows
 
 - A1. The Aiur operator configures an outbound endpoint, a host-held signing secret, and an optional subject identifier.
-- A2. The external TypeScript consumer installs the independently packed `@aiur/contracts` package plus the Standard Webhooks verifier, verifies the raw request body before parsing it, validates or types the event, and deduplicates by event ID.
+- A2. The external TypeScript consumer installs the independently packed `@aiur/contracts` package plus the Standard Webhooks verifier, verifies the raw request body before parsing it, validates or types the event, and deduplicates by `(instance, id)` through `webhook-id`.
 - F1. A lifecycle, progress, usage, spend-cap, or cancel-result producer commits its owning state and publishes a bounded internal event; the exporter normalizes and journals the external event before webhook delivery.
 - F2. A transport failure, timeout, 408, 429, or 5xx response retains the delivery cursor and retries the same event with capped exponential backoff and jitter. A 2xx response advances the cursor; any other 4xx response raises an operator attention and advances past that permanent failure.
 - F3. A configured subject filter advances past non-matching events without sending them and sends matching events whose ticket or job identifier equals the filter.
@@ -47,7 +47,7 @@ The consumer can subscribe globally or narrow the configured subscription to one
 #### Event contracts and correlation
 
 - R5. The independently installable `@aiur/contracts` package contains a draft-2020-12 schema, golden fixture, and generated TypeScript type for each v1 event family: ticket lifecycle, ticket progress, ticket usage, spend-cap reached, and cancel result.
-- R6. Every event includes `contract`, `contract_version`, `event_id`, `event_type`, `emitted_at`, and at least one non-empty `ticket_id` or `job_id`; unknown additive fields remain compatible.
+- R6. Every event is produced through `Aiur.Events.Envelope.to_external/2` and includes the canonical `v`, `instance`, `seq`, `id`, `topic`, `class`, timestamps, `source`, typed `refs`, typed `attrs`, `payload_version`, and reserved `anchor`; event-family schemas constrain the shared envelope rather than defining a second one.
 - R7. Actual Elixir-produced event maps validate against the same schemas shipped to TypeScript consumers.
 - R8. Progress events carry the observed percentage and source facts from the trusted `TicketObservation`; usage events carry the durable ledger position, generation, and canonical delta rather than an asynchronously projected total.
 - R9. Spend-cap delivery adopts the event contract owned by issue #5693, while cancel-result delivery wraps the response contract owned by issue #5696; this ticket never defines competing copies.
@@ -55,13 +55,13 @@ The consumer can subscribe globally or narrow the configured subscription to one
 #### Configuration and operations
 
 - R10. Outbound export is disabled by default and starts only when `events.export.enabled` is true, a valid HTTPS endpoint without userinfo or fragments is configured, and `AIUR_OUTBOUND_WEBHOOK_SECRET` is a valid `whsec_` secret of the required decoded length.
-- R11. `events.export.subject_id` is optional; when present, only events whose `ticket_id` or `job_id` equals it are delivered.
+- R11. `events.export.subject_id` is optional; when present, only events whose `refs.ticket` or `refs.job_id` equals it are delivered.
 - R12. Secret material is never written to config, event bodies, logs, alerts, or agent environments.
 - R13. Operator documentation explains configuration, secret generation, signatures, retry/dedup behavior, event schemas, and the one-subject filter.
 
 ### Acceptance examples
 
-- AE1. Given a lifecycle transition for ticket `5695`, when export is enabled without a subject filter, the receiver gets one schema-valid `aiur.ticket_lifecycle_event` request with `ticket_id: "5695"` and a valid signature.
+- AE1. Given a lifecycle transition for ticket `5695`, when export is enabled without a subject filter, the receiver gets one schema-valid canonical event with topic `ticket.5695.lifecycle.changed`, `refs.ticket: "5695"`, and a valid signature.
 - AE2. Given a subscription filtered to `5695`, when events for `5694` and `5695` are journaled, only `5695` is posted and both journal positions are acknowledged locally.
 - AE3. Given the exact golden body but a changed byte, a missing signature header, a timestamp more than five minutes old, or a previously accepted `webhook-id`, the TypeScript receiver throws before returning parsed data.
 - AE4. Given a 503 followed by a 204, the delivery handler posts the same event ID and body twice and advances its cursor only after the 204.
@@ -100,8 +100,8 @@ The consumer can subscribe globally or narrow the configured subscription to one
 - KTD4. A single export-journal writer assigns a dense delivery sequence in observed order. `Aiur.Events.IdGenerator` IDs remain unique identifiers, not ordering cursors.
 - KTD5. Use `Aiur.Events.DurableConsumer` for webhook delivery. Retry transport failures, timeouts, 408, 429, and 5xx responses with capped exponential backoff and jitter. Treat other 4xx responses as permanent: raise an operator attention and advance the cursor so a poison event cannot block later delivery.
 - KTD6. Keep `@aiur/contracts` free of custom cryptography. Ship an executable TypeScript receiver example and tests using the official `standardwebhooks` package, including an ID-deduplication seam the application must back with storage in production.
-- KTD7. Event schemas use a common envelope vocabulary but remain five separately addressable schema files and fixtures. Progress and usage payloads are purpose-built event facts; the spend-cap event is adopted from #5693 and the cancel-result event references #5696's response contract.
-- KTD8. The optional `subject_id` filter matches either `ticket_id` or `job_id` exactly. Filtering occurs in the delivery handler so the journal remains a complete ordered record and changing the filter never changes producer behavior.
+- KTD7. Event schemas constrain the one external envelope owned by `Aiur.Events.Envelope.to_external/2` and remain five separately addressable schema files and fixtures. Progress and usage expose bounded refresh attributes; spend-cap and cancel-result validation adopts the producer contracts without copying their full payloads into the signal.
+- KTD8. The optional `subject_id` filter matches either `refs.ticket` or `refs.job_id` exactly. Filtering occurs in the delivery handler so the journal remains a complete ordered record and changing the filter never changes producer behavior.
 
 ### High-level technical design
 
@@ -134,7 +134,7 @@ The webhook handler applies the subject filter, JSON-encodes once, signs those e
 - Lifecycle and usage stores gain best-effort Exchange publication after persistence; publication failure must never roll back or crash the authoritative write.
 - `@aiur/contracts` becomes packable as an independent dependency and retains type/schema-only runtime exports; its executable receiver example uses the official Standard Webhooks dependency instead of maintaining custom cryptography.
 - The webhook client disables redirects so a configured endpoint cannot redirect the signed body and secret-derived proof to another origin.
-- Webhook delivery can contain cost data, so HTTPS is mandatory and logs must contain only event IDs, status classes, and endpoint origin-safe metadata.
+- Webhook delivery carries spend-cap state but no cost amounts. HTTPS remains mandatory, and logs contain only event IDs, status classes, and endpoint origin-safe metadata.
 
 ### Risks and mitigations
 
@@ -153,7 +153,7 @@ The webhook handler applies the subject filter, JSON-encodes once, signs those e
 - **Requirements:** R2, R3, R5-R9
 - **Files:** `packages/aiur-contracts/package.json`, `packages/aiur-contracts/schemas/*.json`, `packages/aiur-contracts/fixtures/*.json`, `packages/aiur-contracts/src/`, `packages/aiur-contracts/examples/`, `packages/aiur-contracts/scripts/`, `packages/aiur-contracts/test/`, `packages/aiur-contracts/README.md`
 - **Approach:** Add or adopt five v1 event schemas and fixtures, export a generated event union, make the package independently packable, and add a Standard Webhooks receiver example backed by the official library. Add a fixed cross-language signature vector and negative tests for missing, wrong, stale, future, duplicate-ID, and body-mismatched deliveries.
-- **Test scenarios:** Every fixture validates only against its intended schema; required correlation fields cannot both be absent; emitted additive fields stay compatible; the receiver accepts the fixed valid vector once and rejects every tampered or replayed variant; an isolated consumer installs the packed tarball and imports its types and schemas.
+- **Test scenarios:** Every fixture validates only against its intended schema; catalog-declared references and attributes cannot be omitted; unallowlisted envelope fields are rejected; the receiver accepts the fixed valid vector once and rejects every tampered or replayed variant; an isolated consumer installs the packed tarball and imports its types and schemas.
 - **Verification:** `npm --prefix packages/aiur-contracts run generate`, `npm --prefix packages/aiur-contracts run check`, `npm --prefix packages/aiur-contracts test`, and the package's pack/install smoke test all pass.
 
 ### U2. Add configuration, secret validation, and supervision
@@ -167,8 +167,8 @@ The webhook handler applies the subject filter, JSON-encodes once, signs those e
 ### U3. Publish and normalize the three available event families
 
 - **Requirements:** R6-R8
-- **Files:** `src/lib/aiur/current_run_membership/`, `src/lib/aiur/usage_ledger/store.ex`, `src/lib/aiur/events/outbound/envelope.ex`, and mirror tests
-- **Approach:** Emit lifecycle and usage topics only after durable acceptance; map progress from the trusted observation attached by `Publisher`; construct exact external maps with ticket/job IDs and explicit data allowlists.
+- **Files:** `src/lib/aiur/current_run_membership/`, `src/lib/aiur/usage_ledger/store.ex`, `src/lib/aiur/events/envelope.ex`, `src/lib/aiur/events/outbound/event.ex`, and mirror tests
+- **Approach:** Emit lifecycle and usage topics only after durable acceptance; map progress from the trusted observation attached by `Publisher`; pass validated producer facts through `Aiur.Events.Envelope.to_external/2` with catalog-owned reference and attribute allowlists.
 - **Test scenarios:** Persist failure publishes nothing; accepted lifecycle and usage writes publish once; duplicate usage writes do not publish again; unattributed progress is dropped; all constructed events validate against package schemas.
 - **Verification:** Changed-source mirrors and direct publisher/ledger/membership callers pass with `--max-cases 4`.
 

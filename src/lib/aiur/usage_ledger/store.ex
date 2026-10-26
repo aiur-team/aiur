@@ -6,7 +6,15 @@ defmodule Aiur.UsageLedger.Store do
   @behaviour Aiur.UsageLedger
 
   alias Aiur.{Config, Fs, Journal, UsageEnvelope}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, OutboundEvents, Record, Recovery, RetiredFloor, RetiredKeys}
+  alias Aiur.UsageLedger.{
+    Checkpoint,
+    CounterPolicy,
+    OutboundEvents,
+    Record,
+    Recovery,
+    RetiredFloor,
+    RetiredKeys
+  }
 
   @max_scan_limit 10_000
   @checkpoint_every_appends 100

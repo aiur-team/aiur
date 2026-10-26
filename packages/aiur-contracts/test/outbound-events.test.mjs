@@ -28,13 +28,12 @@ test('outbound event fixtures validate against their v1 schemas', () => {
   }
 });
 
-test('outbound events require ticket or job correlation', () => {
+test('outbound ticket events require their catalog-declared references', () => {
   const ajv = new Ajv2020({ allErrors: true, formats: { 'date-time': true } });
   ajv.addSchema(read('schemas/outbound-event-envelope.v1.schema.json'));
   const validate = ajv.compile(read('schemas/ticket-lifecycle-event.v1.schema.json'));
   const event = read('fixtures/ticket-lifecycle-event.v1.json');
-  delete event.ticket_id;
-  delete event.job_id;
+  delete event.refs.ticket;
   assert.equal(validate(event), false);
 });
 

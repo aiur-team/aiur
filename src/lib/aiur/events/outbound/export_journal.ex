@@ -13,7 +13,7 @@ defmodule Aiur.Events.Outbound.ExportJournal do
   @behaviour Aiur.Events.DurableConsumer.Source
 
   alias Aiur.Config.Paths
-  alias Aiur.Events.{Exchange, Journal}
+  alias Aiur.Events.{Exchange, InstanceId, Journal}
   alias Aiur.Events.Outbound.Event
   alias Aiur.JsonStore
 
@@ -67,6 +67,7 @@ defmodule Aiur.Events.Outbound.ExportJournal do
   @impl true
   def init(opts) do
     with {:ok, journal_path, cursor_path} <- paths(opts),
+         {:ok, instance} <- instance_id(opts),
          :ok <- Journal.prepare(Path.dirname(journal_path), journal_path),
          {:ok, records} <- replay_journal(journal_path),
          :ok <- validate_sequence(records) do
@@ -84,7 +85,7 @@ defmodule Aiur.Events.Outbound.ExportJournal do
          max_pending_events: Keyword.get(opts, :max_pending_events, configured_max_pending()),
          consumers: MapSet.new(),
          clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-         normalize_fun: Keyword.get(opts, :normalize_fun, &Event.normalize/2),
+         normalize_fun: Keyword.get_lazy(opts, :normalize_fun, fn -> &Event.normalize(&1, &2, instance: instance) end),
          append_fun: Keyword.get(opts, :append_fun, &Journal.append/2),
          reconcile_fun: Keyword.get(opts, :reconcile_fun, &Aiur.Journal.reconcile_ambiguous/3),
          alert_fun: Keyword.get(opts, :alert_fun, &ignore_alert/2),
@@ -130,10 +131,13 @@ defmodule Aiur.Events.Outbound.ExportJournal do
 
   defp admit(event, state) do
     cursor = load_cursor(state.cursor_path)
+    seq = state.head + 1
+    event = Map.put(event, "seq", seq)
 
     with {:ok, state} <- compact_delivered(state, cursor),
          :ok <- capacity_available(state, cursor),
-         record = %{"version" => 1, "seq" => state.head + 1, "event_id" => event["event_id"], "event" => event},
+         {:ok, event_id} <- Event.delivery_id(event),
+         record = %{"version" => 1, "seq" => seq, "event_id" => event_id, "event" => event},
          :ok <- append_durably(state.journal_path, record, state) do
       Enum.each(state.consumers, &send(&1, {:durable_record, record}))
       state = maybe_resolve_capacity(%{state | records: :queue.in(record, state.records), head: record["seq"]})
@@ -195,11 +199,12 @@ defmodule Aiur.Events.Outbound.ExportJournal do
            "version" => 1,
            "seq" => seq,
            "event_id" => event_id,
-           "event" => %{"event_id" => event_id}
+           "event" => %{"seq" => seq} = event
          } = record
        )
-       when is_integer(seq) and seq > 0 and is_binary(event_id) and event_id != "",
-       do: {:ok, record}
+       when is_integer(seq) and seq > 0 and is_binary(event_id) and event_id != "" do
+    if Event.delivery_id(event) == {:ok, event_id}, do: {:ok, record}, else: {:error, :invalid_outbound_record}
+  end
 
   defp validate_record(_record), do: {:error, :invalid_outbound_record}
 
@@ -236,6 +241,18 @@ defmodule Aiur.Events.Outbound.ExportJournal do
       {nil, nil} -> default_paths()
       _partial -> {:error, :incomplete_outbound_paths}
     end
+  end
+
+  defp instance_id(opts) do
+    case Keyword.fetch(opts, :instance) do
+      {:ok, instance} when is_binary(instance) and instance != "" -> {:ok, instance}
+      {:ok, _invalid} -> {:error, :identity_unavailable}
+      :error -> Keyword.get(opts, :instance_fun, &InstanceId.current/0).()
+    end
+  rescue
+    _error -> {:error, :identity_unavailable}
+  catch
+    _kind, _reason -> {:error, :identity_unavailable}
   end
 
   defp default_paths do

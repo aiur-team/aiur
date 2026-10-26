@@ -116,8 +116,6 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.usage.spend_cap_partial", "orchestration"},
     # aiur/orchestrator/spend_cap/runtime.ex
     {"ticket.*.usage.spend_cap_partial.resolved", "orchestration"},
-    # aiur/orchestrator/spend_cap/store.ex
-    {"ticket.*.usage.spend_cap_reached", "orchestration"},
     # aiur/workspace.ex
     {"ticket.*.workspace.*", "workspace"},
     # aiur/workspace/dirty_guard.ex
@@ -164,9 +162,51 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.optimistic.integrated", "harness-adapters"}
   ]
 
+  @outbound [
+    %Entry{
+      pattern: "ticket.*.lifecycle.changed",
+      class: :live,
+      export?: true,
+      refs: [:ticket, :job_id],
+      attrs: [
+        lifecycle: {:enum, ~w(queued retrying allocated running paused waiting replaced completed cancelled)},
+        lifecycle_source: {:enum, ~w(status_report tracker)}
+      ],
+      owner: "orchestration"
+    },
+    %Entry{
+      pattern: "ticket.*.usage.changed",
+      class: :live,
+      export?: true,
+      refs: [:ticket, :job_id],
+      attrs: [position: :integer, generation: :integer],
+      owner: "accounting"
+    },
+    %Entry{
+      pattern: "ticket.*.usage.spend_cap_reached",
+      class: :ledgered,
+      export?: true,
+      refs: [:ticket, :job_id],
+      attrs: [spend_cap_state: {:enum, ~w(budget_exhausted)}, currency: {:enum, ~w(USD)}],
+      owner: "orchestration"
+    },
+    %Entry{
+      pattern: "ticket.*.cancel.result",
+      class: :live,
+      export?: true,
+      refs: [:ticket, :job_id],
+      attrs: [
+        tracker_state: {:enum, ~w(cancelled)},
+        process_status: {:enum, ~w(exited still_running kill_failed generation_changed)}
+      ],
+      owner: "orchestration"
+    }
+  ]
+
   @entries Enum.map(@alerts, fn {pattern, owner} -> %Entry{pattern: pattern, class: :ledgered, owner: owner} end) ++
              Enum.map(@live, fn {pattern, owner} -> %Entry{pattern: pattern, class: :live, owner: owner} end) ++
-             Enum.map(@logged, fn {pattern, owner} -> %Entry{pattern: pattern, class: :logged, owner: owner} end)
+             Enum.map(@logged, fn {pattern, owner} -> %Entry{pattern: pattern, class: :logged, owner: owner} end) ++
+             @outbound
 
   @spec entries() :: [Entry.t()]
   def entries, do: @entries

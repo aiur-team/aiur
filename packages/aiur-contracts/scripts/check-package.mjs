@@ -17,13 +17,19 @@ try {
     import type { OutboundEvent, TicketLifecycleChangedEvent } from '@aiur/contracts';
     import lifecycleSchema from '@aiur/contracts/schemas/ticket-lifecycle-event.v1.schema.json' with { type: 'json' };
     const event: TicketLifecycleChangedEvent = {
-      contract: 'aiur.ticket_lifecycle_event',
-      contract_version: 1,
-      event_id: 'evt_pack_check',
-      event_type: 'ticket.lifecycle.changed',
-      emitted_at: '2026-10-25T00:00:00Z',
-      ticket_id: '5695',
-      data: { lifecycle: 'running', source: 'tracker', observed_at: '2026-10-25T00:00:00Z' },
+      v: 1,
+      instance: 'host/default',
+      seq: 1,
+      id: 101,
+      topic: 'ticket.5695.lifecycle.changed',
+      class: 'live',
+      occurred_at: '2026-10-25T00:00:00Z',
+      observed_at: '2026-10-25T00:00:00Z',
+      source: 'legacy',
+      refs: { ticket: '5695', job_id: 'run-5695-1' },
+      attrs: { lifecycle: 'running', lifecycle_source: 'tracker' },
+      payload_version: 1,
+      anchor: null,
     };
     export const pair: [OutboundEvent, string] = [event, lifecycleSchema.$id];
   `);

@@ -5,11 +5,11 @@ defmodule Aiur.Events.Outbound.WebhookTest do
 
   @secret "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
   @timestamp 1_792_886_400
-  @body ~s({"contract":"aiur.ticket_lifecycle_event","contract_version":1,"event_id":"evt_101","event_type":"ticket.lifecycle.changed","emitted_at":"2026-10-25T00:00:00Z","ticket_id":"5695","job_id":"run-5695-1","data":{"lifecycle":"running","source":"tracker","observed_at":"2026-10-25T00:00:00Z"}})
+  @body ~s({"anchor":null,"attrs":{"lifecycle":"running","lifecycle_source":"tracker"},"class":"live","id":101,"instance":"host/default","observed_at":"2026-10-25T00:00:00Z","occurred_at":"2026-10-25T00:00:00Z","payload_version":1,"refs":{"job_id":"run-5695-1","ticket":"5695"},"seq":1,"source":"legacy","topic":"ticket.5695.lifecycle.changed","v":1})
 
   test "matches the cross-language Standard Webhooks signature vector" do
-    assert Webhook.sign(@secret, "evt_101", @timestamp, @body) ==
-             "v1,x6NtCsb4O8VSnXhPaKG1+9ahN6zNY6uuuZidWBVLbDA="
+    assert Webhook.sign(@secret, "host/default/101", @timestamp, @body) ==
+             "v1,AMeDHsQnunjDAaXb9UkZ2N26t1CragO3VW1mczNNUpk="
   end
 
   test "posts the exact signed body and acknowledges only a 2xx response" do
@@ -35,9 +35,10 @@ defmodule Aiur.Events.Outbound.WebhookTest do
 
     headers = Map.new(Keyword.fetch!(opts, :headers))
     assert headers["content-type"] == "application/json"
-    assert headers["webhook-id"] == "evt_101"
+    assert headers["host"] == "consumer.example.test"
+    assert headers["webhook-id"] == "host/default/101"
     assert headers["webhook-timestamp"] == Integer.to_string(@timestamp)
-    assert headers["webhook-signature"] == Webhook.sign(@secret, "evt_101", @timestamp, body)
+    assert headers["webhook-signature"] == Webhook.sign(@secret, "host/default/101", @timestamp, body)
   end
 
   test "holds the durable cursor on redirect, retryable HTTP, and transport failures" do
@@ -51,6 +52,27 @@ defmodule Aiur.Events.Outbound.WebhookTest do
       state = webhook_state(request_fun: fn _opts -> result end)
       assert {:error, _reason} = Webhook.handle_record(%{"seq" => 1, "event" => event()}, state)
     end
+  end
+
+  test "preserves a non-default port in the Host header while pinning DNS" do
+    test = self()
+
+    state =
+      webhook_state(
+        url: "https://consumer.example.test:8443/aiur",
+        resolve_fun: fn "https://consumer.example.test:8443/aiur", false ->
+          {:ok, "https://93.184.216.34:8443/aiur", "consumer.example.test"}
+        end,
+        request_fun: fn opts ->
+          send(test, {:request, opts})
+          {:ok, %Req.Response{status: 204}}
+        end
+      )
+
+    assert {:ok, ^state} = Webhook.handle_record(%{"seq" => 1, "event" => event()}, state)
+    assert_receive {:request, opts}, 1_000
+    assert {"host", "consumer.example.test:8443"} in Keyword.fetch!(opts, :headers)
+    assert Keyword.fetch!(opts, :connect_options)[:hostname] == "consumer.example.test"
   end
 
   test "discards a permanent 4xx response and raises attention without exposing the URL" do
@@ -68,7 +90,7 @@ defmodule Aiur.Events.Outbound.WebhookTest do
 
     assert_receive {:alert, "system.outbound_events.delivery.permanent_failure", opts}, 1_000
     assert opts[:needs_attention]
-    assert opts[:reason] =~ "evt_101"
+    assert opts[:reason] =~ "host/default/101"
     refute opts[:reason] =~ "consumer.example.test"
   end
 

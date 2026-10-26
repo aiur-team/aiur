@@ -6,23 +6,31 @@
     { "$ref": "outbound-event-envelope.v1.schema.json" },
     {
       "type": "object",
-      "additionalProperties": true,
       "properties": {
-        "contract": { "const": "aiur.ticket_progress_event" },
-        "event_type": { "const": "ticket.progress.changed" },
-        "data": {
+        "topic": {
+          "type": "string",
+          "pattern": "^ticket\\.[A-Za-z0-9._:-]+\\.agent\\.progress(?:\\.(?:checkin|phase))?$"
+        },
+        "refs": {
           "type": "object",
-          "additionalProperties": true,
+          "additionalProperties": false,
+          "properties": {
+            "ticket": { "type": "string", "minLength": 1 },
+            "job_id": { "type": ["string", "null"] }
+          },
+          "required": ["ticket", "job_id"]
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
             "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
-            "source": { "enum": ["progress", "progress.checkin", "progress.phase"] },
-            "observed_at": { "type": "string", "format": "date-time" },
-            "occurred_at": { "type": ["string", "null"], "format": "date-time" }
+            "progress_source": { "enum": ["progress", "progress.checkin", "progress.phase"] }
           },
-          "required": ["percent", "source", "observed_at", "occurred_at"]
+          "required": ["percent", "progress_source"]
         }
       },
-      "required": ["contract", "event_type", "data"]
+      "required": ["topic", "refs", "attrs"]
     }
   ]
 }

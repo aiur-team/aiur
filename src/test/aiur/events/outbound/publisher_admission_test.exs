@@ -36,11 +36,12 @@ defmodule Aiur.Events.Outbound.PublisherAdmissionTest do
         {ExportJournal,
          journal_path: Path.join(dir, "events.ndjson"),
          cursor_path: Path.join(dir, "cursor.json"),
+         instance: "host/default",
          max_pending_events: 10,
          append_fun: append_fun,
          normalize_fun: fn event, now ->
            send(test, {:normalized, event.topic})
-           Event.normalize(event, now)
+           Event.normalize(event, now, instance: "host/default")
          end}
       )
 
@@ -61,9 +62,10 @@ defmodule Aiur.Events.Outbound.PublisherAdmissionTest do
              )
 
     assert {:ok, [%{"seq" => 1, "event" => event}]} = ExportJournal.replay(journal, 0, 10)
-    assert event["event_id"] == "evt_#{id}"
-    assert event["event_type"] == "ticket.progress.changed"
-    assert event["ticket_id"] == "5695"
+    assert event["id"] == id
+    assert event["seq"] == 1
+    assert event["topic"] == "ticket.5695.agent.progress"
+    assert event["refs"]["ticket"] == "5695"
   end
 
   test "the outbound producer preserves trusted correlation through publisher admission", %{journal: journal} do
@@ -95,10 +97,10 @@ defmodule Aiur.Events.Outbound.PublisherAdmissionTest do
 
     assert_receive {:tracked, "5695"}, 1_000
     assert {:ok, [%{"event" => event}]} = ExportJournal.replay(journal, 0, 10)
-    assert event["event_type"] == "ticket.lifecycle.changed"
-    assert event["ticket_id"] == "5695"
-    assert event["job_id"] == "run-5695-1"
-    assert event["data"]["lifecycle"] == "running"
+    assert event["topic"] == "ticket.5695.lifecycle.changed"
+    assert event["refs"]["ticket"] == "5695"
+    assert event["refs"]["job_id"] == "run-5695-1"
+    assert event["attrs"]["lifecycle"] == "running"
   end
 
   test "non-exported topics bypass the durable journal entirely", %{journal: journal} do

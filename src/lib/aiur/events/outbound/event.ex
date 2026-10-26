@@ -3,6 +3,7 @@ defmodule Aiur.Events.Outbound.Event do
   # aiur:event-bus-boundary-member
 
   alias Aiur.{TicketObservation, TrackerIdentity}
+  alias Aiur.Events.{Catalog, Envelope}
 
   @progress_sources ["progress", "progress.checkin", "progress.phase"]
   @lifecycles ["queued", "retrying", "allocated", "running", "paused", "waiting", "replaced", "completed", "cancelled"]
@@ -33,34 +34,40 @@ defmodule Aiur.Events.Outbound.Event do
   @doc "Returns whether an internal topic can produce a versioned external event."
   @spec exportable_topic?(String.t()) :: boolean()
   def exportable_topic?(topic) when is_binary(topic) do
-    case String.split(topic, ".") do
-      ["ticket", _identifier, "lifecycle", "changed"] -> true
-      ["ticket", _identifier, "usage", "changed"] -> true
-      ["ticket", _identifier, "usage", "spend_cap_reached"] -> true
-      ["ticket", _identifier, "cancel", "result"] -> true
-      ["ticket", _identifier, "agent", "progress"] -> true
-      ["ticket", _identifier, "agent", "progress", suffix] when suffix in ["checkin", "phase"] -> true
-      _other -> false
-    end
+    supported_topic?(topic) and Catalog.lookup(topic).export?
   end
 
   def exportable_topic?(_topic), do: false
 
-  @spec normalize(map(), DateTime.t()) :: {:ok, map()} | :drop
+  @doc "Returns the stable Standard Webhooks identifier for a canonical external envelope."
+  @spec delivery_id(map()) :: {:ok, String.t()} | :error
+  def delivery_id(%{"instance" => instance, "id" => id})
+      when is_binary(instance) and instance != "" and is_integer(id) and id > 0,
+      do: {:ok, "#{instance}/#{id}"}
+
+  def delivery_id(_event), do: :error
+
+  @spec normalize(map(), DateTime.t(), keyword()) :: {:ok, map()} | :drop
   def normalize(
         %{
           id: id,
           topic: topic,
           outbound_event: %{kind: :ticket_lifecycle, data: data},
           ticket_observation: %TicketObservation{} = observation
-        },
-        %DateTime{} = emitted_at
+        } = event,
+        %DateTime{} = _emitted_at,
+        opts
       ) do
     with {:ok, identity, job_id} <- correlation(observation, id),
          true <- topic == "ticket.#{identity.identifier}.lifecycle.changed",
          {:ok, data} <- lifecycle_data(data),
-         {:ok, envelope} <- envelope("aiur.ticket_lifecycle_event", "ticket.lifecycle.changed", id, emitted_at, identity, job_id) do
-      {:ok, Map.put(envelope, "data", data)}
+         {:ok, envelope} <-
+           external(event, opts,
+             job_id: job_id,
+             lifecycle: data["lifecycle"],
+             lifecycle_source: data["source"]
+           ) do
+      {:ok, envelope}
     else
       _invalid -> :drop
     end
@@ -73,13 +80,19 @@ defmodule Aiur.Events.Outbound.Event do
           topic: topic,
           ticket_observation: %TicketObservation{} = observation
         } = event,
-        %DateTime{} = emitted_at
+        %DateTime{} = _emitted_at,
+        opts
       ) do
     with {:ok, identity, job_id} <- correlation(observation, id),
          true <- topic == "ticket.#{identity.identifier}.usage.spend_cap_reached",
          {:ok, data} <- spend_cap_data(event, identity),
-         {:ok, envelope} <- envelope("aiur.ticket_spend_cap_reached", "ticket.spend_cap.reached", id, emitted_at, identity, job_id) do
-      {:ok, Map.merge(data, envelope)}
+         {:ok, envelope} <-
+           external(event, opts,
+             job_id: job_id,
+             spend_cap_state: data["state"],
+             currency: data["currency"]
+           ) do
+      {:ok, envelope}
     else
       _invalid -> :drop
     end
@@ -91,14 +104,20 @@ defmodule Aiur.Events.Outbound.Event do
           topic: topic,
           outbound_event: %{kind: :ticket_cancel_result, data: data},
           ticket_observation: %TicketObservation{} = observation
-        },
-        %DateTime{} = emitted_at
+        } = event,
+        %DateTime{} = _emitted_at,
+        opts
       ) do
     with {:ok, identity, job_id} <- correlation(observation, id),
          true <- topic == "ticket.#{identity.identifier}.cancel.result",
          {:ok, data} <- cancel_result_data(data, identity),
-         {:ok, envelope} <- envelope("aiur.ticket_cancel", "ticket.cancel.result", id, emitted_at, identity, job_id) do
-      {:ok, Map.merge(data, envelope)}
+         {:ok, envelope} <-
+           external(event, opts,
+             job_id: job_id,
+             tracker_state: data["tracker_state"],
+             process_status: data["process"]["status"]
+           ) do
+      {:ok, envelope}
     else
       _invalid -> :drop
     end
@@ -109,8 +128,9 @@ defmodule Aiur.Events.Outbound.Event do
           id: id,
           topic: topic,
           ticket_observation: %TicketObservation{source: %{kind: :agent_event}} = observation
-        },
-        %DateTime{} = emitted_at
+        } = event,
+        %DateTime{} = _emitted_at,
+        opts
       ) do
     identity = observation.tracker_identity
     source = get_in(observation.source, [:name])
@@ -122,15 +142,14 @@ defmodule Aiur.Events.Outbound.Event do
          true <- source in @progress_sources,
          true <- topic == expected_topic,
          true <- is_integer(percent) and percent in 0..100,
-         %DateTime{} = observed_at <- observation.observed_at,
-         {:ok, envelope} <- envelope("aiur.ticket_progress_event", "ticket.progress.changed", id, emitted_at, identity, observation.provenance[:run_id]) do
-      {:ok,
-       Map.put(envelope, "data", %{
-         "percent" => percent,
-         "source" => source,
-         "observed_at" => DateTime.to_iso8601(observed_at),
-         "occurred_at" => iso8601_or_nil(observation.occurred_at)
-       })}
+         %DateTime{} <- observation.observed_at,
+         {:ok, envelope} <-
+           external(event, opts,
+             job_id: observation.provenance[:run_id],
+             percent: percent,
+             progress_source: source
+           ) do
+      {:ok, envelope}
     else
       _invalid -> :drop
     end
@@ -142,20 +161,50 @@ defmodule Aiur.Events.Outbound.Event do
           topic: topic,
           outbound_event: %{kind: :ticket_usage, data: data},
           ticket_observation: %TicketObservation{} = observation
-        },
-        %DateTime{} = emitted_at
+        } = event,
+        %DateTime{} = _emitted_at,
+        opts
       ) do
     with {:ok, identity, job_id} <- correlation(observation, id),
          true <- topic == "ticket.#{identity.identifier}.usage.changed",
          {:ok, data} <- usage_data(data),
-         {:ok, envelope} <- envelope("aiur.ticket_usage_event", "ticket.usage.changed", id, emitted_at, identity, job_id) do
-      {:ok, Map.put(envelope, "data", data)}
+         {:ok, envelope} <-
+           external(event, opts,
+             job_id: job_id,
+             position: data["position"],
+             generation: data["generation"]
+           ) do
+      {:ok, envelope}
     else
       _invalid -> :drop
     end
   end
 
-  def normalize(_event, _emitted_at), do: :drop
+  def normalize(_event, _emitted_at, _opts), do: :drop
+
+  defp supported_topic?(topic) do
+    case String.split(topic, ".") do
+      ["ticket", _identifier, "lifecycle", "changed"] -> true
+      ["ticket", _identifier, "usage", "changed"] -> true
+      ["ticket", _identifier, "usage", "spend_cap_reached"] -> true
+      ["ticket", _identifier, "cancel", "result"] -> true
+      ["ticket", _identifier, "agent", "progress"] -> true
+      ["ticket", _identifier, "agent", "progress", suffix] when suffix in ["checkin", "phase"] -> true
+      _other -> false
+    end
+  end
+
+  defp external(event, opts, attributes) do
+    with instance when is_binary(instance) and instance != "" <- Keyword.get(opts, :instance),
+         {:ok, envelope} <-
+           event
+           |> Map.merge(Map.new(attributes))
+           |> Envelope.to_external(Keyword.put(opts, :instance, instance)) do
+      {:ok, envelope}
+    else
+      _invalid -> :drop
+    end
+  end
 
   defp correlation(
          %TicketObservation{
@@ -170,23 +219,6 @@ defmodule Aiur.Events.Outbound.Event do
   end
 
   defp correlation(_observation, _event_id), do: :error
-
-  defp envelope(contract, event_type, id, emitted_at, identity, job_id) do
-    if is_integer(id) and id > 0 and TrackerIdentity.joinable?(identity) do
-      event = %{
-        "contract" => contract,
-        "contract_version" => 1,
-        "event_id" => "evt_#{id}",
-        "event_type" => event_type,
-        "emitted_at" => DateTime.to_iso8601(emitted_at),
-        "ticket_id" => identity.identifier
-      }
-
-      {:ok, maybe_put_job_id(event, job_id)}
-    else
-      :error
-    end
-  end
 
   defp lifecycle_data(%{"lifecycle" => lifecycle, "source" => source, "observed_at" => observed_at})
        when lifecycle in @lifecycles and source in @lifecycle_sources and is_binary(observed_at) do
@@ -353,9 +385,5 @@ defmodule Aiur.Events.Outbound.Event do
   end
 
   defp coverage_reasons(_reasons), do: :error
-  defp maybe_put_job_id(event, job_id) when is_binary(job_id) and job_id != "", do: Map.put(event, "job_id", job_id)
-  defp maybe_put_job_id(event, _job_id), do: event
   defp non_empty_string?(value), do: is_binary(value) and value != ""
-  defp iso8601_or_nil(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp iso8601_or_nil(_value), do: nil
 end

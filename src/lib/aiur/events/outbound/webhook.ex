@@ -7,6 +7,7 @@ defmodule Aiur.Events.Outbound.Webhook do
   require Logger
 
   alias Aiur.Config.WebhookDestination
+  alias Aiur.Events.Outbound.Event
 
   @spec new!(keyword()) :: map()
   def new!(opts) do
@@ -53,7 +54,8 @@ defmodule Aiur.Events.Outbound.Webhook do
     {:ok, state}
   end
 
-  defp deliver(%{"event_id" => event_id} = event, state) when is_binary(event_id) and event_id != "" do
+  defp deliver(event, state) do
+    {:ok, event_id} = Event.delivery_id(event)
     body = Jason.encode!(event)
     timestamp = state.clock.() |> DateTime.to_unix() |> Integer.to_string()
     signature = signature(state.signing_key, event_id, String.to_integer(timestamp), body)
@@ -65,6 +67,7 @@ defmodule Aiur.Events.Outbound.Webhook do
           body: body,
           headers: [
             {"content-type", "application/json"},
+            {"host", host_header(state.url)},
             {"webhook-id", event_id},
             {"webhook-timestamp", timestamp},
             {"webhook-signature", signature}
@@ -84,12 +87,11 @@ defmodule Aiur.Events.Outbound.Webhook do
     _error -> {:error, :request_failed}
   end
 
-  defp deliver(_event, _state), do: {:error, :invalid_event_id}
-
   defp subscribed?(_event, nil), do: true
 
   defp subscribed?(event, subject_id) do
-    event["ticket_id"] == subject_id or event["job_id"] == subject_id
+    refs = event["refs"] || %{}
+    refs["ticket"] == subject_id or refs["job_id"] == subject_id
   end
 
   defp handle_response({:ok, %Req.Response{status: status}}, _event_id, state) when status in 200..299,
@@ -125,6 +127,17 @@ defmodule Aiur.Events.Outbound.Webhook do
     _error -> :ok
   catch
     _kind, _reason -> :ok
+  end
+
+  defp host_header(url) do
+    case URI.new(url) do
+      {:ok, %URI{host: host, port: port}} when is_binary(host) and host != "" ->
+        host = if String.contains?(host, ":"), do: "[#{host}]", else: host
+        if port in [nil, 443], do: host, else: "#{host}:#{port}"
+
+      _invalid ->
+        raise ArgumentError, "outbound webhook URL must have an authority"
+    end
   end
 
   defp signature(key, webhook_id, timestamp, body) do
