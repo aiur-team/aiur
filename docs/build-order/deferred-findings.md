@@ -168,3 +168,18 @@ critical-path capacity, or prevent completion.
   separately still open and does not become deferred through this entry.
 - Future disposition: compare mode positions using #5181's captures and add
   the requested browser layout assertion when correcting the alignment.
+
+## DF-015 — MP-R1 historical ratchet criterion needs reconciliation
+
+- Severity: P2 acceptance-documentation debt.
+- Evidence: #3342's 2026-10-26 census found raw allowlist rows increased in
+  #4021 (586 → 589), #4409 (573 → 577), and #5026 (521 → 545).
+  Their diffs carry explicit MP-R1-C9 extraction reasons. Initial checker
+  bootstrap PRs #3530 and #3578 also introduced new rule baselines.
+- Affected component: MP-R1 plan §7 criterion 3 and component-checker policy.
+- Why deferred: the current full checker passes; ticket-reasoned exceptions
+  are supported by the current policy. Raw allowance rows are not reference
+  occurrences, and no new runtime failure was observed. A current green
+  checker does not establish the plan's stricter historical monotonic claim.
+- Future disposition: reconcile criterion 3 with reviewed extraction exceptions
+  and retain the dated [acceptance evidence](../research/aiur-mobile-and-platform/acceptance/MP-R1/README.md).
