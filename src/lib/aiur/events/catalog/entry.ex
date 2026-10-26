@@ -1,0 +1,24 @@
+defmodule Aiur.Events.Catalog.Entry do
+  @moduledoc "A topic's durability, ownership and identifier-only export contract."
+
+  @type class :: :ephemeral | :live | :ledgered | :logged | :journaled
+  @type attr_type :: {:enum, [String.t()]} | :integer | :boolean | :id | :sha
+  @type t :: %__MODULE__{
+          pattern: String.t(),
+          class: class(),
+          export?: boolean(),
+          refs: [atom()],
+          attrs: [{atom(), attr_type()}],
+          payload_version: pos_integer(),
+          owner: String.t()
+        }
+
+  @enforce_keys [:pattern, :class, :owner]
+  defstruct pattern: nil, class: :live, export?: false, refs: [], attrs: [], payload_version: 1, owner: nil
+
+  @doc false
+  @spec alert(String.t(), String.t()) :: t()
+  def alert(pattern, owner) do
+    %__MODULE__{pattern: pattern, class: :ledgered, export?: true, refs: [:ticket], attrs: [severity: {:enum, ~w(info warning error)}, needs_attention: :boolean], owner: owner}
+  end
+end
