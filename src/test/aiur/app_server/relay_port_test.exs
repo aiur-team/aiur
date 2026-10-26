@@ -90,6 +90,12 @@ defmodule Aiur.AppServer.RelayPortTest do
 
         {:ok, _attach} = :gen_tcp.recv(socket, 0, 1_000)
         :ok = :gen_tcp.send(socket, Jason.encode!(%{op: "attached"}) <> "\n")
+        send(owner, {:relay_peer_attached, self()})
+
+        receive do
+          :send_frame -> :ok
+        end
+
         :ok = :gen_tcp.send(socket, Jason.encode!(%{op: "frame", offset: 1, line: "pending"}) <> "\n")
         :ok = :inet.setopts(socket, linger: {true, 0})
         :gen_tcp.close(socket)
@@ -99,10 +105,14 @@ defmodule Aiur.AppServer.RelayPortTest do
     File.write!(Path.join(directory, "relay.json"), Jason.encode!(%{relay_pid: pid}))
     {:ok, relay} = RelayPort.attach(directory, 1, 0)
     monitor = Process.monitor(relay)
+    :ok = RelayPort.call(relay, :manual_acknowledgements)
+    assert_receive {:relay_peer_attached, ^peer}, 1_000
+    send(peer, :send_frame)
     assert_receive {:relay_peer_frame_sent, ^peer}, 1_000
     assert_receive {^relay, {:data, {:eol, "pending"}}}, 1_000
-    assert_receive {:DOWN, ^monitor, :process, ^relay, {:shutdown, {:relay_send_failed, :ack, reason}}}, 1_000
+    assert {:error, reason} = RelayPort.call(relay, :acknowledge)
     assert reason in [:closed, :econnreset]
+    assert_receive {:DOWN, ^monitor, :process, ^relay, {:shutdown, {:relay_send_failed, :ack, ^reason}}}, 1_000
     :gen_tcp.close(listener)
   end
 
