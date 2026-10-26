@@ -176,8 +176,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     {Aiur.Instance.RepositoryLeader, [role: "primary", services: [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter], supervisor: Aiur.Instance.GlobalServices]},
     AiurWeb.DashboardAuth.ChallengeStore,
     AiurWeb.DashboardAuthRateLimit.Store,
-    Aiur.BuildOrder.Estimates,
     Aiur.GitHub.AgentBudgetSocket,
+    Aiur.BuildOrder.Estimates,
     AiurWeb.Build.IndexSupervisor
   ]
 
