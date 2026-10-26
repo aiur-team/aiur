@@ -1,10 +1,12 @@
 defmodule Aiur.Events.GithubCIPoller.RepoWideFailure do
   @moduledoc "Identifies PR failures that exactly match the latest failing main run."
+  require Logger
+  alias Aiur.Events.GithubCIPoller.BaseCause
 
   @spec matches?(map(), keyword()) :: boolean()
   def matches?(%{ci_failure_digest: %{signature: signature}} = result, opts)
       when is_binary(signature) and signature != "" do
-    history = Keyword.get_lazy(opts, :main_watch_history, &main_history/0)
+    history = Keyword.get_lazy(opts, :main_watch_history, &BaseCause.main_watch_history/0)
 
     with history when is_list(history) <- history,
          %{digest: %{signature: ^signature}, checks: checks} <- latest_observation(history),
@@ -26,9 +28,6 @@ defmodule Aiur.Events.GithubCIPoller.RepoWideFailure do
     else
       :no_match
     end
-  rescue
-    _unavailable ->
-      result |> Map.put(:decision, :pending) |> Map.put(:pending_reason, :ci_recovery) |> Map.put(:recovery, "repo_wide_failure")
   end
 
   defp alert_once(opts, signature) do
@@ -40,8 +39,15 @@ defmodule Aiur.Events.GithubCIPoller.RepoWideFailure do
 
     if condition_state.(topic, opts) != :firing do
       emitter = Keyword.get(opts, :alert_emitter, &Signal.alert/2)
-      _ = emitter.(topic, central: true, needs_attention: true, message: message, reason: message)
+
+      case emitter.(topic, central: true, needs_attention: true, message: message, reason: message) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("Repo-wide CI attention failed: #{inspect(reason)}")
+        other -> Logger.warning("Repo-wide CI attention returned unexpected result: #{inspect(other)}")
+      end
     end
+  rescue
+    error -> Logger.warning("Repo-wide CI attention failed: #{Exception.message(error)}")
   end
 
   defp latest_observation(history) do
@@ -53,8 +59,4 @@ defmodule Aiur.Events.GithubCIPoller.RepoWideFailure do
   defp failed_jobs(result), do: result |> Map.get(:failures, []) |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.sort()
 
   defp failed_job_names(checks), do: checks |> Enum.filter(&(&1.conclusion in ~w(failure timed_out action_required startup_failure))) |> Enum.map(& &1.name) |> Enum.uniq()
-
-  defp main_history do
-    if Aiur.MainWatch.enabled?(), do: Map.get(Aiur.MainWatch.state(), :history, []), else: :disabled
-  end
 end

@@ -80,6 +80,36 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     refute_received {:attention, _}
   end
 
+  test "a failed repository attention is logged while the PR remains held", ctx do
+    digest = %FailureDigest{signature: "same-failure-signature", checks: [%{id: 1, name: "test", url: @run_url}]}
+    main = %{sha: "main-head", completed_at: 900, checks: [%{name: "test", conclusion: "failure"}], digest: digest}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
+      |> Keyword.put(:main_watch_history, [main])
+      |> Keyword.put(:alert_emitter, fn _, _ -> {:error, :offline} end)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert %{decision: :pending, recovery: "repo_wide_failure"} = Recovery.recover(ctx.issue, ctx.result, opts)
+      end)
+
+    assert log =~ "Repo-wide CI attention failed: :offline"
+  end
+
+  test "unavailable MainWatch history does not classify the PR as repo-wide", ctx do
+    digest = %FailureDigest{signature: "same-failure-signature"}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
+      |> Keyword.put(:main_watch_history, :disabled)
+
+    assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:attention, "system.main.ci.repo_wide_failure." <> _}
+  end
+
   test "a newer green main run means the matching old signature no longer holds", ctx do
     digest = %FailureDigest{signature: "old-main-failure", checks: [%{id: 1, name: "test", url: @run_url}]}
     main_red = %{sha: "main-red", completed_at: 900, checks: [%{name: "test", conclusion: "failure"}], digest: digest}
