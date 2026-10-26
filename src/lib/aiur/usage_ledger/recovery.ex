@@ -106,22 +106,24 @@ defmodule Aiur.UsageLedger.Recovery do
         %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
 
       true ->
-        with {:ok, policy, position} <- RetiredRecovery.replay_tail(checkpoint.policy, checkpoint.position, retained, paths.retired_keys_path) do
-          %{
-            paths: paths,
-            records: retained,
-            policy: policy,
-            position: position,
-            generation: position,
-            coverage: policy.coverage,
-            health: marker_health(:healthy, marker_status),
-            writable?: marker_status == :absent,
-            limits: persistence.limits,
-            retired_through: floor,
-            checkpoint_position: checkpoint.position
-          }
-        else
-          {:error, _reason} -> %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
+        case RetiredRecovery.replay_tail(checkpoint.policy, checkpoint.position, retained, paths.retired_keys_path) do
+          {:ok, policy, position} ->
+            %{
+              paths: paths,
+              records: retained,
+              policy: policy,
+              position: position,
+              generation: position,
+              coverage: policy.coverage,
+              health: marker_health(:healthy, marker_status),
+              writable?: marker_status == :absent,
+              limits: persistence.limits,
+              retired_through: floor,
+              checkpoint_position: checkpoint.position
+            }
+
+          {:error, _reason} ->
+            %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
         end
     end
   end

@@ -23,14 +23,16 @@ defmodule Aiur.UsageLedger.RetiredRecovery do
 
       records
       |> Enum.filter(&(&1.position > checkpoint_position))
-      |> Enum.reduce_while({:ok, policy, checkpoint_position}, fn record, {:ok, current, position} ->
-        if record.position == position + 1 do
-          replay_record(record, current, position)
-        else
-          {:halt, {:error, :invalid_positions}}
-        end
-      end)
+      |> replay_records(policy, checkpoint_position)
     end
+  end
+
+  defp replay_records(records, policy, position) do
+    Enum.reduce_while(records, {:ok, policy, position}, fn record, {:ok, current, current_position} ->
+      if record.position == current_position + 1,
+        do: replay_record(record, current, current_position),
+        else: {:halt, {:error, :invalid_positions}}
+    end)
   end
 
   defp replay_record(record, policy, position) do
