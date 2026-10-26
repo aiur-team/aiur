@@ -1,5 +1,11 @@
 defmodule Aiur.Events.GithubCIPoller.RepoWideFailure do
-  @moduledoc "Identifies PR failures that exactly match the latest failing main run."
+  @moduledoc """
+  Identifies PR failures matching the latest failing main run before ordinary routing.
+
+  For checks without parsed test identities (for example workflow security, lint, or
+  dialyzer), FailureDigest signatures are check-name level. A PR-specific failure
+  in the same check can therefore match the main failure until main is green.
+  """
   require Logger
   alias Aiur.Events.GithubCIPoller.BaseCause
 
