@@ -37,7 +37,7 @@ test("container launch runs without tmux and exits cleanly on SIGTERM", async ()
     'echo "__AIUR_CONFIG_PATH__:/tmp/container-config"',
     'echo "container-release-output"',
     'trap \'rm -f "$AIUR_TEST_READY_FILE"; exit 0\' TERM INT HUP',
-    "while sleep 0.05; do :; done",
+    "while :; do read -r -t 0.05 _ || :; done",
     "",
   ].join("\n"));
   chmodSync(elixir, 0o755);
@@ -120,7 +120,7 @@ test("container launch runs without tmux and exits cleanly on SIGTERM", async ()
       'echo "$$" >"$AIUR_STUBBORN_PID_FILE"',
       'echo "stubborn-container-release-output"',
       "trap '' TERM",
-      "while sleep 0.05; do :; done",
+      "exec sleep infinity",
       "",
     ].join("\n"));
     stubbornProcess = spawn(process.execPath, [shim, "run", "--container"], {
