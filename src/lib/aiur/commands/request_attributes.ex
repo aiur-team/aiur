@@ -23,7 +23,7 @@ defmodule Aiur.Commands.RequestAttributes do
         Logger.warning("aiur_decision_store phase=request_attribute_append_failed decision_id=#{decision.decision_id}")
 
         _ =
-          Signal.agent_alert("decision.attributes.append_failed", "Command accepted without confirmed request attributes.",
+          Signal.agent_alert("system.decision.attributes.append_failed", "Command accepted without confirmed request attributes.",
             reason: "Command #{decision.decision_id}; inspect decision store health.",
             needs_attention: true
           )
