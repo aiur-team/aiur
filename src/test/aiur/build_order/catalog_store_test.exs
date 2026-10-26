@@ -96,6 +96,16 @@ defmodule Aiur.BuildOrder.CatalogStoreTest do
     assert {:ok, %ProviderResult{candidate: %Catalog{entries: []}}} = CatalogStore.fetch(repository: @repository)
   end
 
+  test "a root with an evicted labels body still projects the catalog" do
+    seed_issue(450, "Build Order 4", "open", %{"build-order" => ""})
+    key = ResourceStore.key_for_repo(:issue_labels, @repo, 450)
+    ResourceStore.put_resource(key, [], source: :webhook, version: "2026-06-24T11:00:00Z")
+    ResourceStore.drop_data(key)
+
+    assert {:ok, %ProviderResult{status: :complete, candidate: %Catalog{entries: []}}} =
+             CatalogStore.fetch(repository: @repository)
+  end
+
   test "member_numbers/1 maps parents to their present members" do
     seed_edge(:sub_issue, "500:501", %{"parent_issue_number" => 500, "sub_issue_number" => 501})
     seed_edge(:sub_issue, "500:502", %{"parent_issue_number" => 500, "sub_issue_number" => 502})

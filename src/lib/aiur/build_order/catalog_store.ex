@@ -217,7 +217,7 @@ defmodule Aiur.BuildOrder.CatalogStore do
     |> Enum.reduce(%{}, fn {{_type, _owner, _repo, id}, entry}, acc ->
       case positive_number(id) do
         nil -> acc
-        number -> Map.put(acc, number, label_names(entry.data))
+        number -> Map.put(acc, number, label_names(Map.get(entry, :data)))
       end
     end)
   end

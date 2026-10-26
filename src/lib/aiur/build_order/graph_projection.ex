@@ -363,7 +363,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
       Map.has_key?(state.inflight_by_ref, ref) ->
         {state, reconcile_events} = Authority.reconcile(state)
-        {state, events} = Reads.complete_task(state, ref, {:error, :transport})
+        {state, events} = Reads.complete_task(state, ref, {:error, :unknown})
         {state, admitted_events} = Reads.admit_pending(state)
         Publication.broadcast_all(state, reconcile_events ++ events ++ admitted_events)
         {:noreply, state}
