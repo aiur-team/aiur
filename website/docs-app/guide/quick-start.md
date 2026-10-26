@@ -132,3 +132,26 @@ Register each daemon in `~/.aiur/remote-instances.yaml` as described under
 [Remote instances](/reference/cli-options#remote-instances). From the Executor
 machine, use `aiur --instance nuc status` (or another control command) to
 operate the named daemon without starting a second local Aiur run.
+
+### Control several instances from one machine
+
+Register each remote daemon with its own read and write tokens.
+
+Use `aiur --instance nuc status` for one daemon or
+`aiur --instance all agents` for a labeled fan-out read. Unavailable instances
+remain visible.
+
+A write token can change remote settings, for example
+`aiur --instance nuc set agent.max_concurrent_builds 1`. Use `set --list` and
+`set --unset` to inspect or remove an override.
+
+The server enforces token scope and command ownership. Read tokens cannot pause
+a run, restricted write tokens cannot control a run, and remote Executor
+answers are denied.
+
+A fleet Executor can run
+`aiur --instance all executor-wait --as fleet-executor --json`. Each daemon
+keeps its own wake cursor.
+
+See [remote instance options](/reference/cli-options#remote-instances) and
+[Executor wait outcomes](/reference/cli-decisions#executor-wait-outcomes).
