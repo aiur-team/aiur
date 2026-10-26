@@ -22,6 +22,7 @@ defmodule Aiur.Config.Schema.Decisions do
 
   embedded_schema do
     # @config-reference config-configuration-17 decisions.require_suggested_responses
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     # @config-detail decisions.require_suggested_responses | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
     field(:require_suggested_responses, :boolean, default: false)
     embeds_one(:escalation, Aiur.Config.Schema.Decisions.Escalation, on_replace: :update, defaults_to_struct: true)
