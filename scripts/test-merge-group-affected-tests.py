@@ -26,7 +26,21 @@ class MergeGroupSelectionTest(unittest.TestCase):
                 )
                 mix.chmod(0o755)
                 git = root / 'git'
-                git.write_text('#!/usr/bin/env python3\nprint("src/test/changed_test.exs")\n')
+                git.write_text(
+                    '#!/usr/bin/env python3\n'
+                    'import sys\n'
+                    "args = sys.argv[1:]\n"
+                    "assert args[:2] == ['diff', '--name-only'], args\n"
+                    "if '--' in args:\n"
+                    "    if '--diff-filter=ACMRT' in args:\n"
+                    "        sys.exit(0)\n"
+                    "    assert args[2:4] == ['base-sha', 'HEAD'], args\n"
+                    "    assert args[args.index('--') + 1:] == ['test'], args\n"
+                    "    print('test/changed_test.exs')\n"
+                    "else:\n"
+                    "    assert args[2] == 'base-sha...HEAD', args\n"
+                    "    print('src/test/changed_test.exs')\n"
+                )
                 git.chmod(0o755)
                 guard = root / 'guard.py'
                 guard.write_text('import sys\n')
