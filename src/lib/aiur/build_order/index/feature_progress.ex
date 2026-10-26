@@ -40,6 +40,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
       unpublished: plan.unpublished,
       total: if(is_list(root_members), do: length(root_members), else: total_count(states, plan.unpublished, complete?, ci_known?)),
       extras: plan.extras,
+      reason: progress_reason(root_counts, complete?, ci_known?, plan.unpublished, packs_available?),
       observed_at: now
     })
   end
@@ -47,7 +48,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp root_row_counts(members, history, all, complete?, ci_known?) do
     history_rows = history_member_rows(members, history)
     indexed_rows = Enum.map(members, &all[to_string(&1)])
-    rows_known? = complete? and Enum.all?(history_rows, &is_map/1)
+    rows_known? = complete? and is_list(history_rows) and Enum.all?(history_rows, &known_history_lifecycle?/1)
     ci_known? = ci_known? and Enum.all?(indexed_rows, &is_map/1)
     ci_wait_ids = indexed_rows |> Enum.filter(&(is_map(&1) and ci_wait_row?(&1))) |> MapSet.new(& &1.num)
 
@@ -59,7 +60,7 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   end
 
   defp history_member_rows(members, {:ok, %{rows: rows}}), do: Enum.map(members, &Map.get(rows, &1))
-  defp history_member_rows(_members, _unavailable), do: []
+  defp history_member_rows(_members, _unavailable), do: :unknown
 
   defp open_history_member?({:ok, %{rows: rows}}, member, ci_wait_ids) do
     case Map.get(rows, member) do
@@ -69,6 +70,8 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   end
 
   defp open_history_member?(_history, _member, _ci_wait_ids), do: false
+  defp known_history_lifecycle?(%{lifecycle: %{state: state}}), do: state in [:open, :closed]
+  defp known_history_lifecycle?(_row), do: false
   defp history_closed?(%{lifecycle: %{state: :closed}}), do: true
   defp history_closed?(_row), do: false
 
@@ -96,9 +99,9 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
       icon: feature[:icon] || get_workstream(workstream, "icon"),
       code: feature[:code] || get_workstream(workstream, "code") || member_code(members),
       plan_version: plan_version(lane_packs),
-      root_number: first_value(lane_packs, :root),
+      root_number: first_value(lane_packs, :root) || root_number_from_slug(slug),
       root_title: first_value(pack_set, :root_title),
-      start_date: first_value(lane_packs, :start_date) || feature_start(feature[:from]),
+      start_date: first_value(lane_packs, :start_date) || root_start_date(parts[:history], slug) || feature_start(feature[:from]),
       reason: reason(complete?, ci_known?, not is_nil(plan.unpublished) and packs_available?)
     }
   end
@@ -128,6 +131,26 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
         nil
     end
   end
+
+  defp root_number_from_slug("bo-" <> raw) do
+    case Integer.parse(raw) do
+      {number, ""} when number > 0 -> number
+      _invalid -> nil
+    end
+  end
+
+  defp root_number_from_slug(_slug), do: nil
+
+  defp root_start_date({:ok, %{rows: rows}}, "bo-" <> raw) do
+    with {number, ""} when number > 0 <- Integer.parse(raw),
+         %{created_at: %DateTime{} = created_at} <- Map.get(rows, number) do
+      feature_start(created_at)
+    else
+      _unknown -> nil
+    end
+  end
+
+  defp root_start_date(_history, _slug), do: nil
 
   defp get_workstream(nil, _key), do: nil
   defp get_workstream(workstream, key), do: workstream[key] || workstream[String.to_atom(key)]
@@ -349,6 +372,15 @@ defmodule Aiur.BuildOrder.Index.FeatureProgress do
   defp common_version(values), do: values |> Enum.map(fn {_key, value} -> value.plan_version end) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> List.first()
   defp source_ok?(%{source: %{state: "ok"}}), do: true
   defp source_ok?(_), do: false
+
+  defp prepend_reason(nil, value), do: value
+  defp prepend_reason(reason, value), do: value <> " · " <> reason
+
+  defp progress_reason(%{closed: nil}, complete?, ci_known?, unpublished, packs_available?),
+    do: prepend_reason(reason(complete?, ci_known?, not is_nil(unpublished) and packs_available?), "states unavailable")
+
+  defp progress_reason(_root_counts, complete?, ci_known?, unpublished, packs_available?),
+    do: reason(complete?, ci_known?, not is_nil(unpublished) and packs_available?)
 
   defp reason(states?, ci?, plan?) do
     [if(states?, do: nil, else: "states unavailable"), if(ci?, do: nil, else: "CI state unknown"), if(plan?, do: nil, else: "planned count unavailable")]

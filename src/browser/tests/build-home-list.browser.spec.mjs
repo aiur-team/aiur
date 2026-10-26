@@ -159,6 +159,24 @@ test('Features list renders counts, proportional segments, unknowns and focus re
   await expect(page).toHaveURL(/feature=pag/)
   await expect(page).not.toHaveURL(/list=features/)
 })
+test('Build Order feature card shows the root date and lane captions without repeating the root title', async ({ page }) => {
+  const progress = { features: { 'f-bo-99-home': { feature: 'bo-99', closed: 1, open: 0, ci_wait: 0, unpublished: 0, total: 1, observed_at: Date.now(), root_number: 99, root_title: 'Platform program', start_date: '2026-10-01' } }, observed_at: Date.now(), plan_version: 'v1', extras: 0 }
+  await page.getByRole('tab', { name: 'Features' }).click()
+  await page.evaluate(async progress => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    ctx.D.feature_progress = progress
+    ctx.D.order = ['f-bo-99-home']
+    ctx.D.epics = { 'f-bo-99-home': { feature: 'bo-99', label: 'Platform program · Home' } }
+    ctx.D.features = { 'bo-99': { label: 'Platform program', epics: ['f-bo-99-home'], to: Infinity } }
+    ctx.snap.order = ctx.D.order
+    ctx.snap.epics = ctx.D.epics
+    ctx.snap.features = ctx.D.features
+    ctx.snap.feature_progress = progress
+    fx.renderList()
+  }, progress)
+  await expect(page.locator('.fp-head p')).toContainText('root #99 · 2026-10-01')
+  await expect(page.locator('.fp-row .fp-summary')).toHaveText('Home: 1 / 1')
+})
 test('B2 delegated Enter opens once across renders and remounts', async ({ page }) => {
   for (let mount = 0; mount < 2; mount++) {
     if (mount) {
