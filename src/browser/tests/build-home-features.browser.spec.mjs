@@ -137,7 +137,7 @@ test('feature list keeps known closed progress solid when other counts are unkno
   await expect(part3.locator('.fp-unknown')).toHaveAttribute('style', /width:2\.8169/)
   await expect(part3.locator('.fp-closed')).toHaveCSS('background-color', accent)
   await expect(part3.locator('.fp-unknown')).toHaveCSS('background-image', /repeating-linear-gradient/)
-  await expect(page.locator('.fp-row')).not.toContainText('Unassigned: 0 / 0')
+  await expect(page.locator('.fp-row', { hasText: 'Unassigned: 0 / 0' })).toHaveCount(0)
   const empty = page.locator('.fp-row[data-feature="unassigned"] .fp-bar')
   await expect(empty).toHaveAttribute('aria-label', 'No tickets to count')
   await expect(empty.locator('.fp-unknown')).toHaveCount(0)
