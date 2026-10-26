@@ -100,7 +100,13 @@ defmodule Aiur.AgentSkillsTest do
     assert direct_merge_skills != [], "expected at least one skill describing direct PR merging"
 
     for {skill_file, content} <- direct_merge_skills do
-      assert Regex.match?(~r/^disable-model-invocation:\s*true\s*$/m, content),
+      frontmatter =
+        case String.split(content, "---", parts: 3) do
+          ["", metadata, _body] -> metadata
+          _ -> ""
+        end
+
+      assert Regex.match?(~r/^disable-model-invocation:\s*true\s*$/m, frontmatter),
              "#{Path.relative_to(skill_file, repo_root)} instructs direct PR merging but is model-invocable"
     end
   end
