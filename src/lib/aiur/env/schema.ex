@@ -196,11 +196,16 @@ defmodule Aiur.Env.Schema do
     {"MOONSHOT_API_KEY", type: :secret, group: :provider_keys, purpose: "Moonshot backend key; used when a backend config names this env var."},
     {"OPENROUTER_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter backend key; used when a backend config names this env var.", fetch: "openrouter.ai -> Keys -> Create key"},
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},
+    {"CLAUDE_CODE_OAUTH_TOKEN",
+     type: :secret, group: :provider_keys, purpose: "Claude Code subscription token for an operator deployment; pass only to Claude workers and never configure on a consumer instance."},
+    {"ANTHROPIC_API_KEY", type: :secret, group: :provider_keys, purpose: "Anthropic API key for Claude API billing; consumer deployments require this instead of subscription auth."},
+    {"OPENAI_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenAI API key for Codex API billing or a consumer deployment."},
 
     # --- Runtime (launcher-managed) ---
     {"AIUR_SECRETS_FROM_ENV", type: :boolean, group: :runtime, purpose: "Disable dotenv files so hosted secrets must be supplied by the daemon environment."},
     {"AIUR_GITHUB_ALLOW_PAT", type: :boolean, group: :runtime, purpose: "Explicitly allow GITHUB_TOKEN instead of a GitHub App in hosted/container mode."},
     {"AIUR_BG_STATE_DIR", type: :path, group: :runtime, purpose: "Directory for cookie, state and per-instance files.", default: "~/.config/aiur"},
+    {"CODEX_HOME", type: :path, group: :runtime, purpose: "Persistent Codex credential directory; hosted Aiur sets this under AIUR_BG_STATE_DIR."},
     {"AIUR_CONTAINER", type: :string, validate: false, example: false, group: :runtime, purpose: "Container-mode marker set by the launcher."},
     {"AIUR_STATE_PERSISTENT", type: :boolean, group: :runtime, purpose: "Declare that the hosted state directory survives daemon restarts; otherwise env-only mode requires AIUR_SECRET_KEY_BASE."},
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},
