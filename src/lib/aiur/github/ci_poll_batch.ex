@@ -277,7 +277,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp match_entry(acc, %{pull_request_number: _number} = entry, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node), do: put_first_pull_request(acc, entry, node), else: put_terminal_pull_request(acc, entry, node)
+        if open_pull_request_node?(node), do: put_first_pull_request(acc, entry, node), else: acc
 
       _other ->
         Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
