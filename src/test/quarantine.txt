@@ -1,6 +1,5 @@
 # Module, full ExUnit test name (describe prefix included, as failures print it), owner fix ticket, and YYYY-MM-DD expiry. Tabs delimit four fields.
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#5511	2026-12-31
-Aiur.Alerts.ClosedTicketTest	resolves every open attention of a closed ticket and nothing else	#6258	2026-12-31
 Aiur.Claude.Repl.HookTurnTest	post_tool_use hook resets the deadline so the loop survives past the original timeout	#6227	2026-12-31
 Aiur.Codex.StartupFailureTest	a process exiting before initialize persists its status and a redacted bounded diagnostic	#6212	2026-12-31
 Aiur.Core.AgentRunnerCheckpointQueueTest	*	#5516	2026-12-31
@@ -17,4 +16,5 @@ Aiur.OrchestratorStatusCliCapacityTest	*	#6236	2026-12-31
 Aiur.ProcessExhaustionTest	*	#6139	2026-12-31
 Aiur.ProcessTreeTest	future regression guard: tree cleanup kills the root and both background children	#6182	2026-12-31
 Aiur.Regression.OrchestratorLifecycleTest	pause/resume semantics resume revalidates tracker state after clearing the pause override	#5517	2026-12-31
+Aiur.Workspace.RestackGitTest	cancelled git retains the workspace lock until its process group drains	#6306	2026-12-31
 AiurWeb.PresenterTest	open_decision_count uses blocking Commands rather than attention chips	#5620	2026-12-31
