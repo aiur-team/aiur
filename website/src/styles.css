@@ -1,6 +1,176 @@
-/* Cascade order is import order; keep it. scripts/shot.ts reads the same parts. */
-@import "./styles/tokens.css";
-@import "./styles/top.css";
-@import "./styles/hero.css";
+@import "aiur-style/aiur-style.css";
 @import "./styles/terminal.css";
-@import "./styles/footer.css";
+
+@layer aiur.base { * { margin: 0; padding: 0; } }
+html, body { min-height: 100%; }
+html, body { background: var(--aiur-color-bg); }
+body { color: var(--aiur-color-fg); font-family: var(--aiur-font-body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  .fold {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 100svh;
+  }
+
+  .aiur-topbar { grid-row: 2; grid-column: 1; align-self: start; }
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    /* sized by the fold's second row: the viewport less the announcement strip,
+       and free to grow past it when the lockup needs more room */
+    grid-row: 2;
+    grid-column: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow-x: clip;
+  }
+  #field { z-index: 1; }
+  .stage {
+    position: relative;
+    /* above the terminal peek (z-index 5) so the install box's drop-down
+       panel can overlay it cleanly when the next-steps reveal opens */
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 24px;
+  }
+
+  /* secondary block (placeholder copy — easy to revise) */
+  .sub {
+    margin-top: clamp(28px, 5vh, 52px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+    opacity: 0;
+    animation: fadeUp 0.8s ease 0.95s forwards;
+  }
+  .tagline {
+    font-family: var(--aiur-font-mono);
+    font-size: clamp(16px, 2.2vw, 22px);
+    color: var(--aiur-color-muted);
+    letter-spacing: 0.04em;
+    text-align: center;
+  }
+
+  /* anchor only — holds the in-flow box + the absolutely-dropped next-steps so
+     the reveal never changes layout height (hero stays centered, no drift) */
+  .install-wrap { position: relative; }
+  /* post-install commands — drop below the box without affecting layout.
+     absolute + top:100% so the hero never re-centers when it opens. */
+  .next-steps {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: -1px; /* merge the panel's top border with the box's bottom */
+    z-index: 2;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.34s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .install-wrap.show-next .next-steps { grid-template-rows: 1fr; }
+  .next-inner { overflow: hidden; }
+  .next-panel {
+    border: 1px solid var(--aiur-color-pill-bd);
+    border-radius: 0 0 11px 11px;
+    /* opaque (matches the box's frosted tint) so it fully covers the
+       terminal peek it drops over, rather than letting it bleed through */
+    background: color-mix(in srgb, var(--aiur-color-fg) 3%, var(--aiur-color-bg));
+  }
+  .next-hint {
+    text-align: center;
+    font-family: var(--aiur-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--aiur-color-muted) 62%, transparent);
+    padding: 10px 14px 3px;
+  }
+  .next-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 14px 9px 18px;
+    font-family: var(--aiur-font-mono);
+    font-size: 14px;
+    color: var(--aiur-color-muted);
+  }
+  .next-row .prompt { color: var(--aiur-color-accent); }
+  .next-panel > * {
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  .install-wrap.show-next .next-panel > * { opacity: 1; transform: none; }
+  .install-wrap.show-next .next-panel > :nth-child(2) { transition-delay: 0.06s; }
+  .install-wrap.show-next .next-panel > :nth-child(3) { transition-delay: 0.12s; }
+  @media (prefers-reduced-motion: reduce) {
+    .next-steps { transition: none; }
+    .next-panel > * { transition: none; }
+  }
+
+  .install-wrap { max-width: 100%; width: max-content; }
+  .aiur-command { display: flex; overflow: hidden; }
+  .show-next .aiur-command { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .sub { animation: none; opacity: 1; transform: none; } .term-screen .cursor { animation: none; opacity: 1; } }
+  .below {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(8px, 1.5vh, 24px) clamp(20px, 5vw, 56px) 0;
+    transition: background-color 0.5s ease;
+  }
+  .signoff {
+    width: min(1000px, 100%);
+    margin-top: clamp(84px, 13vh, 156px);
+    border-top: 1px solid var(--aiur-color-hairline);
+    padding-top: clamp(58px, 8.5vh, 100px);
+    text-align: center;
+  }
+  .site-foot {
+    position: relative;
+    z-index: 5;
+    background: var(--aiur-color-bg);
+    margin-top: clamp(78px, 12vh, 140px);
+    border-top: 1px solid var(--aiur-color-hairline);
+    transition: background-color 0.5s ease;
+  }
+  .aiur-footer { width: min(1000px, 100%); margin: 0 auto; padding: clamp(26px, 4vh, 38px) clamp(20px, 5vw, 56px) clamp(34px, 6vh, 52px); border: 0; }
+  .aiur-footer__links a { display: inline-flex; align-items: center; gap: 8px; }
+  .github-link svg { width: 17px; height: 17px; display: block; }
+
+/* Structural compatibility; approved drifts are applied separately. */
+.aiur-theme-toggle { width: 42px; height: 42px; }
+.aiur-theme-toggle svg { width: 19px; height: 19px; }
+.aiur-command__row { line-height: normal; }
+.aiur-command__text { letter-spacing: .01em; flex: 1; }
+.aiur-command__prompt { color: var(--aiur-color-accent); }
+.aiur-command__copy svg { width: 15px; height: 15px; }
+.aiur-tabs [role="tab"] { flex: 1; line-height: normal; letter-spacing: .02em; border-right: 1px solid var(--aiur-color-pill-bd); }
+.aiur-tabs [role="tab"]:last-child { border-right: 0; }
+.aiur-footer { gap: 18px 28px; }
+.aiur-footer__brand { gap: 9px; color: var(--aiur-color-muted); }
+.aiur-footer__links { gap: 22px; }
+@media (min-width: 441px) and (max-width: 720px) { .aiur-features { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 441px) and (max-width: 640px) { .aiur-features { grid-template-columns: repeat(2, 1fr); } }
+.aiur-scrollcue { color: var(--term-dim); }
+
+.aiur-banner { gap: 4px 12px; background: var(--aiur-color-pill-bg); }
+.aiur-wordmark { font-weight: 700; }
+.aiur-command > .aiur-tabs, .aiur-command__row { margin-inline: 0; }
+.aiur-tabs { padding-inline: 0; }
+
+.aiur-banner { line-height: normal; }
+.aiur-banner__text { line-height: 1.5; }
+.aiur-tabs { flex-wrap: nowrap; }
+.aiur-footer__links { flex-wrap: nowrap; }
+.stage, .sub { max-width: 100%; }
+.aiur-tabs [role="tab"]:hover { color: var(--aiur-color-fg); }
+.aiur-command__copy { --aiur-button-hover: color-mix(in srgb, var(--aiur-color-fg) 9%, transparent); }

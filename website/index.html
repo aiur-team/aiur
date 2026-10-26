@@ -3,28 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<script>
-  (() => {
-    let savedTheme = null;
-    // reading storage throws outright when site data is blocked; fall back to
-    // the default theme rather than leaving the document unthemed
-    try { savedTheme = localStorage.getItem("aiur-theme"); } catch {}
-    const theme = savedTheme === "dark" || savedTheme === "light" ? savedTheme : "dark";
-    document.documentElement.setAttribute("data-theme", theme);
-  })();
-</script>
-<script>
-  // Mark a previously dismissed announcement before first paint so the strip
-  // never flashes in and then vanishes. Storage access can throw outright when
-  // site data is blocked, in which case the strip simply renders.
-  (() => {
-    try {
-      if (localStorage.getItem("aiur-archon-banner") === "dismissed") {
-        document.documentElement.setAttribute("data-archon-banner", "dismissed");
-      }
-    } catch {}
-  })();
-</script>
+<script src="/aiur-style/init/theme-init.js" data-default="dark" data-banner="archon-launch" data-legacy-keys="aiur-archon-banner"></script>
+<link rel="stylesheet" href="/aiur-style/fonts.css" />
 <title>Aiur</title>
 <link rel="icon" href="/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
@@ -32,9 +12,6 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 <link rel="manifest" href="/site.webmanifest" />
 <link rel="alternate" type="text/markdown" href="/llms.txt" title="Aiur agent onboarding" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
@@ -42,29 +19,29 @@
        and the hero sharing one grid row so the bar floats over the hero exactly
        as it always has, without either one claiming space from the other. -->
   <div class="fold">
-  <aside class="announce" id="archonBanner" aria-label="Project announcement">
-    <p class="announce-copy">Introducing <strong>Archon</strong>: Always-on Architecture Docs.</p>
-    <a class="announce-link" href="https://archon.aiur.team">Learn More</a>
-    <button class="announce-dismiss" id="archonDismiss" type="button" aria-label="Dismiss the Archon announcement">
+  <aside class="aiur-banner announce" id="archonBanner" data-aiur-banner="archon-launch" aria-label="Project announcement">
+    <p class="aiur-banner__text">Introducing <strong>Archon</strong>: Always-on Architecture Docs.</p>
+    <a class="aiur-banner__link" href="https://archon.aiur.team">Learn More</a>
+    <button class="aiur-banner__close" id="archonDismiss" type="button" aria-label="Dismiss the Archon announcement">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
         <path d="M6 6l12 12M18 6L6 18"></path>
       </svg>
     </button>
   </aside>
 
-  <header class="topbar">
-    <a class="brand-mini" href="/" aria-label="Aiur home">
-      <img class="brand-mini-logo" src="/assets/aiur-logo.png" alt="" />
+  <header class="aiur-topbar aiur-topbar--sticky topbar">
+    <a class="aiur-brand" href="/" aria-label="Aiur home">
+      <img class="aiur-brand__logo" src="/aiur-style/assets/aiur-logo.png" alt="" />
       <span>aiur</span>
     </a>
-    <nav class="topbar-actions" aria-label="Primary navigation">
-      <a class="topbar-link" href="/docs/guide/quick-start">Docs</a>
-      <button class="toggle" id="themeToggle" aria-label="Toggle color theme">
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+    <nav class="aiur-topbar__actions" aria-label="Primary navigation">
+      <a class="aiur-topbar__link" href="/docs/guide/quick-start">Docs</a>
+      <button class="aiur-button aiur-theme-toggle" id="themeToggle" type="button" aria-label="Toggle color theme">
+        <svg aria-hidden="true" class="aiur-theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <circle cx="12" cy="12" r="4.2"></circle>
           <path d="M12 2.4v2.6M12 19v2.6M2.4 12h2.6M19 12h2.6M5.0 5.0l1.8 1.8M17.2 17.2l1.8 1.8M19 5.0l-1.8 1.8M6.8 17.2l-1.8 1.8"></path>
         </svg>
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor">
+        <svg aria-hidden="true" class="aiur-theme-toggle__moon" viewBox="0 0 24 24" fill="currentColor">
           <path d="M20.5 14.2a8.2 8.2 0 0 1-10.7-10.7 0.6 0.6 0 0 0-0.8-0.8 9.4 9.4 0 1 0 12.3 12.3 0.6 0.6 0 0 0-0.8-0.8z"></path>
         </svg>
       </button>
@@ -72,42 +49,43 @@
   </header>
 
   <section class="hero">
-    <canvas id="field"></canvas>
+    <canvas class="aiur-field" id="field" aria-hidden="true"></canvas>
 
     <div class="stage">
-      <div class="lockup">
-        <img class="logo keepout" src="assets/aiur-logo.png" alt="AIUR logo" />
-        <h1 class="wordmark keepout"><span>A</span><span>I</span><span>U</span><span>R</span></h1>
+      <div class="aiur-lockup">
+        <img class="aiur-lockup__logo keepout" src="/aiur-style/assets/aiur-logo.png" alt="AIUR logo" />
+        <h1 class="aiur-wordmark keepout" aria-label="Aiur"><span aria-hidden="true">A</span><span aria-hidden="true">I</span><span aria-hidden="true">U</span><span aria-hidden="true">R</span></h1>
       </div>
 
       <div class="sub">
         <p class="tagline keepout">AI Unit Runtime for Executors</p>
         <div class="install-wrap keepout" id="installWrap">
-          <div class="install-box">
-            <div class="pm-tabs" role="tablist" aria-label="Get started">
-              <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="prompt">Prompt</button>
-              <button class="pm-tab" role="tab" aria-selected="false" data-pm="npm">npm</button>
-              <button class="pm-tab" role="tab" aria-selected="false" data-pm="bun">bun</button>
-              <button class="pm-tab" role="tab" aria-selected="false" data-pm="pnpm">pnpm</button>
-              <button class="pm-tab" role="tab" aria-selected="false" data-pm="yarn">yarn</button>
+          <div class="aiur-command install-box" data-aiur-kind="prompt">
+            <div class="aiur-tabs" role="tablist" aria-label="Get started">
+              <button class="aiur-tab" role="tab" aria-selected="true" type="button" id="tab-prompt" aria-controls="installRow" data-pm="prompt" data-aiur-kind="prompt" data-aiur-text="Let's run parallel agents with: https://aiur.team/">Prompt</button>
+              <button class="aiur-tab" role="tab" aria-selected="false" type="button" id="tab-npm" aria-controls="installRow" data-pm="npm" data-aiur-kind="command" data-aiur-text="npm i -g aiur-cli">npm</button>
+              <button class="aiur-tab" role="tab" aria-selected="false" type="button" id="tab-bun" aria-controls="installRow" data-pm="bun" data-aiur-kind="command" data-aiur-text="bun add -g aiur-cli">bun</button>
+              <button class="aiur-tab" role="tab" aria-selected="false" type="button" id="tab-pnpm" aria-controls="installRow" data-pm="pnpm" data-aiur-kind="command" data-aiur-text="pnpm add -g aiur-cli">pnpm</button>
+              <button class="aiur-tab" role="tab" aria-selected="false" type="button" id="tab-yarn" aria-controls="installRow" data-pm="yarn" data-aiur-kind="command" data-aiur-text="yarn global add aiur-cli">yarn</button>
             </div>
-            <div class="install is-prompt" id="installRow">
-              <span class="prompt" aria-hidden="true">$</span>
-              <span class="cmd" id="installCmd">Let's run parallel agents with: https://aiur.team/</span>
-              <button class="copy" id="copyBtn" aria-label="Copy prompt">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <div class="aiur-command__row" id="installRow" role="tabpanel" aria-labelledby="tab-prompt">
+              <span class="aiur-command__prompt" aria-hidden="true">$</span>
+              <span class="aiur-command__text" id="installCmd">Let's run parallel agents with: https://aiur.team/</span>
+              <button class="aiur-command__copy aiur-button aiur-button--ghost" id="copyBtn" type="button" aria-label="Copy prompt">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="11" height="11" rx="2.2"></rect>
                   <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
                 </svg>
               </button>
             </div>
+            <span class="aiur-visually-hidden" role="status" aria-live="polite"></span>
           </div>
           <div class="next-steps" id="nextSteps" aria-hidden="true">
             <div class="next-inner">
               <div class="next-panel">
                 <div class="next-hint">in any project repo:</div>
-                <div class="next-row"><span class="prompt">$</span><span class="cmd">aiur init</span></div>
-                <div class="next-row"><span class="prompt">$</span><span class="cmd">aiur</span></div>
+                <div class="next-row"><span class="aiur-command__prompt">$</span><span class="aiur-command__text">aiur init</span></div>
+                <div class="next-row"><span class="aiur-command__prompt">$</span><span class="aiur-command__text">aiur</span></div>
               </div>
             </div>
           </div>
@@ -115,9 +93,9 @@
       </div>
     </div>
 
-    <div class="scrollcue" id="scrollcue">
+    <div class="aiur-scrollcue" id="scrollcue">
       <span>scroll</span>
-      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+      <svg aria-hidden="true" class="aiur-scrollcue__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
     </div>
   </section>
   </div>
@@ -137,68 +115,68 @@
   </section>
 
   <section class="below">
-    <p class="summary">Oversee a fleet of coding agents that <span class="hl">coordinate via events</span>.</p>
+    <p class="aiur-summary">Oversee a fleet of coding agents that <span class="aiur-hl">coordinate via events</span>.</p>
 
-    <div class="features">
-      <div class="feat">
-        <div class="feat-h">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="4.01" y2="6"></line><line x1="4" y1="12" x2="4.01" y2="12"></line><line x1="4" y1="18" x2="4.01" y2="18"></line><line x1="8.5" y1="6" x2="20" y2="6"></line><line x1="8.5" y1="12" x2="20" y2="12"></line><line x1="8.5" y1="18" x2="20" y2="18"></line></svg></span>
-          <span class="idx">01</span>
+    <div class="aiur-features features">
+      <div class="aiur-feature">
+        <div class="aiur-feature__head">
+          <span class="aiur-feature__icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="4.01" y2="6"></line><line x1="4" y1="12" x2="4.01" y2="12"></line><line x1="4" y1="18" x2="4.01" y2="18"></line><line x1="8.5" y1="6" x2="20" y2="6"></line><line x1="8.5" y1="12" x2="20" y2="12"></line><line x1="8.5" y1="18" x2="20" y2="18"></line></svg></span>
+          <span class="aiur-feature__index">01</span>
         </div>
-        <h3>Issue Monitoring</h3>
-        <p>Point aiur at a GitHub or Linear backlog and it dispatches one coding agent per open ticket automatically.</p>
+        <h3 class="aiur-feature__title">Issue Monitoring</h3>
+        <p class="aiur-feature__body">Point aiur at a GitHub or Linear backlog and it dispatches one coding agent per open ticket automatically.</p>
       </div>
-      <div class="feat">
-        <div class="feat-h">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 10.5 13.5"></path><path d="M21 3 14.3 21l-3.8-7.5L3 9.7 21 3z"></path></svg></span>
-          <span class="idx">02</span>
+      <div class="aiur-feature">
+        <div class="aiur-feature__head">
+          <span class="aiur-feature__icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 10.5 13.5"></path><path d="M21 3 14.3 21l-3.8-7.5L3 9.7 21 3z"></path></svg></span>
+          <span class="aiur-feature__index">02</span>
         </div>
-        <h3>Shared Bus</h3>
-        <p>Agents emit and subscribe to events on a shared bus, declaring blockers and unblocking each other's work the moment a dependency lands.</p>
+        <h3 class="aiur-feature__title">Shared Bus</h3>
+        <p class="aiur-feature__body">Agents emit and subscribe to events on a shared bus, declaring blockers and unblocking each other's work the moment a dependency lands.</p>
       </div>
-      <div class="feat">
-        <div class="feat-h">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0"></path><path d="M12 15.5 16 10"></path><circle cx="12" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle></svg></span>
-          <span class="idx">03</span>
+      <div class="aiur-feature">
+        <div class="aiur-feature__head">
+          <span class="aiur-feature__icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 15.5a7.5 7.5 0 0 1 15 0"></path><path d="M12 15.5 16 10"></path><circle cx="12" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle></svg></span>
+          <span class="aiur-feature__index">03</span>
         </div>
-        <h3>Optimize Effort</h3>
-        <p>Story points route each ticket to the right model size and skills, across both Claude and Codex backends.</p>
+        <h3 class="aiur-feature__title">Optimize Effort</h3>
+        <p class="aiur-feature__body">Story points route each ticket to the right model size and skills, across both Claude and Codex backends.</p>
       </div>
-      <div class="feat">
-        <div class="feat-h">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.2"></circle><path d="M12 3v6.8M4.3 16.5l5.8-3.3M19.7 16.5l-5.8-3.3"></path></svg></span>
-          <span class="idx">04</span>
+      <div class="aiur-feature">
+        <div class="aiur-feature__head">
+          <span class="aiur-feature__icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.2"></circle><path d="M12 3v6.8M4.3 16.5l5.8-3.3M19.7 16.5l-5.8-3.3"></path></svg></span>
+          <span class="aiur-feature__index">04</span>
         </div>
-        <h3>Take the Wheel</h3>
-        <p>Take remote control of any agent at any moment through a pre-warmed <a href="https://opencode.ai" target="_blank" rel="noopener">Opencode</a> session in a configurable tmux pane.</p>
+        <h3 class="aiur-feature__title">Take the Wheel</h3>
+        <p class="aiur-feature__body">Take remote control of any agent at any moment through a pre-warmed <a href="https://opencode.ai" target="_blank" rel="noopener">Opencode</a> session in a configurable tmux pane.</p>
       </div>
-      <div class="feat">
-        <div class="feat-h">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5"></path><path d="M13.7 20a2 2 0 0 1-3.4 0"></path></svg></span>
-          <span class="idx">05</span>
+      <div class="aiur-feature">
+        <div class="aiur-feature__head">
+          <span class="aiur-feature__icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5"></path><path d="M13.7 20a2 2 0 0 1-3.4 0"></path></svg></span>
+          <span class="aiur-feature__index">05</span>
         </div>
-        <h3>Smart Alerts</h3>
-        <p>Customize notifications and sounds that fire when agents finish, stall, or need a decision from you.</p>
+        <h3 class="aiur-feature__title">Smart Alerts</h3>
+        <p class="aiur-feature__body">Customize notifications and sounds that fire when agents finish, stall, or need a decision from you.</p>
       </div>
-      <div class="feat">
-        <div class="feat-h">
-          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3.5l2.5 6 4-13 2.5 7H21"></path></svg></span>
-          <span class="idx">06</span>
+      <div class="aiur-feature">
+        <div class="aiur-feature__head">
+          <span class="aiur-feature__icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3.5l2.5 6 4-13 2.5 7H21"></path></svg></span>
+          <span class="aiur-feature__index">06</span>
         </div>
-        <h3>Live Dashboard</h3>
-        <p>A shareable web dashboard tracks every agent, event, and progress bar live.</p>
+        <h3 class="aiur-feature__title">Live Dashboard</h3>
+        <p class="aiur-feature__body">A shareable web dashboard tracks every agent, event, and progress bar live.</p>
       </div>
     </div>
 
     <div class="signoff">
-      <p><span class="hl">Command</span> macro, <span class="hl">delegate</span> micro, <span class="hl">maximize</span> APM.</p>
+      <p class="aiur-signoff"><span class="aiur-hl">Command</span> macro, <span class="aiur-hl">delegate</span> micro, <span class="aiur-hl">maximize</span> APM.</p>
     </div>
   </section>
 
   <footer class="site-foot">
-    <div class="foot-inner">
-      <div class="foot-brand"><span class="dot"></span>aiur</div>
-      <div class="foot-links">
+    <div class="aiur-footer">
+      <div class="aiur-footer__brand"><span class="aiur-footer__dot"></span>aiur</div>
+      <div class="aiur-footer__links">
         <a href="/docs/guide/quick-start">Docs</a>
         <a class="github-link" href="https://github.com/aiur-team/aiur" target="_blank" rel="noopener" aria-label="Open source on GitHub">
           Open Source

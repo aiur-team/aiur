@@ -20,10 +20,10 @@ test('command box and canvas keepout follow every selected tab', async ({ page }
     await page.getByRole('tab', { name: tab, exact: true }).click()
     await settle(page)
     const geometry = await page.evaluate(() => {
-      const rect = document.querySelector('.install-box')!.getBoundingClientRect()
+      const rect = document.querySelector('.aiur-command')!.getBoundingClientRect()
       const canvas = document.querySelector<HTMLCanvasElement>('#field')!
       const canvasRect = canvas.getBoundingClientRect()
-      const style = getComputedStyle(document.querySelector('.install-box')!)
+      const style = getComputedStyle(document.querySelector('.aiur-command')!)
       const field = (window as unknown as {
         __field: { debugObstacles: () => { cx: number; cy: number; hx: number; hy: number }[] }
       }).__field
@@ -55,7 +55,7 @@ test('command box and canvas keepout follow every selected tab', async ({ page }
       return {
         width: rect.width, height: rect.height, obstacle,
         border: parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth),
-        contentWidth: Math.max(document.querySelector('.pm-tabs')!.scrollWidth,
+        contentWidth: Math.max(document.querySelector('.aiur-tabs')!.scrollWidth,
           document.querySelector('#installRow')!.scrollWidth),
         inside: pixels(left + 1, top + 1, width, height),
         leftEdge: nearEdge(left, -1),

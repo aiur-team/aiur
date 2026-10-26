@@ -9,6 +9,8 @@ test('homepage establishes the canonical default theme', async ({ page }) => {
 })
 
 test('light homepage preference is applied before module hydration', async ({ page }) => {
+  // The preference must survive even when the application module never hydrates.
+  await page.route('**/assets/index-*.js', route => route.abort())
   await page.addInitScript(() => {
     localStorage.setItem('aiur-theme', 'light')
     ;(window as typeof window & { darkHomepageObserved?: boolean }).darkHomepageObserved = false
@@ -22,6 +24,12 @@ test('light homepage preference is applied before module hydration', async ({ pa
   await page.goto('/')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   expect(await page.evaluate(() => (window as typeof window & { darkHomepageObserved?: boolean }).darkHomepageObserved)).toBe(false)
+  const init = page.locator('script[src$="/aiur-style/init/theme-init.js"]')
+  expect(await init.getAttribute('type')).not.toBe('module')
+  expect(await init.evaluate(script => {
+    const stylesheet = document.querySelector('link[rel="stylesheet"]')!
+    return Boolean(script.compareDocumentPosition(stylesheet) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })).toBe(true)
 })
 
 test('light preference is applied before docs hydration', async ({ page }) => {
