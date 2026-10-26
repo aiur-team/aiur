@@ -2,7 +2,9 @@ import { test, expect } from "bun:test";
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -122,6 +124,57 @@ test("remote requests carry the exact expression used by local RPC", () => {
       expect(request.body.max_scope).toBe("write");
       expect(request.authorization).toBe("Bearer remote-secret-token");
     }
+  } finally {
+    server.stop();
+  }
+}, 20_000);
+
+test("remote bearer token travels through curl stdin instead of argv", () => {
+  const server = startServer({ body: successBody() });
+  try {
+    const setup = setupRemoteLauncher(registry(server.url));
+    const argsFile = path.join(root, "remote-curl-argv");
+    const curlPath = process.env.PATH.split(path.delimiter).map((dir) => path.join(dir, "curl")).find((file) => existsSync(file));
+    const curl = path.join(setup.fakeBin, "curl");
+    writeFileSync(curl, `#!/usr/bin/env bash\nprintf '%s' "$*" >"$AIUR_TEST_CURL_ARGS"\nexec "$AIUR_TEST_REAL_CURL" "$@"\n`);
+    chmodSync(curl, 0o755);
+    const result = runRemote(setup, ["--instance", "t", "status"], {
+      AIUR_TEST_CURL_ARGS: argsFile,
+      AIUR_TEST_REAL_CURL: curlPath,
+    });
+    expect(result.status).toBe(0);
+    expect(readFileSync(argsFile, "utf8")).toContain("--header @-");
+    expect(readFileSync(argsFile, "utf8")).not.toContain("remote-secret-token");
+    expect(server.requests()[0].authorization).toBe("Bearer remote-secret-token");
+  } finally {
+    server.stop();
+  }
+});
+
+test("watch cleans every remote RPC before starting its next interval", () => {
+  const server = startServer({ body: successBody("watch\n__AIUR_CONTROL_EXIT__:0\n") });
+  try {
+    const setup = setupRemoteLauncher(registry(server.url));
+    const tmpdir = path.join(root, "watch-remote-tmp");
+    const sleepCount = path.join(root, "watch-sleep-count");
+    const leakFile = path.join(root, "watch-remote-leak");
+    mkdirSync(tmpdir, { recursive: true });
+    const fakeSleep = path.join(setup.fakeBin, "sleep");
+    writeFileSync(fakeSleep, [
+      "#!/usr/bin/env bash",
+      `count=0; [ ! -f '${sleepCount}' ] || count=$(cat '${sleepCount}')`,
+      `count=$((count + 1)); printf '%s' "$count" >'${sleepCount}'`,
+      `if find "$TMPDIR" -maxdepth 1 -name 'aiur-remote-*' -type f | grep -q .; then touch '${leakFile}'; fi`,
+      `if [ "$count" -ge 2 ]; then kill -TERM "$PPID"; fi`,
+      "exit 0",
+      "",
+    ].join("\n"));
+    chmodSync(fakeSleep, 0o755);
+    const result = runRemote(setup, ["--instance", "t", "watch", "--full", "--interval", "1"], { TMPDIR: tmpdir });
+    expect(result.signal).toBe("SIGTERM");
+    expect(server.requests().length).toBeGreaterThanOrEqual(2);
+    expect(existsSync(leakFile)).toBe(false);
+    expect(readdirSync(tmpdir)).toEqual([]);
   } finally {
     server.stop();
   }

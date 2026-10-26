@@ -346,6 +346,10 @@ aiur_engine_main() {
       ;;
     executor-wait)
       shift
+      if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+        run_remote_all_executor_wait "$@"
+        return $?
+      fi
       cmd_executor_wait "$@"
       ;;
     executor-emit)
