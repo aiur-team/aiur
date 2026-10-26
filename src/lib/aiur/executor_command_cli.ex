@@ -183,7 +183,7 @@ defmodule Aiur.ExecutorCommandCLI do
       end
 
     store = Keyword.get(deps, :decision_store, Commands.default_store())
-    answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}], store)
+    answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}, actor_source: :executor_cli], store)
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
   end
@@ -284,6 +284,16 @@ defmodule Aiur.ExecutorCommandCLI do
         "rerun with --supersede to replace it, or run aiur executor-moot to withdraw it"
     )
 
+    1
+  end
+
+  defp command_error("answer", {:conflict, {:human_answer, _action_id}}, deps) do
+    write_error(deps, "aiur: a human answered this Command; the Executor cannot replace it")
+    1
+  end
+
+  defp command_error("answer", {:conflict, {:direct_operator_answer, _action_id}}, deps) do
+    write_error(deps, "aiur: the operator answered this Command directly; a relayed answer cannot replace it")
     1
   end
 
