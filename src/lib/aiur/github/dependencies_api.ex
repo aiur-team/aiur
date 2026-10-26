@@ -39,8 +39,9 @@ defmodule Aiur.GitHub.DependenciesApi do
   (note: the API takes the blocker's *internal numeric id*, not its
   issue number — fetch it via `fetch_issue/2` first if needed).
 
-  422 errors typically mean a cycle was detected by GitHub; the caller
-  is responsible for pre-checking via BFS through `fetch_blocked_by/2`.
+  GitHub documents 422 as a validation failure or spam response, not a
+  cycle-specific status. Callers should pre-check with BFS through
+  `fetch_blocking/2` and preserve other upstream 422 causes.
   """
   @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
