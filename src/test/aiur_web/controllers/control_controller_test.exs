@@ -70,6 +70,17 @@ defmodule AiurWeb.ControlControllerTest do
     assert String.ends_with?(Jason.decode!(successful.resp_body)["output"], "__AIUR_CONTROL_EXIT__:0\n")
   end
 
+  test "endpoint parses a valid control request body for a read token", %{read_token: token} do
+    response =
+      conn(:post, "/api/v1/control", Jason.encode!(Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"})))
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
+
+    assert response.status == 200
+    assert String.ends_with?(Jason.decode!(response.resp_body)["output"], "__AIUR_CONTROL_EXIT__:0\n")
+  end
+
   test "read token cannot run a write call and the refusal is audited", %{read_token: token, audit_path: path, previous_cap: previous_cap} do
     response = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.set_max_agents(3)"}))
 
