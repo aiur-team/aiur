@@ -215,7 +215,8 @@ defmodule VoiceConverse.SessionTest do
     start_instance(config)
     {:ok, id} = start!(name, provider: {FakeProvider, [open_observer: self()]})
     assert_receive {:voice_conversation_state, ^id, :connecting}
-    assert_receive {:fake_provider, :open_spec, %{context: ""}}
+    assert_receive {:fake_provider, :open_spec, %{context: initial_context}}
+    assert initial_context =~ "### briefing"
 
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     first_ref = :sys.get_state(session).provider_ref
