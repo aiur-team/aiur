@@ -98,5 +98,6 @@
     "GITHUB_APP_PRIVATE_KEY_PATH",
     "GITHUB_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

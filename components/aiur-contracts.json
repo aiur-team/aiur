@@ -29,5 +29,6 @@
   "config": [],
   "env": [],
   "capabilities": [],
-  "added_by": "MP-R1"
+  "added_by": "MP-R1",
+  "goal": "run-agents"
 }
