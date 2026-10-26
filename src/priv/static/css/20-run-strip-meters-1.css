@@ -36,7 +36,7 @@
 }
 
 .rs-apis-rows {
-  --rs-provider-row-height: 1.2rem;
+  --rs-provider-row-height: 1.5rem;
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: start;
@@ -166,13 +166,13 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-provider-row .rs-limit {
   display: grid;
   gap: 0.1rem;
-  height: var(--rs-provider-row-height);
+  min-height: var(--rs-provider-row-height);
   min-width: 0;
 }
 
 .rs-api .rs-limit {
   grid-template:
-    "label meta" minmax(0, 1fr)
+    "label meta" minmax(0, 1rem)
     "meter meter" var(--rs-meter-height, var(--progress-bar-height)) /
     minmax(0, 1fr) 9rem;
 }
