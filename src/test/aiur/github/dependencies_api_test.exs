@@ -108,8 +108,16 @@ defmodule Aiur.GitHub.DependenciesApiTest do
           end
 
         Process.put({__MODULE__, :page_requests}, Process.get({__MODULE__, :page_requests}) + 1)
-        next_url = "https://api.github.com/repos/owner/repo/issues/3/dependencies/blocking?per_page=100&page=#{page + 1}"
-        {:ok, %{status: 200, body: [%{"number" => page}], headers: [{"link", "<#{next_url}>; rel=\"next\""}]}}
+
+        headers =
+          if page <= 10 do
+            next_url = "https://api.github.com/repos/owner/repo/issues/3/dependencies/blocking?per_page=100&page=#{page + 1}"
+            [{"link", "<#{next_url}>; rel=\"next\""}]
+          else
+            []
+          end
+
+        {:ok, %{status: 200, body: [%{"number" => page}], headers: headers}}
       end
 
       assert {:error, :dependency_page_limit_exceeded} = DependenciesApi.fetch_blocking(3, request_fun: request_fun)
