@@ -73,6 +73,28 @@ defmodule Aiur.Config.EventsExportConfigTest do
     end
   end
 
+  test "webhook URL validation is enforced by the config parser" do
+    for webhook_url <- [
+          "http://consumer.example.com/events",
+          "https://user:password@consumer.example.com/events",
+          "https://consumer.example.com/events#fragment",
+          "https://127.0.0.1/events",
+          "https://[::1]/events"
+        ] do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 "events" => %{
+                   "export" => %{
+                     "enabled" => true,
+                     "webhook_url" => webhook_url
+                   }
+                 }
+               })
+
+      assert message =~ "events.export.webhook_url"
+    end
+  end
+
   test "uncommented example events block parses with export defaults" do
     template = File.read!(Path.expand("../../../../.aiur/examples/config.example", __DIR__))
     [block] = Regex.run(~r/^# events:\n(?:#   .*\n)+/m, template)
