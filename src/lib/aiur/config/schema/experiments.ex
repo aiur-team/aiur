@@ -1,9 +1,7 @@
 defmodule Aiur.Config.Schema.Experiments do
   @moduledoc false
 
-  @external_resource Path.join(__DIR__, "experiments_analyst.ex")
-  @external_resource Path.join(__DIR__, "experiments_auto.ex")
-  use Ecto.Schema
+  use Aiur.Config.Schema.EmbeddedSchema, ["experiments_analyst.ex", "experiments_auto.ex"]
   import Ecto.Changeset
   alias Aiur.Config.Schema.Experiments.Analyst
   alias Aiur.Config.Schema.Experiments.Auto

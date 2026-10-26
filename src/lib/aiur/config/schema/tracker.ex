@@ -1,9 +1,7 @@
 defmodule Aiur.Config.Schema.Github do
   @moduledoc false
 
-  @external_resource Path.join(__DIR__, "github_app.ex")
-  @external_resource Path.join(__DIR__, "github_credential.ex")
-  use Ecto.Schema
+  use Aiur.Config.Schema.EmbeddedSchema, ["github_app.ex", "github_credential.ex"]
   import Ecto.Changeset
 
   alias Aiur.Config.Schema.AllowedContributorsParser
