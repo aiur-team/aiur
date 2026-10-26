@@ -28,7 +28,7 @@ defmodule Aiur.AllowedContributors do
   require Logger
 
   alias Aiur.AllowedContributors.{Audit, Candidate, Intake, Ledger, RateLimit, Refresh, Source, State, Wake}
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
 
   @on_demand_refresh_ms 60_000
   @poll_horizon_s 24 * 3600
@@ -186,7 +186,7 @@ defmodule Aiur.AllowedContributors do
   end
 
   defp default_repo do
-    with "github" <- Aiur.Config.tracker_kind(), {:ok, repo} <- Transport.parse_repo() do
+    with "github" <- Aiur.Config.tracker_kind(), {:ok, repo} <- Access.parse_repo() do
       {:ok, repo}
     else
       _other -> :error

@@ -1,11 +1,11 @@
 defmodule Aiur.MainWatch.FixerGitHub do
   @moduledoc false
-  alias Aiur.GitHub.{Client, Errors, MainFixer, PullRequests, Transport}
+  alias Aiur.GitHub.{Access, Client, MainFixer, PullRequests}
 
   @spec open(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def open(label, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(), {:ok, token} <- Transport.require_token(opts) do
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&labels=#{URI.encode_www_form(label)}&per_page=100"
+    with {:ok, {owner, repo}} <- Access.parse_repo(), {:ok, token} <- Access.require_token(opts) do
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues?state=open&labels=#{URI.encode_www_form(label)}&per_page=100"
       with {:ok, issues} <- pages(url, token, opts, 1, []), do: evidence(Enum.filter(issues, &(not is_nil(MainFixer.marker(&1["body"])))), opts)
     end
   end
@@ -54,7 +54,7 @@ defmodule Aiur.MainWatch.FixerGitHub do
     end
   end
 
-  defp request(call, opts), do: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1).(call)
+  defp request(call, opts), do: Keyword.get(opts, :request_fun, &Access.default_request_fun/1).(call)
   defp error({:error, reason}), do: {:error, reason}
-  defp error({:ok, response}), do: {:error, Errors.github_status_error(response)}
+  defp error({:ok, response}), do: {:error, Access.github_status_error(response)}
 end
