@@ -1,7 +1,7 @@
 # MP-R1 web output
 
 Commands target main `889212aa39a2fb992da7942c6e4236f7b70be376`.
-Local checkout prefixes are rendered as `<isolated-main>` or `<workspace>`;
+Local paths use `<isolated-main>`, `<workspace>` and `<user-state>` placeholders;
 ANSI color codes and blank output lines are removed. Result lines are otherwise unchanged.
 
 ## 04-contracts-install
@@ -157,7 +157,7 @@ SHA: 889212aa39a2fb992da7942c6e4236f7b70be376
 UTC start: 2026-10-26T11:39:15.174264Z
 UTC end: 2026-10-26T11:39:15.825361Z
 Exit code: 0
-mise WARN  tracking config: failed to ln -sf <isolated-main>/mise.toml /home/everdred/.local/state/mise/tracked-configs/b3628209ca1b5375: Read-only file system (os error 30)
+mise WARN  tracking config: failed to ln -sf <isolated-main>/mise.toml <user-state>/mise/tracked-configs/<config-id>: Read-only file system (os error 30)
 bun install v1.4.2 (744846f84)
 + mermaid@11.17.0
 + vitepress@1.6.4
@@ -180,7 +180,7 @@ SHA: 889212aa39a2fb992da7942c6e4236f7b70be376
 UTC start: 2026-10-26T11:39:15.849412Z
 UTC end: 2026-10-26T11:39:16.454237Z
 Exit code: 0
-mise WARN  tracking config: failed to ln -sf <isolated-main>/mise.toml /home/everdred/.local/state/mise/tracked-configs/b3628209ca1b5375: Read-only file system (os error 30)
+mise WARN  tracking config: failed to ln -sf <isolated-main>/mise.toml <user-state>/mise/tracked-configs/<config-id>: Read-only file system (os error 30)
 $ node --test scripts/test-components*.mjs
 ✔ minimum_voice_combination_follows_requires_and_handles_cycles (2.34214ms)
 ✔ minimum_combination_absent_or_incomplete (0.555569ms)
@@ -224,7 +224,7 @@ SHA: 889212aa39a2fb992da7942c6e4236f7b70be376
 UTC start: 2026-10-26T11:39:16.485217Z
 UTC end: 2026-10-26T11:39:31.984551Z
 Exit code: 0
-mise WARN  tracking config: failed to ln -sf <isolated-main>/mise.toml /home/everdred/.local/state/mise/tracked-configs/b3628209ca1b5375: Read-only file system (os error 30)
+mise WARN  tracking config: failed to ln -sf <isolated-main>/mise.toml <user-state>/mise/tracked-configs/<config-id>: Read-only file system (os error 30)
 $ vitepress build .
   vitepress v1.6.4
 - building client + server bundles...

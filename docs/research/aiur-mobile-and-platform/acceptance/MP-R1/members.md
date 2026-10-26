@@ -3,6 +3,7 @@
 Observed 2026-10-26 against `main` at
 `889212aa39a2fb992da7942c6e4236f7b70be376`.
 The first table uses the original 69 member IDs in #3342, matched exactly to issue titles.
+
 GitHub closure events identify the closing PR, and each of the 67 merge SHAs
 passes `git merge-base --is-ancestor <sha> <tested-main>`.
 Closed issue labels alone were not treated as merge evidence.
