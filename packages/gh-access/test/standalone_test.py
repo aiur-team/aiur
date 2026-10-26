@@ -1,4 +1,9 @@
-"""Exercise built executables against a fake gh; no network or host state."""
+"""Exercise built executables against a fake gh; no network or host state.
+
+Core cases characterize existing behavior as future composition-regression
+guards; standalone defaults, policy selection and token isolation cover the
+new adapter. One shared stub keeps the build-to-command boundary under test.
+"""
 import concurrent.futures
 import hashlib
 import importlib.util
@@ -149,6 +154,7 @@ sys.exit(result.returncode)
         denied = self.root / 'denied'
         self.build(aiur, '--adapter', 'aiur')
         self.build(denied, '--deny-merge')
+        self.assertEqual(self.run_gh('api', 'repos/o/r/issues/9', binary=aiur / 'gh').returncode, 0)
         for args in [('pr', 'merge', '1'), ('pr', 'review', '1', '--approve')]:
             self.assertEqual(self.run_gh(*args).returncode, 0)
             self.assertEqual(self.run_gh(*args, binary=denied / 'gh-access').returncode, 77)

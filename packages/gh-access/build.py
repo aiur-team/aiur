@@ -46,7 +46,7 @@ def main():
     script = script.replace('# @aiur-recursion-guard@\n', recursion)
     files = {
         'gh-access' if args.adapter == 'standalone' else 'gh': script,
-        'gh-access-broker': ''.join((ROOT / 'src/priv/github_budget' / name).read_text()
+        ('gh-access-broker' if args.adapter == 'standalone' else 'aiur-github-budget'): ''.join((ROOT / 'src/priv/github_budget' / name).read_text()
                                    for name in ['00_schema.py', '10_admission.py', '20_report_and_cli.py']),
         'github_budget_metrics.py': (ROOT / 'src/priv/github_budget_metrics.py').read_text(),
     }
