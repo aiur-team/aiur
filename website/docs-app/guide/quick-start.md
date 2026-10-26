@@ -129,9 +129,13 @@ with their observation ages. Expired heartbeats are stale during the retention
 window, then disappear.
 
 `instance.pool: false` keeps a daemon on its owned tickets only. These rules
-require the shared `AIUR_LEASE_DATABASE_URL`. `instance.ignore` remains
-available for static installations and per-ticket watcher filtering; it does
-not affect dispatch.
+require the shared `AIUR_LEASE_DATABASE_URL`.
+
+`aiur status` shows ownership rules for this instance and other live ones.
+
+`instance.ignore` remains available for static installations and per-ticket
+watcher filtering. Its `label_prefixes: [nuc]` and `tickets: [4121]` entries do
+not affect dispatch; use `instance.owns` for live rule-based dispatch.
 
 Register each daemon in `~/.aiur/remote-instances.yaml` as described under
 [Remote instances](/reference/cli-options#remote-instances). From the Executor
