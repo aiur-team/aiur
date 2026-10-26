@@ -85,9 +85,6 @@ defmodule Aiur.GitHub.AgentBudgetCommand do
 
       {:error, _} = error ->
         error
-
-      _unavailable ->
-        {:error, :github_budget_broker_unavailable}
     end
   end
 
