@@ -187,7 +187,12 @@ sys.exit(result.returncode)
         dirname.write_text('#!/bin/sh\nenv > "$SIBLING_ENV"\nexec /usr/bin/dirname "$@"\n')
         dirname.chmod(0o755)
         shasum = helpers / 'shasum'
-        shasum.write_text('#!/bin/sh\nenv >> "$SIBLING_ENV"\nexec /usr/bin/shasum "$@"\n')
+        shasum.write_text('''#!/usr/bin/env python3
+import hashlib, json, os, sys
+with open(os.environ['SIBLING_ENV'], 'a') as f:
+    f.write(json.dumps(dict(os.environ)) + '\\n')
+print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())
+''')
         shasum.chmod(0o755)
         env = {'GH_TOKEN': 'caller-secret', 'GITHUB_TOKEN': 'other-secret',
                'guard_token': 'inherited', 'budget_token': 'inherited',
@@ -195,13 +200,13 @@ sys.exit(result.returncode)
         result = self.run_gh('api', 'repos/o/r/issues/3', env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.requests()[0]['token'], '')
-        self.assertNotIn('secret', (self.root / 'sibling').read_text())
+        self.assertFalse('secret' in (self.root / 'sibling').read_text(), 'a sibling inherited a synthetic credential')
         credential = self.root / 'credential'
         credential.write_text('file-secret\n')
         result = self.run_gh('api', 'repos/o/r/issues/4', env=env | {'AIUR_GITHUB_CREDENTIAL_FILE': str(credential), 'AIUR_GITHUB_BUDGET_KEY': ''})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.requests()[-1]['token'], 'file-secret')
-        self.assertNotIn('secret', (self.root / 'sibling').read_text())
+        self.assertFalse('secret' in (self.root / 'sibling').read_text(), 'a sibling inherited a synthetic credential')
 
     def test_budget_identity_and_disabled_budget(self):
         self.assertEqual(self.run_gh('api', 'repos/o/r/issues/5').returncode, 0)
