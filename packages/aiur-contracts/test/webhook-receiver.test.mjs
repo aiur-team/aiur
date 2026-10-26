@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
+import { Webhook } from 'standardwebhooks';
 import {
   DuplicateWebhookError,
   InMemoryWebhookIdStore,
@@ -10,13 +11,13 @@ import {
 } from '../dist-examples/webhook-receiver.js';
 
 const secret = 'whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
-const webhookId = 'evt_101';
+const webhookId = 'host/default/101';
 const timestamp = 1_792_886_400;
-const body = '{"contract":"aiur.ticket_lifecycle_event","contract_version":1,"event_id":"evt_101","event_type":"ticket.lifecycle.changed","emitted_at":"2026-10-25T00:00:00Z","ticket_id":"5695","job_id":"run-5695-1","data":{"lifecycle":"running","source":"tracker","observed_at":"2026-10-25T00:00:00Z"}}';
+const body = '{"anchor":null,"attrs":{"lifecycle":"running","lifecycle_source":"tracker"},"class":"live","id":101,"instance":"host/default","observed_at":"2026-10-25T00:00:00Z","occurred_at":"2026-10-25T00:00:00Z","payload_version":1,"refs":{"job_id":"run-5695-1","ticket":"5695"},"seq":1,"source":"legacy","topic":"ticket.5695.lifecycle.changed","v":1}';
 const headers = {
   'webhook-id': webhookId,
   'webhook-timestamp': String(timestamp),
-  'webhook-signature': 'v1,x6NtCsb4O8VSnXhPaKG1+9ahN6zNY6uuuZidWBVLbDA=',
+  'webhook-signature': 'v1,AMeDHsQnunjDAaXb9UkZ2N26t1CragO3VW1mczNNUpk=',
 };
 
 test('pinned verifier uses constant-time comparison and a bounded five-minute window', () => {
@@ -37,9 +38,20 @@ test('receiver accepts the cross-language signature vector once', (context) => {
   const seen = new InMemoryWebhookIdStore();
   const event = verifyAiurWebhook(body, headers, secret, seen);
 
-  assert.equal(event.event_id, webhookId);
-  assert.equal(event.ticket_id, '5695');
+  assert.equal(event.id, 101);
+  assert.equal(event.refs.ticket, '5695');
   assert.throws(() => verifyAiurWebhook(body, headers, secret, seen), DuplicateWebhookError);
+});
+
+test('receiver accepts both edges of the five-minute timestamp window', (context) => {
+  context.mock.method(Date, 'now', () => timestamp * 1_000);
+
+  for (const offset of [-300, 300]) {
+    assert.equal(
+      verifyAiurWebhook(body, signedHeaders(timestamp + offset), secret, new InMemoryWebhookIdStore()).id,
+      101,
+    );
+  }
 });
 
 test('receiver rejects missing, wrong, stale, future, and body-mismatched deliveries', (context) => {
@@ -47,8 +59,8 @@ test('receiver rejects missing, wrong, stale, future, and body-mismatched delive
   const variants = [
     [{ ...headers, 'webhook-signature': undefined }, body],
     [{ ...headers, 'webhook-signature': 'v1,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' }, body],
-    [{ ...headers, 'webhook-timestamp': String(timestamp - 301) }, body],
-    [{ ...headers, 'webhook-timestamp': String(timestamp + 301) }, body],
+    [signedHeaders(timestamp - 301), body],
+    [signedHeaders(timestamp + 301), body],
     [headers, body.replace('running', 'paused')],
   ];
 
@@ -57,18 +69,28 @@ test('receiver rejects missing, wrong, stale, future, and body-mismatched delive
   }
 });
 
-test('receiver rejects a signed body whose event ID differs from its delivery ID', async (context) => {
+test('receiver rejects a signed body whose event ID differs from its delivery ID', (context) => {
   context.mock.method(Date, 'now', () => timestamp * 1_000);
-  const { Webhook } = await import('standardwebhooks');
-  const mismatched = body.replace(webhookId, 'evt_body_uses_another_id');
-  const signature = new Webhook(secret).sign(webhookId, new Date(timestamp * 1_000), mismatched);
+  const mismatched = body.replace('"id":101', '"id":102');
 
   assert.throws(() =>
     verifyAiurWebhook(
       mismatched,
-      { ...headers, 'webhook-signature': signature },
+      signedHeaders(timestamp, mismatched),
       secret,
       new InMemoryWebhookIdStore(),
     ),
   );
 });
+
+function signedHeaders(deliveryTimestamp, signedBody = body) {
+  return {
+    'webhook-id': webhookId,
+    'webhook-timestamp': String(deliveryTimestamp),
+    'webhook-signature': new Webhook(secret).sign(
+      webhookId,
+      new Date(deliveryTimestamp * 1_000),
+      signedBody,
+    ),
+  };
+}

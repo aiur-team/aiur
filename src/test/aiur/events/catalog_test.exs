@@ -32,7 +32,7 @@ defmodule Aiur.Events.CatalogTest do
 
     for entry <- exported do
       assert entry.refs != [] or entry.attrs != [], entry.pattern
-      assert Enum.all?(entry.refs, &(&1 in [:ticket, :pr_number, :head_sha, :decision_id, :decision_version, :queue_id, :prerequisite, :blocked, :root])), entry.pattern
+      assert Enum.all?(entry.refs, &(&1 in [:ticket, :job_id, :pr_number, :head_sha, :decision_id, :decision_version, :queue_id, :prerequisite, :blocked, :root])), entry.pattern
       assert Enum.all?(entry.attrs, fn {key, type} -> is_atom(key) and allowed_type?(type) end), entry.pattern
       assert approved_export?(entry.pattern), "Unapproved export: #{entry.pattern}"
     end
@@ -57,9 +57,18 @@ defmodule Aiur.Events.CatalogTest do
       assert %Entry{export?: true, refs: [:ticket, :pr_number], attrs: [author_trusted?: :boolean]} = Catalog.lookup("ticket.42.#{suffix}")
     end
 
-    for suffix <- ~w(progress progress.checkin) do
-      assert %Entry{export?: true, refs: [], attrs: [percent: :integer]} = Catalog.lookup("ticket.42.agent.#{suffix}")
+    for suffix <- ~w(progress progress.checkin progress.phase) do
+      assert %Entry{
+               export?: true,
+               refs: [:ticket, :job_id],
+               attrs: [percent: :integer, progress_source: {:enum, ~w(progress progress.checkin progress.phase)}]
+             } = Catalog.lookup("ticket.42.agent.#{suffix}")
     end
+
+    assert %Entry{class: :live, export?: true, refs: [:ticket, :job_id]} = Catalog.lookup("ticket.42.lifecycle.changed")
+    assert %Entry{class: :live, export?: true, refs: [:ticket, :job_id]} = Catalog.lookup("ticket.42.usage.changed")
+    assert %Entry{class: :ledgered, export?: true, refs: [:ticket, :job_id]} = Catalog.lookup("ticket.42.usage.spend_cap_reached")
+    assert %Entry{class: :live, export?: true, refs: [:ticket, :job_id]} = Catalog.lookup("ticket.42.cancel.result")
 
     assert %Entry{
              class: :journaled,
@@ -177,7 +186,8 @@ defmodule Aiur.Events.CatalogTest do
   defp approved_export?(pattern) do
     Enum.any?(
       ~w(ticket.*.agent.decision.# ticket.*.pr.opened ticket.*.pr.ready_for_review ticket.*.pr.merged ticket.*.pr.closed_unmerged ticket.*.issue.closed
-      ticket.*.ci.passed ticket.*.ci.failed ticket.*.issue.commented ticket.*.pr.review_comment ticket.*.agent.progress ticket.*.agent.progress.checkin
+      ticket.*.ci.passed ticket.*.ci.failed ticket.*.issue.commented ticket.*.pr.review_comment ticket.*.agent.progress ticket.*.agent.progress.checkin ticket.*.agent.progress.phase
+      ticket.*.lifecycle.changed ticket.*.usage.changed ticket.*.usage.spend_cap_reached ticket.*.cancel.result
       ticket.*.agent.attention.# ticket.*.queue.# ticket.*.queue.promoted ticket.*.queue.withdrawn ticket.*.queue.held ticket.*.queue.released ticket.*.queue.overridden
       ticket.*.queue.removed ticket.*.queue.attention.# system.queue.*.progress system.queue.attention.# system.build_order.*.progress
       ticket.*.agent.listen-mode.changed system.capabilities.changed system.#),

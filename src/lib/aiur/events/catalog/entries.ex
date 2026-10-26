@@ -41,8 +41,15 @@ defmodule Aiur.Events.Catalog.Entries do
              end)
 
   # aiur/agent_tools/emit_event.ex; aiur/agent_runner/tool_executor.ex
-  @progress (for suffix <- ~w(progress progress.checkin) do
-               %Entry{pattern: "ticket.*.agent.#{suffix}", class: :logged, export?: true, attrs: [percent: :integer], owner: "harness-adapters"}
+  @progress (for suffix <- ~w(progress progress.checkin progress.phase) do
+               %Entry{
+                 pattern: "ticket.*.agent.#{suffix}",
+                 class: :logged,
+                 export?: true,
+                 refs: [:ticket, :job_id],
+                 attrs: [percent: :integer, progress_source: {:enum, ~w(progress progress.checkin progress.phase)}],
+                 owner: "harness-adapters"
+               }
              end)
 
   @entries @core ++

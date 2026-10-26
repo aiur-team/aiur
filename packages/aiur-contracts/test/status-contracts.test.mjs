@@ -2,25 +2,25 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { contractCases } from '../scripts/validate.mjs';
 
-for (const { name, fixture, validate } of contractCases) {
+for (const { name, fixture, validate, marker = 'contract', version = 'contract_version', additive = true } of contractCases) {
   test(`${name} golden fixture validates`, () => {
     assert.equal(validate(fixture), true, JSON.stringify(validate.errors));
   });
 
   test(`${name} requires its contract marker`, () => {
     const missing = structuredClone(fixture);
-    delete missing.contract;
+    delete missing[marker];
     assert.equal(validate(missing), false);
   });
 
   test(`${name} rejects another contract version`, () => {
     const wrongVersion = structuredClone(fixture);
-    wrongVersion.contract_version = 2;
+    wrongVersion[version] = 2;
     assert.equal(validate(wrongVersion), false);
   });
 
-  test(`${name} permits additive fields within v1`, () => {
-    assert.equal(validate({ ...fixture, future_field: true }), true, JSON.stringify(validate.errors));
+  test(`${name} ${additive ? 'permits' : 'rejects'} additive fields within v1`, () => {
+    assert.equal(validate({ ...fixture, future_field: true }), additive, JSON.stringify(validate.errors));
   });
 }
 

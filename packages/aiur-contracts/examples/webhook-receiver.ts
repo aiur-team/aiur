@@ -34,7 +34,7 @@ export function verifyAiurWebhook(
   const webhookId = normalizedHeaders["webhook-id"];
   const parsed = new Webhook(secret).verify(rawBody, normalizedHeaders);
 
-  if (typeof webhookId !== "string" || !isRecord(parsed) || parsed.event_id !== webhookId) {
+  if (typeof webhookId !== "string" || !isRecord(parsed) || deliveryId(parsed) !== webhookId) {
     throw new Error("Signed webhook ID does not match the event body");
   }
   if (!idStore.claim(webhookId)) throw new DuplicateWebhookError(webhookId);
@@ -44,4 +44,10 @@ export function verifyAiurWebhook(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deliveryId(event: Record<string, unknown>): string | undefined {
+  return typeof event.instance === "string" && Number.isSafeInteger(event.id) && (event.id as number) > 0
+    ? `${event.instance}/${event.id}`
+    : undefined;
 }

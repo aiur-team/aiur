@@ -1,17 +1,21 @@
 {
-  "contract": "aiur.ticket_cancel",
-  "contract_version": 1,
-  "emitted_at": "2026-10-23T12:00:00Z",
-  "event_id": "evt_105",
-  "event_type": "ticket.cancel.result",
-  "issue_identifier": "5698",
-  "process": {
-    "exit_status": "killed",
-    "exited_at": "2026-10-23T12:00:00Z",
-    "handle": "5698:attempt-1",
-    "observed_at": "2026-10-23T12:00:00Z",
-    "status": "exited"
+  "v": 1,
+  "instance": "host/default",
+  "seq": 5,
+  "id": 105,
+  "topic": "ticket.5698.cancel.result",
+  "class": "live",
+  "occurred_at": "2026-10-23T12:00:00Z",
+  "observed_at": "2026-10-23T12:00:00Z",
+  "source": "legacy",
+  "refs": {
+    "ticket": "5698",
+    "job_id": null
   },
-  "ticket_id": "5698",
-  "tracker_state": "cancelled"
+  "attrs": {
+    "tracker_state": "cancelled",
+    "process_status": "exited"
+  },
+  "payload_version": 1,
+  "anchor": null
 }

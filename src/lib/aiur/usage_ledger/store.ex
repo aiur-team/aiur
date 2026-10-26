@@ -6,6 +6,7 @@ defmodule Aiur.UsageLedger.Store do
   @behaviour Aiur.UsageLedger
 
   alias Aiur.{Config, Fs, Journal, UsageEnvelope}
+
   alias Aiur.UsageLedger.{
     Checkpoint,
     CounterPolicy,

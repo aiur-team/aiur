@@ -4,14 +4,30 @@
   "title": "TicketSpendCapReachedEvent",
   "allOf": [
     { "$ref": "outbound-event-envelope.v1.schema.json" },
-    { "$ref": "ticket-spend-cap-reached.v1.schema.json" },
     {
       "type": "object",
-      "additionalProperties": true,
       "properties": {
-        "event_type": { "const": "ticket.spend_cap.reached" }
+        "topic": { "type": "string", "pattern": "^ticket\\.[A-Za-z0-9._:-]+\\.usage\\.spend_cap_reached$" },
+        "refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ticket": { "type": "string", "minLength": 1 },
+            "job_id": { "type": ["string", "null"] }
+          },
+          "required": ["ticket", "job_id"]
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "spend_cap_state": { "const": "budget_exhausted" },
+            "currency": { "const": "USD" }
+          },
+          "required": ["spend_cap_state", "currency"]
+        }
       },
-      "required": ["event_type"]
+      "required": ["topic", "refs", "attrs"]
     }
   ]
 }

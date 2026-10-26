@@ -6,24 +6,30 @@
     { "$ref": "outbound-event-envelope.v1.schema.json" },
     {
       "type": "object",
-      "additionalProperties": true,
       "properties": {
-        "contract": { "const": "aiur.ticket_lifecycle_event" },
-        "event_type": { "const": "ticket.lifecycle.changed" },
-        "data": {
+        "topic": { "type": "string", "pattern": "^ticket\\.[A-Za-z0-9._:-]+\\.lifecycle\\.changed$" },
+        "refs": {
           "type": "object",
-          "additionalProperties": true,
+          "additionalProperties": false,
+          "properties": {
+            "ticket": { "type": "string", "minLength": 1 },
+            "job_id": { "type": ["string", "null"] }
+          },
+          "required": ["ticket", "job_id"]
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
             "lifecycle": {
               "enum": ["queued", "retrying", "allocated", "running", "paused", "waiting", "replaced", "completed", "cancelled"]
             },
-            "source": { "enum": ["status_report", "tracker"] },
-            "observed_at": { "type": "string", "format": "date-time" }
+            "lifecycle_source": { "enum": ["status_report", "tracker"] }
           },
-          "required": ["lifecycle", "source", "observed_at"]
+          "required": ["lifecycle", "lifecycle_source"]
         }
       },
-      "required": ["contract", "event_type", "data"]
+      "required": ["topic", "refs", "attrs"]
     }
   ]
 }

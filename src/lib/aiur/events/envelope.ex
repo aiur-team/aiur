@@ -12,6 +12,7 @@ defmodule Aiur.Events.Envelope do
 
   @sha ~r/\A[0-9a-fA-F]{7,64}\z/
   @identifier ~r/\A[A-Za-z0-9_-]+\z/
+  @subject_identifier ~r/\A[A-Za-z0-9._:-]+\z/
   @max_identifier_list 100
 
   @type external_envelope :: %{required(String.t()) => term()}
@@ -56,6 +57,13 @@ defmodule Aiur.Events.Envelope do
   end
 
   defp ref(:ticket, _event, topic), do: ticket_from_topic(topic)
+
+  defp ref(:job_id, event, _topic) do
+    event
+    |> value(:job_id)
+    |> fallback(observation_value(event, :provenance) |> value(:run_id))
+    |> subject_identifier()
+  end
 
   defp ref(:pr_number, event, _topic) do
     event |> pr() |> value(:number) |> fallback(value(event, :pr_number)) |> fallback(value(event, :pull_request_number)) |> positive_integer()
@@ -116,6 +124,12 @@ defmodule Aiur.Events.Envelope do
     do: if(Regex.match?(@identifier, value), do: value, else: nil)
 
   defp identifier(_value), do: nil
+
+  defp subject_identifier(value) when is_binary(value) and byte_size(value) <= 128 do
+    if Regex.match?(@subject_identifier, value), do: value
+  end
+
+  defp subject_identifier(_value), do: nil
 
   defp identifiers(values) when is_list(values) and length(values) <= @max_identifier_list do
     if Enum.all?(values, &(identifier(&1) != nil)), do: values, else: nil

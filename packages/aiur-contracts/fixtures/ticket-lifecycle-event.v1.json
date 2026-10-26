@@ -1,14 +1,21 @@
 {
-  "contract": "aiur.ticket_lifecycle_event",
-  "contract_version": 1,
-  "event_id": "evt_101",
-  "event_type": "ticket.lifecycle.changed",
-  "emitted_at": "2026-10-25T00:00:00Z",
-  "ticket_id": "5695",
-  "job_id": "run-5695-1",
-  "data": {
+  "v": 1,
+  "instance": "host/default",
+  "seq": 1,
+  "id": 101,
+  "topic": "ticket.5695.lifecycle.changed",
+  "class": "live",
+  "occurred_at": "2026-10-25T00:00:00Z",
+  "observed_at": "2026-10-25T00:00:00Z",
+  "source": "legacy",
+  "refs": {
+    "ticket": "5695",
+    "job_id": "run-5695-1"
+  },
+  "attrs": {
     "lifecycle": "running",
-    "source": "tracker",
-    "observed_at": "2026-10-25T00:00:00Z"
-  }
+    "lifecycle_source": "tracker"
+  },
+  "payload_version": 1,
+  "anchor": null
 }

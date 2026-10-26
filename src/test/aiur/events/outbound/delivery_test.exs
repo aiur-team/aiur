@@ -19,6 +19,7 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
          exchange: nil,
          journal_path: Path.join(ctx.dir, "events.ndjson"),
          cursor_path: ctx.cursor_path,
+         instance: "host/default",
          normalize_fun: fn %{external: event}, _now -> {:ok, event} end,
          max_pending_events: 10}
       )
@@ -62,6 +63,7 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
          exchange: nil,
          journal_path: Path.join(ctx.dir, "events.ndjson"),
          cursor_path: ctx.cursor_path,
+         instance: "host/default",
          normalize_fun: fn %{external: event}, _now -> {:ok, event} end,
          max_pending_events: 10}
       )
@@ -69,9 +71,9 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
     test = self()
 
     request_fun = fn opts ->
-      event_id = opts |> Keyword.fetch!(:body) |> Jason.decode!() |> Map.fetch!("event_id")
+      event_id = opts |> Keyword.fetch!(:body) |> Jason.decode!() |> Map.fetch!("id")
       send(test, {:delivered, event_id})
-      {:ok, %Req.Response{status: if(event_id == "evt_101", do: 422, else: 204)}}
+      {:ok, %Req.Response{status: if(event_id == 101, do: 422, else: 204)}}
     end
 
     alert_fun = fn topic, opts ->
@@ -93,23 +95,28 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
       )
 
     assert {:ok, 1} = ExportJournal.ingest(journal, %{external: event()})
-    assert {:ok, 2} = ExportJournal.ingest(journal, %{external: %{event() | "event_id" => "evt_102"}})
-    assert_receive {:delivered, "evt_101"}, 1_000
+    assert {:ok, 2} = ExportJournal.ingest(journal, %{external: %{event() | "id" => 102}})
+    assert_receive {:delivered, 101}, 1_000
     assert_receive {:alert, "system.outbound_events.delivery.permanent_failure", _opts}, 1_000
-    assert_receive {:delivered, "evt_102"}, 1_000
+    assert_receive {:delivered, 102}, 1_000
     assert :sys.get_state(delivery).cursor == 2
     assert {:ok, %{"cursor" => 2}} = JsonStore.read(ctx.cursor_path)
   end
 
   defp event do
     %{
-      "contract" => "aiur.ticket_lifecycle_event",
-      "contract_version" => 1,
-      "event_id" => "evt_101",
-      "event_type" => "ticket.lifecycle.changed",
-      "emitted_at" => "2026-10-25T00:00:00Z",
-      "ticket_id" => "5695",
-      "data" => %{"lifecycle" => "running", "source" => "tracker", "observed_at" => "2026-10-25T00:00:00Z"}
+      "v" => 1,
+      "instance" => "host/default",
+      "id" => 101,
+      "topic" => "ticket.5695.lifecycle.changed",
+      "class" => "live",
+      "occurred_at" => "2026-10-25T00:00:00Z",
+      "observed_at" => "2026-10-25T00:00:00Z",
+      "source" => "legacy",
+      "refs" => %{"ticket" => "5695", "job_id" => "run-5695-1"},
+      "attrs" => %{"lifecycle" => "running", "lifecycle_source" => "tracker"},
+      "payload_version" => 1,
+      "anchor" => nil
     }
   end
 

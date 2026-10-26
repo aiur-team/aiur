@@ -1,35 +1,21 @@
 {
-  "contract": "aiur.ticket_usage_event",
-  "contract_version": 1,
-  "event_id": "evt_103",
-  "event_type": "ticket.usage.changed",
-  "emitted_at": "2026-10-25T00:00:02Z",
-  "ticket_id": "5695",
-  "job_id": "run-5695-1",
-  "data": {
+  "v": 1,
+  "instance": "host/default",
+  "seq": 3,
+  "id": 103,
+  "topic": "ticket.5695.usage.changed",
+  "class": "live",
+  "occurred_at": "2026-10-25T00:00:00Z",
+  "observed_at": "2026-10-25T00:00:00Z",
+  "source": "legacy",
+  "refs": {
+    "ticket": "5695",
+    "job_id": "run-5695-1"
+  },
+  "attrs": {
     "position": 17,
-    "generation": 17,
-    "delta": {
-      "tokens": {
-        "input": 10,
-        "cached_input": null,
-        "cache_creation_input": null,
-        "output": 3,
-        "reasoning_output": null,
-        "provider_reported_total": 13
-      },
-      "cost": {
-        "amount": "0.12",
-        "currency": "USD",
-        "unit": "major",
-        "measurement_kind": "delta",
-        "counter_scope": "thread",
-        "source": "provider-cost",
-        "source_version": "2026-10"
-      },
-      "source_version": "2026-10",
-      "relationship_revision": "codex-app-server-2026-10",
-      "coverage_reasons": []
-    }
-  }
+    "generation": 17
+  },
+  "payload_version": 1,
+  "anchor": null
 }

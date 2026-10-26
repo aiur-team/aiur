@@ -7,8 +7,9 @@ dependency-free; the optional webhook receiver entrypoint uses the official
 `standardwebhooks` package declared as a runtime dependency.
 The v1 schemas use JSON Schema draft 2020-12. They cover capabilities, the
 CLI and HTTP status surfaces, per-ticket usage, per-ticket progress, ticket
-spend caps, and outbound ticket events.
-Clients ignore unknown IDs and additive fields. A breaking change adds v2 beside v1.
+spend caps, and outbound ticket events. Snapshot clients ignore unknown IDs
+and additive fields. Outbound event schemas are identifier-only allowlists;
+a breaking event-envelope change adds v2 beside v1.
 
 Capability `mode` now accepts any string so merge policy can report `ci=wait local_tests=partial`.
 The former `in_band_hold`, `defer_resume` and `none` values remain valid, but generated TypeScript
@@ -31,17 +32,19 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 | `ticket-cancel.v1` | `POST /api/v1/:id/cancel` | `aiur.ticket_cancel` |
 | `ticket-usage.v1` | `GET /api/v1/:id/usage` and `aiur ticket-usage --json` | `aiur.ticket_usage` |
 | `ticket-progress.v1` | `GET /api/v1/:id/progress` | `aiur.ticket_progress` |
-| `ticket-lifecycle-event.v1` | outbound webhook | `aiur.ticket_lifecycle_event` |
-| `ticket-progress-event.v1` | outbound webhook | `aiur.ticket_progress_event` |
-| `ticket-usage-event.v1` | outbound webhook | `aiur.ticket_usage_event` |
-| `ticket-spend-cap-reached-event.v1` | outbound webhook | `aiur.ticket_spend_cap_reached` |
-| `ticket-cancel-result-event.v1` | outbound webhook | `aiur.ticket_cancel` |
+| `ticket-lifecycle-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.lifecycle.changed` |
+| `ticket-progress-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.agent.progress*` |
+| `ticket-usage-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.usage.changed` |
+| `ticket-spend-cap-reached-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.usage.spend_cap_reached` |
+| `ticket-cancel-result-event.v1` | outbound webhook | canonical envelope v1; `ticket.*.cancel.result` |
 | `ticket-spend-cap.v1` | `GET /api/v1/:id/spend-cap` | `aiur.ticket_spend_cap` |
 | `ticket-spend-cap-reached.v1` | `ticket.<id>.usage.spend_cap_reached` | `aiur.ticket_spend_cap_reached` |
 
 New consumer contracts follow the same layout: a schema and golden fixture with
-the same `<surface>.vN` stem, a top-level `contract` and `contract_version`, and
-an exported type in one of the generated contract unions.
+the same `<surface>.vN` stem and an exported type in one of the generated
+contract unions. Snapshot contracts use top-level `contract` and
+`contract_version`; outbound signals use the shared `v`, `payload_version`,
+`topic`, `refs`, and `attrs` envelope.
 
 ```sh
 npm ci
@@ -59,6 +62,12 @@ before parsing it, then atomically claim `webhook-id` in durable storage before
 processing the event. The official `standardwebhooks` package enforces the
 signature and five-minute timestamp window; ID storage prevents a valid request
 from being replayed inside that window.
+
+`webhook-id` is `<instance>/<id>`. The body repeats `instance` and `id`, while
+the export journal's dense `seq` is the delivery order. Ticket and job
+correlation live under `refs`; bounded enums and counters live under `attrs`.
+The event is a refresh signal, so fetch authoritative state from the owning API
+instead of treating the signal as a snapshot.
 
 [`examples/webhook-receiver.ts`](examples/webhook-receiver.ts) is an executable
 TypeScript example and is published as `@aiur/contracts/webhook-receiver`. Its

@@ -76,13 +76,13 @@ export const contractCases = [
   { name: 'ticket cancel', schema: ticketCancelSchema, fixture: ticketCancel, validate: validateTicketCancel },
   { name: 'ticket usage', schema: ticketUsageSchema, fixture: ticketUsage, validate: validateTicketUsage },
   { name: 'ticket progress', schema: ticketProgressSchema, fixture: ticketProgress, validate: validateTicketProgress },
-  { name: 'ticket lifecycle event', schema: ticketLifecycleEventSchema, fixture: ticketLifecycleEvent, validate: validateTicketLifecycleEvent },
-  { name: 'ticket progress event', schema: ticketProgressEventSchema, fixture: ticketProgressEvent, validate: validateTicketProgressEvent },
-  { name: 'ticket usage event', schema: ticketUsageEventSchema, fixture: ticketUsageEvent, validate: validateTicketUsageEvent },
+  { name: 'ticket lifecycle event', schema: ticketLifecycleEventSchema, fixture: ticketLifecycleEvent, validate: validateTicketLifecycleEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'ticket progress event', schema: ticketProgressEventSchema, fixture: ticketProgressEvent, validate: validateTicketProgressEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'ticket usage event', schema: ticketUsageEventSchema, fixture: ticketUsageEvent, validate: validateTicketUsageEvent, marker: 'v', version: 'v', additive: false },
   { name: 'ticket spend cap', schema: ticketSpendCapSchema, fixture: ticketSpendCap, validate: validateTicketSpendCap },
   { name: 'ticket spend cap reached', schema: ticketSpendCapReachedSchema, fixture: ticketSpendCapReached, validate: validateTicketSpendCapReached },
-  { name: 'ticket spend cap reached event', schema: ticketSpendCapReachedEventSchema, fixture: ticketSpendCapReachedEvent, validate: validateTicketSpendCapReachedEvent },
-  { name: 'ticket cancel result event', schema: ticketCancelResultEventSchema, fixture: ticketCancelResultEvent, validate: validateTicketCancelResultEvent },
+  { name: 'ticket spend cap reached event', schema: ticketSpendCapReachedEventSchema, fixture: ticketSpendCapReachedEvent, validate: validateTicketSpendCapReachedEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'ticket cancel result event', schema: ticketCancelResultEventSchema, fixture: ticketCancelResultEvent, validate: validateTicketCancelResultEvent, marker: 'v', version: 'v', additive: false },
 ];
 
 for (const [validate, fixture] of [

@@ -4,14 +4,30 @@
   "title": "TicketCancelResultEvent",
   "allOf": [
     { "$ref": "outbound-event-envelope.v1.schema.json" },
-    { "$ref": "ticket-cancel.v1.schema.json" },
     {
       "type": "object",
-      "additionalProperties": true,
       "properties": {
-        "event_type": { "const": "ticket.cancel.result" }
+        "topic": { "type": "string", "pattern": "^ticket\\.[A-Za-z0-9._:-]+\\.cancel\\.result$" },
+        "refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ticket": { "type": "string", "minLength": 1 },
+            "job_id": { "type": ["string", "null"] }
+          },
+          "required": ["ticket", "job_id"]
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tracker_state": { "const": "cancelled" },
+            "process_status": { "enum": ["exited", "still_running", "kill_failed", "generation_changed"] }
+          },
+          "required": ["tracker_state", "process_status"]
+        }
       },
-      "required": ["event_type"]
+      "required": ["topic", "refs", "attrs"]
     }
   ]
 }
