@@ -166,7 +166,7 @@ test('Build Order feature card shows the root date and lane captions without rep
     const { ctx, fx } = await import('/build-home/state.js')
     ctx.D.feature_progress = progress
     ctx.D.order = ['f-bo-99-home']
-    ctx.D.epics = { 'f-bo-99-home': { feature: 'bo-99', label: 'Platform program · Home' } }
+    ctx.D.epics = { 'f-bo-99-home': { key: 'f-bo-99-home', feature: 'bo-99', label: 'Platform program · Home' } }
     ctx.D.features = { 'bo-99': { label: 'Platform program', epics: ['f-bo-99-home'], to: Infinity } }
     ctx.snap.order = ctx.D.order
     ctx.snap.epics = ctx.D.epics
