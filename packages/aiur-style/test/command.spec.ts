@@ -120,6 +120,8 @@ test('clipboard fallback restores focus and failure never announces success', as
 });
 
 test('custom options, prompt glyph and destroy clean up behavior', async ({ page }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
   await page.evaluate(async () => {
     const { initCommand } = await import('../dist/js/index.js');
     const single = document.querySelector<HTMLElement>('#command-single')!;
@@ -132,6 +134,9 @@ test('custom options, prompt glyph and destroy clean up behavior', async ({ page
   await expect(page.locator('#custom .aiur-command__prompt')).toHaveText('>');
   await page.getByRole('button', { name: 'Take command' }).click();
   await expect.poll(() => page.evaluate(() => (window as any).copied)).toEqual([commands[1], 'command']);
+  await page.clock.runFor(19);
+  await expect(page.locator('#custom .is-copied')).toHaveCount(1);
+  await page.clock.runFor(1);
   await expect(page.locator('#custom .is-copied')).toHaveCount(0);
   await page.evaluate(() => { (window as any).command.destroy(); (window as any).copied = null; });
   await page.getByRole('button', { name: 'Take command' }).click();
