@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 7,
+  "first_id": "dup-by-body-51",
+  "last_id": "events-webhooks-executor-15",
+  "findings": [
+    {
+      "id": "dup-by-body-51",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex:38",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-51"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-52",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/github_comments_poller.ex:270",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-52"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-53",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/token_accounting/payloads.ex:144",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-53"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-54",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/pane_manager/generic_open.ex:127",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-54"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-55",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:2746",
+      "note": "Dashboard and StreamdeckChannel still independently dispatch agent_chat_send_fun arity3, legacy arity2, then default with message_id. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-55"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-56",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook/deposit.ex:843",
+      "note": "Webhook Deposit and DependenciesAPI retain separate blocked-edge merges returning unchanged for duplicate IDs or absent/nonlist cache. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-56"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-57",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/orchestrator/token_accounting/payloads.ex:245",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-57"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-58",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/coordination_tasks.ex:296",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-58"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-body-59",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/budget.ex:637",
+      "note": "Budget and ModelCatalog retain separate selective receive loops flushing one port until after-zero. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-body-59"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-body-60",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_resource_guard.ex:151",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-body-60"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-constant-02",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/model_catalog.ex:21",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-constant-02"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-constant-03",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/planning_source.ex:847",
+      "note": "PlanningSource file read and Member draft_body separately enforce 1..64000 bytes at adjacent boundaries. Provisional disposition retained.",
+      "source_ids": [
+        "dup-by-constant-03"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-constant-05",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/http_server.ex:264",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-constant-05"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "dup-by-name-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_runner.ex:748",
+      "note": "AgentRunner, AppServer.Messages and Orchestrator.State still separately render identical issue_id/issue_identifier text with different input shapes. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-name-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-name-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/push_routing.ex:942",
+      "note": "IssueSync and PushRouting retain separate binary-state blocker_terminal? clauses delegating to DispatchPolicy; malformed blockers return false. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-name-02"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-name-04",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/current_run_membership/event/codec.ex:99",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "dup-by-name-04"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "dup-by-name-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/status_report.ex:837",
+      "note": "StatusReport and StreamDeckGrid retain duplicate integer 0..100/rounded float/nil percentage normalization. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-name-05"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-name-06",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order_presenter.ex:316",
+      "note": "Dependency and BuildOrderPresenter retain separate blocked_by/blocking source_connection predicates with blocked_by fallback. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-name-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "dup-by-name-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/config/codex_sandbox_policy.ex:286",
+      "note": "Config and CodexSandboxPolicy retain duplicate string-or-atom type lookup recognizing workspaceWrite. Provisional action retained; static code review only.",
+      "source_ids": [
+        "dup-by-name-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/subscription_store.ex:484",
+      "note": "resolve_stall still sends buffered events behind existing mailbox contents; newer event can advance cursor and stale-drop buffered ids at handle_info cursor gate. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "events-webhooks-executor-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/executor/claims.ex:265",
+      "note": "do_renew still restores existing owner role without checking expiry or another live owner; claim does not demote expired owner. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "events-webhooks-executor-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator/dispatcher.ex:142",
+      "note": "Dispatcher still synchronously calls CiLifecycle.poll_github_ci; lifecycle invokes GithubCIPoller.poll, whose eager task collection blocks with per-target timeout. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "events-webhooks-executor-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/webhooks/delivery_mode.ex:218",
+      "note": "configured_unproven sweep still ignores elapsed threshold and alerts on any recorded activity with zero deliveries; registry reseeds observed map on init. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "events-webhooks-executor-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook/normalizer.ex:608",
+      "note": "Webhook review_context still reads missing REST review_decision field; explicit comment preserves divergence from GraphQL poll approval context. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "events-webhooks-executor-05"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/publisher.ex:41",
+      "note": "Events.Publisher still imports GitHub marker/config/store and Webhooks; event core remains coupled to provider policy. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook/normalizer.ex:516",
+      "note": "Webhook Normalizer and comments poller retain separate resource_version/actionability normalization; comments explicitly require parity. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook/deposit.ex:515",
+      "note": "Deposit still independently defines parse_number and positive_number with positive integer or fully consumed positive string acceptance. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-09",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/github_webhook/normalizer.ex:60",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-09"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook/deposit.ex:402",
+      "note": "Webhook deposit still reads REST check_suite.id while CIPollBatch reads GraphQL checkSuite.id, retaining mismatched suite identifier representations; downstream merged-snapshot impact remains latent. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-11",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook/deposit.ex:196",
+      "note": "Deposit still invalidates ReadCache after the bodies walk inside one function-wide rescue; an earlier raise skips invalidation. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/webhooks/event_key.ex:60",
+      "note": "Review identity remains id/action/state without timestamp; CI identity remains id/status/conclusion, retaining edit/rerun dedup collisions. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/events/github_webhook.ex:445",
+      "note": "Reconcile window still uses persistent_term read/put and a bare spawned sleeping trailing wake, retaining concurrent claim and supervision weaknesses. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "events-webhooks-executor-14",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/events/publisher.ex:23",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "events-webhooks-executor-14"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "events-webhooks-executor-15",
+      "status": "present",
+      "anchor": "src/lib/aiur/executor/takeover_alert/snapshot.ex:167",
+      "note": "Takeover snapshot count_ci_failures still omits startup_failure and directly counts raw conclusions, unlike gate filtering/collapse. Provisional action retained; static code review only.",
+      "source_ids": [
+        "events-webhooks-executor-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}
