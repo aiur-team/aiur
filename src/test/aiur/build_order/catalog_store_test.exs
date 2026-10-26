@@ -99,11 +99,14 @@ defmodule Aiur.BuildOrder.CatalogStoreTest do
   test "a root with an evicted labels body still projects the catalog" do
     seed_issue(450, "Build Order 4", "open", %{"build-order" => ""})
     key = ResourceStore.key_for_repo(:issue_labels, @repo, 450)
-    ResourceStore.put_resource(key, [], source: :webhook, version: "2026-06-24T11:00:00Z")
+    ResourceStore.put_resource(key, [%{"name" => "build-order"}], source: :webhook, version: "2026-06-24T11:00:00Z")
     ResourceStore.drop_data(key)
 
-    assert {:ok, %ProviderResult{status: :complete, candidate: %Catalog{entries: []}}} =
+    assert {:ok, %ProviderResult{status: :complete, candidate: %Catalog{entries: [root]}}} =
              CatalogStore.fetch(repository: @repository)
+
+    assert root.identity.identifier == "450"
+    assert "build-order" in root.labels
   end
 
   test "member_numbers/1 maps parents to their present members" do

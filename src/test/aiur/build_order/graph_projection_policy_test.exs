@@ -227,6 +227,7 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
 
     assert Policy.failure_class(:missing_github_token) == :permission
     assert Policy.failure_class(:provider_schema) == :schema
+    assert Policy.failure_class(:unknown) == :unknown
 
     # A genuinely malformed graph must still report as malformed.
     assert Policy.failure_class(:structurally_invalid) == :structurally_invalid
