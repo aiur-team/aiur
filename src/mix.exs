@@ -184,7 +184,7 @@ defmodule Aiur.MixProject do
       {:wax_, "~> 0.7.0"},
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
-      {:jose, "~> 1.11"},
+      {:jose, "~> 1.11 and >= 1.11.13"},
       {:nimble_options, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.1.6"},
