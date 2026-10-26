@@ -136,6 +136,7 @@ defmodule VoiceConverse.Session do
         reconnects: 0,
         clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
         schedule_after: Keyword.get(opts, :schedule_after, &Process.send_after(self(), &2, &1)),
+        event_broadcast: Keyword.get(opts, :event_broadcast, &broadcast_to_subscribers/3),
         transport_token: nil,
         idle_token: nil,
         started_at: Keyword.get(opts, :clock, &DateTime.utc_now/0).()
@@ -431,8 +432,10 @@ defmodule VoiceConverse.Session do
     %{state | idle_token: token}
   end
 
-  defp broadcast(state, event),
-    do: Enum.each(Map.keys(state.subscribers), &send(&1, {:voice_conversation, state.id, event}))
+  defp broadcast(state, event), do: state.event_broadcast.(state.subscribers, state.id, event)
+
+  defp broadcast_to_subscribers(subscribers, id, event),
+    do: Enum.each(Map.keys(subscribers), &send(&1, {:voice_conversation, id, event}))
 
   defp broadcast_state(state, name),
     do: Enum.each(Map.keys(state.subscribers), &send(&1, {:voice_conversation_state, state.id, name}))

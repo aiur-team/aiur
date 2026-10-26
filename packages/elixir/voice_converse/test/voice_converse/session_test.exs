@@ -31,16 +31,32 @@ defmodule VoiceConverse.SessionTest do
   test "a final user turn is durable before a subscriber receives it", %{root: root, name: name} do
     config = config!(root, name)
     {:ok, _pid} = Supervisor.start_link([VoiceConverse.child_spec(config)], strategy: :one_for_one)
-    {:ok, id} = start!(name)
+    test_pid = self()
+
+    event_broadcast = fn subscribers, id, event ->
+      if match?(%Events.UserTranscript{final?: true}, event) do
+        send(test_pid, {:final_turn_ready_to_broadcast, id})
+
+        receive do
+          :release_final_turn_broadcast -> :ok
+        end
+      end
+
+      Enum.each(Map.keys(subscribers), &send(&1, {:voice_conversation, id, event}))
+    end
+
+    {:ok, id} = start!(name, event_broadcast: event_broadcast)
     assert_receive {:voice_conversation_state, ^id, :connecting}
     assert_receive {:voice_conversation_state, ^id, :listening}
 
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     :ok = FakeProvider.emit(:sys.get_state(session).provider_ref, %Events.UserTranscript{text: "hello", final?: true})
 
-    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}
+    assert_receive {:final_turn_ready_to_broadcast, ^id}
     assert {:ok, records, _meta} = TranscriptStore.read(root, id)
     assert Enum.any?(records, &(&1["type"] == "user_turn" and &1["text"] == "hello"))
+    send(session, :release_final_turn_broadcast)
+    assert_receive {:voice_conversation, ^id, %Events.UserTranscript{final?: true}}
   end
 
   test "audio and partial text are broadcast but never stored", %{root: root, name: name} do
