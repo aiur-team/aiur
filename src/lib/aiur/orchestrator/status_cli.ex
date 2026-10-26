@@ -160,11 +160,11 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     Enum.each(instances, fn row ->
       IO.puts(
-        "  #{row.instance_id} #{state_label(row.state)} #{row.version} heartbeat_age_ms=#{row.age_ms} host=#{Map.get(row, :host_kind) || "unknown"} public_url=#{Map.get(row, :public_url) || "unavailable"} leader=#{Presentation.leader_label(Map.get(row, :leader?))} agents=#{Presentation.count(Map.get(row, :agent_count))}/#{Presentation.count(Map.get(row, :agent_capacity))} held_tickets=#{held_tickets(Map.get(row, :held_tickets))}"
+        "  #{terminal_text(row.instance_id)} #{state_label(row.state)} #{terminal_text(row.version)} heartbeat_age_ms=#{row.age_ms} host=#{terminal_text(Map.get(row, :host_kind) || "unknown")} public_url=#{terminal_text(Map.get(row, :public_url) || "unavailable")} leader=#{Presentation.leader_label(Map.get(row, :leader?))} agents=#{Presentation.count(Map.get(row, :agent_count))}/#{Presentation.count(Map.get(row, :agent_capacity))} held_tickets=#{terminal_text(held_tickets(Map.get(row, :held_tickets)))}"
       )
 
       Enum.each(Map.get(row, :agents) || [], fn agent ->
-        IO.puts("    #{agent["identifier"] || "unknown ticket"} #{agent["state"] || "unknown"} observed_age_ms=#{row.age_ms}")
+        IO.puts("    #{terminal_text(agent["identifier"] || "unknown ticket")} #{terminal_text(agent["state"] || "unknown")} observed_age_ms=#{row.age_ms}")
       end)
     end)
   end
@@ -174,6 +174,12 @@ defmodule Aiur.Orchestrator.StatusCLI do
   defp state_label(state), do: state |> to_string() |> String.upcase()
   defp held_tickets(tickets) when is_list(tickets), do: Enum.join(tickets, ",")
   defp held_tickets(_), do: "unknown"
+
+  defp terminal_text(value) when is_binary(value) do
+    Regex.replace(~r/[\x00-\x1F\x7F]/, value, fn control -> "\\x" <> Base.encode16(control) end)
+  end
+
+  defp terminal_text(value), do: value |> inspect(limit: 5, printable_limit: 120) |> terminal_text()
 
   defp print_github_budget_scope do
     IO.puts(Access.fleet_budget_status_line(LeaseStore.configured?()))
