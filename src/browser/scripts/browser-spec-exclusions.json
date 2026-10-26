@@ -1,5 +1,10 @@
 [
   {
+    "spec": "tests/build-home-list.browser.spec.mjs",
+    "reason": "The existing list suite remains quarantined under #5118; the new feature progress bar assertion runs in the merge-gating build-home-features suite.",
+    "ticket": 5118
+  },
+  {
     "spec": "tests/design-parity-matrix.browser.spec.mjs",
     "reason": "Manual home parity sign-off only; home-parity-signoff.yml is workflow_dispatch-only and does not gate merges.",
     "ticket": 5124
