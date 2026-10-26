@@ -24,6 +24,8 @@
     "src/lib/aiur/events/durable_consumer/source.ex",
     "src/lib/aiur/events/envelope.ex",
     "src/lib/aiur/events/exchange.ex",
+    "src/lib/aiur/events/export.ex",
+    "src/lib/aiur/events/export/**",
     "src/lib/aiur/events/history_store.ex",
     "src/lib/aiur/events/id_generator.ex",
     "src/lib/aiur/events/instance_id.ex",
@@ -52,6 +54,8 @@
     "Aiur.Events.Delivery",
     "Aiur.Events.DurableConsumer",
     "Aiur.Events.Envelope",
+    "Aiur.Events.Export",
+    "Aiur.Events.Export.Exporter",
     "Aiur.Events.HistoryStore",
     "Aiur.Events.IdGenerator",
     "Aiur.Events.InstanceId",
@@ -90,7 +94,8 @@
     "env": [],
     "state": [
       "file: <runtime_state_dir>/event-id.json",
-      "file: <runtime_state_dir>/subscriptions/*.json"
+      "file: <runtime_state_dir>/subscriptions/*.json",
+      "events_export_dir"
     ],
     "capabilities": []
   },

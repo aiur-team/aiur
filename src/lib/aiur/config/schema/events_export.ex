@@ -6,7 +6,7 @@ defmodule Aiur.Config.Schema.EventsExport do
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-11 events.export.enabled
-    # @config-detail events.export.enabled | boolean | false | Enables the external event journal; restart to apply. Reserved for the exporter; no feed is installed yet. |
+    # @config-detail events.export.enabled | boolean | false | Enables the external event journal; restart to apply. Writes the segmented export journal when enabled. |
     field(:enabled, :boolean, default: false)
     # @config-reference config-configuration-11 events.export.retention_days
     # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); older records are trimmed. Read at boot. |
