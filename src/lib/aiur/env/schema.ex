@@ -205,6 +205,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_LOGS_ROOT", type: :path, group: :runtime, purpose: "Directory for daemon logs."},
     {"AIUR_TMUX_SESSION", type: :string, group: :runtime, purpose: "tmux session name the launcher uses."},
     {"AIUR_TMUX_SOCKET", type: :string, group: :runtime, purpose: "tmux socket name the launcher uses."},
+    {"AIUR_CLIENT_TOKEN", type: :secret, example: false, group: :runtime, purpose: "Optional per-client bearer token for Stream Deck and pane-control machine requests."},
     {"AIUR_AGENT_TMUX_SOCKET", type: :string, validate: false, example: false, group: :runtime, purpose: "Dedicated agent tmux socket; set by the launcher."},
     {"AIUR_TMUX_CONF", type: :path, validate: false, example: false, group: :runtime, purpose: "Shared tmux configuration file; set by the launcher."},
     {"AIUR_ERLANG_COOKIE",
