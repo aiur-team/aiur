@@ -37,7 +37,7 @@ defmodule Aiur.TestReset do
 
   require Logger
 
-  alias Aiur.GitHub.HostCommand
+  alias Aiur.GitHub.Access
   alias Aiur.JsonStore
   alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.TestReset.{Cleanup, Tickets}
@@ -310,7 +310,7 @@ defmodule Aiur.TestReset do
   end
 
   defp prepare_reset_tickets(tickets) do
-    runner = fn argv -> HostCommand.run(argv, stderr_to_stdout: true, bot_token: true) end
+    runner = fn argv -> Access.host_command(argv, stderr_to_stdout: true, bot_token: true) end
 
     {open_tickets, blocked_tickets} =
       Enum.reduce(tickets, {[], []}, fn id, {open, blocked} ->

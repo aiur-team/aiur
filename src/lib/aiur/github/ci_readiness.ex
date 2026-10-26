@@ -10,12 +10,11 @@ defmodule Aiur.GitHub.CiReadiness do
   @behaviour Aiur.CodeHost.CiReadiness
 
   @impl true
-  defdelegate retryable_error?(reason), to: Aiur.GitHub.Errors, as: :retryable_github_error?
+  defdelegate retryable_error?(reason), to: Aiur.GitHub.Access, as: :retryable_github_error?
 
   alias Aiur.{Config, Workflow}
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.CiReadiness.{Assessment, RepositoryReads, WorkflowRules}
-  alias Aiur.GitHub.Transport
 
   @default_timeout_ms 30_000
   @github_actions_app_id 15_368
@@ -42,12 +41,12 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec check(keyword()) :: {:ok, result()} | {:error, term()}
   def check(opts \\ []) do
     with {:ok, {owner, repo}} <- resolve_repo(Keyword.get(opts, :repo)),
-         {:ok, token} <- Transport.require_token(opts) do
+         {:ok, token} <- Access.require_token(opts) do
       base_branch = Config.base_branch(opts)
 
       request_fun =
         opts
-        |> Keyword.get(:request_fun, &Transport.default_request_fun/1)
+        |> Keyword.get(:request_fun, &Access.default_request_fun/1)
         |> tag_request_credential(Keyword.get(opts, :request_credential_id))
         |> bounded_request_fun(deadline_at_ms(opts))
 
@@ -59,12 +58,12 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec fetch_required_checks(keyword()) :: {:ok, [map()]} | {:error, term()}
   def fetch_required_checks(opts \\ []) do
     with {:ok, {owner, repo}} <- resolve_repo(Keyword.get(opts, :repo)),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      base_url = "#{Access.base_url()}/repos/#{owner}/#{repo}"
       branch = RepositoryReads.encode_path_component(Config.base_branch(opts))
 
-      with {:ok, rules} <- Transport.fetch_json_list(request_fun, token, "#{base_url}/rules/branches/#{branch}", caller: "ci_required_checks"),
+      with {:ok, rules} <- Access.fetch_json_list(request_fun, token, "#{base_url}/rules/branches/#{branch}", caller: "ci_required_checks"),
            {:ok, protection} <- RepositoryReads.fetch_protection_checks(request_fun, token, "#{base_url}/branches/#{branch}/protection", "ci_required_checks") do
         {:ok, Enum.uniq(protection ++ Enum.flat_map(rules, &RepositoryReads.required_checks_from/1))}
       end
@@ -108,7 +107,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp tag_request_credential(request_fun, _credential_id), do: request_fun
 
   defp put_operator_credential_key(%{token: token} = request) when is_binary(token) and token != "" do
-    Map.put_new(request, :credential_key, Budget.token_key(token))
+    Map.put_new(request, :credential_key, Access.token_key(token))
   end
 
   defp put_operator_credential_key(request), do: request
@@ -204,7 +203,7 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp resolve_repo(nil), do: Transport.parse_repo()
+  defp resolve_repo(nil), do: Access.parse_repo()
   defp resolve_repo({owner, repo}) when is_binary(owner) and is_binary(repo), do: {:ok, {owner, repo}}
 
   defp resolve_repo(repo) when is_binary(repo) do
@@ -225,7 +224,7 @@ defmodule Aiur.GitHub.CiReadiness do
           {:ok, result()} | {:error, term()}
   def inspect_repository(request_fun, token, owner, repo, base_branch, opts)
       when is_function(request_fun, 1) and is_binary(token) and is_binary(base_branch) do
-    base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
+    base_url = "#{Access.base_url()}/repos/#{owner}/#{repo}"
 
     with {:ok, default_branch} <- RepositoryReads.fetch_default_branch(request_fun, token, base_url, owner, repo),
          :ok <- RepositoryReads.branch_exists?(request_fun, token, "#{base_url}/branches/#{RepositoryReads.encode_path_component(base_branch)}"),

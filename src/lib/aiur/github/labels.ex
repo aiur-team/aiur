@@ -16,8 +16,7 @@ defmodule Aiur.GitHub.Labels do
   """
 
   alias Aiur.CodingAgent
-  alias Aiur.GitHub.Errors
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
 
   @base_url "https://api.github.com"
 
@@ -303,7 +302,7 @@ defmodule Aiur.GitHub.Labels do
   end
 
   defp label_error(response, fallback) do
-    case Errors.classify_error(response) do
+    case Access.classify_error(response) do
       {:github, kind, _} = reason when kind in [:rate_limited, :local_hold] -> {:error, reason}
       _ -> {:error, fallback}
     end
@@ -315,5 +314,5 @@ defmodule Aiur.GitHub.Labels do
 
   defp already_exists?(_body), do: false
 
-  defp default_request_fun(request), do: Transport.default_request_fun(request)
+  defp default_request_fun(request), do: Access.default_request_fun(request)
 end

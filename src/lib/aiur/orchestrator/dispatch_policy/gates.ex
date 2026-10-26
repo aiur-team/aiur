@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
   """
 
   alias Aiur.{CodingAgent, Config, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
-  alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.Access
   alias Aiur.Orchestrator.PressureAdmission
   @reclaimable_cpu_threshold 60.0
   @fd_headroom_percent 10
@@ -71,7 +71,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy.Gates do
       :available -> :available
       {:hold, %{} = hold} -> {:hold, hold}
       fun when is_function(fun, 0) -> fun.()
-      _other -> Quota.dispatch_status()
+      _other -> Access.dispatch_status()
     end
   end
 

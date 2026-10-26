@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.WorkspacePreflight do
   @moduledoc "GitHub connectivity and authentication checks before workspace hooks."
   @behaviour Aiur.Workspace.Preflight
 
-  alias Aiur.GitHub.{AuthPreflight, Client, Config, Tracker}
+  alias Aiur.GitHub.{Access, Client, Config, Tracker}
   alias Aiur.Workspace.Context
 
   @impl true
@@ -29,7 +29,7 @@ defmodule Aiur.GitHub.WorkspacePreflight do
   end
 
   @impl true
-  def local_hold?(reason), do: AuthPreflight.local_hold_reason?(reason)
+  def local_hold?(reason), do: Access.local_hold_reason?(reason)
 
   @impl true
   def failure_message(workspace, issue_context, reason) do
