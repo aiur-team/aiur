@@ -150,9 +150,13 @@ The real local merge reported success and produced `alpha`, `left`, `right`,
 `pull/4292/merge` failed because that merge ref did not exist. Thus the local
 union behavior is not portable to GitHub in this tested scenario.
 
-No union attribute ships. JSON commas make union unsafe; sorted/unique
+The initial list-layout PR shipped no union attribute. JSON commas make union unsafe; sorted/unique
 exemption lists can become unsorted or duplicated. All four scratch PRs were
 closed after verifying their bodies, branch identities, and results.
+
+Later PRs #4464 and #4505 added union attributes to registries and generated
+references. Their local merge tests do not establish GitHub support; the
+GitHub result above remains the observed result of this ticket's experiment.
 
 ## One-week baseline: recorded lower bound
 
@@ -241,3 +245,29 @@ keys, existing config topics and stricter checkers. The section map and carry
 command above route outstanding root-reference changes; new headings and
 introduction edits still need manual reconciliation. The original incomplete
 one-week conflict baseline remains explicitly a lower bound, not a measured saving.
+
+## Post-landing list audit (2026-10-26)
+
+Both scheduled stages landed: #4295 for list layout and #6285 for the docs
+split. A follow-up audit found two remaining inline telemetry attributes:
+`EventFields.@fields` and `WindowEventSources.CiRuns.@events`.
+
+The follow-up makes those lists vertical without changing their elements or
+order, and protects them with the workflow-security formatter check. It also
+protects the already-vertical `Sampler.@build_fields`. The targeted lifecycle
+attributes, pinned application children, TSV exemptions and state-writer
+allowlist already pass the same check.
+
+The native GitHub merge proof was rechecked after both landings. GitHub's
+commit API still returns `3aa9bd89ecf36cdbef04b96e29f1177b406c71c5` with the
+recorded alpha and omega parents. Reading that object confirms both component
+paths and both configuration table keys occur exactly once.
+
+```bash
+gh api repos/aiur-team/aiur/git/commits/3aa9bd89ecf36cdbef04b96e29f1177b406c71c5 \
+  --jq '{sha, parents: [.parents[].sha]}'
+```
+
+This reuses the real scratch-PR pair documented above; it does not claim
+same-position additions are conflict-free or infer GitHub behavior from the
+later local union tests.

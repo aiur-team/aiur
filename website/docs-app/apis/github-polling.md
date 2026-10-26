@@ -212,7 +212,9 @@ key means any other writer of that key destroys or corrupts it.
 A body change deletes the ETag, and a webhook deposit writes a body-derived validator that is then sent on a URL where it can never match — either way a
 later conditional request is answered wrongly. Store a validator where the thing it describes lives, and only answer it against the read that earned it.
 
-The ticket poll uses GraphQL to resolve which pull request belongs to a ticket and to read its inline review threads. Build history also uses bounded closed-issue catch-up, described below.
+The CI batch queries ticket branches for open and closed PRs. Open PRs remain CI subjects. Terminal PRs skip base repair and CI evaluation. A closing merge routes a closed ticket to `done`; a non-closing merge or closed-unmerged PR routes an open `ci-wait` ticket to `rework`. Human-review stays unchanged.
+
+GitHub represents merged PRs as `CLOSED` with `mergedAt`; Aiur preserves that distinction. Build history also uses bounded closed-issue catch-up, described below.
 
 The batch previously fetched full comments and threads for every branch candidate. Before the sweep added cached approval, queue, and ready-time fields, a live ten-target measurement cost **11 points** versus **114** for that old shape. These historical figures do not measure the current expanded query.
 
