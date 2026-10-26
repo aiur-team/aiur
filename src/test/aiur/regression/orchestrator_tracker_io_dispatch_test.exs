@@ -17,7 +17,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoDispatchTest do
   @dispatch_authorization_patterns [
     {DispatchAuthorization, :authorize, :_},
     {DispatchAuthorization, :authorize_label_applier, :_},
-    {DispatchAuthorization, :fetch_timeline, :_}
+    {DispatchAuthorization.Timeline, :fetch_timeline, :_}
   ]
 
   # Production control budget tolerates local fsyncs under load; held tracker barriers still expose blocked handlers.

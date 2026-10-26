@@ -180,6 +180,18 @@ Executor attention and retains the claim until intervention or a new daemon boot
 
 Remote control is opt-in per agent and local-only in v1.
 
+## Remote control calls
+
+POST `/api/v1/control` runs allowlisted literal calls with a `Bearer` token and
+returns local `aiur` output. Writes need a `write` token and `max_scope: write`;
+results include instance and build identity. The body limit is 65,536 bytes;
+the daemon records writes and refusals in `control-audit.ndjson`.
+
+A `write` token grants close to full control of that instance. It can message
+agents, and an agent with a shell can turn a message into code execution. Keep
+write tokens in an environment variable outside agent workspaces. Read tokens
+may be stored in files readable only by their owner (`0600`).
+
 
 ## Capability report
 
