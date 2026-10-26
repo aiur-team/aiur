@@ -16,7 +16,7 @@ defmodule Aiur.DecisionAnswer do
   @rationale_max 4_000
   @actor_kinds [:operator_relayed, :operator, :executor, :agent, :supervisor, :system]
 
-  @type actor :: %{kind: :operator_relayed | :operator | :executor | :agent | :supervisor | :system, id: String.t() | nil}
+  @type actor :: %{optional(:source) => atom(), kind: :operator_relayed | :operator | :executor | :agent | :supervisor | :system, id: String.t() | nil}
 
   @type t :: %__MODULE__{
           action_id: String.t(),
@@ -98,13 +98,20 @@ defmodule Aiur.DecisionAnswer do
          __MODULE__,
          Map.merge(content, %{
            accepted_at: now,
-           content_hash: DecisionValidation.content_hash(content),
+           content_hash: content_hash(content),
            ticket_comment_pending?: ticket_comment_pending?
          })
        )}
     else
       {:error, reason} -> {:error, {:answer_invalid, reason}}
     end
+  end
+
+  # Surface attribution is provenance, like accepted_at; retries retain the first surface.
+  defp content_hash(content) do
+    content
+    |> Map.update!(:actor, &Map.delete(&1, :source))
+    |> DecisionValidation.content_hash()
   end
 
   @doc "Decode and fully validate one persisted answer shape."
@@ -176,7 +183,7 @@ defmodule Aiur.DecisionAnswer do
       "selected_option_id" => answer.selected_option_id,
       "custom_response" => answer.custom_response,
       "rationale" => answer.rationale,
-      "actor" => %{"kind" => Atom.to_string(answer.actor.kind), "id" => answer.actor.id},
+      "actor" => Aiur.Commands.ActorSource.to_json_safe(answer.actor),
       "accepted_at" => DateTime.to_iso8601(answer.accepted_at),
       "content_hash" => answer.content_hash
     }
@@ -218,17 +225,19 @@ defmodule Aiur.DecisionAnswer do
 
   defp option_id(option) when is_map(option), do: Map.get(option, :id, Map.get(option, "id"))
 
-  defp normalize_actor(actor) when is_map(actor) do
+  @doc false
+  @spec normalize_actor(term()) :: {:ok, actor()} | {:error, term()}
+  def normalize_actor(actor) when is_map(actor) do
     kind = Map.get(actor, :kind, Map.get(actor, "kind"))
     id = Map.get(actor, :id, Map.get(actor, "id"))
 
     with {:ok, kind} <- actor_kind(kind),
          {:ok, id} <- bounded_optional(id, @identity_max, :actor_id) do
-      {:ok, %{kind: kind, id: id}}
+      {:ok, Aiur.Commands.ActorSource.preserve(%{kind: kind, id: id}, actor)}
     end
   end
 
-  defp normalize_actor(_other), do: {:error, {:actor, :invalid_type}}
+  def normalize_actor(_other), do: {:error, {:actor, :invalid_type}}
 
   defp normalize_relay(payload, %{kind: :operator_relayed, id: id}) do
     quote = get(payload, :operator_quote)

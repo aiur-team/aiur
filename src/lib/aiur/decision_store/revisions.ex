@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.Revisions do
   @moduledoc false
 
+  alias Aiur.Commands.Answering
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionRevision
@@ -19,6 +20,7 @@ defmodule Aiur.DecisionStore.Revisions do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
          {:ok, actor} <- Answers.fetch_actor(opts),
+         :ok <- Answering.require_actor_may_replace(actor, Decision.active_answer(decision)),
          :ok <- Answers.require_relay_enabled(actor, state),
          :ok <- require_relay_may_replace(decision, actor) do
       case find_revision_replay(decision, payload) do
@@ -59,14 +61,14 @@ defmodule Aiur.DecisionStore.Revisions do
   @spec handle_supersede(term(), term(), term(), term()) :: term()
   def handle_supersede(decision_id, payload, opts, state) do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
-         {:ok, _actor} <- Answers.fetch_actor(opts) do
+         {:ok, actor} <- Answers.fetch_actor(opts) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted ->
           correlated = supersede_payload(payload, accepted.prior_action_id, accepted.sequence - 1)
-          handle_revision(decision_id, correlated, opts, state)
+          handle_revision(decision_id, correlated, Keyword.put(opts, :actor, actor), state)
 
         nil ->
-          supersede_current(decision, payload, opts, state)
+          supersede_current(decision, payload, Keyword.put(opts, :actor, actor), state)
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
