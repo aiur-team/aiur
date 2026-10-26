@@ -3,6 +3,96 @@ defmodule Aiur.Config.SchemaTest do
 
   alias Aiur.Config.Schema
 
+  test "tracks every nested schema source as a compile resource" do
+    resources =
+      Schema.__info__(:attributes)
+      |> Keyword.get_values(:external_resource)
+      |> List.flatten()
+      |> Enum.map(&Path.expand(&1, File.cwd!()))
+
+    nested_sources = Path.wildcard("lib/aiur/config/schema/*.ex") |> Enum.map(&Path.expand/1)
+
+    assert nested_sources != []
+    assert Enum.all?(nested_sources, &(&1 in resources))
+  end
+
+  test "incremental Mix compilation refreshes defaults from nested schemas" do
+    fixture = Path.join(System.tmp_dir!(), "aiur-schema-compile-#{System.unique_integer([:positive])}")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(fixture) end)
+
+    create_incremental_compile_fixture!(fixture, schema_tracks_decisions_source?())
+    assert {_, 0} = compile_fixture(fixture)
+    assert fixture_default(fixture) == "true"
+
+    decision_source = Path.join(fixture, "lib/schema/decision.ex")
+    File.write!(decision_source, String.replace(File.read!(decision_source), "default: true", "default: false"))
+
+    assert {output, 0} = compile_fixture(fixture)
+    assert output =~ "Compiling 2 files"
+    assert fixture_default(fixture) == "false"
+  end
+
+  defp schema_tracks_decisions_source? do
+    schema_source = Path.expand("lib/aiur/config/schema/decisions.ex", File.cwd!())
+
+    Schema.__info__(:attributes)
+    |> Keyword.get_values(:external_resource)
+    |> List.flatten()
+    |> Enum.map(&Path.expand(&1, File.cwd!()))
+    |> Enum.member?(schema_source)
+  end
+
+  defp create_incremental_compile_fixture!(fixture, tracks_decisions_source?) do
+    ecto = Path.expand("../../../deps/ecto", __DIR__)
+    decimal = Path.expand("../../../deps/decimal", __DIR__)
+    telemetry = Path.expand("../../../deps/telemetry", __DIR__)
+    resource_declaration = if tracks_decisions_source?, do: ~S|@external_resource "lib/schema/decision.ex"|, else: ""
+
+    File.mkdir_p!(Path.join(fixture, "lib/schema"))
+
+    File.write!(Path.join(fixture, "mix.exs"), """
+    defmodule SchemaFixture.MixProject do
+      use Mix.Project
+      def project, do: [app: :schema_fixture, version: "0.1.0", elixir: "~> 1.19", deps: [
+        {:ecto, path: #{inspect(ecto)}, override: true},
+        {:decimal, path: #{inspect(decimal)}, override: true},
+        {:telemetry, path: #{inspect(telemetry)}, override: true}
+      ]]
+      def application, do: [extra_applications: [:logger]]
+    end
+    """)
+
+    File.write!(Path.join(fixture, "lib/schema/decision.ex"), """
+    defmodule SchemaFixture.Decision do
+      use Ecto.Schema
+      embedded_schema do
+        field :enabled, :boolean, default: true
+      end
+    end
+    """)
+
+    File.write!(Path.join(fixture, "lib/schema.ex"), """
+    defmodule SchemaFixture do
+      #{resource_declaration}
+      use Ecto.Schema
+      embedded_schema do
+        embeds_one :decision, SchemaFixture.Decision, defaults_to_struct: true
+      end
+      def parse, do: Ecto.Changeset.cast(%__MODULE__{}, %{}, []) |> Ecto.Changeset.apply_changes()
+      def default, do: parse().decision.enabled
+    end
+    """)
+  end
+
+  defp compile_fixture(fixture) do
+    System.cmd("mix", ["compile"], cd: fixture, stderr_to_stdout: true)
+  end
+
+  defp fixture_default(fixture) do
+    {output, 0} = System.cmd("mix", ["run", "--no-start", "-e", "IO.write(SchemaFixture.default())"], cd: fixture, stderr_to_stdout: true)
+    String.trim(output)
+  end
+
   describe "Claude account configuration" do
     test "defaults to legacy single-account behavior and accepts selection modes" do
       assert {:ok, defaults} = Schema.parse(%{})

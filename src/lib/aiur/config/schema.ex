@@ -1,6 +1,9 @@
 defmodule Aiur.Config.Schema do
   @moduledoc false
 
+  @nested_schema_sources Path.wildcard("lib/aiur/config/schema/*.ex")
+  for source <- @nested_schema_sources, do: @external_resource(source)
+
   use Ecto.Schema
 
   import Ecto.Changeset
@@ -43,16 +46,6 @@ defmodule Aiur.Config.Schema do
     Worker,
     Workspace
   }
-
-  # Embedded struct defaults must rebuild when their nested schemas change.
-  require Agent
-  require Instance
-  require Tracker
-  require BuildQueue
-  require Events
-  require Experiments
-  require Voice
-  require Workspace
 
   @primary_key false
 
