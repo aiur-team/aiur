@@ -325,7 +325,7 @@ alerts:
 #   block_state_debounce_seconds: 10
 #   custom_events_per_turn_max: 5
 #   codeowners_refresh_seconds: 3600
-#   export:                          # reserved for exporter; read at boot, restart to apply
+#   export:                          # export journal; read at boot, restart to apply
 #     enabled: false
 #     retention_days: 7              # 1..90; first age/count bound reached applies
 #     retention_max_events: 50000     # 1000..1000000

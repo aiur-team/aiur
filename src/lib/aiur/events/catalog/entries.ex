@@ -13,6 +13,8 @@ defmodule Aiur.Events.Catalog.Entries do
   @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)
 
   @core [
+    # application/export_children.ex; never export the feed's own failure.
+    %Entry{pattern: "system.events.export_unavailable", class: :logged, owner: "event-bus"},
     # aiur/agent_runner/tool_executor.ex; aiur/agent_tools/emit_event.ex
     %Entry{pattern: "ticket.*.agent.#", class: :logged, owner: "harness-adapters"},
     %Entry{pattern: "ticket.*.agent.custom.#", class: :logged, owner: "harness-adapters"},
