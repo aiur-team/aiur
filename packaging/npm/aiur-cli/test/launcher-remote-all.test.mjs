@@ -203,14 +203,14 @@ test("fleet wait requires --as and caps remote waits at ten minutes", () => {
 });
 
 test("not_owner acknowledge failures stay errors and preserve that instance cursor", () => {
-  const server = startServer({ name: "nuc", body: { ...successBody('{"status":"error","stage":"acknowledge","role":"observer","records":[],"detail":"not_owner"}\n__AIUR_CONTROL_EXIT__:1\n'), instance_id: "run/nuc" } });
+  const server = startServer({ name: "nuc", body: { ...successBody('{"status":"error","stage":"acknowledge","role":"observer","records":[],"detail":"not_owner: cursor-write contention"}\n__AIUR_CONTROL_EXIT__:69\n'), instance_id: "run/nuc" } });
   try {
     const setup = setupRemoteLauncher(registry({ nuc: server.url }));
     const cursorPath = path.join(setup.home, ".aiur/remote-state/nuc.wake-ack");
     mkdirSync(path.dirname(cursorPath), { recursive: true });
     writeFileSync(cursorPath, "run/nuc\t44\n");
     const result = runRemote(setup, ["--instance", "all", "executor-wait", "--timeout", "1", "--as", "fleet", "--json"]);
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(69);
     expect(result.stderr).toContain('"status":"error"');
     expect(result.stderr).toContain("not_owner");
     expect(result.stderr).not.toContain("wake cursor reset");
@@ -241,22 +241,36 @@ test("text-mode fleet wakes include the instance prefix", () => {
 });
 
 test("cancelling the idle remote wait leaves no curl or request files", () => {
-  const pidFile = path.join(root, "curl.pid");
-  const pc = startServer({ name: "pc", body: successBody('{"status":"timeout","role":"owner","records":[]}\n__AIUR_CONTROL_EXIT__:0\n'), delayMs: 15_000 });
-  const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":9}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" } });
+  const pidFile = path.join(root, "curl-pids");
+  const barrierFile = path.join(root, "wait-cancel-barrier");
+  const pc = startServer({ name: "pc", body: successBody('{"status":"timeout","role":"owner","records":[]}\n__AIUR_CONTROL_EXIT__:0\n'), barrierFile, barrierCount: 2, delayMs: 15_000 });
+  const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":9}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" }, barrierFile, barrierCount: 2 });
   try {
     const setup = setupRemoteLauncher(registry({ pc: pc.url, nuc: nuc.url }));
+    const pcCursor = path.join(setup.home, ".aiur/remote-state/pc.wake-ack");
+    mkdirSync(path.dirname(pcCursor), { recursive: true });
+    writeFileSync(pcCursor, "run/pc\t7\n");
     const curlPath = spawnSync("which", ["curl"], { encoding: "utf8" }).stdout.trim();
-    writeFileSync(path.join(setup.fakeBin, "curl"), `#!/usr/bin/env bash\nprintf '%s' "$$" >'${pidFile}'\nexec '${curlPath}' "$@"\n`);
+    writeFileSync(path.join(setup.fakeBin, "curl"), `#!/usr/bin/env bash\nprintf '%s\\n' "$$" >>"$AIUR_TEST_CURL_PIDS"\nexec '${curlPath}' "$@"\n`);
     chmodSync(path.join(setup.fakeBin, "curl"), 0o755);
     const tmpdir = path.join(root, "remote-tmp");
     mkdirSync(tmpdir, { recursive: true });
-    const result = runRemote(setup, ["--instance", "all", "executor-wait", "--timeout", "10", "--as", "fleet", "--json"], { TMPDIR: tmpdir });
+    const started = performance.now();
+    const result = runRemote(setup, ["--instance", "all", "executor-wait", "--timeout", "10", "--as", "fleet", "--json"], {
+      TMPDIR: tmpdir,
+      AIUR_TEST_CURL_PIDS: pidFile,
+    });
+    const elapsed = performance.now() - started;
     expect(result.status).toBe(0);
+    expect(elapsed).toBeLessThan(5_000);
+    expect(pc.requests()[0].body.expression).toContain("ack_through: 7");
+    expect(readFileSync(pcCursor, "utf8")).toBe("run/pc\t7\n");
     const remaining = readdirSync(tmpdir);
     expect(remaining).toEqual([]);
-    if (existsSync(pidFile)) {
-      const pid = readFileSync(pidFile, "utf8");
+    expect(existsSync(pidFile)).toBe(true);
+    const pids = readFileSync(pidFile, "utf8").trim().split("\n");
+    expect(pids).toHaveLength(2);
+    for (const pid of pids) {
       const state = spawnSync("ps", ["-o", "stat=", "-p", pid], { encoding: "utf8" }).stdout.trim();
       expect(state === "" || state.startsWith("Z")).toBe(true);
     }
@@ -272,6 +286,19 @@ test("a named remote executor wait uses that instance's cursor", () => {
     expect(server.requests()).toHaveLength(1);
     expect(server.requests()[0].body.expression).toContain("ack_through: 0");
     expect(readFileSync(path.join(setup.home, ".aiur/remote-state/nuc.wake-ack"), "utf8")).toBe("run/nuc\t0\n");
+  } finally { server.stop(); }
+});
+
+test("the shared remote write fixture stays matched to the emitted wait expression", () => {
+  const server = startServer({ name: "nuc", body: { ...successBody('{"status":"timeout","role":"owner","records":[]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" } });
+  try {
+    const setup = setupRemoteLauncher(registry({ nuc: server.url }));
+    const cursorPath = path.join(setup.home, ".aiur/remote-state/nuc.wake-ack");
+    mkdirSync(path.dirname(cursorPath), { recursive: true });
+    writeFileSync(cursorPath, "run/nuc\t44\n");
+    const result = runRemote(setup, ["--instance", "nuc", "executor-wait", "--as", "fleet", "--json"]);
+    expect(result.status).toBe(0);
+    expect(server.requests()[0].body.expression).toBe(readFixture.remote_write_commands[0].expression);
   } finally { server.stop(); }
 });
 

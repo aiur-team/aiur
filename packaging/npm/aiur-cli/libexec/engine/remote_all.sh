@@ -142,16 +142,13 @@ run_remote_all_executor_wait() {
   while :; do
     if remote_wait_has_delivered_records "$result_dir" "${!names[@]}"; then
       for index in "${!names[@]}"; do
-        curl_pid_file="$result_dir/$index.curl_pid"
-        if [ -f "$curl_pid_file" ]; then
-          curl_pid="$(cat "$curl_pid_file")"
-          printf '1' >"$result_dir/$index.cancelled"
-          kill -TERM -- "-$curl_pid" 2>/dev/null || kill "$curl_pid" 2>/dev/null || true
-        fi
+        [ -f "$result_dir/$index.status" ] && continue
+        printf '1' >"$result_dir/$index.cancelled"
+        kill -TERM "${pids[$index]}" 2>/dev/null || true
       done
       for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
       for index in "${!names[@]}"; do
-        if [ ! -f "$result_dir/$index.status" ] || [ -f "$result_dir/$index.cancelled" ]; then
+        if [ ! -f "$result_dir/$index.status" ]; then
           # A cancelled request was never acknowledged, so its wakes remain available.
           printf '0' >"$result_dir/$index.status"
           printf '{"status":"timeout","role":"owner","records":[]}\n' >"$result_dir/$index.output"
@@ -228,13 +225,30 @@ run_remote_all_wait_instance() {
   printf '%s' "$cursor" >"$result_dir/$index.sent_cursor"
   expression="Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: true, defer_ack: true, ack_through: $cursor, as: \"$as\")"
   AIUR_REMOTE_CURL_PID_FILE="$result_dir/$index.curl_pid"
+  AIUR_REMOTE_CLEANUP_FILE="$result_dir/$index.cleanup_files"
   export AIUR_REMOTE_CURL_PID_FILE
+  export AIUR_REMOTE_CLEANUP_FILE
+  trap 'remote_all_cancel_wait_instance "$index" "$result_dir"; exit 143' TERM
   run_remote_rpc_with_timeout "$expression" 2>"$result_dir/$index.error" || status=$?
+  trap - TERM
   printf '%s' "$status" >"$result_dir/$index.status"
   printf '%s' "${AIUR_CONTROL_RPC_OUTPUT:-}" >"$result_dir/$index.output"
   printf '%s' "${AIUR_REMOTE_INSTANCE_ID:-}" >"$result_dir/$index.instance_id"
   printf '%s' "$instance_id" >"$result_dir/$index.previous_instance"
   if [ "$status" -eq 64 ] && grep -q 'is unsupported on' "$result_dir/$index.error"; then printf 'unsupported' >"$result_dir/$index.status"; fi
+}
+
+remote_all_cancel_wait_instance() {
+  local index="$1" result_dir="$2" curl_pid file
+  if [ -r "$result_dir/$index.curl_pid" ]; then
+    curl_pid="$(cat "$result_dir/$index.curl_pid")"
+    kill -TERM "$curl_pid" 2>/dev/null || true
+    wait "$curl_pid" 2>/dev/null || true
+  fi
+  if [ -r "$result_dir/$index.cleanup_files" ]; then
+    while IFS= read -r file; do [ -z "$file" ] || rm -f -- "$file"; done <"$result_dir/$index.cleanup_files"
+  fi
+  rm -f -- "$result_dir/$index.curl_pid" "$result_dir/$index.cleanup_files"
 }
 
 render_remote_all_wait_results() {
@@ -256,7 +270,9 @@ render_remote_all_wait_results() {
         rows.push({instance, status: "error", records: [], detail});
         return;
       }
-    const lines = raw.replace(/\r/g, "").split("\n").filter((line) => line && line !== ":ok" && !line.startsWith("__AIUR_CONTROL_EXIT__:"));
+      const lines = raw.replace(/\r/g, "").split("\n").filter((line) => line && line !== ":ok" && !line.startsWith("__AIUR_CONTROL_EXIT__:"));
+      const exitMatch = raw.match(/__AIUR_CONTROL_EXIT__:(\d+)/);
+      const remoteExit = exitMatch && Number(exitMatch[1]) <= 255 ? Number(exitMatch[1]) : 0;
       let payload = null;
       for (const line of lines) { try { payload = JSON.parse(line); } catch (_) {} }
       if (!payload || !["woken", "timeout", "error"].includes(payload.status)) { highest = Math.max(highest, 69); rows.push({instance, status: "error", records: [], detail: "invalid executor-wait JSON"}); return; }
@@ -268,7 +284,7 @@ render_remote_all_wait_results() {
           payload.records = [];
           payload.status = "reset";
         } else {
-          highest = Math.max(highest, Number(status) || 1);
+          highest = Math.max(highest, remoteExit || Number(status) || 1);
           rows.push({instance, ...payload});
           return;
         }
