@@ -3,8 +3,8 @@ defmodule Aiur.DecisionStore.Persistence do
 
   require Logger
 
-  alias Aiur.Commands.RequestAttributes
   alias Aiur.Boot
+  alias Aiur.Commands.RequestAttributes
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionEvent

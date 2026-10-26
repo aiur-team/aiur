@@ -6,6 +6,13 @@ defmodule Aiur.Commands.Projection do
   alias Aiur.DecisionEvent
   alias Aiur.DecisionProjection.TransitionValidation
 
+  @doc false
+  @spec inherit_attributes(Decision.t(), Decision.t()) :: Decision.t()
+  def inherit_attributes(current, candidate) do
+    fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label])
+    struct!(candidate, fields)
+  end
+
   @spec apply(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, term()}
   def apply(decision, %DecisionEvent{type: :request_attributed} = event) do
     with :ok <- TransitionValidation.require_current_version(decision, event.decision_version) do

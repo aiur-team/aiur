@@ -16,8 +16,8 @@ defmodule Aiur.DecisionExpiry do
 
   require Logger
 
-  alias Aiur.Commands.Requester
   alias Aiur.Commands.DeliveryTarget
+  alias Aiur.Commands.Requester
   alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionStore}
 
   @interval_ms 60_000
