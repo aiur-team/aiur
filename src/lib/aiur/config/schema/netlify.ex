@@ -7,6 +7,7 @@ defmodule Aiur.Config.Schema.Netlify do
   embedded_schema do
     # @config-reference config-configuration-23 netlify
     # @config-reference config-configuration-23 netlify.enabled
+    # @config-reference config-configuration-23 netlify.account_id
     # @config-detail netlify.enabled | boolean | false | Enable the read-only Netlify usage poller and dashboard card. |
     # @config-detail netlify.account_id | string | nil | Netlify team/account ID to read. |
     # @config-detail netlify.poll_seconds | integer | 900 | Netlify usage polling interval in seconds. |
