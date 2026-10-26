@@ -370,7 +370,7 @@ remote_build_label() {
 
 run_remote_rpc_with_timeout() {
   local expression="$1" name="$AIUR_REMOTE_INSTANCE" runtime token timeout_seconds timeout_ms curl_timeout
-  local request_file response_file http_status curl_status=0 curl_pid output code reason detail required_scope build
+  local request_file response_file http_status curl_status=0 curl_pid cleanup_command output code reason detail required_scope build
 
   if [ "$name" = all ]; then run_remote_all_rpc "$expression"; return $?; fi
 
@@ -397,11 +397,7 @@ run_remote_rpc_with_timeout() {
   request_file="$(mktemp "${TMPDIR:-/tmp}/aiur-remote-request.XXXXXX")"
   response_file="$(mktemp "${TMPDIR:-/tmp}/aiur-remote-response.XXXXXX")"
   chmod 600 "$request_file" "$response_file"
-  remote_rpc_cleanup() {
-    [ -n "${request_file:-}" ] && rm -f -- "$request_file"
-    [ -n "${response_file:-}" ] && rm -f -- "$response_file" "$response_file.http-status"
-  }
-  trap remote_rpc_cleanup EXIT
+  printf -v cleanup_command 'rm -f -- %q %q %q' "$request_file" "$response_file" "$response_file.http-status"; trap "$cleanup_command" EXIT
 
   if ! printf '%s' "$expression" | AIUR_REMOTE_COMMAND="${AIUR_CONTROL_COMMAND:-control}" AIUR_REMOTE_TIMEOUT_MS="$timeout_ms" AIUR_REMOTE_MAX_SCOPE="${AIUR_REMOTE_MAX_SCOPE:-write}" \
     "$runtime" -e '
@@ -448,8 +444,6 @@ run_remote_rpc_with_timeout() {
   RELEASE_NODE="$name"
 
   if [ "$curl_status" -ne 0 ]; then
-    remote_rpc_cleanup
-    trap - EXIT
     control_rpc_say "aiur: could not reach remote instance '$name' (curl exit $curl_status)"
     return 69
   fi
@@ -459,25 +453,17 @@ run_remote_rpc_with_timeout() {
       if output="$(remote_json_output "$response_file")"; then
         AIUR_CONTROL_RPC_OUTPUT="$output"
         AIUR_REMOTE_INSTANCE_ID="$(remote_json_field "$response_file" "instance_id" 2>/dev/null || true)"
-        remote_rpc_cleanup
-        trap - EXIT
         return 0
       fi
-      remote_rpc_cleanup
-      trap - EXIT
       control_rpc_say "aiur: remote instance '$name' returned an invalid control response"
       return 69
       ;;
     401)
-      remote_rpc_cleanup
-      trap - EXIT
       control_rpc_say "aiur: token rejected by $name"
       return 77
       ;;
     403)
       required_scope="$(remote_json_field "$response_file" "error.required_scope" 2>/dev/null || true)"
-      remote_rpc_cleanup
-      trap - EXIT
       [ -n "$required_scope" ] || required_scope="required"
       control_rpc_say "aiur: $(control_command_label) requires $required_scope scope on $name"
       return 77
@@ -487,8 +473,6 @@ run_remote_rpc_with_timeout() {
       reason="$(remote_json_field "$response_file" "error.reason" 2>/dev/null || true)"
       detail="$(remote_json_field "$response_file" "error.detail" 2>/dev/null || true)"
       build="$(remote_build_label "$response_file")"
-      remote_rpc_cleanup
-      trap - EXIT
       if [ "$reason" = "unknown_on_build" ] || [ "$reason" = "option_not_allowed" ]; then
         control_rpc_say "aiur: $(control_command_label) is unsupported on $name ($build)"
       else
@@ -497,21 +481,15 @@ run_remote_rpc_with_timeout() {
       return 64
       ;;
     504)
-      remote_rpc_cleanup
-      trap - EXIT
       control_rpc_say "aiur: $(control_command_label) timed out on $name; outcome unknown on $name"
       return 124
       ;;
     400 | 404 | 405 | 413)
       code="$(remote_json_field "$response_file" "error.code" 2>/dev/null || true)"
-      remote_rpc_cleanup
-      trap - EXIT
       control_rpc_say "aiur: remote instance '$name' refused $(control_command_label) (HTTP $http_status${code:+, $code})"
       return 64
       ;;
     *)
-      remote_rpc_cleanup
-      trap - EXIT
       control_rpc_say "aiur: remote instance '$name' failed $(control_command_label) with HTTP ${http_status:-unknown}"
       return 69
       ;;
