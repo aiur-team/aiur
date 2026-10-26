@@ -238,15 +238,11 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       workflow_path = Aiur.Workflow.workflow_file_path()
       Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github", tracker_repo: "owner/repo")
 
-      # Release the prior test's read and observe its completion before counting.
+      # Release the prior test's read and observe its completion before opening
+      # /units, so only requests still in flight can race this measurement.
       ref = Process.monitor(inherited_task)
       send(inherited_task, :continue)
       receive_barrier({:DOWN, ^ref, :process, ^inherited_task, _reason})
-
-      # The released task intentionally performs a real GitHub comment read
-      # before the page opens. Exclude that setup traffic so this assertion
-      # measures only requests caused by opening /units.
-      Agent.update(counter, fn _requests -> [] end)
 
       assert {:ok, view, html} = live(build_conn(), "/units")
       assert html =~ "dashboard-shell", "/units did not render the dashboard shell"
