@@ -1,0 +1,450 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 13,
+  "first_id": "loose-2-36",
+  "last_id": "loose-3-33",
+  "findings": [
+    {
+      "id": "loose-2-36",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/asks_store.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-36"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-2-37",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/workflow.ex:17",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-37"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-2-38",
+      "status": "present",
+      "anchor": "src/lib/aiur/orchestrator.ex:217",
+      "note": "Orchestrator quota recovery/info handlers still destructure Lifecycle.request_refresh reply tuple, coupling info path to call response shape. Provisional disposition retained.",
+      "source_ids": [
+        "loose-2-38"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-2-39",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/provider_meter_snapshot.ex:58",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-2-39"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-2-40",
+      "status": "present",
+      "anchor": "src/test/aiur/agent_control_cli_test.exs:87",
+      "note": "Large AgentControlCLI/BuildGate test files still mutate global application configuration and use real wall-clock sleeps; historical line counts/incidence not remeasured. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-2-40"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/repo_base.ex:417",
+      "note": "Dispatch refresh still returns error phase unchanged; refresh_async exists but retry policy depends on separately configured polling. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-3-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/alert_ledger.ex:202",
+      "note": "Append still compacts at full max_bytes and history selection fills that same budget with no lower retention target. Cost/incidence remains unmeasured. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-3-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-03",
+      "status": "changed",
+      "anchor": "src/lib/aiur/workflow_store.ex:342",
+      "note": "Reload failure still keeps prior config and logs once per failed stamp without a health surface; aa0e92525 now makes logs durable on launcher runs, invalidating total invisibility claim. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-3-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/issue_log.ex:618",
+      "note": "record_event still checks writer path through synchronous GenServer call before async send; timeout produces missing writer and ok return. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-3-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/process_reaper.ex:331",
+      "note": "Command guard still maps unreadable proc cmdline to skip_gone; non-proc platforms have no alternative reader in this reaper. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-3-05"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-06",
+      "status": "repaired",
+      "anchor": "src/lib/aiur/test_reset.ex:621",
+      "note": "90bef167a delegates cleanup path to Layout.issue_workspace_path and expands workspace root, repairing re-derived local layout. U-unit owner: none dedicated; separate remote-fanout wording concern is not covered by this repair. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "loose-3-06"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-07",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/analytics_cli.ex:5",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-07"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-08",
+      "status": "present",
+      "anchor": "src/lib/aiur/decision_dispatch.ex:39",
+      "note": "DecisionDispatch still defaults transport to Orchestrator/OperatorMessages and OperatorMessages sends settlements back to DecisionStore; package cycle remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-3-08"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-09",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/repo_base.ex:58",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-09"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-10",
+      "status": "present",
+      "anchor": "src/lib/aiur/alerts.ex:75",
+      "note": "Alerts.definitions still reads YAML and normalizes per emit lookup; synchronous multi-sink alert path remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-3-10"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-11",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/issue_log.ex:756",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-11"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-12",
+      "status": "present",
+      "anchor": "src/lib/aiur/agent_event_log.ex:34",
+      "note": "AgentEventLog write failures still only Logger.debug while IssueLog write_line rescues to ok, retaining silent loss of structured evidence without debug. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-3-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-15",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/progress_retention.ex:274",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-15"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-16",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/decision_event.ex:35",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-16"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-18",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_queue_store.ex:140",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-18"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-3-19",
+      "status": "present",
+      "anchor": "src/lib/aiur/issue_log.ex:1023",
+      "note": "IssueLog still intentionally derives repo-qualified base64 scope, while SessionHandle/AlertLedger/Workspace derive different durable identities; migration compatibility problem remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "loose-3-19"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-20",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/recent_merge_store.ex:199",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-20"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-21",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/process_reaper.ex:136",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-21"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-22",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/issue_log.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-22"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-23",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/issue_log.ex:94",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-23"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/findings.ex:22",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-24"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-25",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/agent_directory.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-25"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "loose-3-26",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/provider_meter_projection.ex:422",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-26"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-3-27",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/pane_manager.ex:346",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-27"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-3-29",
+      "status": "present",
+      "anchor": "src/lib/aiur/run_telemetry.ex:61",
+      "note": "RunTelemetry and SaturationSentinel still independently derive sibling paths from log_file/default instead of Paths.log_root_dir. Provisional disposition retained.",
+      "source_ids": [
+        "loose-3-29"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/workflow_store.ex:59",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-30"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-3-31",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/issue_log.ex:298",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-31"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "loose-3-32",
+      "status": "present",
+      "anchor": "src/lib/aiur/usage_envelope.ex:163",
+      "note": "UsageEnvelope still repeats field catalogue and long validated constructor; DecisionValidation normalize retains long trust-boundary with-chain. Provisional disposition retained.",
+      "source_ids": [
+        "loose-3-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "loose-3-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/repo_base.ex:965",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "loose-3-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    }
+  ]
+}
