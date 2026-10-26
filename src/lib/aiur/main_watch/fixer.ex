@@ -103,7 +103,7 @@ defmodule Aiur.MainWatch.Fixer do
   defp retry_or_alert({:error, reason} = error, observations, watch, opts) do
     case {broker_timeout?(reason), Keyword.get(opts, :fixer_broker_timeout_retried?, false)} do
       {true, false} ->
-        Logger.warning("main-watch fixer retrying after GitHub broker timeout")
+        Logger.warning("fixer retrying after GitHub broker timeout")
         Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1).(Access.backoff_base_ms())
         reconcile(observations, watch, Keyword.put(opts, :fixer_broker_timeout_retried?, true))
 

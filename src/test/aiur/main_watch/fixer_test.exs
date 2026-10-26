@@ -143,7 +143,7 @@ defmodule Aiur.MainWatch.FixerTest do
     log = capture_log(fn -> assert :ok = Fixer.reconcile([observation()], @watch, opts) end)
 
     assert_received {:retry_wait, 1_000}
-    assert log =~ "main-watch fixer retrying after GitHub broker timeout"
+    assert log =~ "fixer retrying after GitHub broker timeout"
     assert Agent.get(attempts, & &1) == 2
     assert length(Agent.get(store, & &1.issues)) == 1
     assert Agent.get(store, & &1.alerts) == []
@@ -167,7 +167,7 @@ defmodule Aiur.MainWatch.FixerTest do
     log = capture_log(fn -> assert {:error, ^timeout} = Fixer.reconcile([observation()], @watch, opts) end)
 
     assert_received {:retry_wait, 1_000}
-    assert log =~ "main-watch fixer retrying after GitHub broker timeout"
+    assert log =~ "fixer retrying after GitHub broker timeout"
     assert Agent.get(attempts, & &1) == 2
     assert Agent.get(store, & &1.issues) == []
     assert [{"system.main.fixer.failed", %{reason: reason}}] = Agent.get(store, & &1.alerts)
