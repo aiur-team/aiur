@@ -209,7 +209,7 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment. GitHub uses the App when configured; local fallback is `GITHUB_TOKEN` or `gh` keyring, while hosted/container requires the App unless
+from the environment. Machine clients may set `AIUR_CLIENT_TOKEN` to a value created with `aiur token create`; clients send it as a bearer credential, and the value is removed from agent environments. A non-loopback bind refuses Basic Auth on every route, so machine clients there need a client token. GitHub uses the App when configured; local fallback is `GITHUB_TOKEN` or `gh` keyring, while hosted/container requires the App unless
 `AIUR_GITHUB_ALLOW_PAT=1` opts into a PAT. On a run,
 credential precedence is: an already-exported environment value, then
 `./.env` in the current repository, then `~/.aiur/.env`. Each dotenv file only

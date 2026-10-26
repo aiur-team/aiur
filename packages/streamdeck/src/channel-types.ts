@@ -243,8 +243,9 @@ export type FetchLike = (input: string, init?: { method?: string; headers?: Reco
 
 export interface StreamDeckChannelOptions {
   readonly baseUrl: string;
-  readonly username: string;
-  readonly password: string;
+  readonly username?: string;
+  readonly password?: string;
+  readonly token?: string;
   readonly fetch: FetchLike;
   readonly websocket: WebSocketFactory;
   readonly events: StreamDeckChannelEvents;
