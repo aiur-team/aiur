@@ -71,8 +71,10 @@ export function setView(view) {
   S.view = view; writeURL(); renderTools();
   if (S.loading) return;
   fx.viewport(); fx.relayout(); fx.jumpNow(true);
-  const target = focusedId && [...ctx.vp.querySelectorAll('[data-id]')].find(element => element.dataset.id === focusedId);
-  (target || ctx.vp).focus({ preventScroll: true });
+  if (focusedId) {
+    const target = [...ctx.vp.querySelectorAll('[data-id]')].find(element => element.dataset.id === focusedId);
+    (target || ctx.vp).focus({ preventScroll: true });
+  }
 }
 export function setList(list) {
   if (!LISTS.some(([value]) => value === list) || S.list === list) return;
