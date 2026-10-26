@@ -3,13 +3,19 @@ defmodule VoiceConverse.WireTest do
 
   alias VoiceConverse.Wire
 
-  @fixtures Path.expand("../../../../aiur-contracts/fixtures/voice-converse.v1.json", __DIR__)
+  @contract_fixtures Path.expand("../../../../aiur-contracts/fixtures/voice-converse.v1.json", __DIR__)
+  @fixtures Path.expand("../fixtures/wire/v1.jsonl", __DIR__)
   @schema_validator Path.expand("../../../../aiur-contracts/scripts/validate-voice-converse-frame.mjs", __DIR__)
 
   test "every v1 golden frame round-trips byte-for-byte and validates against the public schema" do
-    for frame <- Jason.decode!(File.read!(@fixtures)) do
+    golden_frames = @fixtures |> File.stream!() |> Enum.map(&String.trim/1)
+
+    assert Jason.decode!("[" <> Enum.join(golden_frames, ",") <> "]") == Jason.decode!(File.read!(@contract_fixtures))
+
+    for json <- golden_frames do
+      frame = Jason.decode!(json)
       assert {:ok, encoded} = Wire.encode(frame)
-      assert encoded == Jason.encode!(frame)
+      assert encoded == json
       assert {:ok, ^frame} = Wire.decode(encoded)
       assert {_, 0} = System.cmd("node", [@schema_validator, encoded], stderr_to_stdout: true)
     end
