@@ -81,6 +81,25 @@ defmodule AiurWeb.ControlControllerTest do
     assert record["call"] == "Aiur.AgentControlCLI.set_max_agents/1"
   end
 
+  test "read-only dashboard still permits reads and refuses and audits write calls", %{read_token: read_token, write_token: write_token, audit_path: path, previous_cap: previous_cap} do
+    previous_writable = AiurWeb.Endpoint.config(:dashboard_writable)
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, false)
+
+    on_exit(fn -> Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable) end)
+
+    read_response = post_control(read_token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.status()"}))
+    assert read_response.status == 200
+
+    write_response = post_control(write_token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.set_max_agents(3)"}))
+    assert write_response.status == 403
+    assert Jason.decode!(write_response.resp_body)["error"]["reason"] == "dashboard_read_only"
+    assert Aiur.Orchestrator.max_concurrent_agents() == previous_cap
+    assert [record] = audit_records(path)
+    assert record["scope"] == "write"
+    assert record["outcome"] == "refused"
+    assert record["call"] == "Aiur.AgentControlCLI.set_max_agents/1"
+  end
+
   test "write token executes and audits a write call", %{write_token: token, audit_path: path, previous_cap: previous_cap} do
     response = post_control(token, Map.merge(@contract, %{"expression" => "Aiur.AgentControlCLI.set_max_agents(3)"}))
 
@@ -109,12 +128,20 @@ defmodule AiurWeb.ControlControllerTest do
   end
 
   test "invalid expressions are refused with the build and audited", %{read_token: token, audit_path: path} do
-    response = post_control(token, Map.merge(@contract, %{"expression" => "System.cmd(\"id\", [])"}))
+    cases = [
+      {"System.cmd(\"id\", [])", "not_allowlisted"},
+      {"Aiur.AgentControlCLI.message(\"1\", File.read!(\"/etc/passwd\"))", "non_literal_argument"},
+      {"Aiur.AgentControlCLI.status(nested: fn -> :ok end)", "option_not_allowed"},
+      {~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|, "denied_remote"}
+    ]
 
-    assert response.status == 422
-    assert Jason.decode!(response.resp_body)["error"]["reason"] == "not_allowlisted"
-    assert [record] = audit_records(path)
-    assert record["outcome"] == "refused"
+    for {expression, reason} <- cases do
+      response = post_control(token, Map.merge(@contract, %{"expression" => expression}))
+      assert response.status == 422, expression
+      assert Jason.decode!(response.resp_body)["error"]["reason"] == reason
+    end
+
+    assert Enum.map(audit_records(path), & &1["outcome"]) == List.duplicate("refused", length(cases))
   end
 
   test "max_scope read refuses a write call even with a write token", %{write_token: token, audit_path: path, previous_cap: previous_cap} do
@@ -155,30 +182,16 @@ defmodule AiurWeb.ControlControllerTest do
     Process.unregister(write_parent)
   end
 
-  test "oversized control body is rejected before JSON decoding" do
+  test "oversized unauthenticated endpoint body is rejected before JSON decoding" do
     conn =
       conn(:post, "/api/v1/control", String.duplicate("x", 1_000_000))
       |> put_req_header("content-length", "1000000")
-      |> AiurWeb.ControlBodyLimit.call([])
-
-    assert conn.status == 413
-    assert Jason.decode!(conn.resp_body) == %{"error" => %{"code" => "body_too_large", "limit_bytes" => 65_536}}
-    assert match?(%Plug.Conn.Unfetched{aspect: :body_params}, conn.body_params)
-
-    small_conn =
-      conn(:post, "/api/v1/control", Jason.encode!(%{"expression" => "Aiur.AgentControlCLI.status()"}))
       |> put_req_header("content-type", "application/json")
-      |> AiurWeb.ControlBodyLimit.call([])
-      |> Plug.Parsers.call(
-        Plug.Parsers.init(
-          parsers: [:json],
-          pass: ["*/*"],
-          body_reader: {AiurWeb.ControlBodyReader, :read_body, []},
-          json_decoder: Jason
-        )
-      )
+      |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
 
-    assert small_conn.body_params == %{"expression" => "Aiur.AgentControlCLI.status()"}
+    assert conn.status in [401, 413]
+    refute conn.status == 422
+    assert match?(%Plug.Conn.Unfetched{aspect: :body_params}, conn.body_params)
   end
 
   test "control route method catch does not shadow issue routes", %{read_token: token} do

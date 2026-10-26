@@ -188,10 +188,11 @@ defmodule AiurWeb.Router do
 
   # Rejects agent-write requests while the dashboard is read-only. Sources the
   # flag from the endpoint config (set by `Aiur.HttpServer`, overridable in
-  # tests) and fails closed: a missing/false value keeps the dashboard
-  # observe-only.
+  # tests). The control endpoint defers this decision until after parsing the
+  # allowlisted call so it can audit write-call refusals while still allowing
+  # read-scope calls.
   defp require_dashboard_writable(conn, _opts) do
-    if dashboard_writable?() do
+    if dashboard_writable?() or conn.path_info == ["api", "v1", "control"] do
       conn
     else
       conn

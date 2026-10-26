@@ -42,10 +42,15 @@ defmodule AiurWeb.ControlController do
   defp execute_expression(conn, params, expression, requested_scope, started) do
     case ControlCall.parse(expression, remote: true, max_scope: :write) do
       {:ok, call} ->
-        if allowed_scope?(conn.assigns.token_scope, requested_scope, call.scope) do
-          execute_call(conn, params, expression, call, started)
-        else
-          refusal(conn, expression, call, :scope_denied, 403, started)
+        cond do
+          not allowed_scope?(conn.assigns.token_scope, requested_scope, call.scope) ->
+            refusal(conn, expression, call, :scope_denied, 403, started)
+
+          call.scope == :write and not dashboard_writable?() ->
+            refusal(conn, expression, call, :dashboard_read_only, 403, started)
+
+          true ->
+            execute_call(conn, params, expression, call, started)
         end
 
       {:error, reason} ->
@@ -164,6 +169,12 @@ defmodule AiurWeb.ControlController do
 
   defp max_scope("read"), do: :read
   defp max_scope(_), do: :write
+
+  defp dashboard_writable? do
+    AiurWeb.EndpointConfig.get(:dashboard_writable) == true
+  rescue
+    _ -> false
+  end
 
   defp elapsed(started), do: max(System.monotonic_time(:millisecond) - started, 0)
 
