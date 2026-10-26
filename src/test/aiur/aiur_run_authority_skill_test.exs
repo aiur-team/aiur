@@ -7,14 +7,16 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
     skill = read(".claude/skills/aiur-run/SKILL.md")
     executor = read(".claude/skills/aiur-run/references/executor.md")
 
-    assert skill =~ "Record external issue\nmutation authority separately"
+    contract = read(".claude/skills/aiur-run/references/run-contract.md")
+
+    assert contract =~ "Record external issue\nmutation authority separately"
     assert skill =~ "controls evidence capture and never"
     assert skill =~ "separately\nrecorded authority"
     assert executor =~ "`--debug` controls evidence capture only"
     assert executor =~ "never grants\nauthority to create or comment"
     assert executor =~ "requires separate, explicit\nauthority recorded"
 
-    for source <- [skill, executor] do
+    for source <- [skill, contract, executor] do
       refute source =~ "standing consent"
       refute source =~ "debug run:"
       refute source =~ "non-debug run:"
@@ -23,7 +25,7 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
   end
 
   test "merge-gate refusal surfaces GitHub's exact rule detail without an admin attempt" do
-    executor = read(".claude/skills/aiur-run/references/executor.md")
+    executor = read(".claude/skills/aiur-run/references/review-and-merge.md")
 
     assert executor =~ "<loaded-aiur-run-skill>/scripts/diagnose-pr-merge-gate.sh"
     assert executor =~ "GitHub's exact active-rule"
@@ -34,7 +36,7 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
   end
 
   test "worker push guidance fails closed on the configured agent credential file" do
-    skill = read(".claude/skills/aiur-run/SKILL.md")
+    skill = read(".claude/skills/aiur-run/references/review-and-merge.md")
     dev_loop = read(".claude/skills/aiur-agent/dev-loop.md")
 
     assert skill =~ "Never embed a token in the remote URL"

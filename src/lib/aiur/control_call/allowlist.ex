@@ -183,12 +183,15 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @test_rows (if Mix.env() == :test do
                 test_probe = [:Aiur, :ControlCallTestProbe]
+                controller_probe = [:Aiur, :ControlControllerTestProbe]
 
                 [
                   {{test_probe, :actor, 0}, %{class: :read, positional: [], options: %{}}},
                   {{test_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
                   {{test_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}},
-                  {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}}
+                  {{test_probe, :explode, 0}, %{class: :read, positional: [], options: %{}}},
+                  {{controller_probe, :read_wait, 1}, %{class: :read, positional: [:atom], options: %{}}},
+                  {{controller_probe, :write_wait, 1}, %{class: :write, positional: [:atom], options: %{}}}
                 ]
               else
                 []

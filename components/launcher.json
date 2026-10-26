@@ -67,5 +67,6 @@
     "ERL_EPMD_PORT",
     "MISE_DATA_DIR"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

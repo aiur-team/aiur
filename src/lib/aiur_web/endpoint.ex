@@ -69,6 +69,7 @@ defmodule AiurWeb.Endpoint do
 
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
+  plug(AiurWeb.ControlBodyLimit)
 
   # The custom body reader caches the raw request bytes for GitHub webhook
   # deliveries. HMAC is computed over exactly what GitHub sent, and re-encoding
@@ -77,7 +78,7 @@ defmodule AiurWeb.Endpoint do
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    body_reader: {AiurWeb.GithubWebhook.BodyReader, :read_body, []},
+    body_reader: {AiurWeb.ControlBodyReader, :read_body, []},
     json_decoder: Jason
   )
 

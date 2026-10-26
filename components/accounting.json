@@ -83,5 +83,6 @@
   ],
   "capabilities": [
     "accounting.meters"
-  ]
+  ],
+  "goal": "run-agents"
 }
