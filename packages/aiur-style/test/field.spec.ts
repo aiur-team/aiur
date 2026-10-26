@@ -166,7 +166,7 @@ for (const theme of ['dark', 'light']) {
     test(`field screenshot ${theme} ${size.width}x${size.height}`, async ({ page }) => {
       await page.setViewportSize(size);
       await open(page, `?theme=${theme}`);
-      await expect(page).toHaveScreenshot(`field-${theme}-${size.width}x${size.height}.png`, { maxDiffPixelRatio: 0.0005 });
+      await expect(page).toHaveScreenshot(`field-${theme}-${size.width}x${size.height}.png`, { maxDiffPixelRatio: 0.0005, threshold: 0 });
     });
   }
 }

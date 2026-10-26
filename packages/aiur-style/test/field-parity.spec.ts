@@ -26,7 +26,7 @@ for (const theme of ['dark', 'light']) {
     });
     const after = PNG.sync.read(Buffer.from(await page.locator('canvas').evaluate(el => (el as HTMLCanvasElement).toDataURL().split(',')[1]), 'base64'));
     expect([after.width, after.height]).toEqual([before.width, before.height]);
-    const changed = pixelmatch(before.data, after.data, null, before.width, before.height, { threshold: 0.1 });
+    const changed = pixelmatch(before.data, after.data, null, before.width, before.height, { threshold: 0, includeAA: true });
     expect(changed / (before.width * before.height)).toBeLessThanOrEqual(0.0005);
     expect(before.data.filter((value, i) => i % 4 === 3 && value > 0).length).toBeGreaterThan(1000);
   });
