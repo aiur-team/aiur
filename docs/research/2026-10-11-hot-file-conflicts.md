@@ -199,5 +199,45 @@ current-side additions. It refuses removals, scalar edits, and conflicting new
 components for manual reconciliation. Review the resulting diff and run the
 component gates before committing; it neither commits nor pushes.
 
-The docs-stage handoff will supply the exact moved-section map and a carry-over
-command for docs changes. Those are pending work, not delivered by this stage.
+## Carry an existing PR's reference edits
+
+After the separate docs landing, from a clean checkout:
+
+```bash
+python3 scripts/carry-reference-edits.py --pr 4257
+```
+
+The command maps old CLI/config headings to topic pages using
+`scripts/reference-sections.tsv`. It preserves current-side edits when they
+do not overlap the incoming changes, refuses overlapping edits, and writes
+nothing when reconciliation fails. New headings and changed introductions
+require manual migration. It neither commits nor pushes.
+
+Every old section anchor remains at its index and links to its topic. The
+sidebar reaches all seven new topics and retains the existing topic pages.
+Moved pages stay below 400 lines; existing small config topics remain intact.
+Current-main root CLI and config content survives exactly once, and all 282
+config keys plus the CLI command/flag inventory are checked across topic files. No saving is claimed before measurement.
+
+
+## Docs-stage rollout census (2026-10-25)
+
+At 22:05 UTC, `gh pr list --state open --limit 100 --json number,files`
+returned 62 open PRs. PR #6241 reached the 100-file response bound; its complete
+188-file list was fetched with `gh api --paginate repos/aiur-team/aiur/pulls/6241/files`.
+The completed population has these hot-file overlaps:
+
+| File | Open PRs | PR numbers |
+| --- | ---: | --- |
+| `components.json` | 1 | 6150 |
+| `website/docs-app/reference/cli.md` | 3 | 6250, 6249, 2643 |
+| `website/docs-app/reference/configuration.md` | 6 | 6203, 6173, 6167, 6161, 2870, 2510 |
+| `src/lib/aiur/run_telemetry/lifecycle.ex` | 1 | 2936 |
+| `src/test/support/state_writers_allowlist.exs` | 0 | — |
+
+The first stage landed as #4295 on October 12. This docs stage starts at main
+`2b2d195b4c3af60eceaf5a6c8590950d55a1d9b9` and preserves its newer commands,
+keys, existing config topics and stricter checkers. The section map and carry
+command above route outstanding root-reference changes; new headings and
+introduction edits still need manual reconciliation. The original incomplete
+one-week conflict baseline remains explicitly a lower bound, not a measured saving.
