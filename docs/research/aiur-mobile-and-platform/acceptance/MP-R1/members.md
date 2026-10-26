@@ -1,8 +1,8 @@
 # MP-R1 member receipts
 
 Observed 2026-10-26 against `main` at
-`8e799271993ac8b3037886312d1df4bd40f7e382`.
-The population is the 69 member IDs in #3342, matched exactly to issue titles.
+`889212aa39a2fb992da7942c6e4236f7b70be376`.
+The first table uses the original 69 member IDs in #3342, matched exactly to issue titles.
 GitHub closure events identify the closing PR, and each of the 67 merge SHAs
 passes `git merge-base --is-ancestor <sha> <tested-main>`.
 Closed issue labels alone were not treated as merge evidence.
@@ -92,7 +92,53 @@ Every SHA below is an ancestor of the tested main.
 | MP-R1-C10-T02 | #3322 | [#4403](https://github.com/aiur-team/aiur/pull/4403) | `1fe9e5cf5b3fd766054f176091c1cf041c06d19c` |
 | MP-R1-C10-T03 | #3323 | [#6354](https://github.com/aiur-team/aiur/pull/6354) | `4512dbeda9d543912c10a581d0272ca4f2900819` |
 | MP-R1-C10-T04 | #3324 | [#4404](https://github.com/aiur-team/aiur/pull/4404) | `99553f4a92a24e694fd637b6b464bc0bb3f05705` |
-| MP-R1-C10-T05 | #3341 | [#6365](https://github.com/aiur-team/aiur/pull/6365) | `8e799271993ac8b3037886312d1df4bd40f7e382` |
+| MP-R1-C10-T05 | #3341 | [#6365](https://github.com/aiur-team/aiur/pull/6365) | `889212aa39a2fb992da7942c6e4236f7b70be376` |
 | MP-R1-C11-T01 | #3338 | [#3447](https://github.com/aiur-team/aiur/pull/3447) | `3fe8a11daa7991100abfe67c48c25d37c179dd88` |
 | MP-R1-C11-T02 | #3339 | Disposition below | — |
 | MP-R1-C11-T03 | #3340 | [#6312](https://github.com/aiur-team/aiur/pull/6312) | `190237c877b277ff7e0790ffa2b293a57d02c0ac` |
+
+## GHA extension of root #3252
+
+The original 69-member population above omitted the six later-added GHA tasks.
+The complete reviewed population is **75 tasks: 72 merged, two accepted
+administrative dispositions, and one explicitly deferred open task**.
+
+GHA-1 through GHA-5 have these closing PRs; all five merge commits are ancestors
+of tested main `889212aa39a2fb992da7942c6e4236f7b70be376`.
+
+| Member | Issue | Closing PR | Merge SHA |
+| --- | --- | --- | --- |
+| MP-R1-GHA-1 | #3823 | [#5030](https://github.com/aiur-team/aiur/pull/5030) | `1ce902b8977db0620396d57717c08bb610af3be5` |
+| MP-R1-GHA-2 | #3824 | [#5482](https://github.com/aiur-team/aiur/pull/5482) | `798b1ea88a050cef569a183375193b0fa1bff1a5` |
+| MP-R1-GHA-3 | #3825 | [#6179](https://github.com/aiur-team/aiur/pull/6179) | `a250a316bbb1a43a05569ea4f5793acf74afa08c` |
+| MP-R1-GHA-4 | #3826 | [#6241](https://github.com/aiur-team/aiur/pull/6241) | `69d1f79d5fbd9e0523ea5c2bc374749e4880de74` |
+| MP-R1-GHA-5 | #3827 | [#6340](https://github.com/aiur-team/aiur/pull/6340) | `1708a001f4d31b373a8737bf837bcf297b41f2cb` |
+
+**MP-R1-GHA-6 / #3828 is OPEN and deferred, not complete.** It owns the physical
+package promotion record and its five-condition go/no-go decision.
+
+The logical component, injectable settings, dependency ports, facade and
+standalone wrapper are the merged GHA-1..5 work above.
+
+Physical promotion is conditional under
+[migration plan §5](../../bucket-1-refactor/MP-R1/migration-plan.md#5-promotion-test-when-a-logical-component-becomes-a-physical-package).
+This capstone accepts the current logical form without claiming a physical
+package or promotion verdict.
+
+No criterion evaluation or follow-up required by #3828 is claimed delivered.
+#3828 remains its owning open task.
+
+[DF-016](../../../../build-order/deferred-findings.md#df-016--mp-r1-gha-6-physical-promotion-record-remains-open)
+records why this capstone defers it rather than hiding it or blocking logical QA.
+
+## Receipt verification output
+
+Command: `git merge-base --is-ancestor <merge-sha> 889212aa39a2fb992da7942c6e4236f7b70be376`,
+for every SHA in the two tables above.
+
+```text
+SHA: 889212aa39a2fb992da7942c6e4236f7b70be376
+UTC start: 2026-10-26T11:40:22.218883Z
+UTC end: 2026-10-26T11:40:23.160879Z
+72 merge commits checked; 72 ancestor checks exited 0.
+```

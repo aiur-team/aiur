@@ -1,7 +1,7 @@
 # MP-R1 acceptance evidence
 
 Date: 2026-10-26. Tested main:
-`8e799271993ac8b3037886312d1df4bd40f7e382` (also the initial workspace HEAD).
+`889212aa39a2fb992da7942c6e4236f7b70be376` (isolated detached main checkout).
 This is automated acceptance evidence plus an Executor smoke-test handoff.
 No live daemon restart, TUI interaction, device test, or screenshot was performed
 from this issue workspace. End-to-end acceptance remains unobserved here.
@@ -20,9 +20,11 @@ Current companions are the [migration plan](../../bucket-1-refactor/MP-R1/migrat
 
 DESIGN-R1 approval is recorded on [#3342](https://github.com/aiur-team/aiur/issues/3342#issuecomment-6067750595).
 
-[Member receipts](members.md) cover all 69 IDs: 67 closing PR merges are ancestors
-of tested main; C6-T04 was explicitly not planned and C11-T02 was accepted as a
-research publication. These are documented exceptions to “every member merged”.
+[Member receipts](members.md) cover 75 tasks: the original 69 plus GHA-1..6.
+72 closing PR merges are ancestors of tested main; C6-T04 was explicitly not
+planned and C11-T02 was accepted as a research publication. GHA-6 / #3828 is
+open and explicitly deferred as conditional physical-promotion work (DF-016).
+
 This report adds no implementation, new tests, product approval, or package promotion.
 
 ## Criteria and evidence
@@ -36,67 +38,50 @@ This report adds no implementation, new tests, product approval, or package prom
    It reported baseline keys: declared 197, private 35, down 84, optional 148.
    Historical allowance changes are reported separately below; a current pass
    alone does not prove each historical PR decreased violations.
-4. **Capabilities:** existing CLI engine, wire golden, core/optional providers,
+4. **Capabilities — automated only; live check pending the Executor:** existing CLI engine, wire golden, core/optional providers,
    registry supervision, notifications, controller and run-shape tests passed.
    Core provider integration terminates the real test orchestrator and observes
    `unavailable/not_running`. Real CLI launches for all shapes remain post-deploy.
    `--no-dashboard` deliberately removes HTTP; only the CLI report exists there.
    Boot ID plus in-memory revision supersedes the early persistent-revision wording.
-5. **Voice absence:** optional-provider integration removes the configured key
+5. **Voice absence — automated only; live check pending the Executor:** optional-provider integration removes the configured key
    and checks that only `voice.stt` and `voice.tts` change to `not_configured`.
    Text input coverage is listed below. Sending and seeing text in the real TUI
    without a voice key remains post-deploy.
-6. **No root:** optional-provider tests assert unavailable build-order progress
+6. **No root — automated only; live check pending the Executor:** optional-provider tests assert unavailable build-order progress
    without numeric fields; root-summary/progress tests cover projections.
    These automate value semantics; no live root configuration was changed.
-7. **Route order:** controller and router-table tests passed; capabilities resolves
+7. **Route order — automated only; live check pending the Executor:** controller and router-table tests passed; capabilities resolves
    through its dedicated route rather than the generic issue route.
 8. **Config:** all 290 keys documented; checker passed with 30 sections, 7 scalar
    fields, 96 environment variables and 29 state paths owned exactly once.
 9. **Directory:** 16 loader/render tests passed, manifest docs links validated,
    and the frozen-lockfile VitePress build completed successfully.
    The public page is generated from indexed component records.
-10. **Manual surfaces:** pending the exact Executor checks below. No claim is made
+10. **Manual surfaces — automated only; live check pending the Executor:** pending the exact Executor checks below. No claim is made
     about unchanged runtime UX after every historical move, or current rendered UX.
 
-## Commands and results
+## Timestamped command output
 
-Commands run at the tested main above; Elixir commands run from `src/`.
+Runtime, checker and docs commands were rerun in a clean detached checkout of current main
+`889212aa39a2fb992da7942c6e4236f7b70be376`.
+Each quoted output block records
+its exact command, working directory, full SHA, UTC start/end times and exit code.
 
-- `npm ci --prefix scripts/components --ignore-scripts` — passed.
-- `python3 scripts/check-components.py --require-elixir` — passed; ownership and ratchets as above.
-- `npm ci --prefix packages/aiur-contracts --ignore-scripts` — passed; npm reported one moderate dependency advisory.
-- `bash scripts/test-check-components.sh --with-node --with-elixir` — passed, including 313 negative/positive fixture PASS cases.
-- `npm run check --prefix packages/aiur-contracts` — passed (generated types, schemas, fixture types and TypeScript).
-- `npm test --prefix packages/aiur-contracts` — 66 passed.
-- Focused identity/capabilities/router/run-shape/journal/signal suite — 187 tests, zero failures, one excluded.
-- `mise exec -- mix test --max-cases 4 test/aiur/build_order/root_summary_progress_test.exs
-  test/aiur/build_order/progress_renderer_test.exs test/aiur/build_progress_test.exs` — 35 tests passed.
-- `mise exec -- mix test --max-cases 4 test/aiur/opencode/operator_text_test.exs` — 14 passed (text normalization; rendered interaction remains manual).
-- `python3 scripts/check-config-docs.py` — all 290 keys documented.
-- `python3 scripts/check-components.py --docs` — passed.
-- `python3 scripts/check-bare-assert-receive.py` — passed across 2,383 test files.
-- `mise exec -- mix lint` — specs and strict Credo passed, 4,930 source files checked.
-- From `website/docs-app`, `mise exec bun@1.4.2 -- bun install --frozen-lockfile`, `mise exec bun@1.4.2 -- bun
-  run test:components`, `mise exec bun@1.4.2 -- bun run build` — passed; 16 tests and successful page
-  rendering.
+The output quotes support the counts above. Receipt/census reads run from the
+report checkout against immutable merge objects and this same main SHA.
 
-The 187-test command used `mise exec -- mix test --max-cases 4` with:
+- [Core tests and lint](core-output.md).
+- [Component/config/documentation checks](checker-output.md).
+- [Positive and negative checker fixtures](fixtures-output.md).
+- [Contracts and docs build](web-output.md).
+- [72 merge ancestry checks](members.md#receipt-verification-output).
+- [Historical allowance census](census-output.md).
 
-- `test/aiur/identity_test.exs` and `test/aiur/identity/`.
-- `test/aiur/capabilities{,_supervision,_notifications,_input_failure,_wire,_cli}_test.exs` (each expanded).
-- `test/aiur/capabilities/` and `test/aiur_capabilities_engine_test.exs`.
-- `test/aiur_web/controllers/capabilities_controller_test.exs`.
-- `test/aiur_web/{capability_error,router_table,endpoint_sockets,dashboard_pages_gate}_test.exs` (each expanded).
-- `test/aiur/application_dashboard_pages_test.exs`.
-- `test/aiur/{journal,journal_compatibility,signal,signal_lifecycle_port}_test.exs` (each expanded).
-
-The excluded case is the pre-existing quarantined “degraded dependency returns
-409 with the typed envelope and current identity”; it is not counted as passed.
-
-Setup corrections: `npm ci` in docs-app failed because the project uses `bun.lock`;
-plain `bun` initially lacked a selected mise version. The pinned Bun commands
-above succeeded. These setup attempts did not change tracked files.
+The core suite's excluded quarantined case is not counted as passed. These
+are existing tests: no new test or production change needs a mutation check.
+Criteria 4–7 have automated evidence only; criterion 10 has no live observation.
+All five remain **live check pending the Executor**, as detailed below.
 
 ## Post-deploy checks
 
