@@ -255,3 +255,9 @@ executor:
 #     after_step_days: 7
 #     after_max_days: 42
 #     metric_packs: ["delivery"]
+# Optional read-only Netlify account usage; requires NETLIFY_AUTH_TOKEN in .env.
+netlify:
+  enabled: false
+  # account_id: your-netlify-team-id
+  poll_seconds: 900
+  credit_alert_threshold: 100
