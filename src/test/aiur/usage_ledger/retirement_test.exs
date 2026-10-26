@@ -66,6 +66,37 @@ defmodule Aiur.UsageLedger.RetirementTest do
     GenServer.stop(restarted)
   end
 
+  test "replays appends after the retired checkpoint on recovery", context do
+    {:ok, ledger} = start_ledger(context.root, context.name)
+    append_n(context.name, 5)
+    {:ok, _} = Store.retire(context.name, 3)
+    append_n(context.name, 2)
+    GenServer.stop(ledger)
+
+    {:ok, restarted} = start_ledger(context.root, context.name)
+    assert scan_positions(context.name) == [4, 5, 6, 7]
+    assert GenServer.call(context.name, :generation) == 7
+    assert GenServer.call(context.name, :health) == :healthy
+    GenServer.stop(restarted)
+  end
+
+  test "retirement stores large idempotency history outside the checkpoint cap", context do
+    {:ok, ledger} = start_ledger(context.root, context.name)
+    first = envelope(%{})
+    {:ok, _} = GenServer.call(context.name, {:append, first})
+    append_n(context.name, 2_400)
+
+    assert {:ok, %{retired_through: 2_401}} = Store.retire(context.name, 2_401)
+    assert File.stat!(Path.join(context.root, "checkpoint.json")).size < 1_048_576
+    GenServer.stop(ledger)
+
+    {:ok, restarted} = start_ledger(context.root, context.name)
+    assert GenServer.call(context.name, :health) == :healthy
+    assert GenServer.call(context.name, :generation) == 2_401
+    assert {:duplicate, _ack} = GenServer.call(context.name, {:append, first})
+    GenServer.stop(restarted)
+  end
+
   test "a floor persisted before the segment is reclaimed still drops the retired prefix on boot", context do
     {:ok, ledger} = start_ledger(context.root, context.name, checkpoint_interval: 1)
     append_n(context.name, 5)

@@ -6,7 +6,7 @@ defmodule Aiur.UsageLedger.Store do
   @behaviour Aiur.UsageLedger
 
   alias Aiur.{Config, Fs, Journal, UsageEnvelope}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery, RetiredFloor}
+  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Record, Recovery, RetiredFloor, RetiredKeys}
 
   @max_scan_limit 10_000
   @checkpoint_every_appends 100
@@ -173,9 +173,10 @@ defmodule Aiur.UsageLedger.Store do
   end
 
   defp commit_retirement(state, watermark) do
-    checkpoint = Checkpoint.record(state.position, state.generation, state.policy, compact_idempotency?: false)
+    checkpoint = Checkpoint.record(state.position, state.generation, state.policy)
 
-    with {:ok, encoded_checkpoint} <- encode_checkpoint(checkpoint, state),
+    with :ok <- RetiredKeys.write(state.paths.retired_keys_path, state.policy.idempotency),
+         {:ok, encoded_checkpoint} <- encode_checkpoint(checkpoint, state),
          :ok <- state.checkpoint_fun.(state.paths.checkpoint_path, encoded_checkpoint),
          :ok <- state.retired_floor_write_fun.(state.paths.retired_path, watermark, state.retire_sync_fun) do
       retained = state.records |> :queue.to_list() |> Enum.filter(&(&1.position > watermark))
@@ -211,6 +212,7 @@ defmodule Aiur.UsageLedger.Store do
          {:ok, encoded_checkpoint} <- maybe_encode_checkpoint(checkpoint, state),
          :ok <- capacity(record, encoded_checkpoint, policy, state),
          :ok <- state.append_fun.(state.paths.segment_path, Record.encode(record)),
+         :ok <- maybe_write_retired_keys(policy, checkpoint_due?, state),
          :ok <- maybe_write_checkpoint(encoded_checkpoint, state) do
       next_state = %{
         state
@@ -242,6 +244,12 @@ defmodule Aiur.UsageLedger.Store do
 
   defp maybe_write_checkpoint(nil, _state), do: :ok
   defp maybe_write_checkpoint(encoded, state), do: state.checkpoint_fun.(state.paths.checkpoint_path, encoded)
+
+  defp maybe_write_retired_keys(_policy, false, _state), do: :ok
+  defp maybe_write_retired_keys(_policy, true, %{retired_through: 0}), do: :ok
+
+  defp maybe_write_retired_keys(policy, true, state),
+    do: RetiredKeys.write(state.paths.retired_keys_path, policy.idempotency)
 
   defp encode_checkpoint(checkpoint, state) do
     case state.checkpoint_encode_fun.(checkpoint, state.limits.max_checkpoint_bytes) do
