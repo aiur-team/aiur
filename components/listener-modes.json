@@ -32,7 +32,7 @@
   ],
   "dependency_kind": "required",
   "summary": "Routes messages to agents using steer, synchronous or asynchronous delivery.",
-  "status": "planned",
+  "status": "experimental",
   "install": {
     "type": "included"
   },
