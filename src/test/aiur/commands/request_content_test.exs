@@ -74,6 +74,7 @@ defmodule Aiur.Commands.RequestContentTest do
   test "short labels follow summary, header, question, kind and Command fallbacks" do
     summary = "one two three four five six seven eight nine ten eleven twelve"
     assert RequestContent.short_label(%{context: %{short_summary: "  #{summary}  "}}, []) == "one two three four five six seven eight"
+    assert RequestContent.short_label(%{context: %{short_summary: String.duplicate("a", 36) <> " bcdefgh"}}, []) == String.duplicate("a", 36)
     assert RequestContent.short_label(%{context: %{short_summary: " "}}, [%{header: "Scope"}]) == "Scope"
     assert RequestContent.short_label(%{question: "Question fallback", kind: "kind"}, []) == "Question fallback"
     assert RequestContent.short_label(%{question: "Top level"}, [%{question: "Native question"}]) == "Native question"

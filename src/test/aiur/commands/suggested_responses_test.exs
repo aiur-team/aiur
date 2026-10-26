@@ -45,9 +45,20 @@ defmodule Aiur.Commands.SuggestedResponsesTest do
     refute message =~ d.question
     assert {:ok, %{status: :duplicate}} = request(pid, payload(), alert_opts())
     refute_received {:warning, _, _, _}
+
+    version_two = Map.put(payload(), :version, 2)
+    assert {:ok, %{status: :accepted, decision: revised}} = request(pid, version_two, alert_opts())
+    assert revised.decision_id == d.decision_id
+    assert revised.version == 2
+    refute_received {:warning, _, _, _}
     GenServer.stop(pid)
     replayed = start_store!(dir)
-    assert {:ok, %{status: :duplicate}} = request(replayed, payload(), alert_opts())
+    assert {:ok, %{status: :duplicate}} = request(replayed, version_two, alert_opts())
+    refute_received {:warning, _, _, _}
+
+    assert {:ok, %{status: :accepted, decision: restored}} = request(replayed, Map.put(payload(), :version, 3), alert_opts())
+    assert restored.decision_id == d.decision_id
+    assert restored.version == 3
     refute_received {:warning, _, _, _}
     GenServer.stop(replayed)
   end
