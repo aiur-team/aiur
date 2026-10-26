@@ -35,5 +35,6 @@
   "env": [
     "AIUR_CLIENT_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "hardware"
 }

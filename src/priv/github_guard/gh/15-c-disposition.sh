@@ -1,49 +1,4 @@
 # Fragment of the assembled `gh` guard (Aiur.AgentGitHubGuard.Script); not a standalone script.
-dispatch_disposition() {
-  label=$1
-  case "$label" in
-    "$dispatch_prefix:todo"|"$dispatch_prefix:queued"|human:todo|needs-triage|build-order|epic) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# #1793: a ticket created without a lifecycle label is undispatchable AND
-# invisible — no agent can claim it and it appears in no state-scoped view, so
-# it reads to the operator as "no work left" (29 accumulated in one run). The
-# skills tell every filing path to set the disposition in the same request;
-# this refuses the call that does not, because an unlabelled issue cannot be
-# un-filed. Deliberately non-runnable hierarchy (Build Order roots, epics) and
-# parked work still pass by naming their own disposition.
-command_name=
-subcommand_name=
-# The third positional word, where `gh pr view 2073` and its siblings put the
-# resource number. The shared-state cache reads the identity from exactly this
-# position and nowhere else, so a rarer spelling such as
-# `gh pr view --json body 2073` resolves to no identity and is simply not
-# cached. Guessing a position instead would risk keying a response under the
-# wrong number, and a wrong cached shape is worse than a cache miss.
-positional_three=
-positional_count=0
-skip_root_value=0
-for arg in "$@"; do
-  if [ "$skip_root_value" -eq 1 ]; then
-    skip_root_value=0
-    continue
-  fi
-  case "$arg" in
-    -R|--repo|--hostname) skip_root_value=1; continue ;;
-    -R?*|--repo=*|--hostname=*) continue ;;
-  esac
-  positional_count=$((positional_count + 1))
-  case "$positional_count" in
-    1) command_name=$arg ;;
-    2) subcommand_name=$arg ;;
-    *) positional_three=$arg; break ;;
-  esac
-done
-unset positional_count
-command_key="$command_name $subcommand_name"
-
 # Single-account provenance marker (#2501).
 #
 # When agents and the human operator share one GitHub login, the author of a
@@ -272,18 +227,3 @@ fi
 
 if [ "$validate_only" -eq 1 ]; then exit 0; fi
 
-admission_resource=$resource
-# Identity derivation needs the command's admission decision (resource /
-# admission_required), which the classification above just made — so it runs
-# here, not at the top of the script, and only for a call that is about to be
-# admitted against a metered pool (`budget_derive_identity` re-checks the same
-# gates). A local `auth token`/`config` read never pays a GitHub round trip.
-budget_derive_identity
-# `none` is the shared EndpointPolicy table's pool for endpoints GitHub does
-# not meter (`/rate_limit`). They are admitted for ordering but their ledger
-# row keeps `resource: none` — the same row the daemon's Budget path writes —
-# rather than being booked onto the core bucket, so the guard and the daemon
-# cannot disagree about what rate-limit probes cost (#2353). No `none`->core
-# mapping is applied: the only admitted `none`-resource command is `api
-# rate_limit`, and non-admitted `none` commands (config/auth token) never
-# reach the broker.

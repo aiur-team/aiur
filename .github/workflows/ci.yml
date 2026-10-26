@@ -58,11 +58,11 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/workflow-security
-      - run: bash scripts/test-workflow-security.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh
+      - run: bash scripts/test-workflow-security.sh && bash scripts/test-retry-mix-deps-get.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh scripts/retry-mix-deps-get.sh
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs && node --test packages/nightly-release/test/lib.test.mjs
-      - name: Test human-only merge ruleset verifier
-        run: bash scripts/test-human-only-merge-ruleset.sh
+      - name: Test merge ruleset and standalone GitHub wrapper
+        run: bash scripts/test-human-only-merge-ruleset.sh && make -C packages/gh-access test
       - name: Test human-only merge ruleset drift check
         run: bash scripts/test-human-only-merge-ruleset-live.sh
       - name: Test pull request merge-gate diagnostics

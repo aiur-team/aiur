@@ -42,7 +42,7 @@ jobs:
       - name: Compile and test the package alone
         working-directory: packages/elixir/voice_converse
         run: |
-          mise exec -- mix deps.get
+          bash ../../../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get
           mise exec -- mix compile --warnings-as-errors
           mise exec -- mix format --check-formatted
           mise exec -- mix test
