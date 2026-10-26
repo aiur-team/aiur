@@ -9,8 +9,10 @@ script="$root/scripts/retry-mix-deps-get.sh"
 calls="$tmp/calls"
 
 grep -Fq 'bash ../scripts/retry-mix-deps-get.sh make deps' "$root/.github/actions/setup-elixir/action.yml"
+grep -Fq 'bash ../scripts/retry-mix-deps-get.sh $(MIX) deps.get' "$root/src/Makefile"
 grep -Fq 'bash ../../../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get' "$root/.github/workflows/voice-converse-standalone.yml"
 grep -Fq 'bash ../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get' "$root/Dockerfile"
+grep -Fq 'bash ../scripts/retry-mix-deps-get.sh "${mix[@]}" deps.get' "$root/packaging/scripts/build-release.sh"
 grep -Fq 'str(ROOT / "scripts/retry-mix-deps-get.sh")' "$root/scripts/audit-hex-dependencies.py"
 
 cat >"$tmp/sleep" <<'SH'
