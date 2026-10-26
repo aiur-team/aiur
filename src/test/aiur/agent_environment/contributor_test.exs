@@ -115,6 +115,11 @@ defmodule Aiur.AgentEnvironment.ContributorTest do
     remote_exports = AgentEnvironmentContributor.shell_exports(context.workspace, opts())
     refute remote_exports =~ "export AIUR_GITHUB_BUDGET_SOCKET="
 
+    local_claude_without_store =
+      Command.build_command(context.workspace, nil, nil, false, "rc-name", nil, nil)
+
+    refute local_claude_without_store =~ "export AIUR_GITHUB_BUDGET_SOCKET="
+
     Application.put_env(:aiur, :lease_database_url, "postgres://shared-store/aiur")
     configured_env = AgentEnvironmentContributor.port_env(context.workspace, opts()) |> Map.new()
     assert Map.fetch!(configured_env, ~c"AIUR_GITHUB_BUDGET_SOCKET") == String.to_charlist(AgentBudgetSocket.socket_path())
