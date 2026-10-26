@@ -51,6 +51,7 @@ defmodule VoiceConverse.Testing.FakeProvider do
   @impl true
   def open(%{owner: owner} = spec) when is_pid(owner) do
     notify(spec, :open)
+    if observer = fake_opt(spec, :open_observer), do: send(observer, {:fake_provider, :open_spec, spec})
 
     case fake_opt(spec, :open_error) do
       %Events.Error{} = error ->

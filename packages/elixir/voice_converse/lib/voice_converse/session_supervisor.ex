@@ -51,9 +51,19 @@ defmodule VoiceConverse.SessionSupervisor do
     child = {Session, [instance: instance, config: config, target: target, conversation_id: conversation_id] ++ opts}
 
     case DynamicSupervisor.start_child(name(instance), child) do
-      {:ok, _pid} -> {:ok, conversation_id}
+      {:ok, pid} -> await_started(pid, conversation_id)
       {:error, {:session_start_failed, code}} -> {:error, code}
       {:error, _reason} -> {:error, :unknown}
     end
+  end
+
+  defp await_started(pid, conversation_id) do
+    case GenServer.call(pid, :await_started, 5_000) do
+      :ok -> {:ok, conversation_id}
+      {:error, code} -> {:error, code}
+      _ -> {:error, :unknown}
+    end
+  catch
+    :exit, _reason -> {:error, :unknown}
   end
 end
