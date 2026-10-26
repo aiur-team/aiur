@@ -11,6 +11,7 @@ defmodule Aiur.Codex.SessionRecovery do
   @active_turn_mismatch ~r/\Aexpected active turn id ([A-Za-z0-9_-]+) but found ([A-Za-z0-9_-]+)\z/
 
   @spec recoverable?(term()) :: boolean()
+  def recoverable?(:port_closed), do: true
   def recoverable?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
   def recoverable?({:turn_start_failed, reason}), do: transport_loss?(reason)
 
