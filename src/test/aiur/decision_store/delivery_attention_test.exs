@@ -102,17 +102,35 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       pid2 =
         start_store!(dir,
           dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end,
-          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
+          terminal_ticket_resolver: fn _identifiers ->
+            send(parent, {:failure_reprojection_started, self()})
+
+            receive do
+              :continue_failure_reprojection -> {:ok, MapSet.new()}
+            end
+          end
         )
+
+      assert_receive {:failure_reprojection_started, reprojection_task}, 1_000
 
       assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       assert :ok = DecisionStore.record_transport_async(:restored, item, nil, pid2)
-      _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      # This call follows the cast from the same sender, so its reply is a barrier
+      # for the restore projection and its synchronous alert-ledger append.
+      assert {:ok, restored} = DecisionStore.get(decision.decision_id, pid2)
+      assert restored.delivery_status == :queued
+
+      # Let the delayed startup task run only after restoration has been
+      # projected. It must re-read the current decision before re-raising its
+      # boot snapshot, and this barrier waits until that check is complete.
+      send(reprojection_task, :continue_failure_reprojection)
+      assert :ok = DecisionStore.await_failure_attention_reprojection(pid2)
+      assert AlertFeed.condition_state(topic, roots: [], log_roots: [log_root]) == :resolved
       assert case_attention_alerts(log_root, topic) == []
     end
 
-    test "target-agent-unavailable failure is resolved, not raised, including after a listener restart",
+    test "an absent agent leaves the answer pending without attention across restart",
          %{dir: dir} do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-alert-log")
@@ -133,31 +151,22 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       payload = %{"idempotency_key" => "absent-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
 
-      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
-      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+      pending = wait_for_decision(pid, decision.decision_id, & &1.pending_for_session?)
+      assert pending.delivery_status == :pending
+      assert pending.dispatch_attempts == []
 
       topic =
         "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
 
-      # Recorded, but never as needs-attention: the target agent is structurally
-      # absent, so re-raising would demand action nothing can take. The delivery
-      # topic is cleared via its `.resolved` record rather than prepended with a
-      # `needs_attention: false` copy — the resolved record is the only form
-      # `AlertFeed` treats as a clear (#2419).
+      # An absent agent is expected during a dispatch gap; retain the answer for
+      # the next session without writing a delivery attention alert.
       assert case_attention_alerts(log_root, topic) == []
 
-      assert [%{"topic" => resolved_topic, "needs_attention" => false}] =
-               AlertFeed.list(roots: [], log_roots: [log_root])
-               |> Enum.filter(&(&1["topic"] == topic <> ".resolved"))
-
-      assert resolved_topic == topic <> ".resolved"
-
-      # A listener restart must not re-raise it either: the failure class is
-      # non-actionable regardless of ticket state, so the boot reprojection
-      # resolves it without ever consulting the terminal resolver, and the feed
-      # stays empty.
+      # A listener restart retains the pending answer and does not retry it.
       GenServer.stop(pid)
-      _pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
+      pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
+      restored = wait_for_decision(pid2, decision.decision_id, & &1.pending_for_session?)
+      assert restored.dispatch_attempts == []
       assert case_attention_alerts(log_root, topic) == []
     end
 
@@ -204,44 +213,36 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
       _failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
       assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
-      # The agent goes away and the explicit retry now fails with
-      # target_agent_unavailable: the non-actionable branch resolves the topic,
-      # retiring the earlier raise instead of leaving it active forever.
+      # The agent disappears before the explicit retry. The answer becomes
+      # pending for a future session, and the old failure alert is resolved.
       assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, action.action_id, pid)
 
-      _refailed =
-        wait_for_decision(pid, decision.decision_id, &(length(Decision.active_dispatch_attempts(&1)) == 2))
-
-      assert {:ok, refailed} = DecisionStore.get(decision.decision_id, pid)
-      assert List.last(Decision.active_dispatch_attempts(refailed)).failure_reason_class == "target_agent_unavailable"
+      pending = wait_for_decision(pid, decision.decision_id, & &1.pending_for_session?)
+      assert pending.delivery_status == :pending
+      assert length(Decision.active_dispatch_attempts(pending)) == 1
       assert case_attention_alerts(log_root, topic) == []
     end
 
-    test "target-agent-unavailable decision stays visible and retryable on the decision surface", %{dir: dir} do
+    test "an absent agent stays pending and visible on the decision surface", %{dir: dir} do
       dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
       pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
       assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-absent-visible"))
       payload = %{"idempotency_key" => "absent-visible-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, %{action: _action}} = answer(pid, decision.decision_id, payload)
-      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
-      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+      _pending = wait_for_decision(pid, decision.decision_id, & &1.pending_for_session?)
 
-      # Not dropped: clearing the needs-attention raise is an alert-surface
-      # choice, not a liveness one. The answered decision stays queryable with
-      # its delivery failure recorded, and the Control Center surface renders it
-      # as a failed, retryable delivery — the surface that keeps a
-      # temporarily-restarting agent's answer visible.
+      # The decision remains queryable and the answer stays pending for the next
+      # session instead of looking like a failed delivery.
       assert {:ok, current} = DecisionStore.get(decision.decision_id, pid)
-      assert current.delivery_status == :failed
-      assert List.last(Decision.active_dispatch_attempts(current)).failure_reason_class == "target_agent_unavailable"
+      assert current.delivery_status == :pending
+      assert current.pending_for_session?
+      assert current.dispatch_attempts == []
 
       [row] = DecisionPresenter.rows([current])
-      assert row.lifecycle == :delivery_failed
-      assert row.retryable == true
-      assert row.failure_reason == "target_agent_unavailable"
+      assert row.lifecycle == :dispatch_pending
     end
 
-    test "boot resolves the already-raised needs-attention backlog for non-actionable failures", %{dir: dir} do
+    test "boot resolves a legacy raised alert for a non-actionable failed answer", %{dir: dir} do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-backlog-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
@@ -255,20 +256,18 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
         end
       end)
 
-      dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+      dispatcher = fn _decision, _opts -> {:error, :max_concurrent_agents_reached} end
       pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
       assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-absent-backlog"))
       payload = %{"idempotency_key" => "absent-backlog-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
-      _failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+      topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
 
-      topic =
-        "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
-
-      # Simulate the backlog this fix exists to clear: an older build raised the
-      # delivery failure as needs-attention, so a raised entry is already on
-      # disk before this listener restarts.
-      _ =
+      # Simulate an alert raised by an older build for a persisted failed
+      # target-agent-unavailable record. Boot must clear that legacy alert.
+      :ok =
         Alerts.emit_custom(
           topic,
           "stale raised delivery alert",
@@ -282,8 +281,6 @@ defmodule Aiur.DecisionStore.DeliveryAttentionTest do
 
       GenServer.stop(pid)
 
-      # The boot reprojection must resolve (clear) the raised entry rather than
-      # leave it active forever — the feed must end up empty, not merely smaller.
       _pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
       wait_for_feed_empty(log_root, topic)
       assert case_attention_alerts(log_root, topic) == []

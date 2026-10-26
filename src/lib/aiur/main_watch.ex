@@ -4,8 +4,8 @@ defmodule Aiur.MainWatch do
   require Logger
   alias Aiur.Config
   alias Aiur.Events
+  alias Aiur.GitHub.{Access, MergeQueue}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.{ResourceStore, Transport}
   alias Aiur.MainWatch.{Canary, Fixer, GitHub, Persistence, State, Suspects}
   alias Aiur.MergePolicy
 
@@ -62,6 +62,7 @@ defmodule Aiur.MainWatch do
       |> Map.put(:watcher, watcher)
       |> Map.put(:last_error, Map.get(server.data, :last_error))
       |> Map.put(:merge_groups, Map.get(server.data, :merge_groups, []))
+      |> Map.put(:runner_starvation, runner_starvation(server.data.merge_groups, now_ms(server)))
 
     {:reply, state, server}
   end
@@ -71,6 +72,19 @@ defmodule Aiur.MainWatch do
     state = State.record_history(server.data.state, %{checks: [], completed_at: nil}, now)
     {:reply, State.inherited?(state, check, base, server.data.commits), server}
   end
+
+  defp runner_starvation(groups, now_ms) when is_list(groups) do
+    groups
+    |> MergeQueue.runner_starvation(now_ms)
+    |> case do
+      nil -> nil
+      diagnosis -> Map.take(diagnosis, [:queued_runs, :running_runs, :status_url])
+    end
+  end
+
+  defp runner_starvation(_groups, _now_ms), do: nil
+
+  defp now_ms(server), do: Keyword.get(server.opts, :now_fun, fn -> System.system_time(:millisecond) end).()
 
   @impl true
   def handle_cast(:reconcile, server), do: {:noreply, schedule_reconcile(server)}
@@ -127,6 +141,8 @@ defmodule Aiur.MainWatch do
 
     task =
       Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+        # Poll, suspects, fixer and reruns all run here, so they share main-watch priority.
+        Access.prioritize()
         capability = Keyword.get_lazy(opts, :actions_write, fn -> GitHub.actions_write?(opts) end)
 
         result =
@@ -143,7 +159,7 @@ defmodule Aiur.MainWatch do
 
   defp bounded_requests(opts) do
     count = :atomics.new(1, [])
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
     Keyword.put(opts, :request_fun, fn call ->
       if :atomics.add_get(count, 1, 1) <= @request_limit, do: request.(call), else: {:error, :main_watch_request_limit}
@@ -182,7 +198,7 @@ defmodule Aiur.MainWatch do
         _ -> :ok
       end
 
-    flake_events = flake_rerun(latest, state, result, now, server)
+    flake_events = flake_rerun(latest, state, result, now, server) ++ single_test_rerun(latest, state, result, now, server)
     result |> Map.put(:observations, older ++ latest) |> Map.put(:canary_outcome, outcome) |> Map.put(:flake_events, flake_events)
   end
 
@@ -219,6 +235,66 @@ defmodule Aiur.MainWatch do
   end
 
   defp flake_rerun([], _state, _result, _now, _server), do: []
+
+  defp single_test_rerun([observation], state, result, now, server) do
+    runs = failed_runs(observation.sha, result.runs)
+
+    if observation.sha != state.sha and single_test_candidate?(observation, runs) and result.actions_write do
+      rerun_if_untouched(observation, runs, now, server)
+    else
+      []
+    end
+  end
+
+  defp single_test_rerun([], _state, _result, _now, _server), do: []
+
+  defp failed_runs(sha, runs), do: Enum.filter(runs, &(&1.sha == sha and &1.conclusion == "failure"))
+
+  defp single_test_candidate?(observation, runs) do
+    digest = observation.digest
+    tests = digest.tests
+
+    digest.test_only and not digest.flake_only and not digest.truncated and single_test_path?(tests) and valid_failed_runs?(runs)
+  end
+
+  defp single_test_path?([%{path: path}]), do: is_binary(path) and path != ""
+  defp single_test_path?(_tests), do: false
+
+  defp valid_failed_runs?([_ | _] = runs), do: Enum.all?(runs, &(is_integer(&1.id) and &1.id > 0))
+  defp valid_failed_runs?(_runs), do: false
+
+  defp rerun_if_untouched(observation, runs, now, server) do
+    changed_paths = Keyword.get(server.opts, :changed_paths_fun, &GitHub.changed_paths/2)
+
+    case changed_paths.(observation.sha, server.opts) do
+      {:ok, paths} when is_list(paths) -> rerun_if_path_untouched(observation, runs, paths, now, server)
+      _ -> []
+    end
+  end
+
+  defp rerun_if_path_untouched(observation, runs, changed_paths, now, server) do
+    if hd(observation.digest.tests).path in changed_paths, do: [], else: rerun_single_test_runs(observation, runs, now, server)
+  end
+
+  defp rerun_single_test_runs(observation, runs, now, server) do
+    reserve = Keyword.get(server.opts, :reserve_single_test_rerun_fun, &reserve_single_test_rerun/4)
+
+    case reserve.(server.repo, observation.sha, now, server.opts) do
+      :ok ->
+        rerun = Keyword.get(server.opts, :rerun_failed_jobs_fun, &GitHub.rerun_failed_jobs/2)
+        outcome = Enum.map(runs, fn run -> {run.id, rerun.(run.id, server.opts)} end)
+        payload = %{sha: observation.sha, signature: observation.digest.signature, outcome: outcome_payload(outcome), run_urls: observation.run_urls}
+        [{"system.#{server.branch}.ci.flake_rerun", payload}]
+
+      _ ->
+        []
+    end
+  end
+
+  defp reserve_single_test_rerun(repo, sha, now, _opts) do
+    # A commit SHA is immutable; keep its reservation for the maximum supported run lifetime.
+    Persistence.reserve_rerun(repo, "single-test:" <> sha, now, 100 * 365 * 24 * 60 * 60_000)
+  end
 
   defp flake_outcome(_runs, false, _now, _server), do: {:error, :actions_write_unavailable}
   defp flake_outcome(runs, true, now, server), do: Enum.map(runs, fn run -> {run.id, rerun(run.id, "#{server.branch}:flake:#{run.id}", now, 7 * 24 * 60 * 60_000, server)} end)
@@ -337,11 +413,11 @@ defmodule Aiur.MainWatch do
 
   defp publication_key(topic, payload) do
     id = :crypto.hash(:sha256, :erlang.term_to_binary({topic, payload})) |> Base.encode16(case: :lower)
-    ResourceStore.key_for_repo(:main_watch, GitHubConfig.repo(), "publication:" <> id)
+    Access.key_for_repo(:main_watch, GitHubConfig.repo(), "publication:" <> id)
   end
 
   defp emit(topic, payload) do
-    Aiur.Alerts.emit_system(topic,
+    Aiur.Signal.alert(topic,
       message: "Base-branch CI: #{topic}",
       durable: true,
       needs_attention: attention?(topic, payload),

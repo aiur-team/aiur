@@ -12,6 +12,7 @@ defmodule Aiur.DecisionAttention do
   require Logger
 
   alias Aiur.{AlertFeed, DecisionStore, Issue, Signal}
+  alias Aiur.DecisionAttention.Correlation
   alias Aiur.DecisionAttention.LegacyImport
   alias Aiur.DecisionAttentionResolution
   alias Aiur.Events.SubscriptionStore
@@ -134,6 +135,8 @@ defmodule Aiur.DecisionAttention do
       decision_projector: Keyword.get(opts, :decision_projector, &DecisionStore.project_attention/2),
       decision_store: Keyword.get(opts, :decision_store, DecisionStore),
       owner_lookup: Keyword.get(opts, :owner_lookup, fn _identifier -> :unknown end),
+      pid_alive?: Keyword.get(opts, :pid_alive?, &DecisionAttentionResolution.pid_alive?/1),
+      attention_acknowledged?: Keyword.get(opts, :attention_acknowledged?, &DecisionAttentionResolution.acknowledged?/1),
       import_limit: LegacyImport.limit(opts),
       importing?: true,
       resolved_during_import: MapSet.new()
@@ -160,6 +163,8 @@ defmodule Aiur.DecisionAttention do
 
     case project_attention(state.decision_projector, attention, opts) do
       {:ok, result} ->
+        attention = Map.put(attention, :decision_id, Correlation.decision_id(result))
+
         next_state =
           if actionable_decision?(result) do
             register_attention(state, identifier, key, attention)
@@ -241,7 +246,7 @@ defmodule Aiur.DecisionAttention do
   defp unknown_owner_attention(attention, _state), do: attention
 
   defp schedule_reask(attention, interval_ms) when is_integer(interval_ms) and interval_ms > 0 do
-    timer_ref = Process.send_after(self(), {:reask, attention_key(attention)}, interval_ms)
+    timer_ref = Process.send_after(self(), {:reask, Correlation.attention_key(attention)}, interval_ms)
     %{attention | timer_ref: timer_ref}
   end
 
@@ -339,6 +344,7 @@ defmodule Aiur.DecisionAttention do
       issue: issue,
       workspace: nil,
       worker_host: nil,
+      restored?: true,
       slug: slug,
       question: question,
       opened_at: source_created_at || state.now_fun.(),
@@ -451,18 +457,18 @@ defmodule Aiur.DecisionAttention do
   end
 
   defp emit_alert(attention) do
-    Signal.alert(attention_topic(attention),
+    Signal.alert(Correlation.attention_topic(attention),
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,
-      reason: "Executor decision required: #{attention.question}",
+      reason: Correlation.alert_reason(attention),
       needs_attention: true,
       severity: "warning"
     )
   end
 
   defp emit_resolution_alert(attention) do
-    Signal.agent_alert(resolution_topic(attention), "Executor decision updated",
+    Signal.agent_alert(Correlation.resolution_topic(attention), "Executor decision updated",
       issue: attention.issue,
       workspace: attention.workspace,
       worker_host: attention.worker_host,
@@ -471,10 +477,6 @@ defmodule Aiur.DecisionAttention do
       severity: "info"
     )
   end
-
-  defp attention_topic(attention), do: "ticket.#{issue_identifier!(attention.issue)}.agent.attention.#{attention.slug}"
-  defp resolution_topic(attention), do: attention_topic(attention) <> ".resolved"
-  defp attention_key(attention), do: {issue_identifier!(attention.issue), attention.slug}
 
   defp issue_identifier!(%Issue{id: id}) when is_binary(id) and id != "", do: id
   defp issue_identifier!(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier

@@ -15,10 +15,10 @@ test('design durations floor minutes, pad hours and omit zero day hours', () => 
 test('mean includes only known integers including exact zero', () => {
   assert.deepEqual([[null,40],[null],[0]].map(avgKnown),[40,null,0])
 })
-test('unknown account is dashed, partial account retains value and honest tooltip', () => {
+test('unknown model is dashed, partial model retains its remaining percentage and honest tooltip', () => {
   const u=fixture('partial'); u.apis=[]; const s=stripHTML(u,now)
   assert.match(s,/<span class="ax-seg none"><\/span>/)
-  assert.match(s,/<span class="ax-pc">40%/)
+  assert.match(s,/<span class="ax-pc">40% left/)
   assert.match(s,/<i class="" style="width:40%"/)
   assert.match(tip(s), /"Max · work","not observed"/)
   assert.match(s,/×2/)
@@ -27,17 +27,22 @@ test('unknown account is dashed, partial account retains value and honest toolti
   unknown.providers[0].session.acc=[]
   assert.match(stripHTML(unknown,now),/class="ax-seg none"/)
 })
-test('zero and threshold tones agree between percent and segment', () => {
-  for (const [n,cls,seg] of [[0,'','z'],[79,'',''],[80,' hi',' hi'],[95,' max',' max']]) {
-    const u=fixture('unknown');u.apis=[];u.providers[0].session.acc=[n]
-    const s=stripHTML(u,now)
-    assert.ok(s.includes(`<span class="ax-pc${cls}">${n}%`))
-    assert.ok(s.includes(`<i class="${seg}" style="width:${n}%"`))
+test('model and API remaining tones share thresholds and match segment fill', () => {
+  for (const n of [0,10,20,50,100]) {
+    const cls=n <= 10 ? ' max' : n <= 20 ? ' hi' : ''
+    const seg=`${n === 0 ? 'z' : ''}${n <= 10 ? ' max' : n <= 20 ? ' hi' : ''}`
+    const model=fixture('unknown');model.apis=[];model.providers[0].session.acc=[n]
+    const api=fixture('one');api.providers=[];api.apis[0].lines[0].acc=[n]
+    for (const s of [stripHTML(model,now),stripHTML(api,now)]) {
+      assert.ok(s.includes(`<span class="ax-pc${cls}">${n}% left`))
+      assert.ok(s.includes(`<i class="${seg}" style="width:${n}%"`))
+    }
   }
 })
 test('reset unknown and ended never claim a countdown or window length', () => {
   const u=fixture('unknown');u.apis=[];const s=stripHTML(u,now)
   assert.match(s,/reset unknown/);assert.doesNotMatch(s,/resets in/)
+  assert.match(s,/<span class="ax-pc max"><\/span><span class="ax-bar"><span class="ax-seg none"><\/span><\/span>/)
   const e=fixture('ended');e.apis=[];e.providers[0].session.win=null
   const ended=stripHTML(e,now)
   assert.match(ended,/window ended/);assert.match(ended,/class="ax-ln stale"/)
@@ -51,6 +56,10 @@ test('stale observation ages, never observed, holds and provider notes appear in
   assert.match(tip(html('hold')),/"Held for","37m"/)
   assert.match(tip(html('none')),/Awaiting first observation/)
   assert.match(tip(html('none')),/Last known 40% \(previous boot\)/)
+})
+test('GitHub quota tooltip shows the age of the 60 second snapshot used by the build chip', () => {
+  const u=fixture('one');u.apis[0].snapshot_observed_at=now-60000
+  assert.match(tip(stripHTML(u,now)),/"Snapshot age","1m ago"/)
 })
 test('credits distinguish unknown amounts, missing windows keep a visible row', () => {
   const s=html('credits')
@@ -86,3 +95,25 @@ test('before the first snapshot usage leaves the dead-render host untouched', as
   const {renderUsage}=await import('../../priv/static/build-home/usage.js')
   resetState(); assert.doesNotThrow(renderUsage)
 })
+
+test('remaining API strip values render full, half and empty with explicit unknown', () => {
+  const u=fixture('n2'); u.apis = [{...u.apis[0], lines: [
+    {tag:'core',acc:[100],reset_at:now+60000,win:'1h',tip:[['Requests left','5,000 of 5,000 left · 100% left']]},
+    {tag:'gql',acc:[50],reset_at:now+60000,win:'1h',tip:[['Points left','2,500 of 5,000 left · 50% left']]},
+    {tag:'rest',acc:[5],reset_at:now+60000,win:'1h',tip:[['Requests left','0 of 5,000 left · 5% left']]},
+    {tag:'critical',acc:[10],reset_at:now+60000,win:'1h',tip:[['Requests left','10% left']]},
+    {tag:'warning',acc:[20],reset_at:now+60000,win:'1h',tip:[['Requests left','20% left']]},
+    {tag:'unknown',acc:[null],reset_at:null,win:null,tip:[['Budget','not observed']]},
+  ]}];
+  const s=stripHTML(u,now);
+  assert.match(s,/<span class="ax-pc">100% left/);
+  assert.match(s,/<span class="ax-pc">50% left/);
+  assert.match(s,/<span class="ax-pc max">10% left/);
+  assert.match(s,/<i class="" style="width:100%"/);
+  assert.match(s,/<i class="" style="width:50%"/);
+  assert.match(s,/<i class=" max" style="width:10%"/);
+  assert.match(s,/<span class="ax-seg none"><\/span>/);
+  assert.match(tip(s),/2,500 of 5,000 left · 50% left/);
+  assert.match(s,/<i class=" hi" style="width:20%"/);
+  assert.match(s,/<i class=" max" style="width:10%"/);
+});

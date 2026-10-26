@@ -69,6 +69,10 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   @spec recoverable_expired(t(), :audit | :current) :: :gb_sets.set()
   def recoverable_expired(index, order \\ :audit), do: entries(index, order).recoverable_expired
 
+  @doc "Whether a Decision belongs to the `open` lifecycle that `aiur commands --filter open` lists."
+  @spec open?(Decision.t()) :: boolean()
+  def open?(%Decision{} = decision), do: operator_command?(decision) and open_lifecycle?(decision)
+
   @spec ticket(t(), String.t(), :audit | :current) :: :gb_sets.set()
   def ticket(index, value, order \\ :audit), do: bucket_entries(entries(index, order).tickets, value)
 
@@ -248,16 +252,15 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   defp increment_counts(counts, decision), do: adjust_counts(counts, decision, 1)
   defp decrement_counts(counts, decision), do: adjust_counts(counts, decision, -1)
 
-  defp adjust_counts(counts, %Decision{decision_status: status, blocking: blocking, answer: answer}, delta)
+  defp adjust_counts(counts, %Decision{decision_status: status, blocking: blocking} = decision, delta)
        when status in [:open, :deferred, :expired] do
-    recoverable_expiry? = recoverable_expiry?(status, blocking, answer)
     blocking_delta = dispatch_blocking_delta(status, blocking, delta)
     deferred_delta = if status == :deferred, do: delta, else: 0
     deferred_blocking_delta = if status == :deferred and blocking, do: delta, else: 0
 
     %{
       counts
-      | open: counts.open + if(status in [:open, :deferred] or recoverable_expiry?, do: delta, else: 0),
+      | open: counts.open + if(open_lifecycle?(decision), do: delta, else: 0),
         blocking: counts.blocking + blocking_delta,
         deferred: counts.deferred + deferred_delta,
         deferred_blocking: counts.deferred_blocking + deferred_blocking_delta
@@ -265,6 +268,11 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   end
 
   defp adjust_counts(counts, %Decision{}, _delta), do: counts
+
+  # The one `open` rule: `aiur status`, `aiur commands --filter open` and the
+  # dashboard Open count all read it, so they cannot disagree (#5109).
+  defp open_lifecycle?(%Decision{decision_status: status, blocking: blocking, answer: answer}),
+    do: status in [:open, :deferred] or recoverable_expiry?(status, blocking, answer)
 
   defp recoverable_expiry?(:expired, true, nil), do: true
   defp recoverable_expiry?(_status, _blocking, _answer), do: false

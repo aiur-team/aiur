@@ -33,16 +33,21 @@ defmodule Aiur.GitHub.Quota do
 
   use GenServer
 
-  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Access.{Settings, Token}
+  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Budget.FleetSnapshot
+  alias Aiur.GitHub.Credential
+  alias Aiur.GitHub.CredentialRegistry
   alias Aiur.GitHub.{HoldSweep, RequestLog, RequestOrigin, Transport}
 
-  alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, Windows}
-  alias Aiur.Signal
+  alias Aiur.GitHub.Quota.{Attribution, Coverage, ShellObservations, SnapshotCache, Windows}
+  alias Aiur.Instance.LeaseStore
 
   @empty_coverage %{resources: %{}, estimated?: false}
   @unknown_snapshot %{
     state: :unknown,
     windows: %{},
+    credential_windows: %{},
     attribution: [],
     callers: [],
     coverage: @empty_coverage,
@@ -60,6 +65,7 @@ defmodule Aiur.GitHub.Quota do
         }
 
   @refresh_interval_ms 60_000
+  @stale_sample_ms 10 * 60_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -88,8 +94,28 @@ defmodule Aiur.GitHub.Quota do
   Diagnostic callers use this form when an unreachable meter must be reported
   as an error rather than presented as an empty measurement.
   """
-  @spec snapshot!(GenServer.server()) :: map()
-  def snapshot!(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
+  @spec snapshot!(GenServer.server(), timeout()) :: map()
+  def snapshot!(server \\ __MODULE__, timeout \\ 5_000), do: GenServer.call(server, :snapshot, timeout)
+
+  @doc """
+  Returns a recently published snapshot without contacting the quota process.
+
+  The live snapshot path also refreshes this cache. Consumers on latency-sensitive
+  paths can use it first, then choose their own bounded live-read fallback on a miss.
+  """
+  @spec cached_snapshot(GenServer.server(), non_neg_integer()) :: {:ok, map(), non_neg_integer(), integer()} | :miss
+  def cached_snapshot(server \\ __MODULE__, max_age_ms \\ 60_000),
+    do: cached_snapshot_at(server, max_age_ms, System.monotonic_time(:millisecond))
+
+  @doc false
+  @spec cached_snapshot_at(GenServer.server(), non_neg_integer(), integer()) :: {:ok, map(), non_neg_integer(), integer()} | :miss
+  def cached_snapshot_at(server, max_age_ms, now_ms) do
+    server_pid = if is_pid(server), do: server, else: GenServer.whereis(server)
+
+    if server_pid, do: SnapshotCache.get(server_pid, max_age_ms, now_ms), else: :miss
+  catch
+    :exit, _reason -> :miss
+  end
 
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do
@@ -118,6 +144,8 @@ defmodule Aiur.GitHub.Quota do
 
   @impl true
   def init(opts) do
+    SnapshotCache.ensure_table()
+
     refresh? = Keyword.get(opts, :refresh?, Application.get_env(:aiur, :github_quota_refresh?, true))
 
     # Resolved once at boot: every observe appends to the same durable file,
@@ -133,6 +161,7 @@ defmodule Aiur.GitHub.Quota do
 
     state = %{
       windows: %{},
+      credential_windows: %{},
       backoffs: %{},
       observations: [],
       shell_observations: [],
@@ -149,10 +178,13 @@ defmodule Aiur.GitHub.Quota do
       # start without also moving the clock that prices everything else.
       started_at: Keyword.get_lazy(opts, :started_at, fn -> Keyword.get(opts, :clock, &DateTime.utc_now/0).() end),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-      emit_fun: Keyword.get(opts, :emit_fun, &Signal.alert/2),
+      emit_fun: Keyword.get_lazy(opts, :emit_fun, fn -> Settings.current().alert_sink end),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &ShellObservations.default_shell_log_path/0),
       stale_broker_path: Keyword.get_lazy(opts, :stale_broker_path, &ShellObservations.default_stale_broker_path/0),
       stale_broker_alerts: MapSet.new(),
+      sample_alerted?: false,
+      last_sample_at: nil,
+      last_sample_checked_at: nil,
       hold_dir: Keyword.get_lazy(opts, :hold_dir, &Windows.default_hold_dir/0),
       request_log_path: request_log_path,
       # The durable request log's io_device, opened once here in
@@ -173,6 +205,7 @@ defmodule Aiur.GitHub.Quota do
     }
 
     state = Map.put(state, :hold_alerts, HoldSweep.sweep(state.hold_dir, state.clock.(), state.emit_fun))
+    Process.send_after(self(), :check_sample_freshness, Keyword.get(opts, :freshness_check_interval_ms, @refresh_interval_ms))
     if refresh?, do: Process.send_after(self(), :refresh, 0)
     {:ok, state}
   end
@@ -221,6 +254,13 @@ defmodule Aiur.GitHub.Quota do
         Map.new(state.windows, fn {resource, window} ->
           {resource, window |> Windows.present_window() |> Map.put(:started_at, Attribution.window_start(state.windows, resource, now))}
         end),
+      credential_windows:
+        state.credential_windows
+        |> Enum.filter(fn {{_key, _resource}, window} -> DateTime.compare(now, window.reset_at) == :lt end)
+        |> Enum.reduce(%{}, fn {{key, resource}, window}, acc ->
+          visible = window |> Windows.present_window() |> Map.put(:started_at, DateTime.add(window.reset_at, -3600, :second))
+          Map.update(acc, key, %{resource => visible}, &Map.put(&1, resource, visible))
+        end),
       observing_since: Attribution.observing_since(state, now),
       attribution: Attribution.summarize_attribution(in_window),
       callers: Attribution.summarize_callers(in_window, state.windows, now),
@@ -229,6 +269,19 @@ defmodule Aiur.GitHub.Quota do
       backoffs: Windows.present_backoffs(state, now)
     }
 
+    SnapshotCache.put(self(), snapshot, System.monotonic_time(:millisecond), System.system_time(:millisecond))
+
+    _ =
+      Task.start(fn ->
+        _ = LeaseStore.publish_github_quota_snapshot(snapshot)
+
+        case LeaseStore.github_quota_snapshots() do
+          {:ok, snapshots} when is_list(snapshots) -> FleetSnapshot.put(snapshots)
+          _unavailable -> :ok
+        end
+      end)
+
+    state = maybe_alert_stale_sample(state, now)
     {:reply, snapshot, state}
   end
 
@@ -266,8 +319,16 @@ defmodule Aiur.GitHub.Quota do
 
   @impl true
   def handle_info(:refresh, %{refresh_ref: nil} = state) do
+    parent = self()
     refresh_fun = state.refresh_fun
-    {_pid, ref} = spawn_monitor(refresh_fun)
+    clock = state.clock
+
+    {_pid, ref} =
+      spawn_monitor(fn ->
+        result = refresh_fun.()
+        if match?({:ok, _response}, result), do: send(parent, {:quota_sampled, clock.()})
+      end)
+
     {:noreply, %{state | refresh_ref: ref}}
   end
 
@@ -276,7 +337,23 @@ defmodule Aiur.GitHub.Quota do
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{refresh_ref: ref} = state) do
     hold_alerts = HoldSweep.sweep(state.hold_dir, state.clock.(), state.emit_fun, state.hold_alerts)
     Process.send_after(self(), :refresh, state.refresh_interval_ms)
-    {:noreply, %{ShellObservations.refresh_stale_broker_alerts(state) | refresh_ref: nil, hold_alerts: hold_alerts}}
+    state = %{ShellObservations.refresh_stale_broker_alerts(state) | refresh_ref: nil, hold_alerts: hold_alerts}
+    {:noreply, maybe_alert_stale_sample(state, state.clock.())}
+  end
+
+  def handle_info({:quota_sampled, sampled_at}, state) do
+    if state.sample_alerted? do
+      message = "GitHub quota meter received a new sample at #{DateTime.to_iso8601(sampled_at)}"
+      state.emit_fun.("system.github.quota.sample_stale.resolved", message: message, reason: message, needs_attention: false)
+    end
+
+    {:noreply, %{state | last_sample_at: sampled_at, last_sample_checked_at: nil, sample_alerted?: false}}
+  end
+
+  def handle_info(:check_sample_freshness, state) do
+    state = maybe_alert_stale_sample(state, state.clock.())
+    Process.send_after(self(), :check_sample_freshness, @refresh_interval_ms)
+    {:noreply, state}
   end
 
   def handle_info({:dispatch_recovery, token}, %{recovery_timer_token: token} = state) do
@@ -295,6 +372,7 @@ defmodule Aiur.GitHub.Quota do
 
   @impl true
   def terminate(_reason, state) do
+    SnapshotCache.delete(self())
     # Flush and close the request log's delayed-write io_device so the last
     # buffered rows are not lost on shutdown.
     if state.request_log_io, do: :file.close(state.request_log_io)
@@ -318,11 +396,17 @@ defmodule Aiur.GitHub.Quota do
   defp cancel_recovery_timer(_state), do: false
 
   defp refresh_from_github do
-    with token when is_binary(token) and token != "" <- GitHubConfig.token() do
+    with token when is_binary(token) and token != "" <- Token.token() do
+      credential = CredentialRegistry.credentials() |> Enum.find(&(&1.primary? and Credential.token(&1) == token))
+      credential_key = if credential, do: Credential.identity_key(credential), else: Budget.token_key(token)
+
       Transport.default_request_fun(%{
         method: :get,
         url: "https://api.github.com/rate_limit",
         token: token,
+        credential_id: "primary",
+        credential_pinned?: true,
+        credential_key: credential_key,
         timeout_ms: 10_000
       })
     end
@@ -335,12 +419,26 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp notify_orchestrator_recovery do
-    case GenServer.whereis(Application.get_env(:aiur, :github_quota_recovery_target)) do
+    case GenServer.whereis(Settings.current().recovery_target) do
       pid when is_pid(pid) -> send(pid, :github_quota_recovered)
       nil -> :ok
     end
 
     :ok
+  end
+
+  defp maybe_alert_stale_sample(%{sample_alerted?: true} = state, _now), do: state
+
+  defp maybe_alert_stale_sample(state, now) do
+    last_sample = state.last_sample_at || state.last_sample_checked_at || state.started_at
+
+    if last_sample && DateTime.diff(now, last_sample, :millisecond) > @stale_sample_ms do
+      message = "GitHub quota meter has not sampled a quota window for over 10 minutes; last sample was #{DateTime.to_iso8601(last_sample)}"
+      state.emit_fun.("system.github.quota.sample_stale", message: message, reason: message, severity: "warning", needs_attention: true)
+      %{state | sample_alerted?: true}
+    else
+      if is_nil(state.last_sample_checked_at) && is_nil(state.last_sample_at), do: %{state | last_sample_checked_at: now}, else: state
+    end
   end
 
   @doc """

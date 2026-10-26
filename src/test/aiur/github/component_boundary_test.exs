@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.ComponentBoundaryTest do
   use ExUnit.Case, async: false
 
   alias Aiur.BuildOrder.Component
-  alias Aiur.GitHub.{Quota, Tracker, Transport, ViewStateSweep}
+  alias Aiur.GitHub.{Budget, Quota, Tracker, Transport, ViewStateSweep}
 
   defmodule Client do
     def update_issue_state(_id, _state), do: :ok
@@ -38,7 +38,15 @@ defmodule Aiur.GitHub.ComponentBoundaryTest do
     Process.register(self(), __MODULE__)
     Application.put_env(:aiur, :github_quota_recovery_target, __MODULE__)
     quota = start_supervised!({Quota, name: nil, refresh?: false, hold_dir: nil, request_log_path: nil, shell_log_path: nil, stale_broker_path: nil})
-    request = %{method: :get, url: "https://api.github.com/repos/owner/repo/issues"}
+
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/owner/repo/issues",
+      token: "secret",
+      credential_id: "primary",
+      credential_key: Budget.token_key("secret")
+    }
+
     reset = DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_unix() |> to_string()
 
     response = fn remaining ->

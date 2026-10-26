@@ -3,8 +3,9 @@ defmodule Aiur.Events.BranchRewriteClassifier do
 
   require Logger
 
-  alias Aiur.Events.{BranchRefStore, Exchange}
-  alias Aiur.GitHub.Transport
+  alias Aiur.Events
+  alias Aiur.Events.BranchRefStore
+  alias Aiur.GitHub.Access
 
   @spec maybe_publish(String.t(), map(), function(), keyword()) :: term()
   def maybe_publish(id, payload, publisher, opts) do
@@ -28,11 +29,7 @@ defmodule Aiur.Events.BranchRewriteClassifier do
 
   # Fleet observers bind ticket.*.#; only dependent stores justify a compare.
   defp subscribed?(topic) do
-    Aiur.Events.SubscriptionStoreRegistry
-    |> Registry.select([{{:"$1", :"$2", :_}, [], [:"$2"]}])
-    |> Enum.any?(fn pid -> Enum.any?(Exchange.bindings_for(pid), &Exchange.matches?(&1, topic)) end)
-  rescue
-    ArgumentError -> false
+    Events.any_subscriber_matches?(topic)
   end
 
   defp classify_and_publish(id, topic, payload, publisher, opts) do
@@ -49,12 +46,12 @@ defmodule Aiur.Events.BranchRewriteClassifier do
   end
 
   defp compare(payload, opts) do
-    with {:ok, token} <- Transport.require_token(opts) do
+    with {:ok, token} <- Access.require_token(opts) do
       previous = URI.encode(payload.previous_sha, &URI.char_unreserved?/1)
       sha = URI.encode(payload.sha, &URI.char_unreserved?/1)
-      url = "#{Transport.base_url()}/repos/#{payload.repo}/compare/#{previous}...#{sha}?per_page=1"
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      Transport.fetch_json_map(request_fun, token, url, caller: "ticket_branch_rewrite")
+      url = "#{Access.base_url()}/repos/#{payload.repo}/compare/#{previous}...#{sha}?per_page=1"
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      Access.fetch_json_map(request_fun, token, url, caller: "ticket_branch_rewrite")
     end
   end
 

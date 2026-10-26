@@ -4,7 +4,11 @@ defmodule AiurWeb.FinancialDataAccessTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.DashboardAuthController
   alias AiurWeb.{Endpoint, FinancialDataAccess}
+  alias AiurWeb.FinancialDataAccess.Proof
+  alias AiurWeb.Session
 
   @session_options Plug.Session.init(
                      store: :cookie,
@@ -41,8 +45,8 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert is_map(marker)
     assert marker["version"] == 1
-    refute inspect(marker) =~ "operator"
-    refute inspect(marker) =~ "financial-auth-secret"
+    Aiur.TestSupport.refute_leak(marker, "operator")
+    Aiur.TestSupport.refute_leak(marker, "financial-auth-secret")
 
     assert {:ok, context} = FinancialDataAccess.context_from_session(%{FinancialDataAccess.session_key() => marker})
     assert :ok = FinancialDataAccess.authorize(context)
@@ -59,6 +63,64 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert mounted.assigns.financial_data_capability == %{state: :authorized, version: 1}
     assert mounted.private.aiur_financial_data_access == context
+  end
+
+  test "a valid dashboard session marker authenticates the next browser request" do
+    configure_credentials("operator", "financial-auth-secret")
+    configure_endpoint(dashboard_auth_required: true, dashboard_writable: false)
+
+    authenticated = authenticated_conn("operator", "financial-auth-secret")
+    marker = get_session(authenticated, FinancialDataAccess.session_key())
+
+    browser_request =
+      session_conn()
+      |> put_session(FinancialDataAccess.session_key(), marker)
+      |> FinancialDataAccess.authenticate_request(browser?: true)
+      |> FinancialDataAccess.persist_session([])
+
+    refute browser_request.halted
+    assert browser_request.status == nil
+    assert get_session(browser_request, FinancialDataAccess.session_key()) == marker
+  end
+
+  test "a correctly signed marker older than the configured session age expires server-side" do
+    configure_credentials("operator", "financial-auth-secret")
+    configure_endpoint(dashboard_auth_required: true, dashboard_writable: false)
+    {:ok, config} = Proof.configuration([], 1)
+    max_age = Aiur.Config.settings!().dashboard_auth.session_max_age_days * 86_400
+    old_marker = Proof.new_session_marker(config, 1, System.system_time(:second) - max_age - 1)
+
+    assert :error = FinancialDataAccess.context_from_session(%{FinancialDataAccess.session_key() => old_marker})
+  end
+
+  test "identity refuses an expired context retained by an existing LiveView" do
+    configure_credentials("operator", "financial-auth-secret")
+    configure_endpoint(dashboard_auth_required: true, dashboard_writable: false)
+    {:ok, config} = Proof.configuration([], 1)
+    max_age = Aiur.Config.settings!().dashboard_auth.session_max_age_days * 86_400
+    marker = Proof.new_session_marker(config, 1, System.system_time(:second) - max_age - 1)
+
+    context = %FinancialDataAccess.Context{
+      configuration_generation: marker["configuration_generation"],
+      connection_generation: marker["connection_generation"],
+      issued_at: marker["issued_at"],
+      proof: marker["proof"]
+    }
+
+    assert {:error, :authentication_required} = FinancialDataAccess.identity(context)
+  end
+
+  test "logging out revokes copied markers on the server" do
+    configure_credentials("operator", "financial-auth-secret")
+    configure_endpoint(dashboard_auth_required: true, dashboard_writable: false)
+    authenticated = authenticated_conn("operator", "financial-auth-secret")
+    marker = get_session(authenticated, FinancialDataAccess.session_key())
+    assert {:ok, _context} = FinancialDataAccess.context_from_session(%{FinancialDataAccess.session_key() => marker})
+
+    logout_conn = put_session(session_conn(), FinancialDataAccess.session_key(), marker)
+    DashboardAuthController.logout(logout_conn, %{})
+
+    assert :error = FinancialDataAccess.context_from_session(%{FinancialDataAccess.session_key() => marker})
   end
 
   test "unconfigured dashboard authentication refuses the request with its cause" do
@@ -88,6 +150,28 @@ defmodule AiurWeb.FinancialDataAccessTest do
     assert is_map(get_session(authenticated, FinancialDataAccess.session_key()))
   end
 
+  test "browser Basic Auth can be disabled without disabling machine Basic Auth" do
+    configure_credentials("operator", "secret")
+    configure_endpoint(dashboard_auth_required: true, browser_basic_auth: false)
+    EndpointStubs.put(browser_basic_auth: false)
+
+    browser =
+      session_conn()
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> FinancialDataAccess.authenticate_request(browser?: true)
+
+    assert browser.status == 302
+    assert browser.halted
+    assert get_resp_header(browser, "location") == ["/auth/login"]
+
+    machine =
+      session_conn()
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> FinancialDataAccess.authenticate_request([])
+
+    refute machine.halted
+  end
+
   test "Plug callbacks fail closed and expose only verified socket-private context" do
     assert FinancialDataAccess.init(required?: true) == [required?: true]
 
@@ -114,11 +198,9 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert Enum.map(live_routes, & &1.path) == [
              "/",
-             "/chat/:owner/:repository/:identifier",
+             "/units",
              "/commands",
              "/commands/:decision_id",
-             "/build-orders",
-             "/build-orders/:root_number",
              "/build",
              "/analytics",
              "/post-deploy",
@@ -142,7 +224,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
     assert {:cont, absent} = FinancialDataAccess.on_mount(:default, %{}, %{}, live_socket())
     assert absent.assigns.financial_data_capability == FinancialDataAccess.locked_capability()
     assert absent.private.aiur_financial_data_access == nil
-    refute inspect(absent) =~ sentinel
+    Aiur.TestSupport.refute_leak(absent, sentinel)
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
@@ -180,7 +262,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert stale.assigns.financial_data_capability == FinancialDataAccess.locked_capability()
     assert stale.private.aiur_financial_data_access == nil
-    refute inspect(stale) =~ sentinel
+    Aiur.TestSupport.refute_leak(stale, sentinel)
   end
 
   test "an unconfigured request refuses prior session authority" do
@@ -297,7 +379,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert socket.assigns.financial_data_capability == FinancialDataAccess.locked_capability()
     assert socket.private.aiur_financial_data_access == nil
-    refute inspect(socket) =~ sentinel
+    Aiur.TestSupport.refute_leak(socket, sentinel)
   end
 
   defp access_context(username, password) do
@@ -318,7 +400,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
     :get
     |> conn("/")
     |> Map.put(:secret_key_base, String.duplicate("s", 64))
-    |> Plug.Session.call(@session_options)
+    |> Session.call(@session_options)
     |> fetch_session()
   end
 

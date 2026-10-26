@@ -26,26 +26,40 @@ defmodule Aiur.AgentGitHubGuard.SecondaryLimitsTest do
     assert held_until <= System.os_time(:second) + 60
   end
 
-  test "a secondary hold prevents an immediate retry of the real gh command", context do
-    hold_file = Path.join(context.state_path, "github-quota/core-secondary-hold")
-    File.mkdir_p!(Path.dirname(hold_file))
-    File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
-
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-    {_output, 124} = System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"], env: guard_env(context), stderr_to_stdout: true)
-
-    refute File.exists?(context.calls)
+  test "a secondary hold refuses immediately with its reason", context do
+    assert_hold_refuses_immediately(context, "core-secondary-hold")
   end
 
-  test "a retained hold prevents the real gh command from being retried immediately", context do
-    hold_file = Path.join(context.state_path, "github-quota/core-hold")
+  test "a retained hold refuses immediately with its reason", context do
+    assert_hold_refuses_immediately(context, "core-hold")
+  end
+
+  defp assert_hold_refuses_immediately(context, hold_name) do
+    hold_file = Path.join(context.state_path, "github-quota/#{hold_name}")
     File.mkdir_p!(Path.dirname(hold_file))
     File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
+    sleep_bin = Path.join(context.workspace, "instant-sleep")
+    File.mkdir_p!(sleep_bin)
+    sleep_calls = Path.join(context.workspace, "hold-sleep-calls")
+    File.write!(Path.join(sleep_bin, "sleep"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AIUR_SLEEP_CALLS_FILE\"\nexit 0\n")
+    File.chmod!(Path.join(sleep_bin, "sleep"), 0o755)
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-    {_output, 124} = System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"], env: guard_env(context), stderr_to_stdout: true)
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               PATH: sleep_bin <> ":" <> System.get_env("PATH", ""),
+               AIUR_SLEEP_CALLS_FILE: sleep_calls,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               AIUR_GITHUB_STATE_CACHE_ROOT: "",
+               AIUR_GITHUB_BUDGET_ENABLED: "0",
+               AIUR_GITHUB_BUDGET_ROOT: "",
+               AIUR_GITHUB_BUDGET_KEY: "",
+               AIUR_GITHUB_BUDGET_IDENTITY_KEY: "",
+               AIUR_GH_CALL_TIMEOUT_SECONDS: "3"
+             )
 
     refute File.exists?(context.calls)
+    refute File.exists?(sleep_calls)
+    assert output =~ "GitHub quota hold (#{hold_name}) active"
   end
 
   test "a core hold does not block an explicitly GraphQL command", context do

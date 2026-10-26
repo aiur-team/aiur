@@ -33,13 +33,14 @@ defmodule Aiur.Config.Schema.Executor do
 
   @primary_key false
   embedded_schema do
+    field(:relay_operator_answers, :boolean, default: false)
     embeds_one(:sweep, ExecutorSweep, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [])
+    |> cast(attrs, [:relay_operator_answers], empty_values: [])
     |> cast_embed(:sweep, with: &ExecutorSweep.changeset/2)
   end
 end

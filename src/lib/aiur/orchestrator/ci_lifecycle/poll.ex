@@ -5,11 +5,13 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
 
   alias Aiur.CIApprovalStore
   alias Aiur.Events.GithubCIPoller
-  alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
+  alias Aiur.GitHub.{CIPollBatch, Client}
   alias Aiur.Issue
   alias Aiur.Orchestrator.CiLifecycle
+  alias Aiur.Orchestrator.CiLifecycle.CancelledMergeGroup
   alias Aiur.Orchestrator.CiLifecycle.Outcome
   alias Aiur.Orchestrator.CiLifecycle.ParkedReadyAlert
+  alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.DraftAlertLifecycle
@@ -35,12 +37,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     generations = Map.new(state.running, fn {id, entry} -> {id, ci_generation(entry)} end)
     {baseline, invalidations} = {state.ci_lifecycle, Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})}
 
-    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, opts) end, fn current, result ->
+    launch.(state, :ci_poll, fn -> fetch_ci_poll(cache, invalidations, baseline, opts) end, fn current, result ->
       current |> apply_ci_poll(result, generations, baseline, opts) |> continue.()
     end)
   end
 
-  defp fetch_ci_poll(cache, invalidations, opts) do
+  defp fetch_ci_poll(cache, invalidations, baseline, opts) do
     case fetch_ci_issues(cache, opts) do
       {:ok, issues, cache} ->
         issues_by_target = ci_issues_by_target(issues)
@@ -48,7 +50,9 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         poll_opts = Keyword.put(opts, :base_repair_invalidations, invalidations)
         poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
 
-        observation = observe_ci_targets(targets, issues_by_target, poll_opts, poller)
+        observation =
+          observe_ci_targets(targets, issues_by_target, poll_opts, poller)
+          |> CancelledMergeGroup.annotate(baseline, poll_opts)
 
         {:ok, issues, cache, observation}
 
@@ -130,6 +134,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     |> merge_journaled_base_repairs()
     |> note_ci_poll_connectivity(targets, errors)
     |> log_ci_poll_errors(errors)
+    |> record_conflict_streaks(results, issues_by_target)
     |> apply_ci_poll_results(results, issues_by_target, opts)
     |> RestackScheduler.reconcile(Map.values(issues_by_target))
     |> retry_ci_poll_on_errors(errors)
@@ -320,6 +325,35 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     end)
   end
 
+  defp record_conflict_streaks(state, results, issues_by_target) do
+    Enum.reduce(results, state, fn result, acc -> record_conflict_streak(acc, result, issues_by_target) end)
+  end
+
+  defp record_conflict_streak(acc, result, issues_by_target) do
+    target = Map.get(result, :target)
+    issue = Map.get(issues_by_target, target)
+    cache = Map.get(acc.ci_lifecycle, :poll_cache, %{})
+    previous = Map.get(cache, target, %{})
+
+    cond do
+      Map.get(result, :delivered) == true or is_nil(issue) or not is_binary(target) ->
+        acc
+
+      Map.get(result, :mergeable) == "CONFLICTING" ->
+        prior_head = Map.get(previous, :conflicting_head_sha)
+        head = Map.get(result, :head_sha)
+        streak = if prior_head == head and is_binary(head), do: Map.get(previous, :conflicting_polls, 0) + 1, else: 1
+        updated = Map.merge(previous, %{conflicting_head_sha: head, conflicting_polls: streak})
+        cache = Map.put(cache, target, updated)
+        %{acc | ci_lifecycle: Map.put(acc.ci_lifecycle, :poll_cache, cache)}
+
+      true ->
+        updated = Map.drop(previous, [:conflicting_head_sha, :conflicting_polls])
+        cache = if updated == %{}, do: Map.delete(cache, target), else: Map.put(cache, target, updated)
+        %{acc | ci_lifecycle: Map.put(acc.ci_lifecycle, :poll_cache, cache)}
+    end
+  end
+
   # Repair markers are journaled from concurrent poll tasks before GitHub is
   # mutated. Merge the durable ledger back into the GenServer snapshot before
   # any result transition can persist the lifecycle-wide document; otherwise
@@ -346,6 +380,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           state
         else
           result = classify_merge_queue_departure(state, issue, result)
+          result = confirm_conflict_streak(state, issue, result)
           ProgressStore.ci_identity(CiLifecycle.ci_target_for_issue(issue), result)
 
           state
@@ -353,6 +388,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
           |> ParkedReadyAlert.reconcile_parked_ready_alert(issue, result, opts)
           |> ResultProjection.reconcile_base_repair_invalidation(issue, result)
           |> ResultProjection.publish_ready_for_review_transition(issue, result)
+          |> ResultProjection.reraise_unreviewed_ready_pr(issue, result, opts)
           |> ResultProjection.stash_last_ci_result(issue, result)
           |> Outcome.recover_ci_poll_result(issue, result, opts)
         end
@@ -362,15 +398,23 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     end
   end
 
-  defp classify_merge_queue_departure(state, issue, result) do
+  defp confirm_conflict_streak(state, issue, result) do
     target = CiLifecycle.ci_target_for_issue(issue)
-    previous = get_in(state.ci_lifecycle, [:poll_cache, target])
+    observation = get_in(state.ci_lifecycle, [:poll_cache, target]) || %{}
+    waiting? = Transition.effective_ci_state(issue) in [@ci_wait_state, @human_review_state]
 
-    if MergeQueue.failed_entry_dropped?(result, previous) do
-      Map.merge(result, %{decision: :failed, pending_reason: :merge_queue_dropped, failures: [%{name: "merge queue", kind: "merge_queue", result: "dropped after queue checks"}]})
+    if waiting? and Map.get(result, :mergeable) == "CONFLICTING" and Map.get(observation, :conflicting_polls, 0) >= 2 and
+         Map.get(observation, :conflicting_head_sha) == Map.get(result, :head_sha) do
+      Map.put(result, :conflict_confirmed?, true)
     else
       result
     end
+  end
+
+  defp classify_merge_queue_departure(state, issue, result) do
+    target = CiLifecycle.ci_target_for_issue(issue)
+    previous = get_in(state.ci_lifecycle, [:poll_cache, target])
+    CancelledMergeGroup.classify_departure(result, previous)
   end
 
   # ---- Parked-ready recovery alert ------------------------------------------
@@ -400,6 +444,8 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
     passed_heads = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> prune_ci_map(targets, Map.get(baseline, :passed_heads, %{}))
     test_failure_heads = prune_ci_map(state.ci_lifecycle.test_failure_heads, targets, baseline.test_failure_heads)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+    existing_ci_observed = Map.get(state.ci_lifecycle, :ci_observed_at_ms, %{})
+    ci_observed = prune_ci_map(existing_ci_observed, targets, Map.get(baseline, :ci_observed_at_ms, %{}))
 
     poll_cache =
       existing_poll_cache
@@ -415,12 +461,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
       |> ParkedReadyAlert.ensure_parked_ready_alerts_seeded(opts)
       |> ParkedReadyAlert.resolve_departed_parked_ready_alerts(targets, opts)
 
-    state = DraftAlertLifecycle.resolve_departed(state, targets, opts)
+    state = state |> DraftAlertLifecycle.resolve_departed(targets, opts) |> PrLessReview.resolve_departed(targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
-         poll_cache == existing_poll_cache do
+         poll_cache == existing_poll_cache and ci_observed == existing_ci_observed do
       state
     else
       ci_lifecycle =
@@ -428,6 +474,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Poll do
         |> Map.put(:approved_heads, approved_heads)
         |> Map.put(:passed_heads, passed_heads)
         |> Map.put(:test_failure_heads, test_failure_heads)
+        |> Map.put(:ci_observed_at_ms, ci_observed)
         |> Map.put(:poll_cache, poll_cache)
 
       CiLifecycle.persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})

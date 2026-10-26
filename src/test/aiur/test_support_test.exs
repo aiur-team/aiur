@@ -7,6 +7,30 @@ defmodule Aiur.TestSupportTest do
   alias Aiur.Events.SubscriptionStoreRegistry
   alias Aiur.Events.SubscriptionStoreSupervisor
   alias Aiur.GitHub.ReadCache
+  alias Aiur.TestSupport.OrchestratorGuard
+  alias Aiur.TestSupport.SupervisorExit
+
+  test "SupervisorExit captures pid monitor reasons for a named supervisor" do
+    name = Module.concat(__MODULE__, "ExitProbe#{System.unique_integer([:positive])}")
+    assert {:ok, pid} = Supervisor.start_link([], strategy: :one_for_one, name: name)
+    Process.unlink(pid)
+
+    on_exit(fn ->
+      if replacement = Process.whereis(name), do: Supervisor.stop(replacement, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+      OrchestratorGuard.monitor_supervisor(Aiur.Supervisor)
+    end)
+
+    assert :ok = OrchestratorGuard.monitor_supervisor(name, self())
+    Process.exit(pid, :kill)
+    assert_receive {:supervisor_exit, :killed}, 5_000
+    assert SupervisorExit.exit_reason() == :killed
+
+    assert {:ok, replacement} = Supervisor.start_link([], strategy: :one_for_one, name: name)
+    Process.unlink(replacement)
+    assert_receive {:supervisor_monitor_restored, ^replacement}, 5_000
+    assert SupervisorExit.exit_reason() == nil
+  end
 
   test "receive_barrier selectively receives and exports bindings without a clock" do
     send(self(), :unrelated)
@@ -94,7 +118,12 @@ defmodule Aiur.TestSupportTest do
   # PubSub only topples the tree when dependants exhaust the restart budget
   # inside the wait, which made the old premise itself flaky.
   test "ensure_pubsub_running recovers the whole app after the supervision tree collapsed" do
-    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+    codeowners_baseline = OrchestratorGuard.capture_shared_state().codeowners
+
+    on_exit(fn ->
+      Aiur.TestSupport.ensure_runtime_children_running()
+      OrchestratorGuard.restore_codeowners_state!(codeowners_baseline)
+    end)
 
     collapsing = Enum.map([Aiur.Supervisor, Aiur.PubSub, ReadCache], &Process.whereis/1)
     assert Enum.all?(collapsing, &is_pid/1)
@@ -123,14 +152,19 @@ defmodule Aiur.TestSupportTest do
   # #4527: `terminate_child` on the live PubSub kills every linked subscriber
   # sibling; their restarts into a missing registry exhaust the root restart
   # budget, `Aiur.Supervisor` shuts down, and every later test in the shard
-  # fails. Crash an isolated tree instead (see SupervisionContractTest).
+  # fails. The excluded orchestrator-guard fixture is the sole exception: its
+  # integration test runs in a separate mix test VM to exercise the detector.
   test "no test terminates the shared PubSub child under the live application" do
+    isolated_fixture = "test/fixtures/orchestrator_guard/leak_probes_test.exs"
+
     offenders =
       for file <- Path.wildcard(Path.join(Path.expand("..", __DIR__), "**/*.{ex,exs}")),
+          Path.relative_to_cwd(file) != isolated_fixture,
           File.read!(file) =~ ~r/terminate_child\([^,()]+,\s*Phoenix\.PubSub\.Supervisor\)/,
           do: Path.relative_to_cwd(file)
 
     assert offenders == []
+    assert File.read!(Path.join(Path.expand("..", __DIR__), "fixtures/orchestrator_guard/leak_probes_test.exs")) =~ "@moduletag :orchestrator_guard_probe"
   end
 
   test "ensure_runtime_children_running restores shared event and provider stores" do

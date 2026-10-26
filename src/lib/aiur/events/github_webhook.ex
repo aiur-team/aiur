@@ -69,6 +69,7 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Webhooks
+  alias Aiur.Webhooks.ModeTable
 
   @min_reconcile_debounce_ms 2_000
 
@@ -165,6 +166,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.tracked_repo(payload, opts) do
       {:ok, repo} ->
         Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
+        ModeTable.record_config_event(repo, event_type)
         Deposit.deposit(event_type, payload, repo, Keyword.take(opts, [:at, :delivery_id]))
         :ok
 
@@ -274,6 +276,16 @@ defmodule Aiur.Events.GithubWebhook do
   # window. The poll cycle has nothing to discover that the delivery did not
   # already carry, so a generic wake would only duplicate the targeted pass.
   defp nudge_orchestrator(%{kind: :main_ci}, _opts), do: Aiur.MainWatch.reconcile()
+
+  defp nudge_orchestrator(%{kind: :ci, action: "synchronize", ticket: ticket, pr_number: pr_number}, opts)
+       when is_binary(ticket) and is_integer(pr_number) do
+    case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
+      pid when is_pid(pid) -> send(pid, {:github_pr_synchronize, ticket, pr_number})
+      nil -> :ok
+    end
+
+    maybe_wake_orchestrator(opts)
+  end
 
   defp nudge_orchestrator(%{kind: :review_thread} = hint, opts) do
     case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do

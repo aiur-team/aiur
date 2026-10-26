@@ -37,9 +37,9 @@ defmodule Aiur.ExecutorSweep.OpenTicketsTest do
     assert eventually(fn -> length(snapshot_fun.().tickets) == 3 end)
 
     Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
-    flagged = Checks.all(SnapshotCache.read(snapshot_fun), ~U[2026-10-16 20:33:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels")) |> Enum.map(& &1.ticket)
+    flagged = Checks.all(SnapshotCache.read(snapshot_fun), ~U[2026-10-16 20:33:00Z]) |> Enum.filter(&(&1.kind == "invalid_state_labels"))
 
-    assert Enum.sort(flagged) == [7, 8]
+    assert [%{ticket: 7, ticket_count: 2}] = flagged
     GenServer.stop(source)
   end
 

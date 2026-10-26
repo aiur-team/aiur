@@ -25,10 +25,8 @@ defmodule Aiur.GitHubCostCLI do
   contain. Consumers should branch on whether `data.credentials` is present.
   """
 
-  alias Aiur.GitHub.BudgetLedger
-  alias Aiur.GitHub.CredentialUsage
-  alias Aiur.GitHub.Quota
-  alias Aiur.GitHub.ReadCache
+  alias Aiur.GitHub.Access
+  alias Aiur.GitHubCostCLI.Fleet
   alias Aiur.JSONSafe
 
   @table_min_width 96
@@ -44,7 +42,7 @@ defmodule Aiur.GitHubCostCLI do
   can be checked against `/rate_limit` after the fact.
   """
   @spec ledger_window_seconds() :: pos_integer()
-  def ledger_window_seconds, do: div(BudgetLedger.window_ms(), 1_000)
+  def ledger_window_seconds, do: div(Access.ledger_window_ms(), 1_000)
 
   @spec ledger_window() :: %{window_seconds: pos_integer(), window_label: String.t()}
   defp ledger_window, do: %{window_seconds: ledger_window_seconds(), window_label: "1 hour"}
@@ -79,7 +77,7 @@ defmodule Aiur.GitHubCostCLI do
   """
   @spec build(keyword()) :: {:ok, map()} | {:error, String.t()}
   def build(opts \\ []) do
-    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Quota.snapshot!/0)
+    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Access.cost_report/0)
     budget = Keyword.get(opts, :budget, "graphql")
 
     with {:ok, snapshot} <- fetch(snapshot_fun),
@@ -96,7 +94,9 @@ defmodule Aiur.GitHubCostCLI do
   rescue
     error -> {:error, Exception.message(error)}
   catch
-    :exit, _reason -> {:error, "the GitHub quota meter is not running"}
+    # A slow snapshot times out; only a missing process is "not running".
+    :exit, {:timeout, _call} -> {:error, "the GitHub quota meter is running but took over 5 s to build its snapshot; retry once, then report it as an Aiur defect"}
+    :exit, _reason -> {:error, "the GitHub quota meter is not running in the active daemon; check `aiur alerts` for the quota process failure"}
   end
 
   defp validate_budget(budget) when budget in ["graphql", "core", "all"], do: {:ok, budget}
@@ -104,11 +104,12 @@ defmodule Aiur.GitHubCostCLI do
 
   defp envelope(snapshot, budget, opts) do
     callers = callers_for(snapshot, budget)
+    fleet = Fleet.attribution(snapshot, budget, opts)
     windows = snapshot |> Map.get(:windows, %{}) |> for_budget(budget)
     # Cost reads GitHub's own windows, never the broker's admission counts, so
     # it does not pay for a broker subprocess it would not read.
-    rows = CredentialUsage.rows(Keyword.put_new(opts, :usage_fun, fn -> %{actors: []} end))
-    pool = opts |> Keyword.put(:rows, rows) |> CredentialUsage.pool() |> for_budget(budget)
+    rows = Access.credential_usage(Keyword.put_new(opts, :usage_fun, fn -> %{actors: []} end))
+    pool = opts |> Keyword.put(:rows, rows) |> Access.credential_pool() |> for_budget(budget)
 
     JSONSafe.normalize(%{
       schema_version: 2,
@@ -120,6 +121,7 @@ defmodule Aiur.GitHubCostCLI do
       },
       data: %{
         callers: Enum.map(callers, &present_caller(&1, callers)),
+        fleet: fleet,
         windows: Map.new(windows, fn {resource, window} -> {resource, present_window(window)} end),
         reconciliation: snapshot |> Map.get(:reconciliation, %{}) |> for_budget(budget),
         cache: cache_snapshot(opts),
@@ -199,7 +201,7 @@ defmodule Aiur.GitHubCostCLI do
   # spending deliberately, and a caller at the top with a low hit rate is a
   # tuning problem. Without this column those two look identical.
   defp cache_snapshot(opts) do
-    cache_fun = Keyword.get(opts, :cache_fun, &ReadCache.snapshot/0)
+    cache_fun = Keyword.get(opts, :cache_fun, &Access.cache_snapshot/0)
 
     case cache_fun.() do
       %{} = cache -> cache
@@ -261,18 +263,9 @@ defmodule Aiur.GitHubCostCLI do
     end
 
     print_windows(data["windows"])
+    Fleet.print(data["fleet"])
     print_reconciliation(data["reconciliation"])
     print_ledger(data["ledger"])
-    # Reading order, not merge order. The ranking says where the budget went,
-    # the window says how much is left, the reconciliation says whether the
-    # ranking adds up, and the cache says how much never had to be spent — that
-    # is the whole question for the single-credential default, and those four
-    # always print.
-    #
-    # The pool sections come last because they are a drill-down that only exists
-    # when more than one credential is configured. Within them the order mirrors
-    # the single-credential one above: per-credential windows first, then the
-    # pool-wide reconciliation that adds them up.
     print_cache(data["cache"])
     print_credentials(data["credentials"])
     print_pool_reconciliation(data["pool_reconciliation"])

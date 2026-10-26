@@ -26,7 +26,7 @@ defmodule VoiceConverseTest do
   test "availability is unavailable without a provider" do
     {:ok, config} = Config.new(@valid)
     assert {:unavailable, :no_provider} = VoiceConverse.availability(config)
-    assert :ok = VoiceConverse.availability(%{config | provider: {Nope, []}})
+    assert :ok = VoiceConverse.availability(%{config | provider: {Nope, []}, llm: "m", cloud_disclosure_accepted: true})
   end
 
   test "a port that exits is unavailable, not empty" do
@@ -41,9 +41,16 @@ defmodule VoiceConverseTest do
     assert {:ok, %VoiceConverse.Briefing{}} = Ports.call_port(FakeBriefingSource, :brief, [%{}], :brief)
   end
 
-  test "static credentials report missing providers" do
+  test "static credentials return presence only when probing" do
     StaticCredentials.put(%{openai: "k"})
-    assert {:ok, "k"} = StaticCredentials.fetch(:openai, :connect)
+
+    assert {:ok, :present} = StaticCredentials.fetch(:openai, :probe)
+
+    for purpose <- [:connect, :delete, :provision, :render] do
+      assert {:ok, "k"} = StaticCredentials.fetch(:openai, purpose)
+    end
+
+    assert {:error, :missing} = StaticCredentials.fetch(:eleven, :probe)
     assert {:error, :missing} = StaticCredentials.fetch(:eleven, :connect)
   end
 

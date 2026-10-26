@@ -18,6 +18,19 @@ defmodule Aiur.Claude.CodingAgent do
   alias Aiur.Config
   alias Aiur.ProcessTree
 
+  @doc false
+  @spec restore_handoff_session(map(), Aiur.Issue.t(), GenServer.server()) :: map()
+  def restore_handoff_session(session, _issue, server) do
+    binding = AccountGeneration.new_binding(server)
+
+    Map.merge(session, %{
+      account_generation_binding: binding.binding,
+      account_generation_authority: binding.authority,
+      account_generation_context: binding.context,
+      account_generation_topic: binding.topic
+    })
+  end
+
   @thread_start_id 2
   @turn_start_id 3
 
@@ -68,6 +81,7 @@ defmodule Aiur.Claude.CodingAgent do
         account_generation_context: account_generation.context,
         account_generation_topic: account_generation.topic,
         account_generation_server: account_generation_server,
+        instance_mode: Keyword.get_lazy(opts, :instance_mode, &Config.booted_instance_mode/0),
         account_name: Keyword.get(opts, :account_name),
         account_selection_reason: Keyword.get(opts, :account_selection_reason),
         provider_meter_ingester: Keyword.get(opts, :provider_meter_ingester, &Aiur.ProviderMeters.ingest/1),

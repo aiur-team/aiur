@@ -100,3 +100,27 @@ if grep -Eq 'pull_request\.body|AIUR_PR_NUMBER' .github/workflows/ci.yml; then
 fi
 
 scripts/verify-workflow-security.sh
+
+python3 - <<'PY'
+from pathlib import Path
+
+workflows = (
+    Path(".github/workflows/ci.yml"),
+    Path(".github/workflows/website.yml"),
+    Path(".github/workflows/release-npm.yml"),
+    Path(".github/actions/layout-release/action.yml"),
+)
+expected = 4
+found = 0
+for path in workflows:
+    lines = path.read_text().splitlines()
+    for index, line in enumerate(lines):
+        if "uses: oven-sh/setup-bun@" not in line:
+            continue
+        found += 1
+        step = "\n".join(lines[index : index + 6])
+        if 'bun-version: "1.4.2"' not in step:
+            raise SystemExit(f"{path}:{index + 1}: setup-bun must pin Bun 1.4.2")
+if found != expected:
+    raise SystemExit(f"expected {expected} setup-bun uses, found {found}")
+PY

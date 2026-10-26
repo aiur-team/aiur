@@ -1,15 +1,21 @@
+import { activeFeature, layoutExt } from './features.js';
+import { ganttExt } from './gantt.js';
+import { cardDetail } from './cards.js';
+import { layoutKey, setLastKey } from './filters.js';
 import { S, ctx, fx, gutW, LH, onReset, renderChrome } from './state.js';
 import { syncStates } from './states.js';
 import { $ } from './dom.js';
 import { I } from './icons.js';
 import { dotSize } from './span.js';
-import { writeURL } from './url.js';
 import { computeLayout, measureFlow, crowded, laneMax, fwdLanes, histDays, makeMark, placeMark, makeLabel } from './layout.js';
 import { H, syncHistory, loadEarlier, ensureDays, ensureFrom } from './history.js';
 import { takeAnchor, restoreAnchor } from './render-anchor.js';
 import { renderHeads } from './render-heads.js';
 export { takeAnchor, restoreAnchor } from './render-anchor.js';
 export { headHTML } from './render-heads.js';
+import { timed } from './perf.js';
+export const relayout = timed('relayout', relayoutImpl);
+export const update = timed('update', updateImpl);
 
 let pendingLive;
 onReset(() => { pendingLive = { changed: new Set(), removed: new Set(), dirty: false }; });
@@ -28,20 +34,24 @@ export function viewport() {
     ctx.content = $("#bd-content", ctx.root); ctx.lanesEl = $("#bd-lanes", ctx.root); ctx.guidesEl = $("#bd-guides", ctx.root); ctx.svg = $("#bd-edges", ctx.root); ctx.bandEl = $("#bd-now", ctx.root);
     ["hist", "plan", "nq"].forEach((s) => { const el = $("#bd-sec-" + s, ctx.root); ctx.secs[s] = { el, layer: $(".bd-layer", el), head: $(".bd-sech", el) }; });
     ctx.R.clear(); ctx.RL.clear(); ctx.laneEls.clear(); ctx.guideEls.clear(); ctx.cols = []; ctx.colMap = {};
-    ctx.life.on(ctx.content, "mouseover", e => fx.onHover(e));
-    ctx.life.on(ctx.content, "mouseleave", () => { if (!ctx.lockId) ctx.life.later("hover", 200, () => { if (!ctx.lockId) fx.setHover(null); }); });
+    ctx.life.on(ctx.content, "pointerover", e => fx.onHover(e));
+    ctx.life.on(ctx.content, "mouseleave", () => fx.onLeave());
     ctx.lockId = null;
     ctx.lt = document.createElement("div"); ctx.lt.className = "bd-lt";
     ctx.lt.innerHTML = '<button type="button" data-lt="lock" title="Lock this dependency tree">' + I.lock + '</button><button type="button" data-lt="fit" title="Zoom out to fit this tree">' + I.fit + '</button><button type="button" data-lt="tree" title="View the whole tree">' + I.eye + "</button>";
+    ctx.lt.querySelector('[data-lt="lock"]').setAttribute('aria-pressed', 'false');
     ctx.content.appendChild(ctx.lt);
+    ctx.life.on(ctx.content, 'keydown', e => {
+      if (!['Enter', ' '].includes(e.key) || !e.target.matches('.bd-card')) return;
+      e.preventDefault(); e.target.click();
+    });
     ctx.life.on(ctx.content, "click", (e) => {
       const eh = e.target.closest(".bd-eh");
       if (eh) { e.stopPropagation(); fx.lockTree(eh.dataset.e); return; }
       const b = e.target.closest("[data-lt]");
-      if (b) { e.stopPropagation(); if (b.dataset.lt === "lock") { if (ctx.lockId) fx.unlock(); else if (ctx.hoverId) { ctx.lockId = ctx.hoverId; ctx.lt.classList.add("locked"); } } else if (ctx.lockId) { if (b.dataset.lt === "fit") fx.fitTree(ctx.lockId); else fx.openTree(ctx.lockId); } return; }
-      if (e.target.closest("[data-min]")) { S.liveMin = !S.liveMin; writeURL(); relayout(); return; }
-      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid]); return; }
-      const st = e.target.closest("[data-ast]"); if (st) { const v = st.dataset.ast.split(","), same = S.f.astate.join(",") === v.join(","); S.f.astate = same ? [] : v; if (S.liveMin && !same) { S.liveMin = false; writeURL(); relayout(); } fx.filtersChanged(); return; }
+      if (b) { e.stopPropagation(); fx.toggleLock(b); return; }
+      const sd = e.target.closest("[data-sid]"); if (sd) { fx.openModal(ctx.D.byId[sd.dataset.sid], { origin: sd }); return; }
+      if (fx.onBandClick?.(e)) return;
       const c = e.target.closest(".bd-card");
       if (ctx.lockId) { if (c && fx.chainOf(ctx.lockId).has(c.dataset.id)) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c }); return; }
       if (c) fx.openModal(ctx.D.byId[c.dataset.id], { origin: c });
@@ -55,11 +65,12 @@ function noanim(el) {
 function focusId() { return document.activeElement?.closest('.bd-card')?.dataset.id ?? null; }
 function restoreFocus(id) {
   if (!id) return;
-  const card = [...ctx.R.values()].find(el => el.dataset.id === id);
+  const card = [...ctx.R.values()].find(el => el.dataset.id === id) || ctx.L?.band.items.find(it => it.t.id === id)?.el;
   (card || ctx.vp).focus({ preventScroll: true });
 }
-export function relayout({ live = false } = {}) {
+function relayoutImpl({ live = false } = {}) {
   if (S.loading) return fx.renderLoading();
+  setLastKey(layoutKey(S));
   syncStates();
   const reconnect = H.epoch !== null && H.epoch !== ctx.proto.epoch;
   const anchor = reconnect ? takeAnchor() : null, oldFrom = S.histFrom, focused = focusId();
@@ -71,9 +82,9 @@ export function relayout({ live = false } = {}) {
   if (ctx.lockId && (!live || !ctx.D.byId[ctx.lockId])) fx.unlock();
   if (!live || ctx.treeId && !ctx.D.byId[ctx.treeId]) fx.closeTree();
   const previousDetail = ctx.L?.det;
-  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H });
+  ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt });
   // The design counts only live and planned lanes; also flow when the packed day columns would still be slivers (#4769).
-  if (!S.flow && !S.feature && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { history: H }); }
+  if (!S.flow && !activeFeature() && crowded(dims, laneMax(ctx.L, fwdLanes(ctx.D, S), dims.vpH - LH))) { S.flow = true; ctx.L = computeLayout(ctx.D, S, dims, ctx.snap.sources, { ...layoutExt(ctx.D, S), history: H, gantt: ganttExt }); }
   ctx.content.classList.toggle('flow', S.flow);
   const detailChanged = previousDetail !== ctx.L.det;
   ctx.svg.setAttribute('height', 0);
@@ -103,10 +114,11 @@ export function relayout({ live = false } = {}) {
       });
     }
   }
-  if (S.span > 1 && histDays(ctx.D.hist).length < S.span && H.more) ensureDays(S.span);
+  if (!ctx.fitHistory && S.span > 1 && histDays(ctx.D.hist).length < S.span && H.more) ensureDays(S.span);
 }
 export const colFor = it => it.sec === 'now' ? ctx.bandMap[it.key] : ctx.colMap[it.key];
 export function place(el, it) {
+  if (!el) return;
   const c = colFor(it);
   el.style.top = it.y + 'px'; el.style.height = it.h + 'px';
   if (!c) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; if (!el.style.left) el.style.left = '0px'; return; }
@@ -118,13 +130,15 @@ export function place(el, it) {
 }
 function renderSection(s, keep, keepL, focused) {
   const sec = ctx.secs[s], lay = ctx.L.secs[s], st = ctx.vp.scrollTop;
+  let created = false;
   const A = st - sec.el.offsetTop - 700, B = st - sec.el.offsetTop + ctx.vp.clientHeight + 700;
   const overlaps = (y, h = 0) => y + h >= A && y <= B;
   for (const it of lay.items) {
     if (!overlaps(it.y, it.h) && it.t.id !== focused) continue;
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
-    if (!el) { el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
+    if (el && !el.classList.contains(cardDetail(it))) { el.remove(); el = null; }
+    if (!el) { created = true; el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
     el._it = it; place(el, it);
   }
   lay.marks.forEach((m, i) => {
@@ -144,23 +158,25 @@ function renderSection(s, keep, keepL, focused) {
     const [el, ln] = makeLabel(lb); sec.layer.appendChild(el); ctx.RL.set(uid, el);
     if (ln) { sec.layer.appendChild(ln); ctx.RL.set(uid + 'd', ln); }
   });
+  return created;
 }
-export function update(force) {
+function updateImpl(force) {
   if (!ctx.L || !ctx.content || S.loading || S.view === 'list') return;
   fx.scheduleCols(force);
   const keep = new Set(), keepL = new Set();
   const focused = focusId() ?? ctx.a11y.focusId;
   ctx.a11y.focusId = focused;
-  for (const s of ['hist', 'plan', 'nq']) renderSection(s, keep, keepL, focused);
-  ctx.R.forEach((el, uid) => { if (!keep.has(uid)) { el.remove(); ctx.R.delete(uid); } });
+  let changed = !!force;
+  for (const s of ['hist', 'plan', 'nq']) changed = renderSection(s, keep, keepL, focused) || changed;
+  ctx.R.forEach((el, uid) => { if (!keep.has(uid)) { changed = true; el.remove(); ctx.R.delete(uid); } });
   ctx.RL.forEach((el, uid) => {
     if (!keepL.has(uid.endsWith('d') ? uid.slice(0, -1) : uid)) { el.remove(); ctx.RL.delete(uid); }
   });
-  const nb = $('#bd-nowbtn', ctx.root);
-  if (nb) { const r = ctx.bandEl.getBoundingClientRect(), v = ctx.vp.getBoundingClientRect(); nb.classList.toggle('at', r.top > v.top + LH + 30 && r.bottom < v.bottom - 30); }
+  fx.syncNowBtn?.();
+  if (changed && (ctx.hoverId || ctx.treeId)) fx.reapply();
   fx.drawEdges(false);
   if (ctx.vp.scrollTop >= 260) H.retryArmed = true;
-  if (S.ready && H.state !== 'loading' && ctx.vp.scrollTop < 260 && H.more && H.retryArmed) loadEarlier();
+  if (!ctx.fitHistory && S.ready && H.state !== 'loading' && ctx.vp.scrollTop < 260 && H.more && H.retryArmed) loadEarlier();
   if (!focusId()) ctx.a11y.focusId = null;
 }
 function deferred() {

@@ -28,11 +28,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
       target ->
         poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
         projection = result |> ci_result_projection(Map.get(poll_cache, target)) |> Map.put(:tracker_state, Transition.effective_ci_state(issue))
+        observed = Map.get(state.ci_lifecycle, :ci_observed_at_ms, %{}) |> Map.put(target, System.system_time(:millisecond))
 
         if Map.get(poll_cache, target) == projection do
-          state
+          %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_observed_at_ms, observed)}
         else
-          ci_lifecycle = Map.put(state.ci_lifecycle, :poll_cache, Map.put(poll_cache, target, projection))
+          ci_lifecycle = state.ci_lifecycle |> Map.put(:ci_observed_at_ms, observed) |> Map.put(:poll_cache, Map.put(poll_cache, target, projection))
           %{state | ci_lifecycle: ci_lifecycle}
         end
     end
@@ -48,11 +49,40 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
         Map.get(result, :head_sha),
         Map.get(result, :draft?)
       )
+      |> case do
+        nil -> nil
+        observation -> Map.put(observation, :ready_at_ms, Map.get(result, :ready_at_ms, System.system_time(:millisecond)))
+      end
 
     case observation do
       nil -> state
       observation -> ReadyForReviewTransitions.observe(state, [observation])
     end
+  end
+
+  @doc false
+  @spec reraise_unreviewed_ready_pr(State.t(), Issue.t(), term(), term()) :: State.t()
+  # Only a ticket handed back to review is waiting on a reviewer; rework is still the agent's.
+  def reraise_unreviewed_ready_pr(%State{} = state, %Issue{} = issue, result, opts) do
+    if Transition.effective_ci_state(issue) == "human-review", do: do_reraise_unreviewed_ready_pr(state, issue, result, opts), else: state
+  end
+
+  defp do_reraise_unreviewed_ready_pr(state, issue, result, opts) do
+    ReadyForReviewTransitions.re_raise_unreviewed(
+      state,
+      ReadyForReviewTransitions.observation(
+        CiLifecycle.ci_target_for_issue(issue),
+        Map.get(result, :pr_number),
+        Map.get(result, :head_sha),
+        Map.get(result, :draft?)
+      )
+      |> case do
+        nil -> nil
+        observation -> Map.put(observation, :ready_at_ms, Map.get(result, :ready_at_ms))
+      end,
+      result,
+      opts
+    )
   end
 
   defp ci_result_projection(result, previous) do
@@ -65,8 +95,10 @@ defmodule Aiur.Orchestrator.CiLifecycle.ResultProjection do
       auto_merge_request: projection_value(result, previous, :auto_merge_request, get_in(previous, [:merge_queue, :auto_merge_request])),
       merge_queue_entry: projection_value(result, previous, :merge_queue_entry, get_in(previous, [:merge_queue, :merge_queue_entry])),
       recovery: if(result[:decision] == :pending and result[:head_sha] == get_in(previous, [:head_sha]), do: projection_value(result, previous, :recovery, nil), else: result[:recovery]),
-      failures: Map.get(result, :failures, [])
+      failures: Map.get(result, :failures, []),
+      check_runs: Map.get(result, :check_runs, [])
     }
+    |> Map.merge(Map.take(previous || %{}, [:conflicting_head_sha, :conflicting_polls]))
     |> DraftAlertLifecycle.keep_pending_reason(result)
   end
 

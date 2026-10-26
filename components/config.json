@@ -10,6 +10,8 @@
     "src/lib/aiur/env.ex",
     "src/lib/aiur/env/**",
     "src/lib/aiur/handoff/record.ex",
+    "src/lib/aiur/instance.ex",
+    "src/lib/aiur/instance/**",
     "src/lib/aiur/merge_policy.ex",
     "src/lib/aiur/workflow.ex",
     "src/lib/aiur/workflow_store.ex",
@@ -27,13 +29,18 @@
     "config": [
       "compaction",
       "executor",
+      "instance",
       "merge_policy",
-      "prompt_file"
+      "prompt_file",
+      "usage"
     ],
     "env": [
       "AIUR_CI_CHANGED_PATHS_B64",
+      "AIUR_SECRETS_FROM_ENV",
+      "AIUR_STATE_PERSISTENT",
       "GITHUB_EVENT_NAME",
       "HOME",
+      "HOSTNAME",
       "XDG_CONFIG_HOME",
       "XDG_STATE_HOME"
     ],
@@ -55,10 +62,14 @@
     "reference/configuration.md"
   ],
   "config": [
-    "executor"
+    "executor",
+    "usage"
   ],
   "env": [
+    "AIUR_SECRETS_FROM_ENV",
+    "AIUR_STATE_PERSISTENT",
     "HOME",
+    "HOSTNAME",
     "XDG_CONFIG_HOME",
     "XDG_STATE_HOME"
   ],

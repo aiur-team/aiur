@@ -88,6 +88,8 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert_error_sent(400, fn -> get(build_conn(), "/build-home/..%2Fdashboard.css") end)
 
     assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/voice-capture.js"
+    assert html =~ "/voice-transport.js"
     assert html =~ "/conversation-voice-controller.js"
     assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
@@ -104,9 +106,11 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     assert dashboard_css =~ ":root {"
     refute dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
-    assert dashboard_css =~ "html.nav-collapsed .snav-label"
-    # The collapsed rail retains its drag handle and route icons.
-    assert dashboard_css =~ "html.nav-collapsed .sidenav"
+    shell_css = response(get(build_conn(), "/aiur-style/css/dashboard-shell.css"), 200)
+    assert html =~ "/aiur-style/css/dashboard-shell.css"
+    assert shell_css =~ "html.nav-collapsed .aiur-shell--dashboard .aiur-shell__label"
+    # The collapsed rail retains its drag handle and route icons in the package.
+    assert shell_css =~ "html.nav-collapsed .aiur-shell--dashboard .aiur-shell__sidebar"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
@@ -136,6 +140,12 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
     conversation_voice_conn = get(build_conn(), "/conversation-voice-controller.js")
     assert response(conversation_voice_conn, 200) =~ "AiurConversationVoiceController"
     assert Plug.Conn.get_resp_header(conversation_voice_conn, "content-type") == ["text/javascript"]
+
+    for {voice_asset, global} <- [{"voice-capture.js", "AiurVoiceCapture"}, {"voice-transport.js", "AiurVoiceTransport"}] do
+      voice_asset_conn = get(build_conn(), "/#{voice_asset}")
+      assert response(voice_asset_conn, 200) =~ global
+      assert Plug.Conn.get_resp_header(voice_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
 
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
@@ -191,12 +201,22 @@ defmodule Aiur.Extensions.DashboardAssetsTest do
 
     layout_urls = AiurWeb.StaticAssets.layout_asset_urls()
 
+    for {name, url} <- layout_urls do
+      assert url != "",
+             "layout #{name} asset URL is unavailable; generate pinned layout assets with " <>
+               "scripts/lib/layout-assets.sh build_layout_assets <repo-root> mise exec --"
+    end
+
     assert layout_urls.engine =~ ~r/^\/vendor\/layout\/elk-0\.11\.1\/[a-f0-9]{64}\/elk-worker\.min\.js$/
     assert layout_urls.worker =~ ~r/^\/vendor\/layout\/worker-v1\/[a-f0-9]{64}\/aiur-layout-worker\.js$/
     assert layout_urls.client =~ ~r/^\/vendor\/layout\/client-v1\/[a-f0-9]{64}\/aiur-layout-client\.js$/
 
-    for url <- Map.values(layout_urls) do
+    for {_name, url} <- layout_urls do
       conn = get(build_conn(), url)
+
+      assert conn.status == 200,
+             "advertised layout asset #{url} returned #{conn.status}; generate pinned layout assets (scripts/lib/layout-assets.sh)"
+
       assert response(conn, 200) != ""
       assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/javascript; charset=utf-8"]
       assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]

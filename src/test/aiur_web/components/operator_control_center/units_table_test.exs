@@ -207,7 +207,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
-    assert filtered =~ ~s(class="btn ghost units-reset")
+    assert filtered =~ ~s(class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost units-reset")
     # A stale catalog no longer prints a dedicated banner; the last-known-good
     # rows render directly without the noisy "Stale Units catalog" notice.
     refute stale =~ "Stale Units catalog"
@@ -257,6 +257,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # dashed-border `empty-state` surface.
     assert html =~ ~s(class="units-state empty-state")
     assert html =~ "No live units."
+  end
+
+  test "marks a usage-limit pause as not holding a fleet slot, and only that pause" do
+    limited = Map.put(row_with_tone(:paused), :reasons, %{waiting: :provider_limited, blocking: nil, alert: nil, pause: :usage_limit_exhausted, stuck: nil})
+    render = fn row -> render_component(&UnitsTable.units_table/1, %{view: view([row]), now: ~U[2026-07-17 12:00:00Z]}) end
+
+    assert render.(limited) =~ "Slot released"
+    refute render.(row_with_tone(:paused)) =~ "Slot released"
   end
 
   test "withholds the zero-unit sentence from the statuses that already account for themselves" do

@@ -2,8 +2,12 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   @moduledoc false
   # Builds the dashboard/CLI snapshot payload from one state copy.
 
-  import Aiur.Orchestrator.StatusReport.AgentStatuses, only: [idle_evidence: 5, idle_evidence_waiting_reason: 2]
-  import Aiur.Orchestrator.StatusReport.Progress, only: [activity_by_identity: 0, activity_stage: 2, progress_facts: 2]
+  import Aiur.Orchestrator.StatusReport.AgentStatuses,
+    only: [idle_evidence: 5, idle_evidence_waiting_reason: 2]
+
+  import Aiur.Orchestrator.StatusReport.Progress,
+    only: [activity_by_identity: 0, activity_stage: 2, progress_facts: 2]
+
   import Aiur.Orchestrator.StatusReport.RowFacts
 
   alias Aiur.CodingAgent
@@ -27,21 +31,40 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
     activity_by_identity = activity_by_identity()
+    # Resolve every row from one batch; per-row reads multiply snapshot RPC work by ticket count.
+    decision_counts = snapshot_decision_counts(state)
 
     running =
       Enum.map(
         state.running,
-        &running_snapshot(state, &1, now, stall_timeout_seconds, activity_by_identity)
+        &running_snapshot(
+          state,
+          &1,
+          now,
+          stall_timeout_seconds,
+          activity_by_identity,
+          decision_counts
+        )
       )
 
     retrying =
-      Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
+      Enum.map(
+        state.retry_attempts,
+        &retry_snapshot(state, &1, now_ms, activity_by_identity, decision_counts)
+      )
 
-    idle = idle_snapshot(state, now_ms, activity_by_identity)
+    idle = idle_snapshot(state, now_ms, activity_by_identity, decision_counts)
 
     %{
       ci_wait:
-        state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] == "ci-wait" end) |> Enum.map(fn {target, ci} -> Map.put(ci, :identifier, target) end),
+        state.ci_lifecycle
+        |> Map.get(:poll_cache, %{})
+        |> Enum.filter(fn {_target, ci} -> ci[:tracker_state] in ["ci-wait", "human-review"] end)
+        |> Enum.map(fn {target, ci} ->
+          ci
+          |> Map.put(:identifier, target)
+          |> Map.put(:observed_at_ms, get_in(state.ci_lifecycle, [:ci_observed_at_ms, target]))
+        end),
       rework_attempts:
         Enum.map(state.rework_attempts, fn {{issue_id, head_sha}, count} ->
           %{issue_id: issue_id, head_sha: head_sha, count: count}
@@ -82,12 +105,29 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     |> StatusObservation.attach(state, now)
   end
 
-  defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms), do: max(now_ms - last_ms, 0)
+  defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms),
+    do: max(now_ms - last_ms, 0)
+
   defp dispatch_poll_age_ms(_last_ms, _now_ms), do: nil
+
+  defp snapshot_decision_counts(state) do
+    running = Enum.map(state.running, fn {_issue_id, entry} -> Map.get(entry, :identifier) end)
+
+    retrying =
+      Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end)
+
+    idle =
+      visible_polled_issues(state)
+      |> Map.values()
+      |> Enum.map(&(Map.get(&1, :identifier) || Map.get(&1, :id)))
+
+    open_decision_counts(running ++ retrying ++ idle)
+  end
 
   defp capacity_hold_payload(%State{} = state, now_ms) do
     case state.capacity_hold do
-      %{signal: signal, measured: measured, threshold: threshold, held_since_ms: held_since_ms} = hold ->
+      %{signal: signal, measured: measured, threshold: threshold, held_since_ms: held_since_ms} =
+          hold ->
         %{
           held?: true,
           signal: signal,
@@ -122,14 +162,17 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
          {issue_id, metadata},
          now,
          stall_timeout_seconds,
-         activity_by_identity
+         activity_by_identity,
+         decision_counts
        ) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier, metadata)
     work_state = startup_work_state(metadata)
     pause_reason = Map.get(metadata, :paused_reason)
     started_at = Map.get(metadata, :started_at)
     stale_for_seconds = stale_for_seconds(metadata, now)
-    {open_decision_count, open_decision_count_health} = open_decision_count(metadata.identifier)
+
+    {open_decision_count, open_decision_count_health} =
+      Map.get(decision_counts, metadata.identifier, {0, :unavailable})
 
     waiting_reason =
       WaitingReason.for_running(%{
@@ -163,6 +206,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       context_usage: Map.get(metadata, :context_usage),
       telemetry_attempt_id: Map.get(metadata, :telemetry_attempt_id),
+      usage_limit_reset_at: Map.get(metadata, :usage_limit_reset_at),
       turn_count: Map.get(metadata, :turn_count, 0),
       turn_count_observed?: Map.has_key?(metadata, :turn_count),
       started_at: started_at,
@@ -195,12 +239,15 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
          %State{} = state,
          {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry},
          now_ms,
-         activity_by_identity
+         activity_by_identity,
+         decision_counts
        ) do
     identifier = Map.get(retry, :identifier)
     issue = Map.get(visible_polled_issues(state), issue_id)
     tracker_identity = retry_snapshot_tracker_identity(retry, issue)
-    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
+
+    {open_decision_count, open_decision_count_health} =
+      Map.get(decision_counts, identifier, {0, :unavailable})
 
     %{
       issue_id: issue_id,
@@ -230,7 +277,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
     |> WaitingReason.attach(state)
   end
 
-  defp idle_snapshot(%State{} = state, now_ms, activity_by_identity) do
+  defp idle_snapshot(%State{} = state, now_ms, activity_by_identity, decision_counts) do
     running_issue_ids = MapSet.new(Map.keys(state.running))
 
     # Also exclude issues already shown in the retry-backoff bucket — they're
@@ -256,7 +303,8 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
         terminal_states,
         now_ms,
         latch_statuses,
-        activity_by_identity
+        activity_by_identity,
+        decision_counts
       )
     end)
   end
@@ -267,10 +315,14 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
          _terminal_states,
          now_ms,
          latch_statuses,
-         activity_by_identity
+         activity_by_identity,
+         decision_counts
        ) do
     identifier = issue.identifier || issue.id
-    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
+
+    {open_decision_count, open_decision_count_health} =
+      Map.get(decision_counts, identifier, {0, :unavailable})
+
     latch = Map.get(latch_statuses, issue.id, :none)
     release = Map.get(state.released_claims, issue.id)
     idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms)
@@ -349,9 +401,18 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
   defp issue_classification_facts(_issue), do: %{}
 
   defp cached_ci_result(%State{} = state, identifier) do
-    state.ci_lifecycle
-    |> Map.get(:poll_cache, %{})
-    |> Map.get(identifier)
+    result =
+      state.ci_lifecycle
+      |> Map.get(:poll_cache, %{})
+      |> Map.get(identifier)
+
+    case result do
+      result when is_map(result) ->
+        Map.put(result, :observed_at_ms, get_in(state.ci_lifecycle, [:ci_observed_at_ms, identifier]))
+
+      _missing ->
+        nil
+    end
   end
 
   @spec next_poll_in_ms(integer() | nil, integer()) :: non_neg_integer() | nil

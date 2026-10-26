@@ -6,9 +6,9 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Config, Signal}
+  alias Aiur.GitHub.{Access, Listeners}
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
@@ -21,9 +21,10 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def note_github_connectivity_success(%State{} = state, source) do
     %{
       state
-      | github_connectivity: GitHubConnectivity.note_success(state.github_connectivity, source),
+      | github_connectivity: Access.connectivity_note_success(state.github_connectivity, source),
         github_poll_delays: Map.delete(state.github_poll_delays, source)
     }
+    |> update_comment_backoff()
   end
 
   @doc false
@@ -41,13 +42,13 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     end
 
     {streaks, alerts} =
-      GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
+      Access.connectivity_note_failure(state.github_connectivity, source, classification)
 
     Enum.each(alerts, &emit_github_connectivity_alert/1)
 
     backoff_ms =
       classification
-      |> GitHubConnectivity.backoff_ms(connectivity_streak_count(streaks, source), detail)
+      |> Access.connectivity_backoff_ms(connectivity_streak_count(streaks, source), detail)
       |> normalize_github_backoff_ms(state)
 
     %{
@@ -55,6 +56,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       | github_connectivity: streaks,
         github_poll_delays: Map.put(state.github_poll_delays, source, backoff_ms)
     }
+    |> update_comment_backoff()
   end
 
   # A local budget hold is not connectivity: it must not ride the transport
@@ -84,7 +86,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     end
   end
 
-  defp normalize_github_backoff_ms(:escalate, _state), do: GitHubConnectivity.max_backoff_ms()
+  defp normalize_github_backoff_ms(:escalate, _state), do: Access.connectivity_max_backoff_ms()
 
   defp normalize_github_backoff_ms(delay_ms, _state) when is_integer(delay_ms) and delay_ms >= 0,
     do: delay_ms
@@ -95,10 +97,15 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   @spec note_github_poll_interval(State.t(), atom(), pos_integer() | nil) :: State.t()
   def note_github_poll_interval(%State{} = state, source, seconds)
       when is_integer(seconds) and seconds > 0 do
-    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)}
+    %{state | github_poll_delays: Map.put(state.github_poll_delays, source, seconds * 1_000)} |> update_comment_backoff()
   end
 
   def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
+
+  defp update_comment_backoff(state) do
+    Listeners.update_backoff(github_next_poll_delay_ms(state))
+    state
+  end
 
   # GitHub's delays are floors, not targets: `X-Poll-Interval` says "do not poll
   # faster than this" and a connectivity backoff says "wait at least this long".
@@ -351,9 +358,9 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def github_next_poll_delay_ms(_state), do: nil
 
   defp emit_github_connectivity_alert(alert) do
-    message = GitHubConnectivity.alert_message(alert, repo: Aiur.GitHub.Config.repo())
+    message = Access.connectivity_alert_message(alert, repo: Aiur.GitHub.Config.repo())
 
-    Alerts.emit_custom("system.github.connectivity_lost", message,
+    Signal.agent_alert("system.github.connectivity_lost", message,
       reason: message,
       needs_attention: true,
       severity: "warning"

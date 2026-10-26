@@ -61,7 +61,8 @@ checks on the current head SHA.
 
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
 `aiurdev pre-pr`) from the branch checkout. Paste its complete result block
-into the PR body; it records the merged `origin/main` SHA and each gate result.
+into the PR body; it records the configured base SHA and each gate result,
+without merging the base into the PR branch.
 The command never pushes and refuses a dirty checkout. Once a PR exists, it
 waits for GitHub to report the pushed head, then rewrites the body's
 `Tested head:` and `Base:` lines as plain SHAs; it fails if `gh` cannot read
@@ -93,10 +94,31 @@ tests in a new test file. Never grow the oversized file.
 These checks supplement the scoped compile, format, and affected-test gate; CI still runs the authoritative
 full required-check set. Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
 
+### Slow shared build gate
+
+The shared build gate serializes expensive commands and reports queue position
+and progress. A command waiting or running slowly at that gate is not a failure:
+keep waiting for it to finish instead of retrying it, ending the session, or
+setting `agent:error`. Use `agent:error` only for a real blocker that prevents
+the work from continuing.
+
+If a genuine time limit means you must stop before validation finishes, preserve
+the workspace and hand the ticket back through its resume path. With an open PR,
+use `aiur_set_ticket_state({"state": "rework"})`. Without a PR, do not change
+the ticket to an error state: end the turn with the workspace and workpad intact
+so Aiur's normal continuation/recycle path can resume it. Never set
+`agent:error` just because time ran out; the next dispatch should continue from
+the existing workspace rather than restart setup.
+
 ### Unrelated CI flakes
 
 If the only failure is a flaky test unrelated to your change, file the
 flake as its own ticket with the CI run id (or link its existing ticket).
+File flake and other non-feature follow-ups with `needs-triage` and the
+instance's parked label (`agent:parked`, or `nuc:parked` on NUC); never include
+a dispatch state label such as `agent:todo` or `nuc:todo`. New non-feature
+tickets wait for operator triage unless they block merging. Quarantine-first
+applies to tests that fail on `main` or in a merge group.
 NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
 A flaky test blocks CI, not the ticket's implementation. State in the PR
 that the only failure is the known flake, link the flake ticket and CI run,
@@ -124,15 +146,18 @@ queued only for a real merge conflict.
 
 ### Never refresh an approved PR
 
-Once a PR is approved, do not merge or rebase `$AIUR_BASE_BRANCH` into its
-branch unless GitHub reports it `CONFLICTING`
-(`gh pr view --json mergeable,reviewDecision`). The merge queue tests the
-merge, so branch freshness buys nothing, while every push cancels the
-in-flight CI run and can dismiss the approval. A red, cancelled, or missing
-check is never a reason to merge the base: a base merge can restart CI but
-cannot fix it. When the PR is `CONFLICTING`, integrate once and say why in a PR
-comment. The agent `git` guard refuses a push to a PR that is in the merge
-queue unless it is conflicting or has changes requested.
+When a ticket is in `agent:human-review` or `agent:ci-wait`, do not merge or
+rebase `$AIUR_BASE_BRANCH` into its PR branch just because the base moved, files
+overlap, CI is red/cancelled/missing, or a freshness check says it is behind.
+The merge queue tests each PR on the current base. Integrate the base in these
+states only when GitHub reports the PR `CONFLICTING`
+(`gh pr view --json mergeable,reviewDecision`), or when a specific newer base
+commit fixes a failing required check. Name that commit and check before
+refreshing the branch. This rule applies in every ticket state, including
+`rework`: a reviewer request, red CI by itself, and ordinary base movement do
+not authorize a base-only merge. A mergeable head gets no merge-only commits.
+The agent `git` guard refuses a push to a PR that is in the merge queue unless
+it is conflicting or has changes requested.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 
@@ -157,6 +182,11 @@ calls, the blocker → stub-then-fetch flow, and attentions.
 cross-ticket event** — don't rely on memory for the allowlisted names; the skill
 fails loud with the valid forms if you guess wrong. Two reflexes override normal
 work ordering, so they're worth stating up front:
+
+When a governed GitHub command fails with a guard diagnostic, include that exact
+diagnostic in any alert or decision about the failure. The guard's stderr is the
+source of the broker, hold, or deadline reason; do not replace it with a generic
+"GitHub is stuck" summary.
 
 - **Blocking another agent is your highest priority.** If another ticket is
   paused on a decision or stub from you (you've been declared a blocker via
@@ -263,6 +293,34 @@ emit_event(name: "progress", payload: %{
 ```
 
 Two emits this turn; cap respected.
+
+### Status note (`progress.status`)
+
+Keep a short status note current so the Executor (and the voice assistant)
+can see what you are doing and why without stopping you. It is the short,
+machine-readable head of your Agent Workpad, not a replacement for it.
+
+```
+emit_event(name: "progress.status", message: "<one line>", payload: %{
+  doing: "<what you are doing right now>",
+  why: "<the reason, or the plan step it serves>",
+  next: "<the next 1-3 steps>",
+  waiting_on: "<CI, review, a Command, or empty>",
+  asks: "<what you want from the operator, or empty>",
+  risks: "<what may go wrong or what you are unsure of, or empty>",
+  pr: "<PR number, or empty>",
+  updated_reason: "phase" | "long_step" | "command" | "turn_end" | "refresh"
+})
+```
+
+Write or update it: (a) at each phase boundary, paired with the `progress`
+emit; (b) before a step you expect to take more than about 3 minutes (a long
+test run, a big refactor); (c) when you open a Command; (d) at the end of each
+turn; (e) when Aiur asks for a refresh (`status.refresh`). `doing` is
+required. Limits: `message` one line, 200 bytes; `doing`, `why`, `next`,
+`asks` 200 bytes each; `waiting_on` 120; `risks` 160; `pr` 16; the whole
+payload 1,280 bytes; 6 notes per turn.
+Keep it true, short, and in plain words. Never paste logs.
 
 ### Executor check-ins (`operator.progress_request`)
 

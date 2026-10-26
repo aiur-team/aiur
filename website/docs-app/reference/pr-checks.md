@@ -2,9 +2,13 @@
 
 Only the aggregate `ci gate` check is required; it fails when any job the event selects did not succeed.
 
+The approval check reads `reviewDecision` when the run starts; approval does not trigger another run, while the merge queue runs the full suite; add `ci:full` to run it on the PR first.
+
 | Event | Jobs |
 |-------|------|
-| Pull request | `changes`, workflow security, `lint`, affected tests (or the full set with `ci:full`), and the soak jobs when the PR changes tests |
+| Pull request, not approved | `changes`, workflow security, pre-handoff, `lint`, affected tests, and the soak jobs when the PR changes tests. No Dialyzer or browser smoke. |
+| Pull request, approved | The above, plus Dialyzer for `src/lib` changes and browser smoke for web changes; `merge_policy.full_ci_paths` or an unsafe test selection runs the full set |
+| Pull request with `ci:full` or a `merge_policy.full_ci_labels` label | The full set, approved or not |
 | Merge group | The full suite once: coverage, tests, Dialyzer, browser smoke, release smoke, analytics, Stream Deck. No soak. |
 
 ## Soak
@@ -24,8 +28,54 @@ Run counts depend on how many test files the pull request changes.
 - Each ExUnit run is a separate `mix test <files> --seed <s> --max-cases 8`
   invocation with a fresh seed. Separate invocations catch state that leaks
   between runs, such as global application env, leaked processes and shared IDs.
-- Only specs that the browser smoke suite runs are soaked, with the same
-  `--config`.
+- Only specs that the browser smoke suite runs are soaked, with every registered smoke selection’s filters, config, workers and shards.
+  Dormant full-matrix aliases are excluded.
 - Each job stops starting new runs after 12 minutes and reports how many runs
-  passed. One run times out after 5 minutes, which counts as a failure.
+  passed. An ExUnit invocation times out after 5 minutes; a browser invocation after
+  the remainder of a 20-minute browser runtime bound. A timeout counts as a failure. An in-flight invocation may finish
+  beyond the 12-minute launch budget; unstarted selections are reported.
 - A failure prints the exact command to reproduce it, including the seed.
+
+
+## Home band, mobile and Gantt parity
+
+PR browser smoke stays at **nine shards**, including PRs selecting full CI.
+The routine pixel selection uses **390px**, datasets **live/offline**, both
+**dark/light** themes and **gruvbox/aiur** palettes: eight band pixel cases and
+eight unmasked composed mobile card/header cases.
+
+Routine motion runs the ten
+snap sequences at live/390px/dark/gruvbox. It preserves the scroll-curve regression.
+
+The full check preserves all **104 band/mobile pixel cases** (seven band datasets,
+three widths, both themes/palettes, plus twenty mobile composition cases) and
+**32 band-motion cases**, including desktop normal/reduced motion, mobile snap,
+grain and pulse. Routine CI, pull requests and merge groups never run the
+full check, and no schedule runs it.
+
+The full check runs only on demand: Actions → **home parity sign-off** (`workflow_dispatch`).
+
+| Sign-off job | Covers |
+|--------------|--------|
+| band 1–4/4 | `npm run test:build-home-band-full` with `AIUR_HOME_PARITY_PART=1..4`. |
+| gantt 1–4/4 | `npm run test:build-home-gantt:full -- --shard=1..4/4`: the 108-cell dataset/span/width/theme/palette composition matrix. |
+| motion 1–32/32 | Every spec that reads `AIUR_PARITY_FULL`, with the flag set: about 5,000 tests. |
+| One job per other parity spec | Each `*parity*` browser spec, through its existing npm script. |
+
+The sign-off is meant to run once, when the home-page tickets are done, and
+again after their gaps are fixed. One run costs about 15–20 runner-hours.
+
+Routine browser smoke runs the fast Gantt checks (`npm run test:build-home-gantt`): geometry, live updates, complete history edges, unknown-value captures and four representative composition cells.
+
+`scripts/test-home-parity-signoff.mjs` fails when a parity spec has no sign-off
+job. Every partition uses one browser worker, because dataset selection is
+global to its fixture server.
+
+A failed job's summary lists each failed cell: spec, dataset, width, theme,
+palette and motion setting, with its artifact folder. The uploaded artifact
+holds the cell's `-diff`, `-actual` and `-expected` screenshots, so each gap
+can become a ticket.
+
+Shard balancing uses recorded CI timings; until the
+first routine run is measured, the previous full selections’ 303s parity and
+280s motion measurements serve as conservative bounds, not routine timings.

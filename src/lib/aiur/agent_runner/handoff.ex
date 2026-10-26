@@ -5,9 +5,6 @@ defmodule Aiur.AgentRunner.Handoff do
   alias Aiur.AgentRunner.{SessionLifecycle, TurnLoop}
   alias Aiur.AppServer.ProviderTurnLedger
   alias Aiur.AppServer.RelayPort
-  alias Aiur.Claude.DisplayTailer
-  alias Aiur.Claude.Repl.Adoption, as: ReplAdoption
-  alias Aiur.Claude.Repl.HookTurn
   alias Aiur.Workspace.Ownership.Adoption
   alias Aiur.Workspace.WipPreservation
 
@@ -22,6 +19,33 @@ defmodule Aiur.AgentRunner.Handoff do
   @spec abort(pid()) :: :ok
   def abort(pid) do
     send(pid, :handoff_abort)
+    :ok
+  end
+
+  @doc false
+  @spec abort_all([pid()], timeout()) :: :ok
+  def abort_all(pids, timeout \\ 5_000) do
+    pending =
+      Enum.map(pids, fn pid ->
+        ref = make_ref()
+        monitor = Process.monitor(pid)
+        send(pid, {:handoff_abort, self(), ref})
+        {pid, ref, monitor}
+      end)
+
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    Enum.each(pending, fn {pid, ref, monitor} ->
+      remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+      receive do
+        {:handoff_aborted, ^ref} -> Process.demonitor(monitor, [:flush])
+        {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+      after
+        remaining -> Process.demonitor(monitor, [:flush])
+      end
+    end)
+
     :ok
   end
 
@@ -57,8 +81,15 @@ defmodule Aiur.AgentRunner.Handoff do
     Process.put(:handoff_turn_context, context)
 
     receive do
-      :handoff_hold -> Process.put(:handoff_hold, true)
-      :handoff_abort -> Process.delete(:handoff_hold)
+      :handoff_hold ->
+        Process.put(:handoff_hold, true)
+
+      :handoff_abort ->
+        Process.delete(:handoff_hold)
+
+      {:handoff_abort, from, ref} ->
+        Process.delete(:handoff_hold)
+        send(from, {:handoff_aborted, ref})
     after
       0 -> :ok
     end
@@ -70,6 +101,11 @@ defmodule Aiur.AgentRunner.Handoff do
 
         :handoff_abort ->
           Process.delete(:handoff_hold)
+          session
+
+        {:handoff_abort, from, ref} ->
+          Process.delete(:handoff_hold)
+          send(from, {:handoff_aborted, ref})
           session
       end
     else
@@ -111,7 +147,7 @@ defmodule Aiur.AgentRunner.Handoff do
       "turn_state" => encode(state),
       "turn_context" => encode(context),
       "queued_frames" => encode(frames),
-      "display_state" => encode(display_state()),
+      "display_state" => encode(display_state(session)),
       "transport" => transport
     }
 
@@ -120,9 +156,9 @@ defmodule Aiur.AgentRunner.Handoff do
     park(record, session)
   end
 
-  defp display_state do
+  defp display_state(session) do
     case Process.get(:handoff_display_tailer) do
-      pid when is_pid(pid) -> DisplayTailer.handoff_state(pid)
+      pid when is_pid(pid) -> Aiur.CodingAgent.display_tailer(session.backend).handoff_state(pid)
       _ -> nil
     end
   catch
@@ -132,33 +168,46 @@ defmodule Aiur.AgentRunner.Handoff do
   defp park(record, original_session) do
     receive do
       :handoff_abort ->
-        resumed =
-          cond do
-            record["fallback_reason"] ->
-              original_session
+        resume_parked(record, original_session, nil)
 
-            # The pane was never released, so only the drained hooks need to come back.
-            record["transport"]["kind"] == "repl" ->
-              Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, original_session.identifier, &1}))
-              original_session
-
-            true ->
-              generation = record["transport"]["generation"] || 0
-
-              case attach(record, generation + 1) do
-                {:ok, session} -> session
-                _ -> exit(:handoff_abort_restore_failed)
-              end
-          end
-
-        Process.put(:handoff_detached, false)
-        Process.delete(:handoff_hold)
-        resumed
+      {:handoff_abort, from, ref} ->
+        resume_parked(record, original_session, {from, ref})
 
       {:handoff_snapshot, from, ref} ->
         send(from, {ref, {:ok, record}})
         park(record, original_session)
     end
+  end
+
+  defp resume_parked(record, original_session, acknowledgment) do
+    resumed =
+      cond do
+        record["fallback_reason"] ->
+          original_session
+
+        # The pane was never released, so only the drained hooks need to come back.
+        record["transport"]["kind"] == "repl" ->
+          Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, original_session.identifier, &1}))
+          original_session
+
+        true ->
+          generation = record["transport"]["generation"] || 0
+
+          case attach(record, generation + 1) do
+            {:ok, session} -> session
+            _ -> exit(:handoff_abort_restore_failed)
+          end
+      end
+
+    Process.put(:handoff_detached, false)
+    Process.delete(:handoff_hold)
+
+    case acknowledgment do
+      {from, ref} -> send(from, {:handoff_aborted, ref})
+      nil -> :ok
+    end
+
+    resumed
   end
 
   defp detach(%{port: port}) when is_pid(port) do
@@ -183,7 +232,7 @@ defmodule Aiur.AgentRunner.Handoff do
     {%{
        "kind" => "repl",
        "pane_id" => pane,
-       "socket" => ReplAdoption.socket_name(session),
+       "socket" => Aiur.CodingAgent.adapter("claude-repl").handoff_socket_name(session),
        "hook_spool_offset" => cursor["offset"],
        "os_pid" => session[:os_pid],
        "process_group_id" => session[:process_group_id]
@@ -289,7 +338,7 @@ defmodule Aiur.AgentRunner.Handoff do
   def attach(%{"transport" => %{"kind" => "repl", "socket" => socket}} = record, _generation) do
     session = decode(record["session_state"])
 
-    with {:ok, session} <- ReplAdoption.rebind(session, socket, actor_meta(record)) do
+    with {:ok, session} <- Aiur.CodingAgent.adapter("claude-repl").restore_handoff_transport(session, socket, actor_meta(record)) do
       Enum.each(decode(record["queued_frames"]), &send(self(), {:claude_hook, session.identifier, &1}))
       {:ok, session}
     end
@@ -322,7 +371,7 @@ defmodule Aiur.AgentRunner.Handoff do
   defp resume_active_turn(session, nil, _record, prompt, issue, opts), do: Aiur.CodingAgent.run_turn(session, prompt, issue, opts)
 
   defp resume_active_turn(%{backend: "claude-repl"} = session, state, record, _prompt, _issue, opts) do
-    HookTurn.adopt(session, state, record["transport"]["hook_spool_offset"], opts)
+    Aiur.CodingAgent.adapter("claude-repl").adopt_handoff_turn(session, state, record["transport"]["hook_spool_offset"], opts)
   end
 
   defp resume_active_turn(session, state, _record, _prompt, _issue, opts) do
@@ -341,8 +390,16 @@ defmodule Aiur.AgentRunner.Handoff do
   @doc false
   @spec decode(String.t()) :: term()
   def decode(term) do
-    load_snapshot_atoms()
-    term |> Base.decode64!() |> :erlang.binary_to_term([:safe])
+    binary = Base.decode64!(term)
+
+    try do
+      :erlang.binary_to_term(binary, [:safe])
+    rescue
+      # [:safe] refuses atoms not yet created; load modules only then, since loading them all can outlast the abort budget.
+      ArgumentError ->
+        load_snapshot_atoms()
+        :erlang.binary_to_term(binary, [:safe])
+    end
   end
 
   # Early boot has not loaded provider modules whose private state atoms the snapshot carries.

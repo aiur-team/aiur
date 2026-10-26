@@ -2,7 +2,7 @@ defmodule AiurWeb.ExperimentsLive do
   @moduledoc "Read-only experiment index and evidence shell."
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias AiurWeb.Experiments.{ChartPanel, Source, Styles}
+  alias AiurWeb.Experiments.{ChartPanel, Report, Source, Styles}
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, Overview, RouteRegistry}
 
   @impl true
@@ -11,6 +11,7 @@ defmodule AiurWeb.ExperimentsLive do
 
     {:ok,
      socket
+     |> DashboardShell.mount()
      |> NavState.assign_nav()
      |> AwaitingCommands.mount(connected?(socket))
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
@@ -38,6 +39,7 @@ defmodule AiurWeb.ExperimentsLive do
   end
 
   def handle_info({:decision_changed, _id, _version}, socket), do: {:noreply, AwaitingCommands.refresh(socket)}
+  def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
@@ -54,7 +56,7 @@ defmodule AiurWeb.ExperimentsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <DashboardShell.dashboard_shell route={@current_route} routes={RouteRegistry.routes(@analytics)} tracker_kind={@tracker_kind} agent_kind={@agent_kind} nav_collapsed={@nav_collapsed} nav_counts={@nav_counts}>
+    <DashboardShell.dashboard_shell route={@current_route} routes={RouteRegistry.routes(@analytics)} tracker_kind={@tracker_kind} agent_kind={@agent_kind} nav_collapsed={@nav_collapsed} nav_counts={@nav_counts} pause_state={DashboardShell.pause_state(assigns)}>
       <:banner><Overview.decisions_banner retained_counts={@retained_counts} navigate /></:banner>
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
       <section id="experiments-page" class="exp-root" data-selection={if @selected_id, do: "detail", else: "index"} aria-label="Experiment collection">
@@ -117,7 +119,7 @@ defmodule AiurWeb.ExperimentsLive do
                 </tr></tbody>
               </table>
               <ChartPanel.panel detail={@detail} metric={@chart_metric} />
-              <div id="exp-report"></div>
+              <Report.card report={@detail.report} />
             </div>
           </section>
         </div>

@@ -9,6 +9,12 @@ defmodule Aiur.MainWatch.FixerTest do
   @signature String.duplicate("b", 64)
 
   setup do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent"
+    )
+
     store = start_supervised!({Agent, fn -> %{issues: [], comments: [], receipts: %{}, alerts: []} end})
 
     opts = [

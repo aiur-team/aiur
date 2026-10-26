@@ -19,6 +19,26 @@ def event(name, at, boot='A', ticket='42', **attrs):
 
 
 class LedgerTests(unittest.TestCase):
+    def test_backfill_silently_skips_known_telemetry_and_warns_for_unknown_kind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'telemetry.ndjson'
+            ignored = event('capacity_check', '10:00')
+            ignored['kind'] = 'firehose_poll'
+            unknown = event('dispatch', '10:01')
+            unknown['kind'] = 'mystery_telemetry'
+            path.write_text(''.join(json.dumps(row) + '\n' for row in [ignored, unknown]))
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                ledger_store.materialize([path], root)
+
+            warnings = [json.loads(line.removeprefix('analytics ledger: '))
+                        for line in stderr.getvalue().splitlines()]
+            self.assertEqual([warning['type'] for warning in warnings], ['unknown_kind', 'ignored_kinds'])
+            self.assertEqual(warnings[0]['kind'], 'mystery_telemetry')
+            self.assertEqual(warnings[1]['count'], 1)
+
     def test_cross_launch_cohort_and_mixed_retry(self):
         dispatch = event('dispatch', '10:00', backend='claude', attempt_id='try1', feature='mixed')
         merged = event('pr_merged', '11:00', boot='B', attempt_id=None)

@@ -77,6 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       revisions: Enum.map(decision.revisions, &revision_row(&1, decision.revision_outcomes)),
       revision_result: decision.revision_result,
       superseded?: decision.revision_sequence > 0,
+      open?: Commands.open?(decision),
       dispatch_attempts: Enum.map(decision.dispatch_attempts, &Commands.sanitize_dispatch_attempt/1),
       acknowledgement: Commands.sanitize_lifecycle_fact(decision.acknowledgement),
       resolution: Commands.sanitize_lifecycle_fact(decision.resolution),
@@ -110,6 +111,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       rationale: answer.rationale,
       actor: Commands.sanitize_actor(answer.actor),
       supervisor_basis: answer.supervisor_basis,
+      operator_quote: answer.operator_quote,
+      relayed_by: answer.relayed_by,
       accepted_at: answer.accepted_at
     }
   end

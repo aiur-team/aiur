@@ -118,16 +118,10 @@ defmodule Aiur.Workspace.Hooks do
         Aiur.AgentEnvironment.system_shell_startup_env()
         |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" and build_gate_env != [] end)
 
-      task =
-        Task.async(fn ->
-          System.cmd(shell, ["-c", scrubbed_command],
-            cd: workspace,
-            stderr_to_stdout: true,
-            env: startup_env ++ build_gate_env ++ hook_env(issue_context)
-          )
-        end)
+      hook_env =
+        startup_env ++ build_gate_env ++ hook_env(issue_context, runner_pid: self())
 
-      case Task.yield(task, timeout_ms) do
+      case run_local_hook_command(shell, scrubbed_command, workspace, hook_env, timeout_ms) do
         {:ok, cmd_result} ->
           elapsed_ms = System.monotonic_time(:millisecond) - started_at
 
@@ -135,14 +129,98 @@ defmodule Aiur.Workspace.Hooks do
 
           handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
-        nil ->
-          Task.shutdown(task, :brutal_kill)
-
+        :timeout ->
           Logger.warning("Workspace hook timed out hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
 
           {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
+
+        {:error, _reason} = error ->
+          error
       end
     end
+  end
+
+  defp run_local_hook_command(shell, command, workspace, environment, timeout_ms) do
+    task = Task.async(fn -> run_local_hook_port(shell, command, workspace, environment, timeout_ms) end)
+    Task.await(task, :infinity)
+  end
+
+  defp run_local_hook_port(shell, command, workspace, environment, timeout_ms) do
+    executable = System.find_executable(shell)
+
+    if is_nil(executable) do
+      {:error, {:workspace_hook_runner_unavailable, shell}}
+    else
+      port =
+        Port.open({:spawn_executable, String.to_charlist(executable)}, [
+          :binary,
+          :exit_status,
+          :use_stdio,
+          :stderr_to_stdout,
+          {:args, ["-c", command]},
+          {:cd, workspace},
+          {:env, Enum.map(environment, fn {name, value} -> {String.to_charlist(name), if(is_binary(value), do: String.to_charlist(value), else: false)} end)}
+        ])
+
+      deadline = System.monotonic_time(:millisecond) + timeout_ms
+      collect_hook_output(port, deadline, [])
+    end
+  end
+
+  defp collect_hook_output(port, deadline, chunks) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    if remaining == 0 do
+      terminate_hook_process_group(port)
+      flush_hook_port_messages(port)
+      :timeout
+    else
+      receive do
+        {^port, {:data, data}} ->
+          collect_hook_output(port, deadline, [data | chunks])
+
+        {^port, {:exit_status, status}} ->
+          {:ok, {chunks |> Enum.reverse() |> IO.iodata_to_binary(), status}}
+      after
+        remaining ->
+          terminate_hook_process_group(port)
+          flush_hook_port_messages(port)
+          :timeout
+      end
+    end
+  end
+
+  defp flush_hook_port_messages(port) do
+    receive do
+      {^port, {:data, _data}} -> flush_hook_port_messages(port)
+      {^port, {:exit_status, _status}} -> flush_hook_port_messages(port)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp terminate_hook_process_group(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, pid} ->
+        pids = Aiur.ProcessTree.process_tree(pid)
+        # BEAM's executable port starts a new session with the port PID as
+        # its process-group leader; descendants inherit that group by default.
+        case Aiur.ProcessTree.graceful_kill_process_group(pid) do
+          {:ok, _} ->
+            Logger.warning("Terminated timed out workspace hook process group pgid=#{pid} pids=#{inspect(pids)}")
+
+          {:error, reason} ->
+            Logger.error("Could not terminate timed out workspace hook process group pgid=#{pid} pids=#{inspect(pids)} reason=#{inspect(reason)}")
+            Aiur.ProcessTree.graceful_kill_tree(pid)
+        end
+
+        Port.close(port)
+
+      nil ->
+        :ok
+    end
+  rescue
+    ArgumentError -> :ok
   end
 
   defp local_build_gate_env(build_guard_root) do
@@ -276,8 +354,15 @@ defmodule Aiur.Workspace.Hooks do
   # without a repo slug must still receive a usable value or the whole hook
   # aborts. Non-GitHub trackers get the same neutral state path that
   # `AgentEnvironment` hands agents, keeping hooks and agents consistent.
-  defp hook_env(issue_context, opts \\ []) do
+  defp hook_env(issue_context, opts) do
     remote? = Keyword.get(opts, :remote?, false)
+    runner_pid = Keyword.get(opts, :runner_pid, self())
+
+    hook_context_env = [
+      {"AIUR_HOOK_TICKET_ID", to_string(issue_context.issue_id || "")},
+      {"AIUR_HOOK_TICKET_IDENTIFIER", to_string(issue_context.issue_identifier || "")},
+      {"AIUR_HOOK_RUNNER_PID", inspect(runner_pid)}
+    ]
 
     repository_env =
       case Aiur.Tracker.clone_url() do
@@ -295,8 +380,11 @@ defmodule Aiur.Workspace.Hooks do
       end
 
     case Map.get(issue_context, :branch_name) do
-      branch_name when is_binary(branch_name) and branch_name != "" -> [{"AIUR_TICKET_BRANCH", branch_name} | repository_env]
-      _ -> repository_env
+      branch_name when is_binary(branch_name) and branch_name != "" ->
+        [{"AIUR_TICKET_BRANCH", branch_name} | hook_context_env ++ repository_env]
+
+      _ ->
+        hook_context_env ++ repository_env
     end
   end
 

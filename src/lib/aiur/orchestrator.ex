@@ -3,12 +3,30 @@ defmodule Aiur.Orchestrator do
   use GenServer
   require Logger
 
-  alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AutoSubscriptions, BlockerPropagation, CiLifecycle, CommentPolling, CommentWake, DispatchCycleLiveness, TicketTransition}
+  alias Aiur.{Issue, Signal}
+
+  alias Aiur.Orchestrator.{
+    AutoSubscriptions,
+    BlockerPropagation,
+    CiLifecycle,
+    CommentPollingState,
+    CommentWake,
+    DispatchCycleLiveness,
+    StaleApprovedHead,
+    TicketTransition
+  }
+
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{ReadyForReviewTransitions, RuntimeWatchdog, Slots, State, StatusReport}
-  alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, TrackerTasks, WorkspaceCleanup}
+
+  alias Aiur.Orchestrator.{
+    TokenAccounting,
+    TrackedSet,
+    TrackerHealth,
+    TrackerTasks,
+    WorkspaceCleanup
+  }
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -21,7 +39,8 @@ defmodule Aiur.Orchestrator do
 
   @doc false
   @spec has_live_owner?(String.t()) :: boolean() | :unknown
-  def has_live_owner?(identifier), do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
+  def has_live_owner?(identifier),
+    do: StatusReport.has_live_owner_api(__MODULE__, identifier, 1_000)
 
   @impl true
   def terminate(reason, state), do: Lifecycle.terminate(reason, state)
@@ -42,20 +61,34 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
-  def handle_info(:tick, state), do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
-  def handle_info({:dispatch_cycle_liveness_check, token}, state), do: DispatchCycleLiveness.handle_check(state, token)
+  def handle_info(:tick, state),
+    do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
+
+  def handle_info({:dispatch_cycle_liveness_check, token}, state),
+    do: DispatchCycleLiveness.handle_check(state, token)
+
   def handle_info(:propagate_blocker_tick, state), do: {:noreply, BlockerPropagation.flush(state)}
   # Freeze scheduled polls during tests to keep live polling from changing the load envelope.
   def handle_info(:run_poll_cycle, %State{poll_frozen: true} = state), do: {:noreply, state}
   def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
 
   def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
-    do: {:noreply, CommentPolling.request_reconcile(state, hint)}
+    do: {:noreply, CommentPollingState.request_reconcile(state, hint)}
 
-  def handle_info({:github_pr_ready_transition, t, n, sha}, state), do: {:noreply, ReadyForReviewTransitions.observe_webhook_transition(state, t, n, sha)}
+  def handle_info({:github_pr_synchronize, ticket, pr_number}, %State{} = state)
+      when is_binary(ticket) and is_integer(pr_number) do
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+           StaleApprovedHead.reconcile(ticket, pr_number)
+         end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> StaleApprovedHead.task_start_failed(ticket, pr_number, reason)
+    end
 
-  def handle_info({:run_github_comment_reconcile, token}, %State{} = state),
-    do: {:noreply, CommentPolling.run_scheduled_reconcile(state, token)}
+    {:noreply, state}
+  end
+
+  def handle_info({:github_pr_ready_transition, t, n, sha}, state),
+    do: {:noreply, ReadyForReviewTransitions.observe_webhook_transition(state, t, n, sha)}
 
   def handle_info({:ci_readiness_result, token, result}, state) when is_reference(token) do
     state = Dispatcher.handle_ci_readiness_result(state, token, result)
@@ -69,7 +102,10 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
-  def handle_info({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _phase}} = stalled}, state) do
+  def handle_info(
+        {:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _phase}} = stalled},
+        state
+      ) do
     {:noreply, Dispatcher.clear_prewarm_blocked_alert(state, stalled)}
   end
 
@@ -92,13 +128,20 @@ defmodule Aiur.Orchestrator do
   def handle_info({:tracker_task_timeout, ref}, state),
     do: {:noreply, TrackerTasks.timeout(state, ref)}
 
+  def handle_info({:handoff_expired, handoff_id, token}, state),
+    do: Aiur.Handoff.expire_prepared(state, handoff_id, token)
+
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)
       when is_binary(issue_id) and is_map(runtime_info),
       do: State.handle_worker_runtime_info(state, issue_id, runtime_info)
 
   # Only runners surviving provisioning bill one lifetime dispatch unit (#1453); preflight failures do not.
   def handle_info({:dispatch_committed, issue_id}, state) when is_binary(issue_id) do
-    state = state |> Dispatcher.record_dispatch_committed(issue_id) |> RetryEngine.clear_budget_hold_streak(issue_id)
+    state =
+      state
+      |> Dispatcher.record_dispatch_committed(issue_id)
+      |> RetryEngine.clear_budget_hold_streak(issue_id)
+
     {:noreply, state}
   end
 
@@ -114,14 +157,16 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:workspace_ownership_available, identifier, guardian, generation}, state)
-      when is_binary(identifier) and is_pid(guardian) and is_integer(generation) and generation > 0 do
+      when is_binary(identifier) and is_pid(guardian) and is_integer(generation) and
+             generation > 0 do
     state = RetryEngine.release_workspace_wait(state, identifier, guardian, generation)
     {:noreply, Lifecycle.wake_tick(state)}
   end
 
   # A waiter without a guardian retries availability; any new owner makes
   # redispatch contend and subscribe again.
-  def handle_info({:workspace_ownership_available, identifier, :none, nil}, state) when is_binary(identifier) do
+  def handle_info({:workspace_ownership_available, identifier, :none, nil}, state)
+      when is_binary(identifier) do
     state = RetryEngine.release_workspace_wait(state, identifier)
     {:noreply, Lifecycle.wake_tick(state)}
   end
@@ -141,6 +186,9 @@ defmodule Aiur.Orchestrator do
       when is_binary(issue_id) and is_binary(model),
       do: State.handle_session_resolved_model(state, issue_id, model)
 
+  def handle_info({:token_accounting_dashboard_notify, token}, state),
+    do: TokenAccounting.handle_dashboard_notify(state, token)
+
   def handle_info(
         {:codex_worker_update, issue_id, %{event: _, timestamp: _} = update},
         state
@@ -151,13 +199,13 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:emit_system_alert, alert_name, %Issue{} = issue, worker_host}, state)
       when is_binary(alert_name) do
-    Alerts.emit_system(alert_name, issue: issue, worker_host: worker_host)
+    Signal.alert(alert_name, issue: issue, worker_host: worker_host)
     {:noreply, state}
   end
 
   def handle_info({:emit_system_alert, alert_name, issue_identifier, worker_host}, state)
       when is_binary(alert_name) and is_binary(issue_identifier) do
-    Alerts.emit_system(alert_name, issue: issue_identifier, worker_host: worker_host)
+    Signal.alert(alert_name, issue: issue_identifier, worker_host: worker_host)
     {:noreply, state}
   end
 
@@ -167,12 +215,14 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:worker_control_state, issue_id, status, control_payload}, state)
-      when is_binary(issue_id) and status in [:completed, :paused, :working] and is_map(control_payload) do
+      when is_binary(issue_id) and status in [:completed, :paused, :working] and
+             is_map(control_payload) do
     PauseResume.handle_worker_control_state(state, issue_id, status, control_payload)
   end
 
   def handle_info({:worker_control_rejected, issue_id, request_id, generation, class}, state)
-      when is_binary(issue_id) and is_integer(request_id) and request_id > 0 and is_integer(generation) and
+      when is_binary(issue_id) and is_integer(request_id) and request_id > 0 and
+             is_integer(generation) and
              generation >= 0 and is_atom(class) do
     PauseResume.handle_worker_control_rejected(state, issue_id, request_id, generation, class)
   end
@@ -200,16 +250,8 @@ defmodule Aiur.Orchestrator do
     {:noreply, EventTopics.route(state, event)}
   end
 
-  def handle_info({:github_comments_polled, ref, payload}, state) when is_reference(ref),
-    do: {:noreply, CommentPolling.apply_async(state, ref, payload)}
-
-  def handle_info({:github_comment_poll_started, ref, owner, pid}, state)
-      when is_reference(ref) and is_pid(owner) and is_pid(pid),
-      do: {:noreply, CommentPolling.apply_async_started(state, ref, owner, pid)}
-
-  def handle_info({:github_comment_poll_guarding, ref, owner, pid}, state)
-      when is_reference(ref) and is_pid(owner) and is_pid(pid),
-      do: {:noreply, CommentPolling.apply_async_guarding(state, ref, owner, pid)}
+  def handle_info({:github_listener_outcome, :comments, outcome}, state),
+    do: {:noreply, CommentPollingState.apply_outcome(state, outcome)}
 
   # Quota observations arrive outside the tracker poll. A recovered window must
   # invalidate the persisted admission verdict immediately; otherwise `status`
@@ -240,6 +282,7 @@ defmodule Aiur.Orchestrator do
   # The task already logged and alerted anything that needs an operator.
   def handle_info({:workspace_cleanup_finished, workspace_identifier, result}, state) do
     Logger.debug("Terminal workspace cleanup finished workspace=#{workspace_identifier} result=#{inspect(result)}")
+
     {:noreply, state}
   end
 
@@ -249,10 +292,7 @@ defmodule Aiur.Orchestrator do
   end
 
   defp handle_other_down(state, ref, reason) do
-    case CommentPolling.apply_async_down(state, ref) do
-      {:handled, next_state} -> {:noreply, next_state}
-      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
-    end
+    RetryEngine.handle_agent_down(state, ref, reason)
   end
 
   @doc false
@@ -366,98 +406,32 @@ defmodule Aiur.Orchestrator do
           idle_backoff: %{active?: boolean(), factor: float()} | nil
         }
 
-  defdelegate request_refresh(), to: Aiur.Orchestrator.Client
-  defdelegate request_refresh(server), to: Aiur.Orchestrator.Client
-  defdelegate note_queued_demand(identifiers), to: Aiur.Orchestrator.Client
-  defdelegate note_queued_demand(server, identifiers), to: Aiur.Orchestrator.Client
-  defdelegate send_operator_message(identifier, payload), to: Aiur.Orchestrator.Client
-  defdelegate send_operator_message(server, identifier, payload), to: Aiur.Orchestrator.Client
-  defdelegate send_correlated_operator_message(identifier, payload), to: Aiur.Orchestrator.Client
-  defdelegate send_correlated_operator_message(server, identifier, payload), to: Aiur.Orchestrator.Client
-  defdelegate pause_agent(identifier), to: Aiur.Orchestrator.Client
-  defdelegate pause_agent(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate request_control(identifier, action, request_id), to: Aiur.Orchestrator.Client
-  defdelegate request_control(server, identifier, action, request_id), to: Aiur.Orchestrator.Client
-  defdelegate mark_sleeping(identifier), to: Aiur.Orchestrator.Client
-  defdelegate mark_sleeping(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate interrupt_agent(identifier), to: Aiur.Orchestrator.Client
-  defdelegate interrupt_agent(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate pane_interrupt(identifier), to: Aiur.Orchestrator.Client
-  defdelegate pane_interrupt(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate pane_interrupt_by_pane_id(pane_id), to: Aiur.Orchestrator.Client
-  defdelegate pane_interrupt_by_pane_id(server, pane_id), to: Aiur.Orchestrator.Client
-  defdelegate resume_agent(identifier), to: Aiur.Orchestrator.Client
-  defdelegate resume_agent(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate resume_agent_with_receipt(identifier), to: Aiur.Orchestrator.Client
-  defdelegate resume_agent_with_receipt(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate prioritize_agent(identifier), to: Aiur.Orchestrator.Client
-  defdelegate prioritize_agent(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate deprioritize_agent(identifier), to: Aiur.Orchestrator.Client
-  defdelegate deprioritize_agent(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate control_lifecycle(identifier), to: Aiur.Orchestrator.Client
-  defdelegate control_lifecycle(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate reset_dispatch_budget(identifier), to: Aiur.Orchestrator.Client
-  defdelegate reset_dispatch_budget(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate max_concurrent_agents(), to: Aiur.Orchestrator.Client
-  defdelegate max_concurrent_agents(server), to: Aiur.Orchestrator.Client
-  defdelegate adjust_max_concurrent_agents(delta), to: Aiur.Orchestrator.Client
-  defdelegate adjust_max_concurrent_agents(server, delta), to: Aiur.Orchestrator.Client
-  defdelegate set_max_concurrent_agents(next), to: Aiur.Orchestrator.Client
-  defdelegate set_max_concurrent_agents(server, next), to: Aiur.Orchestrator.Client
-  defdelegate globally_paused?(), to: Aiur.Orchestrator.Client
-  defdelegate global_pause_status(), to: Aiur.Orchestrator.Client
-  defdelegate global_pause_status(server, timeout_ms), to: Aiur.Orchestrator.Client
-  defdelegate set_global_pause(on?), to: Aiur.Orchestrator.Client
-  defdelegate set_global_pause(on?, source), to: Aiur.Orchestrator.Client
-  defdelegate control_capabilities(identifier), to: Aiur.Orchestrator.Client
-  defdelegate control_capabilities(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate set_remote_control(identifier, on?), to: Aiur.Orchestrator.Client
-  defdelegate set_remote_control(server, identifier, on?), to: Aiur.Orchestrator.Client
-  defdelegate ensure_remote_control_trust(workspace), to: Aiur.Orchestrator.Client
-  defdelegate ensure_remote_control_trust(server, workspace), to: Aiur.Orchestrator.Client
-  defdelegate operator_message_status(server \\ Aiur.Orchestrator, item_id, timeout \\ 5_000), to: Aiur.Orchestrator.Client
-  defdelegate claim_next_queue_item(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate claim_next_checkpoint_queue_item(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate claim_blocker_critical_events_digest(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate claim_next_operator_queue_item(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate claim_operator_response(server, identifier, command), to: Aiur.Orchestrator.Client
-  defdelegate mark_queue_item_consumed(server, item_id), to: Aiur.Orchestrator.Client
-  defdelegate restore_queue_item_pending(server, item_id), to: Aiur.Orchestrator.Client
-  defdelegate mark_queue_item_failed(server, item_id, reason), to: Aiur.Orchestrator.Client
-  defdelegate acknowledge_queue_item_delivery(server, item_id, provider_metadata), to: Aiur.Orchestrator.Client
-  defdelegate consume_delivered_queue_items(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate restore_delivered_queue_items(server, identifier), to: Aiur.Orchestrator.Client
-  defdelegate fail_delivered_queue_items(server, identifier, reason), to: Aiur.Orchestrator.Client
-  defdelegate snapshot(), to: Aiur.Orchestrator.Client
-  defdelegate list_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000), to: Aiur.Orchestrator.Client
-  defdelegate list_running_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000), to: Aiur.Orchestrator.Client
-  defdelegate poll_status(), to: Aiur.Orchestrator.Client
-  defdelegate poll_status(server, timeout), to: Aiur.Orchestrator.Client
-  defdelegate status(), to: Aiur.Orchestrator.Client
-  defdelegate status(server, timeout), to: Aiur.Orchestrator.Client
-  defdelegate status_with_capacity(server, timeout), to: Aiur.Orchestrator.Client
-  defdelegate snapshot(server, timeout), to: Aiur.Orchestrator.Client
-  defdelegate dashboard_snapshot(server \\ Aiur.Orchestrator, timeout \\ 15_000), to: Aiur.Orchestrator.Client
-  defdelegate fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []), to: Aiur.Orchestrator.Client
+  use Aiur.Orchestrator.ClientDelegates
 
   @impl true
   defdelegate handle_call(message, from, state), to: Aiur.Orchestrator.Calls
 
   @doc false
-  @spec resume_label_overridden_issue(State.t(), map()) :: {{:ok, :resumed} | {:error, term()}, State.t()}
+  @spec resume_label_overridden_issue(State.t(), map()) ::
+          {{:ok, :resumed} | {:error, term()}, State.t()}
   def resume_label_overridden_issue(%State{} = state, running_entry),
     do: PauseResume.resume_label_overridden_issue(state, running_entry)
 
   @doc false
   @spec send_pause_control_message(State.t(), String.t()) :: term()
-  def send_pause_control_message(state, issue_identifier), do: PauseResume.send_pause_control_message(state, issue_identifier)
-  @spec pane_interrupt_action(boolean(), non_neg_integer()) :: :close_pane | :interrupt | :pause
-  def pane_interrupt_action(paused?, queue_depth) when is_boolean(paused?) and is_integer(queue_depth),
-    do: Interrupts.pane_interrupt_action(paused?, queue_depth)
+  def send_pause_control_message(state, issue_identifier),
+    do: PauseResume.send_pause_control_message(state, issue_identifier)
 
-  @spec pane_interrupt_action_no_pane(boolean(), boolean()) :: :send_interrupt | :close_pane | :pause
-  def pane_interrupt_action_no_pane(paused?, working?) when is_boolean(paused?) and is_boolean(working?),
-    do: Interrupts.pane_interrupt_action_no_pane(paused?, working?)
+  @spec pane_interrupt_action(boolean(), non_neg_integer()) :: :close_pane | :interrupt | :pause
+  def pane_interrupt_action(paused?, queue_depth)
+      when is_boolean(paused?) and is_integer(queue_depth),
+      do: Interrupts.pane_interrupt_action(paused?, queue_depth)
+
+  @spec pane_interrupt_action_no_pane(boolean(), boolean()) ::
+          :send_interrupt | :close_pane | :pause
+  def pane_interrupt_action_no_pane(paused?, working?)
+      when is_boolean(paused?) and is_boolean(working?),
+      do: Interrupts.pane_interrupt_action_no_pane(paused?, working?)
 
   @doc "Refresh an agent's liveness timestamp on claude-hook activity (fire-and-forget)."
   @spec note_agent_activity(GenServer.server(), String.t()) :: :ok
@@ -485,7 +459,8 @@ defmodule Aiur.Orchestrator do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   defdelegate retry_candidate_issue?(issue, terminal_states), to: DispatchPolicy
 
-  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok | {:error, term()}
+  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) ::
+          :ok | {:error, term()}
   def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier),
     do: AutoSubscriptions.subscribe_for_declared_blocker(blockee_identifier, blocker_identifier)
 

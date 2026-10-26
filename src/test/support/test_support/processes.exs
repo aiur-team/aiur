@@ -190,7 +190,7 @@ defmodule Aiur.TestSupport.Processes do
   def start_owned_endpoint! do
     refuse_global_endpoint_stubs!()
 
-    case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []}) do
+    case start_supervised_endpoint() do
       {:ok, pid} ->
         pid
 
@@ -201,6 +201,29 @@ defmodule Aiur.TestSupport.Processes do
         raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
     end
   end
+
+  defp start_supervised_endpoint do
+    original_config = Application.get_env(:aiur, AiurWeb.Endpoint)
+    Application.put_env(:aiur, AiurWeb.Endpoint, isolated_endpoint_config(original_config || []))
+
+    try do
+      ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []})
+    after
+      restore_endpoint_config(original_config)
+    end
+  end
+
+  defp isolated_endpoint_config(config) do
+    if Keyword.get(config, :server, false) do
+      http = config |> Keyword.get(:http, []) |> Keyword.merge(ip: {127, 0, 0, 1}, port: 0)
+      config |> Keyword.put(:http, http) |> Keyword.delete(:https)
+    else
+      config
+    end
+  end
+
+  defp restore_endpoint_config(nil), do: Application.delete_env(:aiur, AiurWeb.Endpoint)
+  defp restore_endpoint_config(config), do: Application.put_env(:aiur, AiurWeb.Endpoint, config)
 
   # Every test that renders a dashboard reads the global env, so a stub there
   # is called by foreign tests (#4908).
@@ -276,6 +299,34 @@ defmodule Aiur.TestSupport.Processes do
     case await_process_down(prior, remaining_ms(deadline)) do
       :ok -> await_registered_replacement(name, prior, deadline)
       :error -> {:error, {:prior_not_down, name}}
+    end
+  end
+
+  @doc false
+  @spec await_supervised_restart_unbounded(atom(), pid()) :: {:ok, pid()}
+  def await_supervised_restart_unbounded(name, prior) when is_atom(name) and is_pid(prior) do
+    monitor = Process.monitor(prior)
+
+    receive do
+      {:DOWN, ^monitor, :process, ^prior, _reason} -> :ok
+    end
+
+    await_registered_replacement_unbounded(name, prior)
+  end
+
+  defp await_registered_replacement_unbounded(name, prior) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) and pid != prior ->
+        # The call waits behind the supervisor's restart callback, including
+        # every later child in a rest_for_one cascade.
+        _children = GenServer.call(Process.whereis(Aiur.Supervisor), :which_children, :infinity)
+        {:ok, pid}
+
+      _not_restarted ->
+        receive do
+        after
+          10 -> await_registered_replacement_unbounded(name, prior)
+        end
     end
   end
 

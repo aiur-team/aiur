@@ -1,3 +1,5 @@
+import { rowOk } from './filters.js';
+import { bandLayout } from './band-layout.js';
 import { sectionState, emptyMark } from './states.js';
 import { nowMs } from './clock.js';
 import { LH, SEC } from './state.js';
@@ -21,7 +23,7 @@ export function measureFlow(D, dims) {
 }
 // The design's 62 px lane minimum, measured on the lane applyCols draws (16 px gaps between lanes).
 export const crowded = (dims, n) => (dims.vpW - dims.gut - 14 - 16 * (n - 1)) / n < 62;
-export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => !S.f.epic.length || S.f.epic.includes(colKey(t))).map(colKey));
+export const fwdLanes = (D, S) => new Set([...D.plan, ...D.nq].filter(t => rowOk(S, t)).map(colKey));
 // Most columns visibleCols can draw at any scroll position of an unflowed layout: the lanes of
 // every history day a viewport of height `span` touches, plus the forward set past history (#4769).
 export function laneMax(L, fwd, span) {
@@ -45,7 +47,7 @@ export function laneMax(L, fwd, span) {
 }
 export function computeLayout(D, S, dims, sources, ext = {}) {
   if (S.view === "gantt" && !ext.gantt) throw new Error("gantt layout not installed");
-  const epicOk = t => !S.f.epic.length || S.f.epic.includes(colKey(t));
+  const epicOk = t => rowOk(S, t);
   const NOWL = D.now.filter(epicOk), PLANL = D.plan.filter(epicOk), NQL = D.nq.filter(epicOk);
   const span = S.span || 1, fs = 13, flow = S.flow, K = S.K, vh = Math.max(300, (dims.vpH == null ? 700 : dims.vpH) - LH - 40);
   let gap = 14;
@@ -99,14 +101,13 @@ export function computeLayout(D, S, dims, sources, ext = {}) {
     warned.add(D.hist);
     console.warn("History rows without finite end:", hs.unplaced);
   }
-  const gctx = y => ({ span, pph: pphG, flow, K, compact, gapLabel, colKey, CH, gap, det, nowRows: NOWL, hs, y });
+  const gctx = y => ({ span, pph: pphG, flow, K, compact, gapLabel, colKey, CH, gap, det, now: nowMs(), nowRows: NOWL, hs, y });
   const hst = sectionState(P, D, H, 'hist', histList);
   if (hst.show !== 'rows') { hs.marks.push(emptyMark('hist', hst, mctx)); hs.h = SEC + 104; }
   else if (S.view === "gantt") ext.gantt.hist(entries(histList), gctx(SEC + 4));
   else hs.h = rows(entries(histList), SEC + 4, hs.items, hs.marks, hs.labels, "hist", true) + gap;
   out.secs.hist = hs;
-  // J:486–496 Now band: C9-T08 bandLayout
-  out.band = { items: [], h: 0, BK: 1 };
+  out.band = bandLayout(D, S, dims, { ch, gap, base: baseDet, pphG, CH, gantt: ext.gantt });
   /* planned */
   const ps = { items: [], marks: [], labels: [], h: 0 };
   const pst = sectionState(P, D, H, 'plan', PLANL);

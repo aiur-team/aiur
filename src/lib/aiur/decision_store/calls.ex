@@ -18,6 +18,22 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Withdrawals
 
   @spec handle_call(term(), term(), term()) :: term()
+  def handle_call(
+        :await_failure_attention_reprojection,
+        from,
+        %{failure_attention_reprojection_pending?: true} = state
+      ) do
+    {:noreply,
+     %{
+       state
+       | failure_attention_reprojection_waiters: [
+           from | state.failure_attention_reprojection_waiters
+         ]
+     }}
+  end
+
+  def handle_call(:await_failure_attention_reprojection, _from, state), do: {:reply, :ok, state}
+
   def handle_call({:request, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -55,6 +71,10 @@ defmodule Aiur.DecisionStore.Calls do
     Answers.handle_answer(decision_id, payload, opts, state)
   end
 
+  def handle_call({:consume_pending_for_session, ticket_identifier, session_id, action_ids}, _from, state) do
+    {:reply, :ok, Answers.consume_pending_for_session(ticket_identifier, session_id, action_ids, state)}
+  end
+
   def handle_call({:escalate_executor_command, _decision_id, _payload}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -63,7 +83,11 @@ defmodule Aiur.DecisionStore.Calls do
     Requests.handle_executor_escalation(decision_id, payload, state)
   end
 
-  def handle_call({:reclassify_authority, _decision_id, _payload}, _from, %{writable?: false} = state) do
+  def handle_call(
+        {:reclassify_authority, _decision_id, _payload},
+        _from,
+        %{writable?: false} = state
+      ) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
 
@@ -87,7 +111,11 @@ defmodule Aiur.DecisionStore.Calls do
     Withdrawals.handle_defer(decision_id, opts, state)
   end
 
-  def handle_call({:expire, _decision_id, _reason_class, _opts}, _from, %{writable?: false} = state) do
+  def handle_call(
+        {:expire, _decision_id, _reason_class, _opts},
+        _from,
+        %{writable?: false} = state
+      ) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
 
@@ -119,7 +147,11 @@ defmodule Aiur.DecisionStore.Calls do
     Revisions.handle_revision(decision_id, payload, opts, state)
   end
 
-  def handle_call({:handle_revision_follow_up, _decision_id, _action_id, _opts}, _from, %{writable?: false} = state) do
+  def handle_call(
+        {:handle_revision_follow_up, _decision_id, _action_id, _opts},
+        _from,
+        %{writable?: false} = state
+      ) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
 
@@ -150,7 +182,11 @@ defmodule Aiur.DecisionStore.Calls do
     end
   end
 
-  def handle_call({:transport_transition, _type, _item, _reason}, _from, %{writable?: false} = state) do
+  def handle_call(
+        {:transport_transition, _type, _item, _reason},
+        _from,
+        %{writable?: false} = state
+      ) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
 
@@ -257,7 +293,10 @@ defmodule Aiur.DecisionStore.Calls do
       ids =
         state.current
         |> Map.values()
-        |> Enum.filter(&(Withdrawals.open_blocking_command?(&1) and MapSet.member?(wanted, &1.ticket.identifier)))
+        |> Enum.filter(
+          &(Withdrawals.open_blocking_command?(&1) and
+              MapSet.member?(wanted, &1.ticket.identifier))
+        )
         |> Enum.map(& &1.decision_id)
         |> Enum.sort()
 
@@ -267,10 +306,37 @@ defmodule Aiur.DecisionStore.Calls do
     end
   end
 
+  def handle_call({:open_blocking_decision_ids_by_ticket, ticket_identifiers}, _from, state) do
+    if Withdrawals.readable?(state.health) do
+      wanted = MapSet.new(ticket_identifiers)
+
+      ids_by_ticket =
+        state.current
+        |> Map.values()
+        |> Enum.filter(
+          &(Withdrawals.open_blocking_command?(&1) and
+              MapSet.member?(wanted, &1.ticket.identifier))
+        )
+        |> Enum.reduce(Map.new(ticket_identifiers, &{&1, []}), fn decision, acc ->
+          Map.update!(acc, decision.ticket.identifier, &[decision.decision_id | &1])
+        end)
+        |> Map.new(fn {identifier, ids} -> {identifier, Enum.sort(ids)} end)
+
+      {:reply, {:ok, ids_by_ticket}, state}
+    else
+      {:reply, {:error, :store_unavailable}, state}
+    end
+  end
+
   def handle_call({:nonblocking_question_pause, ticket_identifier}, _from, state) do
     if Withdrawals.readable?(state.health) do
-      decisions = Enum.filter(Map.values(state.current), &(&1.ticket.identifier == ticket_identifier))
-      suppress? = Enum.any?(decisions, &Withdrawals.open_nonblocking_agent_question?/1) and not Enum.any?(decisions, &Withdrawals.open_blocking_command?/1)
+      decisions =
+        Enum.filter(Map.values(state.current), &(&1.ticket.identifier == ticket_identifier))
+
+      suppress? =
+        Enum.any?(decisions, &Withdrawals.open_nonblocking_agent_question?/1) and
+          not Enum.any?(decisions, &Withdrawals.open_blocking_command?/1)
+
       {:reply, {:ok, suppress?}, state}
     else
       {:reply, {:error, :store_unavailable}, state}
@@ -337,5 +403,9 @@ defmodule Aiur.DecisionStore.Calls do
 
   def handle_cast({:deliver_pending_answers, ticket_identifier}, state) do
     {:noreply, Retry.schedule_pending_answer_delivery(state, ticket_identifier)}
+  end
+
+  def handle_cast({:consume_pending_for_session, ticket_identifier, session_id, action_ids}, state) do
+    {:noreply, Answers.consume_pending_for_session(ticket_identifier, session_id, action_ids, state)}
   end
 end

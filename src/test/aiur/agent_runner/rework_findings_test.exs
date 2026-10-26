@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.ReworkFindingsTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentRunner.{ReworkFindings, ToolExecutor}
+  alias Aiur.AgentRunner.{ReworkFindings, ReworkHandoffGuard, ToolExecutor}
   alias Aiur.Issue
 
   @review_body """
@@ -16,15 +16,21 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
   """
 
   describe "parse/1" do
-    test "keeps the reviewer's numbers and skips items without file:line" do
+    test "keeps the reviewer's numbers, including items without file:line" do
       assert [
                %{id: "1", file: "src/lib/aiur/agent_runner/rework_handoff.ex", line: "44", ask: "src/lib/aiur/agent_runner/rework_handoff.ex:44-45" <> _},
+               %{id: "2", file: nil, line: nil, ask: "The re-review does not receive the worker's answers."},
                %{id: "3", file: "src/lib/aiur/agent_runner/rework_checklist.ex", line: "70"},
                %{id: "4", file: "dedup.ex", line: "118"}
              ] = ReworkFindings.parse(@review_body)
 
       assert ReworkFindings.parse("Please fix the tests.") == []
       assert ReworkFindings.parse(nil) == []
+    end
+
+    test "skips numbered lines inside code fences" do
+      body = "1. **Body:** Tested head is stale.\n\n```\n  1) test something (FooTest)\n```\n2. Add the revert-check lines.\n"
+      assert [%{id: "1", file: nil}, %{id: "2", file: nil}] = ReworkFindings.parse(body)
     end
   end
 
@@ -83,6 +89,15 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
       assert ReworkFindings.validate([], nil, :unknown, :unknown) == :allow
     end
 
+    test "a finding with no file is fixed by a commit since the review or a PR body edit" do
+      findings = [%{id: "6", file: nil, line: nil, ask: "Body: Tested head is stale."}]
+      by_body = [%{"id" => "6", "status" => "fixed"}]
+
+      assert ReworkFindings.validate(findings, by_body, [@commit], [], true) == :allow
+      assert ReworkFindings.validate(findings, [%{"id" => "6", "status" => "fixed", "commit" => "aaaaaaa"}], [@commit], []) == :allow
+      assert {:blocked, ["finding 6 is marked fixed by nil, which is not a commit since the review"]} = ReworkFindings.validate(findings, by_body, [@commit], [])
+    end
+
     test "a PR body edit stands in for a commit, but not for a code finding's fix" do
       assert ReworkFindings.validate([], nil, [], :unknown, true) == :allow
 
@@ -103,6 +118,42 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
       refute ReworkFindings.body_edited_since?(4924, review_at, edited.(nil))
       refute ReworkFindings.body_edited_since?(4924, review_at, body_edit_fetcher: fn 4924 -> {:error, :rate_limited} end)
       refute ReworkFindings.body_edited_since?(nil, review_at, edited.("2026-10-17T13:55:02Z"))
+    end
+  end
+
+  describe "latest_feedback_comment/3" do
+    test "selects the newest trusted PR comment newer than the formal review before classifying it" do
+      comments = [
+        %{"body" => "Blocking: fix the tests before merge", "created_at" => "2026-10-17T14:00:00Z", authoritative: true},
+        %{"body" => "Blocking: old request", "created_at" => "2026-10-17T13:00:00Z", authoritative: true},
+        %{"body" => "Blocking: untrusted request", "created_at" => "2026-10-17T15:00:00Z", authoritative: false},
+        %{"body" => "Thanks, looks good", "created_at" => "2026-10-17T16:00:00Z", authoritative: true}
+      ]
+
+      assert {:ok, %{"body" => "Blocking: fix the tests before merge"}} =
+               ReworkFindings.latest_feedback_comment(4924, "2026-10-17T13:43:10Z", pr_issue_comments_fetcher: fn 4924 -> {:ok, Enum.take(comments, 3)} end)
+
+      # A later trusted resolution comment supersedes the earlier request.
+      assert {:ok, %{"body" => "Thanks, looks good"}} =
+               ReworkFindings.latest_feedback_comment(4924, "2026-10-17T13:43:10Z", pr_issue_comments_fetcher: fn 4924 -> {:ok, comments} end)
+
+      assert ReworkFindings.change_request_comment?("Blocking: fix the tests before merge")
+      refute ReworkFindings.change_request_comment?("Thanks, looks good")
+    end
+
+    test "a later trusted non-blocking comment supersedes an earlier PR comment change request" do
+      comments = [
+        %{"body" => "Blocking: fix the check before merge", "created_at" => "2026-10-17T14:00:00Z", authoritative: true},
+        %{"body" => "All blockers addressed", "created_at" => "2026-10-17T15:00:00Z", authoritative: true}
+      ]
+
+      opts = [
+        open_pr_fetcher: fn _ -> {:ok, %{"number" => 4924, "head" => %{"sha" => String.duplicate("b", 40)}}} end,
+        reviews_fetcher: fn _ -> {:ok, []} end,
+        pr_issue_comments_fetcher: fn _ -> {:ok, comments} end
+      ]
+
+      assert {:allow, []} = ReworkHandoffGuard.findings_blockers(%Issue{identifier: "4924", state: "rework"}, "human-review", nil, opts)
     end
   end
 
@@ -145,6 +196,7 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
           reviews_fetcher: fn 4673 ->
             {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => body, "commit_id" => review, "submitted_at" => "2026-10-16T09:17:56Z", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]}
           end,
+          pr_issue_comments_fetcher: fn _ -> {:ok, []} end,
           pull_request_fetcher: fn 4673 -> {:ok, %{"mergeable_state" => "clean"}} end,
           checklist_commenter: fn issue_id, comment -> send(test_pid, {:comment, issue_id, comment}) end
         )
@@ -168,6 +220,36 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
       assert comment =~ "**disputed**: b.ex has no nil key"
     end
 
+    # #5746: the worker moved itself to in-progress and fixed only the first of three findings.
+    test "a review with 3 findings and a rework that fixes 1 is refused with the 2 remaining named", %{tmp_dir: repo} do
+      git(repo, ["init", "-q", "-b", "main"])
+      review = commit(repo, "lib/a.ex")
+      fix = commit(repo, "lib/a.ex")
+      body = "Two problems remain:\n\n1. lib/a.ex:3 rename the helper\n2. lib/b.ex:7 drop the nil key\n3. **Body:** Tested head is stale.\n"
+      test_pid = self()
+
+      executor =
+        ToolExecutor.build(%Issue{id: "5746", identifier: "5746", state: "in-progress"}, repo, nil, %{},
+          coordination_runner: fn _key, operation, _opts -> operation.() end,
+          ticket_state_writer: fn issue_id, state -> send(test_pid, {:state_write, issue_id, state}) && :ok end,
+          open_pr_fetcher: fn "5746" -> {:ok, %{"number" => 5747, "head" => %{"sha" => fix}}} end,
+          reviews_fetcher: fn 5747 ->
+            {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => body, "commit_id" => review, "submitted_at" => "2026-10-22T05:46:21Z", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]}
+          end,
+          pr_issue_comments_fetcher: fn _ -> {:ok, []} end,
+          body_edit_fetcher: fn 5747 -> {:ok, nil} end,
+          pull_request_fetcher: fn 5747 -> {:ok, %{"mergeable_state" => "clean"}} end
+        )
+
+      response = executor.("aiur_set_ticket_state", %{"state" => "human-review", "review_findings" => [%{"id" => "1", "status" => "fixed", "commit" => fix}]})
+      message = Jason.decode!(response["output"])["error"]["message"]
+
+      assert message =~ "finding 2 (lib/b.ex:7) is unchecked: lib/b.ex:7 drop the nil key"
+      assert message =~ "finding 3 is unchecked: **Body:** Tested head is stale."
+      refute message =~ "finding 1"
+      refute_received {:state_write, _, _}
+    end
+
     test "refuses a handback with no commits since the review and a conflicting PR" do
       head = String.duplicate("c", 40)
       test_pid = self()
@@ -180,6 +262,7 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
           reviews_fetcher: fn 4673 ->
             {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => "Fix CI.", "commit_id" => head, "submitted_at" => "2026-10-16T09:17:56Z", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]}
           end,
+          pr_issue_comments_fetcher: fn _ -> {:ok, []} end,
           pull_request_fetcher: fn 4673 -> {:ok, %{"mergeable_state" => mergeable_state}} end
         )
       end
@@ -205,6 +288,7 @@ defmodule Aiur.AgentRunner.ReworkFindingsTest do
           reviews_fetcher: fn 4924 ->
             {:ok, [%{"state" => "CHANGES_REQUESTED", "body" => body, "commit_id" => head, "submitted_at" => "2026-10-17T13:43:10Z", "id" => 1, "user" => %{"login" => "r"}, authoritative: true}]}
           end,
+          pr_issue_comments_fetcher: fn _ -> {:ok, []} end,
           body_edit_fetcher: fn 4924 -> {:ok, edited_at} end,
           pull_request_fetcher: fn 4924 -> {:ok, %{"mergeable_state" => "clean"}} end
         )

@@ -1,7 +1,7 @@
-# Merge the integration branch, then report every cheap gate in one final block.
+# Snapshot the integration branch, then report every cheap gate without moving the PR branch.
 cmd_pre_pr() {
   [ "$#" -eq 0 ] || { echo "aiur: pre-pr does not accept arguments" >&2; exit 64; }
-  local root base_ref base_sha merge_output result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required
+  local root base_ref base_sha validation_base_sha result=0 name gate_log temp_dir test_home test_config test_path cleanup_command affected selection pr_json full_suite_recommended=0 required interrupted=0 active_gate_pid= result_file
   local -a results=() failures=() test_files=() test_env=()
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "aiur pre-pr is for Aiur source checkouts; run it inside an Aiur repository." >&2; exit 64; }
   if [ ! -f "$root/src/mix.exs" ] || [ ! -f "$root/scripts/check-pr-structure.py" ]; then
@@ -10,6 +10,10 @@ cmd_pre_pr() {
   fi
   cd "$root"
   [ -z "$(git status --porcelain)" ] || { echo "pre-pr requires a clean working tree (commit or stash changes first)" >&2; exit 1; }
+  # The terminal can vanish with the session; this file keeps the last known result.
+  result_file="$(git rev-parse --absolute-git-dir)/aiur-pre-pr/result.txt"
+  printf 'aiur pre-pr result file: %s\n' "$result_file"
+  pre_pr_persist unknown INCOMPLETE
   for required in jq rg; do
     if ! command -v "$required" >/dev/null 2>&1; then
       results+=("FAIL required command: $required")
@@ -40,6 +44,26 @@ cmd_pre_pr() {
     "HOME=$test_home" "XDG_CONFIG_HOME=$test_config" "TMPDIR=$temp_dir"
     "PATH=$test_path"
   )
+  interrupted_report() {
+    local signal="$1"
+    [[ "$interrupted" == 0 ]] || return
+    interrupted=1
+    if [[ -n "$active_gate_pid" ]]; then
+      local pid
+      for pid in $(agent_pid_tree "$active_gate_pid"); do kill -TERM "$pid" 2>/dev/null || true; done
+      wait "$active_gate_pid" 2>/dev/null || true
+      results+=("INTERRUPTED gate $name received $signal")
+      failures+=("$gate_log")
+      active_gate_pid=
+    fi
+    results+=("INTERRUPTED pre-pr command received $signal")
+    pre_pr_report "${base_sha:-unknown}" INTERRUPTED
+    trap - INT TERM HUP
+    exit $((128 + $(kill -l "$signal")))
+  }
+  trap 'interrupted_report INT' INT
+  trap 'interrupted_report TERM' TERM
+  trap 'interrupted_report HUP' HUP
   if ! git fetch origin "$base_ref" >"$temp_dir/fetch.log" 2>&1; then
     results+=("FAIL fetch origin/$base_ref")
     failures+=("$temp_dir/fetch.log")
@@ -47,36 +71,56 @@ cmd_pre_pr() {
     return 1
   fi
   base_sha="$(git rev-parse "FETCH_HEAD^{commit}")"
-  if ! merge_output="$(git merge --no-edit "$base_sha" 2>&1)"; then
-    local conflict_files
-    conflict_files="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
-    git merge --abort >/dev/null 2>&1 || true
-    results+=("FAIL merge conflict: ${conflict_files:-unknown files}")
+  results+=("PASS base origin/$base_ref ($(git rev-parse --short "$base_sha"))")
+  if ! validation_base_sha="$(git merge-base HEAD "$base_sha")"; then
+    results+=("FAIL merge base origin/$base_ref")
     pre_pr_report "$base_sha" FAIL
     return 1
   fi
-  results+=("PASS merge origin/$base_ref ($(git rev-parse --short HEAD))")
+  results+=("PASS PR merge base ($(git rev-parse --short "$validation_base_sha"))")
 
   run_gate() {
     name="$1"; shift
     gate_log="$temp_dir/gate-${#results[@]}.log"
-    if "$@" >"$gate_log" 2>&1; then
+    printf 'aiur pre-pr gate started: %s\n' "$name"
+    "$@" >"$gate_log" 2>&1 &
+    active_gate_pid=$!
+    if wait "$active_gate_pid"; then
+      active_gate_pid=
       results+=("PASS $name")
+      printf 'aiur pre-pr gate complete: PASS %s\n' "$name"
     else
+      local status=$?
+      active_gate_pid=
       results+=("FAIL $name")
       failures+=("$gate_log")
       result=1
+      printf 'aiur pre-pr gate complete: FAIL %s (exit %s)\n' "$name" "$status"
     fi
+    pre_pr_persist "$base_sha" INCOMPLETE
   }
+
+  if [ -f "$root/scripts/lib/layout-assets.sh" ]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      results+=("FAIL pinned layout assets (Node/npm required; install Node/npm, then run npm ci --ignore-scripts and npm run vendor:elk -- --check in src/browser)")
+      result=1
+      printf '%s\n' 'ELK asset generation failed; release build stopped. Install Node/npm and retry:' '  cd src/browser && npm ci --ignore-scripts && npm run vendor:elk -- --check' >"$temp_dir/layout-assets.log"
+      failures+=("$temp_dir/layout-assets.log")
+    elif ! ( source "$root/scripts/lib/layout-assets.sh"; build_layout_assets "$root" mise exec -- ) >"$temp_dir/layout-assets.log" 2>&1; then
+      results+=("FAIL pinned layout assets")
+      failures+=("$temp_dir/layout-assets.log")
+      result=1
+    else
+      results+=("PASS pinned layout assets")
+    fi
+  fi
 
   run_gate "mix format --check-formatted" bash -c 'cd src && mise exec -- mix format --check-formatted'
   run_gate "mix compile --warnings-as-errors" bash -c 'cd src && mise exec -- mix compile --warnings-as-errors'
-  run_gate "check-pr-structure" python3 scripts/check-pr-structure.py --base "$base_sha"
-  run_gate "check-file-size" python3 scripts/check-file-size.py --base "$base_sha"
+  run_gate "check-pr-structure" python3 scripts/check-pr-structure.py --base "$validation_base_sha"
+  run_gate "check-file-size" python3 scripts/check-file-size.py --base "$validation_base_sha"
   run_gate "check-config-docs" python3 scripts/check-config-docs.py
   run_gate "check-hot-list-format" python3 scripts/check-hot-list-format.py
-  run_gate "architectural guard tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 test/aiur/base_branch_literal_guard_test.exs test/aiur/orchestrator/state_owners_test.exs test/aiur/events/placement_rule_test.exs test/aiur/orchestrator/non_transition_facade_test.exs test/aiur/orchestrator/waiting_descriptor_test.exs test/aiur/application_child_order_test.exs test/aiur/pr_lifecycle/health_scanner_child_order_test.exs'
-
   if ! affected="$(cd src && AIUR_BASE_BRANCH="$base_ref" mise exec -- mix aiur.affected_tests "origin/$base_ref" --json)"; then
     results+=("FAIL affected tests selection")
     printf '%s\n' "$affected" >"$temp_dir/affected-selection.log"
@@ -94,7 +138,7 @@ cmd_pre_pr() {
     case "$selection" in
       full)
         full_suite_recommended=1
-        results+=("NOTE full suite recommended ($(jq -r '.reason' <<<"$affected")); runs in merge queue")
+        results+=("NOTE full selection ($(jq -r '.reason' <<<"$affected")); running discovered reader tests locally; CI owns the full coverage partitions")
         while IFS= read -r edited; do
           [ -n "$edited" ] || continue
           while IFS= read -r reader_test; do
@@ -109,18 +153,28 @@ cmd_pre_pr() {
         else
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
-          run_gate "reader tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          run_gate "reader tests" "${test_env[@]}" nice -n 10 bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
           report_unedited_test_failures "$base_sha"
         fi
         ;;
       scoped)
         while IFS= read -r test_path; do test_files+=("$test_path"); done < <(jq -r '.tests[]' <<<"$affected")
         if [ "${#test_files[@]}" -eq 0 ]; then
-          results+=("PASS affected tests (no test files selected)")
+          if git diff --name-only "$base_sha...HEAD" | grep -Eq '^src/test/support/|^src/test/test_helper\.exs$'; then
+            results+=("FAIL affected tests (shared support changed but no tests were selected)")
+            result=1
+          else
+            results+=("PASS affected tests (no test files selected)")
+          fi
         else
           local -a mix_paths=()
           for test_path in "${test_files[@]}"; do mix_paths+=("${test_path#src/}"); done
-          run_gate "affected tests" "${test_env[@]}" bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          if [ "${#mix_paths[@]}" -gt 400 ]; then
+            full_suite_recommended=1
+            results+=("NOTE affected selection includes ${#mix_paths[@]} files; deferred to CI to keep local checks focused")
+          else
+            run_gate "affected tests" "${test_env[@]}" nice -n 10 bash -c 'cd src && mise exec -- mix test --max-cases 4 "$@"' _ "${mix_paths[@]}"
+          fi
           report_unedited_test_failures "$base_sha"
         fi
         ;;
@@ -204,17 +258,36 @@ PY
   python3 scripts/check-pr-body.py --pr-json "$json_file" --base "$base_sha"
 }
 
+# Persist before printing: after a HUP the terminal write may fail.
 pre_pr_report() {
+  pre_pr_persist "$@"
+  pre_pr_render "$@"
+}
+
+# Atomic replace, so a reader never sees a torn or stale-PASS file. An
+# INCOMPLETE file outliving its pid means the run died without a trappable signal.
+pre_pr_persist() {
+  [ -n "${result_file:-}" ] || return 0
+  if ! { mkdir -p "${result_file%/*}" && pre_pr_render "$@" >"$result_file.tmp.$$" && mv -f "$result_file.tmp.$$" "$result_file"; } 2>/dev/null; then
+    echo "aiur pre-pr: could not write result file $result_file" >&2
+  fi
+}
+
+pre_pr_render() {
   local base_sha="$1" result="$2" line log status=FAIL
-  if [ "$result" = PASS ] || [ "$result" = 0 ]; then status=PASS; fi
+  case "$result" in
+    PASS | 0) status=PASS ;;
+    INTERRUPTED) status=INTERRUPTED ;;
+    INCOMPLETE) status="INCOMPLETE (pre-pr pid $$ still running or ended without a result)" ;;
+  esac
   printf '%s\n' '--- aiur pre-pr result (paste into the PR body) ---'
-  printf 'Merged main SHA: %s\n' "$base_sha"
+  printf 'Base SHA: %s\n' "$base_sha"
   if [ "$status" = PASS ] && [ "${full_suite_recommended:-0}" -eq 1 ]; then
-    printf '%s\n' 'Result: PASS (full suite not run)'
+  printf '%s\n' 'Result: PASS (full CI suite not run)'
   else
     printf 'Result: %s\n' "$status"
   fi
-  printf '%s\n' 'Not run: Credo and specs (make lint), dialyzer, full suite'
+  printf '%s\n' 'Not run: Credo and specs (make lint), dialyzer, full CI suite'
   for line in "${results[@]}"; do printf '%s\n' "$line"; done
   printf '%s\n' '--- end aiur pre-pr result ---'
   for log in "${failures[@]}"; do

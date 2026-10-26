@@ -19,14 +19,21 @@ defmodule AiurWeb.Build.UsageTest do
 
   test "U1 U2 U3 U13 windows classify by duration and keep unknown distinct from zero" do
     row = provider(%{"x:short" => I.window(42, 300), "x:long" => I.window(61, 10_080)})
-    assert row.session == %{acc: [42], win: "5h", reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600))}
-    assert row.weekly.acc == [61]
+    assert row.session == %{acc: [58], win: "5h", reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600))}
+    assert row.weekly.acc == [39]
     assert row.weekly.win == "7d"
     unknown = provider(%{"x:other" => I.window(nil, nil, %{coverage: :empty_supported})})
     assert unknown.session.acc == [nil]
     assert unknown.session.win == nil
     assert Jason.encode!(unknown.session) =~ "\"acc\":[null]"
-    assert provider(%{"primary" => I.window(0)}).session.acc == [0]
+    assert provider(%{"primary" => I.window(0)}).session.acc == [100]
+  end
+
+  test "provider model lines map used values to remaining full, half, empty and unknown" do
+    assert provider(%{"primary" => I.window(0)}).session.acc == [100]
+    assert provider(%{"primary" => I.window(50)}).session.acc == [50]
+    assert provider(%{"primary" => I.window(100)}).session.acc == [0]
+    assert provider(%{"primary" => I.window(nil, nil, %{coverage: :empty_supported})}).session.acc == [nil]
   end
 
   test "U4 unavailable identities retain distinct causes and no windows" do
@@ -46,7 +53,7 @@ defmodule AiurWeb.Build.UsageTest do
   test "U5 U14 stale cards and ended windows retain values with timestamp" do
     row = provider(%{"primary" => I.window(42)}, %{health: %{state: :stale, failure: :transport}})
     assert row.stale
-    assert row.session.acc == [42]
+    assert row.session.acc == [58]
     assert row.observed_at == SourceFreshness.ms(I.now())
     ended = provider(%{"primary" => I.window(42, 300, %{resets_at: DateTime.add(I.now(), -60)})})
     assert ended.stale
@@ -57,7 +64,7 @@ defmodule AiurWeb.Build.UsageTest do
     unknown = ProviderMeterSnapshot.unknown(:codex, :app_server)
     row = block(I.inputs(%{meters: %{codex: unknown}, durable: durable})).providers |> hd()
     assert row.none and row.stale
-    assert row.note == "Last known 100% (previous boot)"
+    assert row.note == "Last known 0% left (previous boot)"
     assert row.observed_at == SourceFreshness.ms(I.now())
     loading = block(I.inputs(%{durable: durable})).providers |> hd()
     assert loading.note == "Awaiting first observation"
@@ -68,11 +75,11 @@ defmodule AiurWeb.Build.UsageTest do
     credit = I.window(nil, nil, %{kind: :credit, credits: %{status: :available, amount: 10.4}, remaining: 10.4})
     row = provider(%{"balance" => credit}, %{}, :deepseek)
     assert row.credits == %{pct: nil, left: "$10.40", tip: [["Prepaid credits", "$10.40 left"]]}
-    assert provider(%{"balance" => %{credit | used_percent: 2.0}}, %{}, :deepseek).credits.pct == 2
+    assert provider(%{"balance" => %{credit | used_percent: 2.0}}, %{}, :deepseek).credits.pct == 98
     assert provider(%{"balance" => credit}).credits == nil
     mixed = provider(%{"balance" => credit, "primary" => I.window(9)}, %{}, :deepseek)
     assert mixed.credits == nil
-    assert mixed.session.acc == [9]
+    assert mixed.session.acc == [91]
   end
 
   test "U8 U9 accounts align sorted slots and preserve failed readings" do
@@ -81,12 +88,12 @@ defmodule AiurWeb.Build.UsageTest do
     inputs = I.inputs(%{families: [:claude], meters: %{claude: snapshot}, accounts: accounts})
     row = block(inputs).providers |> hd()
     assert row.accounts == ["personal", "work"]
-    assert row.session.acc == [nil, 1]
-    assert row.weekly.acc == [nil, 96]
+    assert row.session.acc == [nil, 99]
+    assert row.weekly.acc == [nil, 4]
     assert row.session.reset_at == SourceFreshness.ms(DateTime.add(I.now(), 3600))
     single = block(%{inputs | accounts: Map.take(accounts, ["work"])}).providers |> hd()
     assert single.accounts == nil
-    assert single.session.acc == [40]
+    assert single.session.acc == [60]
   end
 
   test "U10 U12 unknown logos use mono letter and design providers lead registry extras" do
@@ -102,9 +109,20 @@ defmodule AiurWeb.Build.UsageTest do
     assert row.icon == "github"
 
     assert row.lines == [
-             %{tag: "core", acc: [5], reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Requests left", "4,736 of 5,000"]], hold_until: nil},
-             %{tag: "gql", acc: [0], reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Points left", "4,998 of 5,000"]], hold_until: nil}
+             %{tag: "core", acc: [95], reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Requests left", "4,736 of 5,000 · 95% left"]], hold_until: nil},
+             %{tag: "gql", acc: [100], reset_at: SourceFreshness.ms(DateTime.add(I.now(), 3600)), win: "1h", tip: [["Points left", "4,998 of 5,000 · 100% left"]], hold_until: nil}
            ]
+  end
+
+  test "G1 reads the primary windows when snapshots also include operator credentials" do
+    quota = I.quota(4159, 4444)
+    operator = %{resource: "core", limit: 5000, remaining: 4900, used_percent: 2.0, reset_at: DateTime.add(I.now(), 1800)}
+    quota = Map.put(quota, :credential_windows, %{"operator-fingerprint" => %{"core" => operator}})
+
+    [core | _graphql] = hd(block(I.inputs(%{github: {:ok, quota}})).apis).lines
+
+    assert core.tip == [["Requests left", "4,159 of 5,000 · 83% left"]]
+    assert core.acc == [83]
   end
 
   test "G2 G3 unknown and unavailable meters remain distinct" do
@@ -141,7 +159,8 @@ defmodule AiurWeb.Build.UsageTest do
 
     window = %{used_percent: 10.0, remaining: 90_000, reset_at: DateTime.add(I.now(), 3600)}
     rows = block(I.inputs(%{elevenlabs: %{state: :observed, window: window}})).apis
-    assert hd(List.last(rows).lines).tip == [["Credits left", "90.0K"]]
+    assert hd(List.last(rows).lines).tip == [["Credits left", "90.0K left · 90% left"]]
+    assert hd(List.last(rows).lines).acc == [90.0]
     refute Enum.any?(rows, &(&1.name == "Search"))
   end
 
@@ -152,7 +171,7 @@ defmodule AiurWeb.Build.UsageTest do
     assert Usage.block({:ok, nil}, :error, I.now()).reason == "usage_source_failed"
   end
 
-  test "L2 P1 real facts match frozen PSETS4 values and pass payload validation" do
+  test "L2 P1 real facts match frozen remaining PSETS4 values and pass payload validation" do
     usage = block(I.psets4())
     fixture = File.read!(Path.expand("../../fixtures/build_home/live.json", __DIR__)) |> Jason.decode!()
     assert Enum.map(usage.providers, & &1.name) == Enum.map(fixture["usage"]["providers"], & &1["name"])
@@ -166,7 +185,7 @@ defmodule AiurWeb.Build.UsageTest do
       end
 
       if row.credits do
-        assert row.credits.pct == expected["credits"]["pct"]
+        assert round(row.credits.pct) == expected["credits"]["pct"]
         assert row.credits.left == expected["credits"]["left"]
       end
     end

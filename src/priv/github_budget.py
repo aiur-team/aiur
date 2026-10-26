@@ -72,28 +72,6 @@ def clamp(value, minimum, maximum):
 SESSION_CONNECTIONS = None
 
 
-class SessionConnection:
-    """Keep the connection alive while command handlers retain their transactions."""
-
-    def __init__(self, conn):
-        self.conn = conn
-        self.prepared = False
-        self.batching = False
-
-    def __getattr__(self, name):
-        return getattr(self.conn, name)
-
-    def execute(self, sql, *args):
-        if self.batching and sql in ("BEGIN IMMEDIATE", "COMMIT"):
-            return None
-        if self.batching and sql == "ROLLBACK":
-            return self.conn.execute("ROLLBACK TO request")
-        return self.conn.execute(sql, *args)
-
-    def close(self):
-        pass
-
-
 def connection(path):
     if SESSION_CONNECTIONS is not None and path in SESSION_CONNECTIONS:
         return SESSION_CONNECTIONS[path]
@@ -124,6 +102,7 @@ def connection(path):
     except sqlite3.DatabaseError:
         pass
     conn.execute("PRAGMA busy_timeout = 5000")
+    broker_metrics.configure_connection(conn)
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS budgets (
@@ -190,7 +169,7 @@ def connection(path):
     )
     migrate(conn)
     if SESSION_CONNECTIONS is not None:
-        wrapped = SessionConnection(conn)
+        wrapped = broker_metrics.SessionConnection(conn)
         SESSION_CONNECTIONS[path] = wrapped
         return wrapped
     return conn
@@ -306,7 +285,7 @@ def _ensure_writable(conn):
 # ledger just to report on it; the first current-broker write after a deploy
 # installs them, which is the earliest a stale broker can be stopped (#2307).
 def _prepare_writable(conn):
-    if isinstance(conn, SessionConnection) and conn.prepared:
+    if isinstance(conn, broker_metrics.SessionConnection) and conn.prepared:
         return
     conn.execute(
         """
@@ -319,7 +298,7 @@ def _prepare_writable(conn):
         """
     )
     _stamp_ledger(conn)
-    if isinstance(conn, SessionConnection):
+    if isinstance(conn, broker_metrics.SessionConnection):
         conn.prepared = True
 
 
@@ -514,10 +493,9 @@ def acquire(args):
         hold_until = max(token_hold, resource_hold[1] if resource_hold and resource_hold[1] else 0)
 
         max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms = conn.execute(
-            "SELECT MIN(max_inflight), MIN(max_inflight_per_endpoint), "
-            "MIN(requests_per_minute), MAX(stagger_ms) FROM policies WHERE token_key = ? "
-            "AND observed_at_ms > ?",
-            (args.token_key, now - POLICY_RECONCILE_WINDOW_MS),
+            "SELECT MIN(max_inflight) + ?, MIN(max_inflight_per_endpoint) + ?, MIN(requests_per_minute), MAX(stagger_ms) "
+            "FROM policies WHERE token_key = ? AND observed_at_ms > ?",
+            (int(args.priority), int(args.priority), args.token_key, now - POLICY_RECONCILE_WINDOW_MS),
         ).fetchone()
 
         if hold_until > now:
@@ -881,6 +859,7 @@ def parser():
     acquire_parser.add_argument("--resource", required=True)
     acquire_parser.add_argument("--consumer-key", required=True)
     acquire_parser.add_argument("--ignore-token-cooldown", action="store_true")
+    acquire_parser.add_argument("--priority", action="store_true", help="main-watch: one lease above each in-flight cap; pacing still applies")
     acquire_parser.add_argument("--endpoint-family", required=True)
     acquire_parser.add_argument("--max-inflight", type=lambda value: clamp(value, 1, 100), required=True)
     acquire_parser.add_argument("--max-inflight-per-endpoint", type=lambda value: clamp(value, 1, 100), required=True)
@@ -968,13 +947,14 @@ def run_batch(requests, command_parser, queue_depth=0):
             with contextlib.redirect_stderr(io.StringIO()):
                 args = command_parser.parse_args(request["args"])
             parsed.append((request, args))
+            request["_command_type"] = args.command
         except (Exception, SystemExit) as error:
             yield {"id": request["id"], "status": 1, "output": str(error), "python_queue_wait_ms": request["_python_queue_wait_ms"], "python_queue_depth": queue_depth}
     for db, group in itertools.groupby(parsed, key=lambda item: item[1].db):
         active = []
         for request, args in group:
             if request["deadline_ms"] <= now_ms():
-                yield {"id": request["id"], "status": 2, "output": "broker deadline expired before admission", "python_queue_wait_ms": request["_python_queue_wait_ms"], "python_queue_depth": queue_depth}
+                yield {"id": request["id"], "status": 2, "output": "broker deadline expired before admission", "python_queue_wait_ms": request["_python_queue_wait_ms"], "python_queue_depth": queue_depth, "command_type": request.get("_command_type", "unknown")}
             else:
                 active.append((request, args))
         if active:
@@ -995,6 +975,7 @@ def run_transaction(db, requests):
     sqlite_open_ms = 0
     transaction_started_ns = None
     try:
+        checkpoint = broker_metrics.take_checkpoint_result(db)
         conn, sqlite_open_ms = broker_metrics.open_connection(connection, db)
         acquired, lock_wait_ms = begin_batch(conn, requests, replies)
         if not acquired:
@@ -1021,8 +1002,7 @@ def run_transaction(db, requests):
             replies.append({"id": request["id"], "status": status, "output": output.getvalue()})
         expired = {request["id"] for request, _args in requests if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms()}
         if expired:
-            # Savepoints cannot remove an earlier command after later commands
-            # have run. Roll back the batch and replay only live requests.
+            # Savepoints cannot remove earlier requests after later commands run; roll back and replay live requests.
             conn.conn.execute("ROLLBACK")
             conn.prepared = False
             conn.batching = False
@@ -1031,9 +1011,21 @@ def run_transaction(db, requests):
             waiting_replies = [reply for reply in replies if reply["id"] not in {request["id"] for request, _args in requests}]
             remaining = [(request, args) for request, args in requests if request["id"] not in expired]
             return waiting_replies + timed_out + (run_transaction(db, remaining) if remaining else [])
+        commit_started_ns = time.monotonic_ns()
         conn.conn.execute("COMMIT")
+        commit_ms = (time.monotonic_ns() - commit_started_ns) / 1_000_000
         transaction_ms = (time.monotonic_ns() - transaction_started_ns) / 1_000_000
-        return broker_metrics.successful_replies(replies, {request["id"]: request for request, _args in requests}, sqlite_open_ms, lock_wait_ms, transaction_ms)
+        for request, _args in requests:
+            request["_sqlite_command_ms"] = transaction_ms - commit_ms
+            request["_sqlite_commit_ms"] = commit_ms
+        return broker_metrics.successful_replies(
+            replies,
+            {request["id"]: request for request, _args in requests},
+            sqlite_open_ms,
+            lock_wait_ms,
+            transaction_ms,
+            broker_metrics.complete_batch(db, conn.conn, checkpoint, requests),
+        )
     except Exception as error:
         if conn is not None and conn.in_transaction:
             conn.conn.execute("ROLLBACK")
@@ -1052,6 +1044,7 @@ def run_transaction(db, requests):
 def serve():
     global SESSION_CONNECTIONS
     SESSION_CONNECTIONS = {}
+    broker_metrics.start_checkpoint_worker()
     command_parser = parser()
     inbox = queue.Queue(maxsize=64)
     threading.Thread(target=read_requests, args=(inbox,), daemon=True).start()

@@ -42,7 +42,9 @@ async function main() {
       ...process.env,
       AIUR_BROWSER_ARTIFACT_DIR: evidenceRoot,
       AIUR_BROWSER_SENTINEL: sentinel,
-      AIUR_BROWSER_KEEP_ARTIFACTS: '1'
+      AIUR_BROWSER_KEEP_ARTIFACTS: '1',
+      // An expected failure: no failure annotation, no quarantine filter.
+      AIUR_BROWSER_EXPECT_FAILURE: '1'
     })
 
     assert.notEqual(result.code, 0, 'the failure-evidence probe must fail intentionally')

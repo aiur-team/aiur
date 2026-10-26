@@ -87,8 +87,12 @@ resolves the alert and stops the ladder.
 
 The ladder is computed from the
 Command's age, so a restart continues it. `aiur status` prints
-`DECISIONS open N oldest <age> (#ticket, gates M)` and marks it `ATTENTION`
-when the oldest blocking Command is older than 15 minutes.
+`DECISIONS open N (E expired) ids=[…] oldest <age> (#ticket, gates M)`;
+the sorted IDs identify the exact Commands included in the count.
+
+That line counts the same Commands as `aiur commands --filter open`, including
+unanswered expired blocking Commands. It is marked `ATTENTION` when the oldest
+is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 
@@ -119,3 +123,11 @@ clears those IDs.
 A crash during sending can repeat an event ID; consumers must
 deduplicate it. Existing projections without these fields are upgraded without
 replaying historical notifications. Journal corruption still makes writes read-only.
+
+## Operator answers relayed in conversation
+
+When you answer a Command in conversation with an attended Executor, it can record that answer with [operator-relay-answer](/reference/cli) if you enabled `executor.relay_operator_answers`. This accepts human-only Commands without granting the Executor decision authority.
+
+Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
+
+Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; delivery-state guards still apply.

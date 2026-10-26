@@ -55,7 +55,6 @@
         "kind",
         "paths",
         "facades",
-        "facade_pending",
         "requires",
         "optional",
         "owns",
@@ -145,6 +144,14 @@
           },
           "uniqueItems": true
         },
+        "boundary_reference_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
         "owns": {
           "type": "object",
           "additionalProperties": false,
@@ -160,7 +167,7 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[a-z][a-z0-9_]*(?![\\s\\S])"
+                "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*(?![\\s\\S])"
               },
               "uniqueItems": true
             },
@@ -178,7 +185,7 @@
               "items": {
                 "type": "string",
                 "minLength": 1,
-                "pattern": "^[a-z][a-z0-9_]*(?:_dir|_path)(?![\\s\\S])"
+                "pattern": "^(?:[a-z][a-z0-9_]*(?:_dir|_path)|file: <[a-z][a-z0-9_]*_dir>/[a-zA-Z0-9_-]+(?:\\.json|/\\*[.]json))(?![\\s\\S])"
               },
               "uniqueItems": true
             },
@@ -280,6 +287,7 @@
             }
           },
           "then": {
+            "required": ["facade_pending"],
             "properties": {
               "facade_pending": {
                 "type": "string",

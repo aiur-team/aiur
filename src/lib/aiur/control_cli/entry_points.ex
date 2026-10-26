@@ -1,6 +1,7 @@
 defmodule Aiur.ControlCLI.EntryPoints do
   @moduledoc false
   alias Aiur.AnalyticsCLI
+  alias Aiur.BuildOrder.EstimateCLI
   alias Aiur.BuildOrdersCLI
   alias Aiur.CommandsCLI
   alias Aiur.ExecutorCommandCLI
@@ -16,9 +17,24 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
   end
 
+  @spec operator_relay_answer(keyword()) :: :ok
+  def operator_relay_answer(opts) when is_list(opts) do
+    guarded("operator-relay-answer", fn -> opts |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec executor_answer(keyword()) :: :ok
   def executor_answer(opts) when is_list(opts) do
     guarded("executor-answer", fn -> opts |> ExecutorCommandCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
+  @spec operator_answer(keyword()) :: :ok
+  def operator_answer(opts) when is_list(opts) do
+    guarded("answer", fn -> opts |> Aiur.OperatorAnswerCLI.answer() |> exit_marker() end)
+  end
+
+  @spec operator_answer_preview(keyword()) :: :ok
+  def operator_answer_preview(opts) when is_list(opts) do
+    guarded("answer preview", fn -> opts |> Aiur.OperatorAnswerCLI.preview() |> exit_marker() end)
   end
 
   @spec executor_escalate(keyword()) :: :ok
@@ -44,6 +60,9 @@ defmodule Aiur.ControlCLI.EntryPoints do
 
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []), do: guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
+
+  @spec ticket_estimate(keyword()) :: :ok
+  def ticket_estimate(opts \\ []), do: guarded("ticket estimate", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> EstimateCLI.run() |> exit_marker() end)
 
   @spec queue(keyword()) :: :ok
   def queue(opts \\ []), do: guarded("queue", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> Aiur.BuildQueueCLI.run() |> exit_marker() end)

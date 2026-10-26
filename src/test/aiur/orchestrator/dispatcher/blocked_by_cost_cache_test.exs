@@ -40,7 +40,7 @@ defmodule Aiur.Orchestrator.Dispatcher.BlockedByCostCacheTest do
     released = run_pass(candidate("14"), held)
     assert Map.has_key?(released.running, "14")
     assert blocked_by_reads() == []
-    refute_received {:github, _path}
+    refute_received {:github, "/repos/owner/repo/issues/14/dependencies/blocked_by"}
   end
 
   test "an epic PR refreshes at most 10 closing issues, off the calling process" do

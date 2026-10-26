@@ -5,10 +5,20 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
   import ExUnit.CaptureIO
 
   alias Aiur.AgentControlCLI
+  alias Aiur.Orchestrator.{DispatchCandidates, DispatchPolicy}
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Orchestrator.Reconciler
+  alias Aiur.Orchestrator.Reconciler.Reactivation
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.SnapshotFenceSupport
+  alias Aiur.TestSupport.RunnerTasks
+
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
 
   test "tracker rework after completed CI wait honors effective capacity" do
     issue = completed_rework_issue("tracker-effective-cap")
@@ -29,6 +39,53 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
     next = Reconciler.maybe_reactivate_or_refresh(state, issue)
 
     assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
+  end
+
+  test "reconciliation defers a completed p3 retry when ready p1 tickets are polled" do
+    snapshot_owner = Module.concat(__MODULE__, :CompletedReplacementSnapshotOwner)
+    Process.register(self(), snapshot_owner)
+
+    issue = %{completed_rework_issue("priority-retry") | state: "todo", priority: 3}
+
+    p1_tickets =
+      for number <- 1..3 do
+        %Issue{
+          id: "ready-p1-#{number}",
+          identifier: "MT-READY-P1-#{number}",
+          title: "Ready priority 1",
+          state: "todo",
+          priority: 1,
+          dispatch_authorized?: true,
+          blocked_by: []
+        }
+      end
+
+    configure_completed_revalidation!([issue | p1_tickets], max_concurrent_agents: 3, tracker_active_states: ["todo", "in-progress", "rework"])
+    {state, entry, worker, _item_ids} = completed_retention_fixture(issue)
+    entry = Map.put(entry, :completed_provenance, true)
+    state = put_in(state.running[issue.id], entry)
+    state = %{state | last_polled_issues: Map.new(p1_tickets, &{&1.id, &1}), snapshot_key: snapshot_owner}
+    runners_before = RunnerTasks.capture()
+
+    assert TrackerTasks.owner?(state)
+    assert Enum.all?(p1_tickets, &DispatchPolicy.dispatch_candidate?(&1, state))
+    assert hd(DispatchCandidates.order([issue | p1_tickets], DispatchPolicy.terminal_state_set(), p1_tickets)).priority == 1
+    assert Reactivation.completed_replacement_deferred?(state, issue)
+
+    next =
+      Reconciler.reconcile_running_issue_states(
+        [issue],
+        state,
+        MapSet.new(["todo", "in-progress", "rework"]),
+        DispatchPolicy.terminal_state_set()
+      )
+
+    assert Map.take(next.running[issue.id], [:pid, :ref, :control, :session_id]) ==
+             Map.take(entry, [:pid, :ref, :control, :session_id])
+
+    refute Enum.any?(next.tracker_tasks, fn {_ref, task} -> task.key == {:completed_revalidation, issue.id} end)
+    assert Process.alive?(worker)
+    assert RunnerTasks.capture() == runners_before
   end
 
   test "tracker rework after completed CI wait honors the state cap" do
@@ -210,7 +267,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
     :sys.replace_state(orchestrator_pid, fn _state -> %{next | snapshot_generation: generation} end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
-             "#{active_issue.identifier} starting #{active_issue.title}"
+             "#{active_issue.identifier} agent:in-progress #{active_issue.title}"
   end
 
   test "Executor messages rearm multiple completed runners without returned workers holding slots" do
@@ -247,7 +304,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
 
     on_exit(fn ->
       File.touch(release_file)
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
 
       Enum.each(completed, fn {_issue_id, {_identifier, worker, _ref, _entry}} ->
         if Process.alive?(worker), do: Process.exit(worker, :kill)
@@ -320,7 +377,7 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     freeze_poll_cycle(pid)
 
-    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
 
     # The initial tick schedules a one-shot `:run_poll_cycle` (~20ms render
     # delay) that is not token-fenced; the freeze must make it (and any

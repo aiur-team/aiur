@@ -5,7 +5,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, analyticsAxisIssues, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import './capture-dashboard-build_test.mjs'
 
 const captureScript = fileURLToPath(new URL('../capture-dashboard.mjs', import.meta.url))
 
@@ -39,7 +40,7 @@ test('flags the all-em-dash metric-column signature without flagging a healthy d
   const broken = structuredClone(healthySnapshot)
   broken.tables[0].rows = broken.tables[0].rows.map((row) => [row[0], '—', '—', '—', '—'])
 
-  const result = analyzeDashboardSnapshot('build-orders', broken, 14)
+  const result = analyzeDashboardSnapshot('analytics', broken, 14)
 
   assert.equal(result.verdict, 'attention')
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'metric-column-missing').map((issue) => issue.detail), [
@@ -48,7 +49,7 @@ test('flags the all-em-dash metric-column signature without flagging a healthy d
     'Epics is — for all 3 rows',
     'Waves is — for all 3 rows'
   ])
-  assert.equal(analyzeDashboardSnapshot('build-orders', healthySnapshot, 14).verdict, 'healthy')
+  assert.equal(analyzeDashboardSnapshot('analytics', healthySnapshot, 14).verdict, 'healthy')
 })
 
 test('flags missing metrics when a genuine empty row would otherwise mask populated rows', () => {
@@ -60,7 +61,7 @@ test('flags missing metrics when a genuine empty row would otherwise mask popula
     ['Stream Deck Parity', '89%', '27', '—', '—']
   ]
 
-  const result = analyzeDashboardSnapshot('build-orders', broken, 14)
+  const result = analyzeDashboardSnapshot('analytics', broken, 14)
 
   assert.equal(result.verdict, 'attention')
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'metric-column-missing').map((issue) => issue.detail), [
@@ -77,7 +78,7 @@ test('flags literal unresolved placeholders in numeric columns on populated rows
     ['Analytics + Streamdeck', '0%', '0', '0', '0']
   ]
 
-  const result = analyzeDashboardSnapshot('build-orders', broken, 14)
+  const result = analyzeDashboardSnapshot('analytics', broken, 14)
 
   assert.equal(result.verdict, 'attention')
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'metric-column-missing').map((issue) => issue.detail), [
@@ -149,7 +150,7 @@ test('flags a missing metric on any populated row even when most values are pres
   const broken = structuredClone(healthySnapshot)
   broken.tables[0].rows[0][3] = '—'
 
-  const result = analyzeDashboardSnapshot('build-orders', broken, 14)
+  const result = analyzeDashboardSnapshot('analytics', broken, 14)
 
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'metric-column-missing').map((issue) => issue.detail), [
     'Epics is missing for 1 of 3 rows'
@@ -160,7 +161,7 @@ test('does not skip blank or one-row metric columns', () => {
   const onePopulatedRow = structuredClone(healthySnapshot)
   onePopulatedRow.tables[0].rows = [['Build Order dashboard', '100%', '54', '', '—']]
 
-  const result = analyzeDashboardSnapshot('build-orders', onePopulatedRow, 14)
+  const result = analyzeDashboardSnapshot('analytics', onePopulatedRow, 14)
 
   assert.equal(result.verdict, 'attention')
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'metric-column-missing').map((issue) => issue.detail), [
@@ -174,11 +175,11 @@ test('requires recognizable primary content before reporting a page healthy', ()
   missingCatalog.primaryContent = false
   missingCatalog.tables = []
 
-  const result = analyzeDashboardSnapshot('build-orders', missingCatalog, 14)
+  const result = analyzeDashboardSnapshot('analytics', missingCatalog, 14)
 
   assert.equal(result.verdict, 'attention')
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'primary-content-missing'), [
-    { kind: 'primary-content-missing', detail: 'Build Order primary content was not found after LiveView settle' }
+    { kind: 'primary-content-missing', detail: 'Analytics primary content was not found after LiveView settle' }
   ])
 })
 
@@ -194,12 +195,12 @@ test('extracts visible error cards and reports them instead of treating them as 
       innerText,
       selectors: [index < 2 ? '.bo-state-card' : '.an-empty']
     }))
-  }), 'build-orders')
+  }), 'analytics')
   brokenDetail.status = 200
   brokenDetail.navigationError = null
   brokenDetail.capacityReadings = []
 
-  const result = analyzeDashboardSnapshot('build-orders', brokenDetail, 14)
+  const result = analyzeDashboardSnapshot('analytics', brokenDetail, 14)
 
   assert.equal(result.verdict, 'attention')
   assert.equal(brokenDetail.primaryContent, false)
@@ -210,7 +211,6 @@ test('recognizes primary content for every dashboard page', async () => {
   const selectors = {
     units: '#units-rows .units-row',
     commands: '.decision-inbox',
-    'build-orders': '.bo-catalog-table, .bo-selected-summary',
     analytics: '#analytics-page .an-kpis'
   }
 
@@ -227,6 +227,40 @@ test('keeps a healthy dashboard healthy across repeated settled observations', (
     const result = analyzeDashboardSnapshot('analytics', healthySnapshot, 14)
     assert.equal(result.verdict, 'healthy', `attempt ${attempt + 1}`)
   }
+})
+
+test('flags non-monotonic and repeated analytics axis labels', () => {
+  const issues = analyticsAxisIssues([
+    { label: 'Per-unit CPU', yLabels: ['0%', '1600%', '1867%', '533%'], xLabels: ['0m', '0m', '1m'] },
+    { label: 'Memory', yLabels: ['0 GB', '20 GB', '10 GB'], xLabels: ['0s', '5s', '10s'] },
+    { label: 'Small count', yLabels: ['0', '0', '1', '1'], xLabels: ['0s', '5s', '10s'] }
+  ])
+
+  assert.deepEqual(issues, [
+    { kind: 'axis-non-monotonic', detail: 'Per-unit CPU y-axis labels are not monotonic: 0, 1600, 1867, 533' },
+    { kind: 'axis-repeated-label', detail: 'Per-unit CPU x-axis repeats 0m' },
+    { kind: 'axis-non-monotonic', detail: 'Memory y-axis labels are not monotonic: 0, 20, 10' },
+    { kind: 'axis-repeated-label', detail: 'Small count y-axis repeats 0, 1' }
+  ])
+  assert.equal(analyzeDashboardSnapshot('analytics', { ...healthySnapshot, analyticsCharts: [{ label: 'CPU', yLabels: ['0', '2', '1'], xLabels: [] }] }).verdict, 'attention')
+  assert.equal(analyzeDashboardSnapshot('analytics', { ...healthySnapshot, analyticsCharts: [{ label: 'count', yLabels: ['0', '0', '1'], xLabels: [] }] }).verdict, 'attention')
+})
+
+test('extracts analytics axis labels from rendered chart SVGs', async () => {
+  const snapshot = await inspectPage(fakePage({
+    primarySelectors: ['#analytics-page .an-kpis'],
+    analyticsCharts: [{
+      label: 'Fleet CPU',
+      yLabels: ['0%', '25%', '50%'],
+      xLabels: ['0s', '15s', '30s']
+    }]
+  }), 'analytics')
+
+  assert.deepEqual(snapshot.analyticsCharts, [{
+    label: 'Fleet CPU',
+    yLabels: ['0%', '25%', '50%'],
+    xLabels: ['0s', '15s', '30s']
+  }])
 })
 
 test('reports visible staleness, empty tables, and configured-cap contradictions', () => {
@@ -310,16 +344,16 @@ test('a precondition verdict says did not run, never attention', () => {
 })
 
 test('a timed-out page is attention with a timeout issue naming the page', () => {
-  const assessment = timedOutAssessment('build-orders', '/build-orders', 60_000, 'net::ERR_ABORTED')
+  const assessment = timedOutAssessment('analytics', '/analytics', 60_000, 'net::ERR_ABORTED')
 
   assert.equal(assessment.verdict, 'attention')
   assert.equal(assessment.timedOut, true)
   assert.equal(assessment.elapsedMs, 60_000)
   assert.deepEqual(assessment.issues, [{
     kind: 'timeout',
-    detail: 'Build Order capture exceeded 60000 ms: net::ERR_ABORTED; partial screenshot only'
+    detail: 'Analytics capture exceeded 60000 ms: net::ERR_ABORTED; partial screenshot only'
   }])
-  assert.equal(renderVerdict({ verdict: 'attention', pages: [assessment] }).includes('timeout: Build Order capture exceeded 60000 ms'), true)
+  assert.equal(renderVerdict({ verdict: 'attention', pages: [assessment] }).includes('timeout: Analytics capture exceeded 60000 ms'), true)
 })
 
 test('a page timeout is bounded so a hang cannot stall the whole run', { timeout: 5000 }, async () => {
@@ -347,18 +381,18 @@ test('the per-page capture loop bounds a hung page, keeps its partial screenshot
   const assessment = await capturePageBounded(
     async () => hungPage,
     async () => new Promise(() => {}), // never resolves: the page hung
-    'build-orders', '/build-orders', 30
+    'analytics', '/analytics', 30
   )
 
-  assert.equal(assessment.name, 'build-orders')
+  assert.equal(assessment.name, 'analytics')
   assert.equal(assessment.verdict, 'attention')
   assert.equal(assessment.timedOut, true)
   assert.equal(assessment.elapsedMs, 30)
   assert.equal(assessment.issues.length, 1)
   assert.equal(assessment.issues[0].kind, 'timeout')
-  assert.match(assessment.issues[0].detail, /Build Order capture exceeded 30 ms/)
+  assert.match(assessment.issues[0].detail, /Analytics capture exceeded 30 ms/)
   assert.equal(writtenScreenshots.length, 1)
-  assert.match(writtenScreenshots[0], /build-orders\.png$/)
+  assert.match(writtenScreenshots[0], /analytics\.png$/)
   assert.equal(closedPages.length, 1)
 })
 
@@ -418,7 +452,7 @@ test('a direct invocation with a URL but no password exits 69 and writes did-not
   }
 })
 
-function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {
+function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [], analyticsCharts = [], buildRoot = null, serialize = false } = {}) {
   const nodes = elements.map(({ innerText, selectors }) => ({
     innerText,
     selectors,
@@ -445,7 +479,11 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
       ? { querySelector: (childSelector) => childSelector === '.recent-subtitle' ? { innerText: summary.label } : null }
       : null
   }))
-
+  const analyticsChartNodes = analyticsCharts.map((chart) => ({
+    getAttribute: (name) => name === 'aria-label' ? chart.label : null,
+    querySelectorAll: (selector) => (selector === 'text[text-anchor="end"]' ? chart.yLabels : chart.xLabels)
+      .map((textContent) => ({ textContent, innerText: textContent, textContent }))
+  }))
   return {
     evaluate: async (callback, pageName) => {
       const priorDocument = globalThis.document
@@ -454,6 +492,7 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
         title: 'Aiur',
         body: { innerText: nodes.map((element) => element.innerText).join('\n') },
         querySelectorAll: (selector) => {
+          if (selector === '#analytics-page .an-chart svg') return analyticsChartNodes
           if (selector === '.filter-row[aria-label]') return filterGroupNodes
           if (selector === '.history-count') return countSummaryNodes
           const requested = selector.split(',').map((value) => value.trim())
@@ -461,13 +500,16 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
         },
         querySelector: (selector) => {
           if (selector === '[data-phx-main], [data-phx-session]') return {}
+          if (selector === '#build-root') return buildRoot
           return primarySelectors.includes(selector) ? {} : null
         }
       }
       globalThis.window = { getComputedStyle: () => ({ display: 'block', visibility: 'visible' }) }
 
       try {
-        return callback(pageName)
+        return serialize
+          ? new Function('pageName', `return (${callback.toString()})(pageName)`)(pageName)
+          : callback(pageName)
       } finally {
         globalThis.document = priorDocument
         globalThis.window = priorWindow
@@ -475,3 +517,23 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
     }
   }
 }
+
+test('inspectPage evaluates as serialized browser code and flags a blank Build timeline', async () => {
+  const root = {
+    querySelector: (selector) => selector === '.bd-loading' ? { innerText: 'Build timeline unavailable · source unavailable' } : null,
+    querySelectorAll: () => []
+  }
+  const snapshot = await inspectPage(fakePage({ buildRoot: root, primarySelectors: ['#build-root'], serialize: true }), 'build')
+
+  assert.equal(snapshot.buildUnavailable, 'Build timeline unavailable · source unavailable')
+  assert.equal(snapshot.buildHydrated, true)
+  const blankSnapshot = await inspectPage(fakePage({
+    buildRoot: { querySelector: () => null, querySelectorAll: () => [] },
+    primarySelectors: ['#build-root'],
+    serialize: true
+  }), 'build')
+  assert.equal(blankSnapshot.buildHydrated, false)
+  blankSnapshot.capacityReadings = []
+  const blankAssessment = analyzeDashboardSnapshot('build', blankSnapshot)
+  assert.ok(blankAssessment.issues.some(({ kind }) => kind === 'build-not-hydrated'))
+})

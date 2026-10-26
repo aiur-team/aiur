@@ -14,6 +14,8 @@ defmodule Aiur.CodingAgent.Backend do
   declared capability in the registry entry (`t:capabilities/0`).
   Unknown backends fail loud in the registry accessors, never here.
 
+  See `CONTRIBUTING.md` § Adding a harness adapter for the contributor checklist.
+
   ## Session contract
 
   A session is the adapter-owned map returned by `c:start_session/2`
@@ -63,6 +65,15 @@ defmodule Aiur.CodingAgent.Backend do
     * `:delivery` — non-derivable transport, mid-turn injection, pull-tool,
       hook-boundary and native-question facts for `Aiur.Harness.Capabilities`.
       Omitted declarations get conservative defaults.
+    * `:hosted_execution` — declared permission, network, and credential
+      boundaries consumed by hosted-mode validation. Omitted facts are unsafe.
+    * `:launch_telemetry` — module exporting `prepare_launch/2` and `revoke/1`
+      for backend-correlated launch capabilities (distinct from `:run_telemetry` decoding).
+    * `:children` — child specs the harness needs before the Orchestrator
+      starts, collected once by `Aiur.CodingAgent.child_specs/0` in `:init_order`.
+    * `:display_tailer` — module exporting `start/1`, `current_session/1`,
+      `buffer_operator_delivery/3`, `handoff_state/1` and `restore_handoff/2`.
+      Required when `:rc_display_tail` is true.
     * `:immediate_delivery` — Executor messages pass straight through
       to the live process instead of holding at a checkpoint.
     * `:remote_transport` — the backend an RC-promoted session
@@ -80,6 +91,10 @@ defmodule Aiur.CodingAgent.Backend do
       version itself). Defaults to `:native`.
     * `:recoverable_session_error` — provider-owned predicate for errors
       that can safely restore claimed work and replace the stale session.
+    * Provider adapters may expose `restore_handoff_session/3`,
+      `handoff_socket_name/1`, `restore_handoff_transport/3`,
+      `adopt_handoff_turn/4`, and `compact_session/3` for provider-owned
+      daemon handoff and compaction behavior.
   """
   @type capabilities :: %{
           required(:adapter) => module(),
@@ -95,6 +110,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],
           optional(:delivery) => map(),
+          optional(:hosted_execution) => Aiur.Harness.Capabilities.hosted_security(),
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),
           optional(:fallback_backend) => CodingAgent.backend(),
@@ -103,6 +119,8 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:model_catalog_backend) => CodingAgent.backend(),
           optional(:meter_probe) => (atom(), CodingAgent.backend(), keyword() -> map()),
           optional(:recoverable_session_error) => (term() -> boolean()),
+          optional(:launch_telemetry) => module(),
+          optional(:display_tailer) => module(),
           optional(:run_telemetry) => (map() -> term()),
           optional(:presentation) => map(),
           optional(:pricing) => map(),
@@ -115,6 +133,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:configurable) => boolean(),
           optional(:init) => module(),
           optional(:init_order) => non_neg_integer(),
+          optional(:children) => [Supervisor.child_spec() | module() | {module(), term()}],
           optional(:default_command) => String.t(),
           optional(:install_hint) => String.t(),
           optional(atom()) => term()

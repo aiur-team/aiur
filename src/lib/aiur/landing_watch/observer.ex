@@ -1,15 +1,15 @@
 defmodule Aiur.LandingWatch.Observer do
   @moduledoc "Governed GraphQL observation for open PR approval, CI and queue state."
 
-  alias Aiur.GitHub.{Client, Transport}
+  alias Aiur.GitHub.{Access, Client}
   alias Aiur.LandingWatch.Classifier
 
   @spec observe(keyword()) :: {:ok, [map()]} | {:error, term()}
   def observe(opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, prs} <- Client.fetch_open_pull_requests(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       observe_chunks(prs, owner, repo, token, request_fun)
     end
   end
@@ -19,9 +19,9 @@ defmodule Aiur.LandingWatch.Observer do
   def refresh_queue(observations, opts) when is_list(observations) do
     candidates = Enum.filter(observations, &queue_candidate?/1)
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       observe_chunks(Enum.map(candidates, &Map.get(&1, :rest)), owner, repo, token, request_fun)
     end
   end
@@ -29,22 +29,45 @@ defmodule Aiur.LandingWatch.Observer do
   def refresh_queue(_, _), do: {:error, :invalid_queue_observations}
 
   @doc false
-  @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:error, term()}
-  def revalidate_approved_head(number, expected_head, opts) when is_integer(number) and number > 0 and is_binary(expected_head) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
-         {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+  @spec prs_ahead(map(), keyword()) :: {:ok, [pos_integer()]} | {:error, term()}
+  def prs_ahead(%{number: number, merge_queue_entry: %{"position" => position}}, opts)
+      when is_integer(number) and is_integer(position) and position > 1 do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
+         {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"mergeQueue" => %{"entries" => %{"nodes" => nodes}}}}}}} <-
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
-             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
+             "query($owner:String!,$repo:String!,$number:Int!,$limit:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){mergeQueue{entries(first:$limit){nodes{position pullRequest{number}}}}}}}",
+             %{owner: owner, repo: repo, number: number, limit: position - 1},
+             caller: "landing_watch_conflict_queue_ahead"
+           ) do
+      {:ok, nodes |> Enum.filter(&(is_integer(&1["position"]) and &1["position"] < position)) |> Enum.map(&get_in(&1, ["pullRequest", "number"])) |> Enum.filter(&is_integer/1)}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_merge_queue_entries}
+    end
+  end
+
+  def prs_ahead(_, _), do: {:error, :invalid_merge_queue_position}
+
+  @doc false
+  @spec revalidate_approved_head(pos_integer(), String.t(), keyword()) :: :ok | {:hold, term()} | {:error, term()}
+  def revalidate_approved_head(number, expected_head, opts) when is_integer(number) and number > 0 and is_binary(expected_head) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
+         {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
+             token,
+             "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewDecision mergeable mergeStateStatus autoMergeRequest{enabledAt} mergeQueueEntry { id } reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}",
              %{owner: owner, repo: repo, number: number},
              caller: "landing_watch_revalidate"
            ),
          true <-
            Map.get(pr, "headRefOid") == expected_head and Classifier.approved_at_head?(pr) and
              is_nil(Map.get(pr, "mergeQueueEntry")) and is_nil(Map.get(pr, "autoMergeRequest")) do
-      :ok
+      mergeability_verdict(pr)
     else
       {:error, _} = error -> error
       false -> {:error, :approval_or_head_changed}
@@ -53,6 +76,11 @@ defmodule Aiur.LandingWatch.Observer do
   end
 
   def revalidate_approved_head(_, _, _), do: {:error, :invalid_approval_revalidation}
+
+  defp mergeability_verdict(%{"mergeable" => "MERGEABLE", "mergeStateStatus" => state}) when state in ["CLEAN", "UNSTABLE"], do: :ok
+  defp mergeability_verdict(%{"mergeable" => "CONFLICTING"}), do: {:error, :merge_conflict}
+  defp mergeability_verdict(%{"mergeable" => "UNKNOWN"}), do: {:hold, :mergeability_unknown}
+  defp mergeability_verdict(_), do: {:error, :mergeability_unavailable}
 
   defp observe_chunks(prs, owner, repo, token, request_fun) do
     prs
@@ -83,7 +111,7 @@ defmodule Aiur.LandingWatch.Observer do
     query = "query AiurLandingWatch($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { #{aliases} } }"
 
     with {:ok, %{"data" => %{"repository" => repository}}} <-
-           Transport.github_graphql(request_fun, token, query, %{"owner" => owner, "repo" => repo}, caller: "landing_watch_observation"),
+           Access.github_graphql(request_fun, token, query, %{"owner" => owner, "repo" => repo}, caller: "landing_watch_observation"),
          true <- is_map(repository) do
       observations = prs |> Enum.with_index() |> Enum.map(fn {rest, i} -> normalize(rest, Map.get(repository, "pr_#{i}")) end)
       if Enum.all?(observations, &is_map/1), do: {:ok, observations}, else: {:error, :incomplete_landing_observation}
@@ -101,8 +129,10 @@ defmodule Aiur.LandingWatch.Observer do
       raw: pr,
       head: Map.get(pr, "headRefOid"),
       head_committed_at: get_in(pr, ["commits", "nodes"]) |> List.wrap() |> List.last() |> then(&get_in(&1 || %{}, ["commit", "committedDate"])),
+      head_parents: get_in(pr, ["commits", "nodes"]) |> List.wrap() |> List.last() |> then(&(get_in(&1 || %{}, ["commit", "parents", "nodes"]) || [])) |> Enum.map(& &1["oid"]),
       state: Map.get(pr, "state"),
       base: Map.get(pr, "baseRefName"),
+      base_oid: Map.get(pr, "baseRefOid"),
       draft?: Map.get(pr, "isDraft"),
       review_decision: Map.get(pr, "reviewDecision"),
       reviews: get_in(pr, ["reviews", "nodes"]),
@@ -121,9 +151,9 @@ defmodule Aiur.LandingWatch.Observer do
   defp queue_candidate?(_), do: false
 
   defp fields do
-    "number id state headRefOid baseRefName isDraft reviewDecision mergeable " <>
-      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id headCommit { oid } pullRequest { id headRefOid } } " <>
+    "number id state headRefOid baseRefName baseRefOid isDraft reviewDecision mergeable " <>
+      "mergeStateStatus autoMergeRequest { enabledAt } mergeQueueEntry { id state position headCommit { oid committedDate } pullRequest { id number headRefOid } } " <>
       "reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } " <>
-      "commits(last: 1) { nodes { commit { committedDate } } }"
+      "commits(last: 1) { nodes { commit { committedDate parents(first: 2) { nodes { oid } } } } }"
   end
 end

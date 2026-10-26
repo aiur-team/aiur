@@ -45,6 +45,8 @@ refused; use `gh issue create --label ...` so the disposition can be checked.
 The repository's pre-tool hook applies the same rule to Executor Bash calls and
 recognizable non-`gh` GitHub issue creation.
 
+**Give every finding you file a home-page epic.** After issue creation returns the number, call `aiur_set_epic {"epic":"infra","ids":[101]}` (replace the example key and id); Aiur records you as the actor. Use a general epic key only; an unknown key is refused with the list of valid keys, so read that error rather than guess. If the finding belongs to a feature, use `aiur_feature {"op":"add","slug":"docs-site","ids":[101]}` instead, replacing the slug and id. If you cannot tell which epic fits, set none: the ticket goes to the column its type label matches (defaults `bug`, `design`, `refactor`/`chore`, `documentation`), else Unsorted. **Never** express an epic as a label: `epic:<name>` parks the ticket and `epic` marks an undispatched container. If the tool is absent or build history is unavailable, skip the step and say so in the workpad; never block filing on it.
+
 ## Out-of-scope findings
 
 While working on an issue, if you find a separate, real problem that is **not**
@@ -80,6 +82,14 @@ Your per-turn prompt carries the repo-specific build/test commands (in its
 workspace-setup notes) and the manual-test-guard rule (in the shared
 instructions' "Manual CLI verification" section); follow those for anything mix-
 or `scripts/`-specific.
+
+## Temporary-path cleanup
+
+Never delete anything under `/tmp/.X11-unix`, `/tmp/.ICE-unix`, or a
+`/tmp/.X*-lock` path; these can belong to the live desktop session. Never
+sweep `/tmp` by age, owner, or glob, including `/tmp/*` and `/tmp/.*`. Delete
+only exact paths you created, by exact name. Use the workspace scratch helper
+(`$TMPDIR`, under `~/.aiur`) for temporary files.
 
 ## Synthetic load repros
 

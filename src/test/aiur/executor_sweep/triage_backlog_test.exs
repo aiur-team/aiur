@@ -101,7 +101,7 @@ defmodule Aiur.ExecutorSweep.TriageBacklogTest do
     Path.join(root, "seen.json")
   end
 
-  test "after a restart with a seen file, only a newly stale ticket wakes the Executor" do
+  test "after restart, a changed stale triage backlog wakes once with its count and oldest ticket" do
     parent = self()
     path = seen_path()
     {:ok, state} = Agent.start_link(fn -> {:available, [ticket("1", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]} end)
@@ -112,8 +112,7 @@ defmodule Aiur.ExecutorSweep.TriageBacklogTest do
 
     Agent.update(state, fn {status, tickets} -> {status, [ticket("2", ["needs-triage"], ~U[2026-10-16 10:00:00Z]) | tickets]} end)
     assert {:ok, pid} = start_sweep(state, &send(parent, {:finding, &1}), path)
-    assert_receive {:finding, %{kind: "stale_needs_triage", ticket: 2}}, 1_000
-    refute_receive {:finding, %{ticket: 1}}, 50
+    assert_receive {:finding, %{kind: "stale_needs_triage", ticket: 1, oldest_ticket: 1, ticket_count: 2}}, 1_000
 
     GenServer.stop(pid)
     Agent.stop(state)
@@ -149,7 +148,8 @@ defmodule Aiur.ExecutorSweep.TriageBacklogTest do
     Agent.update(state, fn _ -> {:available, [ticket("4466", ["needs-triage"], ~U[2026-10-16 09:00:00Z])]} end)
     sweep_once(pid)
 
-    assert {:ok, [%{"topic" => "ticket.4466.agent.executor-sweep.finding", "ticket" => 4466, "kind" => "stale_needs_triage"}]} = Aiur.ExecutorWakeInbox.wait(1_000, inbox)
+    assert {:ok, [%{"topic" => "ticket.4466.agent.executor-sweep.finding", "ticket" => 4466, "oldest_ticket" => 4466, "ticket_count" => 1, "kind" => "stale_needs_triage"}]} =
+             Aiur.ExecutorWakeInbox.wait(1_000, inbox)
 
     GenServer.stop(pid)
     GenServer.stop(inbox)

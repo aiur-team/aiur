@@ -26,8 +26,7 @@ defmodule Aiur.GitHub.HostCommand do
   that shell resolves.
   """
 
-  alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Access.Token
 
   @doc """
   The host `gh` executable to use for daemon-side calls.
@@ -94,7 +93,7 @@ defmodule Aiur.GitHub.HostCommand do
   """
   @spec bot_token() :: String.t() | nil
   def bot_token do
-    GitHubConfig.token()
+    Token.token()
   rescue
     _unavailable -> nil
   catch
@@ -131,7 +130,7 @@ defmodule Aiur.GitHub.HostCommand do
   end
 
   defp installed_host_wrapper(bin_dir) do
-    bin_dir = bin_dir || AgentGitHubGuard.host_bin_dir()
+    bin_dir = bin_dir || Application.get_env(:aiur, :host_guard_bin_dir) || Path.join(System.user_home!(), ".aiur/bin")
     path = Path.join(bin_dir, "gh")
 
     case File.stat(path) do

@@ -1,5 +1,7 @@
 import { S, ctx, fx, onReset } from './state.js';
 import { esc } from './dom.js';
+import { timed } from './perf.js';
+export const drawEdges = timed('drawEdges', drawEdgesImpl);
 
 let edgeSig = '', edgeUntil = 0;
 onReset(() => { edgeSig = ''; edgeUntil = 0; });
@@ -44,19 +46,24 @@ export function drawEdgesSoon(ms) {
   edgeUntil = performance.now() + (ms || 0);
   if (was) return;
   const loop = () => {
-    drawEdges(true);
-    if (performance.now() < edgeUntil) ctx.life.frame('edges', loop);
+    if (!ctx.content?.isConnected) return;
+    const moving = ctx.content.getAnimations({ subtree: true }).some(a =>
+      ['left', 'width'].includes(a.transitionProperty) && a.playState === 'running' && a.effect.target.matches('.bd-card'));
+    const done = performance.now() >= edgeUntil && !moving;
+    if (done && (ctx.hoverId || ctx.treeId) && fx.reapply) fx.reapply();
+    else drawEdges(true);
+    if (!done) ctx.life.frame('edges', loop);
   };
   ctx.life.frame('edges', loop);
 }
 
-export function drawEdges(force) {
+function drawEdgesImpl(force) {
   const { content, svg, bandEl, D, L } = ctx;
   if (!content || !svg || !L || !D || !content.isConnected) return;
   const cr = content.getBoundingClientRect();
   const vis = new Map(), rects = new Map();
   ctx.R.forEach(el => { if (el.style.opacity !== '0') vis.set(el.dataset.id, el); });
-  L.band.items.forEach(it => { if (it.el.style.opacity !== '0') vis.set(it.t.id, it.el); });
+  L.band.items.forEach(it => { if (it.el && it.el.style.opacity !== '0') vis.set(it.t.id, it.el); });
   const rectOf = (id) => { let r = rects.get(id); if (!r) rects.set(id, r = vis.get(id).getBoundingClientRect()); return r; };
   const hid = ctx.hoverId ?? null;
   const sig = [...vis.keys()].join(',') + '|' + ctx.cols.join(',') + '|' + hid + '|' +

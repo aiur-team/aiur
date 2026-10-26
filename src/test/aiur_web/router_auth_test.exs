@@ -8,6 +8,7 @@ defmodule AiurWeb.RouterAuthTest do
 
   @supervisor_token String.duplicate("s", 32)
   @dashboard_credentials {"operator", "secret"}
+  @session_options Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session")
 
   setup do
     FinancialDataAccess.Generation.invalidate()
@@ -120,6 +121,49 @@ defmodule AiurWeb.RouterAuthTest do
 
     assert conn.status == 401
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
+  end
+
+  # Old Build Order links (bookmarks, ticket comments, handoff notes) must keep
+  # opening the right Build home view after the pages retired.
+  test "a Build Order root URL redirects permanently to its imported feature focus" do
+    for {path, location} <- [
+          {"/build-orders/2573", "/?feature=bo-2573"},
+          {"/build-orders/42?view=gantt&x=1", "/?feature=bo-42"},
+          {"/build-orders/42?ticket=7", "/?feature=bo-42&ticket=7"}
+        ] do
+      conn = build_order_request(:get, path)
+      assert conn.status == 301, path
+      assert get_resp_header(conn, "location") == [location], path
+    end
+  end
+
+  test "the Build Order catalog URL redirects permanently to the Build home" do
+    for {path, location} <- [{"/build-orders", "/"}, {"/build-orders?x=1", "/"}, {"/build-orders?ticket=7", "/?ticket=7"}] do
+      conn = build_order_request(:get, path)
+      assert conn.status == 301, path
+      assert get_resp_header(conn, "location") == [location], path
+    end
+  end
+
+  test "an invalid Build Order root drops to home and never guesses a feature" do
+    for root <- ["01", "abc", "-4", "0", String.duplicate("9", 20), "1%0d%0aSet-Cookie:x", "%2F%2Fevil.example"] do
+      conn = build_order_request(:get, "/build-orders/" <> root)
+      assert conn.status == 301, root
+      assert get_resp_header(conn, "location") == ["/"], root
+      refute Enum.any?(get_resp_header(conn, "set-cookie"), &(&1 =~ "x=")), root
+    end
+
+    hostile_ticket = build_order_request(:get, "/build-orders/42?ticket=%2F%2Fevil.example")
+    assert get_resp_header(hostile_ticket, "location") == ["/?feature=bo-42"]
+  end
+
+  test "Build Order redirects stay behind dashboard authentication and answer GET only" do
+    unauthenticated = Router.call(dashboard_conn(:get, "/build-orders/42"), Router.init([]))
+    assert unauthenticated.status == 401
+    assert get_resp_header(unauthenticated, "www-authenticate") == ["Basic realm=\"Aiur\""]
+    assert get_resp_header(unauthenticated, "location") == []
+
+    assert build_order_request(:post, "/build-orders/42").status == 404
   end
 
   test "Decision reads require bearer auth, bypass dashboard Basic Auth, and stay read-only available" do
@@ -290,10 +334,21 @@ defmodule AiurWeb.RouterAuthTest do
   defp dashboard_conn(method, path, credentials \\ @dashboard_credentials) do
     method
     |> conn(path)
+    |> Map.put(:secret_key_base, String.duplicate("s", 64))
     |> put_private(:aiur_dashboard_credentials, credentials)
+    |> AiurWeb.Session.call(@session_options)
+    |> fetch_session()
   end
 
   defp redirect_request(path), do: CommandsRedirectController.legacy(conn(:get, path), %{})
+
+  defp build_order_request(method, path) do
+    method
+    |> dashboard_conn(path)
+    |> init_test_session(%{})
+    |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+    |> Router.call(Router.init([]))
+  end
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
