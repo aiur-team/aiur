@@ -2,7 +2,8 @@ core	00-deadline.sh
 core	00-identity-a.sh
 aiur-policy	00-identity-b.sh
 core	00-identity-c.sh
-core	10-classify.sh
+core	10-a-classify.sh
+aiur-policy	10-b-issue-api-policy.sh
 aiur-policy	15-a-disposition-helper.sh
 core	15-b-positionals.sh
 aiur-policy	15-c-disposition.sh
