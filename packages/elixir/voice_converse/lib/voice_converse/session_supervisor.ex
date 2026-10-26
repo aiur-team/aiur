@@ -64,6 +64,8 @@ defmodule VoiceConverse.SessionSupervisor do
       _ -> {:error, :unknown}
     end
   catch
+    :exit, {:session_start_failed, code} -> {:error, code}
+    :exit, {{:session_start_failed, code}, _} -> {:error, code}
     :exit, _reason -> {:error, :unknown}
   end
 end
