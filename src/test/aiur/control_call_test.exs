@@ -65,6 +65,12 @@ defmodule Aiur.ControlCallTest do
     assert {:error, :denied_remote} = ControlCall.parse(~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|)
   end
 
+  test "local parsing preserves denied-remote scope for the run guard" do
+    expression = ~s|Aiur.AgentControlCLI.operator_answer(decision_id: "d", operator: true, option_id: "o", expected_version: 1, confirmation: "d")|
+
+    assert {:ok, %{scope: :deny}} = ControlCall.parse(expression, remote: false)
+  end
+
   test "classifies mutating verbs and enforces maximum scope" do
     assert {:ok, %{scope: :write}} = ControlCall.parse("Aiur.AgentControlCLI.set_max_agents(2)")
     assert {:ok, %{scope: :write}} = ControlCall.parse("Aiur.AgentControlCLI.executor_wait(timeout_ms: 300000, json: true)")
