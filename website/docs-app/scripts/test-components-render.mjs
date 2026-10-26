@@ -22,11 +22,13 @@ async function render(components, features = []) {
 }
 
 test('renders_missing_docs_and_empty_planned_without_placeholder_link', async () => {
-  const html = await render([component()])
+  const html = await render([component({ requires: ['future'], optional: ['future'] })])
   assert.match(html, /id="component-sample"/)
   assert.match(html, /No planned features are listed yet\./)
   assert.doesNotMatch(html, /Sample documentation/)
   assert.match(html, /abc123/)
+  assert.doesNotMatch(html, /href="#component-future"/)
+  assert.equal((html.match(/future \(planned\)/g) || []).length, 2)
 })
 
 test('renders_status_notes_full_fields_and_real_links', async () => {

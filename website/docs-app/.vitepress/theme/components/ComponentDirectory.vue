@@ -45,7 +45,7 @@ const installCommand = (entry: PublicComponent) => entry.install.type === 'npm' 
         <p v-if="entry.docs.length" class="docs-links"><a v-for="doc in entry.docs" :key="doc" :href="docUrl(doc)">{{ docLabel(doc, entry.name) }}</a></p>
         <dl>
           <dt>Requires</dt><dd><template v-if="entry.requires.length"><template v-for="id in entry.requires" :key="id"><a v-if="names.has(id)" :href="`#component-${id}`" @click="optionalOnly = false">{{ names.get(id) }}</a><span v-else>{{ id }} (planned)</span></template></template><span v-else>None</span></dd>
-          <dt>Optional dependencies</dt><dd><template v-if="entry.optional.length"><a v-for="id in entry.optional" :key="id" :href="`#component-${id}`" @click="optionalOnly = false">{{ names.get(id) || id }}</a></template><span v-else>None</span></dd>
+          <dt>Optional dependencies</dt><dd><template v-if="entry.optional.length"><template v-for="id in entry.optional" :key="id"><a v-if="names.has(id)" :href="`#component-${id}`" @click="optionalOnly = false">{{ names.get(id) }}</a><span v-else>{{ id }} (planned)</span></template></template><span v-else>None</span></dd>
           <dt>Capabilities</dt><dd><code v-for="id in entry.capabilities" :key="id">{{ id }}</code><span v-if="!entry.capabilities.length">None</span></dd>
           <dt>Config keys</dt><dd><a v-for="key in entry.config" :key="key" :href="configUrl(key)"><code>{{ key }}</code></a><span v-if="!entry.config.length">None</span></dd>
           <dt>Environment names</dt><dd><code v-for="name in entry.env" :key="name">{{ name }}</code><span v-if="!entry.env.length">None</span></dd>
