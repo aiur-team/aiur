@@ -59,9 +59,9 @@ the change falsifies before writing anything new.
 | Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
 | Model or behavior explanation | `website/docs-app/concepts/` |
 | Skills | `website/docs-app/skills.md` |
-| New or changed component | `components.json` (the Components page regenerates) |
+| New or changed component | `components/<name>.json` (the Components page regenerates) |
 
-Add genuinely new pages to the sidebar in `website/docs-app/.vitepress/config.ts`.
+Add genuinely new pages to the sidebar in `website/docs-app/.vitepress/config.ts`, or nobody can reach them.
 
 The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
 config keys across the index and topic pages; missing entries fail lint.
