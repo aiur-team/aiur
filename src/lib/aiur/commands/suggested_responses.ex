@@ -1,10 +1,10 @@
 defmodule Aiur.Commands.SuggestedResponses do
   @moduledoc false
 
-  alias Aiur.Alerts
   alias Aiur.Commands.RequestContent
   alias Aiur.Commands.Requester
   alias Aiur.Config
+  alias Aiur.Signal
 
   @spec validate(Aiur.Decision.t(), keyword()) :: :ok | {:error, term()}
   def validate(decision, opts) do
@@ -23,7 +23,7 @@ defmodule Aiur.Commands.SuggestedResponses do
   def warn_once({:reply, {:ok, %{status: :accepted, decision: decision}}, _state} = result, previous, opts) do
     with false <- Map.has_key?(previous.current, decision.decision_id),
          {:warn, reason} <- check(decision, opts) do
-      alert_fun = Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3)
+      alert_fun = Keyword.get(opts, :alert_fun, &Signal.agent_alert/3)
 
       alert_fun.(
         "ticket.#{decision.ticket.identifier}.agent.decision.suggested-responses",
