@@ -88,6 +88,90 @@ defmodule Aiur.Orchestrator.Status.CompletedReworkTest do
     assert RunnerTasks.capture() == runners_before
   end
 
+  test "completed replacement ignores higher priority tickets blocked by an open dependency" do
+    issue = %{completed_rework_issue("dependency-retry") | state: "todo", priority: 3}
+
+    blocked = %Issue{
+      id: "blocked-p1",
+      identifier: "MT-BLOCKED-P1",
+      title: "Blocked priority 1",
+      state: "todo",
+      priority: 1,
+      dispatch_authorized?: true,
+      blocked_by: [%{id: "blocker-p1", identifier: "MT-BLOCKER", state: "rework", needs: :pr_merged}]
+    }
+
+    configure_completed_revalidation!([issue, blocked], max_concurrent_agents: 3, tracker_active_states: ["todo", "in-progress", "rework"])
+    {state, entry, _worker, _item_ids} = completed_retention_fixture(issue)
+    entry = Map.put(entry, :completed_provenance, true)
+    state = put_in(state.running[issue.id], entry)
+    state = %{state | last_polled_issues: %{blocked.id => blocked}}
+
+    assert DispatchPolicy.dispatch_decision(blocked, state) == {:skip, :dependency}
+    refute Reactivation.completed_replacement_deferred?(state, issue)
+  end
+
+  test "completed replacement still defers to a higher priority admissible ticket" do
+    issue = %{completed_rework_issue("admissible-retry") | state: "todo", priority: 3}
+
+    candidate = %Issue{
+      id: "admissible-p1",
+      identifier: "MT-ADMISSIBLE-P1",
+      title: "Admissible priority 1",
+      state: "todo",
+      priority: 1,
+      dispatch_authorized?: true,
+      blocked_by: []
+    }
+
+    configure_completed_revalidation!([issue, candidate], max_concurrent_agents: 3, tracker_active_states: ["todo", "in-progress", "rework"])
+    {state, entry, _worker, _item_ids} = completed_retention_fixture(issue)
+    entry = Map.put(entry, :completed_provenance, true)
+    state = put_in(state.running[issue.id], entry)
+    state = %{state | last_polled_issues: %{candidate.id => candidate}}
+
+    assert DispatchPolicy.dispatch_decision(candidate, state) == :dispatch
+    assert Reactivation.completed_replacement_deferred?(state, issue)
+  end
+
+  test "completed replacement ignores higher priority work when paused agents hold fleet capacity" do
+    issue = %{completed_rework_issue("capacity-retry") | state: "todo", priority: 3}
+
+    candidate = %Issue{
+      id: "capacity-p1",
+      identifier: "MT-CAPACITY-P1",
+      title: "Capacity priority 1",
+      state: "todo",
+      priority: 1,
+      dispatch_authorized?: true,
+      blocked_by: []
+    }
+
+    configure_completed_revalidation!([issue, candidate], max_concurrent_agents: 1, tracker_active_states: ["todo", "in-progress", "rework"])
+    {state, entry, _worker, _item_ids} = completed_retention_fixture(issue)
+    entry = Map.put(entry, :completed_provenance, true)
+
+    paused = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: "MT-PAUSED",
+      issue: %Issue{id: "paused-capacity", identifier: "MT-PAUSED", state: "In Progress"},
+      worker_host: nil,
+      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: :paused},
+      paused_reason: :operator_pause,
+      session_id: "thread-MT-PAUSED",
+      started_at: DateTime.utc_now()
+    }
+
+    state = put_in(state.running[issue.id], entry)
+    state = %{state | effective_concurrent_agents: 1, running: Map.put(state.running, "paused-capacity", paused)}
+    state = %{state | last_polled_issues: %{candidate.id => candidate}}
+
+    assert DispatchPolicy.dispatch_candidate?(candidate, state)
+    assert DispatchPolicy.dispatch_decision(candidate, state) == {:skip, :fleet_capacity}
+    refute Reactivation.completed_replacement_deferred?(state, issue)
+  end
+
   test "tracker rework after completed CI wait honors the state cap" do
     issue = completed_rework_issue("state-cap")
 

@@ -58,7 +58,7 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
       state.last_polled_issues
       |> Map.values()
       |> Enum.reject(&(&1.id == issue.id))
-      |> Enum.filter(&DispatchPolicy.dispatch_candidate?(&1, state))
+      |> Enum.filter(&(DispatchPolicy.dispatch_decision(&1, state) == :dispatch))
 
     case ready do
       [] ->
