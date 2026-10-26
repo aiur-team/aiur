@@ -16,10 +16,10 @@ describe('dist/ validation', () => {
   test('all export targets exist', () => {
     // A fresh Node resolver verifies the installed-package boundary, not physical dist paths.
     execFileSync(process.execPath, ['--input-type=module', '-e',
-      "import { initBanner } from 'aiur-style'; import { initBanner as subpath } from 'aiur-style/banner'; if (typeof initBanner !== 'function' || initBanner !== subpath) process.exit(1);",
+      "import { initBanner, createFlowField } from 'aiur-style'; import { initBanner as subpath } from 'aiur-style/banner'; import { createFlowField as field } from 'aiur-style/field'; if (typeof initBanner !== 'function' || initBanner !== subpath || typeof field !== 'function' || field !== createFlowField) process.exit(1);",
     ], { cwd: packageRoot });
     assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(),
-      ['.', './react', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css', './vitepress.css', './fonts.css', './fonts/*', './assets/*'].sort());
+      ['.', './field', './react', './banner', './aiur-style.css', './css/*', './package.json', './theme-init.js', './tokens', './tokens.css', './vitepress.css', './fonts.css', './fonts/*', './assets/*'].sort());
     const targets = Object.values(pkgJson.exports).flatMap(value =>
       typeof value === 'object' ? Object.values(value) : [value]);
     for (const target of targets) {
