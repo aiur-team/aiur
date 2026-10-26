@@ -68,6 +68,31 @@ defmodule Aiur.GitHub.BudgetSharedTest do
     assert Agent.get(store, & &1) == 60
   end
 
+  test "agent hold reports broker unavailable when the broker bypasses", %{root: root} do
+    budget_root = Path.join(root, "ledger")
+    token_path = Path.join(budget_root, "agent-token")
+    previous_budget_root = Application.get_env(:aiur, :github_budget_dir)
+    File.mkdir_p!(budget_root)
+    Application.put_env(:aiur, :github_budget_dir, budget_root)
+    assert :ok = AgentToken.ensure(path: token_path, token: "agent-pat")
+
+    on_exit(fn ->
+      if previous_budget_root do
+        Application.put_env(:aiur, :github_budget_dir, previous_budget_root)
+      else
+        Application.delete_env(:aiur, :github_budget_dir)
+      end
+
+      TestCleanup.rm_rf!(Path.join(root, "ledger"))
+    end)
+
+    assert {:error, :github_budget_broker_unavailable} =
+             AgentBudgetCommand.execute(
+               ["hold", "--scope", "token", "--resource", "core", "--delay-ms", "1000"],
+               python: nil
+             )
+  end
+
   test "agent-side admissions retain separate workspace actors in the shared store" do
     root = Path.join(System.tmp_dir!(), "agent-budget-socket-#{System.unique_integer([:positive])}")
     budget_root = Path.join(root, "ledger")

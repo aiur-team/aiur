@@ -251,7 +251,7 @@ defmodule Aiur.GitHub.Budget do
   def request_resource(_request), do: "core"
 
   @doc false
-  @spec command([String.t()], String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec command([String.t()], String.t(), keyword()) :: {:ok, String.t()} | {:error, term()} | :bypass
   def command(args, key, opts \\ []), do: BrokerPort.command(args, key, opts)
 
   @doc false
