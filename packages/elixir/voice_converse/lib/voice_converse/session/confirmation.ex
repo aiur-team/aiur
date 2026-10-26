@@ -51,6 +51,7 @@ defmodule VoiceConverse.Session.Confirmation do
 
   defp confirmable?(%{config: %{agent_channel: nil}}, _draft), do: {:error, :capability_unavailable}
   defp confirmable?(_state, %{status: :confirmed}), do: :confirmed
+  defp confirmable?(_state, %{status: :failed}), do: :ok
   defp confirmable?(_state, %{status: :stale}), do: :stale
 
   defp confirmable?(state, %{status: :proposed}) do
@@ -108,8 +109,17 @@ defmodule VoiceConverse.Session.Confirmation do
   defp deliver(state, draft) do
     case state.config.agent_channel.instruct(state.target, draft.text, draft.draft_id, []) do
       {:ok, _delivery_id} -> {:ok, draft, state}
-      {:error, reason} -> {:error, reason, state}
-      _ -> {:error, :unknown, state}
+      {:error, reason} -> fail_delivery(state, draft, reason)
+      _ -> fail_delivery(state, draft, :unknown)
+    end
+  end
+
+  defp fail_delivery(state, draft, reason) do
+    with {:ok, failed, drafts} <- Drafts.transition(state.drafts, draft.draft_id, :failed, at: now(state)),
+         {:ok, state} <- persist_draft(state, failed) do
+      {:error, reason, %{state | drafts: drafts}}
+    else
+      _ -> {:error, reason, state}
     end
   end
 

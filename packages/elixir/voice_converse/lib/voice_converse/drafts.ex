@@ -16,6 +16,7 @@ defmodule VoiceConverse.Drafts do
                  {:proposed, :discarded},
                  {:proposed, :stale},
                  {:confirmed, :sent},
+                 {:confirmed, :failed},
                  {:sent, :delivered},
                  {:sent, :failed},
                  {:failed, :confirmed}

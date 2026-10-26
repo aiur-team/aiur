@@ -80,6 +80,26 @@ defmodule VoiceConverse.ConfirmTest do
     refute_receive {:fake_channel, {:instruct, _, _}}
   end
 
+  test "a delivery error is durable and a later client confirm retries", %{root: root, name: name} do
+    failure = start_supervised!({Agent, fn -> true end})
+
+    id =
+      start!(root, name,
+        target: %{id: "target", test_pid: self(), failure: failure},
+        agent_channel: FailingAgentChannel
+      )
+
+    draft_id = propose(name, id)
+
+    assert {:error, :temporary} = VoiceConverse.confirm_draft(name, id, draft_id, origin: :client)
+    assert_receive {:failing_channel, {:instruct, "ship it", ^draft_id}}
+
+    assert {:ok, %{status: :confirmed}} = VoiceConverse.confirm_draft(name, id, draft_id, origin: :client)
+    assert_receive {:failing_channel, {:instruct, "ship it", ^draft_id}}
+    assert {:ok, records, _meta} = TranscriptStore.read(root, id)
+    assert Enum.any?(records, &(&1["type"] == "draft" and &1["draft_id"] == draft_id and &1["status"] == "failed"))
+  end
+
   defp start!(root, name, opts \\ []) do
     {:ok, config} =
       Config.new(
@@ -87,7 +107,7 @@ defmodule VoiceConverse.ConfirmTest do
         transcript_root: root,
         credentials: StaticCredentials,
         briefing_source: ConfirmBriefingSource,
-        agent_channel: FakeAgentChannel,
+        agent_channel: Keyword.get(opts, :agent_channel, FakeAgentChannel),
         provider: {FakeProvider, []},
         llm: "test-model",
         cloud_disclosure_accepted: true
@@ -118,6 +138,25 @@ defmodule VoiceConverse.ConfirmTest do
     assert_receive {:voice_conversation, ^id, {:draft, %{draft_id: draft_id, status: "proposed"}}}
     draft_id
   end
+end
+
+defmodule FailingAgentChannel do
+  @behaviour VoiceConverse.Ports.AgentChannel
+
+  def instruct(target, text, key, _opts) do
+    send(target.test_pid, {:failing_channel, {:instruct, text, key}})
+
+    if target[:failure] && Agent.get_and_update(target.failure, fn failed? -> {failed?, false} end) do
+      {:error, :temporary}
+    else
+      {:ok, make_ref()}
+    end
+  end
+
+  defdelegate ask(target, question, ref, opts), to: VoiceConverse.Testing.FakeAgentChannel
+  defdelegate fork_query(target, question, opts), to: VoiceConverse.Testing.FakeAgentChannel
+  defdelegate subscribe(target, pid), to: VoiceConverse.Testing.FakeAgentChannel
+  defdelegate capabilities(target), to: VoiceConverse.Testing.FakeAgentChannel
 end
 
 defmodule ConfirmBriefingSource do
