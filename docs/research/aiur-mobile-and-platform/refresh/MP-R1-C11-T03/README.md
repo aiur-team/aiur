@@ -24,7 +24,9 @@ tracker errors, or conditional package-promotion gates.
 
 ## Scope and dispositions
 
-389 canonical MP ticket documents and their build-order mirrors were refreshed.
+389 canonical MP ticket documents were refreshed and are retained. Their
+build-order mirrors were removed per review; canonical ticket paths are the
+authoritative copy.
 This covers E2–E7/N1–N7, later R2 C5–C7, and the open canonical refactor tickets.
 E8 is a separately added program, outside the requested E2…N7 range; Executor QA
 wrappers with no canonical research ticket are not manufactured here.
@@ -57,8 +59,8 @@ It also emitted 16 migration rows and 665 candidate owner outcomes.
 
 Raw counts include proposed files, globs, directories, other repositories,
 non-ticket research and already-refreshed coordinates. They are not semantic
-failure counts. The original report parts concatenate byte-for-byte; each part
-is <=400 lines to preserve raw evidence within the file-size rule.
+failure counts. The generated raw report shards were removed per review; the
+pinned regeneration command below replaces those checked-in copies.
 
 Same-range replay does not understand mixed coordinate baselines. The ready
 subset is checked directly at the target and its mechanical/semantic decisions
@@ -91,12 +93,13 @@ columns retain their explicitly labelled research design.
 - Five wave-2 ranges were read for the named behavior at the refreshed SHA.
 - Ready-subset replay at the target: 18 citations, 13 OK, 5 UNRESOLVED proposed paths;
   zero GONE or LINES-CHANGED. This is a coordinate check, not semantic proof.
-- All 389 canonical/build-order pairs match after resolving relative links; local links resolve.
+- Before mirror removal, all 389 canonical/build-order pairs matched after
+  resolving relative links; only canonical ticket documents are retained.
 - Self-review corrected C1-T01 to select the request version before an answer exists.
 - A full post-edit replay attempt exited 137; mixed baselines remain represented by
   the original full-range report, explicit holds and the scoped target check above.
-- All actual edited/new planning documents remain <=500 lines; raw shards are byte-preserving.
-- Final lint, structural, ready-subset replay, mirror/link checks and handoff-gate
+- All retained edited/new planning documents remain <=500 lines.
+- Final lint, structural, ready-subset replay, canonical-link checks and handoff-gate
   evidence are recorded in the PR's Local tests section when run; no unrun pass is claimed here.
 
 ## Owned source reviews
@@ -114,30 +117,37 @@ columns retain their explicitly labelled research design.
 - [reviews-N5](reviews-N5.md)
 - [reviews-N7](reviews-N7.md)
 
-## Raw C11-T01 report
+## Regenerate the raw C11-T01 report
 
-- [Part 1](raw-01.md)
-- [Part 2](raw-02.md)
-- [Part 3](raw-03.md)
-- [Part 4](raw-04.md)
-- [Part 5](raw-05.md)
-- [Part 6](raw-06.md)
-- [Part 7](raw-07.md)
-- [Part 8](raw-08.md)
-- [Part 9](raw-09.md)
-- [Part 10](raw-10.md)
-- [Part 11](raw-11.md)
-- [Part 12](raw-12.md)
-- [Part 13](raw-13.md)
-- [Part 14](raw-14.md)
-- [Part 15](raw-15.md)
-- [Part 16](raw-16.md)
-- [Part 17](raw-17.md)
-- [Part 18](raw-18.md)
-- [Part 19](raw-19.md)
-- [Part 20](raw-20.md)
-- [Part 21](raw-21.md)
-- [Part 22](raw-22.md)
-- [Part 23](raw-23.md)
-- [Part 24](raw-24.md)
-- [Part 25](raw-25.md)
+Run from a repository checkout containing the pinned commits below. The input is
+composite: the entire research pack at `de341053cc16d2e6096a3a0d0fbacb43ef9f6eb0`,
+overlaid with all 28 pack files present on refreshed main.
+
+This reproduces the
+pre-edit input, including its historical mirrors; using only `--pack-ref` or the
+current canonical-only pack would scan different documents and yield different
+counts.
+
+The script is pinned to refreshed main, and the U8 ledger to its adopted
+publication. Output goes to a temporary directory outside the tracked pack.
+
+```bash
+set -euo pipefail
+refresh_repo="${AIUR_AGENT_WORKSPACE:-$PWD}"
+refresh_tmp=$(mktemp -d)
+refresh_pack=docs/research/aiur-mobile-and-platform
+refresh_research=de341053cc16d2e6096a3a0d0fbacb43ef9f6eb0
+refresh_main=4fbe109541ba1e279d3eb315d8455c4d139c92ba
+mkdir -p "$refresh_tmp/input"
+git -C "$refresh_repo" archive "$refresh_research" "$refresh_pack" |
+  tar -x -C "$refresh_tmp/input"
+git -C "$refresh_repo" archive "$refresh_main" "$refresh_pack" |
+  tar -x -C "$refresh_tmp/input"
+git -C "$refresh_repo" show "$refresh_main:scripts/plan_refresh.py" > "$refresh_tmp/plan_refresh.py"
+git -C "$refresh_repo" show c96025161f1688888de4159d8c31fb117a989b6a:docs/research/refactor-2026-09-26/synthesis/u8-release-007/assignments.csv > "$refresh_tmp/assignments.csv"
+python3 -I "$refresh_tmp/plan_refresh.py" --repo "$refresh_repo" \
+  --from 45a290e3053423100a73b534c620fdd12ebe11ad --to "$refresh_main" \
+  --pack "$refresh_tmp/input/$refresh_pack" \
+  --u8-ledger "$refresh_tmp/assignments.csv" --out "$refresh_tmp/full-range.md"
+printf '%s\n' "$refresh_tmp/full-range.md"
+```

@@ -56,7 +56,7 @@ researched: 2026-10-06
 
 Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
 
-Sibling checkout `/home/everdred/github/everdred/claude-app-server` at
+The `aiur-claude` sibling repository at
 `b1ea979c` (2026-09-18), `package.json` name `aiur-claude`, version `1.1.0`.
 **npm registry shows only `1.0.0` published** (`npm view aiur-claude time`,
 2026-10-06: `1.0.0` on 2026-06-16). aiur's install hint names no version

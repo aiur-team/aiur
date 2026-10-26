@@ -97,8 +97,10 @@ Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-
 
 ## Verification
 
+Run from the `aiur-claude` sibling repository:
+
 ```bash
-npm --prefix /home/everdred/github/everdred/claude-app-server test
+npm test
 ```
 
 | Test (PROPOSED, sibling) | Expected | Fails without |

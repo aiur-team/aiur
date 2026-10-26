@@ -51,8 +51,8 @@ researched: 2026-10-06
 
 Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Mechanical matches were byte-checked; current starting-point ranges still need the named source review `REFRESH-MP-E2-C5-T00-4fbe1095`. Do not implement from the historical ranges below. base_sha and all prior gates are retained; this is not a design rejection.
 
-- Local: Claude Code 2.1.291; `aiur-claude` 1.1.0 = checkout
-  `/home/everdred/github/everdred/claude-app-server` @ `b1ea979` (2026-09-18). Its
+- Local: Claude Code 2.1.291; the `aiur-claude` sibling repository, version 1.1.0
+  @ `b1ea979` (2026-09-18). Its
   `src/server.ts:694-725` builds `claude --print --output-format stream-json --verbose
   --include-partial-messages --permission-mode <mode> [--model] [--mcp-config …
   --allowedTools …] (--session-id|--resume …)`; no `--permission-prompt-tool`, no hooks;

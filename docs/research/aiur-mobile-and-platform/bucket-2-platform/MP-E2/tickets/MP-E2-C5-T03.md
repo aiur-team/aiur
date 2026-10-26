@@ -81,7 +81,12 @@ Refreshed against 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f on 2026-10-14 (MP-R1-
 
 ```bash
 env -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- env -C src mix test test/aiur/commands/native_capture/claude_test.exs
-npm --prefix /home/everdred/github/everdred/claude-app-server test
+```
+
+Run from the `aiur-claude` sibling repository:
+
+```bash
+npm test
 ```
 
 | Test (PROPOSED) | Expected | Fails without |
