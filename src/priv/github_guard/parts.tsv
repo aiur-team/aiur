@@ -1,5 +1,7 @@
 core	00-deadline.sh
-core	00-identity-a.sh
+core	00-identity-a1-startup.sh
+aiur-policy	00-identity-a2-validation.sh
+core	00-identity-a3-context.sh
 aiur-policy	00-identity-b.sh
 core	00-identity-c.sh
 core	10-a-classify.sh

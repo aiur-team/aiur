@@ -68,5 +68,8 @@ eligible answers age out.
 
 The [budget and holds contract](/apis/github-budgets) also applies. When an
 enabled budget cannot coordinate (including a missing broker), the call fails
-closed with a diagnostic. Explicitly disabling budget admission permits calls
-without ledger writes. Disabling admission does not disable answer sharing.
+closed with a diagnostic.
+
+Explicitly disabling budget admission permits calls without ledger writes.
+Budget admission and caching have separate switches; sharing still requires an
+identified credential.
