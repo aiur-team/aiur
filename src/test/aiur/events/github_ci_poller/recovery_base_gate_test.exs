@@ -63,7 +63,8 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
     opts = ctx.opts |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end) |> Keyword.put(:main_watch_history, [main])
 
     assert %{decision: :pending, recovery: "repo_wide_failure"} = Recovery.recover(ctx.issue, ctx.result, opts)
-    assert_received {:attention, "system.main.ci.repo_wide_failure"}
+    assert_received {:attention, topic}
+    assert topic == repo_wide_topic(digest.signature)
 
     assert %{decision: :pending, recovery: "repo_wide_failure"} = Recovery.recover(ctx.issue, ctx.result, opts)
     refute_received {:attention, _}
@@ -77,6 +78,21 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
 
     assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
     refute_received {:attention, _}
+  end
+
+  test "a newer green main run means the matching old signature no longer holds", ctx do
+    digest = %FailureDigest{signature: "old-main-failure", checks: [%{id: 1, name: "test", url: @run_url}]}
+    main_red = %{sha: "main-red", completed_at: 900, checks: [%{name: "test", conclusion: "failure"}], digest: digest}
+    main_green = %{sha: "main-green", completed_at: 1000, checks: [%{name: "test", conclusion: "success"}], digest: %FailureDigest{signature: "green-signature"}}
+    opts = ctx.opts |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end) |> Keyword.put(:main_watch_history, [base("success"), main_red, main_green])
+
+    assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:attention, _}
+  end
+
+  defp repo_wide_topic(signature) do
+    suffix = :crypto.hash(:sha256, signature) |> Base.encode16(case: :lower) |> binary_part(0, 12)
+    "system.main.ci.repo_wide_failure.#{suffix}"
   end
 
   test "a base commit with no recorded result holds as unknown for one main CI run, then routes", ctx do
