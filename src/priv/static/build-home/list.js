@@ -109,11 +109,12 @@ function featureListHTML(D, state, now) {
   const values = Object.entries(D.features).flatMap(([slug, feature]) => {
     const epics = (feature.epics || []).map(key => ({ key, epic: D.epics[key], progress: D.feature_progress?.features?.[key] })).filter(x => x.epic);
     if (!epics.length) return [{ key: slug, feature, epic: { label: feature.label, feature: slug }, lanes: [], progress: null }];
-    const sum = key => knownSum(epics.filter(x => x.progress).map(x => x.progress), key);
+    const sum = key => knownSum(epics.map(x => x.progress || {}), key);
     const closed = sum('closed'), open = sum('open'), ci = sum('ci_wait'), total = sum('total'), unpublished = sum('unpublished');
     const waves = [...new Set(epics.map(x => x.progress?.wave).filter(x => typeof x === 'string' && x.length))];
     const wave = waves.length === 1 ? waves[0] : null;
-    return [{ key: slug, feature, epic: { label: feature.label, feature: slug }, lanes: epics, progress: { feature: slug, closed, open, ci_wait: ci, total, unpublished, wave, reason: epics.some(x => x.progress?.reason) ? epics.find(x => x.progress?.reason)?.reason : null, icon: epics.find(x => x.progress?.icon)?.progress?.icon, summary: epics.find(x => x.progress?.summary)?.progress?.summary, code: null, root_number: epics.find(x => x.progress?.root_number)?.progress?.root_number, root_title: epics.find(x => x.progress?.root_title)?.progress?.root_title, start_date: epics.find(x => x.progress?.start_date)?.progress?.start_date } }];
+    const codes = [...new Set(epics.map(x => x.progress?.code).filter(x => typeof x === 'string' && x.length))];
+    return [{ key: slug, feature, epic: { label: feature.label, feature: slug }, lanes: epics, progress: { feature: slug, closed, open, ci_wait: ci, total, unpublished, wave, reason: epics.some(x => x.progress?.reason) ? epics.find(x => x.progress?.reason)?.reason : null, icon: epics.find(x => x.progress?.icon)?.progress?.icon, summary: epics.find(x => x.progress?.summary)?.progress?.summary, code: codes.length === 1 ? codes[0] : null, root_number: epics.find(x => x.progress?.root_number)?.progress?.root_number, root_title: epics.find(x => x.progress?.root_title)?.progress?.root_title, start_date: epics.find(x => x.progress?.start_date)?.progress?.start_date } }];
   });
   const globallyUnknown = D.feature_progress?.reason;
   const aggregate = key => globallyUnknown ? null : knownSum(values.filter(x => x.progress).map(x => x.progress), key);
@@ -132,7 +133,7 @@ function featureListHTML(D, state, now) {
     const width = n => denominator > 0 ? Math.max(0, n / denominator * 100) : 0;
     return `<div class="fp-bar ${cls}${reason ? ' unknown' : ''}" role="img" aria-label="${esc(reason || `${c} closed, ${o} published open, ${u} planned not published`)}">${reason ? '<i class="fp-unknown"></i>' : `<i class="fp-closed" style="width:${width(c)}%"></i><i class="fp-open" style="width:${width(o)}%"></i><i class="fp-unpublished" style="width:${width(u)}%"></i>`}</div>`;
   };
-  const groupKey = x => typeof x.progress?.wave === 'string' && x.progress.wave.length ? x.progress.wave : 'features';
+  const groupKey = x => typeof x.progress?.wave === 'string' && x.progress.wave.length ? x.progress.wave : `feature:${x.key}`;
   const grouped = new Map();
   for (const item of values) { const key = groupKey(item); (grouped.get(key) || grouped.set(key, []).get(key)).push(item); }
   const waveOrder = value => { const match = /^(\d+)(.*)$/.exec(value); return match ? [Number(match[1]), match[2]] : [Infinity, value]; };
@@ -142,7 +143,7 @@ function featureListHTML(D, state, now) {
     const [an, as] = waveOrder(a), [bn, bs] = waveOrder(b);
     return an - bn || as.localeCompare(bs);
   });
-  const rows = groups.map(([wave, items]) => `<section class="fp-wave"><h2>${wave === 'features' ? 'Features' : `Wave ${esc(wave)}`}</h2>${items.map(({key, feature, epic, lanes, progress: p}) => {
+  const rows = groups.map(([wave, items]) => `<section class="fp-wave"><h2>${wave.startsWith('feature:') ? `Feature: ${esc(items[0].feature.label)}` : `Wave ${esc(wave)}`}</h2>${items.map(({key, feature, epic, lanes, progress: p}) => {
     const membershipKnown = lanes.length > 0 && lanes.every(x => Number.isFinite(x.progress?.total));
     const reason = membershipKnown ? null : (p?.reason || 'planned count unavailable'), c = p?.closed, o = p?.open, u = p?.unpublished, t = p?.total;
     const rowPct = Number.isFinite(c) && Number.isFinite(t) && t > 0 ? Math.floor(c * 100 / t) + '%' : '—';
@@ -153,8 +154,9 @@ function featureListHTML(D, state, now) {
       : [u > 0 ? `${u} of ${t} not published yet` : null, p.ci_wait > 0 ? `${p.ci_wait} waiting on CI` : null].filter(Boolean).join(' · ')
       : reason || 'not published yet — 0 of planned tickets on GitHub';
     const summary = p?.summary ? `<small class="fp-summary">${esc(p.summary)}</small>` : '';
+    const code = p?.code ? `<small class="fp-code">${esc(p.code)}</small>` : '';
     const laneText = lanes.map(x => `${esc(x.epic.label)}: ${Number.isFinite(x.progress?.closed) ? x.progress.closed : '—'} / ${Number.isFinite(x.progress?.total) ? x.progress.total : '—'}`).join(' · ');
-    return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(feature.label)}">${icon}</span><span class="fp-name"><b>${esc(feature.label)}</b>${summary}<small class="fp-summary">${laneText}</small></span>${bar(c, Number.isFinite(o) && Number.isFinite(p?.ci_wait) ? o + p.ci_wait : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter')}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;
+    return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(feature.label)}">${icon}</span><span class="fp-name"><b>${esc(feature.label)}</b>${code}${summary}<small class="fp-summary">${laneText}</small></span>${bar(c, Number.isFinite(o) && Number.isFinite(p?.ci_wait) ? o + p.ci_wait : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter')}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;
   }).join('')}</section>`).join('');
   const legend = '<div class="fp-legend"><span><i class="closed"></i>Closed</span><span><i class="open"></i>Published, open</span><span><i class="unpublished"></i>Planned, not published</span></div>';
   const version = D.feature_progress?.plan_version || 'plan version unavailable';
