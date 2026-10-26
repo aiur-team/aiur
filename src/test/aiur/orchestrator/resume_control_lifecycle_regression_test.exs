@@ -145,169 +145,175 @@ defmodule Aiur.Orchestrator.ResumeControlLifecycleRegressionTest do
     Application.delete_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms)
   end
 
-  test "resume while the pause is still pending reaches the worker", %{orchestrator: pid} do
-    agent = worker("44", self())
+  describe "pause then resume" do
+    test "resume while the pause is still pending reaches the worker instead of reporting already running", %{orchestrator: pid} do
+      agent = worker("44", self())
 
-    :sys.replace_state(pid, fn state ->
-      %{state | running: %{"44" => working_entry("44", "44", agent)}}
-    end)
-
-    assert capture_io(fn -> AgentControlCLI.pause(["44"]) end) =~
-             "aiur: paused #44 (was: running)"
-
-    assert_receive {:worker_got, :pause, _}, 1_000
-    assert [%{state: :running}] = Orchestrator.status(Orchestrator, 1_000)
-    send(agent, :hold_pause)
-
-    output =
-      with_resume_confirm_timeout(3_000, fn ->
-        capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"44" => working_entry("44", "44", agent)}}
       end)
 
-    refute output =~ "already running"
-    assert_receive {:worker_got, :resume, _}, 1_000
-    assert output =~ "aiur: resumed #44 (was: pausing)"
-    assert output =~ "__AIUR_CONTROL_EXIT__:0"
-  end
+      assert capture_io(fn -> AgentControlCLI.pause(["44"]) end) =~
+               "aiur: paused #44 (was: running)"
 
-  test "resume after an applied pause restarts the worker even when the row is stale", %{
-    orchestrator: pid
-  } do
-    agent = worker("44", self())
+      assert_receive {:worker_got, :pause, _}, 1_000
+      assert [%{state: :running}] = Orchestrator.status(Orchestrator, 1_000)
+      send(agent, :hold_pause)
 
-    :sys.replace_state(pid, fn state ->
-      %{state | running: %{"44" => working_entry("44", "44", agent)}}
-    end)
+      output =
+        with_resume_confirm_timeout(3_000, fn ->
+          capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+        end)
 
-    assert [%{state: :running} = stale_row] = Orchestrator.status(Orchestrator, 1_000)
+      refute output =~ "already running"
+      assert_receive {:worker_got, :resume, _}, 1_000
+      assert output =~ "aiur: resumed #44 (was: pausing)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
 
-    assert capture_io(fn -> AgentControlCLI.pause(["44"]) end) =~
-             "aiur: paused #44 (was: running)"
+    test "resume after an applied pause restarts the worker even when the row is stale", %{
+      orchestrator: pid
+    } do
+      agent = worker("44", self())
 
-    assert_receive {:worker_got, :pause, _}, 1_000
-    send(agent, :ack_pause)
-
-    assert eventually(fn ->
-             get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :paused
-           end)
-
-    Application.put_env(:aiur, :agent_control_cli_status_fun, fn -> [stale_row] end)
-    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_status_fun) end)
-
-    output =
-      with_resume_confirm_timeout(3_000, fn ->
-        capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"44" => working_entry("44", "44", agent)}}
       end)
 
-    refute output =~ "already running"
-    assert_receive {:worker_got, :resume, _}, 1_000
-    assert output =~ "aiur: resumed #44"
-    assert output =~ "__AIUR_CONTROL_EXIT__:0"
-    assert get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :working
-  end
+      assert [%{state: :running} = stale_row] = Orchestrator.status(Orchestrator, 1_000)
 
-  test "a live worker is reported as already running", %{orchestrator: pid} do
-    agent = worker("44", self())
+      assert capture_io(fn -> AgentControlCLI.pause(["44"]) end) =~
+               "aiur: paused #44 (was: running)"
 
-    :sys.replace_state(pid, fn state ->
-      %{state | running: %{"44" => working_entry("44", "44", agent)}}
-    end)
+      assert_receive {:worker_got, :pause, _}, 1_000
+      send(agent, :ack_pause)
 
-    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
-    assert output =~ "aiur: already running #44"
-    assert output =~ "__AIUR_CONTROL_EXIT__:0"
-    refute_receive {:worker_got, :resume, _}, 100
-  end
+      assert eventually(fn ->
+               get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :paused
+             end)
 
-  test "a gone worker is not reported as running", %{orchestrator: pid} do
-    dead = start_owned_task(fn -> :ok end)
-    ref = Process.monitor(dead)
-    assert_receive {:DOWN, ^ref, :process, ^dead, _}, 1000
+      Application.put_env(:aiur, :agent_control_cli_status_fun, fn -> [stale_row] end)
+      on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_status_fun) end)
 
-    :sys.replace_state(pid, fn state ->
-      %{state | running: %{"44" => working_entry("44", "44", dead)}}
-    end)
+      output =
+        with_resume_confirm_timeout(3_000, fn ->
+          capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+        end)
 
-    stderr =
-      capture_io(:stderr, fn ->
-        output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
-        refute output =~ "already running"
-        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      refute output =~ "already running"
+      assert_receive {:worker_got, :resume, _}, 1_000
+      assert output =~ "aiur: resumed #44"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :working
+    end
+
+    test "a live working worker is still reported as already running", %{orchestrator: pid} do
+      agent = worker("44", self())
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"44" => working_entry("44", "44", agent)}}
       end)
 
-    assert stderr =~ "failed to resume #44"
-    assert stderr =~ "worker process is gone"
-  end
+      output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      assert output =~ "aiur: already running #44"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      refute_receive {:worker_got, :resume, _}, 100
+    end
 
-  test "a sleeping agent is not resumed", %{orchestrator: pid} do
-    agent = worker("44", self())
-    entry = "44" |> working_entry("44", agent) |> put_in([:control, :status], :sleeping)
-    :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
-    assert PauseResume.resume_agent(pid, "44") == {:ok, :sleeping}
-    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
-    assert output =~ "aiur: already running #44 (sleeping"
-    refute output =~ "resumed"
-    assert output =~ "__AIUR_CONTROL_EXIT__:0"
-    refute_receive {:worker_got, :resume, _}, 100
-    assert get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :sleeping
-  end
+    test "a working entry whose worker is gone is not reported as running", %{orchestrator: pid} do
+      dead = start_owned_task(fn -> :ok end)
+      ref = Process.monitor(dead)
+      assert_receive {:DOWN, ^ref, :process, ^dead, _}, 1000
 
-  test "a failed worker start is refused by name", %{orchestrator: pid} do
-    entry =
-      "44"
-      |> working_entry("44", self())
-      |> put_in([:control, :status], :error)
-      |> Map.put(:runtime_terminal_failure, %{
-        kind: :startup_failed,
-        reason: :port_exited,
-        observed_at: nil
-      })
-
-    :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
-
-    assert PauseResume.resume_agent(pid, "44") ==
-             {:error, {:worker_startup_failed, :port_exited}}
-
-    stderr =
-      capture_io(:stderr, fn ->
-        output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
-        refute output =~ "resumed"
-        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"44" => working_entry("44", "44", dead)}}
       end)
 
-    assert stderr =~ "failed to resume #44"
-    assert stderr =~ "worker failed to start (:port_exited)"
-    assert get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :error
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+          refute output =~ "already running"
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "failed to resume #44"
+      assert stderr =~ "worker process is gone"
+    end
   end
 
-  test "reactivation names its real prior state", %{orchestrator: pid} do
-    entry = "44" |> working_entry("44", nil) |> put_in([:control, :status], :deactivated)
-    :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
+  describe "resume of a registered agent that is not working" do
+    test "a sleeping agent is reported as sleeping, not resumed", %{orchestrator: pid} do
+      agent = worker("44", self())
+      entry = "44" |> working_entry("44", agent) |> put_in([:control, :status], :sleeping)
+      :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
+      assert PauseResume.resume_agent(pid, "44") == {:ok, :sleeping}
+      output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      assert output =~ "aiur: already running #44 (sleeping"
+      refute output =~ "resumed"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      refute_receive {:worker_got, :resume, _}, 100
+      assert get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :sleeping
+    end
 
-    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "44" -> {:ok, :reactivated} end)
+    test "an agent whose worker failed to start is refused by name", %{orchestrator: pid} do
+      entry =
+        "44"
+        |> working_entry("44", self())
+        |> put_in([:control, :status], :error)
+        |> Map.put(:runtime_terminal_failure, %{
+          kind: :startup_failed,
+          reason: :port_exited,
+          observed_at: nil
+        })
 
-    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
-    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
-    assert output =~ "aiur: reactivated #44 (was: deactivated)"
-    refute output =~ "(was: running)"
+      :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
+
+      assert PauseResume.resume_agent(pid, "44") ==
+               {:error, {:worker_startup_failed, :port_exited}}
+
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+          refute output =~ "resumed"
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "failed to resume #44"
+      assert stderr =~ "worker failed to start (:port_exited)"
+      assert get_in(:sys.get_state(pid).running, ["44", :control, :status]) == :error
+    end
+
+    test "reactivating a deactivated agent names its real prior state", %{orchestrator: pid} do
+      entry = "44" |> working_entry("44", nil) |> put_in([:control, :status], :deactivated)
+      :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
+
+      Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "44" -> {:ok, :reactivated} end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+      output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      assert output =~ "aiur: reactivated #44 (was: deactivated)"
+      refute output =~ "(was: running)"
+    end
+
+    test "restarting a completed agent names its real prior state", %{orchestrator: pid} do
+      entry = "44" |> working_entry("44", nil) |> put_in([:control, :status], :completed)
+      :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
+      Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "44" -> {:ok, :started} end)
+      on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+      output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      assert output =~ "aiur: started #44 (was: completed)"
+      refute output =~ "(was: running)"
+    end
   end
 
-  test "restarting a completed agent names its real prior state", %{orchestrator: pid} do
-    entry = "44" |> working_entry("44", nil) |> put_in([:control, :status], :completed)
-    :sys.replace_state(pid, fn state -> %{state | running: %{"44" => entry}} end)
-    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "44" -> {:ok, :started} end)
-    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
-    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
-    assert output =~ "aiur: started #44 (was: completed)"
-    refute output =~ "(was: running)"
-  end
+  describe "resume of a staged running entry" do
+    test "a working entry whose replacement worker has not started is not reported as running", %{orchestrator: pid} do
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"44" => working_entry("44", "44", nil)}}
+      end)
 
-  test "a staged worker is not reported as running", %{orchestrator: pid} do
-    :sys.replace_state(pid, fn state ->
-      %{state | running: %{"44" => working_entry("44", "44", nil)}}
-    end)
-
-    assert PauseResume.resume_agent(pid, "44") == {:error, :worker_not_started}
+      assert PauseResume.resume_agent(pid, "44") == {:error, :worker_not_started}
+    end
   end
 
   defp eventually(fun, attempts \\ 50) do

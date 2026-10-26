@@ -119,69 +119,73 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     }
   end
 
-  test "returns a named refusal and keeps the orchestrator and registry", %{orchestrator: pid} do
-    use_memory_tracker!([idle_issue("52")])
-    bystander = spawn_link(fn -> Process.sleep(:infinity) end)
+  describe "resume of an idle ticket held by an open blocking decision" do
+    test "returns a named refusal and keeps the orchestrator and its registry", %{orchestrator: pid} do
+      use_memory_tracker!([idle_issue("52")])
+      bystander = spawn_link(fn -> Process.sleep(:infinity) end)
 
-    :sys.replace_state(pid, fn state ->
-      %{
-        state
-        | running: %{"53" => working_entry("53", "53", bystander)},
-          last_polled_issues: %{"52" => idle_issue("52")},
-          blocked_ticket_ids: MapSet.new(["52"])
-      }
-    end)
-
-    assert {:error, {:blocked_on_decision, %{decision_ids: ids, store: store}}} =
-             PauseResume.resume_agent(pid, "52")
-
-    assert is_list(ids)
-    assert store in [:available, :unavailable]
-    assert Process.whereis(Orchestrator) == pid
-    assert %{"53" => %{pid: ^bystander}} = :sys.get_state(pid).running
-  end
-
-  test "CLI prints a readable refusal naming decision hold", %{orchestrator: pid} do
-    use_memory_tracker!([idle_issue("52")])
-
-    :sys.replace_state(pid, fn state ->
-      %{state | last_polled_issues: %{"52" => idle_issue("52")}, blocked_ticket_ids: :unavailable}
-    end)
-
-    stderr =
-      capture_io(:stderr, fn ->
-        output = capture_io(fn -> AgentControlCLI.resume(["52"]) end)
-        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{"53" => working_entry("53", "53", bystander)},
+            last_polled_issues: %{"52" => idle_issue("52")},
+            blocked_ticket_ids: MapSet.new(["52"])
+        }
       end)
 
-    assert stderr =~ "failed to resume #52"
-    assert stderr =~ "open blocking decision"
-    refute stderr =~ "function_clause"
-    assert Process.whereis(Orchestrator) == pid
-  end
+      assert {:error, {:blocked_on_decision, %{decision_ids: ids, store: store}}} =
+               PauseResume.resume_agent(pid, "52")
 
-  test "control call crash replies with error and keeps the registry", %{orchestrator: pid} do
-    bystander = spawn_link(fn -> Process.sleep(:infinity) end)
-    corrupt = "44" |> working_entry("44", self()) |> Map.put(:control, "corrupt")
+      assert is_list(ids)
+      assert store in [:available, :unavailable]
+      assert Process.whereis(Orchestrator) == pid
+      assert %{"53" => %{pid: ^bystander}} = :sys.get_state(pid).running
+    end
 
-    :sys.replace_state(pid, fn state ->
-      %{state | running: %{"44" => corrupt, "53" => working_entry("53", "53", bystander)}}
-    end)
+    test "the CLI prints a readable refusal that names the decision hold", %{orchestrator: pid} do
+      use_memory_tracker!([idle_issue("52")])
 
-    :ok = Exchange.subscribe("ticket.44.agent.attention.control-call-crashed")
-
-    log =
-      capture_log(fn ->
-        assert {:error, {:control_call_crashed, :resume, summary}} =
-                 PauseResume.resume_agent(pid, "44")
-
-        assert summary =~ "no function clause matching"
-        assert {:error, {:control_call_crashed, :pause, _}} = PauseResume.pause_agent(pid, "44")
+      :sys.replace_state(pid, fn state ->
+        %{state | last_polled_issues: %{"52" => idle_issue("52")}, blocked_ticket_ids: :unavailable}
       end)
 
-    assert log =~ "kept its agent registry"
-    assert_receive {:event, %{topic: "ticket.44.agent.attention.control-call-crashed"}}, 2_000
-    assert Process.whereis(Orchestrator) == pid
-    assert %{"53" => %{pid: ^bystander}, "44" => _} = :sys.get_state(pid).running
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.resume(["52"]) end)
+          assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        end)
+
+      assert stderr =~ "failed to resume #52"
+      assert stderr =~ "open blocking decision"
+      refute stderr =~ "function_clause"
+      assert Process.whereis(Orchestrator) == pid
+    end
+  end
+
+  describe "a crash inside a control call" do
+    test "replies with an error and keeps the orchestrator and its registry", %{orchestrator: pid} do
+      bystander = spawn_link(fn -> Process.sleep(:infinity) end)
+      corrupt = "44" |> working_entry("44", self()) |> Map.put(:control, "corrupt")
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"44" => corrupt, "53" => working_entry("53", "53", bystander)}}
+      end)
+
+      :ok = Exchange.subscribe("ticket.44.agent.attention.control-call-crashed")
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:control_call_crashed, :resume, summary}} =
+                   PauseResume.resume_agent(pid, "44")
+
+          assert summary =~ "no function clause matching"
+          assert {:error, {:control_call_crashed, :pause, _}} = PauseResume.pause_agent(pid, "44")
+        end)
+
+      assert log =~ "kept its agent registry"
+      assert_receive {:event, %{topic: "ticket.44.agent.attention.control-call-crashed"}}, 2_000
+      assert Process.whereis(Orchestrator) == pid
+      assert %{"53" => %{pid: ^bystander}, "44" => _} = :sys.get_state(pid).running
+    end
   end
 end
