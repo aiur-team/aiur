@@ -39,7 +39,7 @@ defmodule Aiur.Config.Schema.Instance do
   @primary_key false
   embedded_schema do
     # @config-reference config-configuration-00 instance.mode
-    # @config-detail instance.mode | string | `local` | `hosted` enables fail-closed startup, reload, and dispatch checks for permission, network, credential, Remote Control, local-pane, and REPL isolation. Current production backends remain ineligible until #5701. Read once at daemon start; change it with a restart. |
+    # @config-detail instance.mode | string | `local` | `hosted` adds static startup, reload, and dispatch checks for permission, network, credentials, the effective API-key-only fallback, Remote Control, local panes, and REPL isolation. Authentication for primary routes and account profiles is learned at runtime: unsafe first or later observations fail closed. Claude reauthorizes each action; Codex refuses an unsafe initial account read and later unsafe notifications before subsequent progress, tool calls, or success. Current production backends remain ineligible until #5701. Read once at daemon start; restart to change. |
     field(:mode, :string, default: "local")
 
     # Operator deployments use the owner's subscription credentials; consumer
