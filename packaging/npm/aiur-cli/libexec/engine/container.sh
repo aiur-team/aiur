@@ -41,7 +41,8 @@ run_session_container() {
 
   set_container_cleanup_context "$session" "$socket" "$launch_lock"
   install_session_exit_trap
-  trap 'container_shutdown' TERM INT HUP
+  _container_shutdown_requested=0
+  trap 'request_container_shutdown' TERM INT HUP
   start_container_daemon
   wait_container_startup || { status=$?; return "$status"; }
   mark_container_ready "$session" "$socket" "$launch_lock"
@@ -118,8 +119,23 @@ start_container_daemon() {
   : >"$startup_capture"
   rm -f "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" 2>/dev/null || true
   exec > >(tee -a "$startup_capture") 2>&1
+  launch_container_child
+}
+
+launch_container_child() {
   "${release_cmd[@]}" &
   child=$!
+  if [ "${_container_shutdown_requested:-0}" -eq 1 ]; then
+    container_shutdown
+  fi
+}
+
+request_container_shutdown() {
+  if [ -z "${child:-}" ]; then
+    _container_shutdown_requested=1
+    return 0
+  fi
+  container_shutdown
 }
 
 mark_container_ready() {

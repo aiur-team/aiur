@@ -37,7 +37,7 @@ test("container launch runs without tmux and exits cleanly on SIGTERM", async ()
     'echo "__AIUR_CONFIG_PATH__:/tmp/container-config"',
     'echo "container-release-output"',
     'trap \'rm -f "$AIUR_TEST_READY_FILE"; exit 0\' TERM INT HUP',
-    "while :; do read -r -t 0.05 _ || :; done",
+    "while sleep 0.05; do :; done",
     "",
   ].join("\n"));
   chmodSync(elixir, 0o755);
@@ -140,7 +140,9 @@ test("container launch runs without tmux and exits cleanly on SIGTERM", async ()
     while (!stubbornOutput.includes("stubborn-container-release-output") && Date.now() < stubbornStartDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
-    expect(stubbornOutput).toContain("stubborn-container-release-output");
+    if (!stubbornOutput.includes("stubborn-container-release-output")) {
+      throw new Error(`stubborn release did not start; output:\n${stubbornOutput}`);
+    }
     expect(readFileSync(distributionCapture, "utf8")).toContain("name|aiur-container-test@127.0.0.1|container-volume-cookie-5939|");
     stubbornProcess.kill("SIGTERM");
     const stubbornResult = await Promise.race([
@@ -152,8 +154,12 @@ test("container launch runs without tmux and exits cleanly on SIGTERM", async ()
       process.kill(stubbornReleasePid, "SIGKILL");
       await stubbornExited;
     }
-    expect(stubbornResult).not.toBeNull();
-    expect(stubbornOutput).toContain("sending SIGKILL");
+    if (stubbornResult === null) {
+      throw new Error(`stubborn release did not exit; output:\n${stubbornOutput}`);
+    }
+    if (!stubbornOutput.includes("sending SIGKILL")) {
+      throw new Error(`stubborn release did not reach SIGKILL; output:\n${stubbornOutput}`);
+    }
 
     rmSync(readyFile, { force: true });
     writeFileSync(elixir, "#!/usr/bin/env bash\nexit 7\n");
