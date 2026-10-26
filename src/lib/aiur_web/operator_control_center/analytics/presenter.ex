@@ -437,5 +437,4 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp mean(sum, n), do: sum / n
 
   defp round1(v) when is_number(v), do: Float.round(v * 1.0, 1)
-  defp round1(_v), do: 0.0
 end
