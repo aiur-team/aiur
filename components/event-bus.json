@@ -96,5 +96,6 @@
     "events"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "notify"
 }

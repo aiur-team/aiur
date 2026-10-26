@@ -79,5 +79,6 @@
     "AIUR_GOOGLE_CLIENT_SECRET",
     "AIUR_SECRET_KEY_BASE"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

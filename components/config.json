@@ -75,5 +75,6 @@
   ],
   "capabilities": [
     "merge_policy"
-  ]
+  ],
+  "goal": "run-agents"
 }

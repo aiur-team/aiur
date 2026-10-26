@@ -156,5 +156,6 @@
     "AIUR_SCREEN_GRAB",
     "AIUR_SSH_CONFIG"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }
