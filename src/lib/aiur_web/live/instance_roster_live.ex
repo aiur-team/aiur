@@ -3,6 +3,7 @@ defmodule AiurWeb.InstanceRosterLive do
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
   alias Aiur.Instance.Roster
+  alias Aiur.Instance.Roster.Presentation
   alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DashboardShell, NavState, Overview, RouteRegistry}
 
   @impl true
@@ -55,7 +56,7 @@ defmodule AiurWeb.InstanceRosterLive do
               <h3>{instance.instance_id} <span :if={instance.state == :stale}>(stale)</span></h3>
               <p>Version {instance.version}; heartbeat {age(instance.age_ms)} ago.</p>
               <p>Host: {instance.host_kind || "unknown"}; public URL: {instance.public_url || "unavailable"}</p>
-              <p>Leader: {leader_label(instance.leader?)}; agents: {value(instance.agent_count)} / {value(instance.agent_capacity)}</p>
+              <p>Leader: {Presentation.leader_label(instance.leader?)}; agents: {Presentation.count(instance.agent_count)} / {Presentation.count(instance.agent_capacity)}</p>
               <p>Held tickets: {held_tickets(instance.held_tickets)}</p>
               <ul :if={is_list(instance.agents)} aria-label={"Agents on #{instance.instance_id}"}>
                 <li :for={agent <- instance.agents} data-agent-instance={instance.instance_id} data-observation-age-ms={instance.age_ms}>
@@ -75,11 +76,6 @@ defmodule AiurWeb.InstanceRosterLive do
 
   defp age(ms) when is_integer(ms) and ms < 60_000, do: "#{div(ms, 1_000)} seconds"
   defp age(ms) when is_integer(ms), do: "#{div(ms, 60_000)} minutes"
-  defp leader_label(true), do: "yes"
-  defp leader_label(false), do: "no"
-  defp leader_label(_), do: "unknown"
-  defp value(value) when is_integer(value), do: Integer.to_string(value)
-  defp value(_), do: "unknown"
   defp held_tickets(tickets) when is_list(tickets) and tickets != [], do: Enum.join(tickets, ", ")
   defp held_tickets([]), do: "none"
   defp held_tickets(_), do: "unknown"

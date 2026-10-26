@@ -6,20 +6,25 @@ defmodule Aiur.Orchestrator.InstanceHeartbeatMetadata do
   @spec metadata(keyword()) :: map()
   def metadata(opts \\ []) do
     statuses = Keyword.get(opts, :statuses_fun, &statuses/0).()
+    ownership = Keyword.get(opts, :ownership_metadata_fun, &Aiur.Instance.heartbeat_metadata/0).()
+    ownership_data = ownership_data(ownership)
 
     %{
       "version" => 1,
-      "data" => %{
-        "host_kind" => Keyword.get(opts, :host_kind_fun, &host_kind/0).(),
-        "public_url" => Keyword.get(opts, :public_url_fun, &public_url/0).(),
-        "agent_count" => count_agents(statuses),
-        "agent_capacity" => Keyword.get(opts, :capacity_fun, &agent_capacity/0).(),
-        "held_tickets" => Keyword.get(opts, :held_tickets_fun, &held_tickets/0).(),
-        "agents" => agent_rows(statuses),
-        "leader" => nil
-      }
+      "data" =>
+        Map.merge(ownership_data, %{
+          "host_kind" => Keyword.get(opts, :host_kind_fun, &host_kind/0).(),
+          "public_url" => Keyword.get(opts, :public_url_fun, &public_url/0).(),
+          "agent_count" => count_agents(statuses),
+          "agent_capacity" => Keyword.get(opts, :capacity_fun, &agent_capacity/0).(),
+          "held_tickets" => Keyword.get(opts, :held_tickets_fun, &held_tickets/0).(),
+          "agents" => agent_rows(statuses)
+        })
     }
   end
+
+  defp ownership_data(%{"version" => 1, "data" => data}) when is_map(data), do: data
+  defp ownership_data(_), do: %{}
 
   defp statuses do
     case Aiur.Orchestrator.status() do

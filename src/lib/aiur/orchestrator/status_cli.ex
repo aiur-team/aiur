@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
   alias Aiur.GitHub.Access
   alias Aiur.GitHub.HoldPressure
   alias Aiur.Instance.{LeaseStore, Roster}
+  alias Aiur.Instance.Roster.Presentation
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.StatusObservation
@@ -159,7 +160,7 @@ defmodule Aiur.Orchestrator.StatusCLI do
 
     Enum.each(instances, fn row ->
       IO.puts(
-        "  #{row.instance_id} #{state_label(row.state)} #{row.version} heartbeat_age_ms=#{row.age_ms} host=#{Map.get(row, :host_kind) || "unknown"} public_url=#{Map.get(row, :public_url) || "unavailable"} leader=#{leader_label(Map.get(row, :leader?))} agents=#{value(Map.get(row, :agent_count))}/#{value(Map.get(row, :agent_capacity))} held_tickets=#{held_tickets(Map.get(row, :held_tickets))}"
+        "  #{row.instance_id} #{state_label(row.state)} #{row.version} heartbeat_age_ms=#{row.age_ms} host=#{Map.get(row, :host_kind) || "unknown"} public_url=#{Map.get(row, :public_url) || "unavailable"} leader=#{Presentation.leader_label(Map.get(row, :leader?))} agents=#{Presentation.count(Map.get(row, :agent_count))}/#{Presentation.count(Map.get(row, :agent_capacity))} held_tickets=#{held_tickets(Map.get(row, :held_tickets))}"
       )
 
       Enum.each(Map.get(row, :agents) || [], fn agent ->
@@ -171,11 +172,6 @@ defmodule Aiur.Orchestrator.StatusCLI do
   defp render_instance_roster({:error, _reason}), do: IO.puts("INSTANCES unavailable (shared lease store could not be read)")
   defp render_instance_roster(_disabled), do: :ok
   defp state_label(state), do: state |> to_string() |> String.upcase()
-  defp leader_label(true), do: "yes"
-  defp leader_label(false), do: "no"
-  defp leader_label(_), do: "unknown"
-  defp value(value) when is_integer(value), do: Integer.to_string(value)
-  defp value(_), do: "unknown"
   defp held_tickets(tickets) when is_list(tickets), do: Enum.join(tickets, ",")
   defp held_tickets(_), do: "unknown"
 
