@@ -2,7 +2,7 @@ defmodule Aiur.Commands.Answering do
   @moduledoc "Human-surface answer submission, attribution, and replacement precedence."
 
   alias Aiur.Commands.Answering.{Outcome, QuestionAnswers}
-  alias Aiur.{Decision, DecisionAnswer, DecisionStore}
+  alias Aiur.{Decision, DecisionAnswer, DecisionStore, SecretRedactor}
 
   @type surface :: :dashboard | :streamdeck | :cli | :api | :phone | :watch | :conversation
   @type outcome :: Outcome.t()
@@ -90,14 +90,23 @@ defmodule Aiur.Commands.Answering do
   # A retry from another human device retains the first device's provenance.
   # The store still compares the complete payload hash and rejects changed content.
   defp replay_actor(decision, payload, opts) do
-    key = Map.get(payload, :idempotency_key, Map.get(payload, "idempotency_key"))
-    accepted = Decision.active_answer(decision)
+    action_id = submitted_action_id(decision, payload)
+    accepted = find_answer(decision, action_id)
 
-    if direct_human?(opts[:actor]) and is_binary(key) and not is_nil(accepted) and accepted.actor.kind == opts[:actor].kind and
-         accepted.action_id == DecisionAnswer.action_id(decision.decision_id, String.trim(key)) do
+    if (direct_human?(opts[:actor]) and accepted) && accepted.actor.kind == opts[:actor].kind do
       Keyword.put(opts, :actor, accepted.actor)
     else
       opts
+    end
+  end
+
+  defp find_answer(%Decision{answer: %{action_id: action_id} = answer}, action_id), do: answer
+  defp find_answer(decision, action_id), do: Enum.find_value(decision.revisions, fn revision -> if revision.action_id == action_id, do: revision.answer end)
+
+  defp submitted_action_id(decision, payload) do
+    case Map.get(payload, :idempotency_key, Map.get(payload, "idempotency_key")) do
+      key when is_binary(key) -> DecisionAnswer.action_id(decision.decision_id, key |> String.trim() |> SecretRedactor.redact())
+      _invalid -> nil
     end
   end
 
@@ -119,7 +128,18 @@ defmodule Aiur.Commands.Answering do
   defp call_store(:supersede, id, payload, opts, store) do
     case DecisionStore.supersede(id, payload, opts, store) do
       {:error, {:not_decided, _status}} -> DecisionStore.answer(id, payload, opts, store)
+      {:error, _reason} = error -> retry_original_answer(id, payload, opts, store, error)
       result -> result
+    end
+  end
+
+  defp retry_original_answer(id, payload, opts, store, error) do
+    with {:ok, decision} <- DecisionStore.get(id, store),
+         %{action_id: action_id} <- decision.answer,
+         true <- action_id == submitted_action_id(decision, payload) do
+      DecisionStore.answer(id, payload, opts, store)
+    else
+      _not_original -> error
     end
   end
 
