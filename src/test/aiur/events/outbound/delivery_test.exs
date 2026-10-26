@@ -32,7 +32,7 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
       {:ok, %Req.Response{status: if(attempt == 1, do: 503, else: 204)}}
     end
 
-    _delivery =
+    delivery =
       start_supervised!(
         {Delivery,
          name: nil,
@@ -47,22 +47,9 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
     assert {:ok, 1} = ExportJournal.ingest(journal, %{external: event()})
     assert_receive {:attempt, 1, body}, 1_000
     assert_receive {:attempt, 2, ^body}, 1_000
-    assert eventually(fn -> JsonStore.read(ctx.cursor_path) == {:ok, %{"cursor" => 1}} end)
+    assert :sys.get_state(delivery).cursor == 1
+    assert {:ok, %{"cursor" => 1}} = JsonStore.read(ctx.cursor_path)
   end
-
-  defp eventually(fun, attempts \\ 40)
-  defp eventually(fun, 0), do: fun.()
-
-  defp eventually(fun, attempts),
-    do:
-      if(fun.(),
-        do: true,
-        else:
-          (
-            Process.sleep(5)
-            eventually(fun, attempts - 1)
-          )
-      )
 
   defp event do
     %{
