@@ -47,12 +47,20 @@ defmodule Aiur.Events.Export.Layout do
     do: (is_nil(from) or is_binary(from)) and is_binary(to)
 
   defp valid_record?(%{"type" => "event", "v" => 1, "id" => id, "topic" => topic, "instance" => instance} = record) do
-    Enum.sort(Map.keys(record)) == Enum.sort(@event_keys) and
-      is_integer(id) and id > 0 and is_binary(topic) and is_binary(instance) and instance != "" and
-      record["class"] in ["ephemeral", "live", "ledgered", "logged", "journaled"] and is_binary(record["source"]) and
-      is_map(record["refs"]) and is_map(record["attrs"]) and is_integer(record["payload_version"]) and
-      record["payload_version"] > 0 and is_nil(record["anchor"]) and
-      timestamp?(record["occurred_at"]) and timestamp?(record["observed_at"])
+    Enum.all?([
+      Enum.sort(Map.keys(record)) == Enum.sort(@event_keys),
+      is_integer(id) and id > 0,
+      is_binary(topic),
+      is_binary(instance) and instance != "",
+      record["class"] in ["ephemeral", "live", "ledgered", "logged", "journaled"],
+      is_binary(record["source"]),
+      is_map(record["refs"]),
+      is_map(record["attrs"]),
+      is_integer(record["payload_version"]) and record["payload_version"] > 0,
+      is_nil(record["anchor"]),
+      timestamp?(record["occurred_at"]),
+      timestamp?(record["observed_at"])
+    ])
   end
 
   defp valid_record?(_), do: false
