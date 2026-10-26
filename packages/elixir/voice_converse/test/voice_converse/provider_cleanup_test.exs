@@ -352,7 +352,7 @@ defmodule VoiceConverse.ProviderCleanupTest do
 
     for delay <- [30_000, 120_000, 600_000, 3_600_000, 21_600_000 | List.duplicate(86_400_000, 7)] do
       send(cleanup, :run_provider_cleanup)
-      assert_receive {:scheduled, ^delay}
+      assert_receive {:scheduled, ^delay}, 1_000
       advance_clock(clock, delay)
     end
 
