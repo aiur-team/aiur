@@ -27,15 +27,37 @@ defmodule Aiur.Config.Schema.EventsExport do
     # @config-reference config-configuration-11 events.export.request_timeout_ms
     # @config-detail events.export.request_timeout_ms | integer | 15000 | Per-attempt webhook request timeout. |
     field(:request_timeout_ms, :integer, default: 15_000)
+    # @config-reference config-configuration-11 events.export.retention_days
+    # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); older records are trimmed. Read at boot. |
+    field(:retention_days, :integer, default: 7)
+    # @config-reference config-configuration-11 events.export.retention_max_events
+    # @config-detail events.export.retention_max_events | integer | 50000 | Maximum retained records (1000..1000000); the first retention bound reached applies. Read at boot. |
+    field(:retention_max_events, :integer, default: 50_000)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:enabled, :webhook_url, :subject_id, :max_pending_events, :retry_ms, :request_timeout_ms], empty_values: [])
+    |> cast(
+      attrs,
+      [
+        :enabled,
+        :webhook_url,
+        :subject_id,
+        :max_pending_events,
+        :retry_ms,
+        :request_timeout_ms,
+        :retention_days,
+        :retention_max_events
+      ],
+      empty_values: []
+    )
+    |> validate_required([:enabled, :retention_days, :retention_max_events])
     |> validate_number(:max_pending_events, greater_than: 0)
     |> validate_number(:retry_ms, greater_than: 0)
     |> validate_number(:request_timeout_ms, greater_than: 0)
+    |> validate_number(:retention_days, greater_than_or_equal_to: 1, less_than_or_equal_to: 90)
+    |> validate_number(:retention_max_events, greater_than_or_equal_to: 1_000, less_than_or_equal_to: 1_000_000)
     |> validate_change(:webhook_url, &validate_webhook_url/2)
     |> validate_change(:subject_id, &validate_subject_id/2)
     |> require_url_when_enabled()

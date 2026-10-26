@@ -210,6 +210,8 @@ defmodule Aiur.Config do
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_export(), to: Aiur.Config.TrackerSettings
   defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_days(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_max_events(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings

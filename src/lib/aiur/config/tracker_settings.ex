@@ -140,6 +140,16 @@ defmodule Aiur.Config.TrackerSettings do
     events_export().enabled
   end
 
+  @spec events_export_retention_days() :: pos_integer()
+  def events_export_retention_days do
+    events_export().retention_days
+  end
+
+  @spec events_export_retention_max_events() :: pos_integer()
+  def events_export_retention_max_events do
+    events_export().retention_max_events
+  end
+
   @spec workspace_root() :: Path.t()
   def workspace_root do
     Aiur.Config.settings!().workspace.root

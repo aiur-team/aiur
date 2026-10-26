@@ -194,6 +194,8 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 | `events.export.enabled` | boolean | false | Enables signed outbound webhook delivery. |
 | `events.export.max_pending_events` | integer | 10000 | Maximum admitted events waiting for acknowledgement. |
 | `events.export.request_timeout_ms` | integer | 15000 | Per-attempt webhook request timeout. |
+| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); older records are trimmed. Read at boot. |
+| `events.export.retention_max_events` | integer | 50000 | Maximum retained records (1000..1000000); the first retention bound reached applies. Read at boot. |
 | `events.export.retry_ms` | integer | 5000 | Delay before retrying a failed delivery. |
 | `events.export.subject_id` | string | nil | Delivers only events for this exact ticket or job identifier. |
 | `events.export.webhook_url` | string | nil | HTTPS endpoint receiving outbound event POSTs. |
