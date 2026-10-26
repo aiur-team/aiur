@@ -98,7 +98,10 @@ defmodule Aiur.ClientTokens do
     temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
 
     try do
-      with :ok <- File.mkdir_p(Path.dirname(path)),
+      directory = Path.dirname(path)
+
+      with :ok <- File.mkdir_p(directory),
+           :ok <- File.chmod(directory, 0o700),
            :ok <- File.write(temporary, Jason.encode!(records), [:binary, :exclusive]),
            :ok <- File.chmod(temporary, 0o600),
            do: File.rename(temporary, path)

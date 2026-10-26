@@ -81,7 +81,7 @@ defmodule AiurWeb.ControlControllerTest do
     assert String.ends_with?(Jason.decode!(response.resp_body)["output"], "__AIUR_CONTROL_EXIT__:0\n")
   end
 
-  test "CLI-created token authenticates against the control endpoint", %{audit_path: audit_path} do
+  test "future regression guard: CLI-created token authenticates against the control endpoint", %{audit_path: audit_path} do
     output = ExUnit.CaptureIO.capture_io(fn -> assert :ok = Aiur.ClientTokensCLI.run(["create", "cli-control", "--scope", "read"]) end)
     token = String.trim(output)
 

@@ -64,16 +64,18 @@ test("API-key login registers through the local CLI without starting an interact
 
 test("token commands resolve the daemon instance identity before starting the local CLI", () => {
   const { launcher, releaseDir } = setupRealLauncher();
+  const env = {
+    ...process.env,
+    HOME: path.join(root, "home"),
+    XDG_CONFIG_HOME: path.join(root, "home", ".config"),
+    AIUR_BG_STATE_DIR: path.join(root, "home", ".config", "aiur"),
+    AIUR_RELEASE_DIR: releaseDir,
+    AIUR_TEST_OUT: captureFile,
+  };
+  delete env.AIUR_INSTANCE_KEY;
   const result = spawnSync("bash", [launcher, "token", "create", "streamdeck"], {
     encoding: "utf8",
-    env: {
-      ...process.env,
-      HOME: path.join(root, "home"),
-      XDG_CONFIG_HOME: path.join(root, "home", ".config"),
-      AIUR_BG_STATE_DIR: path.join(root, "home", ".config", "aiur"),
-      AIUR_RELEASE_DIR: releaseDir,
-      AIUR_TEST_OUT: captureFile,
-    },
+    env,
   });
 
   expect(result.status).toBe(0);
