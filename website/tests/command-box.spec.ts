@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { routeFonts, settle } from './support/visual'
 
-test.use({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' })
+test.use({ viewport: { width: 1280, height: 800 } })
 test.beforeEach(async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await routeFonts(page)
 })
 
@@ -13,6 +14,7 @@ test('command box and canvas keepout follow every selected tab', async ({ page }
   })
   await page.goto('/')
   await settle(page)
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
   let promptWidth = 0
   for (const tab of ['Prompt', 'npm', 'bun', 'pnpm', 'yarn', 'Prompt']) {
     await page.getByRole('tab', { name: tab, exact: true }).click()
