@@ -54,13 +54,13 @@ defmodule AiurWeb.InstanceRosterLive do
             <p :if={roster.instances == []}>No instances have published a heartbeat.</p>
             <div :for={instance <- roster.instances} class="bo-state-card" data-instance-state={instance.state} data-age-ms={instance.age_ms}>
               <h3>{instance.instance_id} <span :if={instance.state == :stale}>(stale)</span></h3>
-              <p>Version {instance.version}; heartbeat {age(instance.age_ms)} ago.</p>
+              <p>Version {instance.version}; heartbeat {Presentation.age(instance.age_ms)} ago.</p>
               <p>Host: {instance.host_kind || "unknown"}; public URL: {instance.public_url || "unavailable"}</p>
               <p>Leader: {Presentation.leader_label(instance.leader?)}; agents: {Presentation.count(instance.agent_count)} / {Presentation.count(instance.agent_capacity)}</p>
               <p>Held tickets: {held_tickets(instance.held_tickets)}</p>
               <ul :if={is_list(instance.agents)} aria-label={"Agents on #{instance.instance_id}"}>
                 <li :for={agent <- instance.agents} data-agent-instance={instance.instance_id} data-observation-age-ms={instance.age_ms}>
-                  {agent["identifier"] || "unknown ticket"} — {agent["state"] || "unknown"} — {instance.instance_id} (observed {age(instance.age_ms)} ago)
+                  {agent["identifier"] || "unknown ticket"} — {agent["state"] || "unknown"} — {instance.instance_id} (observed {Presentation.age(instance.age_ms)} ago)
                 </li>
               </ul>
             </div>
@@ -74,8 +74,6 @@ defmodule AiurWeb.InstanceRosterLive do
     """
   end
 
-  defp age(ms) when is_integer(ms) and ms < 60_000, do: "#{div(ms, 1_000)} seconds"
-  defp age(ms) when is_integer(ms), do: "#{div(ms, 60_000)} minutes"
   defp held_tickets(tickets) when is_list(tickets) and tickets != [], do: Enum.join(tickets, ", ")
   defp held_tickets([]), do: "none"
   defp held_tickets(_), do: "unknown"

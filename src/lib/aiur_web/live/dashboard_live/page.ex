@@ -30,6 +30,7 @@ defmodule AiurWeb.DashboardLive.Page do
   alias AiurWeb.OperatorControlCenter.UnitsTable
   alias AiurWeb.OperatorControlCenter.UnitsURL
   alias AiurWeb.OperatorControlCenter.UsageSummaryPresenter
+  alias Aiur.Instance.Roster.Presentation, as: RosterPresentation
 
   @doc false
   @spec page(map()) :: Phoenix.LiveView.Rendered.t()
@@ -200,13 +201,11 @@ defmodule AiurWeb.DashboardLive.Page do
                       data-agent-instance={row.instance.instance_id}
                       data-instance-state={row.instance.state}
                       data-observation-age-ms={row.instance.age_ms}>
-                    {row.agent["identifier"] || "unknown ticket"} — {row.agent["state"] || "unknown"} — {row.instance.instance_id}<span :if={row.instance.state == :stale}> (stale)</span> (observed {div(row.instance.age_ms, 1_000)} seconds ago)
+                    {row.agent["identifier"] || "unknown ticket"} — {row.agent["state"] || "unknown"} — {row.instance.instance_id}<span :if={row.instance.state == :stale}> (stale)</span> (observed {RosterPresentation.age(row.instance.age_ms)} ago)
                   </li>
                 </ul>
               <% {:error, _reason} -> %>
                 <p role="alert" data-empty-reason="lease_store_unavailable">Agent roster is unavailable because the shared lease store could not be read.</p>
-              <% _disabled -> %>
-                <p data-empty-reason="lease_store_disabled">Agent roster is unavailable because no shared lease store is configured.</p>
             <% end %>
           </section>
         </section>

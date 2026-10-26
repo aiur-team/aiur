@@ -190,34 +190,11 @@ defmodule Aiur.GitHub.Client do
 
     case Access.resource_need(key, fetcher, freshness: Access.resource_decision(), reason: "open pull request listing") do
       {:ok, pull_requests, _meta} ->
-        deposit_ticket_pull_requests(repo_full_name(opts), pull_requests)
         {:ok, pull_requests}
 
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  defp deposit_ticket_pull_requests(repo, pull_requests) do
-    Enum.each(pull_requests, fn
-      %{"head" => %{"ref" => branch}} = pull_request when is_binary(branch) ->
-        case TicketBranch.ticket_id(branch) do
-          nil ->
-            :ok
-
-          ticket_id ->
-            key = Access.key_for_repo(:branch_pull_request_listing, repo, ticket_id)
-
-            Access.deposit_unless_older(key, pull_request,
-              source: :poll,
-              version: Map.get(pull_request, "updated_at"),
-              etag: nil
-            )
-        end
-
-      _other ->
-        :ok
-    end)
   end
 
   defp ticket_pull_request?(%{"head" => %{"ref" => branch}}, issue_number) when is_binary(branch),

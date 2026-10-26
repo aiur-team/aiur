@@ -117,7 +117,19 @@ defmodule AiurWeb.InstanceRosterLiveTest do
     {:ok, view, _html} = live(build_conn(), "/units")
 
     assert has_element?(view, ~s(#instance-agent-list [data-agent-instance="home-a"][data-observation-age-ms="10000"]), "acme/widgets#41 — running — home-a (observed 10 seconds ago)")
-    assert has_element?(view, ~s(#instance-agent-list [data-agent-instance="container-b"][data-observation-age-ms="90000"]), "acme/widgets#42 — paused — container-b (stale) (observed 90 seconds ago)")
+    assert has_element?(view, ~s(#instance-agent-list [data-agent-instance="container-b"][data-observation-age-ms="90000"]), "acme/widgets#42 — paused — container-b (stale) (observed 1 minutes ago)")
+  end
+
+  test "main dashboard explains an unavailable shared store for the all-instance agent list" do
+    Application.put_env(:aiur, :instance_roster_fun, fn -> {:error, :offline} end)
+
+    {:ok, view, _html} = live(build_conn(), "/units")
+
+    assert has_element?(
+             view,
+             "#instance-agent-list [data-empty-reason=lease_store_unavailable]",
+             "Agent roster is unavailable because the shared lease store could not be read."
+           )
   end
 
   defp restore(key, nil), do: Application.delete_env(:aiur, key)
