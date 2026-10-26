@@ -1,6 +1,6 @@
 defmodule VoiceConverse.Tools do
   @moduledoc """
-  Read-only tools a provider may invoke during a conversation.
+  Provider tools a provider may invoke during a conversation.
 
   Hosts decide which detail sections exist through `BriefingSource.sections/1`.
   The router returns a small, redacted summary; the session owns transcript
@@ -15,7 +15,8 @@ defmodule VoiceConverse.Tools do
 
   @spec specs(Config.t(), term()) :: [VoiceConverse.Provider.tool_spec()]
   def specs(%Config{} = config, target) do
-    [status_spec()] ++ detail_specs(config.briefing_source, target) ++ command_specs(config) ++ [end_spec()]
+    [status_spec()] ++
+      detail_specs(config.briefing_source, target) ++ command_specs(config) ++ [propose_instruction_spec(), end_spec()]
   end
 
   @spec handle(map(), Events.ToolCall.t()) :: result()
@@ -33,6 +34,30 @@ defmodule VoiceConverse.Tools do
 
   def handle(_session, %Events.ToolCall{name: "end_conversation"}), do: result("Ending.", nil, end?: true)
   def handle(_session, %Events.ToolCall{}), do: result("Unknown tool.", nil, is_error: true)
+
+  @doc false
+  @spec proposed_instruction(map()) :: {:ok, String.t()} | {:error, result()}
+  def proposed_instruction(params) do
+    case param(params, "text") do
+      text when is_binary(text) and text != "" -> {:ok, text}
+      _ -> {:error, result("Instruction text is required.", nil, is_error: true)}
+    end
+  end
+
+  @doc false
+  @spec draft_waiting(String.t()) :: result()
+  def draft_waiting(draft_id),
+    do: result("Draft #{draft_id} is waiting for the operator to confirm. Do not say it was sent.", nil)
+
+  @doc false
+  @spec draft_error(term()) :: result()
+  def draft_error(:too_many_open_drafts),
+    do: result("Five drafts are already waiting for confirmation.", nil, is_error: true)
+
+  def draft_error(:text_too_long),
+    do: result("Instruction text must be 4,000 characters or fewer.", nil, is_error: true)
+
+  def draft_error(_reason), do: result("Unable to create a draft.", nil, is_error: true)
 
   defp get_status(config, target) do
     case Ports.call_port(config.briefing_source, :brief, [target], :brief) do
@@ -118,6 +143,19 @@ defmodule VoiceConverse.Tools do
       parameters: empty_parameters()
     }
 
+  defp propose_instruction_spec do
+    %{
+      name: "propose_instruction",
+      description: "Create an instruction draft for the operator to confirm.",
+      parameters: %{
+        "type" => "object",
+        "properties" => %{"text" => %{"type" => "string", "minLength" => 1, "maxLength" => 4_000}},
+        "required" => ["text"],
+        "additionalProperties" => false
+      }
+    }
+  end
+
   defp empty_parameters, do: %{"type" => "object", "properties" => %{}, "additionalProperties" => false}
 
   defp detail_parameters(sections) do
@@ -148,6 +186,7 @@ defmodule VoiceConverse.Tools do
 
   defp param(params, "section") when is_map(params), do: Map.get(params, "section", Map.get(params, :section))
   defp param(params, "n") when is_map(params), do: Map.get(params, "n", Map.get(params, :n))
+  defp param(params, "text") when is_map(params), do: Map.get(params, "text", Map.get(params, :text))
   defp param(_params, _key), do: nil
 
   defp clamp_n(n) when is_integer(n), do: min(max(n, 1), 30)

@@ -1,7 +1,7 @@
 defmodule VoiceConverse.Session.Start do
   @moduledoc false
 
-  alias VoiceConverse.{Config, ContextBuilder, Events, SessionLimits, TranscriptStore}
+  alias VoiceConverse.{Config, ContextBuilder, Drafts, Events, SessionLimits, TranscriptStore}
   alias VoiceConverse.Session.Runtime
 
   def state(config, target, id, opts) do
@@ -9,10 +9,11 @@ defmodule VoiceConverse.Session.Start do
 
     with :ok <- Config.check_session_start(config),
          :ok <- target_alive?(config, target),
+         {:ok, descriptor} <- describe_target(config, target),
          {:ok, provider, provider_opts} <- provider(config, opts),
          :ok <- preflight(provider, Runtime.preflight_spec(config, target, provider, provider_opts)),
          :ok <- SessionLimits.under_daily_cap?(config),
-         {:ok, store} <- open_transcript(config, target, id, provider, opts),
+         {:ok, store} <- open_transcript(config, descriptor, id, provider, opts),
          started_at <- clock.(),
          {:ok, context} <- build_context(config, target, store, started_at) do
       {:ok,
@@ -20,6 +21,8 @@ defmodule VoiceConverse.Session.Start do
          id: id,
          config: config,
          target: target,
+         draft_target: descriptor,
+         drafts: Drafts.new(),
          provider: provider,
          provider_opts: provider_opts,
          context: context.text,
@@ -64,6 +67,12 @@ defmodule VoiceConverse.Session.Start do
     _error -> {:error, :target_gone}
   end
 
+  defp describe_target(%Config{briefing_source: source}, target) do
+    {:ok, source.describe_target(target)}
+  rescue
+    _error -> {:error, :unknown}
+  end
+
   defp provider(config, opts) do
     case Keyword.get(opts, :provider, config.provider) do
       {module, provider_opts} when is_atom(module) and is_list(provider_opts) -> {:ok, module, provider_opts}
@@ -84,8 +93,7 @@ defmodule VoiceConverse.Session.Start do
     end
   end
 
-  defp open_transcript(config, target, id, provider, opts) do
-    descriptor = config.briefing_source.describe_target(target)
+  defp open_transcript(config, descriptor, id, provider, opts) do
     provider_id = provider.descriptor().id
 
     TranscriptStore.start(config, id, %{

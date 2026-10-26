@@ -12,6 +12,7 @@ defmodule Aiur.Events.Envelope do
 
   @sha ~r/\A[0-9a-fA-F]{7,64}\z/
   @identifier ~r/\A[A-Za-z0-9_-]+\z/
+  @max_identifier_list 100
 
   @type external_envelope :: %{required(String.t()) => term()}
 
@@ -66,6 +67,10 @@ defmodule Aiur.Events.Envelope do
 
   defp ref(:decision_version, event, _topic), do: event |> value(:decision_version) |> positive_integer()
   defp ref(:decision_id, event, _topic), do: event |> value(:decision_id) |> identifier()
+  defp ref(:queue_id, event, _topic), do: event |> value(:queue_id) |> identifier()
+  defp ref(:prerequisite, event, _topic), do: event |> value(:prerequisite) |> identifier()
+  defp ref(:blocked, event, _topic), do: event |> value(:blocked) |> identifiers()
+  defp ref(:root, event, _topic), do: event |> value(:root) |> identifier()
 
   defp attrs(allowed, event) do
     Enum.into(allowed, %{}, fn {key, type} -> {Atom.to_string(key), attr(value(event, key), type)} end)
@@ -76,6 +81,7 @@ defmodule Aiur.Events.Envelope do
   defp attr(value, :boolean) when is_boolean(value), do: value
   defp attr(value, :id), do: identifier(value)
   defp attr(value, :sha), do: sha(value)
+  defp attr(value, {:list, :id}), do: identifiers(value)
   defp attr(_value, _type), do: nil
 
   defp source(event, topic) do
@@ -105,8 +111,17 @@ defmodule Aiur.Events.Envelope do
   defp positive_integer(_value), do: nil
   defp sha(value) when is_binary(value), do: if(Regex.match?(@sha, value), do: String.downcase(value), else: nil)
   defp sha(_value), do: nil
-  defp identifier(value) when is_binary(value) and byte_size(value) <= 128, do: if(Regex.match?(@identifier, value), do: value, else: nil)
+
+  defp identifier(value) when is_binary(value) and byte_size(value) <= 128,
+    do: if(Regex.match?(@identifier, value), do: value, else: nil)
+
   defp identifier(_value), do: nil
+
+  defp identifiers(values) when is_list(values) and length(values) <= @max_identifier_list do
+    if Enum.all?(values, &(identifier(&1) != nil)), do: values, else: nil
+  end
+
+  defp identifiers(_values), do: nil
   defp enum(value, allowed) when is_atom(value), do: enum(Atom.to_string(value), allowed)
   defp enum(value, allowed) when is_binary(value), do: if(value in allowed, do: value, else: nil)
   defp enum(_value, _allowed), do: nil

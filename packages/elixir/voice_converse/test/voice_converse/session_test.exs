@@ -18,7 +18,7 @@ defmodule VoiceConverse.SessionTest do
     config = config!(root, name, llm: nil)
     start_instance(config)
 
-    assert {:error, :llm} = VoiceConverse.start_session(name, %{id: "target"}, [])
+    assert {:error, :llm} = VoiceConverse.start_session(name, %{id: "target", describe_exit: true}, [])
   end
 
   test "a session cannot start until the operator accepts the cloud disclosure", %{root: root, name: name} do
