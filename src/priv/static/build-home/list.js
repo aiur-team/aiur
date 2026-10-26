@@ -132,6 +132,9 @@ function featureListHTML(D, state, now) {
     const complete = Number.isFinite(c) && Number.isFinite(o) && Number.isFinite(u);
     const denominator = Number.isFinite(total) ? total : complete ? c + o + u : 0;
     const width = n => denominator > 0 ? Math.max(0, n / denominator * 100) : 0;
+    if (denominator <= 0 && complete && c === 0 && o === 0 && u === 0) {
+      return `<div class="fp-bar ${cls}" role="img" aria-label="No tickets to count"></div>`;
+    }
     if (denominator <= 0 || !Number.isFinite(c)) {
       return `<div class="fp-bar ${cls} unknown" role="img" aria-label="${esc(reason || 'Progress unavailable')}"><i class="fp-unknown"></i></div>`;
     }

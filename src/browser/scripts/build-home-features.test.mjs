@@ -66,6 +66,9 @@ test('feature progress keeps known closed ratios and hatches only the unknown re
   assert.match(html, /class="fp-closed" style="width:69\.0140/);
   assert.match(html, /class="fp-unknown" style="width:30\.9859/);
   assert.ok(!html.includes('Unassigned: 0 / 0'));
+  const emptyRow = html.split('<button type="button" class="fp-row" data-feature="unassigned"')[1].split('</button>')[0];
+  assert.match(emptyRow, /class="fp-bar fp-meter" role="img" aria-label="No tickets to count"/);
+  assert.ok(!emptyRow.includes('fp-unknown'));
 });
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';
