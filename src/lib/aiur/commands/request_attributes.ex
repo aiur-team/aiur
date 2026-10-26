@@ -3,6 +3,7 @@ defmodule Aiur.Commands.RequestAttributes do
 
   require Logger
 
+  alias Aiur.Commands.RequestContent
   alias Aiur.DecisionStore.Persistence
   alias Aiur.Signal
 
@@ -11,10 +12,32 @@ defmodule Aiur.Commands.RequestAttributes do
   @spec from_opts(keyword()) :: map()
   def from_opts(opts), do: opts |> Keyword.take(@keys) |> Map.new() |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
+  @spec normalize_opts(keyword()) :: {:ok, keyword()} | {:error, term()}
+  def normalize_opts(opts) do
+    case Keyword.fetch(opts, :questions) do
+      :error ->
+        {:ok, opts}
+
+      {:ok, nil} ->
+        {:ok, Keyword.delete(opts, :questions)}
+
+      {:ok, []} ->
+        {:ok, opts}
+
+      {:ok, raw} ->
+        case RequestContent.normalize_questions(raw) do
+          {:ok, questions} -> {:ok, Keyword.put(opts, :questions, questions)}
+          {:error, reason} -> {:error, {:decision_invalid, reason}}
+        end
+    end
+  end
+
   @spec append(map(), Aiur.Decision.t(), map(), term()) :: {map(), Aiur.Decision.t(), term()}
   def append(state, decision, attrs, request_event_id) when map_size(attrs) == 0, do: {state, decision, request_event_id}
 
   def append(state, decision, attrs, request_event_id) do
+    attrs = Map.put(attrs, :short_label, RequestContent.short_label(decision, Map.get(attrs, :questions, [])))
+
     case Persistence.build_and_append_event(:request_attributed, decision, attrs, decision.created_at, state) do
       {:ok, next_state, updated, event} ->
         {next_state, updated, event.event_id}

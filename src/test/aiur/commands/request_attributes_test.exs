@@ -20,7 +20,7 @@ defmodule Aiur.Commands.RequestAttributesTest do
       requester: %{kind: :executor, executor_id: "operator", session_ref: "session-1"},
       origin: :executor_cli,
       native: %{harness: :codex, native_ref: "req-1", hold: :in_band},
-      questions: [%{"id" => "q1"}]
+      questions: [%{question_id: "q1", question: "Choose scope?", options: [%{label: "Small"}, %{label: "Large"}]}]
     ]
   end
 
@@ -49,7 +49,7 @@ defmodule Aiur.Commands.RequestAttributesTest do
     assert decision.requester.kind == :executor
     assert decision.origin == :executor_cli
     assert decision.native.native_ref == "req-1"
-    assert decision.questions == [%{"id" => "q1"}]
+    assert [%{question_id: "q1", question: "Choose scope?"}] = decision.questions
     assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
     assert_received {:published, ^decision}
     refute_received {:published, _other}

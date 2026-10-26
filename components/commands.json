@@ -28,6 +28,7 @@
   "facades": [
     "Aiur.Commands",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",
