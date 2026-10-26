@@ -43,6 +43,8 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info(:runtime_tick, socket), do: {:noreply, NetlifyUsage.tick(socket, &Session.schedule_runtime_tick/0)}
 
+  def handle_info(:instance_roster_tick, socket), do: {:noreply, Session.refresh_instance_roster(socket)}
+
   def handle_info(:github_quota_tick, socket) do
     Session.schedule_github_quota_tick()
     {:noreply, socket |> assign(:github_quota, Session.github_quota_snapshot()) |> PayloadLoader.schedule()}
