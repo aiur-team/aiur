@@ -171,17 +171,17 @@ defmodule Aiur.Events.Catalog.TicketEntries do
 
   @logged [
     # aiur/agent_tools/emit_event.ex
-    {"ticket.*.agent.pause.request", "agent-runtime"},
+    {"ticket.*.agent.pause.request", "harness-adapters"},
     # aiur/orchestrator/push_routing.ex
     {"ticket.*.agent.unblocked", "orchestration"},
     # aiur/agent_tools/emit_event.ex
     {"ticket.*.optimistic.integrated", "harness-adapters"}
   ]
 
+  @entries Enum.map(@alerts, fn {pattern, owner} -> %Entry{pattern: pattern, class: :ledgered, owner: owner} end) ++
+             Enum.map(@live, fn {pattern, owner} -> %Entry{pattern: pattern, class: :live, owner: owner} end) ++
+             Enum.map(@logged, fn {pattern, owner} -> %Entry{pattern: pattern, class: :logged, owner: owner} end)
+
   @spec entries() :: [Entry.t()]
-  def entries do
-    Enum.map(@alerts, fn {pattern, owner} -> %Entry{pattern: pattern, class: :ledgered, owner: owner} end) ++
-      Enum.map(@live, fn {pattern, owner} -> %Entry{pattern: pattern, class: :live, owner: owner} end) ++
-      Enum.map(@logged, fn {pattern, owner} -> %Entry{pattern: pattern, class: :logged, owner: owner} end)
-  end
+  def entries, do: @entries
 end

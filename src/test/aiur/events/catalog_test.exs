@@ -91,11 +91,25 @@ defmodule Aiur.Events.CatalogTest do
   end
 
   test "entries have owners, valid durability classes and initial payload versions" do
+    component_ids =
+      Path.expand("../../../../components/*.json", __DIR__)
+      |> Path.wildcard()
+      |> Enum.map(fn path -> path |> File.read!() |> Jason.decode!() |> Map.fetch!("id") end)
+      |> MapSet.new()
+
+    assert MapSet.member?(component_ids, "harness-adapters")
+
     for entry <- Catalog.entries() do
-      assert entry.owner not in [nil, "", "unknown"], entry.pattern
+      assert MapSet.member?(component_ids, entry.owner), "Unknown owner #{inspect(entry.owner)}: #{entry.pattern}"
       assert entry.class in [:ephemeral, :live, :ledgered, :logged, :journaled], entry.pattern
       assert entry.payload_version == 1, entry.pattern
     end
+  end
+
+  test "alert export requires explicit approval at its call site" do
+    assert %Entry{class: :ledgered, export?: false} = Entry.alert("unapproved.alert", "harness-adapters")
+    assert %Entry{export?: false} = Entry.alert("system.future.alert", "signal", export?: false)
+    assert %Entry{export?: true, refs: [:ticket], attrs: [severity: {:enum, ~w(info warning error)}, needs_attention: :boolean]} = Entry.alert("system.approved.alert", "signal", export?: true)
   end
 
   test "computed alert resolutions remain ledgered rather than falling back to live or logged" do

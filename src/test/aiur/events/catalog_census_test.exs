@@ -45,6 +45,8 @@ defmodule Aiur.Events.CatalogCensusTest do
     assert topics(source) == ["ticket.*.ci.*", "ticket.*.agent.attention.*", "system.capabilities.changed"]
   end
 
+  # This census only scans topic literals under the known prefixes above. It
+  # cannot discover topics assembled from variables or an unlisted namespace.
   # Parse literals rather than scanning interpolations with a regex: nested
   # expressions and hashes inside strings remain intact. Docs are pruned just
   # like PlacementRuleTest's source scan; the parser already discards comments.

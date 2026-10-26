@@ -68,8 +68,8 @@ defmodule Aiur.Events.Catalog.GithubSystemEntries do
     {"system.main.fixer.stalled", "github-listeners"}
   ]
 
+  @entries Enum.map(@alerts, fn {pattern, owner} -> Entry.alert(pattern, owner, export?: true) end)
+
   @spec entries() :: [Entry.t()]
-  def entries do
-    Enum.map(@alerts, fn {pattern, owner} -> Entry.alert(pattern, owner) end)
-  end
+  def entries, do: @entries
 end

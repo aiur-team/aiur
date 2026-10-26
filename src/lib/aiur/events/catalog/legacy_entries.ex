@@ -44,8 +44,8 @@ defmodule Aiur.Events.Catalog.LegacyEntries do
     {"orchestrator.claim_released", "orchestration"}
   ]
 
+  @entries Enum.map(@alerts, fn {pattern, owner} -> %Entry{pattern: pattern, class: :ledgered, owner: owner} end)
+
   @spec entries() :: [Entry.t()]
-  def entries do
-    Enum.map(@alerts, fn {pattern, owner} -> %Entry{pattern: pattern, class: :ledgered, owner: owner} end)
-  end
+  def entries, do: @entries
 end

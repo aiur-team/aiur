@@ -19,8 +19,15 @@ defmodule Aiur.Events.Catalog.Entry do
   defstruct pattern: nil, class: :live, export?: false, refs: [], attrs: [], payload_version: 1, owner: nil
 
   @doc false
-  @spec alert(String.t(), String.t()) :: t()
-  def alert(pattern, owner) do
-    %__MODULE__{pattern: pattern, class: :ledgered, export?: true, refs: [:ticket], attrs: [severity: {:enum, ~w(info warning error)}, needs_attention: :boolean], owner: owner}
+  @spec alert(String.t(), String.t(), keyword()) :: t()
+  def alert(pattern, owner, opts \\ []) do
+    %__MODULE__{
+      pattern: pattern,
+      class: :ledgered,
+      export?: Keyword.get(opts, :export?, false),
+      refs: [:ticket],
+      attrs: [severity: {:enum, ~w(info warning error)}, needs_attention: :boolean],
+      owner: owner
+    }
   end
 end

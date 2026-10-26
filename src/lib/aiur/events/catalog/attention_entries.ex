@@ -102,8 +102,8 @@ defmodule Aiur.Events.Catalog.AttentionEntries do
     {"ticket.*.agent.attention.waiting_for_human.resolved", "orchestration"}
   ]
 
+  @entries Enum.map(@alerts, fn {pattern, owner} -> Entry.alert(pattern, owner, export?: true) end)
+
   @spec entries() :: [Entry.t()]
-  def entries do
-    Enum.map(@alerts, fn {pattern, owner} -> Entry.alert(pattern, owner) end)
-  end
+  def entries, do: @entries
 end

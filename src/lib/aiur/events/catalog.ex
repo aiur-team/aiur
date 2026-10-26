@@ -12,18 +12,20 @@ defmodule Aiur.Events.Catalog do
   alias Aiur.Events
   alias Aiur.Events.Catalog.{Entries, Entry}
 
+  @entries Entries.entries()
+  @lookup_entries Enum.sort_by(@entries, &Events.specificity_score(&1.pattern), :desc)
+  @exported Enum.filter(@entries, & &1.export?)
+
   @spec entries() :: [Entry.t()]
-  defdelegate entries(), to: Entries
+  def entries, do: @entries
 
   @spec lookup(String.t()) :: Entry.t()
   def lookup(topic) when is_binary(topic) do
-    entries()
-    |> Enum.filter(&Events.matches?(&1.pattern, topic))
-    |> Enum.max_by(&Events.specificity_score(&1.pattern), &default/0)
+    Enum.find(@lookup_entries, &Events.matches?(&1.pattern, topic)) || default()
   end
 
   @spec exported() :: [Entry.t()]
-  def exported, do: Enum.filter(entries(), & &1.export?)
+  def exported, do: @exported
 
   @spec default() :: Entry.t()
   def default, do: %Entry{pattern: "#", class: :live, owner: "unknown"}

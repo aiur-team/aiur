@@ -187,9 +187,9 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.pr.merged", "control-cli"}
   ]
 
+  @entries Enum.map(@alerts, fn {pattern, owner} -> Entry.alert(pattern, owner, export?: true) end) ++
+             Enum.map(@live, fn {pattern, owner} -> %Entry{pattern: pattern, class: :live, owner: owner} end)
+
   @spec entries() :: [Entry.t()]
-  def entries do
-    Enum.map(@alerts, fn {pattern, owner} -> Entry.alert(pattern, owner) end) ++
-      Enum.map(@live, fn {pattern, owner} -> %Entry{pattern: pattern, class: :live, owner: owner} end)
-  end
+  def entries, do: @entries
 end
