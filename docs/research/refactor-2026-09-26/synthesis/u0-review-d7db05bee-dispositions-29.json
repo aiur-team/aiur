@@ -1,0 +1,441 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 29,
+  "first_id": "web-occ-17",
+  "last_id": "web-rest-20",
+  "findings": [
+    {
+      "id": "web-occ-17",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex:36",
+      "note": "RunSummary and Outcomes presenters retain identical reconcile cond with independent predicates/health/freshness formatters. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-18",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex:783",
+      "note": "Strip and UsageSummary retain separate provider-label wrappers/fallbacks; UnitsRow.Value duplicates atom/string accessor policy. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-20",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/units_presenter.ex:271",
+      "note": "UnitsPresenter still defaults unknown source health to unavailable while UnitsRow.Sources and projection Value preserve/collapse distinct states separately. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-21",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/decision_commands.ex:134",
+      "note": "DecisionCommands/RevisionCommands still repeat selection and option-content parsing and independent safe-wrapper/error logic. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-22",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex:34",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-occ-22"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-occ-23",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/agent_log_modal.ex:37",
+      "note": "Dashboard still refreshes AgentLogModal on payload reload; modal iterates every message and source read remains whole-file. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-24",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/operator_control_center/decision_provider.ex:43",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-occ-24"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-occ-27",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/operator_control_center/analytics/latest_run.ex:9",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-occ-27"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-occ-28",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/time_format.ex:16",
+      "note": "TimeFormat still uses raising shift_zone! and Dashboard accepts any nonempty browser zone string; untrusted zone can crash rendering. Provisional disposition retained.",
+      "source_ids": [
+        "web-occ-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-29",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/decision_action.ex:27",
+      "note": "dismissible includes every open state while acknowledgeable requires open and not dismissible, so that branch remains false; UnitsPresenter fallback still drops opts.",
+      "source_ids": [
+        "web-occ-29"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-30",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/build_order_epic_icon.ex:51",
+      "note": "Separate lane/icon/label vocabularies and inline literal lane colors remain; no measured theme regression asserted.",
+      "source_ids": [
+        "web-occ-30"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-31",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/components/layouts.ex:47",
+      "note": "Inline hook script, model under components and repeated Analytics CSS injection remain; deleted GitHub-cache stylesheet invalidates old two-stylesheet/466-line total.",
+      "source_ids": [
+        "web-occ-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-32",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/operator_control_center/revision_commands.ex:283",
+      "note": "Endpoint decision-store and orchestrator seams remain in command/presenter flows; Analytics still uses keyword opts and Application data-source overrides.",
+      "source_ids": [
+        "web-occ-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-33",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/build_order_graph.ex:29",
+      "note": "Graph render still rebuilds grid and large HEEx functions mix presentation/derivation; historical exact function lengths are not current measurements.",
+      "source_ids": [
+        "web-occ-33"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-occ-34",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/components/operator_control_center/ticket_detail_modal.ex:31",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-occ-34"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "web-rest-01",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/streamdeck_channel.ex:78",
+      "note": "Physical channel pause/resume and implement handlers still invoke writes without dashboard_writable check; authenticated implement alone does not enforce read-only policy. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-rest-01"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-02",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/control_center_cache.ex:52",
+      "note": "Cache still invokes loader inside handle_call with infinite fetch timeout; top supervisor retains rest_for_one strategy. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-rest-02",
+        "web-occ-25"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-03",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/streamdeck_projection.ex:322",
+      "note": "Durable percentage still Enum.maps only numeric positive-limit bucket shape with no fallback; missing used/zero limit remains FunctionClauseError path. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-rest-03",
+        "web-occ-26"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-04",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:1",
+      "note": "DashboardLive still owns numerous unrelated control, usage, context, conversation, polling and render concerns; historical counts changed. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-04"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-06",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/streamdeck_key_face_contract.ex:10",
+      "note": "StreamdeckKeyFaceContract still File.read! embeds sibling packages/streamdeck JSON at compile time and emulator derives CSS from it. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-07",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/controllers/observability_api_controller.ex:285",
+      "note": "Observability control-response conflict list still lacks several CLI-specific decline reasons and catch-all returns 503. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-08",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/controllers/decision_api_controller.ex:63",
+      "note": "Surviving controller still relabels arbitrary exception/exit storage unavailable without diagnostics; removed GitHub-cache surface and retained launcher logs invalidate historical unit counts/no-debug premise. Preserve branch-specific defer. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "web-rest-08"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-09",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/presenter.ex:543",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-09"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-rest-10",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:1489",
+      "note": "Dashboard/UsageRuntime still independently implement protected usage/drill and coalescing logic; scope/authority behavior differs. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-10",
+        "dup-by-body-21"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-11",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:1415",
+      "note": "Dashboard still repeats stash/flush/schedule families with separate pending/scheduled assigns and timer seams. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-11"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-12",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:868",
+      "note": "Dashboard render still eagerly computes Map.put_new defaults for units/tickets and presenters on repeated runtime renders. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-12"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-14",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/analytics_live.ex:49",
+      "note": "Analytics handle_params/range still call synchronous load_model, including RTK and telemetry loading in socket process. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-14",
+        "loose-1-28"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-15",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:758",
+      "note": "Control/message dispatch helpers remain duplicated across Dashboard/Streamdeck views/channel, with inconsistent owner/seam resolution. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-16",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/live/dashboard_live.ex:832",
+      "note": "Endpoint config, app-env and conn-private injection mechanisms remain independent; GithubCacheLive removed, shrinking historical seam count. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-17",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/build_order/context_runtime.ex:309",
+      "note": "ContextRuntime and RouteState still consider nil/nil identity equal while BuildOrderPresenter requires nonnil key; duplicated equality policies remain. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-18",
+      "status": "changed",
+      "anchor": "src/lib/aiur_web/live/analytics_live.ex:37",
+      "note": "Analytics/Streamdeck/Dashboard repeat navigation/awaiting handlers and different config error protection; GithubCacheLive removed, reducing one copy. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "web-rest-19",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur_web/streamdeck_channel.ex:92",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "web-rest-19"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "web-rest-20",
+      "status": "present",
+      "anchor": "src/lib/aiur_web/live/streamdeck_live.ex:46",
+      "note": "Streamdeck emulator retains immediate log reload plus two 50 ms durable-feed retries while channel path differs. Provisional disposition retained.",
+      "source_ids": [
+        "web-rest-20"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    }
+  ]
+}

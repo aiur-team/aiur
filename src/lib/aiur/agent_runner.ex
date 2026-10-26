@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BeforeRun, BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain, WorkspaceGuard}
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
+  alias Aiur.Config.HostedAuthPolicy
   alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Instance.LeaseStore
@@ -79,6 +80,11 @@ defmodule Aiur.AgentRunner do
   @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
   def handle_run_error(issue, reason) do
     cond do
+      match?({:ok, _refusal}, HostedAuthPolicy.refusal(reason)) ->
+        {:ok, refusal} = HostedAuthPolicy.refusal(reason)
+        Logger.error("Agent run refused by hosted authentication policy for #{issue_context(issue)}: #{inspect(refusal)}")
+        exit({:terminal_policy_failure, refusal})
+
       transient_run_error?(reason, CodingAgent.backend_for(issue)) ->
         Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
         :ok
