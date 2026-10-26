@@ -31,7 +31,7 @@ defmodule Aiur.Events.Outbound.Delivery do
           request_timeout_ms: Keyword.get(opts, :request_timeout_ms, export.request_timeout_ms),
           request_fun: Keyword.get(opts, :request_fun, &Req.post/1),
           resolve_fun: Keyword.get(opts, :resolve_fun, &WebhookDestination.resolve/2),
-          alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_system/2),
+          alert_fun: Keyword.get(opts, :alert_fun, &ignore_alert/2),
           clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)
         )
 
@@ -58,4 +58,6 @@ defmodule Aiur.Events.Outbound.Delivery do
 
   defp random_jitter(0), do: 0
   defp random_jitter(window), do: :rand.uniform(window + 1) - 1
+
+  defp ignore_alert(_topic, _opts), do: :ok
 end

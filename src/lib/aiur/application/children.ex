@@ -334,7 +334,7 @@ defmodule Aiur.Application.Children do
   defp outbound_event_children(true) do
     [
       {Aiur.Events.Outbound.ExportJournal, alert_fun: &Aiur.Alerts.emit_system/2},
-      Aiur.Events.Outbound.Delivery
+      {Aiur.Events.Outbound.Delivery, alert_fun: &Aiur.Alerts.emit_system/2}
     ]
   end
 

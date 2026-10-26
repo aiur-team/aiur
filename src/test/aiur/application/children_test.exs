@@ -206,6 +206,19 @@ defmodule Aiur.Application.ChildrenTest do
 
       assert Keyword.fetch!(journal_opts, :alert_fun) == (&Aiur.Alerts.emit_system/2)
 
+      {Aiur.Events.Outbound.Delivery, delivery_opts} =
+        Enum.find(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            outbound_events?: true
+          ),
+          &match?({Aiur.Events.Outbound.Delivery, _opts}, &1)
+        )
+
+      assert Keyword.fetch!(delivery_opts, :alert_fun) == (&Aiur.Alerts.emit_system/2)
+
       assert Enum.find_index(enabled, &(&1 == Aiur.Events.Exchange)) <
                Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.ExportJournal))
 
