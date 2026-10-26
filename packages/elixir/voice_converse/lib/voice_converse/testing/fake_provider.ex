@@ -58,7 +58,16 @@ defmodule VoiceConverse.Testing.FakeProvider do
         {:error, error}
 
       nil ->
-        {:ok, ref} = Agent.start_link(fn -> %{owner: owner, calls: []} end)
+        {:ok, ref} =
+          Agent.start_link(fn ->
+            %{
+              owner: owner,
+              calls: [],
+              call_observer: fake_opt(spec, :call_observer),
+              tool_result_observer: fake_opt(spec, :tool_result_observer)
+            }
+          end)
+
         Enum.each(fake_opt(spec, :script) || [], &emit(ref, &1))
         {:ok, ref}
     end
@@ -74,7 +83,22 @@ defmodule VoiceConverse.Testing.FakeProvider do
   def send_user_text(ref, text), do: record(ref, {:send_user_text, text})
 
   @impl true
-  def tool_result(ref, call_id, result), do: record(ref, {:tool_result, call_id, result})
+  def tool_result(ref, call_id, result) do
+    record(ref, {:tool_result, call_id, result})
+
+    if observer = Agent.get(ref, & &1.call_observer),
+      do: send(observer, {:fake_provider, :tool_result, call_id, result})
+
+    if observer = Agent.get(ref, & &1.tool_result_observer) do
+      send(observer, {:fake_provider, :tool_result_before_return, self(), call_id, result})
+
+      receive do
+        {:continue_tool_result, ^call_id} -> :ok
+      end
+    end
+
+    :ok
+  end
 
   @impl true
   def announce(ref, text, opts), do: record(ref, {:announce, text, opts})
