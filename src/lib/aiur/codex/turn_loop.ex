@@ -103,11 +103,6 @@ defmodule Aiur.Codex.TurnLoop do
     handle_turn_method(session, state, payload, payload_string, method)
   end
 
-  # A turn that Codex failed on the account usage limit is a provider pause
-  # (#2737): no retry is spent and the rate-limit fallback owns recovery. Other
-  # failed turns keep the completion path they always had.
-  # The late failed completion of a turn the pause already retired belongs to
-  # that pause, so it must not pause the resumed turn again.
   defp release_completed_turn(session, state, payload) do
     turn_id = get_in(payload, ["params", "turn", "id"]) || get_in(payload, ["turn", "id"])
     stale? = is_binary(turn_id) and turn_id != state.current_turn_id
@@ -116,6 +111,11 @@ defmodule Aiur.Codex.TurnLoop do
     if stale? or anonymous_barrier?, do: state, else: NativeCapture.release_held(session, state, :turn_ended)
   end
 
+  # A turn that Codex failed on the account usage limit is a provider pause
+  # (#2737): no retry is spent and the rate-limit fallback owns recovery. Other
+  # failed turns keep the completion path they always had.
+  # The late failed completion of a turn the pause already retired belongs to
+  # that pause, so it must not pause the resumed turn again.
   defp continue_after_failed_turn(session, state, payload) do
     classification =
       if ProviderTurnLedger.retired?(state, get_in(payload, ["params", "turn", "id"])),

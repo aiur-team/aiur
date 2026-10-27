@@ -116,6 +116,15 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
     assert_released(c, :session_gone)
   end
 
+  test "exit zero releases before returning a pending anonymous completion", c do
+    state = Map.put(c.state, :pending_anonymous_completion?, true)
+    send(self(), {c.session.port, {:exit_status, 0}})
+    assert {:ok, :turn_completed} = TurnLoop.receive_loop(c.session, state)
+    assert_received {:update, %{reason: :session_gone}}
+    refute_received {:frame, _}
+    assert_released(c, :session_gone)
+  end
+
   test "DOWN records session_gone without writing", c do
     send(self(), {:DOWN, make_ref(), :port, c.session.port, :closed})
     assert {:error, {:port_exit, :closed}} = TurnLoop.receive_loop(c.session, c.state)
@@ -190,13 +199,16 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
     owner = self()
 
     store =
-      spawn(fn ->
-        receive do
-          {:"$gen_call", from, {:command_fact, _id, :native_released, _data, _opts}} ->
-            GenServer.reply(from, {:error, :read_only})
-            send(owner, {:writer, elem(from, 0)})
-        end
-      end)
+      start_supervised!(
+        {Task,
+         fn ->
+           receive do
+             {:"$gen_call", from, {:command_fact, _id, :native_released, _data, _opts}} ->
+               GenServer.reply(from, {:error, :read_only})
+               send(owner, {:writer, elem(from, 0)})
+           end
+         end}
+      )
 
     log =
       capture_log(fn ->
