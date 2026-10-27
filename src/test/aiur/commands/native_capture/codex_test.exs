@@ -37,8 +37,14 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
       :persistent_term.put(key, tracked)
     end)
 
-    store = start_store!(dir, dispatch_delay_ms: 60_000)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store =
+      start_supervised!(
+        Supervisor.child_spec(
+          {DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000},
+          restart: :temporary
+        )
+      )
+
     relay = start_supervised!(RecordingRelay)
     ctx = %{ticket: @ticket, source: @source, session_ref: "thread-1-turn-1", tool_call_thread_id: "thread-1", turn_id: "turn-1", store: store, workspace: dir}
     %{ctx: ctx, relay: relay, path: path, store: store}

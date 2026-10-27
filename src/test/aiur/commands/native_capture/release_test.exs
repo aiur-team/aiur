@@ -26,8 +26,14 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
     previous = :persistent_term.get(key, nil)
     Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> :persistent_term.put(key, previous) end)
-    store = start_store!(dir, dispatch_delay_ms: 60_000)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+
+    store =
+      start_supervised!(
+        Supervisor.child_spec(
+          {DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000},
+          restart: :temporary
+        )
+      )
 
     normalized = %{
       harness: :codex,
@@ -66,12 +72,11 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
     assert_received {:update, %{event: :native_question_resolved, reason: :idle_timeout}}
     assert_released(c, :idle_timeout)
     assert {:ok, %{status: :duplicate}} = DecisionStore.record_command_fact(c.id, :native_released, %{native_ref: "codex:thread-1:turn-1:7", reason: :pause, at: DateTime.utc_now()}, server: c.store)
-    GenServer.stop(c.store)
-    replay = start_store!(c.dir, dispatch_delay_ms: 60_000)
+    stop_supervised!(DecisionStore)
+    replay = start_supervised!({DecisionStore, name: nil, state_dir: c.dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000})
     assert {:ok, restored} = DecisionStore.get(c.id, replay)
     assert restored.native.hold == :released
     assert restored.decision_status == :open
-    GenServer.stop(replay)
   end
 
   test "first idle expiry releases and continues; next expiry returns timeout", c do
