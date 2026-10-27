@@ -5,10 +5,11 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
 
   @spec process_one(String.t(), map()) :: map()
   def process_one(id, %{unavailable: nil, data: %{run: %{state: :running}}} = state) do
-    if held?(state) do
+    if held?(state) or not Map.has_key?(state.data.items, id) do
       state
     else
-      plan = state.batch.plan
+      plan = state.batch.plan || Sources.plan(state.readers, Map.to_list(state.data.run))
+      state = %{state | batch: %{state.batch | plan: plan}}
       decisions = Map.new(plan.items, &{Rules.item_key(&1), &1})
       process(id, decisions, plan.unknown, state)
     end

@@ -166,20 +166,19 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
     {:noreply, %{next | batch: nil}}
   end
 
-  def handle_info(:next, %{batch: %{ids: [id | rest]} = batch} = state) do
+  def handle_info(:next, %{batch: %{ids: [id | rest]}} = state) do
     next = process_one(id, state)
     # Yield after label creation so a queued pause can prevent the label request.
     ensured? = next.data.ensured != state.data.ensured
     ids = if ensured?, do: [id | rest], else: rest
     send(self(), :next)
-    {:noreply, %{next | batch: %{batch | ids: ids}}}
+    {:noreply, %{next | batch: %{next.batch | ids: ids}}}
   end
 
   defp begin_tick(%{batch: nil} = state, from) do
     ids = state.data.items |> Enum.sort_by(fn {_, item} -> {item.ticket, item.label} end) |> Enum.map(&elem(&1, 0))
     send(self(), :next)
-    plan = if state.unavailable == nil and state.data.run.state == :running, do: Sources.plan(state.readers, Map.to_list(state.data.run)), else: nil
-    %{state | batch: %{ids: ids, waiters: List.wrap(from), plan: plan}}
+    %{state | batch: %{ids: ids, waiters: List.wrap(from), plan: nil}}
   end
 
   defp begin_tick(state, nil), do: state
