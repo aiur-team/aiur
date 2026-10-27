@@ -3,17 +3,21 @@ defmodule Aiur.Events.Outbound.WebhookTest do
 
   alias Aiur.Events.Outbound.Webhook
 
-  @secret "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-  @timestamp 1_792_886_400
-  @body ~s({"anchor":null,"attrs":{"lifecycle":"running","lifecycle_source":"tracker"},"class":"live","id":101,"instance":"host/default","observed_at":"2026-10-25T00:00:00Z","occurred_at":"2026-10-25T00:00:00Z","payload_version":1,"refs":{"job_id":"run-5695-1","ticket":"5695"},"seq":1,"source":"legacy","topic":"ticket.5695.lifecycle.changed","v":1})
+  @signature_vector Path.expand(
+                      "../../../../../packages/aiur-contracts/fixtures/webhook-signature-vector.v1.json",
+                      __DIR__
+                    )
 
   test "matches the cross-language Standard Webhooks signature vector" do
-    assert Webhook.sign(@secret, "host/default/101", @timestamp, @body) ==
-             "v1,AMeDHsQnunjDAaXb9UkZ2N26t1CragO3VW1mczNNUpk="
+    vector = signature_vector()
+
+    assert Webhook.sign(vector["secret"], vector["msg_id"], vector["timestamp"], vector["body"]) ==
+             vector["signature"]
   end
 
   test "posts the exact signed body and acknowledges only a 2xx response" do
     test = self()
+    vector = signature_vector()
 
     request_fun = fn opts ->
       send(test, {:request, opts})
@@ -36,9 +40,11 @@ defmodule Aiur.Events.Outbound.WebhookTest do
     headers = Map.new(Keyword.fetch!(opts, :headers))
     assert headers["content-type"] == "application/json"
     assert headers["host"] == "consumer.example.test"
-    assert headers["webhook-id"] == "host/default/101"
-    assert headers["webhook-timestamp"] == Integer.to_string(@timestamp)
-    assert headers["webhook-signature"] == Webhook.sign(@secret, "host/default/101", @timestamp, body)
+    assert headers["webhook-id"] == vector["msg_id"]
+    assert headers["webhook-timestamp"] == Integer.to_string(vector["timestamp"])
+
+    assert headers["webhook-signature"] ==
+             Webhook.sign(vector["secret"], vector["msg_id"], vector["timestamp"], body)
   end
 
   test "holds the durable cursor on redirect, retryable HTTP, and transport failures" do
@@ -125,15 +131,17 @@ defmodule Aiur.Events.Outbound.WebhookTest do
   end
 
   defp webhook_state(overrides) do
+    vector = signature_vector()
+
     defaults = [
       url: "https://consumer.example.test/aiur",
-      secret: @secret,
+      secret: vector["secret"],
       subject_id: nil,
       request_timeout_ms: 2_500,
       resolve_fun: fn "https://consumer.example.test/aiur", false ->
         {:ok, "https://93.184.216.34/aiur", "consumer.example.test"}
       end,
-      clock: fn -> DateTime.from_unix!(@timestamp) end
+      clock: fn -> DateTime.from_unix!(vector["timestamp"]) end
     ]
 
     defaults
@@ -142,8 +150,12 @@ defmodule Aiur.Events.Outbound.WebhookTest do
   end
 
   defp event do
-    Jason.decode!(@body)
+    signature_vector()["body"] |> Jason.decode!()
   end
 
   defp record, do: event() |> Map.put("type", "event")
+
+  defp signature_vector do
+    @signature_vector |> File.read!() |> Jason.decode!()
+  end
 end

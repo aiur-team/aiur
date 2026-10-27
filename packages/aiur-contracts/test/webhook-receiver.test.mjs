@@ -10,14 +10,14 @@ import {
   verifyAiurWebhook,
 } from '../dist-examples/webhook-receiver.js';
 
-const secret = 'whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
-const webhookId = 'host/default/101';
-const timestamp = 1_792_886_400;
-const body = '{"anchor":null,"attrs":{"lifecycle":"running","lifecycle_source":"tracker"},"class":"live","id":101,"instance":"host/default","observed_at":"2026-10-25T00:00:00Z","occurred_at":"2026-10-25T00:00:00Z","payload_version":1,"refs":{"job_id":"run-5695-1","ticket":"5695"},"seq":1,"source":"legacy","topic":"ticket.5695.lifecycle.changed","v":1}';
+const vector = JSON.parse(
+  readFileSync(new URL('../fixtures/webhook-signature-vector.v1.json', import.meta.url), 'utf8'),
+);
+const { secret, msg_id: webhookId, timestamp, body, signature } = vector;
 const headers = {
   'webhook-id': webhookId,
   'webhook-timestamp': String(timestamp),
-  'webhook-signature': 'v1,AMeDHsQnunjDAaXb9UkZ2N26t1CragO3VW1mczNNUpk=',
+  'webhook-signature': signature,
 };
 
 test('pinned verifier uses constant-time comparison and a bounded five-minute window', () => {
