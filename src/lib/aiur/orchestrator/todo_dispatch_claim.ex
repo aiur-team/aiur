@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.TodoDispatchClaim do
 
   require Logger
 
-  alias Aiur.GitHub.Errors
+  alias Aiur.GitHub.Access
   alias Aiur.{Issue, Orchestrator.State}
   alias Aiur.Orchestrator.{TicketTransition, TrackerTasks}
 
@@ -72,5 +72,5 @@ defmodule Aiur.Orchestrator.TodoDispatchClaim do
 
   defp retryable?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}), do: false
 
-  defp retryable?(reason), do: Errors.retryable_github_error?(reason)
+  defp retryable?(reason), do: Access.retryable_github_error?(reason)
 end

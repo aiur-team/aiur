@@ -17,6 +17,130 @@ defmodule Aiur.OrchestratorStatusCliStatusTest do
 
   alias Aiur.Orchestrator.StatusCLI, as: AgentControlCLI
 
+  test "status prints the instance roster section when the lease store is configured" do
+    previous_url = Application.get_env(:aiur, :lease_database_url)
+    previous_roster = Application.get_env(:aiur, :instance_roster_fun)
+    Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+
+    Application.put_env(:aiur, :instance_roster_fun, fn ->
+      {:ok,
+       %{
+         observed_at: ~U[2026-10-24 12:00:00Z],
+         age_ms: 0,
+         instances: [
+           %{
+             instance_id: "peer",
+             state: :stale,
+             age_ms: 50_000,
+             version: "1.2.3",
+             host_kind: "container",
+             public_url: nil,
+             leader?: nil,
+             agent_count: 1,
+             agent_capacity: 3,
+             held_tickets: ["acme/widgets#42"],
+             agents: [%{"identifier" => "acme/widgets#42", "state" => "running"}]
+           }
+         ]
+       }}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, %{statuses: []}, %{status: :current, reason: nil, age_seconds: 0}}) end)
+
+    assert output =~ "INSTANCES observed_at=2026-10-24T12:00:00Z age_ms=0"
+    assert output =~ "peer STALE 1.2.3 heartbeat_age_ms=50000 host=container"
+    assert output =~ "leader=unknown agents=1/3 held_tickets=acme/widgets#42"
+    assert output =~ "acme/widgets#42 running observed_age_ms=50000"
+
+    on_exit(fn ->
+      if previous_url, do: Application.put_env(:aiur, :lease_database_url, previous_url), else: Application.delete_env(:aiur, :lease_database_url)
+      if previous_roster, do: Application.put_env(:aiur, :instance_roster_fun, previous_roster), else: Application.delete_env(:aiur, :instance_roster_fun)
+    end)
+  end
+
+  test "status escapes control characters in shared roster values" do
+    previous_url = Application.get_env(:aiur, :lease_database_url)
+    Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+
+    on_exit(fn ->
+      if previous_url, do: Application.put_env(:aiur, :lease_database_url, previous_url), else: Application.delete_env(:aiur, :lease_database_url)
+    end)
+
+    roster = %{
+      observed_at: ~U[2026-10-24 12:00:00Z],
+      age_ms: 0,
+      instances: [
+        %{
+          instance_id: "peer\e[2J",
+          state: :live,
+          age_ms: 1_000,
+          version: "1.2.3",
+          host_kind: "home\e[31m",
+          public_url: "https://aiur.example",
+          leader?: false,
+          agent_count: 1,
+          agent_capacity: 3,
+          held_tickets: ["acme/widgets#42\e[2K"],
+          agents: [%{"identifier" => "acme/widgets#42\e[2J", "state" => "running"}]
+        }
+      ]
+    }
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(
+          instance_roster: {:ok, roster},
+          fleet_view: {:ok, %{statuses: []}, %{status: :current, reason: nil, age_seconds: 0}}
+        )
+      end)
+
+    assert output =~ "peer\\x1B[2J"
+    assert output =~ "host=home\\x1B[31m"
+    assert output =~ "held_tickets=acme/widgets#42\\x1B[2K"
+    assert output =~ "acme/widgets#42\\x1B[2J running"
+    refute String.contains?(output, <<27>>)
+  end
+
+  test "status reports an unavailable configured instance roster" do
+    previous_url = Application.get_env(:aiur, :lease_database_url)
+    Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+
+    on_exit(fn ->
+      if previous_url, do: Application.put_env(:aiur, :lease_database_url, previous_url), else: Application.delete_env(:aiur, :lease_database_url)
+    end)
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(
+          instance_roster: {:error, :offline},
+          fleet_view: {:ok, %{statuses: []}, %{status: :current, reason: nil, age_seconds: 0}}
+        )
+      end)
+
+    assert output =~ "INSTANCES unavailable (shared lease store could not be read)"
+  end
+
+  test "status reports when the roster repository identity is unavailable" do
+    previous_url = Application.get_env(:aiur, :lease_database_url)
+    Application.put_env(:aiur, :lease_database_url, "postgres://configured.invalid/aiur")
+
+    on_exit(fn ->
+      if previous_url,
+        do: Application.put_env(:aiur, :lease_database_url, previous_url),
+        else: Application.delete_env(:aiur, :lease_database_url)
+    end)
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(
+          instance_roster: {:error, :repository_unavailable},
+          fleet_view: {:ok, %{statuses: []}, %{status: :current, reason: nil, age_seconds: 0}}
+        )
+      end)
+
+    assert output =~ "INSTANCES unavailable (repository identity could not be resolved)"
+  end
+
   test "status prints empty and populated tables", %{orchestrator: pid} do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     empty_output = capture_io(fn -> AgentControlCLI.status() end)

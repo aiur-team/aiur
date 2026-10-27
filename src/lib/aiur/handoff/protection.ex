@@ -6,9 +6,33 @@ defmodule Aiur.Handoff.Protection do
   @spec prepared() :: map() | nil
   def prepared, do: :persistent_term.get(@key, nil)
 
-  @spec store(pid(), map(), MapSet.t()) :: :ok
-  def store(owner, result, tickets) do
-    :persistent_term.put(@key, %{owner: owner, result: result, tickets: tickets})
+  @spec store(pid(), map(), MapSet.t(), [pid()], timeout()) :: :ok
+  def store(owner, result, tickets, runner_pids, expires_in) do
+    token = make_ref()
+
+    prepared = %{
+      owner: owner,
+      result: result,
+      tickets: tickets,
+      runner_pids: runner_pids,
+      expiry_token: token
+    }
+
+    :persistent_term.put(@key, prepared)
+    Process.send_after(owner, {:handoff_expired, result.handoff_id, token}, expires_in)
+    :ok
+  end
+
+  @spec take_expired(pid(), String.t(), reference()) :: {:ok, map()} | :stale
+  def take_expired(owner, handoff_id, token) do
+    case prepared() do
+      %{owner: ^owner, result: %{handoff_id: ^handoff_id}, expiry_token: ^token} = value ->
+        reset()
+        {:ok, value}
+
+      _ ->
+        :stale
+    end
   end
 
   @spec active?() :: boolean()

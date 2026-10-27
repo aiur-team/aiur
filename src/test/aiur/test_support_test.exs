@@ -8,6 +8,29 @@ defmodule Aiur.TestSupportTest do
   alias Aiur.Events.SubscriptionStoreSupervisor
   alias Aiur.GitHub.ReadCache
   alias Aiur.TestSupport.OrchestratorGuard
+  alias Aiur.TestSupport.SupervisorExit
+
+  test "SupervisorExit captures pid monitor reasons for a named supervisor" do
+    name = Module.concat(__MODULE__, "ExitProbe#{System.unique_integer([:positive])}")
+    assert {:ok, pid} = Supervisor.start_link([], strategy: :one_for_one, name: name)
+    Process.unlink(pid)
+
+    on_exit(fn ->
+      if replacement = Process.whereis(name), do: Supervisor.stop(replacement, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+      OrchestratorGuard.monitor_supervisor(Aiur.Supervisor)
+    end)
+
+    assert :ok = OrchestratorGuard.monitor_supervisor(name, self())
+    Process.exit(pid, :kill)
+    assert_receive {:supervisor_exit, :killed}, 5_000
+    assert SupervisorExit.exit_reason() == :killed
+
+    assert {:ok, replacement} = Supervisor.start_link([], strategy: :one_for_one, name: name)
+    Process.unlink(replacement)
+    assert_receive {:supervisor_monitor_restored, ^replacement}, 5_000
+    assert SupervisorExit.exit_reason() == nil
+  end
 
   test "receive_barrier selectively receives and exports bindings without a clock" do
     send(self(), :unrelated)

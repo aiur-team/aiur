@@ -11,7 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip.Meters do
   @spec format_used_percent(number()) :: String.t()
   def format_used_percent(percent) when is_number(percent) do
     percent = percent |> max(0) |> min(100)
-    rounded = Float.round(percent, 1)
+    rounded = Float.round(percent * 1.0, 1)
 
     if rounded == trunc(rounded) do
       Integer.to_string(trunc(rounded))

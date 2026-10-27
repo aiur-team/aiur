@@ -96,7 +96,11 @@ defmodule Aiur.Orchestrator.CommentWake.TrustAndGatesTest do
     defp stale_review_event(pull_request) do
       %{
         author_trusted?: true,
-        comment: %{"state" => "CHANGES_REQUESTED", "body" => "please fix", "submitted_at" => @stale_submitted_at},
+        comment: %{
+          "state" => "CHANGES_REQUESTED",
+          "body" => "please fix",
+          "submitted_at" => @stale_submitted_at
+        },
         pull_request: pull_request
       }
     end
@@ -157,7 +161,11 @@ defmodule Aiur.Orchestrator.CommentWake.TrustAndGatesTest do
           &state_fetcher(
             %{
               author_trusted?: true,
-              comment: %{"state" => "CHANGES_REQUESTED", "body" => "please fix", "submitted_at" => "2026-08-10T05:00:00Z"},
+              comment: %{
+                "state" => "CHANGES_REQUESTED",
+                "body" => "please fix",
+                "submitted_at" => "2026-08-10T05:00:00Z"
+              },
               pull_request: %{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at}
             },
             &1

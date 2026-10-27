@@ -53,6 +53,7 @@ defmodule Aiur.Config.Schema.Attrs do
   def preserve_nil_path?(["agent", "target_cpu_pressure"]), do: true
   def preserve_nil_path?(["agent", "max_load_average"]), do: true
   def preserve_nil_path?(["agent", "target_load_average"]), do: true
+  def preserve_nil_path?(["agent", "cgroup_memory_threshold"]), do: true
   def preserve_nil_path?(["tracker", "github", "allowed_contributors" | _rest]), do: true
   # An explicit null removes the voice daily cap; dropping it would restore the 60-minute default.
   def preserve_nil_path?(["voice", "conversation", "daily_minutes_cap"]), do: true

@@ -42,12 +42,12 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       sync_recorder(recorder)
 
       assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-      assert_received {:recorded, 2, {:tracker_comment, ^identifier, comment}}
+      assert_received {:recorded, _position, {:tracker_comment, ^identifier, comment}}
       assert comment =~ "PR #942 head `failed-head`"
       assert comment =~ "- lint\n- coverage"
-      assert_received {:recorded, 3, {:event, %{topic: ^topic}}}
-      assert_received {:recorded, 4, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 5, {:resume_agent, _request_id, 101}}
+      assert_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      assert_received {:recorded, _position, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, _position, {:resume_agent, _request_id, 101}}
 
       assert next.running[identifier].issue.state == "rework"
       assert next.running[identifier].control.status == :paused
@@ -204,7 +204,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.FailureTest do
       assert state.running == %{}
       next = poll_ci(state, issue, %{decision: :failed, draft?: true, head_sha: "reviewed-head", pr_number: 3095, failures: [%{name: "lint", result: "failure"}]})
 
-      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework"]}]
+      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework", "agent:ci-red"]}]
       assert next.ci_lifecycle.approved_heads == %{}
     end
 

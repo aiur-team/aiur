@@ -91,7 +91,8 @@ defmodule Aiur.OpenAICompat.Config do
   defp fetch_api_key(env_name, account_name, opts) do
     fetcher =
       Keyword.get(opts, :api_key_fetcher, fn key ->
-        account_api_key(env_name, opts) || account_api_key_from_file(env_name, account_name) || System.get_env(key)
+        account_api_key(env_name, opts) ||
+          unless(Aiur.Secrets.secrets_from_env?(), do: account_api_key_from_file(env_name, account_name)) || System.get_env(key)
       end)
 
     case fetcher.(env_name) do

@@ -13,6 +13,7 @@ defmodule VoiceConverse.NarrationTest do
 
   # Returns a raw provider term instead of an Events.Error.
   defmodule RawErrorProvider do
+    def descriptor, do: %{id: :raw_error, privacy: %{}}
     def render_speech(_spec), do: {:error, "raw provider frame"}
   end
 
@@ -22,7 +23,8 @@ defmodule VoiceConverse.NarrationTest do
     :ok
   end
 
-  defp opts(extra \\ []), do: Keyword.merge([provider: FakeProvider, credentials: {StaticCredentials, :fake}], extra)
+  defp opts(extra \\ []),
+    do: Keyword.merge([provider: FakeProvider, credentials: {StaticCredentials, :fake}, privacy: %{}], extra)
 
   @scripted %{
     audio: <<1, 0, 2, 0, 3, 0, 4, 0>>,
@@ -67,10 +69,11 @@ defmodule VoiceConverse.NarrationTest do
       assert {:error, %{field: :provider, reason: :missing}} =
                Narration.render("hi", credentials: {StaticCredentials, :fake})
 
-      assert {:error, %{field: :credentials, reason: :missing}} = Narration.render("hi", provider: FakeProvider)
+      assert {:error, %{field: :credentials, reason: :missing}} =
+               Narration.render("hi", provider: FakeProvider, privacy: %{})
 
       assert {:error, %{field: :credentials, reason: :invalid}} =
-               Narration.render("hi", provider: FakeProvider, credentials: @secret)
+               Narration.render("hi", provider: FakeProvider, credentials: @secret, privacy: %{})
 
       assert {:error, %{field: :format, reason: :unsupported}} = Narration.render("hi", opts(format: :mp3))
     end

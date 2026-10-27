@@ -19,11 +19,11 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "query AiurCIPollBatch"
-      assert body["query"] =~ "checkSuite { id app { databaseId } }"
+      assert body["query"] =~ "checkSuite { id app { databaseId } workflowRun { workflow { databaseId } } }"
       assert body["query"] =~ "mergeQueueEntry { id state }"
       assert body["query"] =~ "timelineItems(itemTypes: [REOPENED_EVENT, READY_FOR_REVIEW_EVENT], last: 100)"
       assert body["query"] =~ "reviews(last: 100) { nodes { state commit { oid } } }"
-      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN, orderBy:)
+      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: [OPEN, CLOSED], orderBy:)
       # The cost claim: aliases only, never a scan of the repository's open PR
       # list (paginated or not).
       refute body["query"] =~ "states: OPEN, after:"
@@ -39,7 +39,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
                  "nodes" => [
-                   Map.merge(pull_request(), %{
+                   Map.merge(pull_request_with_workflow_run(), %{
                      "reviews" => %{
                        # Oldest first, as `last:` returns them: the newest approval is the head.
                        "nodes" => [%{"state" => "APPROVED", "commit" => %{"oid" => "older-head"}}, %{"state" => "APPROVED", "commit" => %{"oid" => "reviewed-head"}}]
@@ -77,8 +77,57 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              }
            } = batch.pull_request
 
-    assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "app" => %{"id" => 15_368}}] = batch.check_runs
+    assert [%{"name" => "test", "status" => "completed", "conclusion" => "success", "workflow_id" => 44, "app" => %{"id" => 15_368}}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
+  end
+
+  test "a closed ticket PR is returned with its merged state for lifecycle routing" do
+    closed_pr =
+      pull_request()
+      |> Map.put("state", "CLOSED")
+      |> Map.put("mergedAt", "2026-10-20T00:00:00Z")
+      |> Map.put("closingIssuesReferences", %{
+        "nodes" => [%{"number" => 42}],
+        "pageInfo" => %{"hasNextPage" => false}
+      })
+
+    request_fun = fn %{body: body} ->
+      assert body["query"] =~ "states: [OPEN, CLOSED]"
+      assert body["query"] =~ "closingIssuesReferences(first: 100)"
+      ci_response(closed_pr)
+    end
+
+    assert {:ok,
+            %{
+              "42" => %{
+                pull_request: %{
+                  "number" => 77,
+                  "state" => "merged",
+                  "closing_issue_numbers" => [42],
+                  "closing_issues_complete?" => true
+                }
+              }
+            }} =
+             CIPollBatch.fetch(["42"], request_fun: request_fun, branch_names_by_target: %{"42" => "aiur/42-ci-batch"})
+  end
+
+  defp pull_request_with_workflow_run do
+    put_in(
+      pull_request(),
+      [
+        "commits",
+        "nodes",
+        Access.at(0),
+        "commit",
+        "statusCheckRollup",
+        "contexts",
+        "nodes",
+        Access.at(0),
+        "checkSuite",
+        "workflowRun"
+      ],
+      %{"workflow" => %{"databaseId" => 44}}
+    )
   end
 
   # #2310 — a `check_run` delivery answers a target, so the batch drops it from
@@ -338,7 +387,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
   test "falls back to the legacy branch name when orchestration knows no branch" do
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
+      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42", states: [OPEN, CLOSED], orderBy:)
 
       {:ok,
        %{

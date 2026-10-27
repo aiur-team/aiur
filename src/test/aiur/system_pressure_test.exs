@@ -42,4 +42,9 @@ defmodule Aiur.SystemPressureTest do
     assert output =~ "available_mb=:unavailable threshold_mb=4096"
     assert output =~ "sampled=unavailable"
   end
+
+  test "status names that host load fallback is disabled for quota containers" do
+    output = capture_io(fn -> SystemLoad.print_dispatch_sample(%{cpu_pressure: :unavailable, cpu_pressure_source: :cgroup, memory_mb: :unavailable}) end)
+    assert output =~ "CPU PSI cgroup unavailable; host load fallback disabled"
+  end
 end

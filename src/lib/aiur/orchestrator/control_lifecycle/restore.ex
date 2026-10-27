@@ -304,7 +304,9 @@ defmodule Aiur.Orchestrator.ControlLifecycle.Restore do
   defp persisted_optional_atom(nil, _allowed), do: {:ok, nil}
   defp persisted_optional_atom(value, allowed), do: persisted_atom(value, allowed)
 
-  defp pause_reasons do
+  @doc false
+  @spec pause_reasons() :: [atom()]
+  def pause_reasons do
     [
       :before_run_failure,
       :blocker_dependency,

@@ -283,11 +283,26 @@ ensure_erlang_cookie() {
 prepare_distribution() {
   aiur_resolve_identity
 
-  local cookie_file
-  cookie_file="$(ensure_erlang_cookie)" || return 1
-
   local cookie
-  cookie="$(cat "$cookie_file")"
+  if [ -n "${AIUR_ERLANG_COOKIE:-}" ]; then
+    cookie="$AIUR_ERLANG_COOKIE"
+    if ! [[ "$cookie" =~ ^[A-Za-z0-9_-]{16,}$ ]]; then
+      die "AIUR_ERLANG_COOKIE must be at least 16 letters, digits, underscores, or hyphens"
+    fi
+  elif [ "${AIUR_CONTAINER:-0}" = "1" ]; then
+    if [ -f "$AIUR_COOKIE_FILE" ] && [ -r "$AIUR_COOKIE_FILE" ]; then
+      cookie="$(cat "$AIUR_COOKIE_FILE")"
+    else
+      die "container mode requires AIUR_ERLANG_COOKIE or a readable AIUR_COOKIE_FILE volume"
+    fi
+    if ! [[ "$cookie" =~ ^[A-Za-z0-9_-]{16,}$ ]]; then
+      die "container cookie must be at least 16 letters, digits, underscores, or hyphens"
+    fi
+  else
+    local cookie_file
+    cookie_file="$(ensure_erlang_cookie)" || return 1
+    cookie="$(cat "$cookie_file")"
+  fi
 
   export RELEASE_DISTRIBUTION="name"
   export RELEASE_NODE="$AIUR_RELEASE_NODE"

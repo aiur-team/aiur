@@ -1,3 +1,4 @@
+import { activeFeature, loadFeatureSpan } from './features.js';
 import { S, ctx, fx, resetState, renderChrome } from './state.js';
 import { createLife } from './life.js';
 import { shell } from './shell.js';
@@ -5,6 +6,7 @@ import { decide } from './protocol.js';
 import { acceptSnapshot, applyDiff } from './store.js';
 import { H } from './history.js';
 import { fromServer, flushURL } from './url.js';
+import { markFirstBoard } from './perf.js';
 import './clock.js';
 import './render.js';
 import './columns.js';
@@ -24,6 +26,8 @@ import './modal/conversation.js';
 import { applyDoc, applyQueueAdd, reconnectDoc } from './modal/doc.js';
 import './modal/composer.js';
 import './modal/command.js';
+import { announceState, noteDiff } from './a11y.js';
+import './filters.js';
 
 export function writeOwnData() {
   if (ctx.bdTrees != null) ctx.root.dataset.bdTrees = ctx.bdTrees;
@@ -39,10 +43,11 @@ function showServerState(ds) {
 }
 function firstPaint() {
   ctx.inited = true; S.loading = false;
-  renderChrome(); fx.viewport(); fx.relayout(); fx.jumpNow(true); S.ready = true;
+  renderChrome(); fx.viewport(); fx.relayout(); markFirstBoard(); fx.jumpNow(true); S.ready = true;
   ctx.life.frame('ticket', () => fx.openFromURL());
+  if (activeFeature()) loadFeatureSpan(S.feature);
 }
-function repaint() { renderChrome(); fx.relayout(); fx.update(); }
+function repaint() { renderChrome(); fx.relayout(); fx.update(); if (activeFeature()) loadFeatureSpan(S.feature); }
 function reloadOnce() {
   try {
     if (!sessionStorage.getItem('aiur-build-reloaded')) {
@@ -59,6 +64,7 @@ export function receive(msg) {
     case 'apply': {
       if (msg.kind !== 'snapshot' && msg.kind !== 'diff') return;
       const first = !ctx.snap;
+      const previous = msg.kind === 'diff' ? ctx.D : null;
       const result = msg.kind === 'snapshot' ? acceptSnapshot(msg) : applyDiff(msg);
       if (result.error) {
         if (msg.kind === 'diff') resync(); else fx.renderUnavailable('invalid');
@@ -69,7 +75,7 @@ export function receive(msg) {
         if (first) firstPaint();
         else { repaint(); fx.modalSync({ upsert: ctx.D.all, snapshot: true }); }
       }
-      else { fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); }
+      else { announceState(noteDiff(previous, ctx.D, msg)); fx.dataChanged(msg); fx.modalSync(msg); fx.drawEdgesSoon(30); if (msg.set?.features && activeFeature()) loadFeatureSpan(S.feature); }
       writeOwnData();
       break;
     }
@@ -86,13 +92,14 @@ export function resync() {
   }, () => { if (current()) ctx.proto.inFlight = false; });
 }
 function onServerURL({ state }) {
-  const view = S.view, span = S.span, ticket = S.ticket;
+  const view = S.view, span = S.span, ticket = S.ticket, feature = S.feature;
   fromServer(state);
   if (ticket !== S.ticket) fx.syncTicket(S.ticket);
   renderChrome();
   if (view !== S.view && !S.loading) fx.viewport();
   fx.relayout(); fx.update();
   if (span !== S.span || view !== S.view) fx.jumpNow(true);
+  if (feature !== S.feature) loadFeatureSpan(S.feature);
 }
 export function createBuildHomeHook() {
   return {
@@ -106,7 +113,7 @@ export function createBuildHomeHook() {
       this.buildActive = shell();
       if (!this.buildActive) return;
       fx.wireTrees();
-      fx.renderTools(); fx.initModal();
+      fx.renderTools(); fx.renderFilters(); fx.initModal();
       writeOwnData();
       this.handleEvent('build-ticket-control', controlMessage);
       this.handleEvent('build-conversation', msg => fx.receiveConversation(msg));

@@ -5,8 +5,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   require Logger
 
-  alias Aiur.Alerts
-  alias Aiur.Config
+  alias Aiur.{Config, SystemCgroup}
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.Dispatcher.CapacityConstraints
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry
+  alias Aiur.Signal
   alias Aiur.SystemCpu
 
   @capacity_backoff_alert_ms 30_000
@@ -180,12 +180,15 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   @doc false
   @spec admission_probes() :: map()
   def admission_probes do
+    cgroup_memory_threshold = Config.cgroup_memory_threshold()
+    cgroup_memory = SystemCgroup.memory()
     memory_threshold_mb = Config.min_free_memory_mb()
     sample = Aiur.SystemLoad.sample(&PressureAdmission.sample/0)
 
     Map.merge(sample, %{
-      memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
-      memory_threshold_mb: memory_threshold_mb,
+      memory_mb: cgroup_memory_available_mb(cgroup_memory, cgroup_memory_threshold, memory_threshold_mb),
+      memory_threshold_mb: cgroup_memory_threshold_mb(cgroup_memory, cgroup_memory_threshold, memory_threshold_mb),
+      cgroup_memory_threshold: cgroup_memory_threshold,
       fd_sample: DispatchPolicy.read_file_descriptors(),
       runnable: runnable_from(sample.cpu_snapshot),
       run_queue_threshold: Map.get(sample, :run_queue_threshold, Config.run_queue_threshold()),
@@ -196,6 +199,18 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
       github_quota: DispatchPolicy.read_github_quota()
     })
   end
+
+  defp cgroup_memory_available_mb(%{current: current, inactive_file: inactive_file, max: maximum}, threshold, _host_floor) when is_number(threshold) do
+    active = max(0, current - inactive_file)
+    div(max(0, maximum - active), 1_048_576)
+  end
+
+  defp cgroup_memory_available_mb(_cgroup, _threshold, host_floor), do: DispatchPolicy.read_memory(host_floor)
+
+  defp cgroup_memory_threshold_mb(%{max: maximum}, threshold, _host_floor) when is_number(threshold),
+    do: div(round(maximum * (1 - threshold)), 1_048_576)
+
+  defp cgroup_memory_threshold_mb(_cgroup, _threshold, host_floor), do: host_floor
 
   @doc false
   # Auto-resume admission mirror (#1453 review P1). The normal dispatch path
@@ -347,7 +362,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   end
 
   defp default_capacity_alert(name, reason) do
-    Alerts.emit_system(name,
+    Signal.alert(name,
       reason:
         "Fleet admission is being limited by #{capacity_signal_label(reason)} " <>
           "(measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}).",

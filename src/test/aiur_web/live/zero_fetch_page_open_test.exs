@@ -3,43 +3,17 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   A1, asserted by call count and run on every CI build: opening a dashboard page
   against a cold store reaches GitHub **zero** times.
 
-  There are no exceptions: every dashboard route, including `/` and
-  `/build-orders`, reaches GitHub zero times on open. The ticket backlog, Ad
-  Hoc overlay and Build Order catalog are event-sourced (#2325) — they
-  subscribe to `ResourceStore` changes and keep one listing per daemon boot, so
-  a page opens onto the held snapshot and costs nothing. The two routes that
-  used to be the deliberate one-request exceptions (a first demander buying a
-  view-originated refresh) are now asserted as zeros below, with the
-  github-tracker path proven explicitly so that zero means something.
+  Every dashboard route, including `/`, is asserted below. The test intercepts
+  Aiur's GitHub transport at the shared REST and GraphQL request boundary, so it
+  counts every attempted request without a token or network access.
 
-  ## Why this file is hermetic and the `:external` one is not
-
-  There is a companion measurement that reads real `x-ratelimit-used` deltas from
-  GitHub. It is the operator-facing corroboration, but it is tagged `:external`,
-  so it does **not run in CI** — which makes it useless as a regression guard. A
-  guard that never executes protects nothing.
-
-  This file therefore installs a counting plug at Aiur's own transport boundary
-  and needs no token, no network, and no tags. Every HTTP request Aiur would send
-  to GitHub — REST or GraphQL, from any module, on any code path — is counted
-  instead of sent, because `Aiur.GitHub.Transport` funnels both through
-  `request_options/2` (`transport.ex:453`) and `Transport.github_graphql/*` shares
-  that path.
-
-  Zero requests is zero rate limit by construction: no window, no shard, no
-  propagation delay to argue about.
-
-  ## The positive control is not optional
-
-  A zero from an instrument that was never wired up looks exactly like a zero
-  from a page that does not fetch. `the counter observes a real fetch` drives a
-  genuine application call through the same seam and asserts the counter fires,
-  so the zeros above it mean something. If that control ever fails, treat every
-  other assertion in this file as unproven rather than passing.
+  The positive-control test drives a real fetch through the same seam and asserts
+  that the counter fires. If that control fails, the zero assertions are unproven.
 
   To exclude unrelated egress, the test suspends MainWatch, LandingWatch,
-  HealthScanner, HeadVerdictRouter, and ReworkRequeue after draining in-flight
-  work. They wake from timers or `pr.merged`, `branch.push`, and
+  QuarantineLifter, ViewStateSweep, AllowedContributors, HealthScanner,
+  HeadVerdictRouter, and ReworkRequeue after draining in-flight work. They wake
+  from timers or `pr.merged`, `branch.push`, and
   `main.ci.failed.resolved` events; `aiur_web` cannot call or message them, so
   suspension cannot hide a page-opened request.
   """
@@ -61,7 +35,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   @endpoint AiurWeb.Endpoint
   # The dashboard routes that must never fetch when opened, paired with a marker
-  # only that route renders. `/` and `/build-orders` (+ `/build-orders/:root_number`)
+  # only that route renders. `/` and the Build Order pages (now redirects to `/`)
   # used to be the two deliberate exceptions — a first demander buying a
   # view-originated refresh — but they are event-sourced (#2325) now and open
   # onto the held snapshot, so they join the zero set. The github-tracker path
@@ -72,9 +46,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     {"/units", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
-    {"/streamdeck", "streamdeck-page"},
-    {"/build-orders", "build-order-page"},
-    {"/build-orders/2073", "build-order-page"}
+    {"/streamdeck", "streamdeck-page"}
   ]
 
   @token_cache_key {Aiur.GitHub.Access.Token, :resolved_token}
@@ -83,6 +55,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   setup context do
     Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "linear")
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
+
+    decision_store = Process.whereis(Aiur.DecisionStore)
+    previous_answer_comment_publisher = :sys.get_state(decision_store).answer_comment_publisher
+    :sys.replace_state(decision_store, &%{&1 | answer_comment_publisher: fn _decision -> :ok end})
+
+    on_exit(fn ->
+      :sys.replace_state(decision_store, &%{&1 | answer_comment_publisher: previous_answer_comment_publisher})
+    end)
 
     ZeroFetchPageOpenWatchers.suspend(fn pid ->
       on_exit(fn -> ZeroFetchPageOpenWatchers.resume(pid) end)
@@ -103,6 +83,11 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
       map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
     end)
+
+    # A decision test may have left an answer-comment retry asleep under the
+    # shared task supervisor. Drain those tasks before installing the GitHub
+    # counter so their captured publisher cannot leak a request into this test.
+    await_answer_comment_tasks()
 
     if context[:comment_poll_leak_probe] do
       # This test sends a poll-cycle message while the page is held open. Make
@@ -240,7 +225,8 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       workflow_path = Aiur.Workflow.workflow_file_path()
       Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github", tracker_repo: "owner/repo")
 
-      # Release the prior test's read and observe its completion before counting.
+      # Release the prior test's read and observe its completion before opening
+      # /units, so only requests still in flight can race this measurement.
       ref = Process.monitor(inherited_task)
       send(inherited_task, :continue)
       receive_barrier({:DOWN, ^ref, :process, ^inherited_task, _reason})
@@ -255,25 +241,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert requests == [],
              "opening /units under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
-      assert_egress_open!(counter)
-    end
-
-    test "opening the Build Order pages reaches GitHub zero times", %{counter: counter} do
-      for path <- ["/build-orders", "/build-orders/2073"] do
-        assert {:ok, view, html} = live(build_conn(), path)
-        assert html =~ "dashboard-shell", "#{path} did not render the dashboard shell"
-        assert html =~ "build-order-page", "#{path} rendered a shell but not its own page"
-        assert render(view) =~ "build-order-page"
-      end
-
-      requests = Agent.get(counter, & &1)
-
-      assert requests == [],
-             "opening the Build Order pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
-
-      # A view-originated refresh that quietly stopped firing would have shown
-      # up as a disappearing request here; asserting the egress path is open
-      # keeps the zero meaningful instead.
       assert_egress_open!(counter)
     end
 
@@ -438,6 +405,25 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     assert length(Agent.get(counter, & &1)) > before,
            "the transport sent nothing for a request that must always send, so the zero above " <>
              "may be an exhausted budget rather than a page that did not fetch"
+  end
+
+  defp await_answer_comment_tasks do
+    answer_comment_task_pids()
+    |> Enum.map(&{&1, Process.monitor(&1)})
+    |> Enum.each(fn {pid, ref} ->
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 40_000, "answer-comment task did not finish before the GitHub request counter was installed"
+    end)
+  end
+
+  defp answer_comment_task_pids do
+    Aiur.TaskSupervisor
+    |> Task.Supervisor.children()
+    |> Enum.filter(fn pid ->
+      case Process.info(pid, :current_stacktrace) do
+        {:current_stacktrace, stacktrace} -> Enum.any?(stacktrace, &match?({Aiur.DecisionStore.Answers, _, _, _}, &1))
+        nil -> false
+      end
+    end)
   end
 
   # Reproduce a prior event consumer still waiting to read when this test starts.

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/ticket-progress.v1.schema.json",
+  "title": "TicketProgress",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "contract": { "const": "aiur.ticket_progress" },
+    "contract_version": { "const": 1 },
+    "issue_identifier": { "type": "string" },
+    "repository": { "type": ["string", "null"] },
+    "generated_at": { "type": "string" },
+    "phase": { "$ref": "#/$defs/phase" },
+    "progress": { "$ref": "#/$defs/progress" },
+    "sources": { "$ref": "#/$defs/sources" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    }
+  },
+  "required": [
+    "contract",
+    "contract_version",
+    "issue_identifier",
+    "repository",
+    "generated_at",
+    "phase",
+    "progress",
+    "sources",
+    "events"
+  ],
+  "$defs": {
+    "phase": {
+      "title": "TicketProgressPhase",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["known", "unknown"] },
+        "value": { "enum": ["brainstorm", "plan", "work", "review", null] },
+        "observed_at": { "type": ["string", "null"] }
+      },
+      "required": ["status"],
+      "oneOf": [
+        { "properties": { "status": { "const": "known" } }, "required": ["value", "observed_at"] },
+        { "properties": { "status": { "const": "unknown" } } }
+      ]
+    },
+    "progress": {
+      "title": "TicketProgressValue",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "status": { "enum": ["known", "unknown"] },
+        "percent": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "source": { "enum": ["checkin", "phase", null] },
+        "freshness": { "enum": ["fresh", "stale", null] },
+        "observed_at": { "type": ["string", "null"] },
+        "occurred_at": { "type": ["string", "null"] }
+      },
+      "required": ["status"],
+      "oneOf": [
+        {
+          "properties": { "status": { "const": "known" } },
+          "required": ["percent", "source", "freshness", "observed_at", "occurred_at"]
+        },
+        { "properties": { "status": { "const": "unknown" } } }
+      ]
+    },
+    "sources": {
+      "title": "TicketProgressSources",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": { "activity": { "enum": ["available", "unavailable"] } },
+      "required": ["activity"]
+    },
+    "event": {
+      "title": "TicketProgressEvent",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "integer" },
+        "type": { "type": "string" },
+        "topic": { "type": "string" },
+        "label": { "type": "string" },
+        "summary": { "type": "string" },
+        "at": { "type": "string" },
+        "phase": { "type": ["string", "null"] },
+        "transition": { "type": ["string", "null"] }
+      },
+      "required": ["id", "type", "topic", "label", "summary", "at"]
+    }
+  }
+}

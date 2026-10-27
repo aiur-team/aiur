@@ -30,7 +30,10 @@ defmodule AiurWeb.Build.PayloadSchema do
             %{
               "model" => nullable(:model),
               "name" => nullable({:short_string, 64}),
-              "state" => nullable(enum(~w(active error retrying retries command paused parked usage_limited ci_wait))),
+              "state" =>
+                nullable(
+                  enum(~w(active error retrying retries command paused parked usage_limited ci_wait merge-queued ci-red body-fix paused-usage-limit paused-decision paused-agent blocked handed-off))
+                ),
               "pause" => nullable(enum(~w(usage_limit_exhausted ci_wait))),
               "resume_at" => nullable(:integer),
               "effort" => nullable(enum(~w(none minimal low medium high xhigh max)))
@@ -61,20 +64,61 @@ defmodule AiurWeb.Build.PayloadSchema do
       "capacity" => object(%{"max" => nullable(:positive), "observed_at" => nullable(:integer), "stale" => nullable(:boolean)}),
       "writable" => :boolean,
       "repo" => nullable(object(%{"url" => :string})),
-      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted))},
+      "icons" => {:dictionary, :string},
+      "epics" => {:dictionary, object(epic(), ~w(general feature temp unsorted svg summary wave))},
       "features" =>
         {:dictionary,
-         object(%{
-           "key" => :string,
-           "label" => :string,
-           "hue" => :number,
-           "epics" => list(:string),
-           "from" => nullable(:integer),
-           "to" => nullable(:integer),
-           "stats" => nullable(object(feature_stats()))
-         })},
+         object(
+           %{
+             "key" => :string,
+             "label" => :string,
+             "hue" => :number,
+             "icon" => :string,
+             "svg" => nullable(:string),
+             "summary" => nullable(:string),
+             "wave" => nullable(:string),
+             "epics" => list(:string),
+             "from" => nullable(:integer),
+             "to" => nullable(:integer),
+             "oldest" => nullable(:integer),
+             "stats" => nullable(object(feature_stats()))
+           },
+           ["icon", "svg", "summary", "wave"]
+         )},
       "order" => list(:string),
       "counts" => nullable({:dictionary, :nonnegative}),
+      "feature_progress" =>
+        object(%{
+          "features" =>
+            {:dictionary,
+             object(
+               %{
+                 "feature" => :string,
+                 "label" => nullable(:string),
+                 "closed" => nullable(:nonnegative),
+                 "open" => nullable(:nonnegative),
+                 "ci_wait" => nullable(:nonnegative),
+                 "unpublished" => nullable(:nonnegative),
+                 "total" => nullable(:nonnegative),
+                 "observed_at" => nullable(:integer),
+                 "wave" => nullable(:string),
+                 "summary" => nullable(:string),
+                 "icon" => nullable(:string),
+                 "code" => nullable(:string),
+                 "plan_version" => nullable(:string),
+                 "extras" => nullable(:nonnegative),
+                 "root_number" => nullable(:positive),
+                 "root_title" => nullable(:string),
+                 "start_date" => nullable(:string),
+                 "reason" => nullable(:string)
+               },
+               ~w(feature label observed_at plan_version icon summary wave)
+             )},
+          "observed_at" => nullable(:integer),
+          "plan_version" => nullable(:string),
+          "extras" => nullable(:nonnegative),
+          "reason" => nullable(:string)
+        }),
       "history" => object(history()),
       "sources" => object(sources()),
       "usage" => :usage,
@@ -175,7 +219,9 @@ defmodule AiurWeb.Build.PayloadSchema do
       "key" => :string,
       "label" => :string,
       "hue" => :number,
-      "icon" => enum(~w(bug pen server docs layers unsorted)),
+      "icon" => :string,
+      "summary" => nullable(:string),
+      "wave" => nullable(:string),
       "general" => :boolean,
       "feature" => :string,
       "temp" => :boolean,
@@ -183,11 +229,11 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index packs estimates), &{&1, object(source())})
-    Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean)))
+    standard = Map.new(~w(history features queue agents index packs estimates), &{&1, object(source(), ["stale_after_ms"])})
+    Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean), ["stale_after_ms"]))
   end
 
-  defp source, do: %{"state" => enum(~w(ok stale incomplete unavailable disabled unsupported)), "observed_at" => nullable(:integer), "reason" => nullable(:string)}
+  defp source, do: %{"state" => enum(~w(ok stale incomplete unavailable disabled unsupported)), "observed_at" => nullable(:integer), "reason" => nullable(:string), "stale_after_ms" => :positive}
 
   defp cue,
     do: %{

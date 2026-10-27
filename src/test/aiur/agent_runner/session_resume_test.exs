@@ -119,6 +119,21 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
       assert first_turn_opts[:prior_work] and first_turn_opts[:abandoned_thread]
       assert SessionResume.put_first_turn_opts([], resumed, "4561", opts) == [resumed: true]
     end
+
+    test "a completed fresh session clears the abandoned marker", %{opts: opts} do
+      SessionHandle.drop_thread("4561", opts)
+      assert SessionHandle.abandoned_thread?("4561", opts)
+
+      assert :ok = SessionResume.fresh_turn_completed(%{resumed: false}, "4561", opts)
+      refute SessionHandle.abandoned_thread?("4561", opts)
+    end
+
+    test "a completed resumed session preserves the abandoned marker", %{opts: opts} do
+      SessionHandle.drop_thread("4561", opts)
+
+      assert :ok = SessionResume.fresh_turn_completed(%{resumed: true}, "4561", opts)
+      assert SessionHandle.abandoned_thread?("4561", opts)
+    end
   end
 
   describe "persist_handle_best_effort/3" do

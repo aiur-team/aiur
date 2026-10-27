@@ -426,7 +426,7 @@ printf 'INNER_KEY=%s\n' "${AIUR_INSTANCE_KEY:-missing}"
     assert out =~ "aiur findings --digest [--scope aiur|repo]"
     assert out =~ "aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]"
     assert out =~ "aiur asks [--open|--all] [--json]"
-    assert out =~ "aiur run [--bg] [--no-dashboard] [--executor] [--debug]"
+    assert out =~ "aiur run [--bg] [--container] [--no-dashboard] [--executor] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--executor] [--debug]"
     assert out =~ "aiur executor-sweep [--json] [--apply]"
   end

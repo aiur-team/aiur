@@ -351,7 +351,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  def handle_info({:DOWN, ref, :process, pid, _reason}, state) when is_reference(ref) do
+  def handle_info({:DOWN, ref, :process, pid, reason}, state) when is_reference(ref) do
     cond do
       Map.has_key?(state.monitor_by_ref, ref) ->
         {:noreply, Demand.remove_demand_by_monitor(state, ref, pid)}
@@ -363,7 +363,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
       Map.has_key?(state.inflight_by_ref, ref) ->
         {state, reconcile_events} = Authority.reconcile(state)
-        {state, events} = Reads.complete_task(state, ref, {:error, :transport})
+        {state, events} = Reads.complete_task(state, ref, {:error, task_exit_failure(reason)})
         {state, admitted_events} = Reads.admit_pending(state)
         Publication.broadcast_all(state, reconcile_events ++ events ++ admitted_events)
         {:noreply, state}
@@ -434,6 +434,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   def handle_info({:EXIT, _pid, _reason}, state), do: {:noreply, state}
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp task_exit_failure(_reason), do: :unknown
 
   @impl true
   def terminate(_reason, state) do

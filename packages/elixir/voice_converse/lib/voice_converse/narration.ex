@@ -6,8 +6,11 @@ defmodule VoiceConverse.Narration do
   Options:
 
     * `:provider` (required) — a `VoiceConverse.Provider` module
+    * `:privacy` (required) — the host's validated `VoiceConverse.Config.privacy` policy
     * `:credentials` (required) — `{credentials_module, provider_id}`; the adapter fetches the
       secret during the call (purpose `:render`) and nothing here holds it
+    * `:base_url` — the provider endpoint; its host is checked when the privacy policy sets
+      `:provider_host_allowlist`
     * `:format` — `:pcm_16000 | :pcm_24000 | :pcm_44100` (default `:pcm_24000`)
     * `:voice_id` — provider voice
     * `:max_chars` — longest text accepted (default 5000)
@@ -21,7 +24,7 @@ defmodule VoiceConverse.Narration do
   for a provider failure (a missing credential is `:provider_auth`).
   """
 
-  alias VoiceConverse.{Events, Provider}
+  alias VoiceConverse.{Events, Provider, ProviderPolicy}
 
   @formats [:pcm_16000, :pcm_24000, :pcm_44100]
 
@@ -33,8 +36,10 @@ defmodule VoiceConverse.Narration do
   @doc "Renders `text` and returns the raw PCM audio and its alignment."
   @spec render(String.t(), keyword()) :: {:ok, Provider.render_result()} | {:error, error()}
   def render(text, opts) do
-    with {:ok, provider, spec, timeout_ms} <- build(text, opts),
-         :ok <- supported(provider) do
+    with {:ok, provider, privacy, spec, timeout_ms} <- build(text, opts),
+         :ok <- supported(provider),
+         :ok <- ProviderPolicy.validate(privacy),
+         :ok <- check_policy(provider, privacy, spec) do
       provider |> call_with_deadline(spec, timeout_ms) |> check_return()
     end
   end
@@ -63,6 +68,7 @@ defmodule VoiceConverse.Narration do
   defp build(text, opts) do
     opts = Map.new(opts)
     {provider, spec} = Map.pop(opts, :provider)
+    {privacy, spec} = Map.pop(spec, :privacy)
     {max_chars, spec} = Map.pop(spec, :max_chars, @default_max_chars)
     {timeout_ms, spec} = Map.pop(spec, :timeout_ms, @default_timeout_ms)
     spec = spec |> Map.put_new(:format, :pcm_24000) |> Map.put(:text, text)
@@ -73,9 +79,11 @@ defmodule VoiceConverse.Narration do
       String.length(text) > max_chars -> {:error, %{field: :text, reason: :too_long}}
       not is_integer(timeout_ms) or timeout_ms < 1 -> {:error, %{field: :timeout_ms, reason: :invalid}}
       not is_atom(provider) or is_nil(provider) -> {:error, %{field: :provider, reason: :missing}}
+      is_nil(privacy) -> {:error, %{field: :privacy, reason: :missing}}
+      not is_map(privacy) -> {:error, %{field: :privacy, reason: :invalid}}
       not match?({m, id} when is_atom(m) and is_atom(id), spec[:credentials]) -> credentials_error(spec)
       spec.format not in @formats -> {:error, %{field: :format, reason: :unsupported}}
-      true -> {:ok, provider, spec, timeout_ms}
+      true -> {:ok, provider, privacy, spec, timeout_ms}
     end
   end
 
@@ -86,6 +94,18 @@ defmodule VoiceConverse.Narration do
     if Code.ensure_loaded?(provider) and function_exported?(provider, :render_speech, 1),
       do: :ok,
       else: {:error, :unsupported}
+  end
+
+  defp check_policy(provider, privacy, spec) do
+    descriptor = provider.descriptor()
+
+    descriptor =
+      case Map.fetch(spec, :base_url) do
+        {:ok, base_url} -> Map.put(descriptor, :base_urls, [base_url])
+        :error -> descriptor
+      end
+
+    ProviderPolicy.check(privacy, descriptor)
   end
 
   # A hung provider must not hang the host: past the deadline the call is killed.

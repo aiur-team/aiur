@@ -63,6 +63,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureRoutingTest do
       changed_paths_fun: fn _, _ -> {:ok, ["src/lib/changed.ex"]} end,
       known_failure_patterns: [],
       approved_fun: fn _, _ -> {:ok, true} end,
+      ticket_state_fun: fn _, _ -> {:ok, "ci-wait"} end,
       revalidate_fun: fn _, _, _ -> :ok end,
       attribution_fun: fn _ -> {:ok, :clean} end,
       comment_fun: fn _, _, _ -> :ok end,

@@ -65,6 +65,8 @@ defmodule Aiur.CodingAgent.Backend do
     * `:delivery` — non-derivable transport, mid-turn injection, pull-tool,
       hook-boundary and native-question facts for `Aiur.Harness.Capabilities`.
       Omitted declarations get conservative defaults.
+    * `:hosted_execution` — declared permission, network, and credential
+      boundaries consumed by hosted-mode validation. Omitted facts are unsafe.
     * `:launch_telemetry` — module exporting `prepare_launch/2` and `revoke/1`
       for backend-correlated launch capabilities (distinct from `:run_telemetry` decoding).
     * `:children` — child specs the harness needs before the Orchestrator
@@ -108,6 +110,7 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],
           optional(:delivery) => map(),
+          optional(:hosted_execution) => Aiur.Harness.Capabilities.hosted_security(),
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),
           optional(:fallback_backend) => CodingAgent.backend(),

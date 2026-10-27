@@ -320,7 +320,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   @lib_root Path.expand("../../../../lib", __DIR__)
 
   defp reader_sites(type) do
-    pattern = ~r/ResourceStore\.key(_for_repo)?\(:#{type}\b/
+    pattern = ~r/(?:Access|ResourceStore)\.key(_for_repo)?\(:#{type}\b/
 
     @lib_root
     |> Path.join("**/*.ex")

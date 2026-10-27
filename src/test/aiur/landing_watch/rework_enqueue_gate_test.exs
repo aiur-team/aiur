@@ -3,6 +3,7 @@ defmodule Aiur.LandingWatch.ReworkEnqueueGateTest do
 
   alias Aiur.Issue
   alias Aiur.LandingWatch
+  alias Aiur.LandingWatch.Journal
   alias Aiur.Orchestrator.{StartupClaimReconciler.Observation, State}
 
   @green %{"id" => 60, "name" => "ci gate", "status" => "completed", "conclusion" => "success", "check_suite" => %{"id" => 101}}
@@ -31,6 +32,26 @@ defmodule Aiur.LandingWatch.ReworkEnqueueGateTest do
 
     refute_received {:enqueued, "old-head"}
     assert_received {:enqueued, "new-head"}
+  end
+
+  test "landing watcher skips a held head and enqueues the same PR after its head changes" do
+    parent = self()
+    path = journal_path()
+    assert :ok = Journal.hold_merge_group_head(17, "held-head", journal_path: path)
+
+    assert :ok = LandingWatch.process(approved_observation("held-head"), landing_opts(parent, "ci-wait", path))
+    refute_received {:enqueued, _head}
+
+    assert :ok = LandingWatch.process(approved_observation("new-head"), landing_opts(parent, "ci-wait", path))
+    assert_received {:enqueued, "new-head"}
+  end
+
+  test "an approved PR without a ticket branch remains eligible for landing" do
+    parent = self()
+    observation = put_in(approved_observation("unlinked-head").rest["head"]["ref"], "dependency/pr-42")
+
+    assert :ok = LandingWatch.process(observation, landing_opts(parent, "ci-wait", journal_path()))
+    assert_received {:enqueued, "unlinked-head"}
   end
 
   test "a gating label wins over a review label whichever order GitHub lists them" do

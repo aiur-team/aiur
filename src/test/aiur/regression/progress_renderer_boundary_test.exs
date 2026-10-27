@@ -40,7 +40,6 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/api/usage_progress.ex",
     "aiur_web/build_order/planning_source.ex",
     "aiur_web/build/now_rows.ex",
-    "aiur_web/build_queue/copy.ex",
     "aiur_web/components/operator_control_center/build_order_grid_model.ex"
   ]
 
@@ -50,7 +49,6 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/build_order/feature_stats.ex" => ["ProgressRenderer.json("],
     "aiur_web/api/usage_progress.ex" => ["ProgressRenderer.json("],
     "aiur_web/build/now_rows.ex" => ["ProgressRenderer.json("],
-    "aiur_web/build_queue/copy.ex" => ["ProgressRenderer.html("],
     "aiur/build_orders_cli.ex" => [
       "ProgressRenderer.terminal(",
       "ProgressRenderer.terminal(",
@@ -60,8 +58,6 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       "ProgressRenderer.json(",
       "ProgressRenderer.json("
     ],
-    "aiur_web/components/operator_control_center/build_order_breakdown.ex" => ["ProgressRenderer.html("],
-    "aiur_web/components/operator_control_center/build_order_catalog.ex" => ["ProgressRenderer.html("],
     "aiur_web/components/operator_control_center/build_order_graph.ex" => ["ProgressRenderer.html("]
   }
 
@@ -76,6 +72,9 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # `progress_retention.ex` store, serialize, and reload the raw progress
   # reading that the already-exempt `ticket_activity/projection.ex` holds in
   # memory. They persist the reading; they never present it.
+  # Outbound events likewise serialize an agent's execution-progress sample;
+  # that fact is not Build Order completion and must not create an event-bus
+  # dependency on the higher-level Build Orders renderer.
   @raw_progress_exempt_files [
     "aiur/agent_list/activation.ex",
     "aiur/agent_list/activity_intake.ex",
@@ -88,6 +87,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/current_run_summary/progress.ex",
     "aiur/current_run_summary/projection.ex",
     "aiur/current_run_summary/status.ex",
+    "aiur/events/outbound/event.ex",
     "aiur/orchestrator/status_report/progress.ex",
     "aiur/progress_retention.ex",
     "aiur/progress_retention/checkpoint.ex",
@@ -99,7 +99,6 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/build_order/ticket_context_presenter/normalize.ex",
     "aiur_web/build_order_presenter.ex",
     "aiur_web/build_order_presenter/activity.ex",
-    "aiur_web/components/operator_control_center/build_order_breakdown.ex",
     "aiur_web/components/operator_control_center/run_summary.ex",
     "aiur_web/components/operator_control_center/run_summary_strip.ex",
     "aiur_web/components/operator_control_center/ticket_context.ex",

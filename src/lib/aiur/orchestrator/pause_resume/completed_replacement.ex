@@ -216,6 +216,7 @@ defmodule Aiur.Orchestrator.PauseResume.CompletedReplacement do
         claimed: MapSet.put(state.claimed, issue_id),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+    |> AgentTeardown.clear_transient_reason_labels(issue_id)
   end
 
   defp restart_completed_issue(state, running_entry) do

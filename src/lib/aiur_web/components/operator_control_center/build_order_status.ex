@@ -56,6 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderStatus do
   defp health_label(%{state: :healthy}), do: "Healthy"
   defp health_label(%{state: :stale}), do: "Available"
   defp health_label(%{state: :structurally_invalid}), do: "Structurally invalid"
+  defp health_label(%{failure: :unknown}), do: "Unknown cause"
   defp health_label(_health), do: "Unavailable"
 
   defp health_class(%{state: :healthy}), do: "status-badge-live"

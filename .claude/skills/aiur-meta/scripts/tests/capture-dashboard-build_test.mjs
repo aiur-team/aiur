@@ -10,21 +10,40 @@ function buildSnapshot(overrides = {}) {
   }
 }
 
-test('the dashboard capture inventory includes the /build home page', () => {
-  assert.deepEqual(PAGES.map(([, route]) => route), ['/', '/commands', '/build-orders', '/build', '/analytics'])
+test('the dashboard capture inventory gives current Build routes distinct identities', () => {
+  assert.deepEqual(PAGES, [
+    ['build-home', '/'],
+    ['units', '/units'],
+    ['commands', '/commands'],
+    ['build', '/build'],
+    ['analytics', '/analytics']
+  ])
+  assert.equal(new Set(PAGES.map(([name]) => name)).size, PAGES.length)
+})
+
+test('the dashboard root is assessed with Build content requirements', () => {
+  const result = analyzeDashboardSnapshot('build-home', {
+    status: 200, title: 'Build', chars: 100, liveViewConnected: true, primaryContent: true,
+    tables: [], staleBanners: [], emptyStates: [], errorStates: [], capacityReadings: [],
+    hasNAInMetric: false,
+    ...buildSnapshot({ buildHydrated: true, buildTicketCount: 16, buildOpenTicketCount: 69 })
+  })
+
+  assert.equal(result.verdict, 'healthy')
+  assert.equal(result.signals.primaryContent, true)
 })
 
 test('an unavailable build timeline is an attention finding', () => {
   const snapshot = buildSnapshot({ buildUnavailable: 'Build timeline unavailable · source unavailable' })
 
-  assert.deepEqual(buildDashboardIssues('build', snapshot), [{
+  assert.deepEqual(buildDashboardIssues('build-home', snapshot), [{
     kind: 'build-timeline-unavailable',
     detail: 'Build timeline unavailable · source unavailable'
   }])
 })
 
 test('the snapshot analyzer reports the unavailable banner through production wiring', () => {
-  const result = analyzeDashboardSnapshot('build', {
+  const result = analyzeDashboardSnapshot('build-home', {
     status: 200, title: 'Build', chars: 10, liveViewConnected: true, primaryContent: true,
     tables: [], staleBanners: [], emptyStates: [], errorStates: [], capacityReadings: [],
     hasNAInMetric: false,
@@ -36,7 +55,7 @@ test('the snapshot analyzer reports the unavailable banner through production wi
 })
 
 test('a build root without hydrated timeline content is attention', () => {
-  const result = analyzeDashboardSnapshot('build', {
+  const result = analyzeDashboardSnapshot('build-home', {
     status: 200, title: 'Build', chars: 10, liveViewConnected: true, primaryContent: true,
     tables: [], staleBanners: [], emptyStates: [], errorStates: [], capacityReadings: [],
     hasNAInMetric: false,
@@ -50,7 +69,7 @@ test('a build root without hydrated timeline content is attention', () => {
 test('remaining skeletons and missing cards for a non-empty queue are attention findings', () => {
   const snapshot = buildSnapshot({ buildSkeleton: true, buildOpenTicketCount: 12, buildHydrated: false })
 
-  assert.deepEqual(buildDashboardIssues('build', snapshot).map(({ kind }) => kind), [
+  assert.deepEqual(buildDashboardIssues('build-home', snapshot).map(({ kind }) => kind), [
     'build-not-hydrated',
     'build-skeletons-remain',
     'build-tickets-missing'
@@ -59,7 +78,7 @@ test('remaining skeletons and missing cards for a non-empty queue are attention 
 
 test('a known empty queue with no skeletons or cards remains healthy', () => {
   const snapshot = buildSnapshot({ buildHydrated: true })
-  assert.deepEqual(buildDashboardIssues('build', snapshot), [])
+  assert.deepEqual(buildDashboardIssues('build-home', snapshot), [])
 })
 
 test('flags the production validation and timeout unavailable messages', () => {
@@ -67,18 +86,18 @@ test('flags the production validation and timeout unavailable messages', () => {
     'Build timeline unavailable · build data failed validation',
     'Build timeline unavailable · build index read timed out'
   ]) {
-    assert.ok(buildDashboardIssues('build', buildSnapshot({ buildUnavailable: message }))
+    assert.ok(buildDashboardIssues('build-home', buildSnapshot({ buildUnavailable: message }))
       .some(({ kind }) => kind === 'build-timeline-unavailable'))
   }
 })
 
 test('flags unavailable agent state always and no-agent state when active agents are expected', () => {
   const unavailable = buildSnapshot({ buildBand: 'Agent states unavailable' })
-  assert.ok(buildDashboardIssues('build', unavailable).some(({ kind }) => kind === 'build-agent-state-unavailable'))
+  assert.ok(buildDashboardIssues('build-home', unavailable).some(({ kind }) => kind === 'build-agent-state-unavailable'))
 
   const noAgents = buildSnapshot({ buildBand: 'No agents are working right now.' })
-  assert.deepEqual(buildDashboardIssues('build', noAgents), [])
-  assert.ok(buildDashboardIssues('build', noAgents, 1).some(({ kind }) => kind === 'build-agent-state-unavailable'))
+  assert.deepEqual(buildDashboardIssues('build-home', noAgents), [])
+  assert.ok(buildDashboardIssues('build-home', noAgents, 1).some(({ kind }) => kind === 'build-agent-state-unavailable'))
 })
 
 function inspectedBuildRoot({ skeleton = false, band = '', queue = '', tickets = 0 } = {}) {
@@ -142,8 +161,8 @@ test('production /build DOM inspection detects the Live empty band with active a
   assert.ok(result.issues.some(({ kind }) => kind === 'build-agent-state-unavailable'))
 })
 
-test('the /build capture waits for hydration and treats a hydration timeout as attention', async () => {
-  async function capture({ root, timeout = false }) {
+test('the Build and Build-home captures wait for hydration and treat a hydration timeout as attention', async () => {
+  async function capture(name, route, { root, timeout = false }) {
     const fakeDocument = {
       title: 'Build',
       body: { innerText: '' },
@@ -180,16 +199,22 @@ test('the /build capture waits for hydration and treats a hydration timeout as a
       screenshot: async () => {}
     }
 
-    return runPageCapture(page, 'build', '/build', [], 'http://dashboard.test')
+    return runPageCapture(page, name, route, [], 'http://dashboard.test')
   }
 
-  const settled = await capture({ root: {
+  const settledBuild = await capture('build', '/build', { root: {
     querySelector: (selector) => selector.includes('.bd-mk.empty') ? {} : null,
     querySelectorAll: () => []
   } })
-  assert.equal(settled.verdict, 'healthy', JSON.stringify(settled.issues))
+  assert.equal(settledBuild.verdict, 'healthy', JSON.stringify(settledBuild.issues))
 
-  const timedOut = await capture({ root: { querySelector: () => null, querySelectorAll: () => [] }, timeout: true })
+  const settledHome = await capture('build-home', '/', { root: {
+    querySelector: (selector) => selector.includes('.bd-mk.empty') ? {} : null,
+    querySelectorAll: () => []
+  } })
+  assert.equal(settledHome.verdict, 'healthy', JSON.stringify(settledHome.issues))
+
+  const timedOut = await capture('build-home', '/', { root: { querySelector: () => null, querySelectorAll: () => [] }, timeout: true })
   assert.equal(timedOut.verdict, 'attention')
   assert.ok(timedOut.issues.some(({ kind }) => kind === 'navigation'))
   assert.ok(timedOut.issues.some(({ kind }) => kind === 'build-not-hydrated'))

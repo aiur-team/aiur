@@ -1,8 +1,17 @@
 defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Exchange
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{PauseResume, Reconciler, RetryEngine, RuntimeWatchdog, State, TokenAccounting}
+
+  alias Aiur.Orchestrator.{
+    PauseResume,
+    Reconciler,
+    RetryEngine,
+    RuntimeWatchdog,
+    State,
+    TokenAccounting
+  }
 
   test "excludes paused entries from duration overrun" do
     now = DateTime.utc_now()
@@ -34,6 +43,32 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
     cancel_retry(next_state, "issue-1")
   end
 
+  test "token updates coalesce dashboard publication until the short refresh timer fires" do
+    now = DateTime.utc_now()
+    state = %State{running: %{"issue-1" => running_entry(now)}}
+
+    assert {:noreply, first} =
+             TokenAccounting.handle_codex_worker_update(state, "issue-1", %{
+               event: :token_count,
+               timestamp: now,
+               payload: %{}
+             })
+
+    assert is_reference(first.dashboard_notify_token)
+    assert is_reference(first.dashboard_notify_timer_ref)
+
+    assert {:noreply, second} =
+             TokenAccounting.handle_codex_worker_update(first, "issue-1", %{
+               event: :token_count,
+               timestamp: DateTime.add(now, 1, :millisecond),
+               payload: %{}
+             })
+
+    assert second.dashboard_notify_token == first.dashboard_notify_token
+    assert second.dashboard_notify_timer_ref == first.dashboard_notify_timer_ref
+    Process.cancel_timer(second.dashboard_notify_timer_ref)
+  end
+
   test "startup failure survives the normal worker DOWN as a failure retry" do
     now = DateTime.utc_now()
     ref = make_ref()
@@ -50,7 +85,10 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
 
     refute Map.has_key?(next_state.running, "issue-1")
     assert next_state.retry_attempts["issue-1"].error == "startup failed: {:port_exit, 23}"
-    assert next_state.retry_attempts["issue-1"].transient_reason == {:startup_failed, {:port_exit, 23}}
+
+    assert next_state.retry_attempts["issue-1"].transient_reason ==
+             {:startup_failed, {:port_exit, 23}}
+
     assert next_state.retry_attempts["issue-1"].last_failure_at == now
     cancel_retry(next_state, "issue-1")
   end
@@ -82,7 +120,11 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
     state = %State{running: %{"issue-1" => interrupted_entry}}
 
     assert %State{running: %{"issue-1" => _entry}} =
-             RuntimeWatchdog.apply_runtime_health_check(state, DateTime.add(now, 999, :millisecond), interrupted_grace_ms: 1_000)
+             RuntimeWatchdog.apply_runtime_health_check(
+               state,
+               DateTime.add(now, 999, :millisecond),
+               interrupted_grace_ms: 1_000
+             )
 
     next_state =
       RuntimeWatchdog.apply_runtime_health_check(state, DateTime.add(now, 1_001, :millisecond), interrupted_grace_ms: 1_000)
@@ -202,13 +244,56 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
 
   test "a stalled worker on a ci-wait ticket is not retried" do
     now = DateTime.utc_now()
-    entry = %{running_entry(now) | issue: %Issue{id: "issue-1", identifier: "repo#1", state: "ci-wait"}}
+
+    entry = %{
+      running_entry(now)
+      | issue: %Issue{id: "issue-1", identifier: "repo#1", state: "ci-wait"}
+    }
+
     state = %State{running: %{"issue-1" => entry}}
 
     next_state = RuntimeWatchdog.restart_stalled_issue(state, "issue-1", entry, now, 1_000)
 
     assert Map.has_key?(next_state.running, "issue-1")
     assert next_state.retry_attempts == %{}
+  end
+
+  test "stalled alert names the command for its resolved backend" do
+    now = DateTime.utc_now()
+    topic = "ticket.repo#1.agent.stalled"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    entry =
+      running_entry(now)
+      |> Map.put(:session_execution, %{backend: "claude"})
+      |> Map.put(:last_codex_timestamp, DateTime.add(now, -5, :second))
+
+    state = %State{running: %{"issue-1" => entry}}
+
+    next = RuntimeWatchdog.restart_stalled_issue(state, "issue-1", entry, now, 1_000)
+
+    assert_received {:event, %{topic: ^topic} = event}
+    assert event["message"] =~ "claude backend command (aiur-claude)"
+    assert event["message"] =~ "made no progress"
+    cancel_retry(next, "issue-1")
+  end
+
+  test "stall retry records the outstanding alert by ticket identifier" do
+    now = DateTime.utc_now()
+    entry = Map.put(running_entry(now), :last_codex_timestamp, DateTime.add(now, -2, :second))
+
+    next =
+      RuntimeWatchdog.restart_stalled_issue(
+        %State{running: %{"issue-1" => entry}},
+        "issue-1",
+        entry,
+        now,
+        1_000
+      )
+
+    assert next.retry_attempts["issue-1"].stalled_alert_outstanding
+    cancel_retry(next, "issue-1")
   end
 
   defp running_entry(now) do

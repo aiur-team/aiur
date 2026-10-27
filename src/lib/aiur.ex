@@ -20,10 +20,11 @@ defmodule Aiur.Application do
 
   require Logger
 
-  alias Aiur.{AgentGitHubGuard, GitHub.Budget}
+  alias Aiur.AgentGitHubGuard
   alias Aiur.Application.StartupChecks
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{Access, Config}
   alias Aiur.Identity.Machine
+  alias Aiur.Instance
 
   @impl true
   def start(_type, _args) do
@@ -36,6 +37,7 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
     settings = Aiur.Config.settings_uncached()
+    :ok = StartupChecks.validate_hosted_mode!(settings)
     telemetry? = Aiur.Config.telemetry_enabled?(settings)
     Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
@@ -60,8 +62,8 @@ defmodule Aiur.Application do
     # for its own duration, while a bare `curl` or a dependency build script
     # finds no token in the environment.
     _ = AgentGitHubGuard.ensure_agent_token_file()
-    if Budget.enabled?(), do: AgentGitHubGuard.install_host()
-    Budget.warn_metering_unavailable()
+    if Access.budget_enabled?(), do: AgentGitHubGuard.install_host()
+    Access.warn_metering_unavailable()
     Aiur.RtkStartupCheck.run()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
@@ -75,7 +77,10 @@ defmodule Aiur.Application do
       interactive_cli? = Application.get_env(:aiur, :interactive_cli, false) and not headless?
 
       instance_role = Aiur.Config.instance_role()
+      {:ok, %{instance: %{mode: instance_mode}}} = settings
+      _ = Instance.Identity.configure()
       Application.put_env(:aiur, :booted_instance_role, instance_role)
+      Application.put_env(:aiur, :booted_instance_mode, instance_mode)
       Application.put_env(:aiur, :instance_ticket_labels_fun, &Aiur.OpenTicketSource.ticket_labels/1)
 
       children =
@@ -179,6 +184,9 @@ defmodule Aiur.Application do
   defdelegate validate_dashboard_compatibility(no_dashboard?, opts),
     to: Aiur.Application.StartupChecks
 
+  defdelegate validate_hosted_mode(settings, opts \\ []), to: Aiur.Application.StartupChecks
+  defdelegate validate_hosted_mode!(settings, opts \\ []), to: Aiur.Application.StartupChecks
+
   defdelegate child_specs(opts), to: Aiur.Application.Children
 
   defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled
@@ -237,7 +245,7 @@ defmodule Aiur.Application do
         Logger.info("Distribution active as #{inspect(distribution_module.node_name())}")
 
       {:error, reason} ->
-        Logger.debug("Distribution not active: #{inspect(reason)}; pane subcommand will not connect")
+        raise "unsafe distributed daemon startup: #{inspect(reason)}"
     end
 
     :ok

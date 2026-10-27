@@ -1,0 +1,12 @@
+{
+  "from": "agent-sandbox",
+  "to_module": "Aiur.GitHub.Access.*",
+  "kind": "reference",
+  "reason": "#3827: workspace placement delegates embedded wrapper and credential mechanics to GitHub Access",
+  "only_paths": [
+    "src/lib/aiur/agent_github_guard.ex",
+    "src/lib/aiur/agent_github_guard/agent_token.ex",
+    "src/lib/aiur/agent_github_guard/recursion_guard.ex",
+    "src/lib/aiur/agent_github_guard/script.ex"
+  ]
+}

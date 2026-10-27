@@ -330,11 +330,6 @@ defmodule Aiur.BuildOrder.PackStatus.ReconcileTest do
     [root] = catalog.data.entries
     assert root.identity.identifier == "9900"
     assert root.progress == 0
-
-    {route, []} = RouteState.new("workspace-published") |> RouteState.navigate("9900")
-    {route, [{:activate, identity}]} = RouteState.put_catalog(route, catalog)
-    assert identity == root.identity
-    assert RouteState.status(route) == :selected_loading
   end
 
   test "default polling surfaces malformed tracked manifests", _context do

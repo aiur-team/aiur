@@ -4,7 +4,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   alias Aiur.BuildOrder.{CatalogStore, GitHubGraph, Settings}
   alias Aiur.BuildOrder.GitHubGraph.Reconciliation
   alias Aiur.BuildOrder.GraphProjection.Policy
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.Access
   alias Aiur.Webhooks.DeliveryModeEvents
 
   @defaults [
@@ -190,10 +190,10 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
   # Subscribes the projection to the resource types the catalog is projected
   # from, so a delivery or mutation that changes one wakes a rebuild. Runs in
-  # the projection's own process, so `ResourceStore.subscribe_type/1` delivers
+  # the projection's own process, so `Access.subscribe_type/1` delivers
   # `{:github_resource_changed, change}` to its mailbox.
   defp default_resource_subscription(_pid) do
-    Enum.each([:issue, :issue_labels, :sub_issue, :issue_dependency], &ResourceStore.subscribe_type/1)
+    Enum.each([:issue, :issue_labels, :sub_issue, :issue_dependency], &Access.subscribe_type/1)
   rescue
     _error -> :ok
   catch

@@ -153,6 +153,9 @@
   background: linear-gradient(90deg, #3f8bff, #8fbcff);
 }
 
+.sd-mini-bar > i.is-warning { background: #d29922; }
+.sd-mini-bar > i.is-critical { background: #f85149; }
+
 .sd-pager {
   display: flex;
   align-items: center;
@@ -364,4 +367,3 @@ html[data-palette="gruvbox"][data-theme="light"] .sd-device {
     padding: 0.85rem;
   }
 }
-

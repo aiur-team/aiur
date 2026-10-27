@@ -4,6 +4,37 @@ defmodule ScriptsAiurdevReleaseTest do
 
   import Aiur.TestSupport.AiurdevCase
 
+  test "remote targets bypass local release work and reach engine validation" do
+    root = fake_repo()
+    engine = Path.join([root, "packaging", "npm", "aiur-cli", "libexec", "aiur-engine.sh"])
+
+    File.write!(
+      engine,
+      "#!/usr/bin/env bash\n" <>
+        ~s|printf 'ENGINE_ARGS: %s\nREMOTE_INSTANCE: %s\n' "$*" "${AIUR_REMOTE_INSTANCE:-}"| <>
+        "\nif [ \"${1:-}\" = --instance ]; then shift 2; fi\n" <>
+        "if [ \"${1:-}\" = build ]; then exit 64; fi\n"
+    )
+
+    File.chmod!(engine, 0o755)
+    missing_mise = Path.join(root, "missing-mise")
+
+    for {command, expected_status} <- [{"status", 0}, {"build", 64}] do
+      {out, ^expected_status} =
+        run_shim(["--instance", "nuc", command], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", missing_mise},
+          {"TMUX", "inside-tmux"}
+        ])
+
+      assert out =~ "ENGINE_ARGS: --instance nuc #{command}"
+      assert out =~ "REMOTE_INSTANCE: "
+      refute out =~ "REMOTE_INSTANCE: nuc"
+      refute out =~ "mise not found"
+      refute out =~ "force-rebuild"
+    end
+  end
+
   describe "release provenance" do
     test "a changed dependency lock fetches dependencies before compilation" do
       root = fake_repo()

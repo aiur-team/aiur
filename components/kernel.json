@@ -6,11 +6,13 @@
   "paths": [
     "src/lib/aiur/boot.ex",
     "src/lib/aiur/bounded.ex",
+    "src/lib/aiur/build_stamp.ex",
     "src/lib/aiur/coordination_tasks.ex",
     "src/lib/aiur/display_sanitizer.ex",
     "src/lib/aiur/fs.ex",
     "src/lib/aiur/git.ex",
     "src/lib/aiur/handoff/protection.ex",
+    "src/lib/aiur/heroicons.ex",
     "src/lib/aiur/journal.ex",
     "src/lib/aiur/json_safe.ex",
     "src/lib/aiur/json_store.ex",
@@ -30,6 +32,7 @@
     "src/lib/aiur/ssh.ex",
     "src/lib/aiur/start_trigger.ex",
     "src/lib/aiur/start_trigger/**",
+    "src/lib/aiur/system_cgroup.ex",
     "src/lib/aiur/system_pressure.ex",
     "src/lib/aiur/test_run_state.ex",
     "src/lib/aiur/tracker_identity.ex",
@@ -60,5 +63,6 @@
   "docs": [],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

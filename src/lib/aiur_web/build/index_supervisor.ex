@@ -12,5 +12,13 @@ defmodule AiurWeb.Build.IndexSupervisor do
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts)
 
   @impl true
-  def init(opts), do: Supervisor.init([{Index, opts}], strategy: :one_for_one, max_restarts: 10, max_seconds: 60)
+  def init(opts) do
+    index_opts = Keyword.put_new(opts, :idle_without_subscribers?, true)
+
+    Supervisor.init([{Index, index_opts}],
+      strategy: :one_for_one,
+      max_restarts: 10,
+      max_seconds: 60
+    )
+  end
 end

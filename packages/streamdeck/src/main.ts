@@ -322,7 +322,7 @@ export const main = async (): Promise<void> => {
   refreshMicrophones();
 
   const baseUrl = process.env.AIUR_PHOENIX_URL;
-  if (baseUrl && process.env.AIUR_DASHBOARD_USERNAME && process.env.AIUR_DASHBOARD_PASSWORD) {
+  if (baseUrl && (process.env.AIUR_CLIENT_TOKEN || (process.env.AIUR_DASHBOARD_USERNAME && process.env.AIUR_DASHBOARD_PASSWORD))) {
     let reconnectAttempt = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let connecting = false;
@@ -339,8 +339,9 @@ export const main = async (): Promise<void> => {
       connecting = true;
       void connectStreamDeckChannel({
         baseUrl,
-        username: process.env.AIUR_DASHBOARD_USERNAME as string,
-        password: process.env.AIUR_DASHBOARD_PASSWORD as string,
+        token: process.env.AIUR_CLIENT_TOKEN,
+        username: process.env.AIUR_DASHBOARD_USERNAME,
+        password: process.env.AIUR_DASHBOARD_PASSWORD,
         fetch: defaultFetch,
         websocket: defaultWebSocket,
         events: {
@@ -362,7 +363,7 @@ export const main = async (): Promise<void> => {
           control: () => undefined,
           commands: (page) => { controller.setCommands(page); if (activeBackend !== null) repaintDetached(activeBackend); },
           commandAnswered: (result) => { controller.commandAnswered(result); if (activeBackend !== null) repaintDetached(activeBackend); },
-          commandsError: (reason) => { controller.commandsError(reason); if (activeBackend !== null) repaintDetached(activeBackend); },
+          commandsError: (reason, outcome, requestKey) => { controller.commandsError(reason, outcome, requestKey); if (activeBackend !== null) repaintDetached(activeBackend); },
           voiceStarted: (session, reason) => voiceLink.started(session, reason),
           voice: (session, kind, text) => { voiceLink.transcript(session, { kind, text }); voiceRepaints.request(); },
           voiceError: (session, reason) => { voiceLink.failed(session, reason); voiceRepaints.request(); },

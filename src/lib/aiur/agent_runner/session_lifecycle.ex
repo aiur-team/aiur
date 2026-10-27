@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.AgentRunner.DispatchSelectionEvent
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.AgentRunner.ModelLabelRefresh
+  alias Aiur.AgentRunner.PullToolInstallation
   alias Aiur.AgentRunner.SessionContainment
   alias Aiur.AgentRunner.SessionDisplay
   alias Aiur.AgentRunner.SessionIdentity
@@ -45,6 +46,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       {:session_execution_info, issue_id,
        %{
          backend: session_backend_label(session),
+         pull_tool_installed: Map.get(session, :pull_tool_installed, false),
          requested_model: Map.get(session, :model),
          effort: Map.get(session, :effort),
          account: Map.get(session, :account_name),
@@ -244,9 +246,12 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          ownership,
          session_context
        ) do
+    handle_opts = Keyword.get(opts, :session_handle_opts, [])
+    # Stamp before reporting or saving; a resumed session reads its previous handle.
+    session = PullToolInstallation.stamp(session, issue.identifier, handle_opts)
     report_session_execution(codex_update_recipient, issue, session)
     DispatchSelectionEvent.write(workspace, worker_host, issue)
-    SessionResume.persist_session_handle(session, issue.identifier, worker_host)
+    SessionResume.persist_session_handle(session, issue.identifier, worker_host, handle_opts)
     SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
     report_repl_session(codex_update_recipient, issue, session)
     report_pause_containment(codex_update_recipient, issue, session)
@@ -266,7 +271,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # A resumed thread already carries the original task + full prior turn
     # history, so its first turn must continue rather than replay the
     # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
-    opts = SessionResume.put_first_turn_opts(opts, session, issue.identifier)
+    opts = SessionResume.put_first_turn_opts(opts, session, issue.identifier, handle_opts)
 
     try do
       result =

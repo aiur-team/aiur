@@ -116,11 +116,29 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert Map.has_key?(view, "kimi")
 
     assert get_in(view, ["claude", "windows", "session", "used_percent"]) == 30
+    assert get_in(view, ["claude", "windows", "session", "remaining_percent"]) == 70
     assert get_in(view, ["claude", "windows", "weekly", "used_percent"]) == 47
+    assert get_in(view, ["claude", "windows", "weekly", "remaining_percent"]) == 53
+    assert get_in(view, ["codex", "windows", "weekly", "remaining_percent"]) == 25
     assert get_in(view, ["codex", "windows", "session", "used_percent"]) == 50
+    assert get_in(view, ["codex", "windows", "session", "remaining_percent"]) == 50
     assert get_in(view, ["codex", "windows", "weekly", "used_percent"]) == 75
     assert get_in(view, ["kimi", "windows", "session", "used_percent"]) == 10
     assert get_in(view, ["kimi", "windows", "weekly", "used_percent"]) == 20
+    assert get_in(view, ["kimi", "windows", "session", "remaining_percent"]) == 90
+    assert get_in(view, ["kimi", "windows", "weekly", "remaining_percent"]) == 80
+  end
+
+  test "stream deck meter remaining percentages preserve unknown instead of filling or emptying it" do
+    meters = %{codex: observed_meter("primary", 0, 60, "secondary", 50, 10_080)}
+    view = StreamdeckProjection.provider_meters(meters, @now)
+
+    assert get_in(view, ["codex", "windows", "session", "remaining_percent"]) == 100
+    assert get_in(view, ["codex", "windows", "weekly", "remaining_percent"]) == 50
+
+    unknown = ProviderMeterSnapshot.empty(:codex, :app_server, "generation")
+    unknown_view = StreamdeckProjection.provider_meters(%{codex: unknown}, @now)
+    assert get_in(unknown_view, ["codex", "windows", "session", "remaining_percent"]) == nil
   end
 
   test "marks retained readings stale from their observation age without trusting freshness" do

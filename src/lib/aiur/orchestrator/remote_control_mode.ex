@@ -328,6 +328,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       | running: Map.put(state.running, issue_id, cleared),
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
+    |> AgentTeardown.clear_transient_reason_labels(issue_id)
   end
 
   @doc false

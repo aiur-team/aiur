@@ -10,6 +10,7 @@
     "src/lib/aiur/events/github*.ex",
     "src/lib/aiur/events/github_ci_poller/**",
     "src/lib/aiur/events/github_comments_poller/**",
+    "src/lib/aiur/events/github_firehose/**",
     "src/lib/aiur/events/github_webhook/**",
     "src/lib/aiur/events/ls_remote_ticker.ex",
     "src/lib/aiur/events/post_deploy_checks.ex",
@@ -43,6 +44,7 @@
     "Aiur.Events.GithubCommentsPoller.Reviews",
     "Aiur.Events.GithubCommentsPoller.Validators",
     "Aiur.Events.GithubFirehose",
+    "Aiur.Events.GithubFirehose.PullRequest",
     "Aiur.Events.GithubKeys",
     "Aiur.Events.GithubReviewThreadIdentity",
     "Aiur.Events.GithubWebhook",
@@ -78,6 +80,7 @@
     "Aiur.Webhooks.ModePresenter",
     "Aiur.Webhooks.ModeRegistry",
     "Aiur.Webhooks.ModeRegistry.Policy",
+    "Aiur.Webhooks.ModeTable",
     "AiurWeb.GithubWebhook",
     "AiurWeb.GithubWebhookController",
     "AiurWeb.Routes.GithubWebhook"
@@ -131,5 +134,6 @@
   "facade_pending": null,
   "private_namespaces": [
     "Aiur.GitHub.Listeners.*"
-  ]
+  ],
+  "goal": "notify"
 }

@@ -10,6 +10,7 @@ defmodule Aiur.MainWatch.MergeGroupTest do
   test "merge-group success on the landed SHA is main's verdict when no push run completed" do
     assert {:ok, %{observations: [observation], runs: [run], merge_groups: []}} = GitHub.poll("main", ["ci"], token: "test-gh-token", request_fun: request(%{}, false, true), actions_write: false)
     assert {observation.sha, run.id, run.event} == {"landed", 42, "merge_group"}
+    assert observation.event == "merge_group"
     assert observation.checks == [%{name: "ci gate", conclusion: "success"}]
     refute observation.failed_workflow
   end

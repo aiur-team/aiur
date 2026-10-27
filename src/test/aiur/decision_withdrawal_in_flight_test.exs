@@ -3,11 +3,9 @@ defmodule Aiur.DecisionWithdrawalInFlightTest do
   #2711: an unanswered `:decided` Command can be withdrawn or superseded;
   neither response reaches its worker or a later worker. Delivered answers stay immutable.
 
-  The scenario mirrors Khala #12/#13: the Executor answers a blocking Command
-  after its worker has gone, so every dispatch fails `target_agent_unavailable`
-  and the answer stays decided but undelivered. Then a fresh worker exists for
-  the same ticket (the dispatcher starts to accept) and the store restarts, which
-  is the moment the old code re-dispatched the stale answer to it.
+  A transient dispatch fault leaves the answer decided and undelivered, which
+  provides a window to withdraw or supersede it. A send already past the delivery
+  gate cannot be withdrawn, including across a restart.
   """
 
   use ExUnit.Case, async: false
@@ -334,7 +332,7 @@ defmodule Aiur.DecisionWithdrawalInFlightTest do
       case :atomics.get(worker, 1) do
         @no_worker ->
           send(parent, {:dispatch_refused, action_id})
-          {:error, :no_running_agent}
+          {:error, :unavailable}
 
         @worker ->
           item = queue_item(decision, action_id, opts[:attempt_id], System.unique_integer([:positive]))

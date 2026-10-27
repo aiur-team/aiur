@@ -68,6 +68,11 @@
   marker and `model:claude` labels used by the automatic switch. Headless Claude
   currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
   worker workspaces parked instead of moving them to an unrunnable backend.
+  An agent paused on a usage limit for ten minutes also moves to its
+  `agent.routing` backend when that route differs from the backend that hit the
+  limit, such as a route added after the pause. This move writes no labels and
+  is never reverted. A paused agent ready to move or resume takes the next free
+  slot ahead of new dispatch.
 - `agent.max_cpu_pressure` caps dispatch on Linux CPU PSI `some avg60`
   (default `20.0` percent). High I/O load does not hold low-pressure dispatch.
   Set it to `null` to disable the hard ceiling.

@@ -33,6 +33,9 @@ defmodule Aiur.StartTrigger.ProgressWritersTest do
   end
 
   test "existing recent-merge event poll records the ticket's merged stage" do
+    previous_token = System.get_env("GITHUB_TOKEN")
+    System.delete_env("GITHUB_TOKEN")
+    on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
     id = "#{System.unique_integer([:positive])}"
 
@@ -56,11 +59,20 @@ defmodule Aiur.StartTrigger.ProgressWritersTest do
 
     assert {:ok, _result} =
              GithubFirehose.poll(
-               token: "test-gh-token",
-               request_fun: fn _request -> {:ok, %{status: 200, body: [event], headers: []}} end,
+               token: "explicit-progress-token",
+               request_fun: fn request ->
+                 if String.contains?(Map.get(request, :url, ""), "/pulls/101/commits") do
+                   send(self(), {:commit_request_token, request.token})
+                   {:error, :offline}
+                 else
+                   {:ok, %{status: 200, body: [event], headers: []}}
+                 end
+               end,
                recent_merge_fun: fn merge -> {:ok, %{status: :accepted, merge: merge}} end,
                boot_time: 0
              )
+
+    assert_received {:commit_request_token, "explicit-progress-token"}
 
     :sys.get_state(ProgressStore)
     assert %{pr_number: 101, stage: :pr_merged} = ProgressStore.lookup(id)

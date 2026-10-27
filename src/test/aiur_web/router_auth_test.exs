@@ -8,6 +8,7 @@ defmodule AiurWeb.RouterAuthTest do
 
   @supervisor_token String.duplicate("s", 32)
   @dashboard_credentials {"operator", "secret"}
+  @session_options Plug.Session.init(store: :cookie, key: "_aiur_test_key", signing_salt: "aiur-test-session")
 
   setup do
     FinancialDataAccess.Generation.invalidate()
@@ -51,6 +52,28 @@ defmodule AiurWeb.RouterAuthTest do
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
+  test "client-token pipelines preserve optional loopback dashboard authentication" do
+    Application.put_env(:aiur, AiurWeb.Endpoint, dashboard_auth_required: false)
+
+    path = Path.join(System.tmp_dir!(), "aiur-loopback-token-#{System.unique_integer([:positive])}.json")
+    previous = Application.get_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+    assert {:ok, token} = Aiur.ClientTokens.create("loopback-client", "read")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    conn =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> Router.call(Router.init([]))
+
+    assert conn.status == 200
+  end
+
   test "event-feed reads use the dashboard authentication pipeline" do
     unauthorized = Router.call(dashboard_conn(:get, "/api/v1/agent-1/events"), Router.init([]))
     assert unauthorized.status == 401
@@ -62,6 +85,116 @@ defmodule AiurWeb.RouterAuthTest do
       |> Router.call(Router.init([]))
 
     assert authorized.status == 200
+  end
+
+  test "read client tokens authorize reads and cannot call machine write routes" do
+    path = Path.join(System.tmp_dir!(), "aiur-router-token-#{System.unique_integer([:positive])}.json")
+    previous = Application.get_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+    assert {:ok, read_token} = Aiur.ClientTokens.create("read-only", "read")
+    assert {:ok, write_token} = Aiur.ClientTokens.create("write-enabled", "write")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    read =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{read_token}")
+      |> Router.call(Router.init([]))
+
+    assert read.status == 200
+    assert read.assigns.token_name == "read-only"
+    assert read.assigns.token_scope == "read"
+
+    write =
+      :post
+      |> dashboard_conn("/api/v1/pane/hide", nil)
+      |> put_req_header("authorization", "Bearer #{read_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert write.status == 403
+
+    write_with_write_token =
+      :post
+      |> dashboard_conn("/api/v1/pane/hide", nil)
+      |> put_req_header("authorization", "Bearer #{write_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert write_with_write_token.status == 422
+
+    spend_cap_read =
+      :put
+      |> dashboard_conn("/api/v1/not-a-ticket/spend-cap", nil)
+      |> put_req_header("authorization", "Bearer #{read_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert spend_cap_read.status == 403
+
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, true)
+
+    spend_cap_write =
+      :put
+      |> dashboard_conn("/api/v1/not-a-ticket/spend-cap", nil)
+      |> put_req_header("authorization", "Bearer #{write_token}")
+      |> put_req_header("origin", "http://localhost")
+      |> put_req_header("x-aiur-request", "1")
+      |> Router.call(Router.init([]))
+
+    assert spend_cap_write.status == 422
+
+    assert :ok = Aiur.ClientTokens.revoke("read-only")
+
+    revoked =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{read_token}")
+      |> Router.call(Router.init([]))
+
+    assert revoked.status == 401
+  end
+
+  test "public API requests reject Basic Auth but accept a client token" do
+    Phoenix.Config.put(AiurWeb.Endpoint, :public_bind, true)
+    previous_public_bind = Keyword.get(Application.get_env(:aiur, AiurWeb.Endpoint, []), :public_bind)
+    path = Path.join(System.tmp_dir!(), "aiur-public-token-#{System.unique_integer([:positive])}.json")
+    previous = Application.get_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+    assert {:ok, token} = Aiur.ClientTokens.create("public-client", "read")
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
+
+      if Process.whereis(AiurWeb.Endpoint) do
+        Phoenix.Config.put(AiurWeb.Endpoint, :public_bind, previous_public_bind)
+      end
+
+      Aiur.TestCleanup.rm_rf!(path)
+    end)
+
+    basic =
+      :get
+      |> dashboard_conn("/api/v1/state")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> Router.call(Router.init([]))
+
+    assert basic.status == 401
+
+    bearer =
+      :get
+      |> dashboard_conn("/api/v1/state", nil)
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> Router.call(Router.init([]))
+
+    assert bearer.status == 200
   end
 
   test "event-feed writes return the standard method-not-allowed response" do
@@ -120,6 +253,49 @@ defmodule AiurWeb.RouterAuthTest do
 
     assert conn.status == 401
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
+  end
+
+  # Old Build Order links (bookmarks, ticket comments, handoff notes) must keep
+  # opening the right Build home view after the pages retired.
+  test "a Build Order root URL redirects permanently to its imported feature focus" do
+    for {path, location} <- [
+          {"/build-orders/2573", "/?feature=bo-2573"},
+          {"/build-orders/42?view=gantt&x=1", "/?feature=bo-42"},
+          {"/build-orders/42?ticket=7", "/?feature=bo-42&ticket=7"}
+        ] do
+      conn = build_order_request(:get, path)
+      assert conn.status == 301, path
+      assert get_resp_header(conn, "location") == [location], path
+    end
+  end
+
+  test "the Build Order catalog URL redirects permanently to the Build home" do
+    for {path, location} <- [{"/build-orders", "/"}, {"/build-orders?x=1", "/"}, {"/build-orders?ticket=7", "/?ticket=7"}] do
+      conn = build_order_request(:get, path)
+      assert conn.status == 301, path
+      assert get_resp_header(conn, "location") == [location], path
+    end
+  end
+
+  test "an invalid Build Order root drops to home and never guesses a feature" do
+    for root <- ["01", "abc", "-4", "0", String.duplicate("9", 20), "1%0d%0aSet-Cookie:x", "%2F%2Fevil.example"] do
+      conn = build_order_request(:get, "/build-orders/" <> root)
+      assert conn.status == 301, root
+      assert get_resp_header(conn, "location") == ["/"], root
+      refute Enum.any?(get_resp_header(conn, "set-cookie"), &(&1 =~ "x=")), root
+    end
+
+    hostile_ticket = build_order_request(:get, "/build-orders/42?ticket=%2F%2Fevil.example")
+    assert get_resp_header(hostile_ticket, "location") == ["/?feature=bo-42"]
+  end
+
+  test "Build Order redirects stay behind dashboard authentication and answer GET only" do
+    unauthenticated = Router.call(dashboard_conn(:get, "/build-orders/42"), Router.init([]))
+    assert unauthenticated.status == 401
+    assert get_resp_header(unauthenticated, "www-authenticate") == ["Basic realm=\"Aiur\""]
+    assert get_resp_header(unauthenticated, "location") == []
+
+    assert build_order_request(:post, "/build-orders/42").status == 404
   end
 
   test "Decision reads require bearer auth, bypass dashboard Basic Auth, and stay read-only available" do
@@ -290,10 +466,21 @@ defmodule AiurWeb.RouterAuthTest do
   defp dashboard_conn(method, path, credentials \\ @dashboard_credentials) do
     method
     |> conn(path)
+    |> Map.put(:secret_key_base, String.duplicate("s", 64))
     |> put_private(:aiur_dashboard_credentials, credentials)
+    |> AiurWeb.Session.call(@session_options)
+    |> fetch_session()
   end
 
   defp redirect_request(path), do: CommandsRedirectController.legacy(conn(:get, path), %{})
+
+  defp build_order_request(method, path) do
+    method
+    |> dashboard_conn(path)
+    |> init_test_session(%{})
+    |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+    |> Router.call(Router.init([]))
+  end
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)

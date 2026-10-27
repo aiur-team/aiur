@@ -4,23 +4,32 @@ defmodule Aiur.Events.GithubWebhook.Identity do
   identity" on `Aiur.Events.GithubWebhook.Normalizer`.
   """
 
+  alias Aiur.RecentMerge
   alias Aiur.TicketBranch
 
-  @closing_keyword ~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/i
-
-  @spec pull_request_identity(map()) :: {:ok, String.t(), integer()} | {:drop, term()} | {:error, term()}
-  def pull_request_identity(payload) do
+  @spec pull_request_identity(map(), keyword()) :: {:ok, String.t(), integer()} | {:drop, term()} | {:error, term()}
+  def pull_request_identity(payload, opts \\ []) do
     pr = Map.get(payload, "pull_request")
     pr_number = if is_map(pr), do: Map.get(pr, "number")
 
     if is_map(pr) and is_integer(pr_number) do
-      case ticket_from_head_ref(pr) do
+      case ticket_for_pull_request(pr, opts) do
         nil -> {:drop, {:unresolved_ticket, "pull_request", pr_number}}
         ticket -> {:ok, ticket, pr_number}
       end
     else
       {:error, {:malformed_payload, "pull_request"}}
     end
+  end
+
+  defp ticket_for_pull_request(pr, opts) do
+    ticket_from_head_ref(pr) || ticket_from_pr_body(Map.get(pr, "body")) || commit_ticket(pr, opts)
+  end
+
+  defp commit_ticket(pr, opts) do
+    if Keyword.get(opts, :allow_commit_messages, false) and
+         Map.get(pr, "commit_messages_unavailable", false) != true,
+       do: List.first(linked_ticket_identifiers(pr))
   end
 
   @spec ticket_from_head_ref(map()) :: String.t() | nil
@@ -36,13 +45,20 @@ defmodule Aiur.Events.GithubWebhook.Identity do
   # closing keyword, so that keyword is the ticket mapping for this one case.
   @spec ticket_from_pr_body(term()) :: String.t() | nil
   def ticket_from_pr_body(body) when is_binary(body) do
-    case Regex.run(@closing_keyword, body) do
-      [_match, number] -> number
-      _other -> nil
-    end
+    RecentMerge.closing_issue_identifiers_in_body(body) |> List.first()
   end
 
   def ticket_from_pr_body(_body), do: nil
+
+  @doc "Returns ticket ids explicitly linked by the body or commit messages."
+  @spec linked_ticket_identifiers(map()) :: [String.t()]
+  def linked_ticket_identifiers(pr) do
+    repository = get_in(pr, ["base", "repo", "full_name"])
+    body = Map.get(pr, "body")
+    commit_messages = Map.get(pr, "commit_messages", [])
+    linked_ids = RecentMerge.linked_issue_identifiers(struct(RecentMerge, summary: body, repository: repository, commit_messages: commit_messages))
+    Enum.uniq(linked_ids)
+  end
 
   @spec ticket_identifier(term()) :: String.t() | nil
   def ticket_identifier(number) when is_integer(number) and number > 0, do: Integer.to_string(number)

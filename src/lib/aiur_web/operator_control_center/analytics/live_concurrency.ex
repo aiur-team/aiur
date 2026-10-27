@@ -37,7 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LiveConcurrency do
   @spec label(map(), boolean()) :: String.t()
   def label(model, true) do
     case Map.get(model, :live_concurrency) do
-      count when is_integer(count) -> "#{count} running now#{occupied_label(Map.get(model, :live_occupied), count)}#{freshness_label(Map.get(model, :live_concurrency_state))}"
+      count when is_integer(count) -> "#{count} running now#{occupied_label(Map.get(model, :live_occupied), count, model)}#{freshness_label(Map.get(model, :live_concurrency_state))}"
       _unknown -> "occupancy unavailable#{freshness_label(Map.get(model, :live_concurrency_state))}"
     end
   end
@@ -47,8 +47,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LiveConcurrency do
   defp known_or_unknown(nil), do: "unknown"
   defp known_or_unknown(count), do: to_string(count)
 
-  defp occupied_label(occupied, count) when is_integer(occupied) and occupied != count, do: " (#{occupied} slots occupied)"
-  defp occupied_label(_occupied, _count), do: ""
+  defp occupied_label(occupied, count, model) when is_integer(occupied) do
+    slots = if occupied == count, do: "", else: " (#{occupied} slots occupied)"
+    "#{slots}#{over_cap_label(occupied, model)}"
+  end
+
+  defp occupied_label(_occupied, _count, _model), do: ""
+
+  defp over_cap_label(occupied, %{cap_available?: true, cap: cap}) when is_integer(cap) and occupied > cap,
+    do: ", #{occupied - cap} over cap"
+
+  defp over_cap_label(_occupied, _model), do: ""
 
   defp freshness_label({:stale, nil}), do: " (sample age unknown)"
   defp freshness_label({:stale_unavailable, nil}), do: " (sample age unknown)"

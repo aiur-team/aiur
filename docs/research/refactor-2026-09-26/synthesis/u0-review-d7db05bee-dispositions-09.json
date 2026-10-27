@@ -1,0 +1,442 @@
+{
+  "schema": "aiur-u0-review-dispositions-shard/v1",
+  "part": 9,
+  "first_id": "github-a-12",
+  "last_id": "github-b-08",
+  "findings": [
+    {
+      "id": "github-a-12",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/config.ex:16",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-12"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-a-13",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/ci_readiness.ex:388",
+      "note": "CiReadiness still uses its own spawn_monitor request bound and compiles branch glob Regex per call, alongside cache/YAML/pagination policy. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-13"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-14",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/dispatch_authorization.ex:433",
+      "note": "DispatchAuthorization still lazily creates named public ETS from caller context and rewrites persistent_term decision/alert/deferral caches. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-14"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-15",
+      "status": "changed",
+      "anchor": "src/lib/aiur/github/dispatch_authorization.ex:678",
+      "note": "Unknown deferral causes still collapse to transient and missing token remains ambiguous/denied. However note_deferral now raises persistent-deferral attention after a threshold; no-alert-forever assertion no longer holds. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-15"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-16",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/comments.ex:158",
+      "note": "Comments pagination still recursively appends acc++body without a page/cycle cap; DependenciesAPI GET still lacks per_page/Link pagination. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-16"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-17",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/budget.ex:860",
+      "note": "Config and CredentialHeadroom still accept integer parse suffixes while Budget requires full consumption; independent token-usability probe remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-17"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-18",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/credential_headroom.ex:260",
+      "note": "CredentialHeadroom still models core/graphql only and falls back to request_resource for unrecognized response pools, retaining misattribution. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-18"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-19",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/credential.ex:46",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-19"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-a-20",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/budget_ledger.ex:105",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-20",
+        "web-rest-13"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-a-21",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/quota.ex:62",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-21"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    },
+    {
+      "id": "github-a-22",
+      "status": "repaired",
+      "anchor": "src/test/aiur_web/operator_control_center/route_registry_test.exs:9",
+      "note": "Removed in 694f9d021 (#2841) with the GitHub cache page; pinned-tree search finds no CacheInspector implementation. U7-T01 closes the already-cut integrations-20/ui-13 scope; this finding needs no extraction. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-22"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-23",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/code_owners.ex:127",
+      "note": "CodeOwners still starts without refresh options and takes its local default; pinned-tree grep finds events_codeowners_refresh_seconds only at its Config definition. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-23"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-24",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/config.ex:1004",
+      "note": "Config token probe and AppToken still build literal api.github.com URLs separately from Transport.base_url. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-24",
+        "github-b-29",
+        "loose-1-35"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-25",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/dependencies_api.ex:66",
+      "note": "DependenciesAPI and CI readiness still separately select default request_fun and classify responses; copied domain request preambles remain. Historical occurrence census is not a new measurement. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-25"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-26",
+      "status": "present",
+      "anchor": "src/test/aiur/github/credential_selector_test.exs:2",
+      "note": "Credential selector and registry suites still declare async:true while mutating System env, retaining process-global cross-suite interference risk; no runtime flake reproduced. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-a-26"
+      ],
+      "severity": "P2",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-27",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/auth_preflight.ex:334",
+      "note": "Auth diagnostics still turn typed credential source into strings then branch and retain inspected-string local-hold detection. Provisional disposition retained.",
+      "source_ids": [
+        "github-a-27"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-28",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/agent_cache.ex:105",
+      "note": "Pinned production grep still finds no callers for AgentCache.invalidate_repo and CredentialRegistry pooled/by_token_key/by_id; public dead/test-only API concern remains. Provisional disposition retained.",
+      "source_ids": [
+        "github-a-28"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "unknown",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-29",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/budget.ex:31",
+      "note": "Budget ceilings remain request counts independent of observed credential point window; release still broadcasts completion per lease. Provisional disposition retained.",
+      "source_ids": [
+        "github-a-29"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-30",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/endpoint_policy.ex:22",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-30"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "github-a-31",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/ci_readiness.ex:141",
+      "note": "CiReadiness cached_result still loads persisted assessment even with fresh memory; cache scope fingerprints workflow and retained scope map accumulates. Provisional disposition retained.",
+      "source_ids": [
+        "github-a-31"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-32",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/budget.ex:386",
+      "note": "Budget still uses same hold name for broker mutation and returned hold map; grant_or_hold request parameter remains unused. Provisional disposition retained.",
+      "source_ids": [
+        "github-a-32"
+      ],
+      "severity": "P3",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-a-33",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/agent_cache.ex:84",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-33"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "github-a-34",
+      "status": "stale",
+      "anchor": "docs/research/refactor-2026-09-26/synthesis/u0-owner-ledger-7fe2fca3f.md:66",
+      "note": "path unchanged since 465aca643 because cited cache surface was already absent at both revisions; deletion 694f9d021 (#2841), not a new repair. Original citation retired; U7-T01 must not recreate deleted cache inspection.",
+      "source_ids": [
+        "github-a-34"
+      ],
+      "review_scope": "absent-at-both-pins",
+      "severity": "P3",
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported"
+    },
+    {
+      "id": "github-a-35",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/code_owners.ex:1",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-35"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "github-a-36",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/app_token_refresher.ex:59",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-a-36"
+      ],
+      "provisional_action": "fix",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P3"
+    },
+    {
+      "id": "github-b-01",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/resource_store.ex:1360",
+      "note": "ResourceStore still owns resource registry and public ETS compare/write lifecycle alongside persistence/processed marks/retention; original line census is historical. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-01"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-02",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issues.ex:300",
+      "note": "Issue write still checks regression outside ResourceStore put; ResourceFetch.store still writes fetched bodies without version acceptance guard. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "github-b-02"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-03",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/review_threads/reply.ex:80",
+      "note": "Retryable mutation failures still recursively repost addReviewThreadReply before resolving ambiguous application outcome. Provisional action: fix. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "github-b-03"
+      ],
+      "severity": "P1",
+      "provisional_action": "fix",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-04",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/quota.ex:253",
+      "note": "Snapshot still scans shell observations and stale broker alerts inside Quota callback; preflight exits still fail open to ok. Provisional action: defer. Static review only; live incidence unmeasured.",
+      "source_ids": [
+        "github-b-04"
+      ],
+      "severity": "P1",
+      "provisional_action": "defer",
+      "inherited_verdict": "high-priority-disposition",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-05",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/quota.ex:1243",
+      "note": "Quota still uses start-of-document mutation regex, separate from cache identity/credential selector parsing; cost/error attribution implementation remains separate. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-05",
+        "dup-by-body-42",
+        "dup-by-body-49"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-06",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/issues.ex:23",
+      "note": "Transport still identifies Orchestrator to choose deadline and Issues still imports Orchestrator.DispatchPolicy/BuildOrder helpers; upward package coupling remains. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-06"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-07",
+      "status": "present",
+      "anchor": "src/lib/aiur/github/pull_requests.ex:13",
+      "note": "PullRequests still repeats repo/token/request_fun preambles and separate recursive Link-header paginators; copied request mechanics remain. Historical occurrence counts not remeasured. Provisional action retained; static code review only.",
+      "source_ids": [
+        "github-b-07"
+      ],
+      "severity": "P2",
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "semantic-recheck"
+    },
+    {
+      "id": "github-b-08",
+      "status": "unchanged",
+      "anchor": "src/lib/aiur/github/pull_requests.ex:115",
+      "note": "path unchanged since 465aca643; inherited provisional verdict and action retained, no new semantic or runtime claim.",
+      "source_ids": [
+        "github-b-08"
+      ],
+      "provisional_action": "defer",
+      "inherited_verdict": "source-supported",
+      "review_scope": "path-unchanged",
+      "severity": "P2"
+    }
+  ]
+}

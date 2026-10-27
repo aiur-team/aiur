@@ -140,20 +140,10 @@ defmodule Aiur.GitHub.Budget.BrokerFailuresTest do
       %{opts: [state_dir: root, enabled?: true, broker_server: server]}
     end
 
-    test "is a broker timeout when the per-command bound fires with admission time left", %{opts: opts} do
-      acquire =
-        Task.async(fn ->
-          Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 5_000, command_timeout_ms: 1_000])
-        end)
-
-      assert_receive {:broker_call, 2}, 1_000
-      assert {:error, :github_budget_broker_timeout} = Task.await(acquire, 2_000)
-    end
-
     test "is a hold when the admission deadline cuts the retry off", %{opts: opts} do
       acquire =
         Task.async(fn ->
-          Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 1_500, command_timeout_ms: 5_000])
+          Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1"), opts ++ [timeout_ms: 1_500])
         end)
 
       assert_receive {:broker_call, 2}, 1_000

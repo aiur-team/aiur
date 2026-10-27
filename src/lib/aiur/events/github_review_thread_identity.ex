@@ -1,11 +1,10 @@
 defmodule Aiur.Events.GithubReviewThreadIdentity do
+  alias Aiur.GitHub.Access
   @moduledoc false
 
-  alias Aiur.GitHub.ResourceStore
-
-  @spec unresolved_generation(ResourceStore.key()) :: String.t() | nil
+  @spec unresolved_generation(Access.key()) :: String.t() | nil
   def unresolved_generation(resource) do
-    case ResourceStore.fetch(resource) do
+    case Access.fetch_resource(resource) do
       {:ok, %{data: %{"latest_unresolved_generation" => generation}}}
       when is_binary(generation) and generation != "" ->
         generation

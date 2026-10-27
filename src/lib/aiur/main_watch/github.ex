@@ -2,7 +2,7 @@ defmodule Aiur.MainWatch.GitHub do
   @moduledoc "Bounded base-branch Actions observations through the governed GitHub transport."
   alias Aiur.CI.FailureDigest
   alias Aiur.Events.GithubCIPoller.Evaluation
-  alias Aiur.GitHub.{AppCredentials, AppToken, Config, Errors, PullRequests, Transport}
+  alias Aiur.GitHub.{Access, Config, PullRequests}
 
   @active_statuses ["queued", "in_progress", "waiting", "requested", "pending"]
 
@@ -12,12 +12,12 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp poll_once(branch, workflows, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, commit_window, commit_etag} <- commits(owner, repo, branch, token, opts),
          {commits, dates} = commit_window,
          {:ok, {runs, merge_groups}} <- runs(owner, repo, branch, commits, dates, workflows, token, opts),
-         {:ok, observations} <- observations(commits, runs, workflows, opts) do
+         {:ok, observations} <- observations(commits, runs, merge_groups, workflows, opts) do
       {:ok,
        %{
          observations: observations,
@@ -33,10 +33,10 @@ defmodule Aiur.MainWatch.GitHub do
 
   @spec actions_write?(keyword()) :: boolean()
   def actions_write?(opts \\ []) do
-    with true <- AppCredentials.configured?(),
-         {:ok, key} <- AppCredentials.parse_private_key(),
-         jwt = AppToken.app_jwt(key, AppCredentials.app_id()),
-         url = "#{Transport.base_url()}/app/installations/#{AppCredentials.installation_id()}",
+    with true <- Access.app_configured?(),
+         {:ok, key} <- Access.app_private_key(),
+         jwt = Access.app_jwt(key, Access.app_id()),
+         url = "#{Access.base_url()}/app/installations/#{Access.installation_id()}",
          request = %{
            method: :get,
            url: url,
@@ -58,14 +58,14 @@ defmodule Aiur.MainWatch.GitHub do
   def rerun(id, opts \\ [])
 
   def rerun(id, opts) when is_integer(id) and id > 0 do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request = %{method: :post, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{id}/rerun", token: token, body: %{}, caller: "main_watch_canary"}
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request = %{method: :post, url: "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{id}/rerun", token: token, body: %{}, caller: "main_watch_canary"}
 
       case request_fun(opts).(request) do
         {:ok, %{status: 201}} -> :ok
-        {:ok, response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+        {:ok, response} -> {:error, Access.github_status_error(response)}
+        {:error, reason} -> {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -76,14 +76,14 @@ defmodule Aiur.MainWatch.GitHub do
   def rerun_failed_jobs(id, opts \\ [])
 
   def rerun_failed_jobs(id, opts) when is_integer(id) and id > 0 do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request = %{method: :post, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{id}/rerun-failed-jobs", token: token, body: %{}, caller: "main_watch_single_test_rerun"}
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request = %{method: :post, url: "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{id}/rerun-failed-jobs", token: token, body: %{}, caller: "main_watch_single_test_rerun"}
 
       case request_fun(opts).(request) do
         {:ok, %{status: status}} when status in [201, 202] -> :ok
-        {:ok, response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+        {:ok, response} -> {:error, Access.github_status_error(response)}
+        {:error, reason} -> {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -92,9 +92,9 @@ defmodule Aiur.MainWatch.GitHub do
 
   @spec changed_paths(String.t(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
   def changed_paths(sha, opts) when is_binary(sha) and sha != "" do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
 
       case request_fun(opts).(github_request(token, "main_watch_commit_files", opts) |> Map.put(:url, url)) do
         {:ok, %{status: 200, body: %{"files" => files}} = response} when is_list(files) ->
@@ -104,7 +104,7 @@ defmodule Aiur.MainWatch.GitHub do
           {:error, request_error(response, "main_watch_commit_files", opts)}
 
         {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+          {:error, Access.classify_error({:error, reason})}
       end
     end
   end
@@ -112,7 +112,7 @@ defmodule Aiur.MainWatch.GitHub do
   def changed_paths(_, _), do: {:error, :invalid_main_commit_sha}
 
   defp commit_paths(files, response) do
-    if Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+    if Access.parse_next_page_url(Map.get(response, :headers, [])) do
       {:error, :main_commit_files_incomplete}
     else
       collect_commit_paths(files)
@@ -136,7 +136,7 @@ defmodule Aiur.MainWatch.GitHub do
   end
 
   defp commits(owner, repo, branch, token, opts) do
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits?" <> URI.encode_query(%{sha: branch, per_page: 20})
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/commits?" <> URI.encode_query(%{sha: branch, per_page: 20})
 
     retained_commits = Keyword.get(opts, :commits)
     retained_dates = Keyword.get(opts, :commit_dates)
@@ -157,7 +157,7 @@ defmodule Aiur.MainWatch.GitHub do
         {:error, request_error(response, "main_watch_commits", opts)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -171,7 +171,7 @@ defmodule Aiur.MainWatch.GitHub do
 
   defp retained_etag(_commits, _dates, _opts), do: nil
 
-  defp response_etag(response), do: Transport.header(Map.get(response, :headers, []), "etag")
+  defp response_etag(response), do: Access.header(Map.get(response, :headers, []), "etag")
 
   defp commit_response({:ok, commits, etag}, _retained_commits, _retained_dates) do
     if Enum.all?(commits, &(is_map(&1) and is_binary(&1["sha"]))) do
@@ -191,9 +191,9 @@ defmodule Aiur.MainWatch.GitHub do
     do: {:error, :main_commits_not_modified_without_snapshot}
 
   defp runs(owner, repo, branch, commits, dates, workflows, token, opts) do
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{branch: branch, event: "push", per_page: 100})
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{branch: branch, event: "push", per_page: 100})
 
-    queue_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{event: "merge_group", per_page: 100})
+    queue_url = "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <> URI.encode_query(%{event: "merge_group", per_page: 100})
 
     with {:ok, push_runs} <- runs_page(url, token, dates, opts),
          {:ok, queue_runs} <- runs_page(queue_url, token, dates, opts) do
@@ -209,7 +209,7 @@ defmodule Aiur.MainWatch.GitHub do
   defp runs_page(url, token, dates, opts) do
     case request_fun(opts).(github_request(token, "main_watch_runs", opts) |> Map.put(:url, url)) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
-        incomplete = Transport.parse_next_page_url(Map.get(response, :headers, [])) && not window_covered?(runs, dates)
+        incomplete = Access.parse_next_page_url(Map.get(response, :headers, [])) && not window_covered?(runs, dates)
         if incomplete, do: {:error, :main_runs_incomplete}, else: {:ok, runs}
 
       {:ok, %{status: 200}} ->
@@ -219,7 +219,7 @@ defmodule Aiur.MainWatch.GitHub do
         {:error, request_error(response, "main_watch_runs", opts)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -259,16 +259,17 @@ defmodule Aiur.MainWatch.GitHub do
       url: run["html_url"]
     }
 
-  defp observations(commits, runs, workflows, opts) do
+  defp observations(commits, runs, merge_groups, workflows, opts) do
     commits
     |> Enum.reverse()
-    |> Enum.reduce_while({:ok, []}, &append_observation(&1, &2, runs, workflows, opts))
+    |> Enum.reduce_while({:ok, []}, &append_observation(&1, &2, runs, merge_groups, workflows, opts))
   end
 
-  defp append_observation(sha, {:ok, acc}, runs, workflows, opts) do
-    latest = newest_completed_workflow_runs(runs, sha, workflows)
+  defp append_observation(sha, {:ok, acc}, runs, merge_groups, workflows, opts) do
+    push_latest = newest_completed_workflow_runs(runs, sha, workflows)
+    latest = if push_latest == [], do: newest_completed_workflow_runs(merge_groups, sha, workflows), else: push_latest
 
-    if latest != [] and (failed_workflow?(latest) or configured_workflows_complete?(runs, sha, workflows)) do
+    if latest != [] and (failed_workflow?(latest) or configured_workflows_complete?(runs ++ merge_groups, sha, workflows)) do
       case cached_observation(sha, latest, opts) do
         {:ok, observation} -> {:cont, {:ok, acc ++ [observation]}}
         error -> {:halt, error}
@@ -297,7 +298,7 @@ defmodule Aiur.MainWatch.GitHub do
   defp cached_observation(sha, runs, opts) do
     fingerprint = Enum.map(runs, &{&1.name, &1.id, &1.attempt, &1.suite_id, &1.status, &1.conclusion, &1.started_at, &1.completed_at}) |> Enum.sort()
     cached = Enum.find(Keyword.get(opts, :history, []), &(&1.sha == sha and Map.get(&1, :run_fingerprint) == fingerprint))
-    fields = [:sha, :started_at, :completed_at, :checks, :digest, :failed_workflow, :run_urls, :suspect_merges, :run_fingerprint]
+    fields = [:sha, :event, :started_at, :completed_at, :checks, :digest, :failed_workflow, :run_urls, :suspect_merges, :run_fingerprint]
 
     # Entries cached before non-blocking checks were excluded must be rebuilt.
     if is_map(cached) and Enum.all?(fields, &Map.has_key?(cached, &1)) and not Enum.any?(cached.checks, &Evaluation.non_blocking_name?(&1.name)) do
@@ -319,6 +320,7 @@ defmodule Aiur.MainWatch.GitHub do
       {:ok,
        %{
          sha: sha,
+         event: runs |> Enum.map(& &1.event) |> Enum.uniq() |> List.first(),
          started_at:
            runs
            |> Enum.filter(&(&1.conclusion in ["failure", "timed_out", "startup_failure"]))
@@ -355,7 +357,7 @@ defmodule Aiur.MainWatch.GitHub do
 
   defp timestamp(_), do: nil
 
-  defp request_fun(opts), do: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+  defp request_fun(opts), do: Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
   defp github_request(token, caller, _opts) do
     %{method: :get, token: token, caller: caller}
@@ -366,7 +368,7 @@ defmodule Aiur.MainWatch.GitHub do
     {:github, :auth, %{status: 401, message: "Bad credentials", caller: caller, credential: credential}}
   end
 
-  defp request_error(response, _caller, _opts), do: Errors.github_status_error(response)
+  defp request_error(response, _caller, _opts), do: Access.github_status_error(response)
 
   defp credential_source(opts) do
     case Keyword.get(opts, :credential_source, &Config.token_source/0).() do

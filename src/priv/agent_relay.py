@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Detached stdio owner; byte-offset journal and fenced Unix-socket controller."""
 import argparse
-import base64
 import asyncio
 import ctypes
 from collections import deque
@@ -13,6 +12,8 @@ from pathlib import Path
 import signal
 import shutil
 import time
+
+from agent_relay_forward import forward
 
 PROTOCOL = 1
 CAP = 64 * 1024 * 1024
@@ -52,6 +53,8 @@ class Relay:
         writer.close()
         if self.controller is not None and self.controller[0] is writer:
             self.controller[2].set()
+            self.controller[3].set()
+            self.controller[4].set()
             self.controller = None
             self.disconnected_at = time.monotonic()
 
@@ -94,10 +97,10 @@ class Relay:
             if self.controller:
                 self.disconnect(self.controller[0])
             self.generation = generation
-            self.controller = [writer, offset, asyncio.Event()]
+            self.controller = [writer, offset, asyncio.Event(), asyncio.Event(), asyncio.Event()]
             self.persist()
             self.message(writer, 'attached', generation=generation)
-            asyncio.create_task(self.forward(self.controller))
+            asyncio.create_task(forward(self, self.controller))
         elif self.controller is None or self.controller[0] is not writer:
             raise ValueError('not_controller')
         elif op == 'stdin':
@@ -118,6 +121,7 @@ class Relay:
             if self.acked - self.retained_base >= min(1024 * 1024, self.cap):
                 self.rotate()
             self.persist()
+            self.controller[3].set()
         elif op == 'detach':
             self.disconnect(writer)
         elif op == 'signal':
@@ -208,33 +212,6 @@ class Relay:
             self.controller[2].set()
         self.persist()
 
-    async def forward(self, controller):
-        writer, _, ready = controller
-        delivered_exit = False
-        try:
-            while self.controller is controller:
-                ready.clear()
-                for end, raw in list(self.frames):
-                    if self.controller is not controller:
-                        return
-                    if end > controller[1]:
-                        payload = raw.removesuffix(b'\n')
-                        try:
-                            values = {'line': payload.decode('utf-8')}
-                        except UnicodeDecodeError:
-                            values = {'line': payload.decode('utf-8', errors='replace'),
-                                      'line_base64': base64.b64encode(payload).decode('ascii')}
-                        self.message(writer, 'frame', offset=end, **values)
-                        controller[1] = end
-                        await asyncio.wait_for(writer.drain(), timeout=1)
-                if self.exit_status is not None and not delivered_exit:
-                    self.message(writer, 'exit', status=self.exit_status)
-                    await writer.drain()
-                    delivered_exit = True
-                await ready.wait()
-        except (ConnectionError, asyncio.TimeoutError):
-            self.disconnect(writer)
-
     def signal_group(self, sig):
         # A retained exited provider's PID may have been recycled before stop.
         try:
@@ -287,6 +264,9 @@ class Relay:
         if self.stopping:
             return
         self.stopping = True
+        if self.controller:
+            self.controller[2].set()
+            self.controller[3].set()
         self.signal_group(signal.SIGTERM)
         try:
             await asyncio.wait_for(asyncio.shield(self.provider.wait()), timeout=grace)
@@ -364,6 +344,9 @@ class Relay:
         tasks = [asyncio.create_task(self.watch()), asyncio.create_task(self.orphan())]
         try:
             await self.finished.wait()
+            # Provider exit is not complete until the active controller drains its frames.
+            if self.controller:
+                await self.controller[4].wait()
         finally:
             server.close()
             clients = list(self.clients)

@@ -329,6 +329,41 @@ defmodule Aiur.GitHubCostCLITest do
     assert caller["estimated?"] == false
   end
 
+  test "github-cost reports per-instance and fleet attributed points with snapshot ages" do
+    observed_at = DateTime.add(@now, -30, :second)
+
+    fleet_snapshot = %{
+      instance_id: "daemon-west",
+      observed_at: observed_at,
+      snapshot: %{callers: [%{resource: "graphql", points: 60, calls: 2, caller: "poller"}, %{resource: "core", points: 5, calls: 5, caller: "tracker"}]}
+    }
+
+    assert {:ok, envelope} =
+             GitHubCostCLI.build(
+               snapshot_fun: fn -> snapshot() end,
+               fleet_snapshots_fun: fn -> {:ok, [fleet_snapshot]} end,
+               now: @now
+             )
+
+    assert envelope["data"]["fleet"]["total_attributed_points"] == 60
+    assert [%{"instance_id" => "daemon-west", "attributed_points" => 60, "age_seconds" => 30}] = envelope["data"]["fleet"]["instances"]
+
+    output =
+      capture_io(fn ->
+        assert 0 ==
+                 GitHubCostCLI.run(
+                   snapshot_fun: fn -> snapshot() end,
+                   fleet_snapshots_fun: fn -> {:ok, [fleet_snapshot]} end,
+                   now: @now,
+                   format: :table
+                 )
+      end)
+
+    assert output =~ "fleet attributed spend: 60 points across 1 observed instances"
+    assert output =~ "daemon-west: 60 points"
+    assert output =~ "agent gh calls are counted per host"
+  end
+
   test "surfaces a transport error as estimated GraphQL spend from the production meter" do
     request = %{
       method: :post,

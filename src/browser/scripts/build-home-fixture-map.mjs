@@ -40,7 +40,7 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
   return { v: 1, kind: 'snapshot', epoch: 'fixture', generation: 0, now: meta.now, writable: true,
     capacity: { max: 4, observed_at: meta.now, stale: false },
     repo: { url: 'https://github.com/example/aiur-fixture/' }, epics: data.epics,
-    features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null, stats: stats(featureStats[k]) }])),
+    features: Object.fromEntries(Object.entries(data.features).map(([k, f]) => [k, { ...f, from: time(f, 'from'), to: Number.isFinite(f.to) ? Math.trunc(f.to) : null, oldest: data.hist.filter(t => t.feature === k || t.also.includes(k)).reduce((a, t) => t.end == null ? a : a == null ? Math.trunc(t.end) : Math.min(a, Math.trunc(t.end)), null), stats: stats(featureStats[k]) }])),
     order: data.order, counts: Object.fromEntries(data.order.map(k => [k, data.counts[k] ?? 0])),
     sections: Object.fromEntries(sections.map(sec => [sec, data[sec].map(row)])),
     history: { from: null, more: false, total: data.hist.length, undated: 0, tz: meta.tz },
@@ -49,5 +49,7 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
       apis: [provider({ name: 'GitHub', icon: 'github', lines: usage.apis.filter(a => ['core', 'gql'].includes(a.tag))
         .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) }),
         ...usage.apis.filter(a => a.tag === 'credits').map(a => provider({ name: 'Search', icon: 'bars', lines: [{ ...a, acc: [a.pct ?? null], tip: a.rows }] }))],
-      providers: usage.models.map(provider) }, daemon };
+      providers: usage.models.map(provider) }, daemon,
+    // The design datasets carry no feature-progress facts, so the block reports them unavailable.
+    feature_progress: { features: {}, observed_at: meta.now, plan_version: null, extras: null, reason: 'states unavailable · CI state unknown · planned count unavailable' } };
 }

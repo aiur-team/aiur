@@ -1,6 +1,8 @@
 defmodule Aiur.RunTelemetry.RunContext do
   @moduledoc "Content-free build and effective configuration identity for a telemetry boot."
 
+  alias Aiur.BuildStamp
+
   @secret ~r/(?:sk[-_][A-Za-z0-9]|ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret|password|credential|bearer|authorization|api[-_]?key|prompt|token)/i
   @volatile ~w(
     refresh_ms
@@ -22,7 +24,7 @@ defmodule Aiur.RunTelemetry.RunContext do
   @spec build(map(), keyword()) :: map()
   def build(settings, opts \\ []) do
     canonical = canonical(settings)
-    stamp = read_stamp(Keyword.get(opts, :stamp_path, Path.join(to_string(:code.root_dir()), "AIUR_BUILD_STAMP")))
+    stamp = BuildStamp.read(Keyword.get(opts, :stamp_path, Path.join(to_string(:code.root_dir()), "AIUR_BUILD_STAMP")))
 
     %{
       aiur_vsn: to_string(Keyword.get(opts, :vsn, Application.spec(:aiur, :vsn) || "unknown")),
@@ -54,18 +56,4 @@ defmodule Aiur.RunTelemetry.RunContext do
   defp encode(value) when is_list(value), do: ["[", Enum.intersperse(Enum.map(value, &encode/1), ","), "]"]
   defp encode(value), do: Jason.encode!(value)
   defp hash(value), do: :crypto.hash(:sha256, encode(value)) |> Base.encode16(case: :lower)
-
-  defp read_stamp(path) do
-    case File.read(path) do
-      {:ok, text} -> text |> String.split("\n") |> Enum.flat_map(&stamp_entry/1) |> Map.new()
-      {:error, _reason} -> %{}
-    end
-  end
-
-  defp stamp_entry(line) do
-    case String.split(line, "=", parts: 2) do
-      [key, value] when key in ["source_sha", "package_version"] and value != "" -> [{key, value}]
-      _ -> []
-    end
-  end
 end

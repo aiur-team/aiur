@@ -413,6 +413,7 @@
   text-transform: uppercase;
   color: var(--muted);
   border-top: 1px solid var(--line);
+  overflow: clip;
 }
 
 /* C:194 */ .bd-sec:first-of-type .bd-sech {
@@ -448,4 +449,3 @@
   color: var(--fg);
   white-space: nowrap;
 }
-

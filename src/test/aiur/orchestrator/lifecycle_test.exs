@@ -12,6 +12,14 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert "ticket.*.branch.push" in topics
   end
 
+  test "orchestrator subscribes to agent progress observations" do
+    topics = Lifecycle.orchestrator_topics()
+
+    assert "ticket.*.agent.progress" in topics
+    assert "ticket.*.agent.progress.checkin" in topics
+    assert "ticket.*.agent.progress.phase" in topics
+  end
+
   test "schedule_tick replaces the timer with a new token" do
     old_token = make_ref()
     old_timer = Process.send_after(self(), :superseded_tick, 60_000)

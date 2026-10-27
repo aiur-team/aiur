@@ -1,9 +1,9 @@
 defmodule Aiur.Events.GithubCIPoller.Recovery do
   @moduledoc "One exact-head rerun, then bounded CI/rework escalation."
   require Logger
-  alias Aiur.{AlertFeed, Alerts, Config}
+  alias Aiur.{AlertFeed, Config, Signal}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
-  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause}
+  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause, RepoWideFailure}
   alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
@@ -22,6 +22,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   @spec recover(map(), map(), keyword()) :: map()
   def recover(_issue, %{pending_reason: :ci_cancelled, merge_queue_entry: entry} = result, _opts) when is_map(entry),
     do: result
+
+  def recover(_issue, %{pending_reason: :required_checks_unavailable} = result, _opts), do: result
 
   def recover(issue, %{pending_reason: :ci_cancelled, pr_number: number, head_sha: sha} = result, opts)
       when is_integer(number) and is_binary(sha) do
@@ -426,7 +428,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     hold = if mode == "transient", do: Map.put(hold, "retry_at", now(opts) + 600), else: hold
     hold = if mode == "base", do: Map.put(hold, "since", now(opts)), else: hold
     message = "PR ##{Map.get(result, :pr_number)} CI recovery #{kind}: #{inspect(reason)}. Failing tests/checks: #{tests}"
-    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+    emitter = Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
     case update(issue, result, &(&1 |> Map.put("hold", hold) |> Map.delete("limit_hold")), opts) do
       {:ok, entry} ->
@@ -449,22 +451,28 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp base_gate(%{decision: :failed, head_sha: sha} = result, issue, entry, opts) do
-    case BaseCause.classify(result, opts) do
-      :caused_by_pr ->
-        result
-
-      cause ->
-        kind = "base_#{cause}"
-
-        case entry do
-          %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
-          %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
-          _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
-        end
+    case RepoWideFailure.hold(result, opts) do
+      :no_match -> base_cause(result, issue, entry, opts, sha)
+      held -> held
     end
   end
 
   defp base_gate(result, _issue, _entry, _opts), do: result
+
+  defp base_cause(result, issue, entry, opts, sha) do
+    case BaseCause.classify(result, opts) do
+      :caused_by_pr -> result
+      cause -> hold_base_cause(result, issue, entry, opts, sha, "base_#{cause}")
+    end
+  end
+
+  defp hold_base_cause(result, issue, entry, opts, sha, kind) do
+    case entry do
+      %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
+      %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
+      _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
+    end
+  end
 
   # A cancelled push or expired history can hide the base, so unknown holds one main CI run.
   defp unknown_base(result, hold, opts),

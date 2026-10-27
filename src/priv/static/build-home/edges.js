@@ -1,5 +1,7 @@
 import { S, ctx, fx, onReset } from './state.js';
 import { esc } from './dom.js';
+import { timed } from './perf.js';
+export const drawEdges = timed('drawEdges', drawEdgesImpl);
 
 let edgeSig = '', edgeUntil = 0;
 onReset(() => { edgeSig = ''; edgeUntil = 0; });
@@ -55,7 +57,7 @@ export function drawEdgesSoon(ms) {
   ctx.life.frame('edges', loop);
 }
 
-export function drawEdges(force) {
+function drawEdgesImpl(force) {
   const { content, svg, bandEl, D, L } = ctx;
   if (!content || !svg || !L || !D || !content.isConnected) return;
   const cr = content.getBoundingClientRect();

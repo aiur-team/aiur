@@ -6,6 +6,7 @@ defmodule AiurWeb.EndpointCallGuard do
       defoverridable call: 2
 
       def call(conn, opts) do
+        conn = AiurWeb.TrustedProxy.call(conn, [])
         conn = AiurWeb.HostAllowlist.call(conn, [])
         if conn.halted, do: conn, else: super(conn, opts)
       end

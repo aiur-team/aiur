@@ -25,6 +25,9 @@ defmodule Aiur.Alerts do
   @spec definitions() :: %{optional(String.t()) => definition()}
   defdelegate definitions(), to: Config
 
+  @spec active_attention_alerts() :: [map()]
+  def active_attention_alerts, do: AlertFeed.list(needs_attention: true)
+
   @doc """
   Returns the alert definition whose YAML pattern key matches `topic`
   via `Aiur.Events.matches?/2`. Walks patterns in specificity

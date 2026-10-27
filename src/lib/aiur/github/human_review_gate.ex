@@ -2,31 +2,22 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @moduledoc """
   Human-review readiness checks for GitHub issues.
 
-  This module blocks a transition to human review while the canonical open
-  pull request has unaddressed review-thread comments or conflicts with its
-  base. Mergeable PRs may wait through base movement; the merge queue tests
-  them against the current base. It composes pull request discovery, bot identity resolution,
-  review-thread classification and mergeability without mutating GitHub state.
+  This gate checks the canonical PR's Local tests evidence and review threads.
+  For human review, it also rejects base conflicts; mergeable PRs may wait
+  through base movement because the merge queue tests them against current base.
   """
 
   alias Aiur.Config
+  alias Aiur.GitHub.HumanReviewEvidence
 
-  alias Aiur.GitHub.{
-    BotIdentity,
-    PullRequests,
-    ResourceFetch,
-    ResourceStore,
-    ReviewThreads,
-    StatePolicy,
-    Transport
-  }
+  alias Aiur.GitHub.{Access, BotIdentity, PullRequests, ReviewThreads, StatePolicy}
 
   @approval_fields "headRefOid reviewDecision mergeQueueEntry { id } reviews(states: APPROVED, last: 1) { nodes { commit { oid } } }"
 
   @spec verify_human_review_ready(String.t() | integer(), keyword()) :: :ok | {:error, term()}
   def verify_human_review_ready(issue_number, opts \\ []) do
-    with {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, token} <- Access.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       context = %{
         issue_number: to_string(issue_number),
@@ -45,11 +36,11 @@ defmodule Aiur.GitHub.HumanReviewGate do
     query =
       "query AiurPullRequestMergeability($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { mergeable } } }"
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, name}} <- Transport.parse_repo(),
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, {owner, name}} <- Access.parse_repo(),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"mergeable" => mergeability}}}}} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
              query,
              %{"owner" => owner, "name" => name, "number" => pr_number},
@@ -78,10 +69,10 @@ defmodule Aiur.GitHub.HumanReviewGate do
     query =
       "query AiurPullRequestApprovalAtHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid reviewDecision reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, name}} <- Transport.parse_repo(),
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, {owner, name}} <- Access.parse_repo(),
          {:ok, body} <-
-           Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
+           Access.github_graphql(Keyword.get(opts, :request_fun, &Access.default_request_fun/1), token, query, %{"owner" => owner, "name" => name, "number" => pr_number},
              caller: Keyword.get(opts, :caller, "orphan_claim_approval_state")
            ),
          %{"headRefOid" => head, "reviewDecision" => decision, "reviews" => %{"nodes" => nodes}} = pr
@@ -100,11 +91,11 @@ defmodule Aiur.GitHub.HumanReviewGate do
     query =
       "query AiurPullRequestApprovalAtHead($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefOid mergeable reviewDecision reviews(states: APPROVED, last: 1) { nodes { commit { oid } } } } } }"
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, name}} <- Transport.parse_repo(),
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, {owner, name}} <- Access.parse_repo(),
          {:ok, body} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
              query,
              %{"owner" => owner, "name" => name, "number" => pr_number},
@@ -147,7 +138,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp verify_issue_ready(context, check_base?) do
     case open_pull_request(context) do
       {:ok, %{"number" => pr_number} = pr} when is_integer(pr_number) ->
-        with {:ok, agent_login} <-
+        with :ok <- HumanReviewEvidence.verify(context, pr),
+             {:ok, agent_login} <-
                BotIdentity.bot_account(context.opts, context.request_fun, context.token),
              :ok <- verify_pr_review_threads_clear(context, pr_number, agent_login) do
           verify_base_ancestry(context, pr, check_base?)
@@ -196,10 +188,10 @@ defmodule Aiur.GitHub.HumanReviewGate do
       "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head, &URI.char_unreserved?/1)}"
 
     url =
-      "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=#{per_page}"
+      "#{Access.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=#{per_page}"
 
     # Branch movement cannot reuse a previous compatibility verdict.
-    Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry")
+    Access.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry")
   end
 
   defp verify_stale_base(context, pr_number, base, head) do
@@ -237,10 +229,10 @@ defmodule Aiur.GitHub.HumanReviewGate do
     }
     """
 
-    {:ok, {owner, name}} = Transport.parse_repo()
+    {:ok, {owner, name}} = Access.parse_repo()
     variables = %{"owner" => owner, "name" => name, "number" => pr_number}
 
-    case Transport.github_graphql(context.request_fun, context.token, query, variables, caller: "human_review_base_ancestry") do
+    case Access.github_graphql(context.request_fun, context.token, query, variables, caller: "human_review_base_ancestry") do
       {:ok,
        %{
          "data" => %{
@@ -342,7 +334,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   end
 
   # R10: this is a **merge decision**. Both reads below declare
-  # `ResourceFetch.decision()`, which is the strict tolerance — the store is not
+  # `Access.resource_decision()`, which is the strict tolerance — the store is not
   # consulted for the answer and upstream is contacted every time. They go
   # through `ResourceFetch` anyway rather than around it, because a decision path
   # with its own private fetch is exactly how a cache ends up bypassed by
@@ -350,7 +342,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   # answer is still deposited, so a tolerant view rides on the spend the decision
   # had to make.
   defp open_pull_request(context) do
-    key = ResourceStore.key_for_repo(:branch_pull_request, repo_full_name(), context.issue_number)
+    key = Access.key_for_repo(:branch_pull_request, repo_full_name(), context.issue_number)
 
     # Unconditional, and it stays that way here (#2126): this is a paginated
     # *search* of open pull requests by head branch, not a read of one resource,
@@ -364,12 +356,10 @@ defmodule Aiur.GitHub.HumanReviewGate do
     # revalidate with `If-None-Match` for free, and a strict read that returns
     # the identical body keeps the held validator rather than knocking it out.
     #
-    # The per-cycle `Client.fetch_open_pull_request_for_branch` lookup runs the
-    # same search conditionally under its own `:branch_pull_request_listing` key
-    # (#2298): a page-1 validator for `GET /pulls?state=open` must not share this
-    # key, because a webhook or gate deposit here would overwrite it with a
-    # PR-body-derived validator the listing can never match. #2126 stands for
-    # this key; the listing's validator lives on the query it belongs to.
+    # The per-cycle `Client.fetch_open_pull_request_for_branch` lookup shares
+    # the repository-wide page-one listing under `:branch_pull_request_listing_all`.
+    # That validator belongs to the query and never writes this per-ticket PR
+    # body key.
     fetcher = fn _opts ->
       case PullRequests.fetch_open_pull_request_for_branch(context.issue_number,
              request_fun: context.request_fun,
@@ -380,8 +370,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
       end
     end
 
-    case ResourceFetch.need(key, fetcher,
-           freshness: ResourceFetch.decision(),
+    case Access.resource_need(key, fetcher,
+           freshness: Access.resource_decision(),
            reason: "merge decision: review threads"
          ) do
       {:ok, pr, _meta} -> {:ok, pr}
@@ -398,7 +388,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @spec approved_pull_request?(String.t() | integer(), keyword()) ::
           {:ok, boolean()} | {:error, term()}
   def approved_pull_request?(pr_number, opts \\ []) do
-    key = ResourceStore.key_for_repo(:pull_request_reviews, repo_full_name(), pr_number)
+    key = Access.key_for_repo(:pull_request_reviews, repo_full_name(), pr_number)
 
     # A strict conditional read revalidates the standing verdict with GitHub.
     fetcher = fn fetch_opts ->
@@ -408,8 +398,8 @@ defmodule Aiur.GitHub.HumanReviewGate do
       )
     end
 
-    case ResourceFetch.need(key, fetcher,
-           freshness: ResourceFetch.decision(),
+    case Access.resource_need(key, fetcher,
+           freshness: Access.resource_decision(),
            reason: "merge decision: approval state"
          ) do
       {:ok, reviews, _meta} when is_list(reviews) ->
@@ -434,12 +424,12 @@ defmodule Aiur.GitHub.HumanReviewGate do
     }
     """
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, {owner, name}} <- Transport.parse_repo() do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, {owner, name}} <- Access.parse_repo() do
+      request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
       variables = %{"owner" => owner, "name" => name, "number" => pr_number}
 
-      case Transport.github_graphql(request_fun, token, query, variables, caller: "rework_gate_merge_queue") do
+      case Access.github_graphql(request_fun, token, query, variables, caller: "rework_gate_merge_queue") do
         {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"mergeQueueEntry" => entry} = pr}}}} ->
           {:ok, approved_at_head?(pr) and is_map(entry)}
 
@@ -474,7 +464,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   # already treats as the storeless path — the read still happens, exactly as it
   # did before.
   defp repo_full_name do
-    case Transport.parse_repo() do
+    case Access.parse_repo() do
       {:ok, {owner, repo}} -> "#{owner}/#{repo}"
       _other -> nil
     end

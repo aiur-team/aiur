@@ -4,10 +4,11 @@ defmodule AiurWeb.Build.URLStateTest do
   alias AiurWeb.Build.URLState
 
   test "parse keeps every valid design key in canonical order" do
-    q = "view=gantt&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
+    q = "view=gantt&list=epics&trees=1&live=min&span=7&feature=f-docs&fmode=compact&epic=bugs,docs&model=claude&tstate=in+progress&astate=error,retries,command&ticket=2748"
 
     assert URLState.parse(URI.decode_query(q)) == %{
              view: "gantt",
+             list: "epics",
              span: 7,
              feature: "f-docs",
              fmode: "compact",
@@ -25,6 +26,10 @@ defmodule AiurWeb.Build.URLStateTest do
     assert canonical("") == ""
   end
 
+  test "agent-state filters accept runtime reason labels" do
+    assert URLState.parse(%{"astate" => "ci-red,paused-usage-limit,unknown"}).astate == ["ci-red", "paused-usage-limit"]
+  end
+
   test "span accepts only complete supported integers" do
     assert canonical("span=07") == "span=7"
     for value <- ["7.0", "4", "-1", " 7", "0x7"], do: assert(URLState.parse(%{"span" => value}).span == 1)
@@ -33,13 +38,20 @@ defmodule AiurWeb.Build.URLStateTest do
   test "invalid and non-string values are dropped" do
     assert canonical("view=Gantt&span=4&fmode=compact&astate=bogus,active,active&model=none&ticket=AIUR-12&zoom=2&models=7&example=dense") == "astate=active"
 
-    for key <- ~w(view span feature fmode epic model tstate astate live trees ticket), value <- [nil, [], %{}, 1] do
+    for key <- ~w(view list span feature fmode epic model tstate astate live trees ticket), value <- [nil, [], %{}, 1] do
       assert URLState.parse(%{key => value}) == URLState.defaults()
     end
 
     assert canonical("feature=%3Cscript%3E&epic=%zz") == ""
     assert canonical("feature=" <> String.duplicate("x", 65)) == ""
     assert canonical("feature=" <> String.duplicate("x", 64)) == "feature=" <> String.duplicate("x", 64)
+  end
+
+  test "list selection accepts known values and defaults unknown values to tickets" do
+    assert URLState.parse(%{"list" => "bogus"}).list == "tickets"
+    assert canonical("view=list&list=features") == "view=list&list=features"
+    assert canonical("list=tickets") == ""
+    for value <- ~w(tickets features epics), do: assert(URLState.parse(%{"list" => value}).list == value)
   end
 
   test "models accept unknown shape-valid keys" do
@@ -112,6 +124,7 @@ defmodule AiurWeb.Build.URLStateTest do
   property "200 generated valid states round trip every field" do
     check all(
             view <- member_of(["graph", "gantt", "list"]),
+            list <- member_of(["tickets", "features", "epics"]),
             span <- member_of([1, 2, 3, 5, 7, 10, 14, 21, 30]),
             feature <- member_of([nil, "f-docs", "Outside-window._1"]),
             compact <- boolean(),
@@ -126,6 +139,7 @@ defmodule AiurWeb.Build.URLStateTest do
           ) do
       state = %{
         view: view,
+        list: list,
         span: span,
         feature: feature,
         fmode: if(feature && compact, do: "compact", else: "focus"),

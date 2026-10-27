@@ -190,7 +190,7 @@ html.nav-collapsed .ax-collapse svg { transform: scaleX(-1); }
 .bd-ea { fill: var(--faint); } .bd-ea.ok { fill: var(--good); } .bd-ea.bl { fill: var(--block); } .bd-ea.fade { opacity: .12; }
 
 .bd-sec { position: relative; z-index: 2; }
-.bd-sech { position: absolute; left: 0; right: 0; top: 0; height: 36px; display: flex; align-items: center; gap: .6rem; padding-left: 14px; font: 700 .64rem "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--line); }
+.bd-sech { position: absolute; left: 0; right: 0; top: 0; height: 36px; display: flex; align-items: center; gap: .6rem; padding-left: 14px; font: 700 .64rem "JetBrains Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-top: 1px solid var(--line); overflow: clip; }
 .bd-sec:first-of-type .bd-sech { border-top: 0; }
 .bd-sech em { font-style: normal; font-weight: 500; letter-spacing: .02em; text-transform: none; color: var(--faint); }
 .bd-layer { position: absolute; inset: 0; }

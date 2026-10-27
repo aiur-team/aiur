@@ -9,11 +9,13 @@
     "url": "git+https://github.com/aiur-team/aiur.git"
   },
   "bin": {
-    "aiur": "bin/aiur.js"
+    "aiur": "bin/aiur.js",
+    "gh-access": "bin/gh-access.js"
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.mjs",
-    "test": "bun test"
+    "test": "bun test",
+    "prepack": "sh scripts/build-gh-access.sh"
   },
   "files": [
     "bin/aiur.js",
@@ -27,8 +29,11 @@
     "libexec/aiur-executor-session.sh",
     "libexec/aiur-experiments.sh",
     "libexec/aiur-pane-ctrlc",
+    "libexec/aiur-mise-doctor",
     "scripts/postinstall.mjs",
-    "share/aiur.tmux.conf"
+    "share/aiur.tmux.conf",
+    "bin/gh-access.js",
+    "libexec/gh-access/*"
   ],
   "engines": {
     "node": ">=18"

@@ -15,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.AccountUsagePresenterTest do
       AccountUsagePresenter.present(%{"default" => %{reading: reading(40), observed_at: ago(13_000), freshness: :fresh, reason: nil}})
 
     assert account.freshness == :stale
-    assert account.percent == 40
+    assert account.percent == 60
   end
 
   test "a reading within the max age keeps its own freshness" do

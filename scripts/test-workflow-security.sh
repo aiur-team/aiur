@@ -93,10 +93,34 @@ require_body_wiring() {
 }
 require_body_wiring .github/workflows/pr-body.yml '^    types: \[.*\bedited\b.*\]' 'pr-body.yml must run on edited'
 require_body_wiring .github/workflows/ci.yml 'run: python3 scripts/check-pr-body-check-run.py' 'ci gate must require the newest pr body check'
-require_body_wiring scripts/run-pre-handoff-guards.sh '^    scripts/pre-handoff-guards --skip-pr-body "\$\{AIUR_PR_BASE_SHA:\?\}"' 'workflow security must not check the PR event body'
+require_body_wiring scripts/run-pre-handoff-guards.sh '^      scripts/pre-handoff-guards --skip-pr-body "\$\{AIUR_PR_BASE_SHA:\?\}"' 'workflow security must not check the PR event body'
 if grep -Eq 'pull_request\.body|AIUR_PR_NUMBER' .github/workflows/ci.yml; then
   echo "PR body wiring: ci.yml must not read the PR body" >&2
   exit 1
 fi
 
 scripts/verify-workflow-security.sh
+
+python3 - <<'PY'
+from pathlib import Path
+
+workflows = (
+    Path(".github/workflows/ci.yml"),
+    Path(".github/workflows/website.yml"),
+    Path(".github/workflows/release-npm.yml"),
+    Path(".github/actions/layout-release/action.yml"),
+)
+expected = 4
+found = 0
+for path in workflows:
+    lines = path.read_text().splitlines()
+    for index, line in enumerate(lines):
+        if "uses: oven-sh/setup-bun@" not in line:
+            continue
+        found += 1
+        step = "\n".join(lines[index : index + 6])
+        if 'bun-version: "1.4.2"' not in step:
+            raise SystemExit(f"{path}:{index + 1}: setup-bun must pin Bun 1.4.2")
+if found != expected:
+    raise SystemExit(f"expected {expected} setup-bun uses, found {found}")
+PY

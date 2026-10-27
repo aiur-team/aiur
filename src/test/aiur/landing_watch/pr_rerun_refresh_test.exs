@@ -32,6 +32,12 @@ defmodule Aiur.LandingWatch.PrRerunRefreshTest do
     opts = [
       now_ms: now,
       main_history_fun: fn -> history end,
+      refresh_observation_fun: fn 17, _ ->
+        {:ok, %{"state" => "OPEN", "headRefOid" => "approved-head", "isDraft" => false, "reviewDecision" => "APPROVED", "mergeQueueEntry" => nil}}
+      end,
+      base_branch: "main",
+      base_changes_fun: fn _, _, _ -> {:ok, ["README.md"]} end,
+      changed_paths_fun: fn _, _ -> {:ok, ["src/lib/feature.ex"]} end,
       update_branch_fun: fn 17, "approved-head", _ ->
         send(parent, :updated_approved_head)
         {:ok, %{}}
@@ -73,6 +79,12 @@ defmodule Aiur.LandingWatch.PrRerunRefreshTest do
     opts = [
       now_ms: now,
       main_history_fun: fn -> history end,
+      refresh_observation_fun: fn 18, _ ->
+        {:ok, %{"state" => "OPEN", "headRefOid" => "approved-head", "isDraft" => false, "reviewDecision" => "APPROVED", "mergeQueueEntry" => nil}}
+      end,
+      base_branch: "main",
+      base_changes_fun: fn _, _, _ -> {:ok, ["README.md"]} end,
+      changed_paths_fun: fn _, _ -> {:ok, ["src/lib/feature.ex"]} end,
       update_branch_fun: fn _, _, _ -> {:ok, %{}} end,
       observe_refresh_fun: fn _, _ -> {:ok, %{"headRefOid" => "refreshed-head"}} end,
       approval_carry_classifier: fn _, _, _, _ -> {:changed, %{reason: :contribution_changed, hunks: []}} end,

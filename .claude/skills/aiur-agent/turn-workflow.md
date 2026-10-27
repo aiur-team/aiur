@@ -62,8 +62,9 @@ in the workpad rather than falling back to raw label edits.
 9. Before CI or review handoff, assess the exact PR head against the configured
    base using `dev-loop.md`'s integration checklist. During `human-review` or
    `ci-wait`, integrate only when GitHub reports the exact PR head as
-   `CONFLICTING` or a reviewer asks. File overlap and base movement alone do
-   not require a push. Record required conflict resolution in the workpad;
+   `CONFLICTING` or a newer base commit fixes a failing required check, naming
+   the commit and check. A reviewer request alone does not authorize a merge.
+   File overlap and base movement alone do not require a push. Record required conflict resolution in the workpad;
    unavailable assessments block handoff rather than imply safety.
 10. When implementation and draft-PR self-review are complete and only CI
     remains, mark the PR ready (`gh pr ready`) and verify it is no longer a
@@ -75,7 +76,8 @@ in the workpad rather than falling back to raw label edits.
 11. On a delivered required-check pass for the current head SHA, verify
     the PR is ready and assess current-base integration safety. Any head that
     is not `CONFLICTING` permits `agent:human-review` even if stale or overlapping.
-    If GitHub reports `CONFLICTING` or a reviewer asked for integration, follow
+    If GitHub reports `CONFLICTING` or a newer base commit fixes a failing
+    required check, follow
     `dev-loop.md` step 13 and await new-head CI in `agent:ci-wait`. Never open a
     blocking decision for base integration. Use
     `aiur_set_ticket_state` for that

@@ -5,13 +5,13 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Issue
   alias Aiur.Orchestrator.IssueSync.LabelWrites
   alias Aiur.Orchestrator.IssueSync.TransitionAlerts
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
+  alias Aiur.Signal
 
   # A ticket observed with zero `agent:*` state labels is invisible to dispatch
   # (#2420): every reconciler consumes either the filtered candidate list or
@@ -166,7 +166,7 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
     topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
 
     if TransitionAlerts.active_attention?(state, topic) do
-      case Alerts.emit_system("#{topic}.resolved",
+      case Signal.alert("#{topic}.resolved",
              issue: issue.identifier,
              reason: "Tracker observation confirms a lifecycle label exists again.",
              needs_attention: false,
@@ -187,7 +187,7 @@ defmodule Aiur.Orchestrator.IssueSync.MissingLabels do
   def resolve_missing_state_label_alert(_issue, state), do: state
 
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
+    Signal.alert("ticket.#{issue.identifier}.agent.attention.state-label-missing",
       issue: issue.identifier,
       message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
       reason:

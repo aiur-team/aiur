@@ -5,6 +5,8 @@ import { modelInfo } from '../agents.js';
 import { MS, registerBody, bodyRenderer, onModalClose } from './frame.js';
 import { itemEl } from './conversation-items.js';
 import { footer, notRetainedCue } from './conversation-footer.js';
+import { timed } from '../perf.js';
+export const prependEntries = timed('convPage', prependEntriesImpl);
 export { itemEl, notRetainedCue };
 export const MAX_DOM = 500;
 let open = null, sequence = 0;
@@ -39,7 +41,7 @@ export function appendEntries(entries) {
   fx.scheduleMap(); return added;
 }
 export const appendItem = entry => fx.appendEntries([entry]);
-export function prependEntries(msg) {
+function prependEntriesImpl(msg) {
   const log = $('#cv-log'); if (!open || !log) return;
   const height = log.scrollHeight, top = log.scrollTop, fragment = document.createDocumentFragment();
   for (const entry of msg.entries) { if (!find(entry.id)) { const el = itemEl(entry, open.model); if (el) fragment.append(el); } }

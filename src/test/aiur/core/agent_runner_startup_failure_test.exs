@@ -70,8 +70,8 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
     end
   end
 
-  test "agent runner pauses on before_run failure and resumes after operator intervention" do
-    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-before-run-pause")
+  test "agent runner retries before_run timeout with backoff without pausing" do
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-before-run-timeout-retry")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -79,8 +79,7 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
       codex_binary = Path.join(test_root, "fake-codex")
       before_run_trace = Path.join(test_root, "before-run.trace")
       codex_trace = Path.join(test_root, "codex.trace")
-      resume_marker = Path.join(test_root, "allow-before-run")
-      identifier = "MT-BEFORE-RUN-PAUSE-#{System.unique_integer([:positive])}"
+      identifier = "MT-BEFORE-RUN-RETRY-#{System.unique_integer([:positive])}"
 
       File.mkdir_p!(template_repo)
       File.write!(Path.join(template_repo, "README.md"), "# test")
@@ -121,11 +120,12 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
         hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
         hook_before_run: """
         printf '%s\\t%s\\t%s\\t%s\\n' "$AIUR_HOOK_TICKET_ID" "$AIUR_HOOK_TICKET_IDENTIFIER" "$AIUR_HOOK_RUNNER_PID" "$PWD" >> #{before_run_trace}
-        if [ ! -f #{resume_marker} ]; then
-          printf '%s\\n' 'dependency fetch failed' >&2
-          exit 74
+        run_number=$(wc -l < #{before_run_trace})
+        if [ "$run_number" -eq 1 ]; then
+          sleep 2
         fi
         """,
+        hook_timeout_ms: 500,
         codex_command: "#{codex_binary} app-server",
         max_turns: 1
       )
@@ -134,16 +134,17 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
         Layout.workspace_path_for_issue(Layout.safe_identifier(identifier), nil)
 
       issue = %Issue{
-        id: "issue-before-run-pause",
+        id: "issue-before-run-retry",
         identifier: identifier,
-        title: "Pause on hook failure",
-        description: "before_run should pause instead of exhausting retries",
+        title: "Retry a timed out hook",
+        description: "before_run timeout should retry without consuming agent attempts",
         state: "In Progress",
-        url: "https://example.org/issues/MT-BEFORE-RUN-PAUSE",
+        url: "https://example.org/issues/MT-BEFORE-RUN-RETRY",
         labels: []
       }
 
       test_pid = self()
+      started_at_ms = System.monotonic_time(:millisecond)
 
       task =
         Task.async(fn ->
@@ -154,24 +155,18 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
           )
         end)
 
-      assert_receive {:worker_control_state, "issue-before-run-pause", :paused, %{kind: :before_run_failure}},
-                     5_000
-
-      refute_receive {:codex_worker_update, "issue-before-run-pause", %{event: :session_started}}, 200
-      assert Task.yield(task, 50) == nil
-
-      File.write!(resume_marker, "ok\n")
-      send(task.pid, {:resume_agent, 101})
-
-      assert_receive {:worker_control_state, "issue-before-run-pause", :working}, 5_000
-
       receive do
-        {:codex_worker_update, "issue-before-run-pause", %{event: :session_started}} -> :ok
+        {:codex_worker_update, "issue-before-run-retry", %{event: :session_started}} -> :ok
       after
-        5_000 ->
-          flunk("session did not start after resume; codex trace:\n#{File.read!(codex_trace)}")
+        10_000 ->
+          codex_output = if File.exists?(codex_trace), do: File.read!(codex_trace), else: "(codex was never started)"
+          flunk("session did not start after automatic retry; codex trace:\n#{codex_output}")
       end
 
+      assert System.monotonic_time(:millisecond) - started_at_ms >= 1_400,
+             "the timeout retry should wait for its initial backoff after the 500 ms hook timeout"
+
+      refute_receive {:worker_control_state, "issue-before-run-retry", :paused, %{kind: :before_run_failure}}, 100
       assert {:ok, :ok} = Task.yield(task, 15_000)
 
       trace_lines = before_run_trace |> File.read!() |> String.split("\n", trim: true)
@@ -189,7 +184,39 @@ defmodule Aiur.Core.AgentRunnerStartupFailureTest do
         end)
 
       assert length(trace_lines) == 2 and all_owned_by_test?,
-             "expected exactly two before_run entries from this test runner; got #{inspect(trace_lines)}"
+             "expected one timed-out before_run and one automatic retry; got #{inspect(trace_lines)}"
+
+      timeout_identifier = "MT-BEFORE-RUN-CAP-#{System.unique_integer([:positive])}"
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        hook_before_run: "printf '%s\\n' \"$AIUR_HOOK_TICKET_IDENTIFIER\" >> #{before_run_trace}; sleep 2",
+        hook_timeout_ms: 500,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      timeout_issue = %Issue{
+        id: "issue-before-run-timeout-cap",
+        identifier: timeout_identifier,
+        title: "Stop retrying persistent hook timeouts",
+        description: "persistent before_run timeouts should leave the retry loop with their cause",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-BEFORE-RUN-TIMEOUT-CAP",
+        labels: []
+      }
+
+      assert catch_exit(AgentRunner.run(timeout_issue)) == {:workspace_hook_timeout, "before_run", 500}
+
+      timeout_runs =
+        before_run_trace
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.count(&(&1 == timeout_identifier))
+
+      assert timeout_runs == 4,
+             "expected the first attempt plus three automatic retries, got #{timeout_runs} hook invocations"
     after
       File.rm_rf(test_root)
     end

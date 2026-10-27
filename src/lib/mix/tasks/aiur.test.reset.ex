@@ -3,8 +3,8 @@ defmodule Mix.Tasks.Aiur.Test.Reset do
 
   @moduledoc """
   Wipes per-ticket state for the events sandbox so the manual
-  end-to-end test can be re-run. Four safety guards (pinned ticket IDs,
-  clean git tree, expected remote, dry-run by default).
+  end-to-end test can be re-run. Five safety guards (pinned ticket IDs,
+  clean git tree, expected remote, hosted-mode isolation, dry-run by default).
 
   Two modes:
 
@@ -23,6 +23,8 @@ defmodule Mix.Tasks.Aiur.Test.Reset do
       mix aiur.test.reset --single --confirm     # single-ticket reset
       mix aiur.test.reset --confirm --force      # bypass clean-tree guard
       mix aiur.test.reset --confirm --allow-remote   # bypass remote guard
+
+  Hosted mode always refuses `--allow-remote`.
 
   See `Aiur.TestReset` for details on each guard and what the reset does.
   """

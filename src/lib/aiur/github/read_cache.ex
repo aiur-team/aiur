@@ -76,6 +76,7 @@ defmodule Aiur.GitHub.ReadCache do
 
   @entries :aiur_github_read_cache_entries
   @markers :aiur_github_read_cache_markers
+  @pr_commits :aiur_github_pr_commit_messages
 
   # A retention bound for the sweep, deliberately far above the TTLs `Policy`
   # hands out. It is not the maximum TTL and must not be tightened to match one:
@@ -91,6 +92,7 @@ defmodule Aiur.GitHub.ReadCache do
   # set.
   @max_ttl_ms 4 * 60 * 60_000
   @sweep_interval_ms 60_000
+  @pr_commit_ttl_ms 4 * 60 * 60_000
 
   @type identity :: Identity.t()
 
@@ -208,6 +210,43 @@ defmodule Aiur.GitHub.ReadCache do
   @spec invalidate_all() :: :ok
   def invalidate_all, do: invalidate([:root])
 
+  @doc "Memoizes merged PR commit messages by repository, PR number, and immutable head SHA."
+  @spec pull_request_commits(String.t(), pos_integer(), String.t(), (-> term())) :: term()
+  def pull_request_commits(repo, number, head_sha, fetch)
+      when is_binary(repo) and is_integer(number) and number > 0 and is_binary(head_sha) and head_sha != "" and
+             is_function(fetch, 0) do
+    key = {String.downcase(repo), number, head_sha}
+
+    case :global.trans({{__MODULE__, key}, self()}, fn -> cached_pull_request_commits(key, fetch) end) do
+      {:aborted, _reason} -> fetch.()
+      result -> result
+    end
+  rescue
+    ArgumentError -> fetch.()
+  end
+
+  def pull_request_commits(_repo, _number, _head_sha, fetch) when is_function(fetch, 0), do: fetch.()
+
+  defp cached_pull_request_commits(key, fetch) do
+    now = now_ms()
+
+    case :ets.lookup(@pr_commits, key) do
+      [{^key, messages, fetched_at}] when now >= fetched_at and now - fetched_at < @pr_commit_ttl_ms ->
+        {:ok, messages}
+
+      _miss ->
+        case fetch.() do
+          {:ok, messages} = result when is_list(messages) ->
+            :ets.match_delete(@pr_commits, {{elem(key, 0), elem(key, 1), :_}, :_, :_})
+            true = :ets.insert(@pr_commits, {key, messages, now})
+            result
+
+          error ->
+            error
+        end
+    end
+  end
+
   @doc """
   What the cache holds and what it has done, for `aiur github-cost`.
 
@@ -235,7 +274,7 @@ defmodule Aiur.GitHub.ReadCache do
   @doc false
   @spec reset() :: :ok
   def reset do
-    for table <- [@entries, @markers], :ets.info(table) != :undefined, do: :ets.delete_all_objects(table)
+    for table <- [@entries, @markers, @pr_commits], :ets.info(table) != :undefined, do: :ets.delete_all_objects(table)
     Metrics.reset()
     :ok
   end
@@ -244,6 +283,7 @@ defmodule Aiur.GitHub.ReadCache do
   def init(opts) do
     :ets.new(@entries, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
     :ets.new(@markers, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    :ets.new(@pr_commits, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
     Metrics.init()
 
     interval_ms = Keyword.get(opts, :sweep_interval_ms, @sweep_interval_ms)
@@ -260,6 +300,7 @@ defmodule Aiur.GitHub.ReadCache do
     now = now_ms()
     :ets.select_delete(@entries, [{{:_, :_, :"$1"}, [{:<, :"$1", now - @max_ttl_ms}], [true]}])
     :ets.select_delete(@markers, [{{:_, :"$1"}, [{:<, :"$1", now - @max_ttl_ms}], [true]}])
+    :ets.select_delete(@pr_commits, [{{:_, :_, :"$1"}, [{:<, :"$1", now - @pr_commit_ttl_ms}], [true]}])
 
     {:noreply, schedule_sweep(state)}
   end

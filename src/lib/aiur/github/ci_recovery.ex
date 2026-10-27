@@ -1,14 +1,14 @@
 defmodule Aiur.GitHub.CIRecovery do
+  alias Aiur.GitHub.Access
   @moduledoc "Exact-head GitHub operations for bounded CI recovery."
-  alias Aiur.GitHub.{Errors, Transport}
 
   @spec observe(integer(), keyword()) :: {:ok, map()} | {:error, term()}
   def observe(number, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, body} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
              "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid isDraft state reviewDecision autoMergeRequest{enabledAt} mergeQueueEntry{id}}}}",
              %{owner: owner, repo: repo, number: number},
@@ -48,10 +48,10 @@ defmodule Aiur.GitHub.CIRecovery do
 
   @spec jobs_with_coverage(integer(), keyword()) :: {:ok, [map()], boolean()} | {:error, term()}
   def jobs_with_coverage(run, opts) when is_integer(run) and run > 0 do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{run}/jobs?per_page=100&page=1"
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs/#{run}/jobs?per_page=100&page=1"
       read_job_pages(request, token, url, [], 1, nil)
     end
   end
@@ -69,15 +69,15 @@ defmodule Aiur.GitHub.CIRecovery do
   def cancel(_, _), do: {:error, :invalid_actions_run_id}
 
   defp request(method, path, body, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      req = %{method: method, url: "#{Transport.base_url()}/repos/#{owner}/#{repo}#{path}", token: token, caller: Keyword.get(opts, :caller, "ci_recovery")}
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+      req = %{method: method, url: "#{Access.base_url()}/repos/#{owner}/#{repo}#{path}", token: token, caller: Keyword.get(opts, :caller, "ci_recovery")}
       req = if method == :get, do: req, else: Map.put(req, :body, body)
 
       case request.(req) do
         {:ok, %{status: status} = response} when status in [200, 201, 202] -> {:ok, Map.get(response, :body) || %{}}
-        {:ok, response} -> {:error, Errors.github_status_error(response)}
+        {:ok, response} -> {:error, Access.github_status_error(response)}
         {:error, _} = error -> error
       end
     end
@@ -93,7 +93,7 @@ defmodule Aiur.GitHub.CIRecovery do
   defp handle_job_page(request, token, rows, page, total, {:ok, %{status: 200, body: %{"jobs" => jobs} = body} = response}) when is_list(jobs) do
     all = rows ++ jobs
     expected = if Map.has_key?(body, "total_count"), do: max(total || 0, body["total_count"]), else: total
-    next = Transport.parse_next_page_url(Map.get(response, :headers, []))
+    next = Access.parse_next_page_url(Map.get(response, :headers, []))
 
     cond do
       next == nil -> {:ok, all, is_integer(expected) and length(all) >= expected}
@@ -102,6 +102,6 @@ defmodule Aiur.GitHub.CIRecovery do
     end
   end
 
-  defp handle_job_page(_request, _token, _rows, _page, _total, {:ok, response}), do: {:error, Errors.github_status_error(response)}
+  defp handle_job_page(_request, _token, _rows, _page, _total, {:ok, response}), do: {:error, Access.github_status_error(response)}
   defp handle_job_page(_request, _token, _rows, _page, _total, {:error, _} = error), do: error
 end
