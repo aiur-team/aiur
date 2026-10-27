@@ -197,7 +197,6 @@ if with_node:
     imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@external_resource "../../../packages/a/other.json"'})
-
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
     'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',
