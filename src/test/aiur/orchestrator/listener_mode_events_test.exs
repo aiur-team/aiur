@@ -42,7 +42,9 @@ defmodule Aiur.Orchestrator.ListenerModeEventsTest do
       Aiur.TestCleanup.rm_rf!(dir)
     end)
 
-    %{id: id, blocker: blocker, state: %State{queue_store: Aiur.AgentQueueStore.new()}}
+    # A stopped target must still be known to the tracker.
+    issue = %Aiur.Issue{id: id, identifier: id}
+    %{id: id, blocker: blocker, state: %State{queue_store: Aiur.AgentQueueStore.new(), last_polled_issues: %{id => issue}}}
   end
 
   test "set_mode publishes the human actor and only mode fields, with emit attribution", %{id: id, state: state} do
