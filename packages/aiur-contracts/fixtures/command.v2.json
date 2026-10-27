@@ -50,5 +50,11 @@
   "authority": "supervisor_allowed",
   "created_at": "2026-10-26T00:00:00Z",
   "answer": null,
-  "version": 1
+  "version": 1,
+  "route_policy": null,
+  "route_state": null,
+  "routed_at": null,
+  "human_visible_at": null,
+  "executor_acknowledged_at": null,
+  "escalations": []
 }

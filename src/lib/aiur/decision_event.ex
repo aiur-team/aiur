@@ -55,6 +55,10 @@ defmodule Aiur.DecisionEvent do
   @type type ::
           :requested
           | :request_attributed
+          | :routed
+          | :escalated
+          | :human_needed
+          | :executor_acknowledged
           | :enriched
           | :decision_expired
           | :decision_dismissed
