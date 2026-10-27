@@ -79,6 +79,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
     [actor: DecisionCommands.actor(), actor_source: :dashboard_session, client: %{surface: :dashboard}, store: EndpointConfig.get(:decision_store) || Aiur.Commands.default_store()]
   end
 
+  # Delivery-failure alerts are not operator Commands, even with an open status.
+  # Settled Commands remain loadable so Answering can arbitrate replacement races.
+  defp loaded(%{assigns: %{selected_decision: %{decision_id: id, open?: false, decision_status: status}}}, id)
+       when status in [:open, :deferred, :expired],
+       do: nil
+
   defp loaded(%{assigns: %{selected_decision: %{decision_id: id} = decision}}, id), do: decision
   defp loaded(%{assigns: %{selected_decision_id: id}}, id), do: nil
 
