@@ -406,19 +406,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
              "may be an exhausted budget rather than a page that did not fetch"
   end
 
-  defp await_answer_comment_tasks(remaining \\ 8_000)
-
-  defp await_answer_comment_tasks(0), do: flunk("answer-comment tasks did not drain before the GitHub request counter was installed")
-
-  defp await_answer_comment_tasks(remaining) do
-    case answer_comment_task_pids() do
-      [] ->
-        :ok
-
-      _children ->
-        Process.sleep(5)
-        await_answer_comment_tasks(remaining - 1)
-    end
+  defp await_answer_comment_tasks do
+    answer_comment_task_pids()
+    |> Enum.map(&{&1, Process.monitor(&1)})
+    |> Enum.each(fn {pid, ref} ->
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 40_000, "answer-comment task did not finish before the GitHub request counter was installed"
+    end)
   end
 
   defp answer_comment_task_pids do
