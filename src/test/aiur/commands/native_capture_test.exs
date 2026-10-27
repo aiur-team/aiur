@@ -63,6 +63,7 @@ defmodule Aiur.Commands.NativeCaptureTest do
     assert d.origin == :native_question
     assert d.native == %{harness: :codex, native_ref: "<uuid>:0", call_id: "call_<id>", turn_id: "<uuid>", question_ids: ["colour"], hold: :in_band}
     assert [%{question_id: "colour", allow_other: true, multi_select: false}] = d.questions
+    assert Aiur.Commands.Answering.decode_question_answers(d.questions, %{selected_option_id: "o1", custom_response: nil}) == {:ok, %{"colour" => ["Red (Recommended)"]}}
     assert {:ok, ^d} = DecisionStore.get(d.decision_id, ctx.store)
     assert Enum.map(records(dir), & &1["event_type"]) == ["requested", "request_attributed"]
 
@@ -86,6 +87,23 @@ defmodule Aiur.Commands.NativeCaptureTest do
     assert Enum.map(d.options, & &1.label) == ["Red", "Blue"]
     assert d.native.question_ids == ["colour", "dummy_token"]
     assert [%{question_id: "colour"}, %{question_id: "dummy_token", options: [%{label: "Enter token"}]}] = d.questions
+  end
+
+  test "distinct native requests survive creation dedup and answering a sibling", %{ctx: ctx} do
+    input = normalized()
+    assert {:command, first} = NativeCapture.capture(input, ctx)
+    assert {:command, second} = NativeCapture.capture(%{input | native_ref: "second"}, ctx)
+    refute first.decision_id == second.decision_id
+    assert second.native.native_ref == "second"
+    assert {:ok, %{decision: _answered}} = answer(ctx.store, first.decision_id, %{expected_version: 1, idempotency_key: "answer-first", option_id: "o1"})
+    assert {:ok, %{decision_status: :open, native: %{native_ref: "second"}}} = DecisionStore.get(second.decision_id, ctx.store)
+
+    multi = normalized("request_user_input_two_questions.json") |> Map.put(:native_ref, "multi")
+    assert {:command, multi_first} = NativeCapture.capture(multi, ctx)
+    changed = update_in(multi.questions, fn [first, second] -> [%{first | question: "Which host should run the build?"}, second] end)
+    assert {:command, multi_second} = NativeCapture.capture(%{changed | native_ref: "multi-second"}, ctx)
+    refute multi_first.decision_id == multi_second.decision_id
+    assert hd(multi_second.questions).question == "Which host should run the build?"
   end
 
   test "derived approval labels use the existing policy for every question", %{ctx: ctx, dir: dir} do

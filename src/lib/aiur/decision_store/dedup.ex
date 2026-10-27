@@ -47,6 +47,7 @@ defmodule Aiur.DecisionStore.Dedup do
 
   defp duplicate_of?(%Decision{} = candidate, %Decision{} = answered, question) do
     candidate.decision_id != answered.decision_id and
+      candidate.kind != "native_question" and answered.kind != "native_question" and
       candidate.decision_status in [:open, :deferred] and
       is_nil(candidate.answer) and
       candidate.ticket.identifier == answered.ticket.identifier and
@@ -157,6 +158,10 @@ defmodule Aiur.DecisionStore.Dedup do
       candidate.authority == decision.authority and
       creation_duplicate_match?(candidate, decision)
   end
+
+  # Each native request needs its own reply; source-id retry handling still deduplicates retries.
+  defp creation_duplicate_match?(%Decision{kind: "native_question"}, _decision), do: false
+  defp creation_duplicate_match?(_candidate, %Decision{kind: "native_question"}), do: false
 
   defp creation_duplicate_match?(candidate, decision) do
     case {normalized_question(candidate.question), normalized_question(decision.question)} do

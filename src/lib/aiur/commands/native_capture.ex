@@ -9,10 +9,10 @@ defmodule Aiur.Commands.NativeCapture do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.Codex.UserInputAnswers
   alias Aiur.Commands.RequestContent
   alias Aiur.DecisionStore
+  alias Aiur.Signal
 
   @spec classify(map()) :: :approval | :secret | :question
   def classify(normalized) do
@@ -42,12 +42,14 @@ defmodule Aiur.Commands.NativeCapture do
   def to_request(normalized, ctx) do
     with {:ok, questions} <- RequestContent.normalize_questions(Map.get(normalized, :questions)),
          ref when is_binary(ref) and byte_size(ref) > 0 <- Map.get(normalized, :native_ref) do
-      first = hd(questions)
+      [first | rest] = questions
+      first = %{first | options: Enum.with_index(first.options, 1) |> Enum.map(fn {option, index} -> %{option | id: "o#{index}"} end)}
+      questions = [first | rest]
 
       payload = %{
         source_id: "native:" <> ref,
         question: question_text(questions),
-        options: Enum.with_index(first.options, 1) |> Enum.map(fn {option, index} -> %{option | id: "o#{index}"} end),
+        options: first.options,
         context: %{short_summary: first.header},
         blocking: Map.get(normalized, :blocking, true),
         kind: "native_question"
@@ -110,7 +112,7 @@ defmodule Aiur.Commands.NativeCapture do
   end
 
   defp release_secret(ctx) do
-    case Alerts.emit_custom("ticket.#{ctx.ticket.identifier}.agent.native-secret-question", secret_release_text(),
+    case Signal.agent_alert("ticket.#{ctx.ticket.identifier}.agent.native-secret-question", secret_release_text(),
            needs_attention: true,
            issue: ctx.ticket.identifier,
            workspace: Map.get(ctx, :workspace)
