@@ -88,7 +88,8 @@ config :aiur, :capability_providers, [
   Aiur.Webhooks.CapabilityProvider,
   Aiur.Claude.RemoteControl.CapabilityProvider,
   Aiur.ProviderMeterProjection.CapabilityProvider,
-  Aiur.LiveConversation.CapabilityProvider
+  Aiur.LiveConversation.CapabilityProvider,
+  Aiur.Events.CapabilityProvider
 ]
 
 config :aiur, :project_identity_source, Aiur.Tracker

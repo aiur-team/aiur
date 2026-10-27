@@ -9,6 +9,7 @@
     "src/lib/aiur/agent_pubsub/**",
     "src/lib/aiur/events.ex",
     "src/lib/aiur/events/agent_subscription_policy.ex",
+    "src/lib/aiur/events/capability_provider.ex",
     "src/lib/aiur/events/catalog.ex",
     "src/lib/aiur/events/catalog/attention_entries.ex",
     "src/lib/aiur/events/catalog/entries.ex",
@@ -53,6 +54,7 @@
     "Aiur.AgentPubSub",
     "Aiur.Events",
     "Aiur.Events.AgentSubscriptionPolicy",
+    "Aiur.Events.CapabilityProvider",
     "Aiur.Events.Catalog",
     "Aiur.Events.Catalog.Entry",
     "Aiur.Events.Delivery",
@@ -89,6 +91,7 @@
   ],
   "requires": [
     "config",
+    "identity",
     "kernel"
   ],
   "optional": [],
@@ -101,7 +104,9 @@
       "file: <runtime_state_dir>/event-id.json",
       "file: <runtime_state_dir>/subscriptions/*.json"
     ],
-    "capabilities": []
+    "capabilities": [
+      "events.export"
+    ]
   },
   "prior": [
     "BUS"
@@ -119,6 +124,8 @@
     "events"
   ],
   "env": [],
-  "capabilities": [],
+  "capabilities": [
+    "events.export"
+  ],
   "goal": "notify"
 }
