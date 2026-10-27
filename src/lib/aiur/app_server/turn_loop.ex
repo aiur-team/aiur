@@ -80,6 +80,10 @@ defmodule Aiur.AppServer.TurnLoop do
       {:pause_agent, request_id} when is_integer(request_id) ->
         continue_or_return(session, Interrupts.handle_pause_request(session, state, request_id))
 
+      {:agent_queue_updated, issue_identifier, _item_id, :steer}
+      when issue_identifier == state.issue_identifier ->
+        receive_loop(session, OperatorDelivery.steer_pending(session, state))
+
       {:agent_queue_updated, issue_identifier, _item_id, true}
       when issue_identifier == state.issue_identifier ->
         continue_or_return(session, Interrupts.handle_operator_queue_update(session, state))

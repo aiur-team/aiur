@@ -38,7 +38,7 @@ defmodule Aiur.Listener.Scheduler do
   def restamp_fun(view) do
     fn delivery ->
       case listener(view) do
-        {:ok, opts} -> Map.merge(delivery, AgentQueue.operator_message("", "", opts).delivery)
+        {:ok, opts} -> Map.merge(Map.delete(delivery, :steer_requested), AgentQueue.operator_message("", "", opts).delivery)
         {:error, _} -> delivery
       end
     end
@@ -49,6 +49,9 @@ defmodule Aiur.Listener.Scheduler do
 
   defp listener(%{effective: :steer, support: %{steer: %{carrier: :emulated_interrupt}}}),
     do: {:ok, [delivery_policy: :interrupt, fallback: :queue_next, listener_mode: :steer, steer_carrier: :emulated_interrupt]}
+
+  defp listener(%{effective: :steer, support: %{steer: %{carrier: :native}}}),
+    do: {:ok, [listener_mode: :steer, steer_carrier: :native]}
 
   defp listener(_view), do: {:error, :listener_mode_unavailable}
 

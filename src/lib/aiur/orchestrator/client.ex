@@ -190,6 +190,11 @@ defmodule Aiur.Orchestrator.Client do
   def claim_next_checkpoint_queue_item(server, identifier),
     do: OM.claim_next_checkpoint_queue_item(server, identifier)
 
+  @spec claim_next_steer_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_steer_queue_item(server, identifier),
+    do: OM.claim_next_steer_queue_item(server, identifier)
+
   @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_blocker_critical_events_digest(server, identifier),

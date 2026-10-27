@@ -166,6 +166,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
           handoff_orchestrator: orchestrator,
           on_message: message_handler,
           on_safe_checkpoint: callbacks.on_safe_checkpoint,
+          on_steer_claim: callbacks.on_steer_claim,
           on_operator_message: callbacks.on_operator_message,
           on_operator_response: callbacks.on_operator_response,
           tool_executor:
