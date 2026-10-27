@@ -8,6 +8,9 @@ defmodule Aiur.Commands.Requester do
   def kind(%{requester: %{kind: kind}}) when kind in [:worker, :executor], do: kind
   def kind(_decision), do: :worker
 
+  @spec dispatch_target(map()) :: :worker | :executor
+  def dispatch_target(decision), do: kind(decision)
+
   @spec executor?(map()) :: boolean()
   def executor?(decision), do: kind(decision) == :executor
 

@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   use Phoenix.Component
 
   alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias Phoenix.LiveView.JS
 
   attr(:decision, :map, required: true)
@@ -50,8 +51,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       >
         <div>
           <div class="decision-meta-row">
-            <span class="ticket-id">{@decision.ticket[:identifier] || @decision.decision_id}</span>
-            <span class="decision-ticket-title">{@decision.ticket[:title]}</span>
+            <span class="ticket-id">{DecisionPresenter.requester_label(@decision)}</span>
+            <span :if={DecisionPresenter.executor?(@decision)} class="chip accent requester-badge">From Executor</span>
+            <span :if={!DecisionPresenter.executor?(@decision)} class="decision-ticket-title">{@decision.ticket[:title]}</span>
           </div>
           <h3>{@decision.question}</h3>
           <p :if={present?(@decision.context.short)} class="decision-context">{@decision.context.short}</p>

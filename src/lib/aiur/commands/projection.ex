@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
+  alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Facts
 
@@ -57,7 +58,8 @@ defmodule Aiur.Commands.Projection do
   @doc false
   @spec inherit_attributes(Decision.t(), Decision.t()) :: Decision.t()
   def inherit_attributes(current, candidate) do
-    fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label])
+    # Enrichment snapshots omit delivery facts; retain them from the journal projection.
+    fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label, :requester_notified_at])
     Facts.inherit(current, struct!(candidate, fields))
   end
 
@@ -83,6 +85,8 @@ defmodule Aiur.Commands.Projection do
       end
     end
   end
+
+  def apply(decision, %{type: :requester_notified} = event), do: ExecutorDelivery.apply_fact(decision, event)
 
   def apply(decision, %{type: type} = event) when type in @routing_types, do: Facts.apply(decision, event)
 end

@@ -13,11 +13,12 @@ defmodule Aiur.Events.Catalog.Entry do
           attrs: [{atom(), attr_type()}],
           payload_version: pos_integer(),
           reserved: boolean(),
+          attribution: :topic | :payload_actor,
           owner: String.t()
         }
 
   @enforce_keys [:pattern, :class, :owner]
-  defstruct pattern: nil, class: :live, export?: false, refs: [], attrs: [], payload_version: 1, reserved: false, owner: nil
+  defstruct pattern: nil, class: :live, export?: false, refs: [], attrs: [], payload_version: 1, reserved: false, attribution: :topic, owner: nil
 
   @doc false
   @spec alert(String.t(), String.t(), keyword()) :: t()

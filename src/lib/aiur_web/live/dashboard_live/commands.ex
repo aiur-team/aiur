@@ -144,9 +144,13 @@ defmodule AiurWeb.DashboardLive.Commands do
         do_assign_decision_page(socket, filter, params)
 
       :decision ->
-        socket
-        |> assign(:decision_page, fallback_decision_page(socket.assigns.payload))
-        |> assign(:decision_query, decision_query(filter, params))
+        if params["requester"] == "executor" do
+          do_assign_decision_page(socket, filter, params)
+        else
+          socket
+          |> assign(:decision_page, fallback_decision_page(socket.assigns.payload))
+          |> assign(:decision_query, decision_query(filter, params))
+        end
 
       _action ->
         socket
@@ -169,9 +173,16 @@ defmodule AiurWeb.DashboardLive.Commands do
 
   defp reload_decision_page(socket) do
     case Map.get(socket.assigns, :live_action) do
-      :decisions -> do_reload_decision_page(socket)
-      :decision -> assign(socket, :decision_page, fallback_decision_page(socket.assigns.payload))
-      _action -> socket
+      :decisions ->
+        do_reload_decision_page(socket)
+
+      :decision ->
+        if socket.assigns.decision_query[:requester] == "executor",
+          do: do_reload_decision_page(socket),
+          else: assign(socket, :decision_page, fallback_decision_page(socket.assigns.payload))
+
+      _action ->
+        socket
     end
   end
 
@@ -192,12 +203,14 @@ defmodule AiurWeb.DashboardLive.Commands do
     %{}
     |> maybe_put_query(:ticket, params["ticket"])
     |> maybe_put_query(:search, params["search"])
+    |> maybe_put_query(:requester, if(params["requester"] == "executor", do: "executor"))
     |> maybe_put_query(:cursor, params["cursor"])
     |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
   end
 
   defp decision_query(_filter, params) do
     %{}
+    |> maybe_put_query(:requester, if(params["requester"] == "executor", do: "executor"))
     |> maybe_put_query(:cursor, params["cursor"])
     |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
   end
@@ -275,6 +288,6 @@ defmodule AiurWeb.DashboardLive.Commands do
         search -> %{search: String.slice(search, 0, 200)}
       end
 
-    {:noreply, push_patch(socket, to: DecisionPath.inbox(:all, query))}
+    {:noreply, push_patch(socket, to: DecisionPath.inbox(:all, Map.merge(Map.take(socket.assigns.decision_query, [:requester]), query)))}
   end
 end

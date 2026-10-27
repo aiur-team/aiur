@@ -353,6 +353,7 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:executor_acknowledged), do: "executor-acknowledged"
   def lifecycle_slug(:native_released), do: "native-released"
   def lifecycle_slug(:request_attributed), do: "request-attributed"
+  def lifecycle_slug(:requester_notified), do: "requester-notified"
   def lifecycle_slug(:answer_recorded), do: "answered"
   def lifecycle_slug(:pending_for_session), do: "pending-for-session"
   def lifecycle_slug(:session_started), do: "session-started"

@@ -60,6 +60,7 @@ defmodule Aiur.DecisionEvent do
           | :escalated
           | :human_needed
           | :executor_acknowledged
+          | :requester_notified
           | :enriched
           | :decision_expired
           | :decision_dismissed

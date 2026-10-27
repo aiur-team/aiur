@@ -71,6 +71,11 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
   end
 
   @doc false
+  @spec pending_key(map()) :: {String.t(), String.t() | nil}
+  def pending_key(%{"topic" => "executor.decision.answered"} = record), do: {record["topic_class"], record["decision_id"]}
+  def pending_key(record), do: {record["topic_class"], record["ticket"]}
+
+  @doc false
   @spec persist_pending(Path.t(), map()) :: :ok
   def persist_pending(path, pending) do
     encoded = Map.new(pending, fn {{topic_class, ticket}, record} -> {Jason.encode!([topic_class, ticket]), record} end)
@@ -119,7 +124,7 @@ defmodule Aiur.ExecutorWakeInbox.Storage do
 
   defp validate_pending_record({topic_class, ticket}, record) do
     with {:ok, record} <- validate_record(record),
-         true <- record["topic_class"] == topic_class and record["ticket"] == ticket do
+         true <- pending_key(record) == {topic_class, ticket} do
       {:ok, record}
     else
       _invalid -> :error
