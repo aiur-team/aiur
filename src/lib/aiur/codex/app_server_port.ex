@@ -248,6 +248,13 @@ defmodule Aiur.Codex.AppServerPort do
     CodexConfig.command()
     |> append_config("model", model)
     |> append_config("model_reasoning_effort", effort)
+    |> append_native_capture_config()
+  end
+
+  defp append_native_capture_config(command) do
+    if Config.decisions_native_capture?(:codex),
+      do: command <> " --config features.default_mode_request_user_input=true",
+      else: command
   end
 
   defp append_config(command, _key, nil), do: command

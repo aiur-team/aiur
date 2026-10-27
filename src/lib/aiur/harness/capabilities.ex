@@ -1,5 +1,5 @@
 defmodule Aiur.Harness.Capabilities do
-  @moduledoc "Pure delivery descriptors and derived support for optional harness callbacks."
+  @moduledoc "Delivery descriptors, capture gates and derived support for optional harness callbacks."
 
   alias Aiur.CodingAgent.Registry
 
@@ -55,9 +55,22 @@ defmodule Aiur.Harness.Capabilities do
       native_queue: entry[:immediate_delivery] == true,
       pull_tool: Map.get(delivery, :pull_tool, false),
       hook_boundaries: Map.get(delivery, :hook_boundaries, []),
-      native_question: Map.get(delivery, :native_question, :none)
+      native_question: native_question(delivery)
     }
+    |> maybe_put_native_question_reason(delivery)
   end
+
+  defp native_question(%{native_question_gate: gate} = delivery) do
+    if Aiur.Config.decisions_native_capture?(gate), do: delivery.native_question, else: :none
+  end
+
+  defp native_question(delivery), do: Map.get(delivery, :native_question, :none)
+
+  defp maybe_put_native_question_reason(capabilities, %{native_question_gate: _gate}) do
+    Map.put(capabilities, :native_question_reason, if(capabilities.native_question == :none, do: :gate_off))
+  end
+
+  defp maybe_put_native_question_reason(capabilities, _delivery), do: capabilities
 
   defp hard_interrupt(entry) do
     cond do
