@@ -209,5 +209,6 @@ Transcripts and Command records are unaffected.
 Restarts preserve the epoch. Changing instance identity archives old segments in
 `old-<epoch>/` and starts a new epoch at sequence 1. Corrupt metadata is rebuilt
 from readable segments with a new epoch, without archiving those segments.
+
 Cursors older than retention, beyond the head, or from another epoch receive
 one reset response carrying the current epoch and oldest/head sequence bounds.
