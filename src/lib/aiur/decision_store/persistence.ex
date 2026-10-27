@@ -5,6 +5,7 @@ defmodule Aiur.DecisionStore.Persistence do
 
   alias Aiur.Boot
   alias Aiur.Commands.RequestAttributes
+  alias Aiur.Commands.Topics
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionEvent
@@ -17,7 +18,6 @@ defmodule Aiur.DecisionStore.Persistence do
   alias Aiur.DecisionStore.ProjectionRecovery
   alias Aiur.DecisionStore.Requests
   alias Aiur.DecisionStore.RetainedSnapshot
-  alias Aiur.Events
   alias Aiur.Journal
   alias Aiur.Signal
 
@@ -230,10 +230,8 @@ defmodule Aiur.DecisionStore.Persistence do
   end
 
   defp notify_lifecycle(decision, event, cursor_event_id) do
-    topic = "ticket.#{decision.ticket.identifier}.agent.decision.#{Requests.lifecycle_slug(event.type)}"
-
     try do
-      Events.publish_persisted(topic, DecisionEvent.to_json_safe(event), cursor_event_id, digest_source: :orchestrator)
+      Topics.publish(decision, Requests.lifecycle_slug(event.type), DecisionEvent.to_json_safe(event), cursor_event_id)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end

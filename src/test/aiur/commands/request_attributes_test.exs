@@ -29,15 +29,8 @@ defmodule Aiur.Commands.RequestAttributesTest do
   end
 
   test "request attributes append after requested at the request version and replay on restart", %{dir: dir} do
-    test_pid = self()
-
-    pid =
-      start_store!(dir,
-        executor_request_publisher: fn d ->
-          send(test_pid, {:published, d})
-          {:ok, 1, 0}
-        end
-      )
+    pid = start_store!(dir)
+    :ok = Exchange.subscribe("executor.decision.requested")
 
     opts = Keyword.put(attrs(), :ticket, %{identifier: "executor"})
     assert {:ok, %{status: :accepted, decision: decision}} = request(pid, %{question: "Choose scope?", blocking: false, source_id: "attributed"}, opts)
@@ -51,8 +44,9 @@ defmodule Aiur.Commands.RequestAttributesTest do
     assert decision.native.native_ref == "req-1"
     assert [%{question_id: "q1", question: "Choose scope?"}] = decision.questions
     assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, pid)
-    assert_received {:published, ^decision}
-    refute_received {:published, _other}
+    id = decision.decision_id
+    assert_received {:event, %{decision_id: ^id, decision_version: 1, topic: "executor.decision.requested"}}
+    refute_received {:event, %{decision_id: ^id, topic: "executor.decision.requested"}}
     GenServer.stop(pid)
     replayed = start_store!(dir)
     assert {:ok, ^decision} = DecisionStore.get(decision.decision_id, replayed)
@@ -117,14 +111,8 @@ defmodule Aiur.Commands.RequestAttributesTest do
   end
 
   test "stale projection replays attribution before publishing the single requested notification", %{dir: dir} do
-    test_pid = self()
-
-    publisher = fn d ->
-      send(test_pid, {:published, d})
-      {:ok, 1, 0}
-    end
-
-    pid = start_store!(dir, executor_request_publisher: publisher)
+    :ok = Exchange.subscribe("executor.decision.requested")
+    pid = start_store!(dir)
     :sys.replace_state(pid, &%{&1 | projection_path: dir})
 
     capture_log(fn ->
@@ -133,13 +121,14 @@ defmodule Aiur.Commands.RequestAttributesTest do
       assert {:projection_stale, %DateTime{}} = DecisionStore.health(pid)
     end)
 
-    refute_received {:published, _decision}
+    refute_received {:event, %{topic: "executor.decision.requested"}}
     GenServer.stop(pid)
-    replayed = start_store!(dir, executor_request_publisher: publisher)
-    assert_received {:published, decision}
+    replayed = start_store!(dir)
+    assert_received {:event, %{decision_id: id, topic: "executor.decision.requested"}}
+    assert {:ok, decision} = DecisionStore.get(id, replayed)
     assert decision.requester.kind == :executor
     assert decision.origin == :executor_cli
-    refute_received {:published, _decision}
+    refute_received {:event, %{topic: "executor.decision.requested"}}
     assert DecisionStore.health(replayed) == :writable
     GenServer.stop(replayed)
   end
