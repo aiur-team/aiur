@@ -38,7 +38,7 @@ defmodule Aiur.Commands.PublicProjectionTest do
       requester: %{kind: :executor, executor_id: "operator", session_ref: "executor-session", harness: "codex"},
       origin: :native_question,
       native: %{harness: :codex, hold: :in_band, question_ids: ["scope"], native_ref: "SECRET_NATIVE_REF", call_id: "SECRET_CALL", turn_id: "SECRET_TURN"},
-      questions: [%{"id" => "scope", "question" => "Choose scope?", "options" => [%{"id" => "small", "label" => "Small"}]}]
+      questions: [%{"question_id" => "scope", "question" => "Choose scope?", "options" => [%{"id" => "small", "label" => "Small"}, %{"id" => "large", "label" => "Large"}]}]
     ]
 
     assert {:ok, %{decision: decision}} = request(store, %{source_id: "v2", question: "Choose scope?", blocking: false, context: %{short_summary: "Scope"}}, attrs)
@@ -50,7 +50,19 @@ defmodule Aiur.Commands.PublicProjectionTest do
     assert api["requester"] == %{"kind" => "executor", "executor_id" => "operator", "session_ref" => "executor-session", "harness" => "codex", "ticket" => nil}
     assert api["origin"] == "native_question"
     assert api["native"] == %{"harness" => "codex", "hold" => "in_band", "question_ids" => ["scope"]}
-    assert api["questions"] == attrs[:questions]
+
+    assert api["questions"] == [
+             %{
+               "question_id" => "scope",
+               "question" => "Choose scope?",
+               "header" => nil,
+               "multi_select" => false,
+               "allow_other" => true,
+               "secret" => false,
+               "options" => [%{"id" => "small", "label" => "Small", "description" => nil}, %{"id" => "large", "label" => "Large", "description" => nil}]
+             }
+           ]
+
     assert api["short_label"] == "Scope"
 
     output = capture_io(fn -> assert 0 == CommandsCLI.run(json: true, decision_id: decision.decision_id, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end) end)
