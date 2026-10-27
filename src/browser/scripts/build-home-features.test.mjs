@@ -81,6 +81,27 @@ test('feature progress keeps known closed ratios and hatches only the unknown re
   assert.ok(!unknownRow.includes('fp-closed'));
   assert.match(unknownRow, /class="fp-open" style="width:30%/);
 });
+test('compacted feature progress reads icon, wave, and summary from lane epics', () => {
+  resetState(); S.list = 'features';
+  const payload = {
+    icons: { cpu: '<svg data-icon="cpu-chip"></svg>' },
+    features: { kernel: { key: 'kernel', label: 'Kernel', icon: 'cpu', epics: ['f-kernel-core'] } },
+    epics: { 'f-kernel-core': { key: 'f-kernel-core', feature: 'kernel', label: 'Kernel · core', icon: 'cpu', wave: '0b', summary: 'Scheduler and memory work', hue: 210 } },
+    feature_progress: {
+      features: {
+        'f-kernel-core': { feature: 'kernel', label: 'Kernel · core', closed: 2, open: 1, ci_wait: 0, unpublished: 0, total: 3 }
+      },
+      observed_at: Date.now(),
+      plan_version: 'v1',
+      extras: 0
+    }
+  };
+
+  const rendered = listHTML(payload, S, {}, {}, Date.now());
+  assert.match(rendered, /<h2>Wave 0b<\/h2>/);
+  assert.match(rendered, /data-icon="cpu-chip"/);
+  assert.match(rendered, /Scheduler and memory work/);
+});
 test('feature span starts a page for an active feature and skips inactive features', async () => {
   setup(); ctx.root = { isConnected: true, dataset: {} }; ctx.life = { disposed: false }; H.more = true; ctx.proto.epoch = 'e';
   let calls = 0;

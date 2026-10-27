@@ -8,7 +8,7 @@ Sections of the [configuration reference](/reference/configuration) covering `bu
 | --- | --- | --- | --- |
 | `build_order.general_epics` | array | Bugs, Design, Infra, Docs (below) | General epic definitions in column order. A list replaces the defaults; `[]` disables general epics. |
 | `build_order.general_epics.hue` | integer | required | Colour hue, 0–359. |
-| `build_order.general_epics.icon` | string | required | One of `bug`, `pen`, `server`, `docs`. |
+| `build_order.general_epics.icon` | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
 | `build_order.general_epics.key` | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
 | `build_order.general_epics.label` | string | required | Column header text, without control characters. |
 | `build_order.general_epics.labels` | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
