@@ -3,7 +3,8 @@ defmodule Aiur.Orchestrator.ListenerModes do
 
   require Logger
   alias Aiur.AgentPubSub
-  alias Aiur.Events.{Catalog, Publisher}
+  alias Aiur.Events
+  alias Aiur.Events.Catalog
   alias Aiur.Listener.{Effective, ModeStore}
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.State
@@ -91,7 +92,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
     topic = "ticket.#{id}.agent.listen-mode.changed"
 
     if Catalog.lookup(topic).pattern == "ticket.*.agent.listen-mode.changed" do
-      case Publisher.publish(topic, payload, issue_number: id) do
+      case Events.publish(topic, payload, issue_number: id) do
         {:ok, _, _} -> :ok
         outcome when outcome in [:filtered, :deduped] -> Logger.debug("listener_mode_publish #{context} outcome=#{outcome}")
         {:error, reason} -> Logger.warning("listener_mode_publish #{context} error=#{inspect(reason)}")
