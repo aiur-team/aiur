@@ -69,3 +69,16 @@ Accounting integration is `token_accounting.ex:114–154`; the stall and duratio
 guards belong in `runtime_watchdog.ex:327` and `:92`. C4-T00 findings report
 Q1–Q3 PASS; the capture facade landed in #6550. Product and predecessor gates
 are retained; the capture gate stays disabled pending reply/release support.
+
+## REFRESH-MP-E2-C6-T03-4fbe1095 — closed (2026-10-27)
+
+Source reviewed before implementation on ticket #6421. `asks_cli.ex:13–56`
+now routes legacy operations through `Commands.create_ask/resolve_ask/open_asks/all_asks`.
+CLI dispatch is `cli.ex:38,161–162`, parsing lives in `cli/subcommands.ex:106–165`,
+and local launcher execution is `engine/oneshot.sh:171–173` with dispatch in
+`aiur-engine.sh:259–261`. C6-T01 landed as `ControlCLI.ExecutorRequest.request/2`
+with caller identity (the alias adds an optional result renderer); C6-T02 delivery is merged.
+The alias uses these current APIs, preserves local legacy reads/resolution, and
+loads the current Command version before Executor withdrawal. Current IDs use
+the `dec_` prefix plus 16 hex characters; the historical bare-hex description is stale. Historical ranges
+are superseded; the design and compatibility requirements are retained.
