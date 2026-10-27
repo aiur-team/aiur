@@ -86,21 +86,21 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     end
   end
 
-  test "mode-view broadcast restamps pending items once, preserving claimed and legacy rows", %{id: id, state: state} do
+  test "mode-view changes restamp pending items once, preserving claimed and legacy rows", %{id: id, state: state} do
     {store, claimed} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "claimed", listener_mode: :sync))
     {store, _} = AgentQueueStore.claim_next_deliverable(store, id)
     {store, pending} = AgentQueueStore.enqueue(store, AgentQueue.operator_message(id, "pending", listener_mode: :sync))
     {store, legacy} = AgentQueueStore.enqueue(store, AgentQueue.operator_message(id, "legacy"))
     state = %{state | queue_store: store}
     view = %{effective: :steer, support: %{steer: %{carrier: :emulated_interrupt}}}
-    assert {:noreply, next} = Orchestrator.handle_info({:listen_mode_changed, id, view}, state)
+    next = ListenerModes.mode_view_changed(state, id, view)
     pending_id = pending.id
     assert_received {:agent_queue_updated, ^id, ^pending_id, true}
     assert AgentQueueStore.get(next.queue_store, pending.id).delivery.listener_mode_at_claim == :steer
     assert AgentQueueStore.get(next.queue_store, pending.id).delivery.interrupt_requested
     assert AgentQueueStore.get(next.queue_store, claimed.id).delivery == claimed.delivery
     assert AgentQueueStore.get(next.queue_store, legacy.id).delivery == legacy.delivery
-    assert {:noreply, ^next} = Orchestrator.handle_info({:listen_mode_changed, id, view}, next)
+    assert ListenerModes.mode_view_changed(next, id, view) == next
     refute_received {:agent_queue_updated, _, _, _}
   end
 
@@ -166,7 +166,18 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     state = %{state | control_lifecycle: lifecycle, running: %{id => entry}}
     assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "chat", delivery_policy: :listener, origin: :http})
     assert next.control_lifecycle == lifecycle
+    refute Map.has_key?(next.running[id], :resume_input_id)
+    refute_received {:resume_agent, _}
     assert next.running[id].pending_pause_reason.reason == :input_required
     assert_received {:agent_queue_updated, ^id, ^request, false}
+  end
+
+  test "mode-change signals re-read the current view instead of applying a stale payload", %{id: id, state: state} do
+    {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
+    state = %{state | queue_store: store}
+    assert {:noreply, next} = Orchestrator.handle_info({:listen_mode_changed, id, %{effective: :async}}, state)
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.listener_mode_at_claim == :sync
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
   end
 end
