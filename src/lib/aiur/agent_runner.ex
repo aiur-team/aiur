@@ -142,12 +142,13 @@ defmodule Aiur.AgentRunner do
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
-  def transient_run_error?(:port_closed), do: true
   def transient_run_error?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
   def transient_run_error?(_reason), do: false
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
+  def transient_run_error?(:port_closed, _backend), do: false
+
   def transient_run_error?(reason, backend) do
     CodingAgent.recoverable_session_error?(backend, reason) or
       shared_transient_run_error?(reason) or github_transport_transient?(reason)

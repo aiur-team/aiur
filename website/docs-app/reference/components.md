@@ -1,10 +1,5 @@
 ---
 title: Component directory
-search: false
-head:
-  - - meta
-    - name: robots
-      content: noindex
 ---
 
 <script setup>

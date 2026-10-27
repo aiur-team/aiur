@@ -18,7 +18,7 @@ defmodule VoiceConverse.SessionTest do
     config = config!(root, name, llm: nil)
     start_instance(config)
 
-    assert {:error, :llm} = VoiceConverse.start_session(name, %{id: "target"}, [])
+    assert {:error, :llm} = VoiceConverse.start_session(name, %{id: "target", describe_exit: true}, [])
   end
 
   test "a session cannot start until the operator accepts the cloud disclosure", %{root: root, name: name} do
@@ -215,7 +215,8 @@ defmodule VoiceConverse.SessionTest do
     start_instance(config)
     {:ok, id} = start!(name, provider: {FakeProvider, [open_observer: self()]})
     assert_receive {:voice_conversation_state, ^id, :connecting}
-    assert_receive {:fake_provider, :open_spec, %{context: ""}}
+    assert_receive {:fake_provider, :open_spec, %{context: initial_context}}
+    assert initial_context =~ "### briefing"
 
     {:ok, session} = VoiceConverse.SessionRegistry.lookup(name, id)
     first_ref = :sys.get_state(session).provider_ref

@@ -2,9 +2,9 @@
 
 ## API budgets
 
-With `AIUR_LEASE_DATABASE_URL`, daemons share admissions, holds, quota snapshots and account-scoped provider readings. During outages, each divides ceilings by the persisted last roster; if unknown, it reserves at least half. Agent `gh` ledgers stay host-local; agents never receive the URL.
+With `AIUR_LEASE_DATABASE_URL`, local agents send governed `gh` budget commands to their daemon over an instance-local Unix socket. Instances using the shared store draw from one credential budget. If the socket is unreachable, the guard reports its per-host ledger fallback. Agents never receive the database URL. Remote agents keep their host-local ledger.
 
-`aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls are per-host and excluded. Without `AIUR_LEASE_DATABASE_URL`, sharing is off.
+`aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls use separate per-workspace ceilings within the shared credential budget. Without `AIUR_LEASE_DATABASE_URL`, shared admission is off.
 
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
@@ -129,7 +129,9 @@ A monitoring loop sampling the API on the same credential *is itself* unattribut
 **Agent `gh` calls do not bill the daemon's credential.**
 
 Agents hold the bot PAT; the daemon under App auth holds an installation token.
-Separate budgets, separate windows.
+Those credentials have separate GitHub windows. Agent calls from local instances
+sharing the bot PAT now share that credential's budget through the daemon broker;
+the daemon's App pool remains separate.
 
 An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and never spends the App pool. Agent activity correlating with App-pool spend means something else scales with the fleet.
 

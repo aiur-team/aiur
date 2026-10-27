@@ -90,6 +90,12 @@ The Units Models panel shows provider usage from the shared provider read model.
 
 Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
 
+With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
+It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
+actual use varies. Missing anchors are unavailable. Read it with
+`aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`; set
+`NETLIFY_AUTH_TOKEN` and `netlify.account_id` to enable polling.
+
 ### Shared GitHub quota
 
 GitHub-backed runs meter the shared credential's core and GraphQL budgets, with reset times, read/write attribution, and top ticket consumer. API and model bars show the share remaining: full is 100% left, empty is unusable until reset. Labels match the bar and warning colours appear near empty. Aiur alerts at 10% remaining and pauses dispatch until reset.

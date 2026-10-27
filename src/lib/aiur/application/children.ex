@@ -8,6 +8,7 @@ defmodule Aiur.Application.Children do
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
+  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
 
   @doc """
   Build the supervision children for the given run shape.
@@ -312,12 +313,14 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         dashboard_cache_children(dashboard?) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
+        [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts)
     )
   end
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
+      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
@@ -334,7 +337,10 @@ defmodule Aiur.Application.Children do
   end
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
-    store_children = if LeaseStore.configured?(), do: [LeaseStore, Heartbeat], else: []
+    store_children =
+      if LeaseStore.configured?(),
+        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
+        else: []
 
     services =
       []

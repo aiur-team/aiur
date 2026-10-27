@@ -19,6 +19,26 @@ defmodule Aiur.GitHub.Access do
   defdelegate preflight_auth(opts \\ []), to: Aiur.GitHub.AuthPreflight
   defdelegate budget_enabled?(opts \\ []), to: Aiur.GitHub.Budget, as: :enabled?
   defdelegate ensure_budget_state_dir(opts \\ []), to: Aiur.GitHub.Budget, as: :ensure_state_dir
+  @spec acquire_budget(map(), keyword()) :: {:ok, map()} | {:hold, map()} | {:error, term()} | :bypass
+  defdelegate acquire_budget(request, opts \\ []), to: Aiur.GitHub.Budget, as: :acquire
+
+  @spec release_budget(map(), keyword()) :: :ok
+  defdelegate release_budget(lease, opts \\ []), to: Aiur.GitHub.Budget, as: :release
+
+  @spec observe_budget(map(), term(), keyword()) :: :ok
+  defdelegate observe_budget(request, result, opts), to: Aiur.GitHub.Budget, as: :observe
+
+  @spec agent_budget_command([String.t()], String.t(), keyword()) :: term()
+  defdelegate agent_budget_command(args, key, opts \\ []), to: Aiur.GitHub.Budget, as: :command
+
+  @spec agent_budget_families() :: [{String.t(), String.t(), boolean()}]
+  defdelegate agent_budget_families(), to: Aiur.GitHub.Budget, as: :agent_families
+
+  @spec publish_shared_budget_hold(map(), String.t(), String.t(), non_neg_integer()) :: :ok
+  defdelegate publish_shared_budget_hold(request, key, resource, delay_ms),
+    to: Aiur.GitHub.Budget,
+    as: :publish_shared_hold
+
   defdelegate guard_settings(opts \\ []), to: Aiur.GitHub.Budget
   defdelegate prioritize(), to: Aiur.GitHub.Budget
   defdelegate budget_state_dir(opts \\ []), to: Aiur.GitHub.Budget, as: :state_dir
@@ -137,6 +157,7 @@ defmodule Aiur.GitHub.Access do
   defdelegate print_status(), to: Aiur.GitHub.ResourceStore.Memory
   defdelegate base_url(), to: Aiur.GitHub.Transport
   defdelegate default_request_fun(req), to: Aiur.GitHub.Transport
+  defdelegate off_process_request(request, request_fun), to: Aiur.GitHub.Transport
   defdelegate fetch_json_list(request_fun, token, url, opts \\ []), to: Aiur.GitHub.Transport
 
   defdelegate fetch_json_list_conditional(request_fun, token, url, etag \\ nil, opts \\ []),

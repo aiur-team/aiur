@@ -47,6 +47,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 | `instance.owns` | array of maps | `[]` | Ticket rules reserved for this live instance. Each entry has exactly one `label` or positive `ticket`; matching rules apply only while this instance is dispatching. Requires the shared lease store to coordinate live instances. Hot-reloadable. |
 | `instance.pool` | boolean | `true` | Whether this instance may dispatch tickets that no live, dispatching instance reserves with `instance.owns`. Hot-reloadable. |
 | `instance.role` | string | `primary` | `secondary` never claims the repository leader lease; `primary` is eligible to lead on equal terms with other eligible instances when `AIUR_LEASE_DATABASE_URL` is configured. Only the lease holder runs repository-wide landing, quarantine, merge-queue, and main-branch work. Label heals remain scoped to each instance's tracker view. Without a shared store, primary retains single-instance behavior. Read once at daemon start; change it with a restart. |
+| `instance.roster_stale_retention_ms` | integer | 300000 | How long expired instance heartbeats remain in the dashboard and status roster, in milliseconds. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `max_vertical_panes` | integer | 3 | Caps visible agent chat panes. |
 | `pre_warmed_sessions` | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
@@ -291,8 +292,14 @@ An exported value wins, followed by the global file and then the repository file
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-17 -->
 | --- | --- | --- | --- |
+| `decisions.escalation.enabled` | boolean | true | Enables escalation of Executor Commands to the operator. |
+| `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
+| `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |
+| `decisions.escalation.urgent_factor` | float | 0.5 | Multiplies both deadlines for urgent Commands; greater than 0 and at most 1. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
 | `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
+
+Escalation policy: a Command routed to the Executor moves to you after 5 minutes without acknowledgement or 15 minutes without an answer by default. Urgent Commands halve both deadlines. Set `enabled: false` to disable escalation. Omitted sections use the defaults. Routing integration consumes this policy separately.
 
 These policy keys never grant transport access by themselves. The supervisor API also requires `AIUR_SUPERVISOR_TOKEN`; mutations require the writable and origin gates described above.
 

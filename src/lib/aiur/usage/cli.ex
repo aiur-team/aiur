@@ -53,7 +53,18 @@ defmodule Aiur.Usage.CLI do
     item = payload["provider"]
     header = "#{provider}  #{item["freshness"] || "unknown"}  #{age(item["age_ms"])}  #{item["source"] || "unknown"}"
     details = item["fields"] |> Enum.sort_by(&elem(&1, 0)) |> Enum.map_join("\n", fn {key, value} -> "  #{key}: #{inspect(value)}" end)
+    details = if provider == "netlify", do: netlify_summary(item["fields"]) <> if(details == "", do: "", else: "\n" <> details), else: details
     if details == "", do: header, else: header <> "\n" <> details
+  end
+
+  defp netlify_summary(fields) do
+    credits = Map.get(fields, "credits", %{})
+    remaining = Map.get(credits, "estimated_remaining")
+
+    case remaining do
+      value when is_number(value) -> "  estimated credits: #{Float.round(value * 1.0, 1)}"
+      _ -> "  estimated credits: unavailable"
+    end
   end
 
   defp row(provider, record), do: "#{String.pad_trailing(to_string(provider), 8)}  #{String.pad_trailing(to_string(record["freshness"]), 10)}  #{age(record["age_ms"])}  #{record["source"]}"

@@ -200,7 +200,8 @@ export default withMermaid(defineConfig({
             { text: 'Merge Policy', link: '/reference/merge-policy' },
             { text: 'PR checks', link: '/reference/pr-checks' },
             { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
-            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
+            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' },
+            { text: 'Components', link: '/reference/components' }
           ]
         }
       ]

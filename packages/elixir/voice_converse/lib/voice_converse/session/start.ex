@@ -1,25 +1,31 @@
 defmodule VoiceConverse.Session.Start do
   @moduledoc false
 
-  alias VoiceConverse.{Config, Events, SessionLimits, TranscriptStore}
+  alias VoiceConverse.{Config, ContextBuilder, Drafts, Events, SessionLimits, TranscriptStore}
   alias VoiceConverse.Session.Runtime
 
   def state(config, target, id, opts) do
+    clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
+
     with :ok <- Config.check_session_start(config),
          :ok <- target_alive?(config, target),
+         {:ok, descriptor} <- describe_target(config, target),
          {:ok, provider, provider_opts} <- provider(config, opts),
          :ok <- preflight(provider, Runtime.preflight_spec(config, target, provider, provider_opts)),
          :ok <- SessionLimits.under_daily_cap?(config),
-         {:ok, store} <- open_transcript(config, target, id, provider, opts) do
-      clock = Keyword.get(opts, :clock, &DateTime.utc_now/0)
-
+         {:ok, store} <- open_transcript(config, descriptor, id, provider, opts),
+         started_at <- clock.(),
+         {:ok, context} <- build_context(config, target, store, started_at) do
       {:ok,
        %{
          id: id,
          config: config,
          target: target,
+         draft_target: descriptor,
+         drafts: Drafts.new(),
          provider: provider,
          provider_opts: provider_opts,
+         context: context.text,
          provider_ref: nil,
          provider_ids: MapSet.new(),
          store: store,
@@ -39,10 +45,11 @@ defmodule VoiceConverse.Session.Start do
          start_waiters: [],
          finishing?: false,
          finished?: false,
+         end_tool_call_id: nil,
          deferred_events: [],
          audio_queue: :queue.new(),
          audio_task?: false,
-         started_at: clock.()
+         started_at: started_at
        }}
     else
       {:error, %{field: field}} -> {:error, field}
@@ -58,6 +65,12 @@ defmodule VoiceConverse.Session.Start do
     end
   rescue
     _error -> {:error, :target_gone}
+  end
+
+  defp describe_target(%Config{briefing_source: source}, target) do
+    {:ok, source.describe_target(target)}
+  rescue
+    _error -> {:error, :unknown}
   end
 
   defp provider(config, opts) do
@@ -80,8 +93,7 @@ defmodule VoiceConverse.Session.Start do
     end
   end
 
-  defp open_transcript(config, target, id, provider, opts) do
-    descriptor = config.briefing_source.describe_target(target)
+  defp open_transcript(config, descriptor, id, provider, opts) do
     provider_id = provider.descriptor().id
 
     TranscriptStore.start(config, id, %{
@@ -92,6 +104,22 @@ defmodule VoiceConverse.Session.Start do
     })
   rescue
     _error -> {:error, :unknown}
+  end
+
+  defp build_context(config, target, store, now) do
+    context = ContextBuilder.build(config, target, now: now)
+
+    case Enum.reduce_while(context.blocks, :ok, fn block, :ok ->
+           record = Map.merge(block, %{type: "context"})
+           if TranscriptStore.append(store, record) == :ok, do: {:cont, :ok}, else: {:halt, :error}
+         end) do
+      :ok ->
+        {:ok, context}
+
+      :error ->
+        _ = TranscriptStore.close(store)
+        {:error, :unknown}
+    end
   end
 
   defp broadcast(subscribers, id, event),

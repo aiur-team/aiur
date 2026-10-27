@@ -14,6 +14,8 @@ const retainedBinaryExtensions = new Set(['.png', '.zip'])
 const realGitName = 'AIUR_REAL_GIT'
 const buildAdmissionNames = [
   'BASH_ENV',
+  'AIUR_BUILD_GATE_HOOK',
+  'AIUR_AGENT_BIN',
   'AIUR_BUILD_GATE_BIN',
   'AIUR_BUILD_GATE_DIR',
   'AIUR_BUILD_GATE_LOCK_DIR',
@@ -83,6 +85,9 @@ export function browserChildEnvironment(environment = process.env, overrides = {
 // can be asserted without spawning the server that module starts on import.
 const fixtureRuntimeNames = [
   realGitName,
+  // The fixture runs `mise exec` through the workspace command wrappers.
+  // Preserve BASH_ENV and AIUR_BUILD_GATE_HOOK so the shell hook can restore
+  // PATH guards and load build admission in that subprocess too.
   ...buildAdmissionNames,
   'HOME',
   'PATH',

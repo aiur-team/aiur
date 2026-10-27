@@ -187,7 +187,7 @@ defmodule Aiur.DecisionApi do
   end
 
   defp revision_opts(opts, actor, basis, authority) do
-    [actor: actor, supervisor_basis: basis, authority: authority]
+    [actor: actor, actor_source: :supervisor_api, supervisor_basis: basis, authority: authority]
     |> maybe_put_option(:now, opts)
   end
 
@@ -198,7 +198,7 @@ defmodule Aiur.DecisionApi do
   end
 
   defp answer_opts(opts, actor, basis) do
-    [actor: actor, supervisor_basis: basis]
+    [actor: actor, actor_source: :supervisor_api, supervisor_basis: basis]
     |> maybe_put_option(:now, opts)
   end
 

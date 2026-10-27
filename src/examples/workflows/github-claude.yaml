@@ -59,6 +59,7 @@ instance:
   deployment_kind: operator         # operator | consumer; hosted consumers use API keys only
   # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
   role: primary                       # eligible primary candidates share leader election; secondary never leads
+  roster_stale_retention_ms: 300000    # keep expired instance heartbeats visible for five minutes
   # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
   # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
@@ -219,3 +220,17 @@ executor:
 #     after_step_days: 7
 #     after_max_days: 42
 #     metric_packs: ["delivery"]
+# Optional read-only Netlify account usage; requires NETLIFY_AUTH_TOKEN in .env.
+netlify:
+  enabled: false
+  # account_id: your-netlify-team-id
+  poll_seconds: 900
+  credit_alert_threshold: 100
+
+# Command escalation policy (defaults; routing consumes these settings).
+# decisions:
+#   escalation:
+#     enabled: true
+#     executor_ack_ms: 300000
+#     executor_answer_ms: 900000
+#     urgent_factor: 0.5

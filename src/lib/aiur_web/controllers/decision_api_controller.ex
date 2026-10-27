@@ -9,7 +9,8 @@ defmodule AiurWeb.DecisionApiController do
 
   use Phoenix.Controller, formats: [:json]
 
-  alias Aiur.DecisionApi
+  alias Aiur.Commands.ConflictSummary
+  alias Aiur.{DecisionApi, DecisionStore}
   alias AiurWeb.EndpointConfig
   alias Plug.Conn
 
@@ -55,9 +56,33 @@ defmodule AiurWeb.DecisionApiController do
   defp mutation(conn, operation, decision_id, params) do
     payload = Map.delete(params, "decision_id")
 
+    result = invoke(conn, operation, [decision_id, payload, api_opts(conn)])
+
+    case result do
+      {:error, {:conflict, {:already_decided, _action_id}}} -> already_decided(conn, decision_id)
+      _other -> render_mutation(result, conn)
+    end
+  end
+
+  defp already_decided(conn, decision_id) do
+    body = %{error: %{code: "decision_conflict", message: "Decision state changed; refresh and retry"}}
+
     conn
-    |> invoke(operation, [decision_id, payload, api_opts(conn)])
-    |> render_mutation(conn)
+    |> put_status(409)
+    |> json(Map.merge(body, winner(conn, decision_id)))
+  end
+
+  defp winner(conn, decision_id) do
+    opts = api_opts(conn)
+
+    case DecisionStore.get(decision_id, Keyword.get(opts, :store, DecisionStore)) do
+      {:ok, decision} -> %{winner: ConflictSummary.for(decision, Keyword.get(opts, :actor))}
+      _unavailable -> %{}
+    end
+  rescue
+    _error -> %{}
+  catch
+    :exit, _reason -> %{}
   end
 
   defp invoke(conn, operation, args) do

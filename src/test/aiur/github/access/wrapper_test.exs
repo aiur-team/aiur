@@ -17,7 +17,7 @@ defmodule Aiur.GitHub.Access.WrapperTest do
   test "workspace placement installs the embedded Aiur artifacts at the original modes", %{tmp_dir: tmp_dir} do
     assert :ok = AgentGitHubGuard.install(tmp_dir)
     bin = AgentGitHubGuard.bin_dir(tmp_dir)
-    assert Enum.sort(File.ls!(bin)) == ~w(aiur-github-budget gh git github_budget_metrics.py)
+    assert Enum.sort(File.ls!(bin)) == ~w(aiur-github-budget aiur-github-budget-socket gh git github_budget_metrics.py)
 
     for {name, bytes} <- Wrapper.scripts() do
       assert File.read!(Path.join(bin, name)) == bytes

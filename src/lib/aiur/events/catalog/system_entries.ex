@@ -12,8 +12,6 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.agent.synthetic_load_cap", "agent-sandbox"},
     # aiur/build_gate_hold_monitor.ex
     {"system.build_gate.hold_timeout", "agent-sandbox"},
-    # aiur/build_progress.ex
-    {"system.build_order.*.progress", "build-orders"},
     # aiur/build_order_funnel_health.ex
     {"system.build_order_funnel.health_check_error", "build-orders"},
     # aiur/build_order_funnel_health.ex
@@ -36,6 +34,8 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.config.reload_rejected", "config"},
     # aiur/daemon_heartbeat_checker.ex
     {"system.daemon.gap", "telemetry"},
+    # aiur/commands/request_attributes.ex
+    {"system.decision.attributes.append_failed", "commands"},
     # aiur/decision_dispatch_tasks/saturation.ex
     {"system.decision_dispatch.saturated", "commands"},
     # aiur/decision_dispatch_tasks/saturation.ex
@@ -100,6 +100,10 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.instance.ownership_unknown.resolved", "config"},
     # aiur/landing_watch.ex
     {"system.main.ci.failed.resolved", "orchestration"},
+    # aiur/usage/alerts.ex
+    {"system.netlify.credits_low", "executor-attention"},
+    # aiur/usage/alerts.ex
+    {"system.netlify.credits_low.resolved", "executor-attention"},
     # aiur/orchestrator/optimistic_ledger.ex
     {"system.optimistic.ledger_unavailable", "orchestration"},
     # aiur/landing_watch/pr_rerun.ex
@@ -144,8 +148,6 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.provider.auth_rejected.*", "harness-adapters"},
     # aiur/application/startup_checks.ex
     {"system.provider.auth_rejected.*.resolved", "control-cli"},
-    # aiur/build_progress.ex
-    {"system.queue.*.progress", "build-orders"},
     # aiur/handoff/report.ex
     {"system.restart.handoff.completed", "orchestration"},
     # aiur/handoff/report.ex
@@ -179,8 +181,6 @@ defmodule Aiur.Events.Catalog.SystemEntries do
   @live [
     # aiur/events/github_keys.ex
     {"system.*.branch.push", "github-listeners"},
-    # aiur/capabilities/monitor.ex
-    {"system.capabilities.changed", "identity"},
     # aiur/orchestrator/envelope_resume.ex
     {"system.fleet.capacity.resume_seeded", "orchestration"},
     # aiur/landing_watch.ex

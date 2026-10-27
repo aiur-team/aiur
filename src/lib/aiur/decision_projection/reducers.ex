@@ -1,8 +1,11 @@
 defmodule Aiur.DecisionProjection.Reducers do
   @moduledoc false
 
+  alias Aiur.Commands.Projection
   alias Aiur.{Decision, DecisionEvent, DecisionRevision}
   alias Aiur.DecisionProjection.{AuthorityReclassification, DeliveryReducers, TransitionValidation}
+
+  @command_fact_types Aiur.Commands.EventData.fact_types()
 
   @spec transition(term(), term()) :: {:ok, term()} | {:error, term()}
   def transition(%Decision{decision_status: :expired, blocking: true, answer: nil} = decision, %DecisionEvent{type: :answer_recorded, data: answer} = event) do
@@ -244,6 +247,9 @@ defmodule Aiur.DecisionProjection.Reducers do
   def transition(%Decision{} = decision, %DecisionEvent{type: type} = event)
       when type in [:dispatch_queued, :revision_dispatched, :handed_off, :delivered, :restored, :consumed, :failed, :dispatch_outcome_unknown],
       do: DeliveryReducers.transition(decision, event)
+
+  def transition(%Decision{} = decision, %DecisionEvent{type: type} = event) when type in @command_fact_types,
+    do: Projection.apply(decision, event)
 
   def transition(_decision, _event), do: {:error, :unsupported_event}
 end

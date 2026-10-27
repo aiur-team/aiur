@@ -3,12 +3,14 @@ defmodule VoiceConverse.Session do
 
   alias VoiceConverse.{
     ClientErrors,
+    Drafts,
     Events,
     ProviderCleanup,
     Session.Runtime,
     Session.Start,
     SessionLimits,
     SessionRegistry,
+    Tools,
     TranscriptStore
   }
 
@@ -65,6 +67,9 @@ defmodule VoiceConverse.Session do
     {:reply, :ok, state}
   end
 
+  def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
+    do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
+
   def handle_call(:await_started, _from, %{start_status: :started} = state), do: {:reply, :ok, state}
   def handle_call(:await_started, from, state), do: {:noreply, update_in(state.start_waiters, &[from | &1])}
 
@@ -109,6 +114,15 @@ defmodule VoiceConverse.Session do
   def handle_info({:voice_conversation, ref, event}, %{provider_ref: ref} = state) do
     handle_provider_event(event, state)
   end
+
+  def handle_info({:end_after_tool_result, call_id}, %{end_tool_call_id: call_id} = state) do
+    case begin_finish(state, :user_end) do
+      {:done, state} -> {:stop, :normal, state}
+      {:pending, state} -> {:noreply, state}
+    end
+  end
+
+  def handle_info({:end_after_tool_result, _call_id}, state), do: {:noreply, state}
 
   def handle_info({:voice_conversation, ref, event}, %{provider_ref: nil, opening: opening} = state)
       when not is_nil(opening) do
@@ -235,8 +249,44 @@ defmodule VoiceConverse.Session do
   end
 
   defp handle_provider_event(%Events.ToolCall{} = event, state) do
-    record = %{type: "tool_call", call_id: event.call_id, name: event.name, params: event.params, at: now(state)}
-    persist_and_broadcast(state, record, event, state.state)
+    broadcast_event = redact_tool_call(state, event)
+
+    record = %{
+      type: "tool_call",
+      call_id: broadcast_event.call_id,
+      name: broadcast_event.name,
+      params: broadcast_event.params,
+      at: now(state)
+    }
+
+    case persist(state, record) do
+      {:ok, state} ->
+        broadcast(state, broadcast_event)
+        {result, state} = handle_tool(state, event)
+
+        result_record = %{
+          type: "tool_result",
+          call_id: event.call_id,
+          name: event.name,
+          summary: result.text,
+          is_error: result.is_error,
+          at: now(state)
+        }
+
+        case persist(state, result_record) do
+          {:ok, state} ->
+            :ok = state.provider.tool_result(state.provider_ref, event.call_id, result)
+            state = if result.end?, do: %{state | end_tool_call_id: event.call_id}, else: state
+            if result.end?, do: send(self(), {:end_after_tool_result, event.call_id})
+            {:noreply, state}
+
+          {:error, state} ->
+            stop_unknown(state)
+        end
+
+      {:error, state} ->
+        stop_unknown(state)
+    end
   end
 
   defp handle_provider_event(%Events.Error{code: code} = event, state) do
@@ -275,6 +325,35 @@ defmodule VoiceConverse.Session do
         stop_unknown(state)
     end
   end
+
+  defp handle_tool(state, %Events.ToolCall{name: "propose_instruction", params: params}) do
+    with {:ok, text} <- Tools.proposed_instruction(params),
+         {:ok, draft, drafts} <-
+           Drafts.propose_instruction(state.drafts, text,
+             target: state.draft_target,
+             at: now(state),
+             redactor: state.config.redactor
+           ),
+         record <- Drafts.record(draft),
+         {:ok, state} <- persist(state, record) do
+      broadcast(state, {:draft, record})
+      {Tools.draft_waiting(draft.draft_id), %{state | drafts: drafts}}
+    else
+      {:error, %{} = result} -> {result, state}
+      {:error, reason} -> {Tools.draft_error(reason), state}
+    end
+  end
+
+  defp handle_tool(state, event), do: {Tools.handle(state, event), state}
+
+  defp redact_tool_call(state, %Events.ToolCall{name: "propose_instruction", params: params} = event) do
+    %{event | params: Map.update(params, "text", "", &redact_text(state, &1))}
+  end
+
+  defp redact_tool_call(_state, event), do: event
+
+  defp redact_text(state, text) when is_binary(text), do: redact(state, text)
+  defp redact_text(_state, text), do: text
 
   defp persist(state, record) do
     case TranscriptStore.append(state.store, record) do

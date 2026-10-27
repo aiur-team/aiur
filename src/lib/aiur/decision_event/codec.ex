@@ -1,12 +1,14 @@
 defmodule Aiur.DecisionEvent.Codec do
   @moduledoc false
 
+  alias Aiur.Commands.{ActorSource, EventData}
   alias Aiur.{Decision, DecisionAnswer, DecisionProjection, DecisionRevision}
   alias Aiur.DecisionEvent.{AuthorityReclassification, Validation}
   @identity_max 256
   @reason_max 200
   @detail_max 2_000
   @transport_types [:dispatch_queued, :revision_dispatched, :handed_off, :delivered, :restored, :consumed, :failed, :dispatch_outcome_unknown]
+  @command_fact_types EventData.fact_types()
   @actor_types [:acknowledged, :resolved]
 
   @spec normalize_data(term(), term(), term(), term(), term()) :: {:ok, term()} | {:error, term()}
@@ -192,6 +194,9 @@ defmodule Aiur.DecisionEvent.Codec do
     end
   end
 
+  def normalize_data(type, raw, _decision_id, _version, _trusted_provenance) when type in @command_fact_types,
+    do: EventData.normalize(type, raw)
+
   def normalize_data(_type, _data, _decision_id, _version, _trusted_provenance), do: {:error, {:event_data, :invalid}}
 
   defp normalize_enrichment_decision(%Decision{} = decision, decision_id, version, _trusted_provenance) do
@@ -248,7 +253,7 @@ defmodule Aiur.DecisionEvent.Codec do
 
     with {:ok, kind} <- decode_actor_kind(kind),
          {:ok, id} <- Validation.bounded_optional(Validation.get(actor, :id), @identity_max, :actor_id) do
-      {:ok, %{kind: kind, id: id}}
+      {:ok, ActorSource.preserve(%{kind: kind, id: id}, actor)}
     end
   end
 
@@ -291,12 +296,14 @@ defmodule Aiur.DecisionEvent.Codec do
   defp require_supervisor_actor(_actor), do: {:error, {:actor_kind, :not_supervisor}}
 
   @spec data_to_json_safe(term(), term()) :: map()
+  def data_to_json_safe(type, data) when type in @command_fact_types, do: EventData.to_json_safe(type, data)
+
   def data_to_json_safe(:requested, %Decision{} = decision), do: DecisionProjection.to_json_safe(decision)
 
   def data_to_json_safe(:enriched, data) do
     %{
       "decision" => DecisionProjection.to_json_safe(data.decision),
-      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "actor" => ActorSource.to_json_safe(data.actor),
       "expected_version" => data.expected_version
     }
   end
@@ -304,16 +311,16 @@ defmodule Aiur.DecisionEvent.Codec do
   def data_to_json_safe(:answer_recorded, %DecisionAnswer{} = answer), do: DecisionAnswer.to_event_json_safe(answer)
 
   def data_to_json_safe(:decision_dismissed, data) do
-    %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
+    %{"actor" => ActorSource.to_json_safe(data.actor)}
   end
 
   def data_to_json_safe(:decision_deferred, data) do
-    %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
+    %{"actor" => ActorSource.to_json_safe(data.actor)}
   end
 
   def data_to_json_safe(:executor_escalated, data) do
     %{
-      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "actor" => ActorSource.to_json_safe(data.actor),
       "detail" => data.detail
     }
   end
@@ -323,14 +330,14 @@ defmodule Aiur.DecisionEvent.Codec do
   def data_to_json_safe(:decision_expired, data) do
     %{
       "reason_class" => data.reason_class,
-      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}
+      "actor" => ActorSource.to_json_safe(data.actor)
     }
   end
 
   def data_to_json_safe(:decision_mooted, data) do
     base = %{
       "reason_class" => data.reason_class,
-      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}
+      "actor" => ActorSource.to_json_safe(data.actor)
     }
 
     case data.detail do
@@ -354,7 +361,7 @@ defmodule Aiur.DecisionEvent.Codec do
     %{
       "action_id" => data.action_id,
       "slug" => data.slug,
-      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "actor" => ActorSource.to_json_safe(data.actor),
       "detail" => data.detail
     }
   end
@@ -377,7 +384,7 @@ defmodule Aiur.DecisionEvent.Codec do
   def data_to_json_safe(type, data) when type in @actor_types do
     %{
       "action_id" => data.action_id,
-      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "actor" => ActorSource.to_json_safe(data.actor),
       "source" => %{
         "agent_id" => data.source.agent_id,
         "session_id" => data.source.session_id,
