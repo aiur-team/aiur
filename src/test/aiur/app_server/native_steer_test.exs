@@ -3,18 +3,20 @@ defmodule Aiur.AppServer.NativeSteerTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{AgentQueue, AgentQueueStore, Issue}
-  alias Aiur.AgentRunner.TurnCallbacks
-  alias Aiur.AppServer.{OperatorDelivery, TurnState}
+  alias Aiur.AgentRunner.{CheckpointDelivery, QueueDrain, TurnCallbacks}
+  alias Aiur.AppServer.{Adapter, OperatorDelivery, TurnState}
   alias Aiur.Codex.{CodingAgent, Frames}
   alias Aiur.Orchestrator.{OperatorMessages, State}
+  alias Aiur.Listener.Receipt
 
   defmodule QueueServer do
     use GenServer
+    alias Aiur.Orchestrator.Calls
     def start_link(state), do: GenServer.start_link(__MODULE__, state)
     @impl true
     def init(state), do: {:ok, state}
     @impl true
-    def handle_call(message, from, state), do: Aiur.Orchestrator.Calls.handle_call(message, from, state)
+    def handle_call(message, from, state), do: Calls.handle_call(message, from, state)
   end
 
   defmodule LoopBackend do
@@ -65,13 +67,13 @@ defmodule Aiur.AppServer.NativeSteerTest do
     issue = %Issue{id: "native-steer", identifier: "native-steer"}
     send(self(), {:agent_queue_updated, issue.identifier, ctx.first.id, :steer})
     send(self(), :noop_park_timeout)
-    assert :ok = Aiur.AgentRunner.QueueDrain.wait_for_operator_message(%{backend: "codex"}, issue, fn _ -> :ok end, ctx.queue, nil)
+    assert :ok = QueueDrain.wait_for_operator_message(%{backend: "codex"}, issue, fn _ -> :ok end, ctx.queue, nil)
     assert status(ctx.queue, ctx.first.id) == :pending
   end
 
   test "unavailable orchestrator leaves steer input unclaimed" do
     issue = %Issue{id: "unavailable", identifier: "unavailable"}
-    claim = Aiur.AgentRunner.CheckpointDelivery.steer_claim_handler(issue, :unavailable_steer_queue)
+    claim = CheckpointDelivery.steer_claim_handler(issue, :unavailable_steer_queue)
     assert claim.() == :noop
   end
 
@@ -106,7 +108,7 @@ defmodule Aiur.AppServer.NativeSteerTest do
     delivered = AgentQueueStore.get(queue_state(ctx.queue).queue_store, ctx.first.id)
     assert %DateTime{} = delivered.provider_delivered_at
     assert delivered.provider_turn_id == "turn-1"
-    assert Aiur.Listener.Receipt.from_snapshot(delivered).receipt == :harness_queued
+    assert Receipt.from_snapshot(delivered).receipt == :harness_queued
     assert accepted.outstanding_turns == 1
     assert accepted.active_turn_ids == ctx.state.active_turn_ids
     assert accepted.accepted_turn_ids == MapSet.new()
@@ -132,7 +134,7 @@ defmodule Aiur.AppServer.NativeSteerTest do
   end
 
   test "rejected or malformed responses restore the claimed item for boundary delivery", ctx do
-    for response <- [%{"error" => %{"code" => -32600, "message" => "turn mismatch"}}, %{"result" => %{}}] do
+    for response <- [%{"error" => %{"code" => -32_600, "message" => "turn mismatch"}}, %{"result" => %{}}] do
       next = OperatorDelivery.steer_pending(ctx.session, ctx.state)
       frame = read_frame(ctx.session.port)
       assert {:continue, restored} = OperatorDelivery.handle_pending_operator_response(ctx.session, next, response, "{}", frame["id"])
@@ -164,7 +166,7 @@ defmodule Aiur.AppServer.NativeSteerTest do
     session = Map.merge(ctx.session, %{metadata: %{}, report: self()})
     issue = %Issue{id: "native-steer", identifier: "native-steer"}
     callbacks = TurnCallbacks.build(%{backend: "codex"}, issue, orchestrator: ctx.queue, recipient: nil, live_conversation: :disabled)
-    assert {:ok, _} = Aiur.AppServer.Adapter.run_turn(LoopBackend, session, "work", issue, on_steer_claim: callbacks.on_steer_claim)
+    assert {:ok, _} = Adapter.run_turn(LoopBackend, session, "work", issue, on_steer_claim: callbacks.on_steer_claim)
     assert_received {:wire_frame, frame}
     assert frame["method"] == "turn/steer"
     assert frame == Frames.turn_steer_frame(session, frame["id"], "first", "turn-1")

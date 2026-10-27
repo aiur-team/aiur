@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   alias Aiur.Listener.Scheduler
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{CommentWake, EventTopics, PauseResume, State}
+  alias Aiur.Orchestrator.OperatorMessages.Capabilities
 
   @spec normalize_delivery_request(term(), term(), map()) ::
           {:ok, keyword()} | {:error, atom()}
@@ -154,7 +155,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   end
 
   defp native_steer?(entry) do
-    case Aiur.Orchestrator.OperatorMessages.Capabilities.harness_delivery(%State{}, entry.identifier, entry) do
+    case Capabilities.harness_delivery(%State{}, entry.identifier, entry) do
       %{source: :session, primitives: %{mid_turn_inject: :native}} -> not no_active_turn?(entry)
       _ -> false
     end
