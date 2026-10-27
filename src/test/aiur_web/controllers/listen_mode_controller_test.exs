@@ -1,5 +1,5 @@
 defmodule AiurWeb.ListenModeControllerTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
   import Plug.Conn
   import Plug.Test
   alias Aiur.{Listener, Orchestrator}

@@ -64,13 +64,23 @@ defmodule Aiur.ListenModeCli do
     3
   end
 
-  defp report({:error, {:outcome_unknown, info}}, _opts, key) do
-    IO.puts("aiur: outcome unknown; retry with the same mode, --expected-version #{info.expected_version} and --idempotency-key #{key}")
+  defp report({:error, {:outcome_unknown, info}}, opts, key) do
+    if opts[:json] do
+      IO.puts(Jason.encode!(%{error: "outcome_unknown", expected_version: info.expected_version, idempotency_key: key}))
+    else
+      IO.puts("aiur: outcome unknown; retry with the same mode, --expected-version #{info.expected_version} and --idempotency-key #{key}")
+    end
+
     124
   end
 
-  defp report({:error, reason}, _opts, _key) do
-    IO.puts("aiur: listen-mode failed: #{inspect(reason)}")
+  defp report({:error, reason}, opts, _key) do
+    if opts[:json] do
+      IO.puts(Jason.encode!(%{error: if(is_atom(reason), do: Atom.to_string(reason), else: "listen_mode_failed")}))
+    else
+      IO.puts("aiur: listen-mode failed: #{inspect(reason)}")
+    end
+
     if reason in [:timeout, :unavailable], do: 124, else: 1
   end
 
