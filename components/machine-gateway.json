@@ -3,7 +3,9 @@
   "name": "Machine gateway",
   "layer": 3,
   "kind": "in-app",
-  "paths": [],
+  "paths": [
+    "src/lib/aiur/machine/instance_record.ex"
+  ],
   "facades": [
     "*"
   ],
