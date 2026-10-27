@@ -39,7 +39,9 @@ Overrides are local: these commands never write GitHub labels or report effectiv
 | `aiur epic show [<ids…>] [--json]` | Shows stored epic, actor, source, confirmation and time. Removed keys are ignored; unreadable config gives `epic_known: null`. | `aiur epic show 142 --json` |
 | `aiur epic list [--json]` | Lists configured keys and labels in order. Config errors refuse writes and list without defaults. | `aiur epic list --json` |
 
-Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same epic, source and confirmation is unchanged; changed results and the journal retain the prior assignment. Backfill writes preserve overrides from other sources with `status: kept_existing` and no journal entry.
+Identity: the actor defaults to `cli:$USER`; `--as` accepts 1–64 letters, digits, dots, underscores or hyphens. Source defaults to actor; `backfill-agent` is unconfirmed. CLI cannot claim agent identity. Repeating the same epic, source and confirmation is unchanged; changed results and the journal retain the prior assignment.
+
+Backfill writes preserve overrides from other sources with `status: kept_existing` and no journal entry.
 
 Recovery: unsafe journals remain unavailable. Move corrupt `epic-overrides.json` aside in the instance’s `epic-overrides` directory, then restart; GitHub cannot rebuild overrides.
 
