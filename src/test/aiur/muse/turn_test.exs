@@ -45,7 +45,7 @@ defmodule Aiur.Muse.TurnTest do
   end
 
   @tag :tmp_dir
-  test "a stale native steer wake does not interrupt an unsupported harness", %{tmp_dir: dir} do
+  test "a native steer wake without a claim callback does not interrupt", %{tmp_dir: dir} do
     task = run_fixture(dir, "pause")
     receive_barrier({:turn_ready, owner})
     send(owner, {:agent_queue_updated, "MUSE-1", 3, :steer})

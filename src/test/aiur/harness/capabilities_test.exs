@@ -9,7 +9,7 @@ defmodule Aiur.Harness.CapabilitiesTest do
     {"codex", :app_server_stdio, :native, :in_band, false, true, []},
     {"claude", :app_server_stdio, :none, :in_band, false, true, []},
     {"claude-repl", :tmux_pane, :native, :out_of_band, true, false, [:prompt, :tool, :stop]},
-    {"muse", :msp_stdio, :none, :in_band, false, true, []},
+    {"muse", :msp_stdio, :native, :in_band, false, true, []},
     {"kimi", :in_process_http, :native, :none, false, true, []},
     {"deepseek", :in_process_http, :native, :none, false, true, []},
     {"openrouter", :in_process_http, :native, :none, false, true, []},
