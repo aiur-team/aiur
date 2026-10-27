@@ -76,6 +76,10 @@ These stay with the Executor and are not copied into ticket workspaces.
 
 `aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; it must never run the human-only `aiur answer` command, which only a human operator may use from an interactive terminal; `aiur-handoff` records that policy and watcher state.
 
+`aiur-run` triages `aiur commands --filter with-executor`, acknowledges with `aiur executor-ack`, and answers or escalates before the answer deadline.
+
+It asks the human through `aiur command request`; `executor-wait` delivers answer identifiers for retrieval with `aiur commands <id> --json`. Executors cannot answer their own requests or overwrite direct operator answers.
+
 For a multi-instance fleet, `aiur-run` uses one Executor with `aiur --instance all executor-wait --as <executor-id> --json`; stop the per-machine Executors so each wake stream has one owner. Handle printed records even when an unreachable instance makes the command exit nonzero.
 
 The hourly dashboard visual check can discover the control URL and credentials from the running daemon outside its tmux session, then reports which sources supplied them without printing credential values.

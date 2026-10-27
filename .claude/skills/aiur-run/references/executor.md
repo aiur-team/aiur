@@ -141,7 +141,7 @@ The Executor continuously:
 9. listens for newly created Commands, answers settled and reversible ones
    with explicit Executor attribution, and escalates uncertain or consequential
    ones to the operator without answering them.
-Read now: [Command decision loop](command-decisions.md) when a Command arrives.
+Read now: [Command decision loop](command-decisions.md) for triage, deadlines, acknowledgement, and asking the human.
 
 ## Capacity policy
 
