@@ -31,7 +31,7 @@ jobs:
       - name: Pack and record file list
         run: |
           mkdir -p "$RUNNER_TEMP/aiur-style-pack"
-          npm pack ./packages/aiur-style --json --pack-destination "$RUNNER_TEMP/aiur-style-pack" > "$RUNNER_TEMP/aiur-style-pack/pack.json"
+          npm pack ./packages/aiur-style --ignore-scripts --json --pack-destination "$RUNNER_TEMP/aiur-style-pack" > "$RUNNER_TEMP/aiur-style-pack/pack.json"
           node -e 'const fs = require("node:fs"); const [pack] = JSON.parse(fs.readFileSync(process.argv[1])); console.log(pack.files.map(file => file.path).join("\n"));' "$RUNNER_TEMP/aiur-style-pack/pack.json" > "$RUNNER_TEMP/aiur-style-pack/files.txt"
           cat "$RUNNER_TEMP/aiur-style-pack/files.txt"
           {
@@ -41,7 +41,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Publish dry-run (no registry write)
-        run: npm publish ./packages/aiur-style --dry-run --access public
+        run: npm publish ./packages/aiur-style --ignore-scripts --dry-run --access public
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: aiur-style-pack
