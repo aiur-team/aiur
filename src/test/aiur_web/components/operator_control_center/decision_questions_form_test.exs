@@ -3,7 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionQuestionsFormTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
   import AiurWeb.OperatorControlCenterComponentsFixtures
   alias Aiur.{DecisionEvent, DecisionValidation}
-  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionQuestionsForm}
+  alias Aiur.Commands.Projection
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPresenter, DecisionQuestionsForm}
 
   test "recommended option leads both single-question choices and detail options without hiding extra choices" do
     options = for id <- ["a", "b", "c", "d"], do: %{id: id, label: id, description: nil, risk: nil}
@@ -18,8 +19,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionQuestionsFormTest do
   test "replayed legacy attribution retains the single-answer controls" do
     {:ok, decision} = DecisionValidation.normalize(%{question: "Legacy choice?", blocking: false, options: [%{id: "yes", label: "Yes"}]}, ticket: %{identifier: "6412"})
     {:ok, event} = DecisionEvent.new(:request_attributed, decision.decision_id, decision.version, %{questions: [%{"id" => "old-metadata"}]}, event_id: "legacy-attrs", run_id: "legacy")
-    {:ok, attributed} = Aiur.Commands.Projection.apply(decision, event)
-    [row] = AiurWeb.OperatorControlCenter.DecisionPresenter.present(attributed)
+    {:ok, attributed} = Projection.apply(decision, event)
+    [row] = DecisionPresenter.present(attributed)
     html = render_component(&DecisionAction.decision_action/1, decision: row, writable: true)
     assert html =~ ~s(name="answer[choice]")
     assert html =~ ~s(value="option:yes")
