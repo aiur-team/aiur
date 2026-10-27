@@ -191,6 +191,7 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
 
         case invoke(state, :confirm_draft, [state.conversation_id, draft_id, edited_text]) do
           :ok -> {:ok, state}
+          {:ok, _draft} -> {:ok, state}
           {:error, reason} -> error(state, "draft_error", "#{reason}")
         end
       end
@@ -199,6 +200,7 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
            when is_binary(conversation_id) do
         case invoke(state, :discard_draft, [state.conversation_id, draft_id]) do
           :ok -> {:ok, state}
+          {:ok, _draft} -> {:ok, state}
           {:error, reason} -> error(state, "draft_error", "#{reason}")
         end
       end
@@ -224,19 +226,13 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       defp default_invoke(_state, :end_session, [instance, conversation_id, reason]),
         do: VoiceConverse.end_session(instance, conversation_id, reason)
 
-      defp default_invoke(_state, :confirm_draft, [conversation_id, draft_id, edited_text]) do
-        if function_exported?(VoiceConverse, :confirm_draft, 3) do
-          opts = [origin: :client] ++ if(is_nil(edited_text), do: [], else: [edited_text: edited_text])
-          apply(VoiceConverse, :confirm_draft, [conversation_id, draft_id, opts])
-        else
-          {:error, :drafts_unavailable}
-        end
+      defp default_invoke(%{instance: instance}, :confirm_draft, [conversation_id, draft_id, edited_text]) do
+        opts = [origin: :client] ++ if(is_nil(edited_text), do: [], else: [edited_text: edited_text])
+        VoiceConverse.confirm_draft(instance, conversation_id, draft_id, opts)
       end
 
-      defp default_invoke(_state, :discard_draft, [conversation_id, draft_id]) do
-        if function_exported?(VoiceConverse, :discard_draft, 2),
-          do: apply(VoiceConverse, :discard_draft, [conversation_id, draft_id]),
-          else: {:error, :drafts_unavailable}
+      defp default_invoke(%{instance: instance}, :discard_draft, [conversation_id, draft_id]) do
+        VoiceConverse.discard_draft(instance, conversation_id, draft_id, origin: :client)
       end
 
       defp event_frame(%Events.UserTranscript{text: text, final?: final?}),
