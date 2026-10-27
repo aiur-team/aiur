@@ -46,6 +46,19 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
+The Commands inbox keeps all open Commands visible. Routing chips read **With Executor**,
+**Needs you**, **Needs you and Executor**, or **From Executor**. Older Commands without
+routing facts show **Routing…**. Cards show when they were asked and, after human
+routing, how long they have needed you.
+
+Use **Needs you**, **With Executor**, **From Executor**, or **Resolved** to filter;
+links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and All
+include unrouted Commands. Resolved Commands appear in the history table.
+
+Only Commands routed to you (including those shared with the Executor) count in the
+banner, navigation badge, and Units **Commands** column. Unknown counts display an
+unavailable notice or `—`; partial retained data is labelled partial.
+
 The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
 
 Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.

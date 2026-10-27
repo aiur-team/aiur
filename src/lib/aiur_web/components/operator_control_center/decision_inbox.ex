@@ -6,6 +6,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionPath}
 
   @filter_specs [
+    {:needs_you, "Needs you"},
+    {:with_executor, "With Executor"},
+    {:from_executor, "From Executor"},
     {:open, "Open"},
     {:blocking, "Blocking"},
     {:resolved, "Resolved"},
@@ -129,6 +132,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   # table rendered directly below them, so it uses the retained total.
   defp filter_counts(retained_counts, history_total) do
     %{
+      needs_you: Map.get(retained_counts, :needs_you),
+      with_executor: Map.get(retained_counts, :with_executor),
+      from_executor: Map.get(retained_counts, :from_executor),
       all: Map.get(retained_counts, :total),
       open: Map.get(retained_counts, :open),
       blocking: Map.get(retained_counts, :blocking),
@@ -138,6 +144,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   defp count_label(count) when is_integer(count), do: count
   defp count_label(_count), do: "—"
+
+  defp filtered(decisions, filter) when filter in [:needs_you, :with_executor, :from_executor],
+    do: Enum.filter(decisions, &Aiur.Commands.matches_route?(&1, filter))
 
   defp filtered(decisions, :open), do: Enum.filter(decisions, & &1.open?)
   defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)
@@ -153,6 +162,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
   defp filtered(decisions, _filter), do: Enum.filter(decisions, & &1.open?)
 
+  defp empty_message(:needs_you), do: "No Commands need you."
   defp empty_message(:resolved), do: "Resolved Commands are shown in Command history below."
   defp empty_message(_filter), do: "No Commands match this filter."
 
