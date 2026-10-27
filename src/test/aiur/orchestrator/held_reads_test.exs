@@ -90,10 +90,12 @@ defmodule Aiur.Orchestrator.HeldReadsTest do
     state = %State{queue_store: store}
     expired = System.monotonic_time(:millisecond) - 1
     # The test server uses the production Orchestrator router and serialized state.
-    {:ok, server} = GenServer.start_link(__MODULE__.Server, state)
+    assert {:reply, {:error, :read_timeout}, ^state} = HeldReads.handle_call(state, "held-42", 50, Keyword.put(opts, :deadline, expired))
+    empty = %State{}
+    {:ok, server} = GenServer.start_link(__MODULE__.Server, empty)
     assert {:error, :read_timeout} = GenServer.call(server, {:read_held_messages, "held-42", 50, expired})
-    assert :sys.get_state(server) == state
-    assert AgentQueueStore.get(:sys.get_state(server).queue_store, item.id).read_at == nil
+    assert :sys.get_state(server) == empty
+    assert AgentQueueStore.get(state.queue_store, item.id).read_at == nil
     assert {:ok, %{messages: [], remaining: 0}} = HeldReads.read(server, "empty", 50)
     GenServer.stop(server)
     refute File.exists?(ModeStore.path_for("held-42", opts))
