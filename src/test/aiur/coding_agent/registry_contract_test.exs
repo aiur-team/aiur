@@ -40,7 +40,8 @@ defmodule Aiur.CodingAgent.RegistryContractTest do
     transport: [:unknown, :app_server_stdio, :tmux_pane, :msp_stdio, :in_process_http, :acp_stdio],
     mid_turn_inject: [:none, :native],
     pull_tool: [false, true],
-    native_question: [:none, :native]
+    native_question: [:none, :native, :in_band_hold],
+    native_question_gate: [:codex]
   }
 
   # Future regression guard: validates declarations as providers evolve; outside the C1 baseline.

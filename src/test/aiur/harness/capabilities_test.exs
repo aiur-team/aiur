@@ -20,19 +20,22 @@ defmodule Aiur.Harness.CapabilitiesTest do
     assert Enum.sort(Map.keys(Registry.entries())) == Enum.sort(Enum.map(@rows, &elem(&1, 0)))
 
     for {key, transport, inject, interrupt, queue, pull, hooks} <- @rows do
+      expected = %{
+        harness_id: key,
+        transport: transport,
+        turn_boundary_start: true,
+        mid_turn_inject: inject,
+        hard_interrupt: interrupt,
+        native_queue: queue,
+        pull_tool: pull,
+        hook_boundaries: hooks,
+        native_question: :none
+      }
+
+      expected = if key == "codex", do: Map.put(expected, :native_question_reason, :gate_off), else: expected
+
       assert Capabilities.delivery_primitives(key) ==
-               {:ok,
-                %{
-                  harness_id: key,
-                  transport: transport,
-                  turn_boundary_start: true,
-                  mid_turn_inject: inject,
-                  hard_interrupt: interrupt,
-                  native_queue: queue,
-                  pull_tool: pull,
-                  hook_boundaries: hooks,
-                  native_question: :none
-                }}
+               {:ok, expected}
     end
   end
 
