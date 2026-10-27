@@ -3,7 +3,8 @@
 Generated with `create-expo-app@5.0.0 --template blank-typescript@58.0.29`.
 Baseline: Expo 58.0.20, React Native 0.88.0, React 19.3.0, TypeScript 6.0.3.
 Native packages follow Expo's `bundledNativeModules.json`. Every direct runtime
-and development dependency is an exact version; commit the npm lockfile.
+and development dependency is an exact version; `@aiur/contracts` uses the
+repository-local `file:../aiur-contracts` link. Commit the npm lockfile.
 React Native 0.88 uses the New Architecture exclusively.
 
 Use this checklist for each SDK upgrade:
