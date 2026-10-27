@@ -3,7 +3,7 @@ defmodule Aiur.Config.Paths do
   Canonical path-resolution helpers shared across modules that persist
   per-issue or repo-scoped state.
 
-  Single source of truth for:
+  Single source of truth for conversation storage (`conversation_state_dir/0`) and:
 
     * `log_root_dir/0` — the per-launch directory under which
       `<repo>.<id>.log` and other run logs live. Respects
@@ -31,10 +31,7 @@ defmodule Aiur.Config.Paths do
     Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
   end
 
-  @doc """
-  Returns the per-launch log directory. Defaults to `<cwd>/log` when no
-  `--logs-root` was set. It does not survive a daemon restart.
-  """
+  @doc "Returns the per-launch log directory, defaulting to `<cwd>/log`; it does not survive a restart."
   @spec log_root_dir() :: Path.t()
   def log_root_dir do
     case Application.get_env(:aiur, :log_file) do
@@ -70,6 +67,15 @@ defmodule Aiur.Config.Paths do
       {:ok, path} -> {:ok, path}
       :resolve -> resolve_decision_state_dir()
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Resolves owner-only conversations beneath the decision state root; :conversation_state_dir overrides it."
+  @spec conversation_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def conversation_state_dir do
+    case Application.get_env(:aiur, :conversation_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> with {:ok, root} <- decision_state_dir(), do: {:ok, Path.join(root, "conversations")}
     end
   end
 
@@ -327,11 +333,7 @@ defmodule Aiur.Config.Paths do
     end
   end
 
-  @doc """
-  Returns the sanitized last segment of the tracker's project identity,
-  or `"aiur"` if no identity is available. Safe to use as a filename
-  prefix.
-  """
+  @doc "Returns a filename-safe project identity leaf, or `aiur` if unavailable."
   @spec repo_name() :: String.t()
   def repo_name do
     case safe_project_identity() do
