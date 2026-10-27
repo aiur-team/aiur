@@ -102,5 +102,7 @@ synchronous call to `Publisher`.
 Webhook delivery reads that same segmented export journal through its own
 durable cursor; it does not write a second queue. Export retention therefore
 bounds replay: if delivery falls behind the retained floor, it logs a cursor
-reset and resumes from the oldest available record. Journal, cursor, and log
-files never include the signing secret or the webhook URL query.
+reset and resumes from the oldest available record.
+
+Journal, cursor, and log files never include the signing secret or the webhook
+URL query.
