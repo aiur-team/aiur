@@ -1,5 +1,6 @@
 defmodule Aiur.Claude.ReplAgentControlTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Tmux
 
@@ -81,9 +82,9 @@ defmodule Aiur.Claude.ReplAgentControlTest do
   test "steer callback submits sanitized native input without interrupting", %{tmux: tmux} do
     session = %{tmux: tmux, pane_id: "%50"}
     task = Task.async(fn -> ReplAgent.steer(session, %{kind: :text, body: "try\nthis"}, "active-turn") end)
-    assert_receive {:tmux_mock_out, "send-keys -t %50 -l try this"}, 1_000
+    receive_barrier({:tmux_mock_out, "send-keys -t %50 -l try this"})
     respond(tmux, "")
-    assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+    receive_barrier({:tmux_mock_out, "send-keys -t %50 Enter"})
     respond(tmux, "")
     assert {:ok, request_id} = Task.await(task, 2_000)
     assert is_integer(request_id)

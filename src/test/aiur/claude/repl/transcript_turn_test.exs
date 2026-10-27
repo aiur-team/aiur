@@ -1,5 +1,6 @@
 defmodule Aiur.Claude.Repl.TranscriptTurnTest do
   use ExUnit.Case, async: true
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Claude.Repl.TranscriptTurn
   alias Aiur.Tmux
@@ -139,8 +140,8 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     send(task.pid, {:agent_queue_updated, "test", 1, false})
     send(task.pid, {:agent_queue_updated, "test", 2, :steer})
     expect_steer_input(tmux)
-    assert_receive :operator_claimed, 1_000
-    assert_receive :operator_delivered, 1_000
+    receive_barrier(:operator_claimed)
+    receive_barrier(:operator_delivered)
     File.write!(path, completion_record(), [:append])
     assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
     refute_received :operator_claimed
@@ -148,17 +149,17 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
   end
 
   defp expect_steer_input(tmux) do
-    receive do
-      {:tmux_mock_out, "display-message" <> _} ->
+    receive_barrier({:tmux_mock_out, command})
+
+    case command do
+      "display-message" <> _ ->
         respond(tmux, "4242\n")
         expect_steer_input(tmux)
 
-      {:tmux_mock_out, "send-keys -t %50 -l native steer"} ->
+      "send-keys -t %50 -l native steer" ->
         respond(tmux, "")
-        assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+        receive_barrier({:tmux_mock_out, "send-keys -t %50 Enter"})
         respond(tmux, "")
-    after
-      1_000 -> flunk("steer wake did not type into the pane")
     end
   end
 
