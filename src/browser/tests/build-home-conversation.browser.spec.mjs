@@ -28,9 +28,10 @@ async function scenario(page, name, opts = {}) {
       if (before != null && window.olderHolds-- > 0) await new Promise(resolve => { window.releaseOlder = resolve })
       if (before != null && opts.delay) await new Promise(resolve => setTimeout(resolve, opts.delay))
       if (before != null && window.olderFailures-- > 0) return { v: 1, kind: 'error', reason: 'unavailable' }
-      const end = before == null ? entries.length : Number(before.split(':')[1]), start = Math.max(0, end - 100)
+      const allEntries = opts.entries ?? entries
+      const end = before == null ? allEntries.length : Number(before.split(':')[1]), start = Math.max(0, end - 100)
       return { v: 1, kind: before == null ? 'conversation' : 'conversation-earlier', id: payload.id, ...fixture, ...opts.reply,
-        entries: entries.slice(start, end), before: 'fx:' + start, more: start > 0 }
+        entries: allEntries.slice(start, end), before: 'fx:' + start, more: start > 0 }
     }
     const t = { ...ctx.D.now[0], ...(opts.ticket || {}) }
     openModal(t)
@@ -57,6 +58,21 @@ test('mounted body requests the real exported conversation and closes its subscr
   await expect(messageCount(page)).not.toHaveCount(0)
   await page.locator('#bd-tk-close').click()
   expect(await page.evaluate(id => window.conversationCalls.filter(c => c.event === 'conversation-close' && c.payload.id === id).length, id)).toBe(1)
+})
+
+test('conversation opens scrolled to its newest message', async ({ page }) => {
+  // Deliberately exceed the viewport so scrollTop=0 cannot also be the bottom.
+  const entries = Array.from({ length: 48 }, (_, index) => ({
+    ...states.kinds.entries[index % states.kinds.entries.length],
+    id: `tail:${index}`,
+    text: `Conversation message ${index + 1}`,
+    at: states.kinds.entries[0].at + index,
+  }))
+  await scenario(page, 'kinds', { entries })
+  await expect.poll(() => page.locator('#cv-log').evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect.poll(() => page.locator('#cv-log').evaluate(el =>
+    Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) <= 1
+  )).toBe(true)
 })
 
 test('all six item branches render; hostile text stays text and unknown times/models stay unknown', async ({ page }) => {

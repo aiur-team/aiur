@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
-import { fileURLToPath } from 'node:url'
+import { readFile } from 'node:fs/promises'
 import { openFixture } from './support/browser-helpers.mjs'
+import { dashboardCredentials } from './support/layout-worker.mjs'
 
 const callbacks = ['mounted', 'beforeUpdate', 'updated', 'destroyed', 'disconnected', 'reconnected']
 const spyModule = `export function createBuildHomeHook() {
@@ -112,39 +113,57 @@ test('B5: logo keys, paths, fill flags and immutable null prototype', async ({ p
   })
 })
 
-test.describe('B6: DeepSeek pixel parity', () => {
-  test.use({ deviceScaleFactor: 3 })
-  test('original and product match in both design slots', async ({ page }) => {
-    const original = fileURLToPath(new URL('../../test/fixtures/build_home/design-source/assets/deepseek-logo.png', import.meta.url))
-    await page.route('**/original-deepseek.png', route => route.fulfill({ path: original }))
-    await openFixture(page)
-    for (const size of [24.05, 20]) {
-      await page.evaluate(size => {
-        document.body.innerHTML = `<div style="background:white;position:relative;height:100px">
-          ${['/original-deepseek.png', '/build-home/logos/deepseek-logo.png'].map((src, index) =>
-            `<img id="logo-${index}" src="${src}" style="position:absolute;top:20px;left:${20 + index * 60}px;width:${size}px;height:${size}px;border-radius:50%;object-fit:cover">`).join('')}
-        </div>`
-      }, size)
-      await page.locator('img').evaluateAll(images => Promise.all(images.map(image => image.decode())))
-      const shots = await Promise.all([0, 1].map(index => page.locator(`#logo-${index}`).screenshot()))
-      const ratio = await page.evaluate(async buffers => {
-        const pixels = await Promise.all(buffers.map(async bytes => {
-          const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/png' }))
-          const canvas = document.createElement('canvas')
-          canvas.width = bitmap.width; canvas.height = bitmap.height
-          const context = canvas.getContext('2d')
-          context.drawImage(bitmap, 0, 0)
-          return context.getImageData(0, 0, canvas.width, canvas.height).data
-        }))
-        if (pixels[0].length !== pixels[1].length) throw new Error('slot dimensions differ')
-        let changed = 0
-        for (let offset = 0; offset < pixels[0].length; offset += 4) {
-          if ([0, 1, 2, 3].some(channel => Math.abs(pixels[0][offset + channel] - pixels[1][offset + channel]) > 8)) changed++
-        }
-        return changed / (pixels[0].length / 4)
-      }, shots.map(shot => Array.from(shot)))
-      console.log(`DeepSeek ${size}px DPR 3: ${(ratio * 100).toFixed(4)}% pixels exceed 8/255`)
-      expect.soft(ratio).toBeLessThanOrEqual(0.02)
+// Moved from the removed home CSS design-parity specs (#6061).
+test('ordered stylesheet imports preserve source order and Safari blur fallbacks', async () => {
+  const entry = new URL('../../priv/static/build-home/home.css', import.meta.url)
+  const imports = [...(await readFile(entry, 'utf8')).matchAll(/@import url\("home\/([^"/]+)"\);/g)]
+  expect(imports.length).toBeGreaterThan(0)
+  expect(imports.map(([, name]) => Number(name.slice(0, 2)))).toEqual(imports.map((_, i) => i + 1))
+  const parts = await Promise.all(imports.map(([, name]) => readFile(new URL(`home/${name}`, entry), 'utf8')))
+  for (const part of parts) expect(part.trimEnd().split('\n').length).toBeLessThan(500)
+  const css = parts.join('\n')
+  const markers = [...css.matchAll(/\/\* ([HC]):(\d+) \*\//g)]
+  expect(markers.map(([, source, line]) => (source === 'C' ? 10000 : 0) + Number(line))).toEqual(
+    markers.map(([, source, line]) => (source === 'C' ? 10000 : 0) + Number(line)).sort((a, b) => a - b))
+  const blurRules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, , body]) => body.includes('-webkit-backdrop-filter:'))
+    .map(([, selector, body]) => ({ selector: selector.trim(), declarations: body.match(/(?:-webkit-)?backdrop-filter:[^;]+;/g) }))
+  expect(blurRules).toEqual([
+    { selector: '.bd-tree', declarations: ['backdrop-filter: blur(10px) saturate(.7);', '-webkit-backdrop-filter: blur(10px) saturate(.7);'] },
+    { selector: '.bd-now, html[data-palette="gruvbox"] .bd-now', declarations: ['backdrop-filter: blur(5px);', '-webkit-backdrop-filter: blur(5px);'] },
+  ])
+})
+
+test('home.css does not change other pages', async ({ page }) => {
+  test.setTimeout(120_000)
+  const snapshot = () => JSON.stringify([...document.body.querySelectorAll('*')].map(e => {
+    const style = getComputedStyle(e)
+    return [e.tagName, [...style].filter(p => !p.startsWith('--')).map(p => style.getPropertyValue(p))]
+  }))
+  let buttons = 0
+  let anchors = 0
+  for (const route of ['/route-shell', '/commands', '/units-fixture', '/ticket-context', '/provider-meters', '/meter-row', '/quota-panel', '/fixture']) {
+    const snapshots = []
+    for (const empty of [true, false]) {
+      if (empty) await page.route('**/build-home/home.css', r => r.fulfill({ contentType: 'text/css', body: '' }))
+      else await page.unroute('**/build-home/home.css')
+      await openFixture(page, 'writable')
+      await page.context().setHTTPCredentials(dashboardCredentials)
+      await page.addInitScript(() => { localStorage.setItem('aiur-theme', 'dark'); localStorage.setItem('aiur-palette', 'gruvbox') })
+      await page.goto(route)
+      await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+      if (route === '/units-fixture') {
+        await page.getByRole('button', { name: 'Select no filters' }).click()
+        await expect(page.getByRole('button', { name: 'Reset Units filters' })).toBeVisible()
+      }
+      await page.evaluate(() => document.fonts.ready)
+      await page.evaluate(() => { document.getAnimations().forEach(a => { if (a instanceof CSSTransition) a.finish(); else { a.pause(); a.currentTime = 0 } }) })
+      snapshots.push(JSON.parse(await page.evaluate(snapshot)))
     }
-  })
+    expect(snapshots[1], `stylesheet affected ${route}`).toEqual(snapshots[0])
+    buttons += await page.locator('.btn').count()
+    anchors += await page.locator('a').count()
+  }
+  expect(buttons, 'no button target').toBeGreaterThan(0)
+  expect(anchors, 'no anchor target').toBeGreaterThan(0)
 })
