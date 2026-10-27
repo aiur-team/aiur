@@ -110,7 +110,7 @@ workflows = (
     Path(".github/workflows/release-npm.yml"),
     Path(".github/actions/layout-release/action.yml"),
 )
-expected = 4
+expected = 5
 found = 0
 for path in workflows:
     lines = path.read_text().splitlines()
