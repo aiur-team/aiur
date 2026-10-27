@@ -7,6 +7,8 @@ defmodule Aiur.AgentTools.Errors do
   alias Aiur.AgentTools.Response
 
   @spec payload(term()) :: map()
+  def payload({:history_export, reason}), do: Aiur.AgentTools.HistoryExportErrors.payload(reason)
+
   def payload(:invalid_epic_arguments),
     do: %{
       "error" => %{

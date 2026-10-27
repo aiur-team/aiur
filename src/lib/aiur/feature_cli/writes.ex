@@ -13,7 +13,7 @@ defmodule Aiur.FeatureCLI.Writes do
       labels = Output.label_states(ids, context)
       results = Enum.map(ids, &member_result(&1, args, snapshot, result, labels, meta))
       envelope = %{schema_version: 1, command: "feature #{args.op}", feature: args.slug, generation: result.generation, results: results}
-      {:ok, Map.merge(envelope, Map.take(result, [:outcome, :previous_baseline]))}
+      {:ok, Map.merge(envelope, Map.take(result, [:outcome, :previous_baseline, :kept]))}
     end
   end
 
@@ -89,6 +89,7 @@ defmodule Aiur.FeatureCLI.Writes do
 
   defp outcome(id, args, snapshot, result) do
     cond do
+      id in Map.get(result, :kept, []) -> :kept_existing
       id not in result.changed -> :unchanged
       args.op == :remove or (args.op == :also and args[:remove]) -> :removed
       args.op == :also -> :added

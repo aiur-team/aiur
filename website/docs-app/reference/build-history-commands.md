@@ -9,7 +9,7 @@ Label projection runs separately; `show` reports its state, including `unknown` 
 | Syntax | Behavior | Runnable example |
 | --- | --- | --- |
 | `aiur feature create <slug> --label <text> [--hue <0-359>] [--epic <key>=<label>]… [--as <who>] [--json]` | Creates a collection; matching requests are unchanged. Default epic: `f-<slug>`. | `aiur feature create intake --label "Intake" --hue 145 --json` |
-| `aiur feature add <slug> <ids…> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. Backfill skips owned IDs (`kept`) and refuses `--move`. | `aiur feature add intake 412 413 --move --json` |
+| `aiur feature add <slug> <ids…> [--epic <key>] [--move] [--source backfill-agent] [--as <who>] [--json]` | Joins up to 200 issue numbers below 2^31, optional `#`, duplicates collapsed. Conflicting ownership refuses the batch; `--move` transfers it. Backfill skips IDs owned by another feature (`kept`, `kept_existing`) and refuses `--move`. | `aiur feature add intake 412 413 --move --json` |
 | `aiur feature remove <slug> <ids…> [--as <who>] [--json]` | Removes owning memberships; absent memberships are unchanged. | `aiur feature remove intake 412 --json` |
 | `aiur feature also <slug> <ids…> [--remove] [--as <who>] [--json]` | Adds or removes also-affects links. Owners cannot also affect the same feature. | `aiur feature also intake 420 --json` |
 | `aiur feature baseline <slug> [--replace] [--as <who>] [--json]` | Records original scope. Existing baselines require `--replace`; replacement reports the previous time and count. | `aiur feature baseline intake --json` |

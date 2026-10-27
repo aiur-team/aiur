@@ -159,7 +159,8 @@ agent or scheduled claim is re-queued and alerted.
 
 Agents use `aiur_set_epic` for local general-epic overrides, up to 200 ids.
 These preserve GitHub labels and record the acting ticket; `backfill: true`
-marks an unconfirmed guess. See [epic commands](../reference/cli.md#build-history-epic-commands).
+marks an unconfirmed guess. `aiur_history_export` gives only `history-backfill`
+tickets capped, resumable pages from local History; see [History backfill](./build-history#history-backfill). See [epic commands](../reference/cli.md#build-history-epic-commands).
 
 ### Model labels
 

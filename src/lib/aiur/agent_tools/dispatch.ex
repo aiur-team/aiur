@@ -6,7 +6,7 @@ defmodule Aiur.AgentTools.Dispatch do
   alias Aiur.AgentTools.Blockers
   alias Aiur.AgentTools.EmitAlert
   alias Aiur.AgentTools.EmitEvent
-  alias Aiur.AgentTools.{Epic, Feature}
+  alias Aiur.AgentTools.{Epic, Feature, HistoryExport}
   alias Aiur.AgentTools.LinearGraphQL
   alias Aiur.AgentTools.ReadMessages
   alias Aiur.AgentTools.Response
@@ -14,7 +14,7 @@ defmodule Aiur.AgentTools.Dispatch do
   alias Aiur.AgentTools.Subscriptions
   alias Aiur.AgentTools.TicketState
 
-  @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, Subscriptions, Blockers, TicketState, Epic, Feature, ReadMessages]
+  @handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, Subscriptions, Blockers, TicketState, Epic, Feature, ReadMessages, HistoryExport]
 
   @spec execute(String.t() | nil, term(), keyword()) :: map()
   def execute(tool, arguments, opts \\ []) do
