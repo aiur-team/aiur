@@ -340,6 +340,8 @@ defmodule Aiur.BuildOrder.IndexTest do
 
     assert {:ok, index} = Index.assemble(p, now: now())
     assert Map.take(index.feature_progress.features["f-bo-1363"], [:closed, :total, :plan_version]) == %{closed: 35, total: 35, plan_version: "v1"}
+  end
+
   test "platform program build-queue lane receives its default icon" do
     feature = %{
       slug: "bo-3042",

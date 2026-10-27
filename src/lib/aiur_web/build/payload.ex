@@ -4,10 +4,10 @@ defmodule AiurWeb.Build.Payload do
   All fields defined by PayloadSchema are required unless explicitly optional.
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
-  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
-  features, order, counts (whole-index totals or nil), feature_progress (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation time; plan version and extras), sections (hist/now/plan/nq),
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), optional
-  icons catalog, epics, features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
+  icons catalog, epics, features, order, counts (whole-index totals or nil), feature_progress
+  (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation
+  time; plan version and extras), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
@@ -160,6 +160,7 @@ defmodule AiurWeb.Build.Payload do
     blocks
     |> maybe_put("epics", epics, Map.has_key?(blocks, "epics"))
     |> maybe_put("features", features, Map.has_key?(blocks, "features"))
+    |> compact_progress_metadata()
     |> maybe_put("icons", icons, map_size(icons) > 0)
   end
 
@@ -176,6 +177,50 @@ defmodule AiurWeb.Build.Payload do
   end
 
   defp take_icons(items), do: {items, %{}}
+
+  # Feature progress repeats icon metadata already carried by its epic. Keep it
+  # in the internal index, but send one copy over the socket.
+  defp compact_progress_metadata(
+         %{
+           "feature_progress" => %{"features" => progress} = feature_progress,
+           "epics" => epics,
+           "features" => features
+         } = blocks
+       )
+       when is_map(progress) and is_map(epics) and is_map(features) do
+    compacted = Map.new(progress, &compact_progress_entry(&1, epics, features, feature_progress))
+
+    put_in(blocks, ["feature_progress", "features"], compacted)
+  end
+
+  defp compact_progress_metadata(blocks), do: blocks
+
+  defp compact_progress_entry({key, item}, epics, features, feature_progress) when is_map(item) do
+    epic = Map.get(epics, key, %{})
+    feature_key = if is_map(epic), do: Map.get(epic, "feature"), else: nil
+    feature = Map.get(features, feature_key, %{})
+
+    item =
+      item
+      |> drop_matching_fields(epic, ~w(icon summary wave))
+      |> drop_matching_field("feature", epic, "feature")
+      |> drop_matching_field("label", feature, "label")
+      |> drop_matching_field("observed_at", feature_progress, "observed_at")
+      |> drop_matching_field("plan_version", feature_progress, "plan_version")
+
+    {key, item}
+  end
+
+  defp compact_progress_entry(entry, _epics, _features, _feature_progress), do: entry
+
+  defp drop_matching_fields(item, source, fields),
+    do: Enum.reduce(fields, item, &drop_matching_field(&2, &1, source, &1))
+
+  defp drop_matching_field(item, field, source, source_field) do
+    if is_map(source) and Map.has_key?(source, source_field) and Map.get(item, field) == Map.get(source, source_field),
+      do: Map.delete(item, field),
+      else: item
+  end
 
   defp maybe_put(map, key, value, true), do: Map.put(map, key, value)
   defp maybe_put(map, _key, _value, false), do: map
