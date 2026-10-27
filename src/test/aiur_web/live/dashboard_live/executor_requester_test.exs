@@ -90,6 +90,22 @@ defmodule AiurWeb.DashboardLive.ExecutorRequesterTest do
     refute html =~ "No Commands from the Executor"
     assert {:ok, unavailable} = DecisionProvider.list(%{"requester" => "executor"}, decision_store: make_ref())
     assert unavailable.requester_page == %{count: nil, partial?: true}
+
+    scan_capped = %{page | health: %{status: :available, partial?: false}}
+
+    rendered =
+      render_component(&AiurWeb.OperatorControlCenter.DecisionInbox.decision_inbox/1,
+        decisions: [],
+        now: DateTime.utc_now(),
+        writable: false,
+        retained_counts: %{},
+        page: scan_capped,
+        query: %{requester: "executor"}
+      )
+
+    assert rendered =~ "Showing a partial list of Commands."
+    assert rendered =~ "Executor count unknown"
+    refute rendered =~ "No Commands from the Executor"
   end
 
   test "empty requester state names the retained page and offers the next page", %{store: store} do

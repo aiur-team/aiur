@@ -36,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       |> assign(:visible_decisions, decisions)
       |> assign(:counts, filter_counts(assigns.retained_counts, assigns.history_total))
       |> assign(:filter_specs, @filter_specs)
-      |> assign(:page_health, get_in(assigns.page, [:health, :status]))
+      |> assign(:page_health, page_health(assigns.page))
 
     ~H"""
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
@@ -93,6 +93,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     </section>
     """
   end
+
+  defp page_health(%{health: %{status: :unavailable}}), do: :unavailable
+  defp page_health(%{partial_results?: true}), do: :partial
+  defp page_health(page), do: get_in(page, [:health, :status])
 
   defp requester_count_label(%{requester_page: %{count: count, partial?: false}}) when is_integer(count),
     do: "#{count} from Executor on this retained page (not a total)."
