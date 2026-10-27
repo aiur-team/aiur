@@ -4,6 +4,14 @@ defmodule Aiur.Listener.SchedulerTest do
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
   setup do
+    warning_key = {Scheduler, :invalid_flag_warned}
+    warning_before = :persistent_term.get(warning_key, :not_present)
+    :persistent_term.put(warning_key, false)
+
+    on_exit(fn ->
+      if warning_before == :not_present, do: :persistent_term.erase(warning_key), else: :persistent_term.put(warning_key, warning_before)
+    end)
+
     previous = Application.fetch_env(:aiur, :listener_send_routing)
     Application.delete_env(:aiur, :listener_send_routing)
 
