@@ -7,13 +7,16 @@
     "src/lib/aiur/agent_event_feed.ex",
     "src/lib/aiur/agent_log.ex",
     "src/lib/aiur/agent_log/**",
-    "src/lib/aiur/conversation/anchors.ex",
-    "src/lib/aiur/conversation/history.ex"
+    "src/lib/aiur/conversation/**"
   ],
   "facades": [
     "Aiur.AgentEventFeed",
     "Aiur.Conversation.Anchors",
-    "Aiur.Conversation.History"
+    "Aiur.Conversation.Entry",
+    "Aiur.Conversation.History",
+    "Aiur.Conversation.Ref",
+    "Aiur.Conversation.Session",
+    "Aiur.Conversation.Store"
   ],
   "facade_pending": null,
   "requires": [
@@ -28,7 +31,9 @@
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
+    "state": [
+      "conversation_state_dir"
+    ],
     "capabilities": [
       "conversations.read"
     ]

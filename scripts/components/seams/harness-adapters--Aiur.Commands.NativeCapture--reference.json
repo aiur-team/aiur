@@ -5,6 +5,7 @@
   "only_paths": [
     "src/lib/aiur/app_server/interrupts.ex",
     "src/lib/aiur/app_server/turn_loop.ex",
+    "src/lib/aiur/claude/coding_agent/methods.ex",
     "src/lib/aiur/codex/notifications.ex",
     "src/lib/aiur/codex/turn_loop.ex"
   ],

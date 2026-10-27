@@ -15,6 +15,7 @@ R-declared	Aiur.Tmux.Socket	#3843 socket-aware REPL pane operations preserve the
 R-declared	Aiur.Workspace	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Workspace.GitMetadata	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-down	Aiur.Commands.NativeCapture	#6409 pre-R7 release hooks; constrained to lifecycle paths by the native capture release seam
+R-down	Aiur.Commands.NativeCapture.Claude	#6417 thin Claude native capture call; constrained by the native capture seam
 R-down	Aiur.Commands.NativeCapture.Codex	#6405 pre-R7 thin capture call site; constrained to codex/approvals.ex by the native capture seam
 R-down	Aiur.EventHumanizer	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-down	Aiur.EventHumanizerHelpers	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
