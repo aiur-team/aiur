@@ -1,3 +1,4 @@
+// One browser contract covers cross-site theme persistence and shared marketing component accessibility.
 import { expect, test } from '@playwright/test'
 
 const themes = ['light', 'dark'] as const
@@ -9,6 +10,8 @@ test('homepage establishes the canonical default theme', async ({ page }) => {
 })
 
 test('light homepage preference is applied before module hydration', async ({ page }) => {
+  // The preference must survive even when the application module never hydrates.
+  await page.route('**/assets/index-*.js', route => route.abort())
   await page.addInitScript(() => {
     localStorage.setItem('aiur-theme', 'light')
     ;(window as typeof window & { darkHomepageObserved?: boolean }).darkHomepageObserved = false
@@ -22,6 +25,12 @@ test('light homepage preference is applied before module hydration', async ({ pa
   await page.goto('/')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   expect(await page.evaluate(() => (window as typeof window & { darkHomepageObserved?: boolean }).darkHomepageObserved)).toBe(false)
+  const init = page.locator('script[src$="/aiur-style/init/theme-init.js"]')
+  expect(await init.getAttribute('type')).not.toBe('module')
+  expect(await init.evaluate(script => {
+    const stylesheet = document.querySelector('link[rel="stylesheet"]')!
+    return Boolean(script.compareDocumentPosition(stylesheet) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })).toBe(true)
 })
 
 test('light preference is applied before docs hydration', async ({ page }) => {
@@ -158,3 +167,52 @@ async function renderedColors(locator: import('@playwright/test').Locator): Prom
     return [toHex(foreground), toHex(background)]
   })
 }
+
+test('marketing features use the shared 720px breakpoint', async ({ page }, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 700, height: 900 })
+  await page.goto('/')
+  await page.evaluate(() => document.fonts.ready)
+  const grid = page.locator('.aiur-features')
+  await grid.scrollIntoViewIfNeeded()
+  const screenshot = testInfo.outputPath('features-700px.png')
+  await grid.screenshot({ path: screenshot })
+  await testInfo.attach('features-700px', { path: screenshot, contentType: 'image/png' })
+  const columns = () => grid.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)
+  expect(await columns()).toBe(2)
+  await page.setViewportSize({ width: 720, height: 900 })
+  expect(await columns()).toBe(2)
+  await page.setViewportSize({ width: 721, height: 900 })
+  expect(await columns()).toBe(3)
+  await page.setViewportSize({ width: 440, height: 900 })
+  expect(await columns()).toBe(1)
+})
+
+test('shared command tabs support keyboard selection and announce copies', async ({ page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.goto('/')
+  const prompt = page.getByRole('tab', { name: 'Prompt', exact: true })
+  const npm = page.getByRole('tab', { name: 'npm', exact: true })
+  await prompt.focus()
+  await prompt.press('ArrowRight')
+  await expect(npm).toBeFocused()
+  await expect(npm).toHaveAttribute('aria-selected', 'true')
+  await expect(prompt).toHaveAttribute('tabindex', '-1')
+  await expect(page.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'tab-npm')
+  await page.getByRole('button', { name: 'Copy install command' }).click()
+  await expect(page.getByRole('status')).toHaveText('Copied')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('npm i -g aiur-cli')
+  await expect(page.locator('#nextSteps')).toHaveAttribute('aria-hidden', 'false')
+  await npm.press('Home')
+  await expect(prompt).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('status')).toBeEmpty()
+  await expect(page.locator('#nextSteps')).toHaveAttribute('aria-hidden', 'true')
+  await expect(page.getByRole('button', { name: 'Dark mode', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('heading', { name: 'Aiur', exact: true })).toBeVisible()
+})
+
+test('light marketing scroll cue meets text contrast', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('aiur-theme', 'light'))
+  await page.goto('/')
+  expect(contrastRatio(...await renderedColors(page.locator('.aiur-scrollcue')))).toBeGreaterThanOrEqual(4.5)
+})

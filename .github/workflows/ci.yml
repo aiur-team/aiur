@@ -43,6 +43,7 @@ jobs:
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
+      - { name: Set up Bun for lockfile verification, uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76, with: { bun-version: "1.4.2" } } # v2.0.2
       - uses: ./.github/actions/pre-handoff
   workflow-security:
     needs: [changes, pre-handoff]
