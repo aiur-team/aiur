@@ -15,6 +15,7 @@
     "src/lib/aiur_web/controllers/control_controller.ex",
     "src/lib/aiur_web/controllers/events_controller.ex",
     "src/lib/aiur_web/controllers/events_session_controller.ex",
+    "src/lib/aiur_web/controllers/listen_mode_controller.ex",
     "src/lib/aiur_web/controllers/observability*.ex",
     "src/lib/aiur_web/endpoint.ex",
     "src/lib/aiur_web/endpoint_config.ex",
