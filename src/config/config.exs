@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, :listener_delivery_target, Aiur.Orchestrator.ListenerDeliveryTarget
+
 config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
 
 # OTP terminate reports inspect the last message and server state while they

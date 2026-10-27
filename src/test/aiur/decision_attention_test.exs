@@ -149,12 +149,11 @@ defmodule Aiur.DecisionAttentionTest do
 
     receive_barrier({:decision_alert, %{slug: "operator-decision"}})
 
-    # Both open and deferred decisions still need an answer.
+    # Human-required decisions still need an answer and cannot defer.
     send(pid, {:reask, {identifier, "operator-decision"}})
     :sys.get_state(pid)
     receive_barrier({:decision_alert, %{slug: "operator-decision"}})
-    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, [actor: %{kind: :operator, id: "test"}], store)
-    assert deferred.decision_status == :deferred
+    assert {:error, {:conflict, :not_deferrable}} = DecisionStore.defer(decision.decision_id, [actor: %{kind: :operator, id: "test"}], store)
     send(pid, {:reask, {identifier, "operator-decision"}})
     :sys.get_state(pid)
     receive_barrier({:decision_alert, %{slug: "operator-decision"}})
@@ -169,7 +168,7 @@ defmodule Aiur.DecisionAttentionTest do
     assert {:ok, %{status: :accepted}} =
              DecisionStore.answer(
                decision.decision_id,
-               %{"idempotency_key" => "answer", "expected_version" => deferred.version, "custom_response" => "Use the current scope."},
+               %{"idempotency_key" => "answer", "expected_version" => decision.version, "custom_response" => "Use the current scope."},
                [actor: %{kind: :operator, id: "test"}],
                store
              )

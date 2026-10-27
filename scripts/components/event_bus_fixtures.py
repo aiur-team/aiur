@@ -62,7 +62,9 @@ def run(check, repo):
         assert event_paths == {p for p in marked if p.startswith('src/lib/aiur/events/')} | {
             # Registry adapter, outside the bus-core boundary.
             'src/lib/aiur/events/capability_provider.ex',
-            'src/lib/aiur/events/trust_classifier.ex'}, 'manifest must own every marked event module and boundary adapter'
+            'src/lib/aiur/events/trust_classifier.ex',
+            # MP-R2-C6-T04: PubSub consumer adapter, outside the bus-core boundary.
+            'src/lib/aiur/events/durable_consumer/export_source.ex'}, 'manifest must own every marked event module and boundary adapter'
         assert marked <= set(bus['paths']), 'manifest must own marked members outside events too'
         contract(root)
         directory = root / 'src/lib/aiur/events'

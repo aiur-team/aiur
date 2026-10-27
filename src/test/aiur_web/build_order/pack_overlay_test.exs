@@ -26,7 +26,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
       "repository" => "acme/widgets",
       "root_number" => 99,
       "title" => "Full program",
-      "workstreams" => [%{"id" => "core", "title" => "Kernel epic"}],
+      "workstreams" => [%{"id" => "core", "title" => "Kernel epic", "icon" => "cpu-chip", "summary" => "Kernel feature", "wave" => "0b"}],
       "phases" => [%{"phase" => 0, "title" => "Foundation phase"}],
       "external_gates" => [%{"id" => "DESIGN", "title" => "Owner design", "owner" => "Owner", "blocks" => 2}],
       "tickets" => [ticket("T1", 10), Map.put(ticket("T2", nil), "depends_on", ["T1"])]
@@ -80,6 +80,9 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     assert html =~ "Live promoted title"
     assert html =~ "Draft T2"
     assert html =~ "Kernel epic"
+    assert html =~ "aria-label=\"cpu-chip\""
+    assert html =~ "Kernel feature"
+    assert html =~ "<svg"
     assert html =~ "Foundation phase"
     assert html =~ "Owner design"
     refute html =~ "Phase label is invalid"

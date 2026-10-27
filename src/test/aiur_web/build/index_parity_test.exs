@@ -40,10 +40,10 @@ defmodule AiurWeb.Build.IndexParityTest do
         )
 
       assert {:ok, snapshot} = IndexSource.snapshot(server: index, time_zone: "America/Los_Angeles", financial: :locked, usage: UsageStub, freshness: FreshnessStub)
-      actual = Payload.scrub(snapshot)
+      actual = snapshot |> Payload.snapshot("parity", 0) |> Payload.scrub()
       assert Payload.validate(Payload.snapshot(snapshot, "parity", 0)) == :ok
       assert {:ok, expected} = FixtureSource.snapshot(dataset: @dataset, time_zone: "America/Los_Angeles")
-      expected = canonical_owners(expected, seed.data)
+      expected = expected |> canonical_owners(seed.data) |> canonical_feature_icons()
       assert actual["epics"] == expected["epics"]
       assert actual["order"] == expected["order"]
       assert actual["counts"] == expected["counts"]
@@ -63,6 +63,24 @@ defmodule AiurWeb.Build.IndexParityTest do
       assert length(whole.hist) == seed.data["history"]["total"]
       IndexSeed.stop(seed)
     end
+  end
+
+  defp canonical_feature_icons(snapshot) do
+    epics =
+      Map.new(snapshot["epics"], fn {key, epic} ->
+        if Map.has_key?(epic, "feature") do
+          {key, Map.merge(epic, %{"icon" => "squares-2x2", "summary" => nil, "wave" => nil})}
+        else
+          {key, epic}
+        end
+      end)
+
+    features =
+      Map.new(snapshot["features"], fn {key, feature} ->
+        {key, Map.merge(feature, %{"icon" => "squares-2x2", "summary" => nil, "wave" => nil})}
+      end)
+
+    snapshot |> Map.put("epics", epics) |> Map.put("features", features)
   end
 
   defp canonical_owners(snapshot, full) do

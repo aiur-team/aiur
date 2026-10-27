@@ -1,5 +1,6 @@
 # rule	target_module	reason
 R-declared	Aiur.AlertFeed	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Executor.Roster	#6403 read-only routing liveness seam; record?: false preserves observation evidence
 R-declared	Aiur.ExecutorCommandAttention	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.ExecutorEvents	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Issue	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
@@ -9,6 +10,7 @@ R-declared	Aiur.Tracker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	AiurWeb.EndpointConfig	#4908 endpoint config seam, replaces the AiurWeb.Endpoint read
 R-down	AiurWeb.EndpointConfig	#4908 endpoint config seam, replaces the AiurWeb.Endpoint read
 R-optional	Aiur.AlertFeed	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
+R-optional	Aiur.Executor.Roster	#6403 roster failures route toward the human; no Executor service is required
 R-optional	Aiur.ExecutorCommandAttention	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.ExecutorEvents	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4
 R-optional	Aiur.Metrics	baseline 22b2fa407c5d4218d25d63b1aa17472aeca51fb4

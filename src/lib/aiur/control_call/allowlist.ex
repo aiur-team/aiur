@@ -101,6 +101,7 @@ defmodule Aiur.ControlCall.Allowlist do
        idempotency_key: :non_empty_string,
        supersede: :boolean
      }},
+    {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
