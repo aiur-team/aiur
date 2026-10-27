@@ -5,14 +5,16 @@ defmodule AiurWeb.ListenerModeEventsTest do
   alias Aiur.Orchestrator.{ListenerModes, State}
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{DashboardLive, ListenerModeEvents}
+  alias Phoenix.LiveView.Async
 
   defmodule Server do
     use GenServer
+    alias Aiur.Orchestrator.OperatorMessages.Snapshot
     def start_link(state), do: GenServer.start_link(__MODULE__, state, name: Aiur.Orchestrator)
     @impl true
     def init(state), do: {:ok, state}
     @impl true
-    def handle_call({:operator_message_snapshot, id}, _from, state), do: Aiur.Orchestrator.OperatorMessages.Snapshot.handle_call(state, id)
+    def handle_call({:operator_message_snapshot, id}, _from, state), do: Snapshot.handle_call(state, id)
     def handle_call({:listener_get_mode, id}, _from, state), do: ListenerModes.get_mode(state, id)
     def handle_call({:listener_set_mode, id, mode, opts}, _from, state), do: ListenerModes.set_mode(state, id, mode, opts)
   end
@@ -136,6 +138,6 @@ defmodule AiurWeb.ListenerModeEventsTest do
     {:noreply, pending} = DashboardLive.handle_info({:listener_refresh, "42", token}, socket)
     assert pending.assigns.listener_receipts_busy
     {:phoenix, :async_result, {:start, {ref, cid, key, result}}} = receive_barrier({:phoenix, :async_result, {:start, {_ref, _cid, {:listener_receipts, "42", ^token}, _result}}})
-    Phoenix.LiveView.Async.handle_async(pending, cid, :start, key, ref, result)
+    Async.handle_async(pending, cid, :start, key, ref, result)
   end
 end

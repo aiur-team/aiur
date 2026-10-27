@@ -61,7 +61,7 @@ unavailable notice or `—`; partial retained data is labelled partial.
 
 The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
 
-The Units row shows the requested listener mode and unread count. Open Chat to
+The Units row shows listener mode and unread count. Open Chat to
 see the listener selector in the conversation header: **Steer · interrupts**,
 **Sync · next turn**, or **Async · on demand**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the
@@ -70,7 +70,9 @@ observation age shows how recently the mode was read.
 The selector is hidden under legacy delivery routing and disabled on read-only
 dashboards. Changes wait for confirmation; a concurrent change shows the winning
 mode and preserves your choice. Leaving Async shows a notice: unread bodies
-remain pull-only. The drawer shows receipts for messages sent during this visit;
+remain pull-only.
+
+The drawer shows receipts for messages sent during this visit;
 “Accepted” and “Handed to the agent” do not mean the message was read. An unknown
 outcome is shown explicitly.
 
