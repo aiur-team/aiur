@@ -4,11 +4,9 @@ defmodule Aiur.DecisionStore.TestEnvAnswerCommentTest do
   # and logs publish_failed (or calls GitHub) inside an unrelated capture_log.
   use ExUnit.Case, async: false
 
-  import ExUnit.CaptureLog
-
   alias Aiur.DecisionStore
 
-  test "answering with the test-env default publisher starts no answer-comment work" do
+  test "answering with the test-env default publisher starts no answer-comment task" do
     dir = Aiur.TestSupport.tmp_root!("test-env-answer-comment-6579")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000})
@@ -20,15 +18,21 @@ defmodule Aiur.DecisionStore.TestEnvAnswerCommentTest do
         store
       )
 
-    log =
-      capture_log(fn ->
-        assert {:ok, %{status: :accepted}} =
-                 DecisionStore.answer(decision.decision_id, %{expected_version: 1, option_id: "yes", idempotency_key: "guard"}, [actor: %{kind: :operator, id: "guard"}], store)
+    before = Task.Supervisor.children(Aiur.TaskSupervisor)
 
-        # The first publish attempt runs at once; a real publisher fails and logs within this window.
-        Process.sleep(300)
-      end)
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(decision.decision_id, %{expected_version: 1, option_id: "yes", idempotency_key: "guard"}, [actor: %{kind: :operator, id: "guard"}], store)
 
-    refute log =~ "aiur_decision_answer_comment"
+    # The store starts the task inside answer/4, so it is a child by the time answer returns.
+    started = Task.Supervisor.children(Aiur.TaskSupervisor) -- before
+    assert Enum.filter(started, &started_by_or_uninitialized?(&1, store)) == []
+  end
+
+  # A task that has not run yet has no $callers; count it rather than race its start.
+  defp started_by_or_uninitialized?(pid, store) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} -> store in Keyword.get(dictionary, :"$callers", [store])
+      nil -> false
+    end
   end
 end
