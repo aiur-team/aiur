@@ -146,15 +146,9 @@ body { color: var(--aiur-color-fg); font-family: var(--aiur-font-body); -webkit-
   .aiur-footer__links a { display: inline-flex; align-items: center; gap: 8px; }
   .github-link svg { width: 17px; height: 17px; display: block; }
 
-/* Structural compatibility; approved drifts are applied separately. */
-.aiur-command__row { line-height: normal; }
-.aiur-command__text { letter-spacing: .01em; flex: 1; }
-.aiur-command__prompt { color: var(--aiur-color-accent); }
-.aiur-command__copy svg { width: 15px; height: 15px; }
-.aiur-tabs [role="tab"] { flex: 1; line-height: normal; letter-spacing: .02em; border-right: 1px solid var(--aiur-color-pill-bd); }
-.aiur-tabs [role="tab"]:last-child { border-right: 0; }
+/* Page geometry around the shared components. */
+.aiur-command__text { flex: 1; }
 .aiur-footer { gap: 18px 28px; }
-.aiur-footer__brand { gap: 9px; color: var(--aiur-color-muted); }
 .aiur-footer__links { gap: 22px; }
 
 .aiur-banner { gap: 4px 12px; background: var(--aiur-color-pill-bg); }
@@ -162,10 +156,7 @@ body { color: var(--aiur-color-fg); font-family: var(--aiur-font-body); -webkit-
 .aiur-command > .aiur-tabs, .aiur-command__row { margin-inline: 0; }
 .aiur-tabs { padding-inline: 0; }
 
-.aiur-banner { line-height: normal; }
-.aiur-banner__text { line-height: 1.5; }
 .aiur-tabs { flex-wrap: nowrap; }
 .aiur-footer__links { flex-wrap: nowrap; }
 .stage, .sub { max-width: 100%; }
-.aiur-tabs [role="tab"]:hover { color: var(--aiur-color-fg); }
 .aiur-command__copy { --aiur-button-hover: color-mix(in srgb, var(--aiur-color-fg) 9%, transparent); }
