@@ -40,6 +40,7 @@ import type {
   StreamDeckChannel,
   StreamDeckChannelOptions,
   StreamDeckCommand,
+  StreamDeckCommandAnswerError,
   StreamDeckCommandsPage,
   StreamDeckGrid,
   StreamDeckLogs,
@@ -122,7 +123,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   /** Refs of `commands_page` requests still waiting for their reply. */
   const commandsPageRefs = new Set<string>();
   /** Refs of `answer_command` requests still waiting for their reply. */
-  const answerCommandRefs = new Set<string>();
+  const answerCommandRefs = new Map<string, string>();
   const send = (event: string, payload: Record<string, unknown>): void => {
     if (!joined) {
       pending.push({ event, payload });
@@ -133,7 +134,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
     const ref = String(++reference);
     if (event === "voice_start") voiceStartRefs.add(ref);
     else if (event === "commands_page") commandsPageRefs.add(ref);
-    else if (event === "answer_command") answerCommandRefs.add(ref);
+    else if (event === "answer_command") answerCommandRefs.set(ref, String(payload.idempotency_key));
     socket.send(JSON.stringify(["4", ref, "streamdeck:fleet", event, payload]));
   };
 
@@ -169,6 +170,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
         }
         return;
       }
+      const answerKey = answerCommandRefs.get(ref);
       if (answerCommandRefs.delete(ref)) {
         if (reply?.status === "ok" && typeof response.decision === "object" && response.decision !== null) {
           options.events.commandAnswered({
@@ -176,7 +178,12 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
             decision: response.decision as unknown as StreamDeckCommand,
           });
         } else {
-          options.events.commandsError(typeof response.reason === "string" ? response.reason : "Answer failed");
+          const reason = typeof response.reason === "string" ? response.reason : "Answer failed";
+          if (["already_answered", "withdrawn", "stale"].includes(reason)) {
+            options.events.commandsError(reason, response as unknown as StreamDeckCommandAnswerError, answerKey);
+          } else {
+            options.events.commandsError(reason);
+          }
         }
         return;
       }
