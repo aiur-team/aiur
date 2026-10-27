@@ -72,6 +72,8 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate fail_delivered_queue_items(server, identifier, reason), to: Aiur.Orchestrator.Client
       defdelegate snapshot(), to: Aiur.Orchestrator.Client
 
+      defdelegate claim_next_steer_queue_item(server, identifier), to: Aiur.Orchestrator.Client
+
       defdelegate list_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
         to: Aiur.Orchestrator.Client
 

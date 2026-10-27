@@ -55,6 +55,7 @@ defmodule Aiur.AppServer.Adapter do
 
     callbacks = %{
       on_message: on_message,
+      on_steer_claim: Keyword.get(opts, :on_steer_claim, fn -> :noop end),
       on_provider_delivery: on_provider_delivery,
       on_safe_checkpoint: on_safe_checkpoint
     }
@@ -112,6 +113,7 @@ defmodule Aiur.AppServer.Adapter do
               backend: backend,
               on_message: callbacks.on_message,
               on_safe_checkpoint: callbacks.on_safe_checkpoint,
+              on_steer_claim: callbacks.on_steer_claim,
               tool_executor: tool_executor,
               timeout_ms: Config.agent_turn_timeout_ms(),
               pending_line: "",

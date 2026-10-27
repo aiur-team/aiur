@@ -143,10 +143,21 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
       else: wake_now?(running_entry, item)
   end
 
+  @spec wake_now?(map(), map()) :: boolean() | :steer
   defp wake_now?(running_entry, item) do
-    queue_wake_required?(running_entry) or
-      item.delivery[:interrupt_requested] == true or
-      item.delivery[:immediate] == true
+    cond do
+      queue_wake_required?(running_entry) -> true
+      item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true -> true
+      item.delivery[:steer_requested] == true and native_steer?(running_entry) -> :steer
+      true -> false
+    end
+  end
+
+  defp native_steer?(entry) do
+    case Aiur.Orchestrator.OperatorMessages.Capabilities.harness_delivery(%State{}, entry.identifier, entry) do
+      %{source: :session, primitives: %{mid_turn_inject: :native}} -> not no_active_turn?(entry)
+      _ -> false
+    end
   end
 
   # A self-paused agent waiting on review feedback is included here so the

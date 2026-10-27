@@ -50,7 +50,7 @@ defmodule Aiur.Harness.Capabilities do
       harness_id: key,
       transport: Map.get(delivery, :transport, :unknown),
       turn_boundary_start: function_exported?(adapter, :run_turn, 4),
-      mid_turn_inject: Map.get(delivery, :mid_turn_inject, :none),
+      mid_turn_inject: if(function_exported?(adapter, :steer, 3), do: :native, else: Map.get(delivery, :mid_turn_inject, :none)),
       hard_interrupt: hard_interrupt(entry),
       native_queue: entry[:immediate_delivery] == true,
       pull_tool: Map.get(delivery, :pull_tool, false),

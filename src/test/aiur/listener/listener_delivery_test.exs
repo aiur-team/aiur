@@ -47,6 +47,33 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     %{id: id, entry: entry, state: %State{running: %{id => entry}, queue_store: AgentQueueStore.new()}}
   end
 
+  test "native steer enqueue wakes active turn and stays sync-safe on unsupported harness", %{id: id, entry: entry, state: state} do
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :steer, expected_version: 0)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "steer", delivery_policy: :listener, origin: :agent_chat})
+    assert_received {:agent_queue_updated, ^id, ^request, :steer}
+    item = AgentQueueStore.get(queued.queue_store, request)
+    assert item.delivery.steer_requested
+    refute item.delivery.interrupt_requested
+
+    for backend <- ["claude", "unknown-harness"] do
+      unsupported = put_in(entry.session_execution.backend, backend)
+      DeliveryPolicy.notify_running_queue_update(queued, unsupported, item)
+      assert_received {:agent_queue_updated, ^id, ^request, false}
+    end
+
+    paused = entry |> put_in([:control, :status], :paused) |> Map.put(:paused_reason, :operator)
+    DeliveryPolicy.notify_running_queue_update(queued, paused, item)
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    assert {:reply, {:ok, %{effective: :sync}}, sync_state} = ListenerModes.set_mode(queued, id, :sync, expected_version: 1)
+    refute AgentQueueStore.get(sync_state.queue_store, request).delivery[:steer_requested]
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    ActiveTurns.mark_closed(id, "active", :completed)
+    DeliveryPolicy.notify_running_queue_update(queued, entry, item)
+    assert_received {:agent_queue_updated, ^id, ^request, true}
+  end
+
   test "sync enqueue never interrupts or claims at a tool checkpoint, then drains at turn boundary", %{id: id, state: state} do
     :ok = ActiveTurns.put(id, "active")
     on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)

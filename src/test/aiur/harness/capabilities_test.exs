@@ -6,14 +6,14 @@ defmodule Aiur.Harness.CapabilitiesTest do
 
   # future adapter: gemini (PR #2870)
   @rows [
-    {"codex", :app_server_stdio, :none, :in_band, false, true, []},
+    {"codex", :app_server_stdio, :native, :in_band, false, true, []},
     {"claude", :app_server_stdio, :none, :in_band, false, true, []},
     {"claude-repl", :tmux_pane, :native, :out_of_band, true, false, [:prompt, :tool, :stop]},
     {"muse", :msp_stdio, :none, :in_band, false, true, []},
     {"kimi", :in_process_http, :native, :none, false, true, []},
     {"deepseek", :in_process_http, :native, :none, false, true, []},
     {"openrouter", :in_process_http, :native, :none, false, true, []},
-    {"fake", :unknown, :none, :none, false, false, []}
+    {"fake", :unknown, :native, :none, false, false, []}
   ]
 
   test "delivery primitives match the declared table for every registered harness" do

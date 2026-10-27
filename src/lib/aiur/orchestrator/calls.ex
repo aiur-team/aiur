@@ -221,6 +221,10 @@ defmodule Aiur.Orchestrator.Calls do
       when is_binary(issue_identifier),
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_checkpoint_queue_item_call(state, issue_identifier) end)
 
+  def handle_call({:claim_next_steer_queue_item, issue_identifier}, _from, state)
+      when is_binary(issue_identifier),
+      do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_steer_queue_item_call(state, issue_identifier) end)
+
   def handle_call({:claim_blocker_critical_events_digest, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_blocker_critical_events_digest_call(state, issue_identifier) end)
