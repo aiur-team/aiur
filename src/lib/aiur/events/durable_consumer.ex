@@ -60,7 +60,8 @@ defmodule Aiur.Events.DurableConsumer do
       schedule_fun: Keyword.get(opts, :schedule_fun, &Process.send_after/3),
       cursor: load_cursor(path),
       mode: :catching_up,
-      outage: false
+      outage: false,
+      retry_timer: nil
     }
 
     {:ok, state, {:continue, :catch_up}}
@@ -148,15 +149,22 @@ defmodule Aiur.Events.DurableConsumer do
   end
 
   defp retry(state) do
+    cancel_retry_timer(state.retry_timer)
     attempt = state.retry_attempt + 1
     base_delay = min(state.retry_ms * Integer.pow(2, min(attempt - 1, 20)), state.retry_max_ms)
     jitter_window = div(base_delay, 4)
     delay = min(base_delay + bounded_jitter(state.jitter_fun, jitter_window), state.retry_max_ms)
-    state.schedule_fun.(self(), :catch_up, delay)
-    %{state | mode: :waiting, retry_attempt: attempt}
+    timer = state.schedule_fun.(self(), :catch_up, delay)
+    %{state | mode: :waiting, retry_attempt: attempt, retry_timer: timer}
   end
 
-  defp reset_retry(state), do: %{state | retry_attempt: 0}
+  defp reset_retry(state) do
+    cancel_retry_timer(state.retry_timer)
+    %{state | retry_attempt: 0, retry_timer: nil}
+  end
+
+  defp cancel_retry_timer(timer) when is_reference(timer), do: Process.cancel_timer(timer)
+  defp cancel_retry_timer(_timer), do: false
 
   defp bounded_jitter(jitter_fun, window) do
     case jitter_fun.(window) do

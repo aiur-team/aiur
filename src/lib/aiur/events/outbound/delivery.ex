@@ -1,6 +1,5 @@
 defmodule Aiur.Events.Outbound.Delivery do
   @moduledoc "Starts at-least-once signed webhook delivery from the canonical export journal."
-  # aiur:event-bus-boundary-member
 
   alias Aiur.Config.{Paths, WebhookDestination}
   alias Aiur.Events.DurableConsumer

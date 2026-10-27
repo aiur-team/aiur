@@ -195,13 +195,13 @@ Outbound export is opt-in: `events.export.enabled` remains `false` by default; e
 | `events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval. |
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
 | `events.export.allow_private_destinations` | boolean | false | Allows loopback, private, link-local, CGNAT and ULA webhook destinations. |
-| `events.export.enabled` | boolean | false | Enables the external event journal; a configured webhook URL also enables signed delivery. Restart to apply. |
+| `events.export.enabled` | boolean | false | Enables the external event journal and configured webhook delivery; restart to apply. |
 | `events.export.request_timeout_ms` | integer | 15000 | Per-attempt webhook request timeout. |
+| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); trims whole closed export segments at boot and segment roll. |
+| `events.export.retention_max_events` | integer | 50000 | Retained-record target (1000..1000000); whole-segment granularity may keep one extra segment (up to 8 MiB). |
 | `events.export.retry_ms` | integer | 5000 | Initial delay for capped exponential delivery retries. |
 | `events.export.subject_id` | string | nil | Delivers only events for this exact ticket or job identifier. |
 | `events.export.webhook_url` | string | nil | HTTPS endpoint receiving outbound event POSTs. |
-| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); trims whole closed export segments at boot and segment roll. |
-| `events.export.retention_max_events` | integer | 50000 | Retained-record target (1000..1000000); whole-segment granularity may keep one extra segment (up to 8 MiB). |
 
 Export retention only removes the export copy. Restarts preserve the epoch; identity changes archive old segments and restart sequence numbering. Stale, future, or previous-epoch cursors receive a reset; corrupt metadata is rebuilt with a new epoch without archiving readable segments.
 

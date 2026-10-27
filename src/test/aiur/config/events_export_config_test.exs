@@ -30,6 +30,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
     end
 
     assert Config.events_export_enabled?() == false
+    assert Config.events_export_webhook_enabled?() == false
     assert Config.events_export_retention_days() == 7
     assert Config.events_export_retention_max_events() == 50_000
   end
@@ -41,14 +42,33 @@ defmodule Aiur.Config.EventsExportConfigTest do
     events:
       export:
         enabled: true
+        webhook_url: https://consumer.example.com/webhooks/aiur
         retention_days: 30
         retention_max_events: 12000
     """)
 
     assert :ok = Aiur.WorkflowStore.force_reload()
     assert Config.events_export_enabled?() == true
+    assert Config.events_export_webhook_enabled?() == true
     assert Config.events_export_retention_days() == 30
     assert Config.events_export_retention_max_events() == 12_000
+  end
+
+  test "journal-only export does not require a webhook destination", %{path: path} do
+    assert {:ok, settings} = Schema.parse(%{"events" => %{"export" => %{"enabled" => true}}})
+    assert settings.events.export.enabled
+    assert settings.events.export.webhook_url == nil
+
+    File.write!(path, """
+    tracker:
+      kind: memory
+    events:
+      export:
+        enabled: true
+    """)
+
+    assert :ok = Aiur.WorkflowStore.force_reload()
+    assert Config.events_export_webhook_enabled?() == false
   end
 
   test "both retention bounds reject out-of-range values and accept endpoints" do
@@ -98,6 +118,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
     template = File.read!(Path.expand("../../../../.aiur/examples/config.example", __DIR__))
     [block] = Regex.run(~r/^# events:\n(?:#   .*\n)+/m, template)
     assert {:ok, events} = YamlElixir.read_from_string(String.replace(block, ~r/^# /m, ""))
+
     assert events["events"]["export"] == %{
              "allow_private_destinations" => false,
              "enabled" => false,
@@ -108,6 +129,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
              "subject_id" => "5695",
              "webhook_url" => "https://consumer.example.com/webhooks/aiur"
            }
+
     assert {:ok, settings} = Schema.parse(events)
     assert settings.events.export.enabled == false
     assert settings.events.export.retention_days == 7

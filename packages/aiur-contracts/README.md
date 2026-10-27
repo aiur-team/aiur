@@ -7,9 +7,9 @@ dependency-free; the optional webhook receiver entrypoint uses the official
 `standardwebhooks` package declared as a runtime dependency.
 The v1 schemas use JSON Schema draft 2020-12. They cover capabilities, the
 CLI and HTTP status surfaces, per-ticket usage, per-ticket progress, ticket
-spend caps, the external event feed, and outbound ticket events. Snapshot clients ignore unknown IDs
-and additive fields. Outbound event schemas are identifier-only allowlists;
-a breaking event-envelope change adds v2 beside v1.
+spend caps, the external event feed, and outbound ticket event allowlists.
+Clients ignore unknown IDs and additive fields. A breaking change adds v2
+beside v1.
 
 Capability `mode` now accepts any string so merge policy can report `ci=wait local_tests=partial`.
 The former `in_band_hold`, `defer_resume` and `none` values remain valid, but generated TypeScript

@@ -140,6 +140,12 @@ defmodule Aiur.Config.TrackerSettings do
     events_export().enabled
   end
 
+  @spec events_export_webhook_enabled?() :: boolean()
+  def events_export_webhook_enabled? do
+    export = events_export()
+    export.enabled and is_binary(export.webhook_url) and export.webhook_url != ""
+  end
+
   @spec events_export_retention_days() :: pos_integer()
   def events_export_retention_days do
     events_export().retention_days

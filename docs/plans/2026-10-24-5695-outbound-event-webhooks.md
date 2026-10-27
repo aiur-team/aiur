@@ -107,15 +107,15 @@ The consumer can subscribe globally or narrow the configured subscription to one
 
 ```text
 membership store ─┐
-progress bus ─────┼─> Exchange allowlisted topics ─> ExportJournal ─> DurableConsumer ─> signed HTTP POST
-usage ledger ─────┤                                  seq + raw body       cursor            2xx advances
+progress bus ─────┼─> Exchange ─> Export.Exporter ─> ExportSource ─> DurableConsumer ─> signed HTTP POST
+usage ledger ─────┤                  seq + envelope      epoch/reset       cursor            2xx advances
 cap/cancel stores ┘
 
 @aiur/contracts: five event schemas + fixtures + generated types + tested Standard Webhooks receiver example
 ```
 
-`ExportJournal` subscribes before replay, normalizes only the five registered topic families, assigns `seq`, persists the JSON-safe event, and notifies live consumers.
-Its source adapter supports replay after a cursor and reset when bounded retention has removed the requested successor.
+The canonical `Aiur.Events.Export.Exporter` assigns `seq`, persists the external envelope, and notifies live consumers.
+`Aiur.Events.DurableConsumer.ExportSource` supports replay after a cursor, epoch changes, and reset when bounded retention has removed the requested successor.
 The webhook handler applies the subject filter, JSON-encodes once, signs those exact bytes for each attempt, and sends with retries disabled at the HTTP library layer so cursor semantics remain explicit.
 
 ### Implementation constraints
@@ -130,7 +130,7 @@ The webhook handler applies the subject filter, JSON-encodes once, signs those e
 ### System-wide impact
 
 - Configuration gains an embedded `events.export` block and one operator secret environment variable; templates, generated `.env.example`, startup checks, config docs, and the operator guide must move together.
-- Application supervision gains the export journal and durable delivery consumer after the Exchange and producer stores they consume.
+- Application supervision starts the canonical exporter and optional durable delivery consumer after the Orchestrator, isolating their restarts from it.
 - Lifecycle and usage stores gain best-effort Exchange publication after persistence; publication failure must never roll back or crash the authoritative write.
 - `@aiur/contracts` becomes packable as an independent dependency and retains type/schema-only runtime exports; its executable receiver example uses the official Standard Webhooks dependency instead of maintaining custom cryptography.
 - The webhook client disables redirects so a configured endpoint cannot redirect the signed body and secret-derived proof to another origin.
