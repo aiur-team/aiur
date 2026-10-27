@@ -2,8 +2,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionQuestionsFormTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest, only: [render_component: 2]
   import AiurWeb.OperatorControlCenterComponentsFixtures
-  alias Aiur.{DecisionEvent, DecisionValidation}
   alias Aiur.Commands.Projection
+  alias Aiur.{DecisionEvent, DecisionValidation}
   alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPresenter, DecisionQuestionsForm}
 
   test "recommended option leads both single-question choices and detail options without hiding extra choices" do
