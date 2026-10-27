@@ -51,9 +51,12 @@ defmodule Aiur.Orchestrator.ListenerModes do
   end
 
   defp resolve(state, id) when is_binary(id) do
-    entry = State.find_running_by_identifier(state.running, id)
-    known? = Enum.any?(state.last_polled_issues, fn {key, issue} -> id in [to_string(key), issue.identifier] end)
-    if entry || known?, do: {:ok, id, entry}, else: {:error, :issue_not_found}
+    canonical = Enum.find_value(state.last_polled_issues, fn {key, issue} -> if id in [to_string(key), issue.identifier], do: issue.identifier end)
+    entry = State.find_running_by_identifier(state.running, canonical || id)
+
+    if entry || canonical,
+      do: {:ok, canonical || id, entry},
+      else: {:error, :issue_not_found}
   end
 
   defp stopped_identity(state, id) do

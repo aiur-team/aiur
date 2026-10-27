@@ -27,11 +27,19 @@ defmodule Aiur.ListenModeCli do
 
     if actor in ["human", "executor"] do
       with {:ok, current} <- Listener.get_mode(ticket) do
-        Listener.set_mode(ticket, String.to_existing_atom(mode),
-          expected_version: Keyword.get(opts, :expected_version, current.version),
-          actor: String.to_existing_atom(actor),
-          idempotency_key: key
-        )
+        version = Keyword.get(opts, :expected_version, current.version)
+
+        result =
+          Listener.set_mode(ticket, String.to_existing_atom(mode),
+            expected_version: version,
+            actor: String.to_existing_atom(actor),
+            idempotency_key: key
+          )
+
+        case result do
+          {:error, {:outcome_unknown, _}} -> {:error, {:outcome_unknown, %{expected_version: version}}}
+          other -> other
+        end
       end
     else
       {:error, :invalid_actor}
@@ -51,8 +59,8 @@ defmodule Aiur.ListenModeCli do
     3
   end
 
-  defp report({:error, {:outcome_unknown, _}}, _opts, key) do
-    IO.puts("aiur: outcome unknown; retry with the same mode, --expected-version and --idempotency-key #{key}")
+  defp report({:error, {:outcome_unknown, info}}, _opts, key) do
+    IO.puts("aiur: outcome unknown; retry with the same mode, --expected-version #{info.expected_version} and --idempotency-key #{key}")
     124
   end
 

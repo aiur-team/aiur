@@ -80,11 +80,15 @@ Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label
 
 If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-budget` mutation in time, the command exits 124 and reports `outcome unknown`. The queued request may still apply after the command exits. Check the ticket status and log before retrying; a reset is confirmed by its completed dispatch-budget reset alert.
 
-Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. The current legacy routing ignores the stored mode; `listen-mode` says so explicitly. When a send receipt carries a listener mode, `aiur message` also prints `accepted under <mode> listener mode`; legacy sends retain their existing output.
+Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. The current legacy routing ignores the stored mode; `listen-mode` says so explicitly.
+When a send receipt carries a listener mode, `aiur message` also prints `accepted under <mode> listener mode`; legacy sends retain their existing output.
 
 Use `--idempotency-key KEY` on `listen-mode` to retry an uncertain write with the same mode and `--expected-version`. A write timeout reports `outcome unknown` and the key; it does not prove failure. `--actor executor` is permitted for a worker's mode.
 
-The authenticated HTTP equivalent is `GET /api/v1/:issue_identifier/listen-mode` or `POST` to the same path with `{mode, expected_version, idempotency_key, actor}` (`actor` defaults to `human`). POST uses the message endpoint's origin/header and dashboard-writable protections. Success returns the record and `routing: "legacy"`; stale versions return `409 {error: "mode_conflict", current: …}`, invalid metadata returns 422, unknown tickets 404, and unavailable/unknown outcomes 503. GET remains available when the dashboard is read-only.
+The authenticated HTTP equivalent is `GET /api/v1/:issue_identifier/listen-mode` or `POST` to the same path with `{mode, expected_version, idempotency_key, actor}` (`actor` defaults to `human`).
+POST uses the message endpoint's origin/header and dashboard-writable protections.
+Success returns the record and `routing: "legacy"`; stale versions return `409 {error: "mode_conflict", current: …}`, invalid metadata returns 422, unknown tickets 404, and unavailable/unknown outcomes 503.
+GET remains available when the dashboard is read-only.
 
 The daemon enqueue RPC allows 30 seconds; the CLI allows 70 seconds total. Dashboard and HTTP sends allow 30 seconds (60 with reconciliation). CLI reports delivered or queued with a request id; check with `aiur message --status REQUEST_ID`. On timeout, the message may still be queued; retry only with the same `--message-id`.
 
