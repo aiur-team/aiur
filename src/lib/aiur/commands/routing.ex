@@ -65,6 +65,10 @@ defmodule Aiur.Commands.Routing do
 
     # A change can introduce an earlier deadline; preserve the earlier full-sweep timer.
     due = if id, do: earliest(due, state.next_due_at), else: due
+    arm_timer(state, id, due, now)
+  end
+
+  defp arm_timer(state, id, due, now) do
     delay = if due, do: DateTime.diff(due, now, :millisecond) |> max(1) |> min(@ceiling_ms), else: @ceiling_ms
     remaining = state.timer_ref && Process.read_timer(state.timer_ref)
 
