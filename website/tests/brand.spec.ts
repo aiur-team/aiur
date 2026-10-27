@@ -243,6 +243,7 @@ for (const theme of themes) {
     await page.addInitScript(saved => localStorage.setItem('aiur-theme', saved), theme)
     await page.goto('/docs/')
     await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
     const focused = page.locator(':focus-visible')
     const path = testInfo.outputPath(`docs-focus-${theme}.png`)
     await page.screenshot({ path })

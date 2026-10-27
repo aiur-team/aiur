@@ -1,6 +1,10 @@
 /* Docs-specific code surfaces and outlined secondary actions. */
 :root,
 html.dark {
+  /* Compatibility for the docs-only component directory. */
+  --aiur-line: var(--aiur-color-line);
+  --aiur-surface: var(--aiur-color-pill-bg);
+  --aiur-accent: var(--aiur-color-accent);
   --vp-c-bg-elv: color-mix(in srgb, var(--aiur-color-fg) 3%, var(--aiur-color-bg));
   --vp-c-brand-2: color-mix(in srgb, var(--aiur-color-accent) 84%, var(--aiur-color-fg));
   --vp-c-brand-3: color-mix(in srgb, var(--aiur-color-accent) 74%, var(--aiur-color-fg));
