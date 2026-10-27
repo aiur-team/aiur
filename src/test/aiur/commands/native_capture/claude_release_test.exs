@@ -1,6 +1,8 @@
 defmodule Aiur.Commands.NativeCapture.ClaudeReleaseTest do
   use Aiur.TestSupport
 
+  import ExUnit.CaptureLog
+
   alias Aiur.AppServer.NativeReplies
   alias Aiur.Claude.CodingAgent
   alias Aiur.Commands.{NativeAnswer, NativeCapture}
@@ -92,6 +94,56 @@ defmodule Aiur.Commands.NativeCapture.ClaudeReleaseTest do
     assert decision.native.hold == :deferred
   end
 
+  test "turn starts with a warning when stale release cannot reach the store", c do
+    dead_store = spawn(fn -> :ok end)
+    monitor = Process.monitor(dead_store)
+    receive_barrier({:DOWN, ^monitor, :process, ^dead_store, _})
+
+    log = capture_log(fn -> assert_turn_starts(c, dead_store) end)
+    assert log =~ "[warning]"
+    assert log =~ "Claude stale native release failed"
+    assert log =~ "ticket=979"
+    assert log =~ "thread=replacement"
+    assert log =~ "noproc"
+  end
+
+  test "disabled Claude capture starts a turn without querying the store", c do
+    path = Workflow.workflow_file_path()
+    File.write!(path, String.replace(File.read!(path), "claude: true", "claude: false"))
+    assert :ok = Aiur.WorkflowStore.force_reload()
+    refute Aiur.Config.decisions_native_capture?(:claude)
+    store = store_probe([])
+
+    assert capture_log(fn -> assert_turn_starts(c, store) end) == ""
+    refute_received {:store_call, _}
+  end
+
+  test "turn starts with a warning when stale release recording is rejected", c do
+    assert {:held, _, info} = Claude.handle(c.port, "request-1", params(), c.ctx)
+    store = store_probe(DecisionStore.list(c.store))
+
+    log = capture_log(fn -> assert_turn_starts(c, store) end)
+    assert_received {:store_call, :list}
+    assert_received {:store_call, {:command_fact, id, :native_released, _, _}}
+    assert id == info.decision_id
+    assert log =~ "[warning]"
+    assert log =~ "Claude stale native release failed"
+    assert log =~ "store_read_only"
+    assert {:ok, %{native: %{hold: :deferred}}} = DecisionStore.get(id, c.store)
+  end
+
+  test "replacement thread does not release an answered deferred Command", c do
+    assert {:held, _, info} = Claude.handle(c.port, "request-1", params(), c.ctx)
+    assert {:ok, %{decision: answered}} = DecisionStore.answer(info.decision_id, %{expected_version: 1, option_id: "o1", idempotency_key: "answer"}, [actor: %{kind: :operator, id: "human"}], c.store)
+    assert answered.decision_status == :decided
+
+    assert :ok = Claude.release_stale(%{thread_id: "replacement", store: c.store}, @ticket)
+    assert {:ok, decision} = DecisionStore.get(info.decision_id, c.store)
+    assert decision.native.hold == :deferred
+    rows = File.read!(Path.join(c.dir, "decisions.ndjson")) |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    refute Enum.any?(rows, &(&1["event_type"] == "native_released"))
+  end
+
   test "lost reply transport releases Claude hold and restores the answer for ordinary delivery", c do
     assert {:held, ref, info} = Claude.handle(c.port, "request-1", params(), c.ctx)
     Port.close(c.port)
@@ -111,6 +163,30 @@ defmodule Aiur.Commands.NativeCapture.ClaudeReleaseTest do
   end
 
   defp params, do: %{"itemId" => "tool-1", "questions" => [%{"id" => "colour", "header" => "Colour", "question" => "Which colour?", "options" => [%{"label" => "red"}, %{"label" => "blue"}]}]}
+
+  defp assert_turn_starts(c, store) do
+    port = c.port
+    send(self(), {port, {:data, {:eol, Jason.encode!(%{"id" => 3, "result" => %{"turn" => %{"id" => "next"}}})}}})
+    assert {:ok, "next"} = CodingAgent.start_turn(%{port: port, thread_id: "replacement", workspace: c.dir, store: store}, "continue", @ticket)
+    assert {^port, {:data, line}} = receive_barrier({^port, {:data, _}})
+    assert %{"method" => "turn/start", "params" => %{"threadId" => "replacement"}} = Jason.decode!(line)
+  end
+
+  defp store_probe(decisions) do
+    owner = self()
+    pid = spawn(fn -> store_probe_loop(owner, decisions) end)
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    pid
+  end
+
+  defp store_probe_loop(owner, decisions) do
+    receive do
+      {:"$gen_call", from, request} ->
+        send(owner, {:store_call, request})
+        GenServer.reply(from, if(request == :list, do: decisions, else: {:error, :store_read_only}))
+        store_probe_loop(owner, decisions)
+    end
+  end
 
   defp assert_released(c, id, reason) do
     # Capture and release both publish version 1; read after the release writer exits.

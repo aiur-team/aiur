@@ -222,13 +222,8 @@ defmodule Aiur.Claude.CodingAgent do
   @impl Aiur.AppServer.Adapter
   @doc false
   @spec start_turn(session(), String.t(), map()) :: {:ok, String.t()} | {:error, term()}
-  def start_turn(session, prompt, issue) do
-    with :ok <- NativeCapture.release_stale(session, issue) do
-      start_native_turn(session, prompt, issue)
-    end
-  end
-
-  defp start_native_turn(%{port: port, thread_id: thread_id, workspace: workspace} = session, prompt, issue) do
+  def start_turn(%{port: port, thread_id: thread_id, workspace: workspace} = session, prompt, issue) do
+    NativeCapture.release_stale(session, issue)
     model = Map.get(session, :model)
 
     params =
