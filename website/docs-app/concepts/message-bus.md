@@ -186,3 +186,20 @@ See [GitHub](/apis/github) for polling, rate budgets, and optional webhook setup
 - Bridges run from the exchange to PubSub only; do not turn a local notification into a coordination fact.
 
 Signals, not state — see the [opening rule](#topic-shape).
+
+## Export journal
+
+`events.export.enabled` (default `false`) starts a single writer under
+`<runtime_state_dir>/events/export/`. The private journal uses 8 MiB segments,
+owner-only permissions, and dense sequence numbers assigned after envelope filtering.
+
+Every exporter start adds a `gap`, including restarts and re-enabling export:
+activity before subscription may have been missed. A gap is retained history;
+a `reset` tells a reader its cursor or epoch cannot continue that history.
+
+Readers never repair files. Corruption or append failure makes export unavailable
+and raises one attention per exporter boot. Move a corrupt export directory aside
+before restarting to rebuild it; this starts a new epoch.
+
+Retention and network feed delivery are separate components. The writer does not
+enforce retention age or count settings yet.
