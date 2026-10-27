@@ -5,7 +5,7 @@ defmodule AiurWeb.Build.Payload do
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
   Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
-  features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
+  features, order, counts (whole-index totals or nil), feature_progress (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation time; plan version and extras), sections (hist/now/plan/nq),
   history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
@@ -61,7 +61,8 @@ defmodule AiurWeb.Build.Payload do
   Authorized usage requires observed_at (ms or nil), apis and providers. Each
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
-  and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
+  and boolean none. Windows require nullable 0..100 `acc` values representing
+  percent remaining, nullable `reset_at`
   milliseconds and nullable string win. Optional row fields carry lines (tagged
   windows with tip pairs and nullable hold_until), icon, stale, observed_at,
   snapshot_observed_at and note. Credits require nullable pct, string left and

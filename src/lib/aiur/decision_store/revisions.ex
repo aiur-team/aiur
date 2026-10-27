@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.Revisions do
   @moduledoc false
 
+  alias Aiur.Commands.Answering
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionRevision
@@ -18,7 +19,10 @@ defmodule Aiur.DecisionStore.Revisions do
   def handle_revision(decision_id, payload, opts, state) do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
-         {:ok, actor} <- Answers.fetch_actor(opts) do
+         {:ok, actor} <- Answers.fetch_actor(opts),
+         :ok <- require_new_actor_may_replace(decision, payload, actor),
+         :ok <- Answers.require_relay_enabled(actor, state),
+         :ok <- require_relay_may_replace(decision, actor) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted -> replay_revision(decision, accepted, payload, actor, opts, state)
         nil -> accept_revision_unless_moot(decision, payload, actor, opts, state)
@@ -29,6 +33,17 @@ defmodule Aiur.DecisionStore.Revisions do
     end
   end
 
+  # A relayed quote must not override an answer recorded directly by the operator.
+  # This runs in the serialized revision path, also used by supersede.
+  defp require_relay_may_replace(decision, actor) do
+    kind = Map.get(actor, :kind, Map.get(actor, "kind"))
+
+    if kind in [:operator_relayed, "operator_relayed"] and
+         match?(%DecisionAnswer{actor: %{kind: :operator}}, Decision.active_answer(decision)),
+       do: {:error, {:answer_invalid, {:operator_relay, :operator_answer_present}}},
+       else: :ok
+  end
+
   # A mooted Command must never deliver again, so a new revision cannot revive
   # it: the revision transition would set it back to `:decided` (#2711).
   defp accept_revision_unless_moot(%Decision{decision_status: :moot}, _payload, _actor, _opts, state),
@@ -36,6 +51,14 @@ defmodule Aiur.DecisionStore.Revisions do
 
   defp accept_revision_unless_moot(decision, payload, actor, opts, state),
     do: accept_revision(decision, payload, actor, opts, state)
+
+  # An exact replay returns its recorded revision and never replaces the active answer.
+  defp require_new_actor_may_replace(decision, payload, actor) do
+    case find_revision_replay(decision, payload) do
+      nil -> Answering.require_actor_may_replace(actor, Decision.active_answer(decision))
+      %DecisionRevision{} -> :ok
+    end
+  end
 
   # Supersede is the Executor's way to replace a decided answer that no agent
   # has received (#2711). It reuses the revision record, so the replaced answer
@@ -46,14 +69,14 @@ defmodule Aiur.DecisionStore.Revisions do
   @spec handle_supersede(term(), term(), term(), term()) :: term()
   def handle_supersede(decision_id, payload, opts, state) do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
-         {:ok, _actor} <- Answers.fetch_actor(opts) do
+         {:ok, actor} <- Answers.fetch_actor(opts) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted ->
           correlated = supersede_payload(payload, accepted.prior_action_id, accepted.sequence - 1)
-          handle_revision(decision_id, correlated, opts, state)
+          handle_revision(decision_id, correlated, Keyword.put(opts, :actor, actor), state)
 
         nil ->
-          supersede_current(decision, payload, opts, state)
+          supersede_current(decision, payload, Keyword.put(opts, :actor, actor), state)
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
@@ -207,6 +230,7 @@ defmodule Aiur.DecisionStore.Revisions do
   defp persist_revision(decision, revision, state) do
     case Persistence.build_and_persist_event(:revision_recorded, decision, revision, revision.recorded_at, state) do
       {:ok, next_state, updated} ->
+        Answers.notify_operator_relay(revision.answer, updated, next_state)
         next_state = Settlement.ensure_superseded_revision_follow_ups(next_state, updated)
         current = Map.fetch!(next_state.current, updated.decision_id)
         next_state = Dispatch.maybe_schedule_after_answer(next_state, current, false)

@@ -2,7 +2,7 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogRecovery do
   @moduledoc false
 
   alias Aiur.Alerts
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
   alias Aiur.LandingWatch.Classifier
   alias Aiur.LandingWatch.MergeQueueRecoveryAttempt
   alias Aiur.PrMerge.Queue
@@ -99,11 +99,11 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogRecovery do
     query =
       "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){id headRefOid isDraft reviewDecision mergeable mergeStateStatus autoMergeRequest{enabledAt} mergeQueueEntry{id} reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}"
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, response} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
              query,
              %{owner: owner, repo: repo, number: number},
@@ -150,11 +150,11 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogRecovery do
     query =
       "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){id headRefOid isDraft reviewDecision mergeable mergeStateStatus autoMergeRequest{enabledAt} mergeQueueEntry{id state} reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}"
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, %{"data" => %{"repository" => %{"pullRequest" => pr}}}} <-
-           Transport.github_graphql(
-             Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+           Access.github_graphql(
+             Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
              token,
              query,
              %{owner: owner, repo: repo, number: number},
@@ -205,10 +205,10 @@ defmodule Aiur.LandingWatch.MergeQueueWatchdogRecovery do
 
   defp graphql_api(opts, caller) do
     fn "post", "graphql", %{query: query, variables: variables} ->
-      with {:ok, token} <- Transport.require_token(opts),
+      with {:ok, token} <- Access.require_token(opts),
            do:
-             Transport.github_graphql(
-               Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+             Access.github_graphql(
+               Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
                token,
                query,
                variables,

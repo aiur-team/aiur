@@ -90,6 +90,61 @@ class AuditPolicyTest(unittest.TestCase):
         self.assertTrue(all(audited_lock == lock_bytes for _, audited_lock, _ in commands))
         self.assertTrue(commands[1][2]["allow_advisories"])
 
+    def test_audit_uses_supplied_manifest_during_dependency_resolution_and_restores_it(self):
+        lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
+        base_manifest = b"defmodule Base.Mixfile do\nend\n"
+        candidate_manifest = b"defmodule Candidate.Mixfile do\nend\n"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            lock_path = root / "mix.lock"
+            manifest_path = root / "mix.exs"
+            lock_path.write_bytes(lock_bytes)
+            manifest_path.write_bytes(candidate_manifest)
+            observed_manifests = []
+
+            def runner(command, **_kwargs):
+                if command[-1] == "deps.get":
+                    observed_manifests.append(manifest_path.read_bytes())
+                return self.CLEAN
+
+            with patch.object(audit, "LOCK", lock_path), patch.object(audit, "MIX_EXS", manifest_path):
+                self.assertEqual(audit.audit_lock(lock_bytes, "base", runner, mix_exs_bytes=base_manifest), set())
+
+            self.assertEqual(observed_manifests, [base_manifest])
+            self.assertEqual(manifest_path.read_bytes(), candidate_manifest)
+
+    def test_audit_uses_matching_manifest_for_base_lock_and_restores_candidate(self):
+        base_lock = b'  "plug": {:hex, :plug, "1.0.0"}'
+        head_lock = b'  "plug": {:hex, :plug, "2.0.0"}'
+        base_manifest = b"base manifest"
+        head_manifest = b"candidate manifest"
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "mix.lock"
+            manifest_path = Path(directory) / "mix.exs"
+            manifest_path.write_bytes(head_manifest)
+            seen = []
+
+            def runner(command, **_kwargs):
+                seen.append((command[-1], lock_path.read_bytes(), manifest_path.read_bytes()))
+                return self.CLEAN
+
+            def auditor(lock_bytes, label, mix_exs_bytes=None):
+                return audit.audit_lock(lock_bytes, label, runner=runner, mix_exs_bytes=mix_exs_bytes)
+
+            with patch.object(audit, "LOCK", lock_path), patch.object(audit, "MIX_EXS", manifest_path):
+                errors = audit.evaluate_locks(base_lock, head_lock, {}, auditor=auditor, base_mix_exs=base_manifest)
+
+            self.assertEqual(errors, [])
+            self.assertEqual(manifest_path.read_bytes(), head_manifest)
+
+        self.assertEqual(seen, [
+            ("deps.get", base_lock, base_manifest),
+            ("hex.audit", base_lock, base_manifest),
+            ("deps.get", head_lock, head_manifest),
+            ("hex.audit", head_lock, head_manifest),
+        ])
+
     def test_audit_refuses_dependency_resolution_that_changes_lock(self):
         lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
         with tempfile.TemporaryDirectory() as directory:
@@ -133,11 +188,19 @@ class AuditPolicyTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "unparsed or unmatched advisories"):
                     audit.audit_lock(b"lock", "fixture", runner)
 
-    def test_registry_cache_fallback_fails_closed(self):
-        result = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)", "returncode": 0})()
-        with patch.object(audit.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(RuntimeError, "refusing to use cached results"):
-                audit.run(["mix", "hex.audit"], cwd=Path("."), allow_advisories=True)
+    def test_audit_retries_cached_fetch_then_fails_closed_after_exhaustion(self):
+        fetch = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)\n:timeout\nResolution completed", "returncode": 0})()
+        clean = type("Result", (), {"stdout": self.CLEAN, "returncode": 0})()
+        lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(audit, "LOCK", Path(directory) / "mix.lock"), patch.object(audit.time, "sleep"):
+                with patch.object(audit.subprocess, "run", side_effect=[fetch, clean, clean]) as runner:
+                    self.assertEqual(audit.audit_lock(lock_bytes, "fixture"), set())
+                    self.assertEqual(runner.call_count, 3)
+                with patch.object(audit.subprocess, "run", side_effect=[fetch] * 3) as runner:
+                    with self.assertRaisesRegex(RuntimeError, "refusing to use cached results"):
+                        audit.audit_lock(lock_bytes, "fixture")
+                    self.assertEqual(runner.call_count, 3)
 
     def test_hex_offline_fails_closed(self):
         with patch.dict(audit.os.environ, {"HEX_OFFLINE": "1"}):

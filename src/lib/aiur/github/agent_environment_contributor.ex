@@ -5,14 +5,15 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   alias Aiur.AgentEnvironment.TestRunIsolation
   alias Aiur.AgentGitHubGuard
   alias Aiur.Config.Paths
-  alias Aiur.GitHub.{AgentMarker, Budget, Credential}
+  alias Aiur.GitHub.{Access, AgentBudgetSocket, AgentMarker}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.Instance.LeaseStore
 
   @impl true
   def port_env(workspace, opts) do
     real_gh = AgentGitHubGuard.real_gh()
     label_prefix = configured_label_prefix(opts)
-    github_budget = Budget.guard_settings()
+    github_budget = Access.guard_settings()
 
     [
       {~c"AIUR_AGENT_QUOTA_STATE_PATH", workspace |> AgentGitHubGuard.quota_dir() |> String.to_charlist()},
@@ -37,7 +38,8 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
       # this while the agent is inside the workspace below — a clone of some
       # other repository must not have its answers filed under this one.
       {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
-      {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
+      budget_socket_env(),
+      {~c"AIUR_GITHUB_BUDGET_ROOT", Access.budget_state_dir() |> String.to_charlist()},
       # #2356: the path to the token file the daemon wrote for the `gh` guard.
       # This is a PATH, not a credential — the raw token lives on disk and the
       # wrapper injects it only into a governed call's real `gh` child, so the
@@ -60,12 +62,13 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   def shell_exports(workspace, opts) do
     label_prefix = configured_label_prefix(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
-    github_budget = Budget.guard_settings()
+    github_budget = Access.guard_settings()
 
     "AIUR_REAL_GH=\nexport AIUR_REAL_GH\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
       remote_repo_slug_export() <>
       agent_comment_marker_export() <>
+      budget_socket_export(opts) <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(AgentGitHubGuard.quota_dir(workspace))}\n" <>
@@ -84,6 +87,9 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   end
 
   @impl true
+  def hosted_credential_boundary, do: :agent
+
+  @impl true
   def repo_slug do
     case GitHubConfig.repo() do
       repo when is_binary(repo) and repo != "" -> repo
@@ -100,8 +106,8 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   end
 
   defp publication_credential_key(opts) do
-    %Credential{id: "primary", kind: :machine_user, identity: publication_credential_identity(opts)}
-    |> Credential.identity_key()
+    Access.credential(id: "primary", kind: :machine_user, identity: publication_credential_identity(opts))
+    |> Access.identity_key()
   end
 
   defp publication_credential_identity(opts) do
@@ -152,4 +158,20 @@ defmodule Aiur.GitHub.AgentEnvironmentContributor do
   end
 
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
+
+  defp budget_socket_env do
+    if LeaseStore.configured?() do
+      {~c"AIUR_GITHUB_BUDGET_SOCKET", AgentBudgetSocket.socket_path() |> String.to_charlist()}
+    else
+      {~c"AIUR_GITHUB_BUDGET_SOCKET", false}
+    end
+  end
+
+  defp budget_socket_export(opts) do
+    if Keyword.get(opts, :local_claude_repl, false) and LeaseStore.configured?() do
+      "export AIUR_GITHUB_BUDGET_SOCKET=#{Aiur.Shell.escape(AgentBudgetSocket.socket_path())}\n"
+    else
+      "unset AIUR_GITHUB_BUDGET_SOCKET\n"
+    end
+  end
 end

@@ -81,6 +81,13 @@ defmodule Aiur.Application.ChildrenTest do
       end)
     end
 
+    defp global_service_supervisor?(specs) do
+      Enum.any?(specs, fn
+        {DynamicSupervisor, opts} -> Keyword.get(opts, :name) == Aiur.Instance.GlobalServices
+        _ -> false
+      end)
+    end
+
     test "daemon heartbeat writer is supervised in interactive and headless run shapes" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -90,18 +97,22 @@ defmodule Aiur.Application.ChildrenTest do
       end
     end
 
-    test "secondary instance omits repository global services and retains ticket workers" do
+    test "secondary instance delegates repository global services to the lease owner" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
 
       for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Instance.RepositoryLeader in mods
+      assert global_service_supervisor?(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "secondary", github_tracker?: true, main_watch_enabled?: true))
       assert Aiur.Orchestrator in mods
       assert Aiur.PRLifecycle.HealthScanner in mods
     end
 
-    test "primary instance starts repository global services when GitHub is configured" do
+    test "primary instance gives repository global services to the dynamic leader supervisor" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
 
-      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: assert(child in mods)
+      for child <- [Aiur.LandingWatch, Aiur.LandingWatch.QuarantineLifter, Aiur.MainWatch], do: refute(child in mods)
+      assert Aiur.Instance.RepositoryLeader in mods
+      assert global_service_supervisor?(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, instance_role: "primary", github_tracker?: true, main_watch_enabled?: true))
     end
 
     test "interactive run starts the full UI stack" do
@@ -116,6 +127,30 @@ defmodule Aiur.Application.ChildrenTest do
       for child <- @terminal_only ++ @dashboard, do: refute(child in mods, "lean background should skip #{inspect(child)}")
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
     end
+
+    test "agent budget socket is supervised only with a shared lease store" do
+      previous_config = Application.fetch_env(:aiur, :lease_database_url)
+      previous_env = System.get_env("AIUR_LEASE_DATABASE_URL")
+      Application.delete_env(:aiur, :lease_database_url)
+      System.delete_env("AIUR_LEASE_DATABASE_URL")
+
+      on_exit(fn ->
+        restore_config(:lease_database_url, previous_config)
+        restore_system_env("AIUR_LEASE_DATABASE_URL", previous_env)
+      end)
+
+      opts = [interactive_cli?: false, headless?: true, dashboard?: false]
+      refute Aiur.GitHub.AgentBudgetSocket in modules(AiurApp.child_specs(opts))
+
+      Application.put_env(:aiur, :lease_database_url, "postgres://shared-store/aiur")
+      assert Aiur.GitHub.AgentBudgetSocket in modules(AiurApp.child_specs(opts))
+    end
+
+    defp restore_config(key, {:ok, value}), do: Application.put_env(:aiur, key, value)
+    defp restore_config(key, :error), do: Application.delete_env(:aiur, key)
+
+    defp restore_system_env(key, nil), do: System.delete_env(key)
+    defp restore_system_env(key, value), do: System.put_env(key, value)
 
     test "headless dashboard run starts the HTTP server without terminal pane services" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))

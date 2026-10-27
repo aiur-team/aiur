@@ -89,7 +89,9 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   const response = await options.fetch(new URL(tokenPath, options.baseUrl).toString(), {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${options.username}:${options.password}`).toString("base64")}`,
+      Authorization: options.token
+        ? `Bearer ${options.token}`
+        : `Basic ${Buffer.from(`${options.username ?? ""}:${options.password ?? ""}`).toString("base64")}`,
       "Content-Type": "application/json",
     },
     body: "{}",

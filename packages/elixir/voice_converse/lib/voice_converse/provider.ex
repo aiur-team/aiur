@@ -69,7 +69,7 @@ defmodule VoiceConverse.Provider do
   @doc "Adds context without interrupting the current turn."
   @callback send_context(ref(), text :: String.t()) :: :ok
   @callback send_user_text(ref(), text :: String.t()) :: :ok
-  @callback tool_result(ref(), call_id :: String.t(), result :: String.t()) :: :ok
+  @callback tool_result(ref(), call_id :: String.t(), result :: %{text: String.t(), is_error: boolean()}) :: :ok
 
   @doc "Speaks a host-originated line at the next pause (`when: :idle`) or now (`when: :now`)."
   @callback announce(ref(), text :: String.t(), opts :: [when: :idle | :now]) :: :ok

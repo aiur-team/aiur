@@ -9,14 +9,25 @@
     "src/lib/aiur/agent_pubsub/**",
     "src/lib/aiur/events.ex",
     "src/lib/aiur/events/agent_subscription_policy.ex",
+    "src/lib/aiur/events/catalog.ex",
+    "src/lib/aiur/events/catalog/attention_entries.ex",
+    "src/lib/aiur/events/catalog/entries.ex",
+    "src/lib/aiur/events/catalog/entry.ex",
+    "src/lib/aiur/events/catalog/github_system_entries.ex",
+    "src/lib/aiur/events/catalog/legacy_entries.ex",
+    "src/lib/aiur/events/catalog/planned_entries.ex",
+    "src/lib/aiur/events/catalog/system_entries.ex",
+    "src/lib/aiur/events/catalog/ticket_entries.ex",
     "src/lib/aiur/events/delivery.ex",
     "src/lib/aiur/events/durable_consumer.ex",
     "src/lib/aiur/events/durable_consumer/handler.ex",
     "src/lib/aiur/events/durable_consumer/journal_source.ex",
     "src/lib/aiur/events/durable_consumer/source.ex",
+    "src/lib/aiur/events/envelope.ex",
     "src/lib/aiur/events/exchange.ex",
     "src/lib/aiur/events/history_store.ex",
     "src/lib/aiur/events/id_generator.ex",
+    "src/lib/aiur/events/instance_id.ex",
     "src/lib/aiur/events/journal.ex",
     "src/lib/aiur/events/journaled_publish.ex",
     "src/lib/aiur/events/publisher.ex",
@@ -37,10 +48,14 @@
     "Aiur.AgentPubSub",
     "Aiur.Events",
     "Aiur.Events.AgentSubscriptionPolicy",
+    "Aiur.Events.Catalog",
+    "Aiur.Events.Catalog.Entry",
     "Aiur.Events.Delivery",
     "Aiur.Events.DurableConsumer",
+    "Aiur.Events.Envelope",
     "Aiur.Events.HistoryStore",
     "Aiur.Events.IdGenerator",
+    "Aiur.Events.InstanceId",
     "Aiur.Events.Journal",
     "Aiur.Events.JournaledPublish",
     "Aiur.Events.SourcePolicy",
@@ -52,6 +67,18 @@
     "Aiur.TicketObservation"
   ],
   "facade_pending": null,
+  "boundary_reference_allowlist": [
+    "Aiur.Config",
+    "Aiur.Config.*",
+    "Aiur.Events",
+    "Aiur.Events.SubscriptionStoreRegistry",
+    "Aiur.JSONSafe",
+    "Aiur.Journal",
+    "Aiur.JsonStore",
+    "Aiur.JsonStore.*",
+    "Aiur.OpaqueIdentifier",
+    "Aiur.TrackerIdentity"
+  ],
   "requires": [
     "config",
     "kernel"
@@ -84,5 +111,6 @@
     "events"
   ],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "notify"
 }

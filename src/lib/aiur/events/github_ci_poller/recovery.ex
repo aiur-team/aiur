@@ -1,7 +1,7 @@
 defmodule Aiur.Events.GithubCIPoller.Recovery do
   @moduledoc "One exact-head rerun, then bounded CI/rework escalation."
   require Logger
-  alias Aiur.{AlertFeed, Alerts, Config}
+  alias Aiur.{AlertFeed, Config, Signal}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
   alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause}
   alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
@@ -22,6 +22,8 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   @spec recover(map(), map(), keyword()) :: map()
   def recover(_issue, %{pending_reason: :ci_cancelled, merge_queue_entry: entry} = result, _opts) when is_map(entry),
     do: result
+
+  def recover(_issue, %{pending_reason: :required_checks_unavailable} = result, _opts), do: result
 
   def recover(issue, %{pending_reason: :ci_cancelled, pr_number: number, head_sha: sha} = result, opts)
       when is_integer(number) and is_binary(sha) do
@@ -426,7 +428,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
     hold = if mode == "transient", do: Map.put(hold, "retry_at", now(opts) + 600), else: hold
     hold = if mode == "base", do: Map.put(hold, "since", now(opts)), else: hold
     message = "PR ##{Map.get(result, :pr_number)} CI recovery #{kind}: #{inspect(reason)}. Failing tests/checks: #{tests}"
-    emitter = Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+    emitter = Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
     case update(issue, result, &(&1 |> Map.put("hold", hold) |> Map.delete("limit_hold")), opts) do
       {:ok, entry} ->

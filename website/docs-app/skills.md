@@ -63,11 +63,15 @@ runner.
 The `aiurdev --test` / `--test3` guard prevents destructive Aiur
 sandbox resets from issue workspaces, not ordinary repository tests.
 
+For a home-page epic, issue workers use `aiur_set_epic` or `aiur_feature`; Executors use `aiur epic set` or `aiur feature add`. Only the Executor overrides estimates, with `aiur ticket estimate … --reason`. See the [CLI reference](/reference/cli) and filing skills.
+
 ## Executor skills
 
 These stay with the Executor and are not copied into ticket workspaces.
 
 `aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; it must never run the human-only `aiur answer` command, which only a human operator may use from an interactive terminal; `aiur-handoff` records that policy and watcher state.
+
+For a multi-instance fleet, `aiur-run` uses one Executor with `aiur --instance all executor-wait --as <executor-id> --json`; stop the per-machine Executors so each wake stream has one owner. Handle printed records even when an unreachable instance makes the command exit nonzero.
 
 The hourly dashboard visual check can discover the control URL and credentials from the running daemon outside its tmux session, then reports which sources supplied them without printing credential values.
 
@@ -75,9 +79,9 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | --- | --- | --- |
 | [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
 | [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Requirements, ticket contracts, dependency graph, and Build Order handoff. |
-| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, accepted boundary through review and merge. |
+| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, per-feature progress at `/?view=list&list=features`, accepted boundary through review and merge. |
 | [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | Inspect a live run | Status board and alert feed. |
-| [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Executor sweep findings, five dashboard surfaces including `/build`, feature-work share, bottleneck, and durable findings. |
+| [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Executor sweep findings, five dashboard surfaces and per-feature progress at `/?view=list&list=features`, feature-work share, bottleneck, and durable findings. |
 | [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | Executor handoff | Boot document for the next Executor. |
 | [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
 
@@ -92,7 +96,7 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | [commit](../../.codex/skills/commit/SKILL.md) | Scope-aware commit creation. |
 | [push](../../.codex/skills/push/SKILL.md) | Push and PR creation or update. |
 | [pull](../../.codex/skills/pull/SKILL.md) | Merge-based integration from `origin/main`. |
-| [land](../../.codex/skills/land/SKILL.md) | Conflict, CI, review, and squash-merge handling. |
+| [land](../../.claude/skills/land/SKILL.md) | Conflict, CI, review, and squash-merge handling. |
 | [debug](../../.codex/skills/debug/SKILL.md) | Log-tracing recovery. |
 | [linear](../../.codex/skills/linear/SKILL.md) | Raw Linear GraphQL operations. |
 

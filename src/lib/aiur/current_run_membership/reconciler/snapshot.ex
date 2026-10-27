@@ -19,7 +19,17 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
     :backing_off,
     :unresponsive
   ]
-  @lifecycle_values [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced, :completed, :cancelled]
+  @lifecycle_values [
+    :queued,
+    :retrying,
+    :allocated,
+    :running,
+    :paused,
+    :waiting,
+    :replaced,
+    :completed,
+    :cancelled
+  ]
 
   @spec reconcile(map(), (TrackerIdentity.t(), atom() -> term()), MapSet.t()) :: [term()]
   def reconcile(snapshot, observe_fun, terminal_states)
@@ -27,6 +37,57 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
     snapshot
     |> observation_rows()
     |> Enum.flat_map(&observe_row(&1, observe_fun, terminal_states))
+  end
+
+  @spec reconcile_changes(map(), map(), (TrackerIdentity.t(), atom() -> term()), MapSet.t()) ::
+          {[term()], map()}
+  def reconcile_changes(snapshot, previous, observe_fun, terminal_states)
+      when is_map(snapshot) and is_map(previous) and is_function(observe_fun, 2) and
+             is_struct(terminal_states, MapSet) do
+    current = lifecycle_map(snapshot, terminal_states)
+
+    results =
+      Enum.flat_map(current, fn {identity, lifecycle} ->
+        if Map.get(previous, identity) == lifecycle do
+          []
+        else
+          [observe_fun.(identity, lifecycle)]
+        end
+      end)
+
+    {results, current}
+  end
+
+  @spec lifecycle_map(map(), MapSet.t()) :: %{TrackerIdentity.t() => atom()}
+  def lifecycle_map(snapshot, terminal_states)
+      when is_map(snapshot) and is_struct(terminal_states, MapSet) do
+    snapshot
+    |> observation_rows()
+    |> Enum.reduce(%{}, &put_lifecycle(&2, &1, terminal_states))
+  end
+
+  defp put_lifecycle(acc, {kind, row}, terminal_states) do
+    case tracker_identity(row) do
+      %TrackerIdentity{} = identity ->
+        if TrackerIdentity.joinable?(identity),
+          do: Map.put(acc, identity, lifecycle_for_row(kind, row, terminal_states)),
+          else: acc
+
+      _ ->
+        acc
+    end
+  end
+
+  defp observe_row({kind, row}, observe_fun, terminal_states) do
+    case tracker_identity(row) do
+      %TrackerIdentity{} = identity ->
+        if TrackerIdentity.joinable?(identity),
+          do: [observe_fun.(identity, lifecycle_for_row(kind, row, terminal_states))],
+          else: []
+
+      _ ->
+        []
+    end
   end
 
   defp observation_rows(snapshot) do
@@ -40,21 +101,6 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
         row <- rows,
         is_map(row) do
       {kind, row}
-    end
-  end
-
-  defp observe_row({kind, row}, observe_fun, terminal_states) do
-    case tracker_identity(row) do
-      %TrackerIdentity{} = identity -> observe_joinable(identity, kind, row, observe_fun, terminal_states)
-      _ -> []
-    end
-  end
-
-  defp observe_joinable(identity, kind, row, observe_fun, terminal_states) do
-    if TrackerIdentity.joinable?(identity) do
-      [observe_fun.(identity, lifecycle_for_row(kind, row, terminal_states))]
-    else
-      []
     end
   end
 
@@ -80,7 +126,8 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
   end
 
   defp replaced_lifecycle(row) do
-    if normalize_state(row_value(row, :state)) == "replaced" or row_value(row, :work_state) == :replaced do
+    if normalize_state(row_value(row, :state)) == "replaced" or
+         row_value(row, :work_state) == :replaced do
       :replaced
     end
   end
@@ -100,10 +147,20 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
   defp lifecycle_for_row_kind(:retrying), do: :retrying
   defp lifecycle_for_row_kind(:running), do: :running
   defp lifecycle_for_row_kind(:idle), do: :queued
-  defp tracker_identity(row), do: Map.get(row, :tracker_identity) || Map.get(row, "tracker_identity")
-  defp tracker_paused?(row), do: Map.get(row, :tracker_paused) == true or Map.get(row, "tracker_paused") == true
+
+  defp tracker_identity(row),
+    do: Map.get(row, :tracker_identity) || Map.get(row, "tracker_identity")
+
+  defp tracker_paused?(row),
+    do: Map.get(row, :tracker_paused) == true or Map.get(row, "tracker_paused") == true
+
   defp row_value(row, key), do: Map.get(row, key) || Map.get(row, Atom.to_string(key))
-  defp terminal_lifecycle(state), do: if(normalize_state(state) in ["cancelled", "canceled"], do: :cancelled, else: :completed)
-  defp normalize_state(state) when is_binary(state), do: state |> String.trim() |> String.downcase()
+
+  defp terminal_lifecycle(state),
+    do: if(normalize_state(state) in ["cancelled", "canceled"], do: :cancelled, else: :completed)
+
+  defp normalize_state(state) when is_binary(state),
+    do: state |> String.trim() |> String.downcase()
+
   defp normalize_state(_state), do: ""
 end

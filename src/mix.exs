@@ -6,7 +6,7 @@ defmodule Aiur.MixProject do
       app: :aiur,
       version: "0.0.9",
       elixir: "~> 1.19",
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:github_budget],
       # Test builds are copied from the prewarm base into each workspace.
       elixirc_options: if(Mix.env() == :test, do: [check_cwd: false], else: []),
       start_permanent: Mix.env() == :prod,
@@ -130,6 +130,13 @@ defmodule Aiur.MixProject do
         ]
       ],
       test_ignore_filters: [
+        "test/support/dashboard_live_orchestrator_stubs.exs",
+        "test/support/dashboard_live_store_stubs.exs",
+        "test/support/dashboard_live_unit_fixtures.exs",
+        "test/support/dashboard_live_support.exs",
+        "test/support/dashboard_live_processes.exs",
+        "test/support/dashboard_live_decision_fixtures.exs",
+        "test/support/dashboard_live_control_fixtures.exs",
         "test/support/core_test_support.exs",
         "test/support/extensions_test_support.exs",
         "test/support/snapshot_support.exs",
@@ -164,7 +171,7 @@ defmodule Aiur.MixProject do
 
   defp deps do
     [
-      {:bandit, "~> 1.12"},
+      {:bandit, "~> 1.14"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.2", only: :test},
@@ -173,9 +180,11 @@ defmodule Aiur.MixProject do
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.1.0"},
       {:req, "~> 0.7"},
+      {:assent, "~> 0.3.1"},
+      {:wax_, "~> 0.7.0"},
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
-      {:jose, "~> 1.11"},
+      {:jose, "~> 1.11 and >= 1.11.13"},
       {:nimble_options, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.1.6"},
@@ -183,6 +192,7 @@ defmodule Aiur.MixProject do
       {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
       {:ecto, "~> 3.13.6"},
+      {:postgrex, "~> 0.22.4"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:voice_converse, path: "../packages/elixir/voice_converse"},

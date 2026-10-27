@@ -52,6 +52,10 @@ Aim for 200 lines and give a cohesion reason above that target. The required
 `workflow security` job rejects new text paths over 500 lines and growth of
 paths already over 500, comparing Git blobs against the event's base commit;
 skills and third-party vendored directories are exempt from the line-count rule.
+The imported Claude Design reference at
+`src/test/fixtures/build_home/design-source/` is also exempt because it is kept
+byte-for-byte as vendored source; sibling fixture paths remain subject to the
+limit.
 Existing oversized files may stay unchanged or shrink; renames and copies to
 new paths must fit the limit. Text becoming binary is rejected. Binary files
 are otherwise skipped, and symlinks are reported without following them.
@@ -284,16 +288,15 @@ configured integrations; missing or skipped required checks remain pending.
 - **Prefer editing an existing page over adding a new one.** Concise and correct
   beats comprehensive — a wrong doc is worse than a missing one.
 - Docs live in `website/docs-app/`: config keys in
-  `reference/configuration.md`, commands and flags in `reference/cli.md`,
+  `reference/configuration-*.md`, commands and flags in `reference/cli-*.md`,
   user-facing surfaces in `guide/`, explanations in `concepts/`. A new page also
   needs a sidebar entry in `website/docs-app/.vitepress/config.ts`. The full map
   is [`AGENTS.md`](AGENTS.md#docs-ship-with-the-change).
-- **This norm is mostly not tool-enforced, unlike the rest of this document.**
-  `scripts/check-config-docs.py` covers config keys only — it resolves each key
-  to its full dotted path and fails the required `lint` job when one has no
-  entry in the reference. CLI flags, new surfaces, and falsified pages have no
-  check behind them, so a reviewer treating a missing doc as a blocking finding
-  is the whole enforcement.
+- **Config keys and CLI rows have mechanical checks.**
+  `scripts/check-config-docs.py` resolves each key to its full dotted path and
+  checks the index and topic pages in required lint. The CLI reference checker
+  compares command/flag inventories and complete example rows across topics.
+  Other user-facing surfaces and changed behavior remain review responsibilities.
 
 ## Releasing to npm
 

@@ -21,6 +21,15 @@ defmodule Aiur.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc "Whether the operator explicitly permits recording relayed answers."
+  @spec relay_operator_answers?() :: boolean()
+  def relay_operator_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.relay_operator_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   The parsed config.
 
@@ -179,9 +188,16 @@ defmodule Aiur.Config do
   @spec instance_role() :: String.t()
   def instance_role, do: settings!().instance.role
 
+  @spec instance_mode() :: String.t()
+  def instance_mode, do: settings!().instance.mode
+
   # The role the repository-global services were gated on at boot; a hot reload does not re-gate them.
   @spec booted_instance_role() :: String.t()
   def booted_instance_role, do: Application.get_env(:aiur, :booted_instance_role) || instance_role()
+
+  # Hosted safety is evaluated against the mode selected at boot; reloads may not cross this boundary.
+  @spec booted_instance_mode() :: String.t()
+  def booted_instance_mode, do: Application.get_env(:aiur, :booted_instance_mode) || instance_mode()
   defdelegate base_branch(source \\ settings(), context \\ []), to: Aiur.Config.TrackerSettings
   defdelegate active_states(), to: Aiur.Config.TrackerSettings
   defdelegate terminal_states(), to: Aiur.Config.TrackerSettings
@@ -192,11 +208,16 @@ defmodule Aiur.Config do
   defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_days(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_retention_max_events(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_bootstrap_image_pull?(), to: Aiur.Config.TrackerSettings
   defdelegate max_vertical_panes(), to: Aiur.Config.TrackerSettings
   defdelegate max_log_history_mb(), to: Aiur.Config.TrackerSettings
+  @spec netlify_settings() :: Aiur.Config.Schema.Netlify.t()
+  def netlify_settings, do: settings!().netlify
   defdelegate workspace_hooks(), to: Aiur.Config.TrackerSettings
   defdelegate hook_timeout_ms(), to: Aiur.Config.TrackerSettings
   defdelegate elevenlabs_api_key(), to: Aiur.Config.ObservabilitySettings
@@ -212,6 +233,7 @@ defmodule Aiur.Config do
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  defdelegate decision_escalation(), to: Aiur.Config.ObservabilitySettings
   defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_render_interval_ms(), to: Aiur.Config.ObservabilitySettings
@@ -387,6 +409,14 @@ defmodule Aiur.Config do
 
   @doc false
   @spec format_config_error(term()) :: String.t()
+  def format_config_error({:instance_mode_change_requires_restart, booted, configured}) do
+    "instance.mode cannot change from #{booted} to #{configured} while Aiur is running; restart the daemon"
+  end
+
+  def format_config_error({:unsafe_hosted_mode, violations}) do
+    "Hosted mode safety checks failed:\n- #{Enum.join(violations, "\n- ")}"
+  end
+
   def format_config_error(reason) do
     label = config_file_label()
 

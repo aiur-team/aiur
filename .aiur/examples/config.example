@@ -32,9 +32,15 @@ tracker:
   # CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
 
 # Merge policy defaults; currently validated and shown in status/capabilities.
-# For a second daemon on the same GitHub repository, set instance.role: secondary.
+# Set the same AIUR_LEASE_DATABASE_URL on every daemon for shared ticket leases, leader failover, and instance heartbeats.
 instance:
-  role: primary                       # primary | secondary; one primary per repository
+  mode: local                        # local | hosted; hosted requires safe boundaries and API-key auth/fallback
+  deployment_kind: operator         # operator | consumer; hosted consumers use API keys only
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
+  role: primary                       # eligible primary candidates share leader election; secondary never leads
+  roster_stale_retention_ms: 300000    # keep expired instance heartbeats visible for five minutes
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
   #   tickets: []                     # ids handed over mid-flight
@@ -88,6 +94,12 @@ agent:
   # Full emergency opt-out: set both build settings above to 0 and leave min_free_memory_mb omitted.
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
+  # max_repeated_identical_commands: 5  # steer after five identical read-only results; stop on the next repeat; 0 disables
+  # local_gate_wait_steer_minutes: 20    # only after prolonged local gate polling with fresh green CI; lets ordinary builds finish
+  # local_gate_wait_stop_minutes: 30     # ten minutes after the steer, to give the worker time to refresh the PR body and hand off
+  # local_gate_ci_max_age_minutes: 15    # ignore a green cache entry old enough to belong to a previous PR head
+  # max_commands_per_turn: 1000  # optional tool-call cap; null disables
+  # max_input_tokens_per_turn: 20000000  # optional input-token cap; null disables
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # runtime cap: release worker, route to rework/review; 0 = off
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress`/busy-loop load generators; null = cores/4, 0 = disabled
   # synthetic_load_kill_detected: false  # true also kills busy loops found by behaviour and orphaned generators; false only reports them
@@ -186,6 +198,20 @@ alerts:
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
   alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
 
+# Optional low-usage alerts. Thresholds are remaining percentages; unknown or stale readings do not trigger alerts.
+# usage:
+#   alerts: {claude: {threshold: 10}} # remaining percent; Netlify credits have a separate `netlify` section
+# netlify:
+#   enabled: false
+#   account_id: your-netlify-team-id
+#   poll_seconds: 900
+#   credit_alert_threshold: 100
+#   alerts:
+#     claude:
+#       threshold: 10
+#     codex:
+#       threshold: 10
+
 # === Executor takeover advisories (advanced defaults shown) ===
 # While a nonterminal ticket stays in the run scope, aiur watches its convergence age
 # (durable first-active-work time floored by the open PR's creation time) and raises an
@@ -199,6 +225,7 @@ alerts:
 # === Executor sweep ===
 # Threshold for an open, non-draft PR in agent:human-review that has no review on its current head.
 # executor:
+#   relay_operator_answers: false     # opt-in quoted operator answers recorded by an attended Executor
 #   sweep:
 #     unreviewed_pr_minutes: 10
 {{ELEVENLABS_SECTION}}
@@ -285,15 +312,30 @@ alerts:
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_tags: {}, capture_label_prefixes: ["experiment:", "cohort:", "feature:"], capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
-# decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
+# decisions:
+#   escalation:
+#     enabled: true
+#     executor_ack_ms: 300000
+#     executor_answer_ms: 900000
+#     urgent_factor: 0.5
+#   supervisor_allowed_kinds: []
+#   supervisor_allow_non_reversible: false
 # server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); 0.0.0.0 exposes the LAN
-# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com, localhost, 127.0.0.1] }
+# server: { public_url: https://aiur.example.com, allowed_hosts: [aiur.example.com], trusted_proxies: [10.0.0.0/8] }
+# dashboard_auth: { google: { allowed_emails: [operator@example.com] }, passkeys: false, session_max_age_days: 30, browser_basic_auth: true }
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur
 # dashboard owns Funnel HTTPS 443 and should alert on a stale target.
 # server: { tailscale_funnel: true }     # reconcile an operator-enabled Funnel on HTTPS 443 to this dashboard's current bound port
 # observability: { build_order_funnel_health_check: true }
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
-# events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
+# events:
+#   block_state_debounce_seconds: 10
+#   custom_events_per_turn_max: 5
+#   codeowners_refresh_seconds: 3600
+#   export:                          # reserved for exporter; read at boot, restart to apply
+#     enabled: false
+#     retention_days: 7              # 1..90; first age/count bound reached applies
+#     retention_max_events: 50000     # 1000..1000000
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
 
 # Build queue (GitHub only; defaults shown except opt-in set ordering).

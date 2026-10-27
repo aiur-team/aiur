@@ -26,6 +26,9 @@ defmodule AiurWeb.Endpoint do
   Streamdeck.mount(@session_options)
   Voice.mount(@session_options)
 
+  plug(AiurWeb.Session, @session_options)
+  plug(:fetch_session)
+  plug(AiurWeb.PublicBindGuard)
   plug(:authenticate_static_asset)
 
   plug(Plug.Static,
@@ -66,6 +69,7 @@ defmodule AiurWeb.Endpoint do
 
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
+  plug(AiurWeb.ControlBodyLimit)
 
   # The custom body reader caches the raw request bytes for GitHub webhook
   # deliveries. HMAC is computed over exactly what GitHub sent, and re-encoding
@@ -74,20 +78,19 @@ defmodule AiurWeb.Endpoint do
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    body_reader: {AiurWeb.GithubWebhook.BodyReader, :read_body, []},
+    body_reader: {AiurWeb.ControlBodyReader, :read_body, []},
     json_decoder: Jason
   )
 
   plug(Plug.MethodOverride)
   plug(Plug.Head)
-  plug(AiurWeb.Session, @session_options)
   plug(AiurWeb.Router)
 
   @doc false
   @spec authenticate_static_asset(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def authenticate_static_asset(conn, opts) do
     if AiurWeb.StaticAssets.served_path?(conn.path_info) do
-      conn = AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+      conn = AiurWeb.FinancialDataAccess.authenticate_request(conn, Keyword.put(opts, :browser?, true))
       if conn.halted, do: conn, else: AiurWeb.DashboardPagesGate.call(conn, [])
     else
       conn

@@ -19,6 +19,7 @@
     "src/lib/aiur/decision_query/**",
     "src/lib/aiur/decision_store/**",
     "src/lib/aiur/decision_validation/**",
+    "src/lib/aiur/operator_relay.ex",
     "src/lib/aiur/supervisor_token.ex",
     "src/lib/aiur/supervisor_token/**",
     "src/lib/aiur_web/controllers/decision*.ex",
@@ -78,5 +79,6 @@
     "AIUR_CI_READINESS_TOKEN",
     "AIUR_SUPERVISOR_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

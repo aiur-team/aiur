@@ -8,8 +8,10 @@ defmodule Aiur.AgentRunner do
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BeforeRun, BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain, WorkspaceGuard}
   alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
+  alias Aiur.Config.HostedAuthPolicy
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Errors
+  alias Aiur.Instance.LeaseStore
   alias Aiur.Opencode.ApiClient
   alias Aiur.Signal
   alias Aiur.Workspace.Ownership
@@ -19,6 +21,26 @@ defmodule Aiur.AgentRunner do
 
   @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+    lease_watch = Keyword.get(opts, :lease_watch_fun, &LeaseStore.watch/1)
+
+    lease =
+      if is_binary(issue.pr_head_ref),
+        do: :disabled,
+        else: lease_watch.(issue)
+
+    case lease do
+      result when result in [:ok, :disabled] ->
+        run_with_ticket_lease(issue, codex_update_recipient, opts)
+
+      :not_owned ->
+        exit(:shared_ticket_lease_not_owned)
+
+      {:error, reason} ->
+        exit({:shared_ticket_lease_unavailable, reason})
+    end
+  end
+
+  defp run_with_ticket_lease(issue, codex_update_recipient, opts) do
     # A bare `model:<name>` the catalogue cache could not place gets one bounded
     # refresh before anything reads the backend, so a model released since the
     # last refresh still decides this run.
@@ -58,6 +80,11 @@ defmodule Aiur.AgentRunner do
   @spec handle_run_error(Issue.t(), term()) :: :ok | no_return()
   def handle_run_error(issue, reason) do
     cond do
+      match?({:ok, _refusal}, HostedAuthPolicy.refusal(reason)) ->
+        {:ok, refusal} = HostedAuthPolicy.refusal(reason)
+        Logger.error("Agent run refused by hosted authentication policy for #{issue_context(issue)}: #{inspect(refusal)}")
+        exit({:terminal_policy_failure, refusal})
+
       transient_run_error?(reason, CodingAgent.backend_for(issue)) ->
         Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
         :ok
@@ -115,12 +142,13 @@ defmodule Aiur.AgentRunner do
   @spec transient_run_error?(term()) :: boolean()
   def transient_run_error?(:repl_gone), do: true
   def transient_run_error?(:prompt_not_delivered), do: true
-  def transient_run_error?(:port_closed), do: true
   def transient_run_error?({:port_exit, status}) when is_integer(status) or is_atom(status), do: true
   def transient_run_error?(_reason), do: false
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
+  def transient_run_error?(:port_closed, _backend), do: false
+
   def transient_run_error?(reason, backend) do
     CodingAgent.recoverable_session_error?(backend, reason) or
       shared_transient_run_error?(reason) or github_transport_transient?(reason)
@@ -140,11 +168,11 @@ defmodule Aiur.AgentRunner do
   # the shared `Aiur.GitHub.Errors` classifier so the transient/permanent list
   # lives in one place.
   defp github_transport_transient?({:github, _kind, _detail} = reason),
-    do: Errors.retryable_github_error?(reason)
+    do: Access.retryable_github_error?(reason)
 
   defp github_transport_transient?(%{__struct__: struct} = reason)
        when struct in [Req.TransportError, Mint.TransportError],
-       do: Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
+       do: Access.retryable_github_error?(Access.classify_error({:error, reason}))
 
   defp github_transport_transient?(_reason), do: false
 

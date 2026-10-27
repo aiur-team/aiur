@@ -22,9 +22,9 @@ const designFiles = dir => {
 };
 // build.js:1031–1036: API usage is literal render data, unlike PSETS.
 export const API_ROWS = [
-  { tag: 'core', pct: 5, reset: '37m', win: '1h', head: 'GitHub core · resets in 37m', rows: [['Requests left', '4,736 of 5,000']] },
-  { tag: 'gql', pct: 0, reset: '20m', win: '1h', head: 'GitHub GraphQL · resets in 20m', rows: [['Points left', '4,998 of 5,000']] },
-  { tag: 'credits', pct: 0, reset: '22d', win: '30d', head: 'Search · renews in 22d', rows: [['Credits left', '90.0K']] },
+  { tag: 'core', pct: 95, reset: '37m', win: '1h', head: 'GitHub core · resets in 37m', rows: [['Requests left', '4,736 of 5,000 left · 95% left']] },
+  { tag: 'gql', pct: 100, reset: '20m', win: '1h', head: 'GitHub GraphQL · resets in 20m', rows: [['Points left', '4,998 of 5,000 left · 100% left']] },
+  { tag: 'credits', pct: 100, reset: '22d', win: '30d', head: 'Search · renews in 22d', rows: [['Credits left', '90.0K left · 100% left']] },
 ];
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 

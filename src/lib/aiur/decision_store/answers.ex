@@ -1,6 +1,9 @@
 defmodule Aiur.DecisionStore.Answers do
   @moduledoc false
 
+  require Logger
+
+  alias Aiur.Commands.ActorSource
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -12,10 +15,58 @@ defmodule Aiur.DecisionStore.Answers do
   @spec handle_answer(term(), term(), term(), term()) :: term()
   def handle_answer(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
-         {:ok, actor} <- fetch_actor(opts) do
+         {:ok, actor} <- fetch_actor(opts),
+         :ok <- require_relay_enabled(actor, state) do
       accept_or_replay_answer(decision, payload, actor, opts, state)
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
+    end
+  end
+
+  @doc false
+  @spec require_relay_enabled(map(), map()) :: :ok | {:error, term()}
+  def require_relay_enabled(actor, state) do
+    kind = Map.get(actor, :kind, Map.get(actor, "kind"))
+    if kind in [:operator_relayed, "operator_relayed"] and state.relay_enabled.() != true, do: {:error, {:answer_invalid, {:operator_relay, :disabled}}}, else: :ok
+  end
+
+  @doc false
+  @spec notify_operator_relay(DecisionAnswer.t(), Decision.t(), map()) :: term()
+  def notify_operator_relay(%DecisionAnswer{actor: %{kind: :operator_relayed}} = answer, decision, state),
+    do: state.relay_notifier.(decision, answer)
+
+  def notify_operator_relay(_answer, _decision, _state), do: :ok
+
+  @doc false
+  @spec consume_pending_for_session(String.t(), String.t(), [String.t()], term()) :: term()
+  def consume_pending_for_session(ticket_identifier, session_id, action_ids, state) do
+    action_ids = MapSet.new(action_ids)
+
+    state.current
+    |> Map.values()
+    |> Enum.filter(&(&1.ticket.identifier == ticket_identifier and &1.pending_for_session? and MapSet.member?(action_ids, &1.active_action_id)))
+    |> Enum.reduce(state, fn decision, acc ->
+      case Persistence.build_and_persist_event(:session_started, decision, %{action_id: decision.active_action_id, session_id: session_id}, DateTime.utc_now(), acc) do
+        {:ok, next_state, _updated} -> next_state
+        {:error, reason} -> Persistence.journal_failure_state(acc, reason)
+      end
+    end)
+  end
+
+  @doc false
+  @spec handle_ticket_comment_published(String.t(), String.t(), term()) :: term()
+  def handle_ticket_comment_published(decision_id, action_id, state) do
+    case Map.get(state.current, decision_id) do
+      %Decision{answer: %{action_id: ^action_id}, ticket_comment_status: :pending} = decision ->
+        data = %{action_id: action_id}
+
+        case Persistence.build_and_persist_event(:answer_comment_published, decision, data, DateTime.utc_now(), state) do
+          {:ok, next_state, _updated} -> next_state
+          {:error, reason} -> Persistence.journal_failure_state(state, reason)
+        end
+
+      _already_published_or_replaced ->
+        state
     end
   end
 
@@ -51,8 +102,16 @@ defmodule Aiur.DecisionStore.Answers do
   @spec fetch_actor(term()) :: term()
   def fetch_actor(opts) do
     case Keyword.fetch(opts, :actor) do
-      {:ok, actor} when is_map(actor) -> {:ok, actor}
-      _other -> {:error, {:answer_invalid, {:actor, :missing}}}
+      {:ok, actor} when is_map(actor) ->
+        actor = Map.put(actor, :source, ActorSource.from_opts(opts))
+
+        case DecisionAnswer.normalize_actor(actor) do
+          {:ok, normalized} -> {:ok, normalized}
+          {:error, reason} -> {:error, {:answer_invalid, reason}}
+        end
+
+      _other ->
+        {:error, {:answer_invalid, {:actor, :missing}}}
     end
   end
 
@@ -82,6 +141,7 @@ defmodule Aiur.DecisionStore.Answers do
              options: options,
              actor: actor,
              supervisor_basis: Keyword.get(opts, :supervisor_basis),
+             ticket_comment_pending?: true,
              now: Keyword.get(opts, :now, DateTime.utc_now())
            ),
          :ok <- validate_answer_policy_context(answer, request) do
@@ -149,6 +209,7 @@ defmodule Aiur.DecisionStore.Answers do
     cond do
       replayed.action_id == accepted.action_id and replayed.content_hash == accepted.content_hash ->
         next_state = Dispatch.maybe_schedule_after_answer(state, decision, false)
+        schedule_ticket_comment(decision, state.answer_comment_publisher)
 
         {:reply,
          {:ok,
@@ -170,6 +231,9 @@ defmodule Aiur.DecisionStore.Answers do
   defp persist_answer(decision, answer, state) do
     case Persistence.build_and_persist_event(:answer_recorded, decision, answer, answer.accepted_at, state) do
       {:ok, next_state, updated} ->
+        notify_operator_relay(answer, updated, next_state)
+        schedule_ticket_comment(updated, state.answer_comment_publisher)
+
         next_state =
           next_state
           |> Dispatch.maybe_schedule_after_answer(updated, false)
@@ -188,4 +252,54 @@ defmodule Aiur.DecisionStore.Answers do
         {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
   end
+
+  @doc false
+  @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term())) :: :ok
+  def schedule_ticket_comment(decision, publisher) do
+    start_ticket_comment_task(decision, publisher, self())
+    :ok
+  end
+
+  defp start_ticket_comment_task(decision, publisher, store) do
+    Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+      case publish_ticket_comment(decision, publisher, [0, 1_000, 5_000, 30_000]) do
+        :ok -> send(store, {:answer_comment_published, decision.decision_id, decision.answer.action_id})
+        :error -> :ok
+      end
+    end)
+  end
+
+  defp publish_ticket_comment(decision, publisher, [0 | rest]) do
+    publish_ticket_comment_attempt(decision, publisher, rest)
+  end
+
+  defp publish_ticket_comment(decision, publisher, [delay | rest]) when delay > 0 do
+    Process.sleep(delay)
+    publish_ticket_comment_attempt(decision, publisher, rest)
+  end
+
+  defp publish_ticket_comment(decision, _publisher, []) do
+    Logger.error("aiur_decision_answer_comment phase=retries_exhausted decision_id=#{decision.decision_id}")
+    :error
+  end
+
+  defp publish_ticket_comment_attempt(decision, publisher, rest) do
+    case publisher.(decision) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("aiur_decision_answer_comment phase=publish_failed decision_id=#{decision.decision_id} reason_class=#{safe_failure_class(reason)}")
+        publish_ticket_comment(decision, publisher, rest)
+
+      other ->
+        Logger.warning("aiur_decision_answer_comment phase=publish_failed decision_id=#{decision.decision_id} result_class=#{safe_failure_class(other)}")
+        publish_ticket_comment(decision, publisher, rest)
+    end
+  end
+
+  defp safe_failure_class(reason) when is_atom(reason), do: reason
+  defp safe_failure_class({kind, _detail}) when is_atom(kind), do: kind
+  defp safe_failure_class({kind, _class, _detail}) when is_atom(kind), do: kind
+  defp safe_failure_class(_reason), do: :unknown
 end

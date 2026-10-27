@@ -97,8 +97,8 @@ coverage.
 | --- | --- | --- |
 | Units | `/` | every active agent, live state |
 | Commands | `/commands` | real commands awaiting response |
-| Build Order | `/build-orders` | progress that tracks reality |
 | Build | `/build` | an available timeline and ticket cards for queued members |
+| Build home Features | `/?view=list&list=features` | per-feature progress |
 | Analytics | `/analytics` | current data, not a frozen window |
 
 The `/build` capture reports an unavailable timeline banner, skeleton cards
@@ -335,6 +335,8 @@ workflow); deliberately parked findings carry `needs-triage` or `human:todo`
 with the reason in the body. The meta epic is an explicitly named container and
 remains undispatched.
 
+**Give every new ticket a home-page epic.** Use `aiur epic set <epic> <ids…>` (keys from `aiur epic list`) or `aiur feature add <slug> <ids…>` for feature members; meta findings usually fit `infra` or `bugs`; never use epic labels. Follow the [full category and fallback rule](../aiur-run/references/executor.md) for label matching, Unsorted, batching and failures.
+
 Include the evidence that would let someone else confirm it without repeating the
 investigation: the command, its output, file:line, the screenshot.
 
@@ -372,6 +374,7 @@ of prose nobody reads. `aiur-run`'s communication contract governs it:
   terminal does not need a copy.
 - The periodic progress table belongs here rather than on every wake, since this
   check already runs on the right cadence.
+- Read per-feature progress from Build home at `/?view=list&list=features`.
 - A finding that blocks the run still escalates in full, with a push
   notification. Terseness never applies to something waiting on the operator.
 

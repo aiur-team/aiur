@@ -27,6 +27,7 @@ if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved
 writeStored("aiur-theme", root.getAttribute("data-theme") ?? "dark");
 
 const field = createFlowField();
+if (root.dataset.fieldDebug !== undefined) Object.assign(window, { __field: field });
 
 const themeToggle = document.getElementById("themeToggle");
 themeToggle?.addEventListener("click", () => {

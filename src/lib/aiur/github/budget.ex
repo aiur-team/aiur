@@ -7,9 +7,9 @@ defmodule Aiur.GitHub.Budget do
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
 
-  alias Aiur.GitHub.Budget.{BrokerPort, ResponseLimits, Settings, StateDir}
+  alias Aiur.GitHub.Access.Settings, as: AccessSettings
+  alias Aiur.GitHub.Budget.{BrokerPort, ResponseLimits, Settings, Shared, StateDir}
   alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy}
-  alias Aiur.Signal
 
   require Logger
 
@@ -24,11 +24,6 @@ defmodule Aiur.GitHub.Budget do
 
   @release_topic "github:budget:lease_release"
 
-  # Keep this source-tree path strictly compile-time-only so changes to the
-  # broker invalidate the module. Runtime calls resolve `priv/` from the
-  # installed application because release layouts do not retain this checkout.
-  @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
-  @external_resource @broker_source_path
   @retry_floor_ms 5
   @priority_key :aiur_github_budget_priority
 
@@ -89,8 +84,8 @@ defmodule Aiur.GitHub.Budget do
       path when is_binary(path) and path != "" -> path
       # Tests inject a broker variant (e.g. one without the `reconcile`
       # subcommand) through the `:broker_path` option; production always uses
-      # the broker shipped in `priv/`.
-      _missing -> :aiur |> :code.priv_dir() |> to_string() |> Path.join("github_budget.py")
+      # the compile-time assembly in the installed application.
+      _missing -> Path.join(:code.priv_dir(:aiur), "github_budget.py")
     end
   end
 
@@ -154,8 +149,10 @@ defmodule Aiur.GitHub.Budget do
   defp publish_release(lease_id, token_key, budget_ms, result) do
     event = %{lease_id: lease_id, token_key: token_key, budget_ms: budget_ms, outcome: release_outcome(result)}
 
-    if Process.whereis(Aiur.PubSub) do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, @release_topic, {:github_budget_lease_released, event})
+    pubsub = AccessSettings.current().pubsub
+
+    if pubsub && Process.whereis(pubsub) do
+      Phoenix.PubSub.broadcast(pubsub, @release_topic, {:github_budget_lease_released, event})
     end
 
     :ok
@@ -230,19 +227,7 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  @doc """
-  Per-actor (daemon vs each agent workspace) Core/GraphQL usage and ceilings.
-
-  Reads the broker's whole actor inventory — one entry per consumer it has seen,
-  keyed by credential and consumer fingerprint — with the rolling-hour `used`
-  count, the configured `limit` (0 = no ceiling), and `reset_at_ms`: the wall-
-  clock moment the actor's usage next drops (the hold release when the actor is
-  over its ceiling, otherwise when its oldest in-window admission ages out).
-
-  Returns `%{actors: []}` when the broker is unavailable or disabled, so a
-  report command degrades to "nothing observed" rather than failing loudly on a
-  host without a broker.
-  """
+  @doc "Per-actor Core/GraphQL usage and ceilings, or no actors when unavailable."
   @spec usage(keyword()) :: map()
   def usage(opts \\ []) do
     case BrokerPort.command(["usage"], "", Keyword.put(opts, :include_token_key, false)) do
@@ -265,51 +250,52 @@ defmodule Aiur.GitHub.Budget do
   def request_resource(%{url: url}) when is_binary(url), do: EndpointPolicy.resource(url)
   def request_resource(_request), do: "core"
 
-  defp do_acquire(request, key, python, opts, deadline_at) do
-    # `command_timeout_ms` bounds each broker round trip apart from the admission wait, so a slow broker still times out.
-    command_ms = Keyword.get(opts, :command_timeout_ms)
-    command_deadline_at = if command_ms, do: min(deadline_at, System.monotonic_time(:millisecond) + command_ms), else: deadline_at
-    command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, command_deadline_at)
+  @doc false
+  @spec command([String.t()], String.t(), keyword()) :: {:ok, String.t()} | {:error, term()} | :bypass
+  def command(args, key, opts \\ []), do: BrokerPort.command(args, key, opts)
 
-    case BrokerPort.command(acquire_args(request, opts), key, command_opts) do
+  @doc false
+  @spec agent_families() :: [{String.t(), String.t(), boolean()}]
+  def agent_families, do: EndpointPolicy.families()
+
+  @doc false
+  @spec publish_shared_hold(map(), String.t(), String.t(), non_neg_integer()) :: :ok
+  def publish_shared_hold(request, key, resource, delay_ms),
+    do: Shared.publish_hold(request, key, resource, delay_ms)
+
+  defp do_acquire(request, key, python, opts, deadline_at) do
+    case Shared.hold_status(request, key) do
+      :clear -> do_local_acquire(request, key, python, opts, deadline_at)
+      {:held, reset_at} -> {:hold, %{reason: :shared_budget, resource: request_resource(request), reset_at: reset_at}}
+    end
+  end
+
+  defp do_local_acquire(request, key, python, opts, deadline_at) do
+    command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
+    command_fun = Keyword.get(opts, :acquire_command_fun, &BrokerPort.command/3)
+
+    case command_fun.(acquire_args(request, opts), key, command_opts) do
       {:ok, "granted " <> id} ->
-        grant_or_hold(String.trim(id), request, key)
+        grant_or_hold(String.trim(id), request, key, python, opts, deadline_at)
 
       {:ok, "wait actor " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :actor_budget)
 
       {:ok, "hold shared " <> metadata} ->
-        shared_hold(request, key, python, opts, deadline_at, metadata)
+        Shared.shared_hold(deadline_at, metadata, fn hold ->
+          request |> do_acquire(key, python, opts, deadline_at) |> keep_hold(hold)
+        end)
 
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
       # Deadline expiry differs from malformed output: Python startup can race the deadline under load, so
-      # callers may retry it (#2286). `:admission_closed` marks expiry at the admission deadline, not the per-command bound.
+      # callers may retry it (#2286). `:admission_closed` marks expiry at the admission deadline.
       {:error, :github_budget_broker_timeout} ->
-        if command_deadline_at == deadline_at, do: {:error, :admission_closed}, else: {:error, :github_budget_broker_timeout}
+        {:error, :admission_closed}
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
-    end
-  end
-
-  defp shared_hold(request, key, python, opts, deadline_at, metadata) do
-    with [resource, reset_at_ms] <- String.split(String.trim(metadata), " ", parts: 2),
-         true <- resource in ["core", "graphql", "search"],
-         {reset_at_ms, ""} when reset_at_ms > 0 <- Integer.parse(reset_at_ms),
-         {:ok, reset_at} <- DateTime.from_unix(reset_at_ms, :millisecond),
-         true <- reset_at_ms > System.system_time(:millisecond) do
-      delay_ms = reset_at_ms - System.system_time(:millisecond)
-
-      if System.monotonic_time(:millisecond) + delay_ms >= deadline_at do
-        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
-      else
-        Process.sleep(max(delay_ms, @retry_floor_ms))
-        request |> do_acquire(key, python, opts, deadline_at) |> keep_hold(%{reason: :shared_budget, resource: resource, reset_at: reset_at})
-      end
-    else
-      _invalid -> {:error, :github_budget_broker_unavailable}
     end
   end
 
@@ -323,11 +309,14 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  defp grant_or_hold(id, _request, key) do
-    if valid_lease_id?(id) do
-      {:ok, %{id: id, token_key: key}}
-    else
-      {:error, :github_budget_broker_unavailable}
+  defp grant_or_hold(id, request, key, python, opts, deadline_at) do
+    case Shared.grant_or_hold(id, request, key, opts) do
+      :retry_fallback ->
+        request
+        |> do_local_acquire(key, python, Keyword.put(opts, :fallback_only?, true), deadline_at)
+
+      result ->
+        result
     end
   end
 
@@ -352,7 +341,7 @@ defmodule Aiur.GitHub.Budget do
 
     with %{} = window <- CredentialHeadroom.window(key, resource),
          %{} = local <- local_usage(key, resource, opts) do
-      CredentialHeadroom.reconcile_budget_meter(key, resource, local, window, alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2))
+      CredentialHeadroom.reconcile_budget_meter(key, resource, local, window, alert_fun: Keyword.get_lazy(opts, :alert_fun, fn -> AccessSettings.current().alert_sink end))
     else
       _unavailable -> :ok
     end
@@ -366,7 +355,7 @@ defmodule Aiur.GitHub.Budget do
 
     case CredentialHeadroom.window(key, resource) do
       %{} = window ->
-        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2))
+        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get_lazy(opts, :alert_fun, fn -> AccessSettings.current().alert_sink end))
 
       _unavailable ->
         :ok
@@ -391,6 +380,10 @@ defmodule Aiur.GitHub.Budget do
   defp acquire_args(request, opts) do
     settings = Settings.settings(opts)
     {core_limit, graphql_limit, search_limit} = actor_limits(Settings.consumer_identity(opts), settings)
+
+    {core_limit, graphql_limit, search_limit} =
+      Shared.fallback_limits({core_limit, graphql_limit, search_limit}, opts)
+
     family = endpoint_family(request)
 
     # Endpoints GitHub does not meter (e.g. `/rate_limit`) are admitted for
@@ -425,7 +418,7 @@ defmodule Aiur.GitHub.Budget do
       Integer.to_string(graphql_limit),
       "--search-limit",
       Integer.to_string(search_limit)
-    ] ++ billable_args ++ priority_args(request)
+    ] ++ billable_args ++ Keyword.get(opts, :broker_extra_args, []) ++ priority_args(request)
   end
 
   # Main-watch (and the base-CI fixer it drives) may hold one lease above the in-flight caps so bulk
@@ -473,6 +466,7 @@ defmodule Aiur.GitHub.Budget do
       {:resource, delay} when is_binary(resource) ->
         ResponseLimits.log_resource_hold(resource, headers, request, delay)
         hold(key, :resource, resource, delay, opts)
+        Shared.publish_hold(request, key, resource, delay)
 
       {:resource, _delay} ->
         # The response names a rate-limit pool we do not model (GitHub also
@@ -483,6 +477,7 @@ defmodule Aiur.GitHub.Budget do
 
       {:token, delay} ->
         hold(key, :token, resource, delay, opts)
+        Shared.publish_hold(request, key, "*", delay)
 
       :none ->
         :ok
@@ -495,6 +490,4 @@ defmodule Aiur.GitHub.Budget do
       _missing -> opts
     end
   end
-
-  defp valid_lease_id?(id), do: String.match?(id, ~r/\A[a-f0-9]{32}\z/)
 end

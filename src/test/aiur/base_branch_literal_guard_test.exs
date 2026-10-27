@@ -16,6 +16,21 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|{"system.main.ci.unavailable", "attention:auto"},|,
       ~S|{"system.main.fixer.*", "attention:auto"},|
     ],
+    # Catalog rows describe these same fixed producer topics; they are not branch defaults.
+    "aiur/events/catalog/github_system_entries.ex" => [
+      ~S|{"system.main.ci.canary", "github-listeners"}|,
+      ~S|{"system.main.ci.failed", "github-listeners"}|,
+      ~S|{"system.main.ci.flake_rerun", "github-listeners"}|,
+      ~S|{"system.main.ci.flaked", "github-listeners"}|,
+      ~S|{"system.main.ci.unavailable", "github-listeners"}|,
+      ~S|{"system.main.fixer.dispatch_unavailable", "github-listeners"}|,
+      ~S|{"system.main.fixer.failed", "github-listeners"}|,
+      ~S|{"system.main.fixer.held", "github-listeners"}|,
+      ~S|{"system.main.fixer.needs_triage", "github-listeners"}|,
+      ~S|{"system.main.fixer.no_pr", "github-listeners"}|,
+      ~S|{"system.main.fixer.stalled", "github-listeners"}|
+    ],
+    "aiur/events/catalog/system_entries.ex" => [~S|{"system.main.ci.failed.resolved", "orchestration"}|],
     "aiur/main_watch.ex" => [
       ~S|Logger.warning("main-watch poll failed: #{inspect(reason)}")|,
       ~S|if Enum.any?(events, &(elem(&1, 0) == "system.main.ci.flaked")) do|,
@@ -50,7 +65,9 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
     "aiur/merge_policy_cli.ex" => [
       ~S|"MERGE POLICY ci=#{policy.ci} local_tests=#{policy.local_tests}#{labels(policy)} role=#{role} repo_global_off=#{disabled(role)} main_watch=#{watch(policy, role)} watcher=#{state.watcher}#{watch_error(state)} landing_watcher=#{landing.watcher}#{main(policy, state)}"|,
       ~S|defp labels(%{ci: "wait", full_ci_labels: ["main-fix"]}), do: ""|,
-      ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "")|,
+      ~S|"main=unavailable last_known=" <>|,
+      ~S|String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <>|,
+      ~S|"main=unavailable last_known=" <> String.replace_prefix(main_state(Map.delete(state, :unavailable), now_ms), "main=", "") <> runner_starvation(state)|,
       ~S|"main=red" <> observation(state, now_ms) <> since <> fixer|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> event_source(state) <> observation(state, now_ms)|,
       ~S|def main_state(%{status: :green} = state, now_ms), do: "main=green" <> observation(state, now_ms)|,

@@ -114,6 +114,8 @@ defmodule Aiur.Orchestrator.State.Owners do
     queue_store: :messaging,
     agent_totals: :accounting,
     agent_rate_limits: :accounting,
+    dashboard_notify_token: :accounting,
+    dashboard_notify_timer_ref: :accounting,
     codex_totals: :accounting,
     codex_rate_limits: :accounting
   }
@@ -151,6 +153,7 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.RetryEngine,
       Aiur.Orchestrator.Reconciler,
       Aiur.Orchestrator.AgentTeardown,
+      Aiur.Orchestrator.Cancellation,
       Aiur.Orchestrator.AutoResume,
       Aiur.Orchestrator.StartupClaimReconciler,
       Aiur.Orchestrator.OrphanedWorkers,

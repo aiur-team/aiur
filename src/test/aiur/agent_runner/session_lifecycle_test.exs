@@ -4,9 +4,35 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   alias Aiur.Accounts.UsageReadings
   alias Aiur.AgentRunner
   alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.AgentRunner.SessionOptions
   alias Aiur.CodingAgent
   alias Aiur.Issue
+  alias Aiur.SessionHandle
   alias Aiur.Workspace.Ownership
+
+  defmodule ResumeTestPort do
+    use GenServer
+
+    def start_link(_opts), do: GenServer.start_link(__MODULE__, nil)
+    @impl true
+    def init(state), do: {:ok, state}
+    @impl true
+    def handle_call(:metadata, _from, state), do: {:reply, %{}, state}
+    def handle_call(_request, _from, state), do: {:reply, :ok, state}
+    @impl true
+    def handle_cast(_request, state), do: {:noreply, state}
+  end
+
+  defmodule ResumeTestOrchestrator do
+    use GenServer
+
+    def start_link(_opts), do: GenServer.start_link(__MODULE__, nil)
+    @impl true
+    def init(state), do: {:ok, state}
+    @impl true
+    def handle_call({:claim_next_queue_item, _identifier}, _from, state), do: {:reply, :empty, state}
+    def handle_call(_request, _from, state), do: {:reply, :ok, state}
+  end
 
   describe "remote_session_backend/2" do
     test "maps remote-control claude to claude-repl and passes other cases through" do
@@ -41,7 +67,75 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
     end
   end
 
+  describe "fresh session continuation options" do
+    test "run_session passes abandoned-thread continuation options to the first turn" do
+      root = Aiur.TestSupport.tmp_root!("session-lifecycle-abandoned-thread")
+      workspace = Path.join(root, "workspace")
+      File.mkdir_p!(workspace)
+      on_exit(fn -> Aiur.TestCleanup.rm_rf!(root) end)
+
+      identifier = "SESSION-RESUME-#{System.unique_integer([:positive])}"
+      active_state = Enum.at(Aiur.Config.settings!().tracker.active_states, 0)
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier, state: active_state, selected_backend: "codex", labels: ["agent:#{active_state}"]}
+      handle_opts = [dir: Path.join(root, "session-handles"), hostname: "test-host", repo_name: "session-lifecycle-test"]
+      File.mkdir_p!(handle_opts[:dir])
+      :ok = SessionHandle.save(identifier, %{backend: "codex", thread_id: "abandoned"}, handle_opts)
+      :ok = SessionHandle.drop_thread(identifier, handle_opts)
+      on_exit(fn -> SessionHandle.clear(identifier, handle_opts) end)
+
+      port = start_supervised!(ResumeTestPort)
+      orchestrator = start_supervised!(ResumeTestOrchestrator)
+      parent = self()
+
+      result =
+        SessionLifecycle.run_session(
+          workspace,
+          issue,
+          self(),
+          [
+            orchestrator: orchestrator,
+            max_turns: 1,
+            session_handle_opts: handle_opts,
+            session_start_fun: fn session_workspace, _opts ->
+              {:ok, %{thread_id: "fresh", workspace: session_workspace, port: port}}
+            end,
+            run_turn: fn _session, prompt, _turn_issue, _turn_opts ->
+              send(parent, {:first_turn, prompt})
+              {:error, :test_finished}
+            end
+          ],
+          nil
+        )
+
+      assert {:error, :test_finished} = result
+      assert_received {:first_turn, prompt}
+      assert prompt =~ "previous agent thread was abandoned after it repeatedly lost its transport"
+    end
+  end
+
   describe "model resolution in resolve_session_options/3" do
+    test "deployment auth env contains only the selected backend credential" do
+      inherited = %{
+        "CLAUDE_CODE_OAUTH_TOKEN" => "subscription-token",
+        "ANTHROPIC_API_KEY" => "anthropic-key",
+        "OPENAI_API_KEY" => "openai-key",
+        "CODEX_HOME" => "/state/codex"
+      }
+
+      assert [{"CLAUDE_CODE_OAUTH_TOKEN", "subscription-token"}] =
+               SessionOptions.deployment_auth_env("claude", "operator", inherited)
+
+      assert [{"ANTHROPIC_API_KEY", "anthropic-key"}] =
+               SessionOptions.deployment_auth_env("claude", "consumer", inherited)
+
+      assert [{"CODEX_HOME", "/state/codex"}, {"OPENAI_API_KEY", "openai-key"}] =
+               SessionOptions.deployment_auth_env("codex", "consumer", inherited)
+
+      assert [] = SessionOptions.deployment_auth_env("codex", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "operator", inherited, false)
+      assert [] = SessionOptions.deployment_auth_env("claude", "consumer", inherited, false)
+    end
+
     test "a generic codex tag reaches the backend as the newest version in that family" do
       issue = %Issue{id: "issue-alias", identifier: "ALIAS", selected_backend: "codex", labels: ["model:codex-sol"]}
 

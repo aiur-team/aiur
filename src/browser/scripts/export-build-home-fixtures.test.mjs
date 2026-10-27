@@ -117,7 +117,7 @@ test('anchor must occur once', t => {
 });
 test('API usage literals still in build.js', () => {
   for (const row of API_ROWS) {
-    assert.ok(source.includes(`tag: "${row.tag}", pct: ${row.pct}, bar: bar([${row.pct}]), reset: "${row.reset}", win: "${row.win}"`));
+    assert.ok(source.includes(`api: true, tag: "${row.tag}", pct: ${row.pct}, bar: bar([${row.pct}], null, true), reset: "${row.reset}", win: "${row.win}"`));
     assert.ok(source.includes(`head: "${row.head}", rows: [["${row.rows[0][0]}", "${row.rows[0][1]}"]]`));
   }
 });

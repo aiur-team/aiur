@@ -40,6 +40,8 @@ defmodule VoiceConverse.Testing.FakeProvider do
 
   @impl true
   def preflight(spec) do
+    notify(spec, :preflight)
+
     case fake_opt(spec, :preflight_error) do
       nil -> :ok
       %Events.Error{} = error -> {:error, error}
@@ -48,12 +50,24 @@ defmodule VoiceConverse.Testing.FakeProvider do
 
   @impl true
   def open(%{owner: owner} = spec) when is_pid(owner) do
+    notify(spec, :open)
+    if observer = fake_opt(spec, :open_observer), do: send(observer, {:fake_provider, :open_spec, spec})
+
     case fake_opt(spec, :open_error) do
       %Events.Error{} = error ->
         {:error, error}
 
       nil ->
-        {:ok, ref} = Agent.start_link(fn -> %{owner: owner, calls: []} end)
+        {:ok, ref} =
+          Agent.start_link(fn ->
+            %{
+              owner: owner,
+              calls: [],
+              call_observer: fake_opt(spec, :call_observer),
+              tool_result_observer: fake_opt(spec, :tool_result_observer)
+            }
+          end)
+
         Enum.each(fake_opt(spec, :script) || [], &emit(ref, &1))
         {:ok, ref}
     end
@@ -69,7 +83,22 @@ defmodule VoiceConverse.Testing.FakeProvider do
   def send_user_text(ref, text), do: record(ref, {:send_user_text, text})
 
   @impl true
-  def tool_result(ref, call_id, result), do: record(ref, {:tool_result, call_id, result})
+  def tool_result(ref, call_id, result) do
+    record(ref, {:tool_result, call_id, result})
+
+    if observer = Agent.get(ref, & &1.call_observer),
+      do: send(observer, {:fake_provider, :tool_result, call_id, result})
+
+    if observer = Agent.get(ref, & &1.tool_result_observer) do
+      send(observer, {:fake_provider, :tool_result_before_return, self(), call_id, result})
+
+      receive do
+        {:continue_tool_result, ^call_id} -> :ok
+      end
+    end
+
+    :ok
+  end
 
   @impl true
   def announce(ref, text, opts), do: record(ref, {:announce, text, opts})
@@ -116,6 +145,10 @@ defmodule VoiceConverse.Testing.FakeProvider do
   defp record(ref, call), do: Agent.update(ref, &%{&1 | calls: [call | &1.calls]})
 
   defp fake_opt(spec, key), do: spec |> Map.get(:fake, []) |> Keyword.get(key)
+
+  defp notify(spec, event) do
+    if observer = fake_opt(spec, :observer), do: send(observer, {:fake_provider, event})
+  end
 
   @word_ms 250
 

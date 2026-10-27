@@ -1,7 +1,8 @@
 defmodule AiurWeb.Build.NowRowsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
+  alias Aiur.PollCadence
   alias Aiur.TrackerIdentity
-  alias AiurWeb.Build.{NowRows, Payload}
+  alias AiurWeb.Build.{Freshness, NowRows, Payload}
   @repo {"owner", "repo"}
   @time "2026-10-07T21:20:00Z"
   @ms 1_791_408_000_000
@@ -40,6 +41,16 @@ defmodule AiurWeb.Build.NowRowsTest do
     assert retrying.status == "queued"
     assert facts(row(%{reasons: %{waiting: :waiting_for_human}})).agent.state == "paused-decision"
     assert facts(row(%{runtime: %{bucket: :running, work_state: :starting}})).agent.state == "active"
+  end
+
+  test "starting row still labelled todo renders queued and is excluded from Now membership" do
+    starting = row(%{runtime: %{bucket: :running, work_state: :starting}})
+
+    projected = NowRows.build(catalog([starting]), repository: @repo, todo_ids: MapSet.new(["1"]))
+    assert projected.rows == %{}
+
+    unlabelled = NowRows.build(catalog([starting]), repository: @repo, todo_ids: MapSet.new())
+    assert unlabelled.rows["1"].agent.state == "active"
   end
 
   test "parked reasons use the orchestrator predicate; cooperative pauses stay paused" do
@@ -130,15 +141,35 @@ defmodule AiurWeb.Build.NowRowsTest do
   end
 
   test "empty, unavailable, stale and truncated catalogs preserve source truth" do
+    on_exit(&PollCadence.forget_effective_interval_ms/0)
+    :ok = PollCadence.publish_effective_interval_ms(120_000)
+    assert Freshness.snapshot_tolerance_ms() == 240_000
+
     empty = NowRows.build(catalog([], :empty), repository: @repo)
-    assert empty == %{rows: %{}, source: %{state: "ok", observed_at: @ms, reason: nil}}
+
+    assert empty == %{
+             rows: %{},
+             source: %{
+               state: "ok",
+               observed_at: @ms,
+               reason: nil,
+               stale_after_ms: 240_000
+             }
+           }
 
     assert NowRows.build(catalog([row()], :unavailable), repository: @repo) ==
              %{rows: %{}, source: %{state: "unavailable", observed_at: nil, reason: "fleet_unavailable"}}
 
     stale = NowRows.build(catalog([row()], :stale), repository: @repo)
     assert map_size(stale.rows) == 1
-    assert stale.source == %{state: "stale", observed_at: @ms, reason: "fleet_stale"}
+
+    assert stale.source == %{
+             state: "stale",
+             observed_at: @ms,
+             reason: "fleet_stale",
+             stale_after_ms: 240_000
+           }
+
     assert NowRows.build(Map.put(catalog([]), :truncated?, true), repository: @repo).source.reason == "membership_truncated"
 
     for freshness <- [%{status: :unknown}, %{status: %{observed_at: "garbage"}}, %{}] do

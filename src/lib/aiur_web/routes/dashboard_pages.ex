@@ -5,7 +5,7 @@ defmodule AiurWeb.Routes.DashboardPages do
   defmacro static_assets do
     quote do
       scope "/" do
-        pipe_through([:dashboard_auth, :dashboard_pages])
+        pipe_through([:browser_dashboard_auth, :dashboard_pages])
 
         get("/dashboard.css", AiurWeb.StaticAssetController, :dashboard_css)
         get("/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook)
@@ -31,28 +31,29 @@ defmodule AiurWeb.Routes.DashboardPages do
   defmacro pages do
     quote do
       scope "/" do
-        pipe_through([:dashboard_auth, :dashboard_pages, :browser])
+        pipe_through([:browser_dashboard_auth, :dashboard_pages, :browser])
 
         get("/chat/:owner/:repository/:identifier", AiurWeb.ChatRedirectController, :show)
         get("/decisions", AiurWeb.CommandsRedirectController, :legacy)
         get("/decisions/:decision_id", AiurWeb.CommandsRedirectController, :legacy)
+        get("/build-orders", AiurWeb.BuildOrderRedirectController, :catalog)
+        get("/build-orders/:root_number", AiurWeb.BuildOrderRedirectController, :root)
 
         live_session :dashboard, on_mount: [AiurWeb.DashboardPagesGate, AiurWeb.FinancialDataAccess] do
           live("/", AiurWeb.BuildLive, :build)
           live("/units", AiurWeb.DashboardLive, :index)
           live("/commands", AiurWeb.DashboardLive, :decisions)
           live("/commands/:decision_id", AiurWeb.DashboardLive, :decision)
-          live("/build-orders", AiurWeb.BuildOrderLive, :build_orders)
-          live("/build-orders/:root_number", AiurWeb.BuildOrderLive, :build_order)
           live("/build", AiurWeb.BuildLive, :build)
           live("/analytics", AiurWeb.AnalyticsLive, :analytics)
+          live("/instances", AiurWeb.InstanceRosterLive, :instances)
           live("/post-deploy", AiurWeb.PostDeployLive, :index)
           live("/streamdeck", AiurWeb.StreamdeckLive, :streamdeck)
         end
       end
 
       scope "/" do
-        pipe_through([:dashboard_auth, :dashboard_pages, :secure_document])
+        pipe_through([:browser_dashboard_auth, :dashboard_pages, :secure_document])
 
         get("/build-order-documents/:owner/:repository/:root_number/:member_number", AiurWeb.PlanningDocumentController, :show)
       end

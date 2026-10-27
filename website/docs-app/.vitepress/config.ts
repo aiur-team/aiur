@@ -129,14 +129,20 @@ export default withMermaid(defineConfig({
           items: [
             { text: 'Overview', link: '/' },
             { text: 'Quick start', link: '/guide/quick-start' },
-            { text: 'Accounts by backend', link: '/guide/claude-accounts' }
+            { text: 'Accounts by backend', link: '/guide/claude-accounts' },
+            { text: 'Railway deployments', link: '/guide/railway' }
           ]
         },
         {
           text: 'Interfaces',
           items: [
             { text: 'TUI', link: '/guide/tui' },
-            { text: 'CLI', link: '/reference/cli' },
+            { text: 'CLI', link: '/reference/cli', collapsed: true, items: [
+              { text: 'Launch and setup', link: '/reference/cli-launch' },
+              { text: 'Operations', link: '/reference/cli-operations' },
+              { text: 'Decisions and Executor events', link: '/reference/cli-decisions' },
+              { text: 'Development commands', link: '/reference/cli-development' }
+            ] },
             { text: 'Build History Commands', link: '/reference/build-history-commands' },
             { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
@@ -174,6 +180,7 @@ export default withMermaid(defineConfig({
             { text: 'GitHub webhooks', link: '/apis/github-webhooks' },
             { text: 'GitHub credentials', link: '/apis/github-auth' },
             { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
+            { text: 'Standalone gh-access', link: '/apis/gh-access' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
             { text: 'ElevenLabs', link: '/apis/elevenlabs' }
           ]
@@ -181,7 +188,11 @@ export default withMermaid(defineConfig({
         {
           text: 'Reference',
           items: [
-            { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Configuration', link: '/reference/configuration', collapsed: true, items: [
+              { text: 'Daemon', link: '/reference/configuration-daemon' },
+              { text: 'Tracker and polling', link: '/reference/configuration-tracker' },
+              { text: 'Integrations', link: '/reference/configuration-integrations' }
+            ] },
             { text: 'Configuration: agent', link: '/reference/configuration-agent' },
             { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
             { text: 'Configuration: voice', link: '/reference/configuration-voice' },
@@ -189,7 +200,8 @@ export default withMermaid(defineConfig({
             { text: 'Merge Policy', link: '/reference/merge-policy' },
             { text: 'PR checks', link: '/reference/pr-checks' },
             { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
-            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
+            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' },
+            { text: 'Components', link: '/reference/components' }
           ]
         }
       ]

@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   import Aiur.Orchestrator.OperatorMessages.Capabilities, only: [issue_control_capabilities: 2]
   import Aiur.Orchestrator.OperatorMessages.Enqueue, only: [enqueue_event_digest_item: 4, enqueue_event_digest_item: 5, enqueue_operator_message: 4, enqueue_operator_message: 5]
 
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, Alerts, Commands, OperatorWaitLog, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, Commands, OperatorWaitLog, Signal, TrackerIdentity}
   alias Aiur.Orchestrator.{AutoSubscriptions, DigestCoalescer, LifecycleFence, State}
 
   @spec enqueue_event_digest_call(State.t(), String.t(), map(), keyword()) ::
@@ -347,7 +347,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
       if LifecycleFence.protected_item?(state, item) do
         identifier = item.target_issue_identifier
 
-        Alerts.emit_system("ticket.#{identifier}.agent.provider_delivery_failed",
+        Signal.alert("ticket.#{identifier}.agent.provider_delivery_failed",
           issue: identifier,
           reason: "Authoritative input request #{item.id} failed before provider acknowledgement and still fences lifecycle handoff: #{inspect(reason)}.",
           needs_attention: true,

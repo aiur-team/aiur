@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
   @moduledoc false
 
-  alias Aiur.GitHub.{CIRecovery, Client, Errors, FailureEvidence, Transport}
+  alias Aiur.GitHub.{Access, CIRecovery, Client, FailureEvidence}
 
   require Logger
 
@@ -9,19 +9,65 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
 
   @spec test_paths(binary()) :: [String.t()]
   def test_paths(log) when is_binary(log) do
-    Regex.scan(
-      ~r/^\s*\d+\)\s+test .+\([^)]+\)\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
-      log,
-      capture: :all_but_first
-    )
-    |> List.flatten()
-    |> Enum.map(&normalize_test_path/1)
-    |> Enum.uniq()
+    log = strip_actions_timestamps(log)
+
+    exunit_paths =
+      Regex.scan(
+        ~r/^\s*\d+\)\s+test .+\([^)]+\)\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
+        log,
+        capture: :all_but_first
+      )
+      |> List.flatten()
+      |> Enum.map(&normalize_test_path/1)
+
+    browser_paths = browser_spec_paths(log)
+
+    Enum.uniq(exunit_paths ++ browser_paths)
+  end
+
+  @spec test_identities(binary()) :: [String.t()]
+  def test_identities(log) when is_binary(log) do
+    log = strip_actions_timestamps(log)
+
+    exunit_identities =
+      Regex.scan(
+        ~r/^\s*\d+\)\s+(test .+\([^)]+\))\r?\n\s+((?:src\/)?test\/[\w.\/-]+_test\.exs):\d+(?::\d+)?/m,
+        log,
+        capture: :all_but_first
+      )
+      |> Enum.map(fn [name, path] -> "#{name} :: #{normalize_test_path(path)}" end)
+
+    browser_identities = Enum.map(browser_spec_paths(log), &"BrowserSpec :: #{&1}")
+
+    Enum.uniq(exunit_identities ++ browser_identities)
   end
 
   @spec normalize_test_path(String.t()) :: String.t()
   def normalize_test_path("test/" <> _ = path), do: "src/" <> path
   def normalize_test_path(path), do: path
+
+  defp browser_spec_paths(log) do
+    annotations =
+      Regex.scan(~r/BrowserSpec\s*::\s*((?:src\/)?browser\/tests\/[^\r\n]+?\.spec\.mjs)(?=\s|$)/, log, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.map(&normalize_browser_path/1)
+
+    playwright =
+      Regex.scan(
+        ~r/^\s*\d+\)\s+(?:\[[^\]\r\n]+\]\s*›\s*)?tests\/(.+?\.spec\.mjs):\d+:\d+\s+›/m,
+        log,
+        capture: :all_but_first
+      )
+      |> List.flatten()
+      |> Enum.map(&"src/browser/tests/#{&1}")
+
+    Enum.uniq(annotations ++ playwright)
+  end
+
+  defp strip_actions_timestamps(log), do: Regex.replace(~r/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /m, log, "")
+
+  defp normalize_browser_path("browser/tests/" <> _ = path), do: "src/" <> path
+  defp normalize_browser_path(path), do: path
 
   @spec recent_main_paths(binary(), keyword()) :: {:ok, [String.t()]} | {:error, term()}
   def recent_main_paths(base, opts) do
@@ -36,13 +82,13 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
   end
 
   defp fetch_recent_main_failure_paths(base, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
       since = Keyword.get(opts, :now_ms, System.system_time(:millisecond)) - 24 * 60 * 60_000
       created = DateTime.from_unix!(since, :millisecond) |> DateTime.to_iso8601()
 
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
           URI.encode_query(%{
             branch: base,
             event: "push",
@@ -51,7 +97,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
             per_page: 100
           })
 
-      request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
       with {:ok, runs} <- read_pages(request, token, url, [], 0) do
         {:ok, Enum.flat_map(runs, &failed_main_run_paths(&1, opts)) |> Enum.uniq()}
@@ -203,16 +249,16 @@ defmodule Aiur.LandingWatch.MergeGroupFailureEvidence do
            caller: "landing_watch_merge_group_runs"
          }) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
           nil -> {:ok, acc ++ runs}
           next -> read_pages(request, token, next, acc ++ runs, page + 1)
         end
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 end

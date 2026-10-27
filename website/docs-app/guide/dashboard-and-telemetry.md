@@ -39,11 +39,38 @@ some members have current facts, it shows the percentage derived from those
 members and labels how many inputs are current. Expected post-restart catch-up
 is marked as still settling; an unhealthy refresh is marked as degraded.
 
+### Build timeline filters
+
+Select a Feature filter or open `/?feature=<slug>` to show its whole-feature
+Done, Weighted, and scope figures. Unknown figures show `—` with a reason on
+hover.
+
+Focus dims unrelated tickets; Compact replaces unrelated runs with gap
+markers and retains loaded dependencies as dashed ghost cards. Earlier history
+loads back to the feature’s oldest closed member. Clear the feature with ×.
+
+
+The Build toolbar filters by Epic, Feature, Model, Ticket and Agent. Options in one group combine with OR; groups combine with AND. Filters are saved in the URL.
+
+Epic hides other tickets and lays out the board again; other groups dim nonmatching cards. In List view, Feature focus dims unrelated rows; the other filters remove nonmatching rows.
+
+Tickets closed as not planned are hidden by default. Choose **Not planned** in the Ticket group to show them. **Clear** restores the default view. Escape closes a filter popover and returns focus to its button.
+
 ### Build timeline range
 
 On the build timeline, Day, Week and Month set the visible range; − and + step
 through 1–30 days. The span is kept in the link. Range controls are hidden in
 List view and return when you switch to Timeline or Gantt.
+
+In List view, **List shows** switches between Tickets, Features and Epics. The
+selection is kept in the `list` link parameter; `tickets` is the default and
+omitted.
+
+The Features list shows closed, published-open, and planned-not-published
+segments for each feature. Percentages use closed tickets divided by the full
+planned feature total. Unavailable counts show `—` with a reason; incomplete
+history does not appear as zero progress. Each row opens the existing feature
+focus in Tickets view.
 
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
@@ -57,9 +84,21 @@ Clicking a dependency arrow locks its chain on touch screens too. Escape closes
 the tree, then releases the lock. Links outside the loaded board are counted;
 “links not yet known” means the dependency index is incomplete.
 
+### Shared provider usage
+
+The Units Models panel shows provider usage from the shared provider read model. Each row carries its observation age in the tooltip and freshness; stale observations are marked inline and unknown readings stay unknown.
+
+Authenticated `GET /api/v1/usage` returns the same versioned envelope as `aiur usage`, while `/api/v1/usage/<provider>` reads one provider. The existing `/api/v1/usage/accounts` route remains available for account details.
+
+With `netlify.enabled`, the dashboard shows estimated credits, runway and age.
+It subtracts deploy and bandwidth burn from the latest audit balance anchor, so
+actual use varies. Missing anchors are unavailable. Read it with
+`aiur usage netlify` or authenticated `GET /api/v1/usage/netlify`; set
+`NETLIFY_AUTH_TOKEN` and `netlify.account_id` to enable polling.
+
 ### Shared GitHub quota
 
-GitHub-backed runs meter the shared agent credential's core and GraphQL budgets in the dashboard, including remaining units, reset times, rolling read/write attribution, and the top ticket consumer. Aiur raises an Executor alert at 10% remaining and pauses new dispatch until the affected window resets.
+GitHub-backed runs meter the shared credential's core and GraphQL budgets, with reset times, read/write attribution, and top ticket consumer. API and model bars show the share remaining: full is 100% left, empty is unusable until reset. Labels match the bar and warning colours appear near empty. Aiur alerts at 10% remaining and pauses dispatch until reset.
 
 `aiur alerts` reports aged open attentions in `archived_count` instead of listing them. When that count is non-zero, use `aiur alerts --needs-attention --all` to include archived items in the output.
 
@@ -114,9 +153,67 @@ decisions:
 
 See the [OCC-7 supervisor Decision API contract](https://github.com/aiur-team/aiur/blob/main/docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md) for routes, payloads, retry semantics, and audit guarantees.
 
+### Status API contracts
+
+The operational status responses have stable v1 envelopes. `GET /api/v1/state`
+returns `contract: "aiur.status"`; `GET /api/v1/<ticket>` returns
+`contract: "aiur.ticket"`; and `aiur agents --json` returns
+`contract: "aiur.agents"`. Each includes `contract_version: 1`.
+
+Their draft 2020-12 schemas and generated TypeScript types (`FleetStatus`,
+`TicketStatus`, and `AgentsStatus`) are in `@aiur/contracts`. Version 1 permits
+additive fields; clients should ignore fields they do not recognize. A breaking
+shape change uses a new contract version and schema beside v1.
+
+### Ticket cancellation API
+
+`POST /api/v1/<issue_identifier>/cancel` cancels exactly one running ticket and
+waits a bounded time for both its selected runner and tracked OS process or
+process group to exit. It uses dashboard
+Basic Auth and the normal API-write protections: writable dashboard mode, an
+accepted `Origin`, and `X-Aiur-Request: 1`.
+
+A `200` response always carries `contract: "aiur.ticket_cancel"`,
+`contract_version: 1`, `tracker_state: "cancelled"`, and a `process` object with
+an opaque `handle`, `status: "exited"`, bounded `exit_status` (`normal`,
+`shutdown`, `killed`, `noproc`, or `unknown`), `exited_at`, and
+`observed_at`.
+
+The schema and generated `TicketCancel` type are in `@aiur/contracts`.
+
+Changing the tracker state alone is not success. If the selected process does
+not exit before the bound, the same versioned body returns with `409` and
+`process.status` set to `still_running` or `kill_failed`; both exit fields are
+`null`.
+
+The tracker remains cancelled, and Aiur schedules another bounded shell
+cleanup attempt; a later runner exit is terminal and is never retried as agent
+work.
+
+A replacement agent generation produces `generation_changed` without
+stopping the replacement. An ambiguous identifier also returns `409` before
+any tracker or process mutation.
+
+Precondition and tracker failures use the standard
+`{"error":{"code":…,"message":…}}` envelope and never claim process-exit
+evidence.
+
+| HTTP | Code or body | Meaning |
+| --- | --- | --- |
+| `200` | versioned cancel result | The named process exited. |
+| `404` | `issue_not_found` | The named ticket does not exist in the current tracker snapshot. |
+| `409` | versioned cancel result | The process did not exit, or its generation changed. |
+| `409` | `agent_not_running`, `ambiguous_identifier` | No unique running process can be selected. |
+| `422` | `invalid_identifier` | The identifier is invalid. |
+| `503` | `orchestrator_unavailable`, `cancel_failed` | Cancellation could not be completed or confirmed. |
+| `405` | `method_not_allowed` | The cancellation route only accepts `POST`. |
+
 ### Per-ticket usage API
 
-`GET /api/v1/<ticket>/usage` returns one ticket's model usage as versioned JSON (`schema_version: 1`). It uses the dashboard Basic Auth of `/api/v1/state` and sends `Cache-Control: no-store`.
+`GET /api/v1/<ticket>/usage` returns versioned JSON with
+`contract: "aiur.ticket_usage"` and `contract_version: 1`. Its schema and generated
+`TicketUsage` type are in `@aiur/contracts`. The endpoint retains `schema_version: 1`,
+uses the same Basic Auth as `/api/v1/state`, and sends `Cache-Control: no-store`.
 
 `<ticket>` is a GitHub issue number in the configured repository. The usage ledger resolves it to the ticket's tracker identity.
 
@@ -139,7 +236,29 @@ Errors use the `{"error":{"code":…,"message":…}}` shape.
 | `422` | `invalid_identifier` | The identifier is not a GitHub issue number. |
 | `503` | `usage_unavailable` | The ledger, aggregate, or configured repository cannot be read. |
 
-`aiur ticket-usage <ticket> --json` prints the same payload.
+The deprecated `aiur ticket-usage <ticket> --json` command keeps its per-ticket ledger report. `aiur usage ticket` is the aggregate provider snapshot, not a per-ticket report.
+
+### Per-ticket spend caps
+
+`PUT /api/v1/<ticket>/spend-cap` with `{"amount":"1.25","currency":"USD"}` sets an exact USD cap for one GitHub issue. `GET` reads it and `DELETE` clears it.
+
+Reads and writes use the repository-qualified tracker identity, so a same-numbered issue in another repository never shares the cap or spend. Writes require dashboard authentication, the normal same-origin `X-Aiur-Request: 1` protection, and a writable dashboard.
+
+The read payload uses `contract: "aiur.ticket_spend_cap"` and `contract_version: 1`. It reports decimal-string `cap_amount`, known `spent_amount`, non-negative `remaining_amount`, pricing coverage and authority, and effect status.
+
+Spend is the known USD API-equivalent amount from the same usage aggregate as the usage API. With partial pricing coverage, enforcement continues against known spend, the read payload reports `coverage.status: "partial"`, and Aiur opens an operator attention.
+
+Unknown cost is never turned into zero, so the cap is not a guaranteed hard ceiling until coverage becomes complete.
+
+If the authoritative aggregate is unavailable, the cap reads as unavailable and dispatch stays closed until Aiur can enforce the cap again. Aiur does not stop an already-running agent merely because accounting became unavailable.
+
+There is no cap-specific grace timer for that case; the configured turn, duration, and no-op limits remain the bounds until accounting recovers.
+
+When known spend reaches the cap, Aiur persists `state` and `end_state` as `budget_exhausted` before stopping that ticket's agent. It then publishes `ticket.<id>.usage.spend_cap_reached` with contract `aiur.ticket_spend_cap_reached` version 1 and transitions the ticket to terminal state `agent:budget-exhausted`.
+
+The persisted exhaustion fence prevents redispatch while those effects complete or retry. An exhausted cap cannot be raised to restart work, and it cannot be cleared until the terminal tracker transition succeeds. Clearing it later does not reopen the closed ticket.
+
+The TypeScript types, JSON Schemas, and golden fixtures for both payloads live in `@aiur/contracts` as `TicketSpendCap` and `TicketSpendCapReached`.
 
 ### Ticket progress API
 
@@ -157,7 +276,8 @@ phase, latest progress reading and its progress events.
 The endpoint is read-only, uses the same dashboard Basic auth as
 `/api/v1/state`, and sends `Cache-Control: no-store`. The response carries
 `contract: "aiur.ticket_progress"` and `contract_version: 1`. A missing or
-unreadable event log reads as an empty `events` list.
+unreadable event log reads as an empty `events` list. Its schema and generated
+`TicketProgress` type are in `@aiur/contracts`.
 
 An unknown or inactive ticket answers `200` with `unknown` fields and an empty
 `events` list; it is never reported as idle or 0%. A malformed identifier or

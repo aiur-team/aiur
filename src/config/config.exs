@@ -19,6 +19,7 @@ config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
+config :aiur, Aiur.Events.InstanceId, Aiur.Identity
 
 config :aiur, :signal,
   alert_sink: Aiur.Alerts,
@@ -103,7 +104,11 @@ config :aiur, :config_semantic_checks,
     Aiur.Tracker.SemanticCheck.Settings,
     Aiur.Claude.Config.SemanticCheck
   ],
-  always: [Aiur.Config.Schema.TurnSandboxPolicyCheck, Aiur.Opencode.Config.SemanticCheck]
+  always: [
+    Aiur.Orchestrator.HostedModeCheck,
+    Aiur.Config.Schema.TurnSandboxPolicyCheck,
+    Aiur.Opencode.Config.SemanticCheck
+  ]
 
 config :phoenix, :json_library, Jason
 

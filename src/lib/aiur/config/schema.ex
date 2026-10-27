@@ -15,6 +15,7 @@ defmodule Aiur.Config.Schema do
     BuildQueue,
     Codex,
     Compaction,
+    DashboardAuth,
     Decisions,
     ElevenLabs,
     EnvResolver,
@@ -26,6 +27,7 @@ defmodule Aiur.Config.Schema do
     Instance,
     MergePolicy,
     Monitoring,
+    Netlify,
     Observability,
     Opencode,
     Polling,
@@ -35,6 +37,7 @@ defmodule Aiur.Config.Schema do
     Server,
     Tracker,
     Upgrade,
+    Usage,
     Voice,
     Webhooks,
     Worker,
@@ -43,9 +46,11 @@ defmodule Aiur.Config.Schema do
 
   # Embedded struct defaults must rebuild when their nested schemas change.
   require Agent
+  require Decisions
   require Instance
   require Tracker
   require BuildQueue
+  require Events
   require Experiments
   require Voice
   require Workspace
@@ -94,6 +99,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:monitoring, Monitoring, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:dashboard_auth, DashboardAuth, on_replace: :update, defaults_to_struct: true)
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:experiments, Experiments, on_replace: :update, defaults_to_struct: true)
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
@@ -108,6 +114,8 @@ defmodule Aiur.Config.Schema do
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
     embeds_one(:voice, Voice, on_replace: :update, defaults_to_struct: true)
     embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:usage, Usage, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:netlify, Netlify, on_replace: :update, defaults_to_struct: true)
     # Keep the Executor sweep settings in the same parsed settings snapshot.
     embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
   end
@@ -234,6 +242,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:monitoring, with: &Monitoring.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
+    |> cast_embed(:dashboard_auth, with: &DashboardAuth.changeset/2)
     |> cast_embed(:opencode, with: &Opencode.changeset/2)
     |> cast_embed(:experiments, with: &Experiments.changeset/2)
     |> cast_embed(:events, with: &Events.changeset/2)
@@ -247,6 +256,8 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
     |> cast_embed(:voice, with: &Voice.changeset/2)
     |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
+    |> cast_embed(:usage, with: &Usage.changeset/2)
+    |> cast_embed(:netlify, with: &Netlify.changeset/2)
   end
 
   # Ecto's integer cast truncates a float (1.5 -> 1) and coerces a numeric

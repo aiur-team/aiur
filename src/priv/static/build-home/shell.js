@@ -1,5 +1,6 @@
 import { ctx, S, fx, rmOn, isVisible } from './state.js';
 import { $ } from './dom.js';
+import { wireA11y } from './a11y.js';
 
 export function syncSB() {
   const { vp, root } = ctx, sb = $('#bd-sb', root), th = $('i', sb);
@@ -17,6 +18,7 @@ export function shell() {
   }
   const sb = $('#bd-sb', root), th = $(':scope > i', sb), vp = ctx.vp = $('#bd-vp', root);
   if (!th) return fail('bd-sb > i');
+  wireA11y();
   function fail(id) {
     console.error('BuildHome missing host: ' + id);
     root.dataset.buildHomeHook = 'failed';
@@ -54,6 +56,7 @@ export function shell() {
   });
   life.on(document, 'keydown', e => {
     if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('#tk-backdrop.show')) return;
+    if (S.pop) { const g = S.pop; S.pop = null; fx.renderFilters(); $('[data-g="' + g + '"]', root)?.focus(); return; }
     if (!$('#bd-tree', root).hidden) fx.closeTree(); else if (ctx.lockId) fx.unlock();
   }, { capture: true });
   life.on(vp, 'scroll', () => {

@@ -5,9 +5,8 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   alias Aiur.Alerts
   alias Aiur.CurrentRunMembership
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{Access, Config}
   alias Aiur.GitHub.Issues, as: GitHubIssues
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake.MergeAudit
   alias Aiur.Orchestrator.Dispatcher
@@ -23,6 +22,8 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Orchestrator.WorkspaceCleanup
   alias Aiur.RecentMerge
+  alias Aiur.RecentMergeStore
+  alias Aiur.Signal
 
   @non_closing_merge_state "needs-triage"
   @max_closing_refreshes 10
@@ -164,7 +165,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
         {:error, _reason} = error -> error
       end
     else
-      if identifier in RecentMerge.referenced_issue_identifiers_in_body(Keyword.get(opts, :pr_body), merge_repository(opts)), do: @non_closing_merge_state, else: "human-review"
+      if identifier in merge_linked_identifiers(opts), do: @non_closing_merge_state, else: "human-review"
     end
   end
 
@@ -185,8 +186,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   # prevent.
   defp merged_pr_closes_ticket?(identifier, opts) do
     identifier = to_string(identifier)
-    body = Keyword.get(opts, :pr_body)
-    closes? = identifier in RecentMerge.closing_issue_identifiers_in_body(body, merge_repository(opts))
+    closes? = identifier in merge_closing_identifiers(opts)
 
     unless closes? do
       Logger.info(
@@ -196,6 +196,22 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
     end
 
     closes?
+  end
+
+  defp merge_linked_identifiers(opts) do
+    RecentMerge.linked_issue_identifiers(
+      struct(RecentMerge,
+        summary: Keyword.get(opts, :pr_body),
+        repository: merge_repository(opts),
+        commit_messages: Keyword.get(opts, :commit_messages, [])
+      )
+    )
+  end
+
+  defp merge_closing_identifiers(opts) do
+    body_ids = RecentMerge.closing_issue_identifiers_in_body(Keyword.get(opts, :pr_body), merge_repository(opts))
+    commit_ids = Enum.flat_map(Keyword.get(opts, :commit_messages, []), &RecentMerge.closing_issue_identifiers_in_body(&1, merge_repository(opts)))
+    Enum.uniq(body_ids ++ commit_ids)
   end
 
   defp merge_repository(opts) do
@@ -214,13 +230,13 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   defp emit_merge_alert(name, opts) do
     {message, alert_opts} = Keyword.pop!(opts, :message)
-    Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+    Signal.agent_alert(name, message, Keyword.put(alert_opts, :event_source, :system))
   end
 
   defp emit_merge_terminal_write_failed_alert(identifier, reason) do
     reason = MergeTransition.reason_name(reason)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
       "Merged PR could not transition ticket #{identifier} to done (#{reason}).",
       issue: identifier,
@@ -355,14 +371,23 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   defp write_merged_issue_target({emit_alert_fun, identifier, merged_by_login, merger_allowed_fun, opts, update_issue_state_fun}) do
     target =
-      LocalHold.run(
+      Access.with_transient_retry(
         fn -> merged_issue_target_state(identifier, opts) end,
-        LocalHold.caller_opts(opts)
+        Access.transient_retry_opts(opts)
       )
 
     {target, result} =
       if target == @non_closing_merge_state do
-        {target, :ok}
+        comment = "PR #{Keyword.get(opts, :pr_number, "?")} referencing this ticket merged (#{Keyword.get(opts, :pr_url, "unknown PR")})."
+
+        write_comment =
+          Keyword.get(opts, :create_comment_fun, fn id, body ->
+            TicketTransition.write_comment(id, body, writer: :merged_ticket_reconciler, tracker: Keyword.get(opts, :tracker, Aiur.Tracker))
+          end)
+
+        result = write_comment.(identifier, comment)
+        result = if result == :ok, do: mark_reference_merge_seen(identifier, opts), else: result
+        {target, result}
       else
         target
         |> then(&MergeTransition.write_terminal_target(&1, identifier, update_issue_state_fun, opts))
@@ -374,6 +399,18 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
     MergeAudit.audit_merge_attribution(identifier, MergeAttribution.resolve(merged_by_login, opts), merger_allowed_fun, emit_alert_fun)
     refresh_other_closed_issues(identifier, opts)
     {target, result}
+  end
+
+  defp mark_reference_merge_seen(identifier, opts) do
+    with number when is_integer(number) <- opts[:pr_number],
+         repo when is_binary(repo) <- merge_repository(opts),
+         :ok <- RecentMergeStore.mark_ticket_reconciled("#{repo}##{number}", to_string(identifier)) do
+      :ok
+    else
+      {:error, :merge_not_found} -> :ok
+      {:error, _reason} = error -> error
+      _other -> :ok
+    end
   end
 
   defp apply_merged_issue_target(

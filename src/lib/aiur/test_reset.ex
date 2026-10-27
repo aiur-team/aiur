@@ -1,7 +1,7 @@
 defmodule Aiur.TestReset do
   @moduledoc """
   Implements the `aiur --test` reset workflow for the 3-ticket events
-  sandbox. Four required safety guards:
+  sandbox. Five required safety guards:
 
     1. **Pinned ticket IDs** — every action gated on
        `.aiur-test-tickets.json#tickets`. If empty, abort with a clear
@@ -11,7 +11,9 @@ defmodule Aiur.TestReset do
     3. **Expected remote** — `git remote get-url origin` must match
        `expected_remote` in the tickets file; `--allow-remote`
        overrides.
-    4. **Dry-run by default** — without `--confirm`, prints the plan
+    4. **Hosted isolation** — `--allow-remote` is always refused when
+       `instance.mode` is `hosted`.
+    5. **Dry-run by default** — without `--confirm`, prints the plan
        and exits 0.
 
   ## What it does
@@ -35,8 +37,9 @@ defmodule Aiur.TestReset do
 
   require Logger
 
-  alias Aiur.GitHub.HostCommand
+  alias Aiur.GitHub.Access
   alias Aiur.JsonStore
+  alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.TestReset.{Cleanup, Tickets}
 
   @tickets_file ".aiur-test-tickets.json"
@@ -52,6 +55,7 @@ defmodule Aiur.TestReset do
           optional(:confirm) => boolean(),
           optional(:force) => boolean(),
           optional(:allow_remote) => boolean(),
+          optional(:instance_mode) => String.t(),
           optional(:single) => boolean(),
           optional(:repo_root) => Path.t()
         }
@@ -63,6 +67,7 @@ defmodule Aiur.TestReset do
     opts = normalize_opts(opts)
 
     with :ok <- guard_not_running_in_agent_workspace(opts),
+         :ok <- guard_hosted_allow_remote(opts),
          {:ok, tickets_data} <- read_tickets_file(opts.repo_root) do
       dispatch_reset(tickets_data, opts)
     end
@@ -125,9 +130,25 @@ defmodule Aiur.TestReset do
       confirm: Map.get(opts, :confirm, false),
       force: Map.get(opts, :force, false),
       allow_remote: Map.get(opts, :allow_remote, false),
+      instance_mode: Map.get(opts, :instance_mode),
       single: Map.get(opts, :single, false),
       repo_root: Map.get(opts, :repo_root, File.cwd!())
     }
+  end
+
+  defp guard_hosted_allow_remote(%{allow_remote: false}), do: :ok
+
+  defp guard_hosted_allow_remote(opts) do
+    mode = opts.instance_mode || Aiur.Config.instance_mode()
+
+    case HostedModeCheck.validate_allow_remote(mode) do
+      :ok ->
+        :ok
+
+      {:error, message} ->
+        abort(message)
+        {:error, :hosted_allow_remote_forbidden}
+    end
   end
 
   defp read_tickets_file(repo_root) do
@@ -289,7 +310,7 @@ defmodule Aiur.TestReset do
   end
 
   defp prepare_reset_tickets(tickets) do
-    runner = fn argv -> HostCommand.run(argv, stderr_to_stdout: true, bot_token: true) end
+    runner = fn argv -> Access.host_command(argv, stderr_to_stdout: true, bot_token: true) end
 
     {open_tickets, blocked_tickets} =
       Enum.reduce(tickets, {[], []}, fn id, {open, blocked} ->

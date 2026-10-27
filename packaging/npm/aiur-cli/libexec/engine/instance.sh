@@ -76,13 +76,22 @@ aiur_lock_age_seconds() {
 }
 
 release_aiur_launch_lock() {
-  local lock="${1:-}" owner_file owner
+  local lock="${1:-}" owner_file owner released_lock
   [ -n "$lock" ] || return 0
   owner_file="$lock/owner"
   owner="$(sed -n '1p' "$owner_file" 2>/dev/null || true)"
   [ "$owner" = "$$" ] || return 0
-  rm -f "$owner_file" 2>/dev/null || true
-  rmdir "$lock" 2>/dev/null || true
+
+  # Remove ownership with one atomic rename. If a termination trap runs after
+  # this command, contenders already see the original lock path as released;
+  # they can never observe our lock with its owner file missing.
+  released_lock="${lock}.released.$$.$RANDOM"
+  while [ -e "$released_lock" ]; do
+    released_lock="${lock}.released.$$.$RANDOM"
+  done
+  if mv "$lock" "$released_lock" 2>/dev/null; then
+    rm -rf "$released_lock" 2>/dev/null || true
+  fi
 }
 
 write_aiur_instance_record() {
@@ -124,6 +133,14 @@ write_aiur_instance_record() {
 # cleared on a clean stop and on the next successful background start.
 aiur_crash_marker_path() {
   printf '%s/%s.last-crash' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
+}
+
+aiur_restart_diagnostic_path() {
+  printf '%s/%s.last-restart' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
+}
+
+aiur_restart_crash_evidence_path() {
+  printf '%s.crash' "$(aiur_restart_diagnostic_path)"
 }
 
 # Sentinel `stop` drops before killing the BEAM so the watchdog knows the exit

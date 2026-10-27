@@ -116,7 +116,9 @@ Code.require_file("support/snapshot_support.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml_sections.exs", __DIR__)
 Code.require_file("support/test_support/workflow_yaml.exs", __DIR__)
 Code.require_file("support/test_support/orchestrator_child.exs", __DIR__)
+Code.require_file("support/test_support/codeowners_guard_state.exs", __DIR__)
 Code.require_file("support/test_support/runtime_children.exs", __DIR__)
+Code.require_file("support/test_support/supervisor_exit.exs", __DIR__)
 Code.require_file("support/test_support/orchestrator_guard.exs", __DIR__)
 Code.require_file("support/test_cleanup.ex", __DIR__)
 Code.require_file("support/test_support/runner_tasks.exs", __DIR__)
@@ -149,8 +151,25 @@ Code.require_file("support/agent_github_guard_test_support.ex", __DIR__)
 Code.require_file("support/agent_github_guard_cache_support.ex", __DIR__)
 Code.require_file("support/agent_github_guard_case.ex", __DIR__)
 
-# Support loads by glob, so a new support file needs no line here.
 Code.put_compiler_option(:no_warn_undefined, :all)
+
+# Dashboard support imports shared fixtures; load them in dependency order.
+Code.require_file("support/usage_aggregate_support.ex", __DIR__)
+
+for file <-
+      ~w(
+        dashboard_live_orchestrator_stubs
+        dashboard_live_store_stubs
+        dashboard_live_unit_fixtures
+        dashboard_live_support
+        dashboard_live_processes
+        dashboard_live_decision_fixtures
+        dashboard_live_control_fixtures
+      ) do
+  Code.require_file("support/#{file}.exs", __DIR__)
+end
+
+# Remaining support loads by glob.
 
 for file <- Enum.sort(Path.wildcard(Path.join(__DIR__, "support/**/*.{ex,exs}"))) do
   Code.require_file(file)

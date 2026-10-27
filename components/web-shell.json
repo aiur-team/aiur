@@ -4,16 +4,22 @@
   "layer": 4,
   "kind": "in-app",
   "paths": [
+    "src/lib/aiur/control_call/audit.ex",
     "src/lib/aiur/http_server.ex",
     "src/lib/aiur/http_server/**",
     "src/lib/aiur/tailscale_funnel.ex",
+    "src/lib/aiur_web/control_body_limit.ex",
+    "src/lib/aiur_web/control_body_reader.ex",
+    "src/lib/aiur_web/control_token_auth.ex",
     "src/lib/aiur_web/controllers/*api*.ex",
+    "src/lib/aiur_web/controllers/control_controller.ex",
     "src/lib/aiur_web/controllers/observability*.ex",
     "src/lib/aiur_web/endpoint.ex",
     "src/lib/aiur_web/endpoint_config.ex",
     "src/lib/aiur_web/financial_data_access.ex",
     "src/lib/aiur_web/router.ex",
     "src/lib/aiur_web/routes/api.ex",
+    "src/lib/aiur_web/routes/control.ex",
     "src/lib/aiur_web/supervisor_auth.ex"
   ],
   "facades": [
@@ -28,6 +34,7 @@
     "web-kit"
   ],
   "optional": [
+    "accounting",
     "build-orders",
     "commands",
     "conversations",
@@ -40,12 +47,15 @@
   ],
   "owns": {
     "config": [
+      "dashboard_auth",
       "observability",
       "server"
     ],
     "env": [
       "AIUR_DASHBOARD_PASSWORD",
       "AIUR_DASHBOARD_USERNAME",
+      "AIUR_GOOGLE_CLIENT_ID",
+      "AIUR_GOOGLE_CLIENT_SECRET",
       "AIUR_SECRET_KEY_BASE"
     ],
     "state": [],
@@ -64,13 +74,17 @@
     "guide/gui.md"
   ],
   "config": [
+    "dashboard_auth",
     "observability",
     "server"
   ],
   "env": [
     "AIUR_DASHBOARD_PASSWORD",
     "AIUR_DASHBOARD_USERNAME",
+    "AIUR_GOOGLE_CLIENT_ID",
+    "AIUR_GOOGLE_CLIENT_SECRET",
     "AIUR_SECRET_KEY_BASE"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

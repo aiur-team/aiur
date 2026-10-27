@@ -4,7 +4,7 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.CodingAgent.Backend
   @behaviour Aiur.AppServer.Adapter
 
-  alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc}
+  alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc, Transport}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   alias Aiur.Codex.{
@@ -116,6 +116,7 @@ defmodule Aiur.Codex.CodingAgent do
         account_generation_context: account_generation.context,
         account_generation_topic: account_generation.topic,
         account_generation_server: account_generation_server,
+        instance_mode: Keyword.get_lazy(opts, :instance_mode, &Config.booted_instance_mode/0),
         account_name: Keyword.get(opts, :account_name),
         account_selection_reason: Keyword.get(opts, :account_selection_reason)
       }
@@ -143,9 +144,8 @@ defmodule Aiur.Codex.CodingAgent do
                resume_thread_id,
                handshake_opts
              ),
+           :ok <- SessionLifecycle.observe_startup(port, supports_account_reads?, lifecycle_session, handshake_opts),
            {:ok, provider_turn_store} <- ProviderTurnLedger.start_store() do
-        SessionLifecycle.observe_startup(port, supports_account_reads?, lifecycle_session, handshake_opts)
-
         {:ok,
          lifecycle_session
          |> Map.merge(%{
@@ -206,6 +206,7 @@ defmodule Aiur.Codex.CodingAgent do
     receive do
       {^port, {:data, {:eol, chunk}}} ->
         StreamDiagnostics.record(port, pending <> to_string(chunk))
+        :ok = Transport.acknowledge(port)
         collect_startup_exit(port, deadline, "")
 
       {^port, {:data, {:noeol, chunk}}} ->

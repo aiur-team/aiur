@@ -1,3 +1,4 @@
+import { activeFeature } from './features.js';
 // Port of design build.js:807–877, 1543–1547; unknowns are explicit at the trust boundary.
 import { S, ctx, fx, onReset } from './state.js';
 import { esc } from './dom.js';
@@ -8,6 +9,7 @@ import { progress } from './now-state.js';
 import { rowState, agentClasses, glowHTML, logoHTML, lineLogoHTML, srHTML } from './agents.js';
 import { colKey, match } from './match.js';
 import { place } from './render.js';
+import { labelCard } from './a11y.js';
 import { estHours, estLabel } from './estimate.js';
 
 const CX = ['❶', '❷', '❸', '❹', '❺'], CXH = [145, 110, 80, 50, 25];
@@ -55,7 +57,7 @@ function complexity(t) {
   const cx = finite(t.cx, 1, 5), known = cx !== null && Number.isInteger(cx);
   const points = finite(t.pts) === null ? 'points unknown' : t.pts + ' pts';
   return '<span class="bd-cx' + (known ? '" style="--cxh:' + CXH[cx - 1] : ' unk') + '" title="' +
-    (known ? 'Complexity ' + cx + '/5' : 'Complexity unknown') + ' · ' + points + '">' + (known ? CX[cx - 1] : '—') + '</span>';
+    (known ? 'Complexity ' + cx + '/5' : 'Complexity unknown') + ' · ' + points + '" aria-hidden="true">' + (known ? CX[cx - 1] : '—') + '</span>';
 }
 function planContent(t, points) {
   const c = t.cue || {}, cues = [];
@@ -126,16 +128,17 @@ export function makeCard(it) {
     else status = '<div class="bd-status"><span>Open · not queued</span><span>' + points + ' pts</span></div>';
     el.innerHTML = glow + '<div class="bd-in"' + (startUnknown || estUnknown ? ' title="' + esc(tip) + '"' : '') + '>' + sr + top + '<div class="bd-title">' + esc(t.title) + '</div>' + body + status + '</div>' + logoHTML(t, det);
   }
-  decorate(el); return el;
+  el.setAttribute('role', 'button'); decorate(el); return el;
 }
 export function decorate(el) {
-  const t = ctx.D.byId[el.dataset.id], F = S.feature;
+  const t = ctx.D.byId[el.dataset.id], F = activeFeature();
   if (!t) return;
   const inFeat = F && t.feature === F, also = F && !inFeat && t.also.includes(F), ghost = el.classList.contains('ghost');
   el.classList.toggle('dim', !match(t) || (!!F && S.fmode === 'focus' && !inFeat && !also && !ghost));
   el.classList.toggle('also', !!also); el.classList.toggle('feat-on', !!inFeat);
   const hue = F && Object.hasOwn(ctx.D.features, F) ? finite(ctx.D.features[F].hue, 0, 360) : null;
   if (hue !== null) el.style.setProperty('--fh', hue); else el.style.removeProperty('--fh');
+  labelCard(el);
 }
 export function decorateAll() { rendered().forEach(decorate); fx.drawEdgesSoon(10); }
 export function refreshTicket(id) {

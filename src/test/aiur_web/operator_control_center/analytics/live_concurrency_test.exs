@@ -53,7 +53,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LiveConcurrencyTest do
     assert model.kpis.conc_now == 7
     assert model.live_concurrency == 13
     assert model.live_occupied == 14
-    assert LiveConcurrency.label(model, true) == "13 running now (14 slots occupied) (sample 10m old)"
+    assert LiveConcurrency.label(model, true) == "13 running now (14 slots occupied), 4 over cap (sample 10m old)"
   end
 
   test "unavailable snapshots do not make telemetry look current" do

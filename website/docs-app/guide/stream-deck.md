@@ -100,11 +100,14 @@ The service applies `STREAMDECK_BRIGHTNESS`, reconnects after device hotplug, su
 | Setting | Where |
 | --- | --- |
 | `AIUR_PHOENIX_URL` | `~/.config/aiur/streamdeck.env` |
+| `AIUR_CLIENT_TOKEN` | `~/.config/aiur/streamdeck.env`; optional engine environment for pane control |
 | `AIUR_DASHBOARD_USERNAME` | `~/.config/aiur/streamdeck.env` |
 | `AIUR_DASHBOARD_PASSWORD` | `~/.config/aiur/streamdeck.env` |
 | `STREAMDECK_BRIGHTNESS` | Sidecar environment |
 
-The password mints the channel token and never enters the WebSocket URL.
+The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
+dashboard credentials to mint a short-lived channel token. Neither credential
+enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
 
 The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
 
@@ -196,7 +199,7 @@ Prefer the environment reference over a literal key. See [Configuration](/refere
 | Transcript returned | Text stays in memory until sent or discarded; nothing writes it to disk. |
 | Coding agent launched | `ELEVENLABS_API_KEY` is removed from its environment and never logged. |
 
-When voice input is enabled, the dashboard usage meter shows the ElevenLabs credit quota as percentage used, not the next-invoice amount or speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-usage-meter-measures). Declining voice input disables this provider meter.
+When voice input is enabled, the Units meter reads the ElevenLabs credit quota as percentage remaining and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures). Declining voice input disables this provider meter.
 
 ### Without a key
 
@@ -287,10 +290,14 @@ That is also what lets the deck answer `human_required` Commands an Executor can
 
 ### Authority
 
-A plugged-in deck is a **permanently-authorized operator client** — equivalent to a permanently logged-in browser. The 300-second channel-token expiry bounds the *socket*, not the device's standing authority: the sidecar stores the dashboard credentials and re-mints the token itself over HTTP Basic.
+A deck's access follows its configured credential. When `AIUR_CLIENT_TOKEN` is set, the sidecar sends it as a bearer credential and its scope controls API access.
 
-A plugged-in deck stays authorized for as long as it sits on the desk; it is not a device whose authority expires and must be re-granted. That is by design, and it is what lets the deck answer `human_required` and `irreversible` Commands — the floor constrains automation, not the operator.
+Revoking that client token prevents the sidecar from obtaining further channel tokens; existing channel tokens remain short-lived.
 
-The same property means a stolen or unattended deck carries full operator authority, so treat it like a logged-in session rather than a token that quietly lapses. Answers remain version-checked regardless: the deck answers the exact Command version it read, and a stale press is rejected as a conflict — never recorded as a second decision.
+With the client token unset, dashboard Basic credentials remain a loopback-only migration fallback.
+
+A plugged-in deck can keep requesting channel tokens while its configured credential remains valid; it does not require a fresh operator approval for each action. A write-scoped token lets it answer `human_required` and `irreversible` Commands — the floor constrains automation, not the operator.
+
+A stolen or unattended deck carries the write authority of its configured token, so treat it like a logged-in session. Answers remain version-checked regardless: the deck answers the exact Command version it read, and a stale press is rejected as a conflict — never recorded as a second decision.
 
 Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.

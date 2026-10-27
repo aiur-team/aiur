@@ -61,7 +61,8 @@ checks on the current head SHA.
 
 In the Aiur repository, before opening or updating a PR, run `aiur pre-pr` (or
 `aiurdev pre-pr`) from the branch checkout. Paste its complete result block
-into the PR body; it records the merged `origin/main` SHA and each gate result.
+into the PR body; it records the configured base SHA and each gate result,
+without merging the base into the PR branch.
 The command never pushes and refuses a dirty checkout. Once a PR exists, it
 waits for GitHub to report the pushed head, then rewrites the body's
 `Tested head:` and `Base:` lines as plain SHAs; it fails if `gh` cannot read
@@ -113,6 +114,11 @@ the existing workspace rather than restart setup.
 
 If the only failure is a flaky test unrelated to your change, file the
 flake as its own ticket with the CI run id (or link its existing ticket).
+File flake and other non-feature follow-ups with `needs-triage` and the
+instance's parked label (`agent:parked`, or `nuc:parked` on NUC); never include
+a dispatch state label such as `agent:todo` or `nuc:todo`. New non-feature
+tickets wait for operator triage unless they block merging. Quarantine-first
+applies to tests that fail on `main` or in a merge group.
 NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
 A flaky test blocks CI, not the ticket's implementation. State in the PR
 that the only failure is the known flake, link the flake ticket and CI run,
@@ -145,12 +151,11 @@ rebase `$AIUR_BASE_BRANCH` into its PR branch just because the base moved, files
 overlap, CI is red/cancelled/missing, or a freshness check says it is behind.
 The merge queue tests each PR on the current base. Integrate the base in these
 states only when GitHub reports the PR `CONFLICTING`
-(`gh pr view --json mergeable,reviewDecision`) or a reviewer explicitly asks
-for it; explain a conflict-driven integration in a PR comment. In `rework`,
-follow the reviewer’s request, including “merge current origin/main” when asked.
-This applies while any open PR waits for CI, review, or the merge queue: a
-mergeable head gets no base-only merge commits. If a newer base commit fixes a
-failing check, name that commit before refreshing the branch.
+(`gh pr view --json mergeable,reviewDecision`), or when a specific newer base
+commit fixes a failing required check. Name that commit and check before
+refreshing the branch. This rule applies in every ticket state, including
+`rework`: a reviewer request, red CI by itself, and ordinary base movement do
+not authorize a base-only merge. A mergeable head gets no merge-only commits.
 The agent `git` guard refuses a push to a PR that is in the merge queue unless
 it is conflicting or has changes requested.
 
@@ -177,6 +182,11 @@ calls, the blocker → stub-then-fetch flow, and attentions.
 cross-ticket event** — don't rely on memory for the allowlisted names; the skill
 fails loud with the valid forms if you guess wrong. Two reflexes override normal
 work ordering, so they're worth stating up front:
+
+When a governed GitHub command fails with a guard diagnostic, include that exact
+diagnostic in any alert or decision about the failure. The guard's stderr is the
+source of the broker, hold, or deadline reason; do not replace it with a generic
+"GitHub is stuck" summary.
 
 - **Blocking another agent is your highest priority.** If another ticket is
   paused on a decision or stub from you (you've been declared a blocker via

@@ -1,5 +1,11 @@
 instance:
-  role: primary                       # primary | secondary; one primary per repository
+  mode: local                        # local | hosted; hosted requires safe boundaries and API-key auth/fallback
+  deployment_kind: operator         # operator | consumer; hosted consumers use API keys only
+  # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
+  role: primary                       # eligible primary candidates share leader election; secondary never leads
+  roster_stale_retention_ms: 300000    # keep expired instance heartbeats visible for five minutes
+  # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
+  # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
   #   label_prefixes: [nuc]           # its tracker.github.label_prefix
   #   tickets: []                     # ids handed over mid-flight
@@ -57,8 +63,10 @@ executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 server:
   # public_url: https://aiur.example.com
+  # trusted_proxies: [10.0.0.0/8]
   # allowed_hosts: [aiur.example.com, localhost, 127.0.0.1]
   tailscale_funnel: false
+# dashboard_auth: {google: {allowed_emails: [operator@example.com]}, passkeys: false, session_max_age_days: 30, browser_basic_auth: true}
 polling:
   idle_widen_factor: 5.0
   # Per-class cadences override interval_seconds for one class (#2309). The
@@ -93,6 +101,12 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
+  # max_repeated_identical_commands: 5
+  # local_gate_wait_steer_minutes: 20
+  # local_gate_wait_stop_minutes: 30
+  # local_gate_ci_max_age_minutes: 15
+  # max_commands_per_turn: 1000
+  # max_input_tokens_per_turn: 20000000
   codex:
     command: codex app-server
     # This is an explicit headless-workflow choice. Unconfigured workflows
@@ -100,6 +114,12 @@ agent:
     approval_policy: never
     thread_sandbox: workspace-write
 prompt_file: linear-codex.prompt.md
+
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false
+
 compaction:
   # Opt in only when you want synchronous native compaction at handoff.
   # Codex's app-server API has no threshold trigger; other providers are unsupported.
@@ -155,3 +175,17 @@ compaction:
 #     after_step_days: 7
 #     after_max_days: 42
 #     metric_packs: ["delivery"]
+# Optional read-only Netlify account usage; requires NETLIFY_AUTH_TOKEN in .env.
+netlify:
+  enabled: false
+  # account_id: your-netlify-team-id
+  poll_seconds: 900
+  credit_alert_threshold: 100
+
+# Command escalation policy (defaults; routing consumes these settings).
+# decisions:
+#   escalation:
+#     enabled: true
+#     executor_ack_ms: 300000
+#     executor_answer_ms: 900000
+#     urgent_factor: 0.5

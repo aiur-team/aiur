@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupRequeue do
   @moduledoc "Safely requeues approved PRs after non-PR merge-group failures."
-  alias Aiur.GitHub.{Client, Transport}
-  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, Observer}
+  alias Aiur.GitHub.{Access, Client}
+  alias Aiur.LandingWatch.{Attribution, Classifier, Journal, Observer, TicketLookup}
   alias Aiur.PrMerge.Queue
 
   @spec requeue_group_prs([pos_integer()], [map()], map(), String.t(), keyword()) :: :ok | {:error, term()}
@@ -124,7 +124,15 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
 
   defp eligible_approved_pr?(pr, number, head, opts) do
     pr.draft? == false and pr.review_decision == "APPROVED" and is_binary(head) and
-      is_binary(pr.node_id) and approved?(number, opts) and attributed_cleanly?(pr, opts)
+      is_binary(pr.node_id) and ticket_can_land?(pr, opts) and approved?(number, opts) and attributed_cleanly?(pr, opts)
+  end
+
+  defp ticket_can_land?(pr, opts) do
+    case TicketLookup.fetch(pr, opts) do
+      {:ok, _issue, state, paused?, held?} when state in ["human-review", "ci-wait", "merging"] -> not paused? and not held?
+      {:error, :pull_request_not_linked_to_ticket_branch} -> true
+      _ -> false
+    end
   end
 
   defp approved?(number, opts), do: Keyword.get(opts, :approved_fun, fn _, _ -> {:ok, true} end).(number, opts) == {:ok, true}
@@ -145,8 +153,8 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
   defp query_queue_free(pr, opts), do: query_queue_state(pr, nil, opts)
 
   defp query_queue_state(pr, expected_state, opts) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, response} <- queue_state_response(owner, repo, pr.number, token, opts) do
       if queue_state_valid?(response, pr, expected_state), do: :ok, else: {:skip, :queue_recovery_precondition_changed}
     end
@@ -156,7 +164,7 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
     query =
       "query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){id headRefOid isDraft reviewDecision mergeable mergeStateStatus autoMergeRequest{enabledAt} mergeQueueEntry{id state} reviews(states:APPROVED,last:1){nodes{commit{oid}}}}}}"
 
-    Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{owner: owner, repo: repo, number: number}, caller: "landing_watch_merge_group_requeue")
+    Access.github_graphql(Keyword.get(opts, :request_fun, &Access.default_request_fun/1), token, query, %{owner: owner, repo: repo, number: number}, caller: "landing_watch_merge_group_requeue")
   end
 
   defp queue_state_valid?(response, pr, expected_state) do
@@ -195,8 +203,8 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
   defp dequeue_with_github(node_id, opts) do
     query = "mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { mergeQueueEntry { id } } }"
 
-    with {:ok, token} <- Transport.require_token(opts),
-         {:ok, result} <- Transport.github_graphql(Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token, query, %{id: node_id}, caller: "landing_watch_merge_group_requeue"),
+    with {:ok, token} <- Access.require_token(opts),
+         {:ok, result} <- Access.github_graphql(Keyword.get(opts, :request_fun, &Access.default_request_fun/1), token, query, %{id: node_id}, caller: "landing_watch_merge_group_requeue"),
          %{"data" => %{"dequeuePullRequest" => %{}}} <- result do
       :ok
     else
@@ -223,10 +231,10 @@ defmodule Aiur.LandingWatch.MergeGroupRequeue do
 
   defp enqueue_with_github(node_id, head, opts) do
     api = fn "post", "graphql", %{query: query, variables: variables} ->
-      with {:ok, token} <- Transport.require_token(opts),
+      with {:ok, token} <- Access.require_token(opts),
            do:
-             Transport.github_graphql(
-               Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+             Access.github_graphql(
+               Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
                token,
                query,
                variables,
