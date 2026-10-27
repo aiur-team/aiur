@@ -221,3 +221,18 @@ test('light marketing scroll cue meets text contrast', async ({ page }) => {
   await page.goto('/')
   expect(contrastRatio(...await renderedColors(page.locator('.aiur-scrollcue')))).toBeGreaterThanOrEqual(4.5)
 })
+
+for (const theme of themes) {
+  test(`docs ${theme} CTA uses shared fill colours`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.addInitScript(saved => localStorage.setItem('aiur-theme', saved), theme)
+    await page.goto('/docs/')
+    const cta = page.locator('.VPButton.brand').first()
+    await expect(cta).toHaveCSS('background-color', 'rgb(31, 87, 196)')
+    await cta.hover()
+    await expect(cta).toHaveCSS('background-color', 'rgb(26, 74, 168)')
+    const path = testInfo.outputPath(`docs-cta-${theme}-hover.png`)
+    await cta.screenshot({ path })
+    await testInfo.attach('CTA hover', { path, contentType: 'image/png' })
+  })
+}

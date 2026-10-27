@@ -19,23 +19,6 @@ html.dark {
   --vp-code-block-bg: #111317;
 }
 
-/* Preserve button colours until DR-2. */
-:root {
-  --vp-button-brand-border: var(--aiur-color-accent);
-  --vp-button-brand-bg: var(--aiur-color-accent);
-  --vp-button-brand-hover-border: var(--aiur-color-fg);
-  --vp-button-brand-hover-bg: var(--aiur-color-fg);
-  --vp-button-brand-text: #ffffff;
-}
-html.dark {
-  --vp-button-brand-border: #1f6fcf;
-  --vp-button-brand-bg: #1f6fcf;
-  --vp-button-brand-text: #ffffff;
-  --vp-button-brand-hover-border: #165eae;
-  --vp-button-brand-hover-bg: #165eae;
-  --vp-button-brand-hover-text: #ffffff;
-}
-
 html {
   background: var(--aiur-color-bg);
   transition: background-color 0.35s ease;
@@ -201,11 +184,6 @@ body {
   transform: translateY(-2px);
 }
 
-.dark .VPButton.brand:focus {
-  border-color: #165eae;
-  background: #165eae;
-  color: #ffffff;
-}
 
 .vp-doc {
   color: var(--aiur-color-fg);
