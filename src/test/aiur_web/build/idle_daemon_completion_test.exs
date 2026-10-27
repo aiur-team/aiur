@@ -39,7 +39,7 @@ defmodule AiurWeb.Build.IdleDaemonCompletionTest do
       )
 
     subscriber =
-      spawn(fn ->
+      spawn_link(fn ->
         :ok = Index.subscribe(server)
         send(parent, :subscribed)
 
