@@ -74,14 +74,17 @@ defmodule Aiur.Events.Export.Layout do
 
   @spec recover(Path.t(), String.t()) :: {:ok, map()} | {:error, atom()}
   def recover(dir, instance) do
-    paths = segments(dir)
+    meta = read_meta(dir)
+    :ok = archive_previous_instance(dir, meta, instance)
+    meta = current_meta(meta, instance)
+    floor = retained_floor(meta)
+    paths = Enum.reject(segments(dir), fn {first, _} -> first < floor end)
 
-    with {:ok, meta} <- JsonStore.read(Path.join(dir, "export.meta.json")),
-         {:ok, summary} <- recover_segments(paths),
+    with {:ok, summary} <- recover_segments(paths),
          {:ok, epoch} <- epoch(meta, instance, summary.last) do
       last = summary.last
-      head = if(last, do: last["seq"], else: 0)
-      oldest = if(summary.first, do: summary.first["seq"], else: 1)
+      head = if(last, do: last["seq"], else: empty_head(paths))
+      oldest = if(summary.first, do: summary.first["seq"], else: head + 1)
 
       path =
         case List.last(paths) do
@@ -94,6 +97,14 @@ defmodule Aiur.Events.Export.Layout do
       _ -> {:error, :journal_corrupt}
     end
   end
+
+  defp current_meta(%{"instance" => instance} = meta, instance), do: meta
+  defp current_meta(_, _), do: nil
+  defp retained_floor(nil), do: 1
+  defp retained_floor(meta), do: meta["oldest_seq"]
+
+  defp empty_head([]), do: 0
+  defp empty_head(paths), do: elem(List.last(paths), 0) - 1
 
   defp recover_segments(paths) do
     result =
@@ -128,9 +139,85 @@ defmodule Aiur.Events.Export.Layout do
   @spec dense?([map()], pos_integer()) :: boolean()
   def dense?(records, first), do: records |> Enum.with_index(first) |> Enum.all?(fn {r, seq} -> r["seq"] == seq end)
 
-  defp epoch(nil, _instance, nil), do: {:ok, Base.encode32(:crypto.strong_rand_bytes(16), padding: false)}
+  defp epoch(nil, _instance, _last), do: {:ok, Base.encode32(:crypto.strong_rand_bytes(16), padding: false)}
   defp epoch(%{"v" => 1, "instance" => instance, "epoch" => epoch}, instance, _) when is_binary(epoch) and epoch != "", do: {:ok, epoch}
   defp epoch(_, _, _), do: {:error, :journal_corrupt}
+
+  defp read_meta(dir) do
+    case JsonStore.read(Path.join(dir, "export.meta.json")) do
+      {:ok, meta} ->
+        if valid_meta?(meta), do: meta, else: nil
+
+      {:error, %Jason.DecodeError{}} ->
+        nil
+
+      {:error, reason} ->
+        raise File.Error, reason: reason, action: "read export metadata", path: dir
+    end
+  end
+
+  defp valid_meta?(%{"v" => 1, "epoch" => epoch, "instance" => instance, "oldest_seq" => oldest, "head_seq" => head}) do
+    is_binary(epoch) and epoch != "" and is_binary(instance) and is_integer(oldest) and oldest > 0 and is_integer(head) and head >= oldest - 1
+  end
+
+  defp valid_meta?(_), do: false
+
+  defp archive_previous_instance(dir, %{"instance" => previous, "epoch" => epoch}, instance) when previous != instance do
+    archive = Path.join(dir, "old-#{epoch}")
+    if Path.basename(archive) != "old-#{epoch}", do: raise("Invalid export epoch")
+    File.mkdir_p!(archive)
+    File.chmod!(archive, 0o700)
+    Enum.each(segments(dir), fn {_, path} -> File.rename!(path, Path.join(archive, Path.basename(path))) end)
+    File.rename!(Path.join(dir, "export.meta.json"), Path.join(archive, "export.meta.json"))
+    :ok
+  end
+
+  defp archive_previous_instance(_, _, _), do: :ok
+
+  @spec trim!([map()], map()) :: {[Path.t()], map()}
+  def trim!(segments, %{meta: meta, now: now, retention_days: days, retention_max_events: bound}) do
+    cutoff = DateTime.add(now, -days * 86_400, :second)
+    {closed, active} = Enum.split(segments, -1)
+    retained = Enum.reduce(segments, 0, &(&1.count + &2))
+
+    {deleted, _} =
+      Enum.reduce_while(closed, {[], retained}, fn segment, {deleted, count} ->
+        expired = segment.newest_at && DateTime.compare(segment.newest_at, cutoff) == :lt
+
+        if segment.first < meta.oldest_seq or expired or count - segment.count >= bound do
+          {:cont, {[segment.path | deleted], count - segment.count}}
+        else
+          {:halt, {deleted, count}}
+        end
+      end)
+
+    remaining = Enum.drop(closed, length(deleted)) ++ active
+
+    oldest =
+      case remaining do
+        [first | _] -> first.first
+        [] -> meta.oldest_seq
+      end
+
+    {Enum.reverse(deleted), %{meta | oldest_seq: max(meta.oldest_seq, oldest)}}
+  end
+
+  @spec segment_info!(Path.t()) :: [map()]
+  def segment_info!(dir) do
+    Enum.map(segments(dir), fn {first, path} ->
+      {:ok, records} = replay(path, false)
+      last = List.last(records)
+      timestamp = last && (last["observed_at"] || last["to"])
+
+      newest =
+        case timestamp && DateTime.from_iso8601(timestamp) do
+          {:ok, time, _} -> time
+          _ -> nil
+        end
+
+      %{first: first, path: path, count: length(records), newest_at: newest}
+    end)
+  end
 
   @spec write_meta(Path.t(), map()) :: :ok
   def write_meta(dir, state) do

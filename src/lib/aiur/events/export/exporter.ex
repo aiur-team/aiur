@@ -2,6 +2,7 @@ defmodule Aiur.Events.Export.Exporter do
   @moduledoc "Single writer for the optional, sequenced external event journal."
   # aiur:event-bus-boundary-member
   use GenServer
+  require Logger
   alias Aiur.Events.{Catalog, Envelope, Export, InstanceId, Journal}
   alias Aiur.Events.Export.Layout
 
@@ -43,9 +44,10 @@ defmodule Aiur.Events.Export.Exporter do
       end
 
     with :ok <- Journal.prepare(state.dir, path),
-         {:ok, recovered} <- Layout.recover(state.dir, state.instance) do
+         {:ok, recovered} <- Layout.recover(state.dir, state.instance),
+         :ok <- Journal.prepare(state.dir, recovered.path) do
       state = Map.merge(state, recovered)
-      Layout.write_meta(state.dir, state)
+      state = trim(%{state | state: :available})
       catalog = Keyword.get(state.opts, :catalog, Catalog)
       subscribe = Keyword.get(state.opts, :subscribe, &Aiur.Events.subscribe/1)
       patterns = catalog.exported() |> Enum.map(& &1.pattern) |> Enum.uniq()
@@ -108,7 +110,30 @@ defmodule Aiur.Events.Export.Exporter do
 
   defp new_segment(state) do
     path = Layout.segment(state.dir, state.head_seq + 1)
-    with :ok <- Journal.prepare(state.dir, path), do: {:ok, %{state | path: path}}
+    with :ok <- Journal.prepare(state.dir, path), do: {:ok, trim(%{state | path: path})}
+  end
+
+  defp trim(state) do
+    {paths, state} =
+      Layout.trim!(Layout.segment_info!(state.dir), %{
+        meta: state,
+        now: Keyword.get(state.opts, :now, &DateTime.utc_now/0).(),
+        retention_days: Keyword.get(state.opts, :retention_days, Aiur.Config.events_export_retention_days()),
+        retention_max_events: Keyword.get(state.opts, :retention_max_events, Aiur.Config.events_export_retention_max_events())
+      })
+
+    Layout.write_meta(state.dir, state)
+    publish_status(state)
+    unlink = Keyword.get(state.opts, :unlink, &File.rm/1)
+
+    Enum.each(paths, fn path ->
+      case unlink.(path) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("Export retention unlink failed path=#{path} reason=#{inspect(reason)}")
+      end
+    end)
+
+    state
   end
 
   defp unavailable(%{state: :unavailable} = state, _), do: state
