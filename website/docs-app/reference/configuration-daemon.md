@@ -187,14 +187,21 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 
 ## events
 
+Outbound export is opt-in: `events.export.enabled` remains `false` by default; enabling it starts one segmented journal, while configuring `events.export.webhook_url` additionally starts signed delivery with its own cursor over that journal.
+
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-11 -->
 | --- | --- | --- | --- |
 | `events.block_state_debounce_seconds` | integer | 10 | Debounces blocked/unblocked transitions. |
 | `events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval. |
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
-| `events.export.enabled` | boolean | false | Enables the external event journal; restart to apply. Writes the segmented export journal when enabled. |
+| `events.export.allow_private_destinations` | boolean | false | Allows loopback, private, link-local, CGNAT and ULA webhook destinations. |
+| `events.export.enabled` | boolean | false | Enables the external event journal and configured webhook delivery; restart to apply. |
+| `events.export.request_timeout_ms` | integer | 15000 | Per-attempt webhook request timeout. |
 | `events.export.retention_days` | integer | 7 | Retention age in days (1..90); trims whole closed export segments at boot and segment roll. |
 | `events.export.retention_max_events` | integer | 50000 | Retained-record target (1000..1000000); whole-segment granularity may keep one extra segment (up to 8 MiB). |
+| `events.export.retry_ms` | integer | 5000 | Initial delay for capped exponential delivery retries. |
+| `events.export.subject_id` | string | nil | Delivers only events for this exact ticket or job identifier. |
+| `events.export.webhook_url` | string | nil | HTTPS endpoint receiving outbound event POSTs. |
 
 Export retention only removes the export copy. Restarts preserve the epoch; identity changes archive old segments and restart sequence numbering. Stale, future, or previous-epoch cursors receive a reset; corrupt metadata is rebuilt with a new epoch without archiving readable segments.
 
@@ -298,10 +305,14 @@ An exported value wins, followed by the global file and then the repository file
 | `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
 | `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |
 | `decisions.escalation.urgent_factor` | float | 0.5 | Multiplies both deadlines for urgent Commands; greater than 0 and at most 1. |
-| `decisions.native_capture.codex` | boolean | false | Capture native worker questions as Commands and hold their tool calls. Experimental; leave disabled until native reply and release support is deployed. |
+| `decisions.native_capture.codex` | boolean | false | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Experimental; leave disabled until the native reply and release decision in #6424 is resolved (see also #4450). |
 | `decisions.require_suggested_responses` | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
 | `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
+
+Native capture appends `--config features.default_mode_request_user_input=true` as a TOML boolean. Custom `codex.command` wrappers must forward trailing arguments. If startup rejects the key, disable this gate; there is no automatic retry.
+
+Delivery capabilities report `native_question: in_band_hold` with `native_question_reason: nil` when enabled, or `none` with reason `gate_off` when disabled. If configuration cannot be read, both values report `unknown`. These values describe configured support; they do not verify that custom wrappers forward the flag or that native capture works at runtime.
 
 Escalation policy: a Command routed to the Executor moves to you after 5 minutes without acknowledgement or 15 minutes without an answer by default. Urgent Commands halve both deadlines. Set `enabled: false` to disable escalation. Omitted sections use the defaults. Routing integration consumes this policy separately.
 

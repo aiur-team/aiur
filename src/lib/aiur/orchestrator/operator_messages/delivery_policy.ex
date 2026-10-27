@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   alias Aiur.Listener.Scheduler
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{CommentWake, EventTopics, PauseResume, State}
+  alias Aiur.Orchestrator.OperatorMessages.Capabilities
 
   @spec normalize_delivery_request(term(), term(), map()) ::
           {:ok, keyword()} | {:error, atom()}
@@ -131,7 +132,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   defp deliver_now?(state, %{control: %{status: :paused}} = running_entry, item) do
     if input_waiting_self_pause?(running_entry) and
          is_nil(PauseResume.current_pending_pause_reason(state, running_entry)) do
-      wake_now?(running_entry, item)
+      wake_now?(state, running_entry, item)
     else
       false
     end
@@ -140,13 +141,24 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   defp deliver_now?(state, running_entry, item) do
     if PauseResume.current_pending_pause_reason(state, running_entry),
       do: false,
-      else: wake_now?(running_entry, item)
+      else: wake_now?(state, running_entry, item)
   end
 
-  defp wake_now?(running_entry, item) do
-    queue_wake_required?(running_entry) or
-      item.delivery[:interrupt_requested] == true or
-      item.delivery[:immediate] == true
+  @spec wake_now?(State.t(), map(), map()) :: boolean() | :steer
+  defp wake_now?(state, running_entry, item) do
+    cond do
+      queue_wake_required?(running_entry) -> true
+      item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true -> true
+      item.delivery[:steer_requested] == true and native_steer?(state, running_entry) -> :steer
+      true -> false
+    end
+  end
+
+  defp native_steer?(state, entry) do
+    case Capabilities.harness_delivery(state, entry.identifier, entry) do
+      %{source: :session, primitives: %{mid_turn_inject: :native}} -> not no_active_turn?(entry)
+      _ -> false
+    end
   end
 
   # A self-paused agent waiting on review feedback is included here so the

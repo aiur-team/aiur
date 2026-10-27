@@ -9,6 +9,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
           on_message: (map() -> :ok),
           on_safe_checkpoint: fun(),
           on_native_reply: fun(),
+          on_steer_claim: fun(),
           on_operator_message: fun(),
           on_operator_response: fun(),
           live_opts: keyword()
@@ -46,6 +47,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
 
     %{
       on_message: on_message,
+      on_steer_claim: CheckpointDelivery.steer_claim_handler(issue, orchestrator, Commands.default_store(), live_opts),
       on_safe_checkpoint:
         CheckpointDelivery.safe_checkpoint_handler(
           issue,

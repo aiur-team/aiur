@@ -50,9 +50,8 @@ defmodule Aiur.AgentQueueListenerTest do
     end
   end
 
-  test "native or unspecified steer carriers and invalid modes are rejected" do
+  test "unspecified steer carriers and invalid modes are rejected" do
     for opts <- [
-          [listener_mode: :steer, steer_carrier: :native],
           [listener_mode: :steer],
           [listener_mode: :invalid],
           [listener_mode: nil]

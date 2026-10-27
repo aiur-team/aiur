@@ -84,6 +84,10 @@ defmodule Aiur.AppServer.TurnLoop do
       when issue_identifier == state.issue_identifier and map_size(state.held_native_questions) > 0 ->
         receive_loop(session, NativeReplies.deliver(session, state))
 
+      {:agent_queue_updated, issue_identifier, _item_id, :steer}
+      when issue_identifier == state.issue_identifier ->
+        receive_loop(session, OperatorDelivery.steer_pending(session, state))
+
       {:agent_queue_updated, issue_identifier, _item_id, true}
       when issue_identifier == state.issue_identifier ->
         continue_or_return(session, Interrupts.handle_operator_queue_update(session, state))

@@ -87,6 +87,8 @@ defmodule Aiur.Muse.TurnLoop do
     result
   end
 
+  defp operator_wake(state, :steer), do: {:continue, state}
+
   defp operator_wake(state, urgent) do
     if Approvals.pending?(state.approvals) do
       case state.operator_response.("/approve") do

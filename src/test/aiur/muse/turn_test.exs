@@ -45,6 +45,15 @@ defmodule Aiur.Muse.TurnTest do
   end
 
   @tag :tmp_dir
+  test "a stale native steer wake does not interrupt an unsupported harness", %{tmp_dir: dir} do
+    task = run_fixture(dir, "pause")
+    receive_barrier({:turn_ready, owner})
+    send(owner, {:agent_queue_updated, "MUSE-1", 3, :steer})
+    send(owner, {:pause_agent, 79, 6})
+    assert {:paused, %{control: %{request_id: 79, generation: 6}}} = Task.await(task, :infinity)
+  end
+
+  @tag :tmp_dir
   test "native approval waits for an explicit Executor choice and confirmed resolution", %{tmp_dir: dir} do
     task = run_fixture(dir, "approval")
     receive_barrier({:event, %{payload: %{"method" => "approval/request"}}})

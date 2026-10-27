@@ -55,7 +55,7 @@ defmodule Aiur.Listener.SchedulerTest do
       assert Scheduler.resolve(origin, %{effective: :sync}, %{}, nil, spec_status: :ok) == {:ok, delivery_policy: :checkpoint, listener_mode: :sync}
       assert Scheduler.resolve(origin, %{effective: :async}, %{}, nil, spec_status: :ok) == {:ok, listener_mode: :async}
 
-      for view <- [nil, %{effective: nil}, %{effective: :steer, support: %{steer: %{carrier: :native}}}] do
+      for view <- [nil, %{effective: nil}] do
         assert Scheduler.resolve(origin, view, %{}, nil, spec_status: :ok) == {:error, :listener_mode_unavailable}
       end
     end

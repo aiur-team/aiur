@@ -158,6 +158,7 @@ defmodule Aiur.AgentRunner.QueueTurn do
         on_message: message_handler,
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
         on_native_reply: callbacks.on_native_reply,
+        on_steer_claim: callbacks.on_steer_claim,
         on_operator_message: callbacks.on_operator_message,
         on_operator_response: callbacks.on_operator_response,
         on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),

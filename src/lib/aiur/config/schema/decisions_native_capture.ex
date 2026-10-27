@@ -9,7 +9,7 @@ defmodule Aiur.Config.Schema.Decisions.NativeCapture do
   embedded_schema do
     # @config-reference config-configuration-17 decisions.native_capture.codex
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
-    # @config-detail decisions.native_capture.codex | boolean | false | Capture native worker questions as Commands and hold their tool calls. Experimental; leave disabled until native reply and release support is deployed. |
+    # @config-detail decisions.native_capture.codex | boolean | false | Capture native worker questions as Commands and hold their tool calls; enable the upstream under-development ask-user feature. Experimental; leave disabled until the native reply and release decision in #6424 is resolved (see also #4450). |
     field(:codex, :boolean, default: false)
   end
 

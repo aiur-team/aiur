@@ -39,6 +39,23 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
+  @spec steer_claim_handler(Issue.t(), GenServer.server(), GenServer.server(), keyword()) :: fun()
+  def steer_claim_handler(issue, orchestrator, decision_store \\ Commands.default_store(), live_opts \\ []) do
+    fn ->
+      case Aiur.Orchestrator.claim_next_steer_queue_item(orchestrator, issue.identifier) do
+        {:ok, item} ->
+          immediate_operator_delivery(issue, orchestrator, item, decision_store, live_opts)
+
+        :empty ->
+          :noop
+
+        {:error, reason} ->
+          Logger.warning("Steer claim unavailable for #{Aiur.AgentRunner.issue_context(issue)} reason=#{inspect(reason)}")
+          :noop
+      end
+    end
+  end
+
   @spec operator_response_handler(Issue.t(), GenServer.server(), keyword()) :: function()
   def operator_response_handler(issue, orchestrator, live_opts) do
     fn command ->
