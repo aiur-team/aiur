@@ -72,6 +72,12 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:request, payload, opts}, timeout)
   end
 
+  @doc "Durably records a status-neutral Command fact; retries return duplicate without publishing."
+  @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, accept_result()} | {:error, term()}
+  def record_command_fact(decision_id, type, data, opts \\ []) do
+    GenServer.call(Keyword.get(opts, :server, __MODULE__), {:command_fact, decision_id, type, data, opts}, @request_timeout)
+  end
+
   @doc "Projects one legacy attention into the canonical Decision history."
   @spec project_attention(map(), keyword(), GenServer.server(), timeout()) ::
           {:ok, accept_result()} | {:error, term()}
