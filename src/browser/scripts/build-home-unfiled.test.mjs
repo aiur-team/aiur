@@ -59,3 +59,27 @@ test('an empty planned list preserves escaped pack failures and observation time
   assert.match(html, /Planning packs unavailable.*1 of 2 &lt;broken&gt; packs.*checked/);
   assert.doesNotMatch(html, /<broken>/);
 });
+
+test('planned list reports unknown pack failure cause and checked time honestly', async () => {
+  const { listHTML } = await import('../../priv/static/build-home/list.js');
+  const { resetState, S } = await import('../../priv/static/build-home/state.js');
+  resetState();
+  const D = {hist:[],now:[],plan:[],nq:[],epics:{},features:{},children:{}};
+  for (const packs of [{state:'unavailable'}, {state:'unavailable',reason:null,observed_at:null}, {state:'unavailable',reason:'',observed_at:null}, {state:'unavailable',observed_at:NaN}]) {
+    const sources = {queue:{state:'ok'},index:{state:'ok'},history:{state:'ok'},packs};
+    const html = listHTML(D,S,{more:false},{sources},123456789);
+    assert.match(html, /Planning packs unavailable · unknown cause · checked unknown<\/em>/);
+  }
+});
+test('planned board reports unknown pack failure cause and checked time honestly', async () => {
+  const { computeLayout } = await import('../../priv/static/build-home/layout.js');
+  const { resetState, S } = await import('../../priv/static/build-home/state.js');
+  resetState();
+  const D = {hist:[],now:[],plan:[],nq:[],epics:{},features:{},byId:{}};
+  for (const packs of [{state:'unavailable'}, {state:'unavailable',reason:null,observed_at:null}, {state:'unavailable',reason:'',observed_at:null}, {state:'unavailable',observed_at:NaN}]) {
+    const sources = {queue:{state:'ok'},index:{state:'ok'},history:{state:'ok'},packs};
+    const mark = computeLayout(D,S,{vpW:1440,vpH:1000,gut:80},sources).secs.plan.marks.at(-1);
+    assert.equal(mark.label, 'Planning packs unavailable');
+    assert.equal(mark.sub, 'unknown cause · checked unknown');
+  }
+});

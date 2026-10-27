@@ -335,7 +335,8 @@ defmodule AiurWeb.Build.Index do
 
     next = %{state | daemon_task: nil, daemon_timer_ref: timer_ref, daemon: block, generation: generation}
 
-    if state.active? and state.daemon != nil, do: dirty(next, [:packs]), else: next
+    # Results require a matching daemon_task; deactivation clears it atomically.
+    if state.daemon != nil, do: dirty(next, [:packs]), else: next
   end
 
   # An unread snapshot keeps the last good heartbeat so the footer can state its age (#4770).
