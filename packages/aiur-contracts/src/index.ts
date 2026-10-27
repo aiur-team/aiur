@@ -1,3 +1,5 @@
+export type * from "./events.generated.js";
+export type * from "./outbound-events.generated.js";
 export type * from "./command.generated.js";
 export type * from "./generated.js";
 export type * from "./status.generated.js";
@@ -10,7 +12,7 @@ export type {
   TicketProgressChangedEvent,
   TicketSpendCapReachedEvent,
   TicketUsageChangedEvent,
-} from "./events.generated.js";
+} from "./outbound-events.generated.js";
 
 export const KNOWN_CAPABILITY_IDS = [
   "identity",

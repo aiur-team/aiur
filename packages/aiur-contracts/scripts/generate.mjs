@@ -5,6 +5,11 @@ import { compile } from 'json-schema-to-typescript';
 const cwd = fileURLToPath(new URL('../schemas/', import.meta.url));
 const outputs = [
   {
+    name: 'EventsContract',
+    target: new URL('../src/events.generated.ts', import.meta.url),
+    refs: ['events.v1.schema.json', 'events-catalog.v1.schema.json'],
+  },
+  {
     name: 'CommandContract',
     target: new URL('../src/command.generated.ts', import.meta.url),
     refs: ['command.v2.schema.json'],
@@ -28,7 +33,7 @@ const outputs = [
   },
   {
     name: 'OutboundEvent',
-    target: new URL('../src/events.generated.ts', import.meta.url),
+    target: new URL('../src/outbound-events.generated.ts', import.meta.url),
     refs: [
       'ticket-lifecycle-event.v1.schema.json',
       'ticket-progress-event.v1.schema.json',

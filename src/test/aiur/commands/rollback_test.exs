@@ -10,7 +10,16 @@ defmodule Aiur.Commands.RollbackTest do
   # Compatibility guard for the existing rollback reader, including every new fact type.
   test "every Command fact retains its opaque envelope and leaves the old projection unchanged" do
     {:ok, decision} = DecisionValidation.normalize(%{question: "Choose?", blocking: false}, ticket: %{identifier: "123"})
-    fixtures = %{request_attributed: %{requester: %{kind: :executor}, origin: :executor_cli}}
+    at = DateTime.utc_now()
+    actor = %{kind: :system, id: "routing"}
+
+    fixtures = %{
+      request_attributed: %{requester: %{kind: :executor}, origin: :executor_cli},
+      routed: %{policy: :executor_first, state: :with_executor, cause: nil, at: at, actor: actor},
+      escalated: %{cause: :executor_ack_timeout, at: at, detail: "Timeout", actor: actor},
+      human_needed: %{cause: :executor_ack_timeout, at: at, short_label: "Choose", requester_kind: :worker, blocking: false, urgency: :normal},
+      executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}
+    }
 
     for type <- EventData.fact_types() do
       assert {:ok, event} = DecisionEvent.new(type, decision.decision_id, 1, Map.fetch!(fixtures, type), event_id: "fact-1", run_id: "rollback-run")
