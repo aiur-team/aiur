@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.Index do
   @moduledoc "Shared build-home join and changes; all input reads are local projections."
-  alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued}
-  alias Aiur.BuildOrder.Index.{Catalogue, FeatureProgress, Pages, Parts, Rows, Sources}
+  alias Aiur.BuildOrder.{EpicOverrides, Features, History, NotQueued, PackStatus}
+  alias Aiur.BuildOrder.Index.{Catalogue, FeatureProgress, PackRows, Pages, Parts, Rows, Sources}
   @topic "build-home:index"
   @blocks ~w(epics features order counts feature_progress sources history_meta repo capacity)a
 
@@ -12,10 +12,14 @@ defmodule Aiur.BuildOrder.Index do
       now = Keyword.get(opts, :now, System.system_time(:millisecond))
       {all, undated} = Rows.build(parts, general)
       catalogue = Catalogue.build(parts, general, all, now)
+      feature_parts = Map.put(parts, :packs, Map.get(parts, :feature_packs, parts[:packs]))
+      packs = PackRows.read(parts[:packs], all, catalogue.epics)
+      parts = Map.put(parts, :packs, packs)
       sources = Sources.build(parts, now)
       complete? = sources.history.state not in ["unavailable", "incomplete"]
+      feature_progress = FeatureProgress.compute(feature_parts, all, catalogue.features, complete?, now)
+      all = PackRows.merge(all, packs)
       counts = if complete?, do: counts(all, catalogue.order)
-      feature_progress = FeatureProgress.compute(parts, all, catalogue.features, complete?, now)
       hist = all |> Map.values() |> Enum.filter(&(&1.sec == "hist")) |> Enum.sort_by(&{&1.end, &1.id})
       available? = sources.history.state != "unavailable"
 
@@ -94,6 +98,7 @@ defmodule Aiur.BuildOrder.Index do
   def subscribe_sources do
     subscribers = [
       &History.subscribe/0,
+      &PackStatus.subscribe/0,
       &Features.subscribe/0,
       &Aiur.BuildOrder.Estimates.subscribe/0,
       &Aiur.AgentPubSub.subscribe_poll_state/0,

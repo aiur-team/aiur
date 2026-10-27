@@ -6,6 +6,8 @@ defmodule AiurWeb.Build.PayloadSchema do
   def row do
     %{
       "id" => :id,
+      "src" => nullable(object(%{"kind" => {:literal, "pack"}, "path" => :display_path, "wave" => nullable(:nonnegative)})),
+      "was" => nullable(:pack_id),
       "num" => nullable(:positive),
       "title" => :string,
       "type" => enum(~w(bug feature chore docs)),
@@ -227,7 +229,7 @@ defmodule AiurWeb.Build.PayloadSchema do
     }
 
   defp sources do
-    standard = Map.new(~w(history features queue agents index estimates), &{&1, object(source(), ["stale_after_ms"])})
+    standard = Map.new(~w(history features queue agents index packs estimates), &{&1, object(source(), ["stale_after_ms"])})
     Map.put(standard, "open_tickets", object(Map.put(source(), "truncated", :boolean), ["stale_after_ms"]))
   end
 

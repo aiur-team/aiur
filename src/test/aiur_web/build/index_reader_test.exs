@@ -196,10 +196,10 @@ defmodule AiurWeb.Build.IndexReaderTest do
       )
 
     assert_receive :packs_loaded, 100
-    assert read.packs == packs
+    assert read.feature_packs == packs
 
     cached = IndexReader.read(MapSet.new([:now]), read, pack_loader: fn -> flunk("unrelated diff reread packs") end)
-    assert cached.packs == packs
+    assert cached.feature_packs == packs
   end
 
   test "pack manifest reader failure is isolated as unavailable" do
@@ -215,7 +215,7 @@ defmodule AiurWeb.Build.IndexReaderTest do
             end
           )
 
-        assert read.packs == {:error, :read_failed}
+        assert read.feature_packs == {:error, :read_failed}
       end)
 
     assert_receive :pack_read, 100
