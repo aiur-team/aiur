@@ -4,7 +4,7 @@ defmodule Aiur.AgentList.Renderer.Layout do
   It returns the stable layout map consumed by table rendering.
   """
 
-  alias Aiur.AgentList.Renderer.Model
+  alias Aiur.AgentList.Renderer.{Listener, Model}
 
   # Fixed visual width for the state-emoji column. The glyph occupies
   # two terminal columns; we render `<emoji><space>` so the cell is
@@ -139,9 +139,13 @@ defmodule Aiur.AgentList.Renderer.Layout do
     context_available = inner_width - base_overhead - progress_block_width - model_base_block
     show_context? = show_context?(summaries, context_available)
 
+    listener_available = context_available - context_block_width(show_context?) - natural_id_width - @min_title_width - 1
+    listener_width = Listener.width(summaries, listener_available)
+    listener_block_width = Listener.block_width(%{listener_width: listener_width})
+
     fixed_non_id_overhead =
       base_overhead + progress_block_width + model_base_block +
-        context_block_width(show_context?)
+        context_block_width(show_context?) + listener_block_width
 
     # Cap id so the row never bleeds past `inner_width` — title and
     # latest still get their minimums regardless of identifier length.
@@ -190,6 +194,7 @@ defmodule Aiur.AgentList.Renderer.Layout do
       end
 
     %{
+      listener_width: listener_width,
       id_width: id_width,
       title_width: title_width,
       latest_width: latest_width,
