@@ -1,0 +1,9 @@
+{
+  "from": "build-orders",
+  "to_module": "Aiur.GitHub.Access",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/build_order/history/label_backfill.ex"
+  ],
+  "reason": "#3182 reads the effective agent Core ceiling through the public budget facade; the writer remains opt-in and fails closed on unavailable sources"
+}

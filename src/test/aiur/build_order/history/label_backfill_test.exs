@@ -282,6 +282,8 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     server = boot(ctx.opts)
     assert {:error, :checkpoint_corrupt} = LabelBackfill.status(server: server)
     assert {:error, :checkpoint_corrupt} = start(server)
+    output = capture_io(fn -> assert Aiur.HistoryLabelWritesCLI.run(action: :status, server: server, json: true) == 1 end)
+    assert Jason.decode!(output) == %{"state" => "unavailable", "reason" => ":checkpoint_corrupt"}
     assert File.read!(ctx.opts[:state_path] <> ".corrupt") == "{bad"
     stop_supervised!(LabelBackfill)
     server = boot(ctx.opts)

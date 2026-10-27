@@ -12,6 +12,11 @@ defmodule Aiur.HistoryLabelWritesCLI do
     action = Keyword.get(opts, :action, :status)
 
     case execute(action, Keyword.delete(opts, :action)) do
+      {:error, reason} when action == :status ->
+        unavailable = %{"state" => "unavailable", "reason" => inspect(reason)}
+        IO.puts(if opts[:json], do: Jason.encode!(unavailable), else: render(unavailable))
+        1
+
       {:error, reason} ->
         Protocol.control_error("aiur: history label-writes: #{inspect(reason)}")
         1
@@ -31,6 +36,8 @@ defmodule Aiur.HistoryLabelWritesCLI do
   defp execute(_, _), do: {:error, :invalid_action}
 
   @spec render(map()) :: String.t()
+  def render(%{"state" => "unavailable", "reason" => reason}), do: "history label-writes: unavailable (#{reason})"
+
   def render(%{"total" => total} = plan) do
     "history label-writes plan: #{total} requests (feature #{plan["writes"]["feature"]}, epic #{plan["writes"]["epic"]}, ensure #{plan["ensure"]}); #{plan["hours"]} hours\n" <>
       "tracker: #{plan["tracker"]}; skipped: #{Jason.encode!(plan["skipped"])}; deferred: #{Jason.encode!(plan["deferred"])}; unknown: #{Enum.join(plan["unknown"], ", ")}\n#{plan["cost"]}"

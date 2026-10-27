@@ -16,7 +16,12 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Sources do
         history: &History.rows/1,
         health: &History.health/0,
         settings: &Aiur.Config.settings/0,
-        tracker_supported: fn -> Aiur.Tracker.adapter() != Aiur.Linear.Tracker end
+        tracker_supported: fn ->
+          case Aiur.Config.settings() do
+            {:ok, %{tracker: %{kind: "linear"}}} -> false
+            _ -> true
+          end
+        end
       },
       Keyword.get(opts, :readers, %{})
     )
@@ -36,6 +41,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Sources do
     epic_count = write_count(entries, writes, unknown, :epic, [:overrides, :catalog])
     ensures = writes |> Enum.filter(&(&1.kind == :feature)) |> Enum.map(& &1.label) |> Enum.uniq() |> length()
     total = if unknown == [], do: length(writes) + ensures, else: :unknown
+    ensures = if feature_count == :unknown, do: :unknown, else: ensures
 
     %{
       items: entries,

@@ -3,7 +3,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
   use GenServer
   alias Aiur.BuildOrder.History.LabelBackfill.{Checkpoint, Rules, Sources, Writer}
   alias Aiur.Config.Paths
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Access
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -45,7 +45,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
       readers: Sources.readers(opts),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       tracker: Keyword.get(opts, :tracker, Aiur.Tracker),
-      core_limit: Keyword.get_lazy(opts, :agent_core_limit, fn -> Budget.guard_settings().agent_core_limit_per_hour end),
+      core_limit: Keyword.get_lazy(opts, :agent_core_limit, fn -> Access.guard_settings().agent_core_limit_per_hour end),
       batch: nil,
       tick_ms: Keyword.get(opts, :tick_ms, 60_000)
     }
