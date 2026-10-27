@@ -32,6 +32,7 @@ defmodule Aiur.AsksCommandIntegrationTest do
         end)
       end)
 
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: command request cannot create Command"
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
     assert {:ok, []} = Aiur.Asks.all("owner/no-fallback")
   end
@@ -57,5 +58,45 @@ defmodule Aiur.AsksCommandIntegrationTest do
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert {:ok, decision} = DecisionStore.get(id, store)
     assert decision.decision_status == :moot
+  end
+
+  test "missing Command errors reach the RPC caller", %{store: store} do
+    output =
+      capture_io(fn ->
+        capture_io(:stderr, fn ->
+          Aiur.AsksCLI.rpc(["ask", "--done", "dec_0123456789abcdef"], "caller", decision_store: store)
+        end)
+      end)
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur ask: :not_found"
+    assert output =~ "__AIUR_CONTROL_EXIT__:2"
+  end
+
+  test "moot errors reach the RPC caller", %{store: store} do
+    output = capture_io(fn -> Aiur.AsksCLI.rpc(["ask", "Approve release?"], "caller", decision_store: store) end)
+    assert [_, id] = Regex.run(~r/Created (dec_[0-9a-f]{16})\./, output)
+
+    output =
+      capture_io(fn ->
+        capture_io(:stderr, fn ->
+          Aiur.AsksCLI.rpc(["ask", "--done", id], "caller", decision_store: store, moot_fun: fn _, _, _, _ -> {:error, :not_found} end)
+        end)
+      end)
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to moot Command (:not_found)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+  end
+
+  test "unexpected RPC failure returns an error and exit marker", %{store: store} do
+    output = capture_io(fn -> Aiur.AsksCLI.rpc(["ask", "Approve release?"], "caller", decision_store: store) end)
+    assert [_, id] = Regex.run(~r/Created (dec_[0-9a-f]{16})\./, output)
+
+    output =
+      capture_io(fn ->
+        Aiur.AsksCLI.rpc(["ask", "--done", id], "caller", decision_store: store, moot_fun: fn _, _, _, _ -> raise "moot crashed" end)
+      end)
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: ask query failed (moot crashed)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 end

@@ -2,7 +2,7 @@ defmodule Aiur.AsksCLI do
   @moduledoc false
 
   alias Aiur.{Commands, ExecutorCommandCLI}
-  alias Aiur.ControlCLI.ExecutorRequest
+  alias Aiur.ControlCLI.{ExecutorRequest, Protocol}
   alias Aiur.GitHub.Config, as: GitHubConfig
 
   @type command ::
@@ -12,13 +12,15 @@ defmodule Aiur.AsksCLI do
 
   @spec rpc([String.t()], String.t(), keyword()) :: :ok
   def rpc(argv, executor_id, deps \\ []) do
-    code =
-      case Aiur.CLI.evaluate(argv) do
-        {:asks, command} -> run(command, &IO.puts/1, &GitHubConfig.repo/0, &execute(&1, &2, executor_id, deps))
-        _ -> write_error(&IO.puts/1, "invalid ask arguments")
-      end
+    Protocol.guarded("ask", fn ->
+      code =
+        case Aiur.CLI.evaluate(argv) do
+          {:asks, command} -> run(command, &IO.puts/1, &GitHubConfig.repo/0, &execute(&1, &2, executor_id, deps))
+          _ -> write_error(&Protocol.control_error/1, "invalid ask arguments")
+        end
 
-    IO.puts("__AIUR_CONTROL_EXIT__:#{code}")
+      Protocol.exit_marker(code)
+    end)
   end
 
   @spec run(command(), (iodata() -> :ok), (-> String.t() | nil), (atom(), keyword() -> non_neg_integer())) :: non_neg_integer()
@@ -55,16 +57,16 @@ defmodule Aiur.AsksCLI do
 
   defp execute(:request, params, executor_id, deps) do
     {result_fun, params} = Keyword.pop!(params, :result_fun)
-    ExecutorRequest.request(Keyword.put(params, :executor_id, executor_id), Keyword.put(deps, :result_fun, result_fun))
+    ExecutorRequest.request(Keyword.put(params, :executor_id, executor_id), Keyword.merge(deps, result_fun: result_fun, error_fun: &Protocol.control_error/1))
   end
 
   defp execute(:moot, params, executor_id, deps) do
     case Commands.get(params[:decision_id], store: Keyword.get(deps, :decision_store, Commands.default_store())) do
       {:ok, %{decision: decision}} ->
-        params |> Keyword.merge(expected_version: decision.version, executor_id: executor_id) |> ExecutorCommandCLI.moot(Keyword.put(deps, :error_fun, params[:error_fun]))
+        params |> Keyword.merge(expected_version: decision.version, executor_id: executor_id) |> ExecutorCommandCLI.moot(Keyword.put(deps, :error_fun, &Protocol.control_error/1))
 
       {:error, reason} ->
-        write_error(params[:error_fun], reason)
+        write_error(&Protocol.control_error/1, reason)
     end
   end
 
