@@ -45,6 +45,24 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     Enum.map(decisions, &Map.put(&1, :latency, %{status: health, snapshot: nil}))
   end
 
+  @doc "Whether a projected dashboard row was requested by the Executor."
+  @spec executor?(map()) :: boolean()
+  def executor?(%{requester: %{"kind" => "executor"}}), do: true
+  def executor?(%{requester: %{kind: :executor}}), do: true
+  def executor?(_row), do: false
+
+  @doc "Human-readable requester, including legacy worker attribution."
+  @spec requester_label(map()) :: String.t()
+  def requester_label(row) do
+    if executor?(row) do
+      "Executor"
+    else
+      ticket = row.ticket[:identifier] || row.decision_id
+      agent = row.source[:agent_id]
+      Enum.join(Enum.reject(["#" <> ticket, agent], &is_nil/1), " · ")
+    end
+  end
+
   defp row(%Decision{} = decision) do
     active_answer = Decision.active_answer(decision)
 

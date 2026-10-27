@@ -145,6 +145,7 @@ defmodule Aiur.Decision do
           escalations: [map()],
           executor_acknowledged_at: DateTime.t() | nil,
           human_needed_at: DateTime.t() | nil,
+          requester_notified_at: DateTime.t() | nil,
           content_hash: String.t(),
           decision_status: decision_status(),
           delivery_status: delivery_status(),
@@ -204,6 +205,7 @@ defmodule Aiur.Decision do
                 escalations: [],
                 executor_acknowledged_at: nil,
                 human_needed_at: nil,
+                requester_notified_at: nil,
                 decision_status: :open,
                 delivery_status: :not_dispatched,
                 pending_for_session?: false,
@@ -266,7 +268,7 @@ defmodule Aiur.Decision do
   def delivered?(%__MODULE__{decision_status: status}) when status in [:acknowledged, :resolved], do: true
 
   def delivered?(%__MODULE__{} = decision) do
-    map_size(decision.acknowledgements) > 0 or
+    not is_nil(decision.requester_notified_at) or map_size(decision.acknowledgements) > 0 or
       Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
   end
 

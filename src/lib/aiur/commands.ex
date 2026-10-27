@@ -7,8 +7,17 @@ defmodule Aiur.Commands do
   arities stay together so the public delegation contract is easy to audit.
   """
 
+  @spec requester_notified(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  defdelegate requester_notified(decision_id, action_id, opts \\ []), to: Aiur.Commands.ExecutorDelivery, as: :on_enqueued
+
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
+
+  @spec needs_you?(map()) :: boolean()
+  defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
+
+  @spec matches_route?(map(), atom() | nil) :: boolean()
+  defdelegate matches_route?(decision, route), to: Aiur.Commands.Routing.Policy
 
   @spec public_v2(Aiur.Decision.t()) :: map()
   defdelegate public_v2(decision), to: Aiur.Commands.Projection

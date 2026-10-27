@@ -113,6 +113,7 @@ defmodule Aiur.Orchestrator.State.RuntimeInfo do
       running_entry ->
         session_execution = %{
           backend: backend,
+          pull_tool_installed: info[:pull_tool_installed] == true,
           requested_model: optional_runtime_string(info[:requested_model]),
           resolved_model: nil,
           effort: optional_runtime_string(info[:effort]),

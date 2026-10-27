@@ -30,7 +30,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | --- | --- | --- |
 | **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
 | **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
-| **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
+| **Commands** | `/commands` is the durable decision inbox and each decision's detail. **From Executor** filters inbox rows (`?requester=executor`); Executor requests carry a badge. | `aiur commands` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
@@ -45,6 +45,21 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
 
 The operator-facing UI and CLI call these records **Commands**.
+
+The Commands inbox keeps all open Commands visible. Routing chips read **With Executor**,
+**Needs you**, **Needs you and Executor**, or **From Executor**. Older Commands without
+routing facts show **Routing…**. Cards show when they were asked and, after human
+routing, how long they have needed you.
+
+Use **Needs you**, **With Executor**, **From Executor**, or **Resolved** to filter;
+links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and All
+include unrouted Commands. Resolved Commands appear in the history table.
+
+Only Commands routed to you (including those shared with the Executor) count in the
+banner, navigation badge, and Units **Commands** column. Unknown counts display an
+unavailable notice or `—`; partial retained data is labelled partial.
+
+The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
 
 Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.
 

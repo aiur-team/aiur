@@ -103,7 +103,16 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --scope repo` | Filters to `aiur` or `repo` scope. | `aiur findings --scope repo` |
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
+
 ### `executor-wait` outcomes
+
+Executor-originated Command answers produce `executor.decision.answered` wakes
+with `topic_class: "executor.decision"`, `action: "answered"`, `decision_id`,
+and `ticket: null`. These records contain identifiers rather than answer text.
+
+Read the answer with `aiur commands <decision_id> --json`. Journal replay delivers
+answers published while the listener was stopped.
+
 A quiet timeout is a **successful empty result**, not a failure: nothing was pending, so nothing was consumed and nothing was lost. Plain mode prints `NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json` returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
 
 Under `--json` every outcome carries a `status`: `woken` for a returned batch, `timeout` for a quiet wait, `superseded` when a newer deferred wait replaces this consumer's blocked wait, or `error` for a failure. Deferred batches also include `ack: "deferred"` and `max_wake_id`. Branch on `status` rather than on the presence of `records`.

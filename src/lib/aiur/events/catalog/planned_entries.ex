@@ -67,10 +67,11 @@ defmodule Aiur.Events.Catalog.PlannedEntries do
   @listener [
     %Entry{
       pattern: "ticket.*.agent.listen-mode.changed",
+      attribution: :payload_actor,
       class: :live,
       export?: true,
       attrs: [requested: {:enum, ~w(steer sync async)}, effective: {:enum, ~w(steer sync async)}, effective_reason: {:enum, @listener_reasons}, version: :integer],
-      reserved: true,
+      reserved: false,
       owner: "orchestration"
     }
   ]

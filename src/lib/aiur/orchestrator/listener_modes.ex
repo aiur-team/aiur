@@ -2,7 +2,8 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @moduledoc "Serialized mode control and pending listener delivery updates."
 
   require Logger
-  alias Aiur.{AgentPubSub, AgentQueueStore, TrackerIdentity}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Events, TrackerIdentity}
+  alias Aiur.Events.Catalog
   alias Aiur.Listener.{Effective, ModeStore, Scheduler}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   alias Aiur.Orchestrator.State
@@ -39,8 +40,8 @@ defmodule Aiur.Orchestrator.ListenerModes do
 
     case reply do
       {:ok, id, result} ->
-        AgentPubSub.broadcast_listen_mode(id, event_payload(result))
         key = State.find_running_key_by_identifier(state.running, id)
+        broadcast(id, result, if(key, do: state.running[key]))
         next = if key, do: put_in(state.running[key][:listener_effective], result), else: state
         {:reply, {:ok, result}, mode_view_changed(next, id, result)}
 
@@ -76,11 +77,11 @@ defmodule Aiur.Orchestrator.ListenerModes do
 
   defp refresh_view(%{identifier: id} = entry, state, previous_entry, harness) when is_binary(id) and id != "" do
     record = ModeStore.get(id)
-    result = %{Effective.compute(record, harness) | actor: :system}
+    result = %{compute(record, harness, entry) | actor: :system}
     previous = if previous_entry, do: previous_entry[:listener_effective] || view(state, id, previous_entry, record)
 
     if is_nil(previous) or {previous.effective, previous.effective_reason} != {result.effective, result.effective_reason} do
-      AgentPubSub.broadcast_listen_mode(id, event_payload(result))
+      broadcast(id, result, entry)
     end
 
     Map.put(entry, :listener_effective, result)
@@ -94,9 +95,37 @@ defmodule Aiur.Orchestrator.ListenerModes do
     Map.update(entry, :control, flags, &Map.merge(&1, flags))
   end
 
+  defp broadcast(id, result, entry) do
+    payload = event_payload(result)
+    AgentPubSub.broadcast_listen_mode(id, payload)
+    issue_id = entry && entry[:issue] && entry.issue.id
+    publish(id, payload, "issue_id=#{issue_id || "unknown"} issue_identifier=#{id}")
+  end
+
+  defp publish(id, payload, context) do
+    topic = "ticket.#{id}.agent.listen-mode.changed"
+
+    if Catalog.lookup(topic).pattern == "ticket.*.agent.listen-mode.changed" do
+      case Events.publish(topic, payload, issue_number: id) do
+        {:ok, _, _} -> :ok
+        outcome when outcome in [:filtered, :deduped] -> Logger.debug("listener_mode_publish #{context} outcome=#{outcome}")
+        {:error, reason} -> Logger.warning("listener_mode_publish #{context} error=#{inspect(reason)}")
+      end
+    end
+  rescue
+    error -> Logger.warning("listener_mode_publish #{context} error=#{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("listener_mode_publish #{context} exit=#{inspect(reason)}")
+  end
+
   defp event_payload(result), do: Map.take(result, [:requested, :effective, :effective_reason, :version, :actor])
 
-  defp view(state, id, entry, record), do: Effective.compute(record, Capabilities.harness_delivery(state, id, entry))
+  defp view(state, id, entry, record), do: compute(record, Capabilities.harness_delivery(state, id, entry), entry)
+
+  defp compute(record, harness, entry) do
+    installed? = get_in(entry || %{}, [:session_execution, :pull_tool_installed]) == true
+    Effective.compute(record, harness, pull_tool_installed?: installed?)
+  end
 
   defp resolve(state, %TrackerIdentity{} = identity) do
     case State.find_unique_running_by_identity(state.running, identity) do

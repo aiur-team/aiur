@@ -94,10 +94,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
     request = %{
       delivery_policy: Map.get(payload, :delivery_policy, :checkpoint),
       origin: Map.get(payload, :origin, :internal),
+      actor: Map.get(payload, :actor),
       fallback: Map.get(payload, :fallback),
       turn_id: Map.get(payload, :turn_id),
       action_id: if(mode == :correlated, do: Map.get(payload, :action_id)),
-      correlation: if(mode == :correlated, do: Map.get(payload, :correlation)),
+      correlation: message_correlation(payload, mode),
       retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
       message_id: if(mode == :plain, do: payload_key(payload, :message_id)),
       mode: mode
@@ -111,6 +112,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
         {error, state}
     end
   end
+
+  defp message_correlation(payload, :correlated), do: Map.get(payload, :correlation)
+  defp message_correlation(%{correlation: %{native_ref: _} = correlation}, :plain), do: correlation
+  defp message_correlation(_payload, :plain), do: nil
 
   defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
     case replay_existing_correlated_message(state, issue_identifier, text, request) do
@@ -342,6 +347,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
             issue_identifier,
             text,
             queue_opts
+            |> Keyword.put(:origin, request.origin)
+            |> Keyword.put(:actor, request.actor)
             |> Keyword.put(:turn_id, request.turn_id)
             |> Keyword.put(:action_id, request.action_id)
             |> Keyword.put(:correlation, request.correlation)

@@ -21,6 +21,18 @@ defmodule Aiur.Commands.Routing.Policy do
   @type config :: %{ack_ms: non_neg_integer(), answer_ms: non_neg_integer(), urgent_factor: number()}
   @type escalation :: :none | {:due, cause(), DateTime.t()} | {:next, DateTime.t()}
 
+  @doc "Whether an outstanding Command is routed to the human. Unknown routing never counts."
+  @spec needs_you?(map()) :: boolean()
+  def needs_you?(decision), do: open?(decision) and Map.get(decision, :route_state) in [:with_human, :with_both]
+
+  @doc "Matches a retained inbox routing filter."
+  @spec matches_route?(map(), atom() | nil) :: boolean()
+  def matches_route?(_decision, nil), do: true
+  def matches_route?(decision, :needs_you), do: needs_you?(decision)
+  def matches_route?(decision, :with_executor), do: open?(decision) and Map.get(decision, :route_state) == :with_executor
+  def matches_route?(decision, :from_executor), do: open?(decision) and executor_requester?(decision)
+  def matches_route?(decision, :resolved), do: not open?(decision)
+
   @spec executor_may_answer?(map()) :: boolean()
   def executor_may_answer?(decision), do: not Requester.executor?(decision) and DecisionAuthority.executor_answerable?(decision)
 
@@ -71,6 +83,14 @@ defmodule Aiur.Commands.Routing.Policy do
   end
 
   def armed?(_decision, _config), do: true
+
+  defp executor_requester?(%{requester: %{"kind" => "executor"}}), do: true
+  defp executor_requester?(decision), do: Requester.executor?(decision)
+
+  defp open?(%{open?: open}), do: open
+  defp open?(%{decision_status: status}) when status in [:open, :deferred], do: true
+  defp open?(%{decision_status: :expired, blocking: true, answer: nil}), do: true
+  defp open?(_decision), do: false
 
   defp deadlines(decision, config) do
     factor = if decision.blocking and decision.urgency in [:high, :critical], do: config.urgent_factor, else: 1.0

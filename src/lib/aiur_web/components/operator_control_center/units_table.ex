@@ -51,6 +51,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <th class="ut-col-unit" data-sort-key="unit">Unit</th>
               <th class="ut-col-ticket" data-sort-key="ticket">Ticket</th>
               <th class="ut-col-latest" data-sort-key="latest" data-sort-type="number">Latest</th>
+              <th>Commands</th>
               <th class="ut-col-cmd">Command</th>
             </tr>
           </thead>
@@ -59,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 a table of its own. --%>
           <tbody :if={@status == :unavailable}>
             <tr class="units-row units-empty-row">
-              <td class="units-empty-cell" colspan="5">No active units</td>
+              <td class="units-empty-cell" colspan="6">No active units</td>
             </tr>
           </tbody>
           <tbody id="units-rows">
@@ -130,6 +131,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
               </td>
 
+              <td data-label="Commands">
+                <.link patch={AiurWeb.OperatorControlCenter.DecisionPath.inbox(:needs_you, %{ticket: row.identity.identifier})} class="chip" title="Commands that need you">
+                  {needs_you_count(@view, row.identity.identifier)}
+                </.link>
+              </td>
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
@@ -169,6 +175,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     </div>
     """
   end
+
+  defp needs_you_count(%{command_counts: %{needs_you_by_ticket: counts}}, identifier) when is_map(counts),
+    do: Map.get(counts, identifier, 0)
+
+  defp needs_you_count(_view, _identifier), do: "—"
 
   defp turn_count(%{turn_count: count}) when is_integer(count) and count >= 0, do: count
   defp turn_count(row), do: unreported_label(row)

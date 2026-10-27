@@ -120,6 +120,17 @@ Every manual `aiur_subscribe` pattern must start with one literal ticket identif
 
 Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
 
+## Listener-mode changes
+
+`ticket.<id>.agent.listen-mode.changed` is a live hint published after each local
+mode broadcast. Its payload carries `requested`, `effective`, `effective_reason`,
+`version`, and `actor` (`human`, `executor`, or `system`), with no message text.
+Consumers re-read listener-mode state. Default agent bindings exclude this topic.
+
+IssueLog attributes these events to the payload actor rather than the agent.
+Publication failures are logged without rolling back the saved mode or local
+broadcast; missed hints are not replayed.
+
 ## Queue transitions
 
 `ticket.<id>.queue.<verb>` publishes live hints after a saved transition, with
@@ -315,3 +326,30 @@ records.
 
 Disabled export or an unreadable journal sends an error `record` with
 `code: "feature_disabled"` or `"events_unavailable"`, then closes the channel.
+
+## Held async messages
+
+Agents with a tool path can call `aiur_read_messages` to consume their own held
+async operator messages. Its optional `max` accepts 1–50 (default 50). Results
+contain `messages` (`id`, `text`, `from`, `accepted_at`) and `remaining`, oldest
+first.
+
+Each batch contains at most 64 KiB of text; a clipped final message has
+`truncated: true` and is acknowledged in full. Normal sync messages stay with
+the scheduler. A consumed held message reports receipt `read`.
+
+The daemon serializes reads and saves `last_read_sequence` in the listener
+record.
+
+This position belongs to the current queue run: the queue itself is
+in memory and is not recovered after restart. It must not be used to skip
+new messages whose sequence numbers restart.
+
+Requests expired before acknowledgement begins consume nothing;
+the caller waits for the serialized result rather than abandoning a read on a
+transport timeout. A lost reply after acknowledgement cannot be replayed.
+
+A resumed older Codex thread keeps its original tool catalog. Async stays
+unavailable there unless its saved session handle confirms the read tool was
+installed. Fresh threads register the current catalog; Claude REPL has no tool
+path and continues to fall back to sync.

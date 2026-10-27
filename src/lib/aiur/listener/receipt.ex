@@ -3,7 +3,7 @@ defmodule Aiur.Listener.Receipt do
 
   @type t :: %{
           optional(:failure_reason) => term(),
-          receipt: :accepted | :held_async | :harness_queued | :failed | :unknown,
+          receipt: :accepted | :held_async | :harness_queued | :read | :failed | :unknown,
           queue_status: atom(),
           listener_mode: atom() | nil,
           observed_at: DateTime.t()
@@ -30,6 +30,7 @@ defmodule Aiur.Listener.Receipt do
   end
 
   defp classify(%{status: status}) when status in [:failed, :superseded], do: :failed
+  defp classify(%{status: :consumed, read_at: %DateTime{}}), do: :read
   defp classify(%{status: :pending, delivery: %{consume_at: :pull}}), do: :held_async
   defp classify(%{status: :pending}), do: :accepted
 
