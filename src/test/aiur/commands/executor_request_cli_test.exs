@@ -3,8 +3,9 @@ Code.require_file("../../support/decision_store_case.ex", __DIR__)
 defmodule Aiur.Commands.ExecutorRequestCLITest do
   use Aiur.DecisionStoreCase, async: false
   import ExUnit.CaptureIO
-  alias Aiur.ControlCLI.ExecutorRequest
+  alias Aiur.Commands.RequestContent
   alias Aiur.Commands.Routing
+  alias Aiur.ControlCLI.ExecutorRequest
 
   setup %{dir: dir} do
     previous = Application.get_env(:aiur, :executor_state_dir)
@@ -164,6 +165,6 @@ defmodule Aiur.Commands.ExecutorRequestCLITest do
   end
 
   test "Executor suggested responses are checked" do
-    assert {:warn, :too_few_options} = Aiur.Commands.RequestContent.suggested_response_check(%{options: []}, :executor_cli)
+    assert {:warn, :too_few_options} = RequestContent.suggested_response_check(%{options: []}, :executor_cli)
   end
 end

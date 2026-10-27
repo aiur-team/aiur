@@ -4,6 +4,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.BuildOrder.EstimateCLI
   alias Aiur.BuildOrdersCLI
   alias Aiur.CommandsCLI
+  alias Aiur.ControlCLI.ExecutorRequest
   alias Aiur.ExecutorCommandCLI
   alias Aiur.GitHubCostCLI
   alias Aiur.GitHubUsageCLI
@@ -29,7 +30,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
 
   @spec command_request(keyword()) :: :ok
   def command_request(opts) do
-    guarded("command request", fn -> opts |> Aiur.ControlCLI.ExecutorRequest.request(error_fun: &control_error/1) |> exit_marker() end)
+    guarded("command request", fn -> opts |> ExecutorRequest.request(error_fun: &control_error/1) |> exit_marker() end)
   end
 
   @spec executor_answer(keyword()) :: :ok

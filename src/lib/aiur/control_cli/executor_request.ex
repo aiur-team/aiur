@@ -2,13 +2,13 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
   @moduledoc "Creates human-directed Commands attributed to the requesting Executor."
 
   alias Aiur.Commands
-  alias Aiur.Executor.Claims
 
   @spec request(keyword(), keyword()) :: 0 | 1 | 64
   def request(params, deps \\ []) do
     with :ok <- validate_text(params),
          {:ok, options} <- options(Keyword.get(params, :options, [])),
-         {:ok, options, recommendation} <- recommend(options, params[:recommend]) do
+         {:ok, options, recommendation} <- recommend(options, params[:recommend]),
+         :ok <- validate_identity(params[:executor_id]) do
       submit(params, options, recommendation, deps)
     else
       {:error, reason} -> error(deps, reason, 64)
@@ -20,8 +20,12 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
     if invalid?, do: {:error, "text must be valid UTF-8"}, else: :ok
   end
 
+  # The launcher resolves identity on the caller's machine before RPC.
+  defp validate_identity(id) when is_binary(id) and byte_size(id) > 0, do: :ok
+  defp validate_identity(_id), do: {:error, "requester identity is required"}
+
   defp submit(params, options, recommendation, deps) do
-    executor_id = Claims.resolve_consumer_id(as: params[:executor_id])
+    executor_id = params[:executor_id]
     source_id = params[:idempotency_key] || "exec-#{Ecto.UUID.generate()}"
 
     payload = %{

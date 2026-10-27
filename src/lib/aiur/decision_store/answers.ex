@@ -3,9 +3,9 @@ defmodule Aiur.DecisionStore.Answers do
 
   require Logger
 
+  alias Aiur.Commands.ActorSource
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Policy
-  alias Aiur.Commands.ActorSource
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority

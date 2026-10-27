@@ -84,7 +84,7 @@ defmodule Aiur.Commands.RequestContentTest do
     assert RequestContent.short_label(%{question: String.duplicate("x", 40) <> " next"}, []) == String.duplicate("x", 40)
   end
 
-  test "emit_event and executor_cli require two or three options and the recommended option first" do
+  test "event requests require suggested responses while native sources are exempt" do
     options = [%{id: "a"}, %{id: "b"}]
     assert RequestContent.suggested_response_check(%{options: options}, :emit_event) == :ok
     assert RequestContent.suggested_response_check(%{options: options, recommendation: %{option_id: "a"}}, :emit_event) == :ok
