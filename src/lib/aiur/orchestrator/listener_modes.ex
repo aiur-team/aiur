@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @moduledoc "Serialized mode reads and compare-and-set writes; queue state is unchanged."
 
   require Logger
-  alias Aiur.{AgentPubSub, CodingAgent}
+  alias Aiur.AgentPubSub
   alias Aiur.Listener.{Effective, ModeStore}
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.State
@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
           {:ok, record} ->
             result = view(state, id, entry, record)
             Logger.info("listener_mode_set issue=#{id} requested=#{result.requested} effective=#{inspect(result.effective)} version=#{result.version} actor=#{result.actor}")
-            {:ok, result}
+            {:ok, id, result}
 
           {:error, {:mode_conflict, record}} ->
             {:error, {:mode_conflict, view(state, id, entry, record)}}
@@ -39,11 +39,11 @@ defmodule Aiur.Orchestrator.ListenerModes do
       end
 
     case reply do
-      {:ok, result} ->
-        AgentPubSub.broadcast_listen_mode(result_id(target), event_payload(result))
-        key = State.find_running_key_by_identifier(state.running, result_id(target))
+      {:ok, id, result} ->
+        AgentPubSub.broadcast_listen_mode(id, event_payload(result))
+        key = State.find_running_key_by_identifier(state.running, id)
         next = if key, do: put_in(state.running[key][:listener_effective], result), else: state
-        {:reply, reply, next}
+        {:reply, {:ok, result}, next}
 
       _error ->
         {:reply, reply, state}
@@ -67,24 +67,11 @@ defmodule Aiur.Orchestrator.ListenerModes do
     put_in(state.running[issue_id], updated)
   end
 
-  defp refresh_control(entry, %{harness_id: backend, primitives: primitives}) do
-    flags =
-      if primitives == :unknown do
-        %{can_interrupt: false, safe_checkpoints: [], immediate_delivery: false, application_confirmation: :unsupported}
-      else
-        %{
-          can_interrupt: CodingAgent.can_interrupt?(backend),
-          safe_checkpoints: CodingAgent.safe_checkpoints(backend),
-          immediate_delivery: CodingAgent.immediate_delivery?(backend),
-          application_confirmation: CodingAgent.control_application_confirmation(backend)
-        }
-      end
-
+  defp refresh_control(entry, %{harness_id: backend}) do
+    flags = Capabilities.backend_control_flags(backend)
     Map.update(entry, :control, flags, &Map.merge(&1, flags))
   end
 
-  defp result_id(%TrackerIdentity{identifier: id}), do: id
-  defp result_id(id), do: id
   defp event_payload(result), do: Map.take(result, [:requested, :effective, :effective_reason, :version, :actor])
 
   defp view(state, id, entry, record), do: Effective.compute(record, Capabilities.harness_delivery(state, id, entry))

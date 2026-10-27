@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
 
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, CodingAgent, Issue}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, CodingAgent, Issue, TrackerIdentity}
   alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.{Dispatcher, ListenerModes, State}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
@@ -122,5 +122,21 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
     after
       Process.register(pubsub, Aiur.PubSub)
     end
+  end
+
+  test "identity writes signal and cache the resolved identifier, never a stale display identifier", %{state: state, id: id, issue: issue} do
+    identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "org", repository: "repo", provider_id: "I_target", identifier: id, reason: nil}
+    stale = "stale-#{id}"
+    entry = Map.put(state.running[issue.id], :tracker_identity, identity)
+    decoy = %{entry | identifier: stale, tracker_identity: %{identity | provider_id: "I_decoy", identifier: stale}}
+    state = %{state | running: %{issue.id => entry, "decoy" => decoy}}
+    :ok = AgentPubSub.subscribe_listen_mode(stale)
+    assert {:reply, {:ok, view}, updated} = ListenerModes.set_mode(state, %{identity | identifier: stale}, :async, expected_version: 0, actor: :executor)
+    assert_received {:listen_mode_changed, ^id, %{requested: :async, actor: :executor}}
+    refute_received {:listen_mode_changed, ^stale, _}
+    assert updated.running[issue.id].listener_effective == view
+    assert updated.running["decoy"] == decoy
+    assert ModeStore.get(id).requested == :async
+    assert ModeStore.get(stale).version == 0
   end
 end
