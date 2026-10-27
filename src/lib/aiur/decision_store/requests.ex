@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.Requests do
 
   require Logger
 
-  alias Aiur.Commands.RequestAttributes
+  alias Aiur.Commands.{RequestAttributes, SuggestedResponses}
   alias Aiur.DecisionProjection.AuthorityReclassification
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
@@ -159,8 +159,12 @@ defmodule Aiur.DecisionStore.Requests do
   @spec handle_request(term(), term(), term()) :: term()
   def handle_request(payload, opts, state) do
     with {:ok, requested_version} <- fetch_requested_version(payload),
-         {:ok, decision} <- DecisionValidation.normalize(payload, opts) do
-      evaluate_and_apply(decision, requested_version, state, opts)
+         {:ok, opts} <- RequestAttributes.normalize_opts(opts),
+         {:ok, decision} <- DecisionValidation.normalize(payload, opts),
+         :ok <- SuggestedResponses.validate(decision, opts) do
+      decision
+      |> evaluate_and_apply(requested_version, state, opts)
+      |> SuggestedResponses.warn_once(state, opts)
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end

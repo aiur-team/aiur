@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test'
-import { FIXTURE_META } from './design-parity-environment.mjs'
+import { BUILD_FIXTURE_META } from './build-home-test-environment.mjs'
 
 async function scroll(page, top) {
   await page.locator('#bd-vp').evaluate((el, top) => {
@@ -38,7 +38,7 @@ async function sample(page, ids) {
 }
 
 export async function historySequence(page, ctx, name) {
-  const ids = ctx.ids ?? FIXTURE_META.ids
+  const ids = ctx.ids ?? BUILD_FIXTURE_META.ids
   if (name === 'load-earlier') {
     // Settle cards just outside the paging trigger before moving to 200. Cards
     // created by that same scroll still have noanim and cannot expose a slide.

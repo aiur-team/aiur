@@ -191,7 +191,7 @@ defmodule Aiur.Commands.AnsweringFacadeTest do
   defp multi_question_request(ctx) do
     questions = [
       %{"question_id" => "q1", "question" => "Proceed?", "options" => [%{"id" => "yes", "label" => "Yes"}, %{"id" => "no", "label" => "No"}], "allow_other" => false},
-      %{"question_id" => "q2", "question" => "Target?", "options" => [%{"id" => "blue", "label" => "Blue"}], "allow_other" => true}
+      %{"question_id" => "q2", "question" => "Target?", "options" => [%{"id" => "blue", "label" => "Blue"}, %{"id" => "green", "label" => "Green"}], "allow_other" => true}
     ]
 
     {:ok, %{decision: decision}} =
@@ -201,7 +201,27 @@ defmodule Aiur.Commands.AnsweringFacadeTest do
         ctx.store
       )
 
-    assert decision.questions == questions
+    assert decision.questions == [
+             %{
+               question_id: "q1",
+               question: "Proceed?",
+               header: nil,
+               multi_select: false,
+               allow_other: false,
+               secret: false,
+               options: [%{id: "yes", label: "Yes", description: nil}, %{id: "no", label: "No", description: nil}]
+             },
+             %{
+               question_id: "q2",
+               question: "Target?",
+               header: nil,
+               multi_select: false,
+               allow_other: true,
+               secret: false,
+               options: [%{id: "blue", label: "Blue", description: nil}, %{id: "green", label: "Green", description: nil}]
+             }
+           ]
+
     decision
   end
 
