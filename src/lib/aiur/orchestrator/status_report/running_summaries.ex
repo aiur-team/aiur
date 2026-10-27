@@ -33,18 +33,16 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
     |> listener_summaries(state, Scheduler.routing(opts))
   end
 
-  defp listener_summaries(summaries, state, routing) do
-    if routing == :listener do
-      Enum.map(summaries, fn summary ->
-        entry = State.find_running_by_identifier(state.running, summary.identifier)
-        view = if entry, do: entry[:listener_effective]
-        unread = Unread.queue_summary(state.queue_store, summary.identifier).listener
-        Map.put(summary, :listener, Map.merge(view || %{}, unread))
-      end)
-    else
-      summaries
-    end
+  defp listener_summaries(summaries, state, :listener) do
+    Enum.map(summaries, fn summary ->
+      entry = State.find_running_by_identifier(state.running, summary.identifier)
+      view = if entry, do: entry[:listener_effective]
+      unread = Unread.queue_summary(state.queue_store, summary.identifier).listener
+      Map.put(summary, :listener, Map.merge(view || %{}, unread))
+    end)
   end
+
+  defp listener_summaries(summaries, _state, :legacy), do: summaries
 
   defp polled_summary({issue_id, issue}, state, now) do
     identifier = Map.get(issue, :identifier) || ""

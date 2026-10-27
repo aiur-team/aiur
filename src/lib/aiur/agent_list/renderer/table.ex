@@ -159,7 +159,7 @@ defmodule Aiur.AgentList.Renderer.Table do
 
     progress_width = if layout.show_progress?, do: Layout.progress_cell_width() + 1, else: 0
     context_width = if layout.show_context?, do: Layout.context_cell_width() + 1, else: 0
-    listener_width = if layout.listener_width > 0, do: layout.listener_width + 1, else: 0
+    listener_width = Listener.block_width(layout)
     runtime_width = Layout.runtime_cell_width() + 1
     model_width = if layout.model_width > 0, do: layout.model_width + 1, else: 0
 

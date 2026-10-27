@@ -29,6 +29,16 @@ defmodule Aiur.AgentList.Renderer.Listener do
     end
   end
 
+  @spec width([map()], integer()) :: non_neg_integer()
+  def width(summaries, available) do
+    natural = width(summaries)
+    if natural > 0 and available >= natural + 1, do: natural, else: 0
+  end
+
+  @spec block_width(map()) :: non_neg_integer()
+  def block_width(%{listener_width: width}) when width > 0, do: width + 1
+  def block_width(_layout), do: 0
+
   @spec block(map(), map()) :: iodata()
   def block(summary, %{listener_width: width}) when width > 0, do: [" ", Text.cell(label(summary[:listener]), width)]
   def block(_summary, _layout), do: []

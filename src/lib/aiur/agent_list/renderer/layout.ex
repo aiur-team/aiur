@@ -139,15 +139,9 @@ defmodule Aiur.AgentList.Renderer.Layout do
     context_available = inner_width - base_overhead - progress_block_width - model_base_block
     show_context? = show_context?(summaries, context_available)
 
-    listener_natural_width = Listener.width(summaries)
-    listener_available = context_available - context_block_width(show_context?)
-
-    listener_width =
-      if listener_natural_width > 0 and listener_available - natural_id_width - @min_title_width - 1 >= listener_natural_width + 1,
-        do: listener_natural_width,
-        else: 0
-
-    listener_block_width = if listener_width > 0, do: listener_width + 1, else: 0
+    listener_available = context_available - context_block_width(show_context?) - natural_id_width - @min_title_width - 1
+    listener_width = Listener.width(summaries, listener_available)
+    listener_block_width = Listener.block_width(%{listener_width: listener_width})
 
     fixed_non_id_overhead =
       base_overhead + progress_block_width + model_base_block +
