@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isUnfiled, refText, refTitle, queueText, srcLine, findWas } from '../../priv/static/build-home/unfiled.js';
+import { isUnfiled, refText, refTitle, queueText, srcLine, srcTitle, findWas } from '../../priv/static/build-home/unfiled.js';
 import { stClass, stText } from '../../priv/static/build-home/list.js';
 import { treeStatus } from '../../priv/static/build-home/chains.js';
 import { headerHTML } from '../../priv/static/build-home/modal/header.js';
@@ -24,6 +24,18 @@ test('unfiled identities and unknown queue positions are explicit', () => {
 test('source phases preserve zero and omit unknown phase', () => {
   assert.equal(srcLine(pack), 'docs/build-plan.md · not filed yet');
   assert.equal(srcLine({...pack, src: {...pack.src, wave: 0}}), 'docs/build-plan.md · wave 0 · not filed yet');
+});
+test('source-less pack identities stay unfiled without inventing a source path', () => {
+  for (const src of [undefined, null]) {
+    const row = {id:'pack:unknowns/alpha', num:null, src};
+    assert.equal(isUnfiled(row), true);
+    assert.equal(refText(row), '—'); assert.equal(queueText(row), 'Not filed');
+    assert.equal(stText(row), 'Not filed');
+    assert.equal(srcLine(row), 'Source unknown · not filed yet');
+    assert.equal(srcTitle(row), 'Source unknown');
+    assert.equal(isUnfiled({...row, num:57}), false);
+    assert.equal(isUnfiled({...row, id:'57'}), false);
+  }
 });
 test('filed alias lookup resolves old pack identity', () => {
   const filed = {id:'57', was:pack.id}; assert.equal(findWas([filed], pack.id), filed); assert.equal(findWas([filed], 'pack:demo/X'), null);

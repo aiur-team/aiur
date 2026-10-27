@@ -62,7 +62,7 @@ function complexity(t) {
 }
 function planContent(t, points) {
   const c = t.cue || {}, cues = [];
-  if (c.promoted != null) {
+  if (c.promoted != null && !isUnfiled(t)) {
     cues.push('<span class="bd-q promo">' + promo(c.promoted) + '</span>');
     if (!ageTick && ctx.life) { ctx.life.every(60000, tickAges); ageTick = true; }
   }

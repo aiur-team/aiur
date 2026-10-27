@@ -173,5 +173,5 @@ test('card spoken references preserve filed and unknown labels and recognize pac
     assert.match(cardLabel({ ...row, num }, {}), /^ticket reference unknown Example\./)
   }
   assert.match(cardLabel({ ...row, id: 'pack:demo/A', num: null, src: { kind: 'pack' } }, {}), /^Not filed yet\. Example\./)
-  assert.match(cardLabel({ ...row, id: 'pack:demo/A', num: null }, {}), /^ticket reference unknown Example\./)
+  assert.match(cardLabel({ ...row, id: 'pack:demo/A', num: null }, {}), /^Not filed yet\. Example\./)
 })
