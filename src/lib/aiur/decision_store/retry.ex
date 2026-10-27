@@ -163,12 +163,7 @@ defmodule Aiur.DecisionStore.Retry do
       addressed ->
         %{
           addressed
-          | native: decision.native,
-            questions: decision.questions,
-            requester: decision.requester,
-            origin: decision.origin,
-            short_label: decision.short_label,
-            answer: decision.answer,
+          | answer: decision.answer,
             active_action_id: decision.active_action_id,
             revision_sequence: decision.revision_sequence,
             revisions: decision.revisions,

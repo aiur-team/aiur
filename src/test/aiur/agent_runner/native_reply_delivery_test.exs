@@ -146,6 +146,36 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
     assert_frame(c, Map.new(answers, fn {id, values} -> {id, %{"answers" => values}} end))
   end
 
+  test "the canonical store rejects incomplete multi-question answers before dispatch", c do
+    d = capture(c, [question("colour", true), question("other", false)])
+
+    assert {:error, {:answer_invalid, {:question_answers, :incomplete}}} =
+             DecisionStore.answer(d.decision_id, %{expected_version: 1, idempotency_key: "partial", option_id: "o1"}, [actor: %{kind: :operator, id: "human"}], c.store)
+
+    assert {:ok, current} = DecisionStore.get(d.decision_id, c.store)
+    assert current.answer == nil
+    assert current.decision_status == :open
+    refute_received {:queued, _}
+  end
+
+  test "retained legacy partial answers render safely and never claim a native reply", c do
+    d = capture(c, [question("colour", true), question("other", false)])
+
+    assert {:ok, answer} =
+             Aiur.DecisionAnswer.normalize(
+               %{expected_version: 1, idempotency_key: "historical", option_id: "o1"},
+               decision_id: d.decision_id,
+               decision_version: 1,
+               options: d.options,
+               actor: %{kind: :operator, id: "human"},
+               now: DateTime.utc_now()
+             )
+
+    retained = %{d | answer: answer, decision_status: :decided}
+    assert DecisionDispatch.render(retained) =~ "Selected option `o1`: red"
+    assert Aiur.Commands.NativeAnswer.correlate(retained, answer, %{action_id: answer.action_id}) == %{action_id: answer.action_id}
+  end
+
   defp capture(c, questions \\ [question("colour", false)]) do
     assert {:command, d} =
              NativeCapture.capture(
