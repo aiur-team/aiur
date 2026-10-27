@@ -5,6 +5,11 @@ import { compile } from 'json-schema-to-typescript';
 const cwd = fileURLToPath(new URL('../schemas/', import.meta.url));
 const outputs = [
   {
+    name: 'CommandContract',
+    target: new URL('../src/command.generated.ts', import.meta.url),
+    refs: ['command.v2.schema.json'],
+  },
+  {
     name: 'WireContract',
     target: new URL('../src/generated.ts', import.meta.url),
     refs: ['capabilities.v1.schema.json', 'capability-error.v1.schema.json'],

@@ -75,6 +75,10 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
+  @doc false
+  @spec requested_payload(Decision.t()) :: map()
+  defdelegate requested_payload(decision), to: Requested, as: :payload
+
   @spec subscribe(String.t()) :: :ok | {:error, term()}
   def subscribe(topic) when is_binary(topic) do
     with :ok <- validate_binding_topic(topic) do

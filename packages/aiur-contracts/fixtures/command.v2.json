@@ -1,0 +1,54 @@
+{
+  "question": "Choose scope?",
+  "delivery_status": "not_dispatched",
+  "origin": "executor_cli",
+  "reversibility": "reversible",
+  "revisions": [],
+  "source_created_at": null,
+  "consequence_of_delay": null,
+  "recommendation": null,
+  "kind": null,
+  "resolution": null,
+  "revision_result": "nil",
+  "artifacts": [],
+  "source": {
+    "agent_id": null
+  },
+  "blocking": false,
+  "provenance": null,
+  "revision_outcomes": {},
+  "dispatch_attempts": [],
+  "revision_sequence": 0,
+  "ticket": {
+    "identifier": "123",
+    "title": null,
+    "url": null
+  },
+  "revision_follow_ups": {},
+  "active_action_id": null,
+  "acknowledgement": null,
+  "questions": [],
+  "short_label": "Scope",
+  "payload_version": 2,
+  "decision_status": "open",
+  "urgency": "normal",
+  "requester": {
+    "executor_id": "operator",
+    "harness": null,
+    "kind": "executor",
+    "session_ref": null,
+    "ticket": null
+  },
+  "active_answer": null,
+  "native": null,
+  "options": [],
+  "context": {
+    "long_context_markdown": null,
+    "short_summary": "Scope"
+  },
+  "decision_id": "dec_golden",
+  "authority": "supervisor_allowed",
+  "created_at": "2026-10-26T00:00:00Z",
+  "answer": null,
+  "version": 1
+}
