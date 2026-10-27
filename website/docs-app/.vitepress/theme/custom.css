@@ -1,64 +1,43 @@
-:root {
-  --aiur-bg: #e7d6b2;
-  --aiur-bg-soft: #e2cfa6;
-  --aiur-fg: #2a2520;
-  --aiur-muted: #5f5645;
-  --aiur-accent: #1f57c4;
-  --aiur-line: rgba(42, 37, 26, 0.16);
-  --aiur-surface: rgba(42, 37, 26, 0.035);
-
-  --vp-font-family-base: "Space Grotesk", system-ui, sans-serif;
-  --vp-font-family-mono: "JetBrains Mono", monospace;
-  --vp-c-bg: var(--aiur-bg);
-  --vp-c-bg-alt: var(--aiur-bg-soft);
-  --vp-c-bg-elv: color-mix(in srgb, var(--aiur-fg) 3%, var(--aiur-bg));
-  --vp-c-bg-soft: var(--aiur-surface);
-  --vp-c-text-1: var(--aiur-fg);
-  --vp-c-text-2: var(--aiur-muted);
-  --vp-c-text-3: var(--aiur-muted);
-  --vp-c-divider: var(--aiur-line);
-  --vp-c-gutter: var(--aiur-line);
-  --vp-c-brand-1: var(--aiur-accent);
-  --vp-c-brand-2: color-mix(in srgb, var(--aiur-accent) 84%, var(--aiur-fg));
-  --vp-c-brand-3: color-mix(in srgb, var(--aiur-accent) 74%, var(--aiur-fg));
-  --vp-c-brand-soft: color-mix(in srgb, var(--aiur-accent) 14%, transparent);
-  --vp-button-brand-border: var(--aiur-accent);
-  --vp-button-brand-bg: var(--aiur-accent);
-  --vp-button-brand-hover-border: var(--aiur-fg);
-  --vp-button-brand-hover-bg: var(--aiur-fg);
-  --vp-button-brand-text: #ffffff;
-  --vp-button-alt-border: var(--aiur-line);
-  --vp-button-alt-bg: var(--aiur-surface);
-  --vp-button-alt-hover-border: var(--aiur-accent);
-  --vp-button-alt-hover-bg: color-mix(in srgb, var(--aiur-accent) 9%, transparent);
-  --vp-button-alt-text: var(--aiur-fg);
+/* Docs-specific code surfaces and outlined secondary actions. */
+:root,
+html.dark {
+  --vp-c-bg-elv: color-mix(in srgb, var(--aiur-color-fg) 3%, var(--aiur-color-bg));
+  --vp-c-brand-2: color-mix(in srgb, var(--aiur-color-accent) 84%, var(--aiur-color-fg));
+  --vp-c-brand-3: color-mix(in srgb, var(--aiur-color-accent) 74%, var(--aiur-color-fg));
+  --vp-c-brand-soft: color-mix(in srgb, var(--aiur-color-accent) 14%, transparent);
+  --vp-button-alt-border: var(--aiur-color-line);
+  --vp-button-alt-bg: var(--aiur-color-pill-bg);
+  --vp-button-alt-hover-border: var(--aiur-color-accent);
+  --vp-button-alt-hover-bg: color-mix(in srgb, var(--aiur-color-accent) 9%, transparent);
+  --vp-button-alt-text: var(--aiur-color-fg);
   --vp-code-block-bg: #f7f2e8;
-  --vp-code-line-highlight-color: color-mix(in srgb, var(--aiur-accent) 10%, transparent);
-  --vp-home-hero-name-color: var(--aiur-fg);
-  --vp-nav-bg-color: color-mix(in srgb, var(--aiur-bg) 86%, transparent);
-  --vp-sidebar-bg-color: var(--aiur-bg);
-  --vp-local-search-bg: var(--aiur-bg);
+  --vp-code-line-highlight-color: color-mix(in srgb, var(--aiur-color-accent) 10%, transparent);
+}
+html.dark {
+  /* Docs borders retain the original 14% dark stroke. */
+  --aiur-color-line: var(--aiur-color-field-line);
+  --vp-code-block-bg: #111317;
 }
 
-.dark {
-  --aiur-bg: #1a1b1e;
-  --aiur-bg-soft: #161719;
-  --aiur-fg: #edeef0;
-  --aiur-muted: #8c8d93;
-  --aiur-accent: #2f86ff;
-  --aiur-line: rgba(221, 226, 235, 0.14);
-  --aiur-surface: rgba(221, 226, 235, 0.03);
+/* Preserve button colours until DR-2. */
+:root {
+  --vp-button-brand-border: var(--aiur-color-accent);
+  --vp-button-brand-bg: var(--aiur-color-accent);
+  --vp-button-brand-hover-border: var(--aiur-color-fg);
+  --vp-button-brand-hover-bg: var(--aiur-color-fg);
+  --vp-button-brand-text: #ffffff;
+}
+html.dark {
   --vp-button-brand-border: #1f6fcf;
   --vp-button-brand-bg: #1f6fcf;
   --vp-button-brand-text: #ffffff;
   --vp-button-brand-hover-border: #165eae;
   --vp-button-brand-hover-bg: #165eae;
   --vp-button-brand-hover-text: #ffffff;
-  --vp-code-block-bg: #111317;
 }
 
 html {
-  background: var(--aiur-bg);
+  background: var(--aiur-color-bg);
   transition: background-color 0.35s ease;
 }
 
@@ -69,11 +48,11 @@ body {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--aiur-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--aiur-color-accent) 28%, transparent);
 }
 
 .VPNavBar {
-  border-bottom: 1px solid var(--aiur-line);
+  border-bottom: 1px solid var(--aiur-color-line);
   background: var(--vp-nav-bg-color) !important;
   backdrop-filter: blur(14px);
 }
@@ -92,14 +71,14 @@ body {
   font-weight: 400;
   letter-spacing: 0.01em;
   line-height: 1;
-  color: var(--aiur-fg);
+  color: var(--aiur-color-fg);
 }
 
 .VPNavBarTitle .logo {
   width: auto;
   height: 28px;
   margin-right: 0;
-  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--aiur-accent) 22%, transparent));
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--aiur-color-accent) 22%, transparent));
 }
 
 .VPNavBarMenuLink,
@@ -109,14 +88,14 @@ body {
   font-family: var(--vp-font-family-mono);
   font-size: 13px;
   font-weight: 400;
-  color: var(--aiur-muted);
+  color: var(--aiur-color-muted);
   transition: color 0.2s ease;
 }
 
 .VPNavBarMenuLink:hover,
 .VPNavBarMenuLink.active,
 .VPSocialLink:hover {
-  color: var(--aiur-fg);
+  color: var(--aiur-color-fg);
 }
 
 .VPNavBarMenuLink.active {
@@ -129,17 +108,17 @@ body {
   bottom: -1px;
   left: 0;
   height: 2px;
-  background: var(--aiur-accent);
+  background: var(--aiur-color-accent);
   content: "";
 }
 
 .VPNavBarAppearance .VPSwitchAppearance {
-  border-color: var(--aiur-line);
-  background: var(--aiur-surface);
+  border-color: var(--aiur-color-line);
+  background: var(--aiur-color-pill-bg);
 }
 
 .VPSidebar {
-  border-right: 1px solid var(--aiur-line);
+  border-right: 1px solid var(--aiur-color-line);
 }
 
 .VPSidebarItem .text,
@@ -159,7 +138,7 @@ body {
 
 .VPSidebarItem.is-active > .item .link > .text,
 .VPDocAsideOutline .outline-link.active {
-  color: var(--aiur-accent);
+  color: var(--aiur-color-accent);
 }
 
 .VPHome {
@@ -170,27 +149,6 @@ body {
   position: relative;
   padding-top: clamp(92px, 14vw, 150px);
   padding-bottom: clamp(70px, 10vw, 118px);
-}
-
-.VPHomeHero::before {
-  position: absolute;
-  top: 42%;
-  left: 50%;
-  width: min(780px, 92vw);
-  height: min(420px, 60vw);
-  border: 1px solid var(--aiur-line);
-  border-radius: 50%;
-  background: repeating-linear-gradient(
-    112deg,
-    transparent 0 28px,
-    color-mix(in srgb, var(--aiur-accent) 8%, transparent) 29px,
-    transparent 30px 58px
-  );
-  content: "";
-  opacity: 0.65;
-  transform: translate(-50%, -50%) rotate(-8deg);
-  pointer-events: none;
-  mask-image: radial-gradient(ellipse, #000 12%, transparent 72%);
 }
 
 .VPHomeHero .container {
@@ -215,7 +173,7 @@ body {
   font-size: clamp(16px, 2.1vw, 22px);
   font-weight: 400;
   letter-spacing: 0.04em;
-  color: var(--aiur-muted);
+  color: var(--aiur-color-muted);
 }
 
 .VPHomeHero .tagline {
@@ -223,7 +181,7 @@ body {
   margin: 20px auto 0;
   font-size: clamp(18px, 2.2vw, 24px);
   line-height: 1.5;
-  color: var(--aiur-fg);
+  color: var(--aiur-color-fg);
 }
 
 .VPHomeHero .actions {
@@ -250,7 +208,7 @@ body {
 }
 
 .vp-doc {
-  color: var(--aiur-fg);
+  color: var(--aiur-color-fg);
 }
 
 .vp-doc h1 {
@@ -260,7 +218,7 @@ body {
 
 .vp-doc h2 {
   margin-top: 52px;
-  border-top-color: var(--aiur-line);
+  border-top-color: var(--aiur-color-line);
   letter-spacing: -0.025em;
 }
 
@@ -274,10 +232,10 @@ body {
 }
 
 .vp-doc :not(pre) > code {
-  border: 1px solid var(--aiur-line);
+  border: 1px solid var(--aiur-color-line);
   border-radius: 5px;
-  background: var(--aiur-surface);
-  color: var(--aiur-accent);
+  background: var(--aiur-color-pill-bg);
+  color: var(--aiur-color-accent);
 }
 
 /* Commands in reference tables. The syntax and runnable-example columns hold
@@ -294,7 +252,7 @@ body {
   overflow-wrap: break-word;
   word-break: normal;
   line-height: 1.6;
-  color: var(--aiur-fg);
+  color: var(--aiur-color-fg);
 }
 
 /* Give a whole-command cell room, so the syntax column is not squeezed to a
@@ -306,14 +264,14 @@ body {
 }
 
 .vp-doc div[class*="language-"] {
-  border: 1px solid var(--aiur-line);
+  border: 1px solid var(--aiur-color-line);
   border-radius: 11px;
   box-shadow: 0 22px 50px -38px rgba(0, 0, 0, 0.55);
 }
 
 .vp-doc blockquote {
-  border-left-color: var(--aiur-accent);
-  color: var(--aiur-muted);
+  border-left-color: var(--aiur-color-accent);
+  color: var(--aiur-color-muted);
 }
 
 .vp-doc picture,
@@ -324,7 +282,7 @@ body {
 
 .vp-doc picture img,
 .vp-doc .occ-mobile-shot {
-  border: 1px solid var(--aiur-line);
+  border: 1px solid var(--aiur-color-line);
   border-radius: 11px;
   box-shadow: 0 22px 50px -38px rgba(0, 0, 0, 0.55);
 }
@@ -335,23 +293,23 @@ body {
   margin: 24px auto 40px;
 }
 .VPDocFooter {
-  border-top-color: var(--aiur-line);
+  border-top-color: var(--aiur-color-line);
 }
 
 .VPFooter {
-  border-top: 1px solid var(--aiur-line) !important;
-  background: var(--aiur-bg) !important;
+  border-top: 1px solid var(--aiur-color-line) !important;
+  background: var(--aiur-color-bg) !important;
 }
 
 .VPFooter .message,
 .VPFooter .copyright {
   font-family: var(--vp-font-family-mono);
-  color: var(--aiur-muted);
+  color: var(--aiur-color-muted);
 }
 
 a:focus-visible,
 button:focus-visible {
-  outline: 2px solid var(--aiur-accent) !important;
+  outline: 2px solid var(--aiur-color-accent) !important;
   outline-offset: 4px;
 }
 

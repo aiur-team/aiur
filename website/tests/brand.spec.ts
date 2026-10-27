@@ -45,7 +45,10 @@ test('light preference is applied before docs hydration', async ({ page }) => {
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   })
 
+  // Block application hydration so only the synchronous shared init can repair the stale key.
+  await page.route('**/assets/app.*.js', route => route.abort())
   await page.goto('/docs/guide/quick-start')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await expect(page.locator('html')).not.toHaveClass(/dark/)
   expect(await page.evaluate(() => (window as typeof window & { darkThemeObserved?: boolean }).darkThemeObserved)).toBe(false)
   expect(await page.evaluate(() => localStorage.getItem('vitepress-theme-appearance'))).toBe('light')
@@ -70,20 +73,22 @@ for (const theme of themes) {
 
     const docsThemeToggle = page.locator('.VPSwitchAppearance:visible').first()
     await docsThemeToggle.click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', opposite(theme))
     await expect.poll(() => page.evaluate(() => localStorage.getItem('aiur-theme'))).toBe(opposite(theme))
     await docsThemeToggle.click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
 
     const contrast = await page.evaluate(() => {
       const styles = getComputedStyle(document.documentElement)
       return {
-        muted: styles.getPropertyValue('--aiur-muted').trim(),
+        muted: styles.getPropertyValue('--aiur-color-muted').trim(),
         brandButton: {
           foreground: styles.getPropertyValue('--vp-button-brand-text').trim(),
           background: styles.getPropertyValue('--vp-button-brand-bg').trim()
         },
         backgrounds: [
-          styles.getPropertyValue('--aiur-bg').trim(),
-          styles.getPropertyValue('--aiur-bg-soft').trim()
+          styles.getPropertyValue('--aiur-color-bg').trim(),
+          styles.getPropertyValue('--aiur-color-bg-2').trim()
         ]
       }
     })
@@ -93,7 +98,7 @@ for (const theme of themes) {
     expect(contrastRatio(contrast.brandButton.foreground, contrast.brandButton.background)).toBeGreaterThanOrEqual(4.5)
 
     const codeLanguageLabel = page.locator('.lang').first()
-    expect(contrastRatio(...await renderedColors(codeLanguageLabel))).toBeGreaterThanOrEqual(4.5)
+    await expect.poll(async () => contrastRatio(...await renderedColors(codeLanguageLabel))).toBeGreaterThanOrEqual(4.5)
 
     const homeLink = page.getByRole('link', { name: 'Home' })
     await expect(homeLink).toHaveAttribute('href', 'https://aiur.team/')
