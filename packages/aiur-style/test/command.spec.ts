@@ -60,9 +60,11 @@ test('hovering an inactive command tab uses the foreground color', async ({ page
 
 test('command skins preserve the accent prompt variant and copy icon size', async ({ page }) => {
   const command = page.locator('#command-tabs');
+  const prompt = command.locator('.aiur-command__prompt');
+  await prompt.evaluate(element => element.removeAttribute('hidden'));
+  await expect(prompt).toHaveCSS('color', 'rgb(140, 141, 147)');
   await command.evaluate(element => element.classList.add('aiur-command--accent-prompt'));
   await expect(command.locator('.aiur-command__row')).toHaveCSS('line-height', 'normal');
-  const prompt = command.locator('.aiur-command__prompt');
   await expect(prompt).toHaveCSS('color', 'rgb(47, 134, 255)');
   await expect(command.locator('.aiur-command__text')).toHaveCSS('letter-spacing', '0.14px');
   await expect(command.locator('.aiur-command__copy svg')).toHaveCSS('width', '15px');
