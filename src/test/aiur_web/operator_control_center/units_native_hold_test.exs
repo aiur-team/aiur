@@ -76,7 +76,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
   defp catalog(snapshot) do
     # Isolate the hold signal from the general open-Command count.
     public = Entries.running_entry_payload(snapshot) |> Map.put(:open_decision_count, 0)
-    payload = %{generated_at: DateTime.to_iso8601(DateTime.utc_now()), provider_health: %{fleet: :ok}, fleet: %{running: [public], retrying: [], idle: []}}
+    refute Map.has_key?(public, :native_hold)
+
+    payload = %{
+      units_status_snapshot: %{running: [snapshot]},
+      generated_at: DateTime.to_iso8601(DateTime.utc_now()),
+      provider_health: %{fleet: :ok},
+      fleet: %{running: [public], retrying: [], idle: []}
+    }
+
     UnitsPresenter.load(payload, membership_fun: fn -> membership([]) end, activity_fun: fn -> %{entries: []} end)
   end
 
