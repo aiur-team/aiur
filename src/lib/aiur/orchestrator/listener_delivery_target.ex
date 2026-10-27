@@ -14,6 +14,9 @@ defmodule Aiur.Orchestrator.ListenerDeliveryTarget do
     call({:listener_set_mode, target, mode, opts}, OperatorMessages.operator_message_call_timeout_ms(), unknown)
   end
 
+  @impl true
+  def read_snapshot(id, timeout), do: OperatorMessages.Snapshot.read(Orchestrator, id, timeout)
+
   defp call(request, timeout, timeout_result) do
     GenServer.call(Orchestrator, request, timeout)
   catch

@@ -1,9 +1,37 @@
 defmodule AiurWeb.StreamdeckChannelCommandsTest do
   use AiurWeb.StreamdeckChannelCase
 
+  alias Aiur.DecisionStore.Answers
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.EndpointConfig
   alias AiurWeb.StreamdeckChannel.CommandAnswers
+
+  # The legacy double exposes retained reads only; the answer facade also reads
+  # the current decision. Delegate all other requests to that same store.
+  defmodule AnsweringStore do
+    use GenServer
+    def start_link(decision, report), do: GenServer.start_link(__MODULE__, {decision, report})
+    @impl true
+    def init({decision, report}) do
+      {:ok, store} = FakeDecisionStore.start_link(decision, report)
+      {:ok, {store, decision}}
+    end
+
+    @impl true
+    def handle_call({:get, _id}, _from, {store, decision}), do: {:reply, {:ok, decision}, {store, decision}}
+
+    def handle_call({:answer, _id, _payload, _opts} = request, _from, {store, decision} = state) do
+      result =
+        case Answers.require_answerable(decision) do
+          :ok -> GenServer.call(store, request)
+          {:error, _} = error -> error
+        end
+
+      {:reply, result, state}
+    end
+
+    def handle_call(request, _from, {store, _decision} = state), do: {:reply, GenServer.call(store, request), state}
+  end
 
   defmodule SlowDecisionStore do
     @moduledoc false
@@ -35,7 +63,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
     # fresh fake store, scoped to the test (#4908).
     setup do
       decision = command_decision("AIUR-1")
-      {:ok, store} = FakeDecisionStore.start_link(decision, self())
+      {:ok, store} = AnsweringStore.start_link(decision, self())
       EndpointStubs.put(decision_store: store)
 
       on_exit(fn ->
@@ -151,7 +179,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
 
     test "answer_command refuses a Command that is not the focused agent's" do
       decision = command_decision("AIUR-999")
-      {:ok, other_store} = FakeDecisionStore.start_link(decision, self())
+      {:ok, other_store} = AnsweringStore.start_link(decision, self())
       EndpointStubs.put(decision_store: other_store)
 
       on_exit(fn ->
@@ -223,13 +251,13 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       end
     end
 
-    test "answer_command refuses a dismissed Command as not answerable" do
+    test "answer_command reports a dismissed Command as withdrawn" do
       # Dismissal is terminal on the device surface too — the TS client renders
       # a dismissed Command read-only, so the server must refuse the answer at
       # the same boundary. Only open and deferred are answerable (allowlisted),
       # so a newly-added status can never silently become answerable.
       dismissed = %{command_decision("AIUR-1") | decision_status: :dismissed}
-      {:ok, dismissed_store} = FakeDecisionStore.start_link(dismissed, self())
+      {:ok, dismissed_store} = AnsweringStore.start_link(dismissed, self())
       EndpointStubs.put(decision_store: dismissed_store)
 
       on_exit(fn ->
@@ -251,12 +279,12 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
         %{reason: reason}
       )
 
-      assert reason =~ "not_answerable"
+      assert reason == "withdrawn"
     end
 
     test "answer_command accepts an expired unanswered blocking Command", %{decision: decision} do
       expired = %{decision | decision_status: :expired, blocking: true, answer: nil}
-      {:ok, expired_store} = FakeDecisionStore.start_link(expired, self())
+      {:ok, expired_store} = AnsweringStore.start_link(expired, self())
       EndpointStubs.put(decision_store: expired_store)
 
       on_exit(fn -> Aiur.TestSupport.safe_stop(expired_store) end)
@@ -267,8 +295,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
                CommandAnswers.validate_focused_command(
                  socket,
                  expired.decision_id,
-                 "AIUR-1",
-                 expired.version
+                 "AIUR-1"
                )
     end
 
@@ -334,18 +361,13 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
       assert reply.payload["status"] == "accepted"
 
       assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
-      assert current.answer.actor == %{kind: :operator, id: "streamdeck", source: :rpc}
+      assert current.answer.actor == %{kind: :operator, id: "streamdeck", source: :streamdeck}
       assert current.answer.selected_option_id == "ship"
     end
 
     test "answer_command rejects a stale custom-response answer as a conflict" do
-      # A stale press is a conflict, never a double-answer. This drives a real
-      # store so the rejection holds only while BOTH staleness layers are
-      # present: the channel's `validate_focused_command/4` version pre-check
-      # AND `expected_version` in the `custom_response` clause reaching
-      # `DecisionAnswer.normalize/2`. The double mutant that removed both
-      # (the gap this ticket closes) lets the answer through as accepted — or
-      # as a generic error — so this assertion on `stale_version` fails.
+      # Drive the real store: expected_version on a spoken answer must reach
+      # its version validator and come back as the structured stale outcome.
       dir = Path.join(System.tmp_dir!(), "aiur-streamdeck-stale-#{System.unique_integer([:positive])}")
 
       {:ok, store} =
@@ -401,7 +423,7 @@ defmodule AiurWeb.StreamdeckChannelCommandsTest do
         %{reason: reason}
       )
 
-      assert reason =~ "stale_version"
+      assert reason == "stale"
 
       # The stale press must not have recorded an answer: it is a conflict,
       # never a double-answer.

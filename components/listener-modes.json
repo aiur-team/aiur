@@ -7,7 +7,8 @@
     "src/lib/aiur/listener.ex",
     "src/lib/aiur/listener/delivery_target.ex",
     "src/lib/aiur/listener/effective.ex",
-    "src/lib/aiur/listener/mode_store.ex"
+    "src/lib/aiur/listener/mode_store.ex",
+    "src/lib/aiur/listener/receipt.ex"
   ],
   "facades": [
     "*"
