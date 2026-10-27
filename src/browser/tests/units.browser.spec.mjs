@@ -348,3 +348,31 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(page.getByRole('heading', { name: 'Units' })).toBeFocused()
 })
 
+
+for (const writable of [false, true]) {
+  test(`listener selector fits phone width; writable=${writable}`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openUnits(page, '/units-fixture?listener=1')
+    if (writable) {
+      await page.goto('/auth/writable')
+      await page.goto('/streamdeck-control/writable')
+      await page.goto('/units-fixture?listener=1')
+      await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
+    }
+    await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
+    const drawer = page.getByRole('dialog')
+    const selector = drawer.getByRole('combobox', { name: 'Listener mode' })
+    await expect(selector).toHaveValue('async')
+    await expect(selector.locator('option')).toHaveText(['Steer · interrupts', 'Sync · next turn', 'Async · on demand'])
+    await expect(drawer.locator('[data-unread-count]')).toContainText('Unread 2 · oldest 120s ago')
+    if (writable) await expect(selector).toBeEnabled()
+    else {
+      await expect(selector).toBeDisabled()
+      await expect(drawer).toContainText('Read-only dashboard — listener mode cannot be changed.')
+    }
+    await assertNoDocumentOverflow(page)
+    const box = await selector.boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+  })
+}
