@@ -5,8 +5,11 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
 
   alias Aiur.AppServer.{Interrupts, TurnLoop}
   alias Aiur.Codex.TurnLoopTestSupport
+  alias Aiur.Commands.EventData
   alias Aiur.Commands.NativeCapture
   alias Aiur.Commands.NativeCapture.Release
+  alias Aiur.DecisionDispatch
+  alias Aiur.Events.Publisher
 
   defmodule Backend do
     def send_frame(_port, frame) do
@@ -19,9 +22,9 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
   end
 
   setup %{dir: dir} do
-    key = {Aiur.Events.Publisher, :tracked_fn}
+    key = {Publisher, :tracked_fn}
     previous = :persistent_term.get(key, nil)
-    Aiur.Events.Publisher.set_tracked_fn(fn _ -> true end)
+    Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> :persistent_term.put(key, previous) end)
     store = start_store!(dir, dispatch_delay_ms: 60_000)
     on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
@@ -217,11 +220,33 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
     assert unchanged.decision_status == :open
   end
 
+  test "answer after release uses the correlated message path", c do
+    Release.release(c.session, c.state, :idle_timeout)
+    assert_released(c, :idle_timeout)
+    assert [{:frame, %{"id" => 7}}] = drain_frames()
+    assert {:ok, %{decision: answered}} = DecisionStore.answer(c.id, %{expected_version: 1, option_id: "o1", idempotency_key: "after-release"}, [actor: %{kind: :operator, id: "operator-1"}], c.store)
+    owner = self()
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionDispatch.dispatch(answered,
+               attempt_id: "after-release",
+               send_fun: fn _server, ticket, payload ->
+                 send(owner, {:message, ticket, payload})
+                 {:ok, %{status: :accepted}}
+               end
+             )
+
+    assert_received {:message, "979", %{kind: :text, body: body, correlation: %{decision_id: id}}}
+    assert id == c.id
+    assert body =~ "Red"
+    refute_received {:frame, _}
+  end
+
   test "release fact rejects invalid reasons, timestamps and mismatched native refs", c do
     data = %{native_ref: "other", reason: :pause, at: DateTime.utc_now()}
     assert {:error, {:invalid_transition, :native_ref_mismatch}} = DecisionStore.record_command_fact(c.id, :native_released, data, server: c.store)
-    assert {:error, {:reason, :invalid_enum}} = Aiur.Commands.EventData.normalize(:native_released, %{data | reason: :unknown})
-    assert {:error, {:at, :invalid_timestamp}} = Aiur.Commands.EventData.normalize(:native_released, %{data | at: "invalid"})
+    assert {:error, {:reason, :invalid_enum}} = EventData.normalize(:native_released, %{data | reason: :unknown})
+    assert {:error, {:at, :invalid_timestamp}} = EventData.normalize(:native_released, %{data | at: "invalid"})
   end
 
   defp assert_released(c, reason) do

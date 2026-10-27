@@ -3,10 +3,10 @@ defmodule Aiur.AppServer.TurnLoop do
   Shared blocking receive loop for app-server turns.
   """
 
-  alias Aiur.Commands.NativeCapture
   alias Aiur.AgentRunner.Handoff
   alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
+  alias Aiur.Commands.NativeCapture
 
   @spec receive_loop(map(), map()) :: term()
   def receive_loop(%{port: port} = session, %{relay_manual_ack_port: port} = state) do

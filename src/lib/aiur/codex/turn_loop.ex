@@ -6,8 +6,8 @@ defmodule Aiur.Codex.TurnLoop do
   require Logger
 
   alias Aiur.AppServer.{Messages, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
-  alias Aiur.Commands.NativeCapture
   alias Aiur.Codex.{Approvals, NotificationPolicy, Notifications, TurnEvents}
+  alias Aiur.Commands.NativeCapture
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
   def handle_method(

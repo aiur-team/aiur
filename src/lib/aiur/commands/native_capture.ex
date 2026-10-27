@@ -10,6 +10,7 @@ defmodule Aiur.Commands.NativeCapture do
   require Logger
 
   alias Aiur.Codex.UserInputAnswers
+  alias Aiur.Commands.NativeCapture.Release
   alias Aiur.Commands.RequestContent
   alias Aiur.DecisionStore
   alias Aiur.Signal
@@ -133,7 +134,7 @@ defmodule Aiur.Commands.NativeCapture do
 
   @doc "Releases any native holders before a harness lifecycle boundary."
   @spec release_held(map(), map(), atom()) :: map()
-  def release_held(session, state, reason), do: Aiur.Commands.NativeCapture.Release.release(session, state, reason)
+  def release_held(session, state, reason), do: Release.release(session, state, reason)
 
   @spec release_text(String.t()) :: String.t()
   def release_text(decision_id), do: "Your question is recorded as Command #{decision_id}. Stop and end your turn; the answer will arrive as a message."

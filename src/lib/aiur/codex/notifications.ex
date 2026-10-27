@@ -4,8 +4,8 @@ defmodule Aiur.Codex.Notifications do
   require Logger
 
   alias Aiur.AppServer.{Messages, OperatorDelivery, TurnState}
-  alias Aiur.Commands.NativeCapture
   alias Aiur.Codex.{AccountGeneration, NotificationPolicy, TurnEvents}
+  alias Aiur.Commands.NativeCapture
 
   @spec handle_account(map(), map(), String.t(), map()) :: {:continue, map()} | term()
   def handle_account(session, state, method, payload) do
