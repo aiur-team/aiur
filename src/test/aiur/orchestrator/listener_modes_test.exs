@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
     dir = Aiur.TestSupport.tmp_root!("listener-transport")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(dir)
-    id = "listener-#{System.unique_integer([:positive])}"
+    id = Integer.to_string(System.unique_integer([:positive]))
     issue = %Issue{id: "issue-#{id}", identifier: id, state: "in-progress", selected_backend: "claude-repl"}
     control = %{generation: 73, version: 8, status: :paused, can_interrupt: true, safe_checkpoints: [], immediate_delivery: true, application_confirmation: :request_only}
     entry = %{identifier: id, issue: issue, control: control, session_execution: nil}
@@ -126,7 +126,7 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
 
   test "identity writes signal and cache the resolved identifier, never a stale display identifier", %{state: state, id: id, issue: issue} do
     identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "org", repository: "repo", provider_id: "I_target", identifier: id, reason: nil}
-    stale = "stale-#{id}"
+    stale = Integer.to_string(String.to_integer(id) + 1)
     entry = Map.put(state.running[issue.id], :tracker_identity, identity)
     decoy = %{entry | identifier: stale, tracker_identity: %{identity | provider_id: "I_decoy", identifier: stale}}
     state = %{state | running: %{issue.id => entry, "decoy" => decoy}}
