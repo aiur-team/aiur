@@ -11,6 +11,92 @@
 
 [Capabilities](/concepts/capabilities) describes how clients discover available instance features.
 
+## Listener modes
+
+Listener modes describe when a conversation message reaches an agent's session.
+
+| Mode | Meaning |
+| --- | --- |
+| **Steer · interrupts** (`steer`) | Deliver at the earliest supported safe boundary inside the active turn; if idle, start a turn. |
+| **Sync · next turn** (`sync`) | Hold during active work, then deliver at the turn boundary; if idle, start a turn. |
+| **Async · on demand** (`async`) | Hold for the agent to read. Arrival does not inject text, wake the agent, or start a turn. |
+
+The stored worker preference defaults to `sync`. **Current rollout: legacy
+routing still ignores that preference.** Dashboard, Stream Deck, and
+`aiur message` sends retain their interrupt policy; HTTP messages default to
+checkpoint delivery and TUI chat uses automatic delivery. The CLI explicitly
+reports this limitation.
+
+A successful mode write does not prove listener routing is active. Modes do not
+change admission, trust, approval, pause, or capacity.
+
+Read or change a worker's preference with
+[`aiur listen-mode`](/reference/cli-operations#inspect-and-operate-a-running-daemon):
+
+```sh
+aiur listen-mode 142 --json
+aiur listen-mode 142 async --expected-version 0
+```
+
+Use the version returned by the read. A stale write returns the current record
+and exits 3. Humans and the Executor may change worker modes; changes record
+the actor. The preference belongs to the ticket run and survives respawn and
+daemon restart. There is no global default-mode configuration key in v1.
+
+### Requested and effective mode
+
+`requested` is the stored preference. `effective` is derived from the running
+harness and installed tools: use the requested mode when supported, otherwise
+fall back to `sync`, then `async`, or no effective mode if neither is available.
+The reason explains the difference; a projected effective mode does not override
+the legacy-routing limitation above.
+
+Current harness support determines the projection.
+
+| Running harness | Current support projection |
+| --- | --- |
+| `codex` | Sync is proven; async requires a session with the read tool installed. Steer requires a wired native callback. |
+| `claude` (headless) | Sync is proven; async requires the read tool. Interrupt capability alone does not enable steer. |
+| `claude-repl` | Sync is experimental. Async is unavailable because this transport has no pull-tool path. |
+| `muse` | Sync is proven; async requires the read tool. Interrupt capability alone does not enable steer. |
+| `kimi`, `deepseek`, `openrouter` | Sync is proven; async requires the read tool. A mid-turn primitive alone does not enable steer. |
+
+Support follows the running transport, including fallback from `claude-repl`
+to headless `claude`. An older resumed session can lack the read tool even when
+a fresh session supports it.
+
+`pull_tool_unavailable`, `steer_not_wired`, and
+`no_interrupt` name missing capabilities. `not_running` or `harness_unknown`
+means no effective mode is known; `pending_session_start` marks a projection
+from dispatch facts before session startup.
+
+When offered through an interrupt carrier, steer is labelled
+**steer (interrupts current turn)**: it cancels the active turn and starts a new
+one with the message. Explicit interrupt controls, including chat `Ctrl+C`,
+remain separate from the mode.
+
+### Message scope and async reads
+
+Listener routing covers conversation messages from humans or the Executor,
+including dashboard, CLI, HTTP, Stream Deck, voice, and TUI sends. Command
+answers, orchestrator event digests (reviews, CI, blockers), and pause, resume,
+interrupt, and stop controls keep their own delivery policies.
+
+With async effective, agents call `aiur_read_messages` at natural pauses and
+before yielding or finishing. This **consumes and acknowledges** held messages,
+oldest first; it is not a preview. Check `remaining` and read another batch when
+needed. A lost reply after acknowledgement cannot be replayed.
+
+See
+[held async messages](/concepts/message-bus#held-async-messages) for limits and
+queue-lifetime details. Leaving async does not inject unread bodies: they stay
+pull-only, with a notice that messages remain.
+
+Executor delivery through session hooks is planned with the Executor attach
+workflow; it is not installed by `aiur listen-mode`. The existing
+[`executor-wait`](/reference/cli-decisions#executor-wait-outcomes) wake inbox is
+a separate event mechanism, not proof of conversation delivery into a session.
+
 ## Hosted execution safety
 
 Set `instance.mode: hosted` only when every dispatchable backend has explicit,
