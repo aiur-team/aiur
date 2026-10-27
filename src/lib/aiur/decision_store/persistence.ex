@@ -200,7 +200,8 @@ defmodule Aiur.DecisionStore.Persistence do
     repair_projection(next_state)
   end
 
-  defp lifecycle_version(:request_attributed, decision, _data), do: decision.version
+  @command_fact_types Aiur.Commands.EventData.fact_types()
+  defp lifecycle_version(type, decision, _data) when type in @command_fact_types, do: decision.version
 
   defp lifecycle_version(_type, _decision, %DecisionAnswer{decision_version: version}), do: version
   defp lifecycle_version(_type, _decision, %DecisionRevision{decision_version: version}), do: version
@@ -229,9 +230,15 @@ defmodule Aiur.DecisionStore.Persistence do
     end
   end
 
+  defp lifecycle_payload(%{type: :human_needed} = event) do
+    Map.merge(DecisionEvent.to_json_safe(event), Aiur.JSONSafe.normalize(event.data))
+  end
+
+  defp lifecycle_payload(event), do: DecisionEvent.to_json_safe(event)
+
   defp notify_lifecycle(decision, event, cursor_event_id) do
     try do
-      Topics.publish(decision, Requests.lifecycle_slug(event.type), DecisionEvent.to_json_safe(event), cursor_event_id)
+      Topics.publish(decision, Requests.lifecycle_slug(event.type), lifecycle_payload(event), cursor_event_id)
     rescue
       error -> Logger.warning("aiur_decision_store phase=lifecycle_publisher_failed error=#{Exception.message(error)}")
     end

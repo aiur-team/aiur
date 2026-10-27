@@ -19,13 +19,15 @@ These registered namespaces freeze producer ownership before every producer ship
 
 | Namespace | Owner | Client action |
 | --- | --- | --- |
-| `ticket.<id>.agent.decision.human-needed` | DecisionStore / MP-E2 | Re-read the Decision API. |
+| `ticket.<id>.agent.decision.human-needed`, `executor.decision.human-needed` | DecisionStore / MP-E2 | Re-read the Decision API. |
 | `ticket.<id>.pr.closed_unmerged`, `ticket.<id>.issue.closed` | Queue readiness / MP-E1 | Re-read queue and pull-request state. |
 | `ticket.<id>.queue.*`, `system.queue.*` | Build queue / MP-E1 | Re-read queue state. |
 | `system.build_order.<root>.progress` | Build orders / MP-E1-C7 | Re-read Build Order progress. |
 | `ticket.<id>.agent.listen-mode.changed` | Listener modes / MP-E7 | Re-read listener-mode state. |
 | `system.capabilities.changed` | Capabilities / MP-R1 | Re-read `GET /api/v1/capabilities`. |
 | `executor.conversation.*` | Conversations / MP-E3 | Reserved only; no event producer exists. |
+
+The human-needed signal exports only Command identity, requester kind, blocking, urgency and cause. Its short label stays in the private journal payload. Routing facts persist without changing the Command’s answer or delivery status; the signal is recorded once per Command across restarts.
 
 ## What survives a restart
 

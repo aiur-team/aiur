@@ -248,6 +248,11 @@ defmodule Aiur.DecisionEvent.Codec do
   defp normalize_reason(_type, nil), do: {:ok, nil}
   defp normalize_reason(_type, _reason), do: {:error, {:reason_class, :unexpected}}
 
+  # Routing is projected from facts and must never alter frozen request hash material.
+  defp request_json(decision) do
+    Map.drop(DecisionProjection.to_json_safe(decision), ~w(route_policy route_state routed_at human_visible_at escalations executor_acknowledged_at))
+  end
+
   defp normalize_actor(actor) when is_map(actor) do
     kind = Validation.get(actor, :kind)
 
@@ -298,11 +303,11 @@ defmodule Aiur.DecisionEvent.Codec do
   @spec data_to_json_safe(term(), term()) :: map()
   def data_to_json_safe(type, data) when type in @command_fact_types, do: EventData.to_json_safe(type, data)
 
-  def data_to_json_safe(:requested, %Decision{} = decision), do: DecisionProjection.to_json_safe(decision)
+  def data_to_json_safe(:requested, %Decision{} = decision), do: request_json(decision)
 
   def data_to_json_safe(:enriched, data) do
     %{
-      "decision" => DecisionProjection.to_json_safe(data.decision),
+      "decision" => request_json(data.decision),
       "actor" => ActorSource.to_json_safe(data.actor),
       "expected_version" => data.expected_version
     }

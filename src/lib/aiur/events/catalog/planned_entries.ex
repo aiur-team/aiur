@@ -10,22 +10,22 @@ defmodule Aiur.Events.Catalog.PlannedEntries do
   @listener_reasons ~w(no_turn_boundary steer_not_wired no_interrupt pull_tool_unavailable not_running harness_unknown pending_session_start)
 
   # contracts/command-request-and-resolution.md §8 (MP-E2): text remains sealed.
-  @decision [
-    %Entry{
-      pattern: "ticket.*.agent.decision.human-needed",
-      class: :journaled,
-      export?: true,
-      refs: [:ticket, :decision_id, :decision_version],
-      attrs: [
-        requester_kind: {:enum, ~w(worker executor)},
-        blocking: :boolean,
-        urgency: {:enum, ~w(low normal high critical)},
-        cause: {:enum, ~w(executor_originated executor_offline executor_stalled authority_human_required executor_not_answerable executor_ack_timeout executor_answer_timeout executor_escalated)}
-      ],
-      reserved: true,
-      owner: "commands"
-    }
-  ]
+  @decision (for pattern <- ["ticket.*.agent.decision.human-needed", "executor.decision.human-needed"] do
+               %Entry{
+                 pattern: pattern,
+                 class: :journaled,
+                 export?: true,
+                 refs: if(String.starts_with?(pattern, "ticket."), do: [:ticket, :decision_id, :decision_version], else: [:decision_id, :decision_version]),
+                 attrs: [
+                   requester_kind: {:enum, ~w(worker executor)},
+                   blocking: :boolean,
+                   urgency: {:enum, ~w(low normal high critical)},
+                   cause:
+                     {:enum, ~w(executor_originated executor_offline executor_stalled authority_human_required executor_not_answerable executor_ack_timeout executor_answer_timeout executor_escalated)}
+                 ],
+                 owner: "commands"
+               }
+             end)
 
   # contracts/queue-readiness-and-build-progress.md §4.3 (MP-E1).
   @queue_events (for verb <- ~w(promoted withdrawn held released overridden removed) do
