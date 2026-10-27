@@ -150,9 +150,9 @@ defmodule Aiur.GitHub.Budget.Shared do
   defp admit_shared(lease_id, request, token_key, opts) do
     resource = Budget.request_resource(request)
     limits = Settings.settings(opts)
-    limit = resource_limit(resource, limits)
+    limit = resource_limit(resource, limits, Settings.consumer_identity(opts))
     credential_key = Map.get(request, :credential_key) || token_key
-    consumer_key = Settings.consumer_key([])
+    consumer_key = Settings.consumer_key(opts)
     # Until GitHub reports query cost, charge one request per admission.
     points = Keyword.get(opts, :request_points, 1)
 
@@ -166,12 +166,19 @@ defmodule Aiur.GitHub.Budget.Shared do
     end
   end
 
-  defp resource_limit(resource, limits) do
+  defp resource_limit(resource, limits, identity) do
+    limits =
+      if String.starts_with?(identity, "workspace:") do
+        %{core: limits.agent_core_limit_per_hour, graphql: limits.agent_graphql_limit_per_hour, search: limits.agent_search_limit_per_hour}
+      else
+        %{core: limits.daemon_core_limit_per_hour, graphql: limits.daemon_graphql_limit_per_hour, search: limits.daemon_search_limit_per_hour}
+      end
+
     case resource do
-      "graphql" -> limits.daemon_graphql_limit_per_hour
-      "search" -> limits.daemon_search_limit_per_hour
-      "core" -> limits.daemon_core_limit_per_hour
-      _other -> 0
+      "core" -> limits.core
+      "graphql" -> limits.graphql
+      "search" -> limits.search
+      _ -> 0
     end
   end
 

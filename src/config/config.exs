@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, :listener_delivery_target, Aiur.Orchestrator.ListenerDeliveryTarget
+
 config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
 
 # OTP terminate reports inspect the last message and server state while they
@@ -19,6 +21,7 @@ config :aiur, Aiur.Events.SourcePolicy, Aiur.GitHub.EventSourcePolicy
 config :aiur, Aiur.Events.TrustClassifier, Aiur.GitHub.EventTrust
 config :aiur, Aiur.Events.Delivery, Aiur.Orchestrator.EventDelivery
 config :aiur, Aiur.Events.HistoryStore, Aiur.IssueLog.EventHistorySink
+config :aiur, Aiur.Events.InstanceId, Aiur.Identity
 
 config :aiur, :signal,
   alert_sink: Aiur.Alerts,

@@ -22,6 +22,11 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("operator-relay-answer", fn -> opts |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec executor_ack(keyword()) :: :ok
+  def executor_ack(opts) when is_list(opts) do
+    guarded("executor-ack", fn -> opts |> ExecutorCommandCLI.ack(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec executor_answer(keyword()) :: :ok
   def executor_answer(opts) when is_list(opts) do
     guarded("executor-answer", fn -> opts |> ExecutorCommandCLI.answer(error_fun: &control_error/1) |> exit_marker() end)

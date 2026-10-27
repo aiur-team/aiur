@@ -366,7 +366,8 @@ defmodule Aiur.DecisionApiActionsTest do
     assert {:ok, revision_delegation} =
              DecisionDelegation.normalize_revision(v1, revision_payload, @policy)
 
-    assert {:error, {:revision_invalid, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}} =
+    # The current human answer takes precedence over the stale supervisor basis.
+    assert {:error, {:conflict, {:human_answer, _}}} =
              DecisionStore.revise(
                v2.decision_id,
                revision_delegation.answer_payload,

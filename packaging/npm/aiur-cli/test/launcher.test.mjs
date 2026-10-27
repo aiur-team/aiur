@@ -156,7 +156,7 @@ const nonLaunchCommands = [
   "init", "pr", "findings", "ask", "asks", "status", "usage", "agents", "commands", "units",
   "build-orders", "queue", "analytics", "experiments", "github-cost", "github-usage", "alerts", "watch", "set",
   "upgrade", "pause", "resume", "reset-budget", "message", "cleanup-stale", "stop",
-  "executor-answer", "executor-escalate", "executor-reclassify", "executor-moot", "listen", "executor-listen", "executor-wait",
+  "executor-ack", "executor-answer", "executor-escalate", "executor-reclassify", "executor-moot", "listen", "executor-listen", "executor-wait",
   "executor-emit", "executor-subscribe", "executor-unsubscribe", "executor-subscriptions",
   "executor-roster", "executor-fast-forward", "executor-claim", "executor-release", "executor-revoke",
 ];

@@ -11,6 +11,7 @@ import { computeLayout, measureFlow, crowded, laneMax, fwdLanes, histDays, makeM
 import { H, syncHistory, loadEarlier, ensureDays, ensureFrom } from './history.js';
 import { takeAnchor, restoreAnchor } from './render-anchor.js';
 import { renderHeads } from './render-heads.js';
+import { syncRoving } from './a11y.js';
 export { takeAnchor, restoreAnchor } from './render-anchor.js';
 export { headHTML } from './render-heads.js';
 import { timed } from './perf.js';
@@ -41,10 +42,6 @@ export function viewport() {
     ctx.lt.innerHTML = '<button type="button" data-lt="lock" title="Lock this dependency tree">' + I.lock + '</button><button type="button" data-lt="fit" title="Zoom out to fit this tree">' + I.fit + '</button><button type="button" data-lt="tree" title="View the whole tree">' + I.eye + "</button>";
     ctx.lt.querySelector('[data-lt="lock"]').setAttribute('aria-pressed', 'false');
     ctx.content.appendChild(ctx.lt);
-    ctx.life.on(ctx.content, 'keydown', e => {
-      if (!['Enter', ' '].includes(e.key) || !e.target.matches('.bd-card')) return;
-      e.preventDefault(); e.target.click();
-    });
     ctx.life.on(ctx.content, "click", (e) => {
       const eh = e.target.closest(".bd-eh");
       if (eh) { e.stopPropagation(); fx.lockTree(eh.dataset.e); return; }
@@ -137,7 +134,7 @@ function renderSection(s, keep, keepL, focused) {
     if (!overlaps(it.y, it.h) && it.t.id !== focused) continue;
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
-    if (el && !el.classList.contains(cardDetail(it))) { el.remove(); el = null; }
+    if (el && !el.classList.contains(cardDetail(it)) && it.t.id !== focused) { el.remove(); el = null; }
     if (!el) { created = true; el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
     el._it = it; place(el, it);
   }
@@ -173,6 +170,7 @@ function updateImpl(force) {
     if (!keepL.has(uid.endsWith('d') ? uid.slice(0, -1) : uid)) { el.remove(); ctx.RL.delete(uid); }
   });
   fx.syncNowBtn?.();
+  syncRoving();
   if (changed && (ctx.hoverId || ctx.treeId)) fx.reapply();
   fx.drawEdges(false);
   if (ctx.vp.scrollTop >= 260) H.retryArmed = true;

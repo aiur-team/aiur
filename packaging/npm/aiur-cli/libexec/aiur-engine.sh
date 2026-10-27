@@ -87,6 +87,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur agents [--json]   show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
+       aiur executor-ack <decision-id> [--executor-id <id>]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -233,6 +234,7 @@ aiur_engine_main() {
       ;;
     token)
       shift
+      aiur_resolve_identity
       run_local_cli token "$@"
       ;;
     accounts) shift; usage_alias accounts "$@" ;;
@@ -284,6 +286,10 @@ aiur_engine_main() {
     operator-relay-answer)
       shift
       cmd_operator_relay_answer "$@"
+      ;;
+    executor-ack)
+      shift
+      cmd_executor_ack "$@"
       ;;
     executor-answer)
       shift
@@ -346,6 +352,10 @@ aiur_engine_main() {
       ;;
     executor-wait)
       shift
+      if [ -n "${AIUR_REMOTE_INSTANCE:-}" ]; then
+        run_remote_all_executor_wait "$@"
+        return $?
+      fi
       cmd_executor_wait "$@"
       ;;
     executor-emit)

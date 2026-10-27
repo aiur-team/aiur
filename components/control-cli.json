@@ -13,7 +13,9 @@
     "src/lib/aiur/cli.ex",
     "src/lib/aiur/cli/**",
     "src/lib/aiur/control_call.ex",
-    "src/lib/aiur/control_call/**",
+    "src/lib/aiur/control_call/allowlist.ex",
+    "src/lib/aiur/control_call/allowlist/**",
+    "src/lib/aiur/control_call/literal.ex",
     "src/lib/aiur/control_cli/**",
     "src/lib/aiur/daemon_lifecycle.ex",
     "src/lib/aiur/distribution.ex",
@@ -156,5 +158,6 @@
     "AIUR_SCREEN_GRAB",
     "AIUR_SSH_CONFIG"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

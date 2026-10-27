@@ -52,6 +52,10 @@ Aim for 200 lines and give a cohesion reason above that target. The required
 `workflow security` job rejects new text paths over 500 lines and growth of
 paths already over 500, comparing Git blobs against the event's base commit;
 skills and third-party vendored directories are exempt from the line-count rule.
+The imported Claude Design reference at
+`src/test/fixtures/build_home/design-source/` is also exempt because it is kept
+byte-for-byte as vendored source; sibling fixture paths remain subject to the
+limit.
 Existing oversized files may stay unchanged or shrink; renames and copies to
 new paths must fit the limit. Text becoming binary is rejected. Binary files
 are otherwise skipped, and symlinks are reported without following them.

@@ -99,3 +99,5 @@ src/priv/static/vendor/elk/0.11.1/aiur-layout-client.js
 
 # Assembled from tracked fragments by the github_budget Mix compiler.
 /src/priv/github_budget.py
+
+/packaging/npm/aiur-cli/libexec/gh-access/

@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   import ExUnit.CaptureIO
   alias Aiur.{AgentControlCLI, Issue}
   alias Aiur.Events.Exchange
-  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume}
+  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, StatusReport.RunningSummaries}
   alias Aiur.TrackerIdentity
   import Aiur.SnapshotFenceSupport, only: [fence_snapshot_read_model: 0]
   import Aiur.TrackerTaskDrainSupport, only: [drain_tracker_tasks: 3, drain_tracker_tasks: 4]
@@ -170,6 +170,10 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       :sys.replace_state(pid, fn state ->
         %{state | running: %{"44" => corrupt, "53" => working_entry("53", "53", bystander)}}
       end)
+
+      assert %{"44" => :unknown, "53" => :working} =
+               RunningSummaries.running_summaries(:sys.get_state(pid))
+               |> Map.new(&{&1.identifier, &1.work_state})
 
       :ok = Exchange.subscribe("ticket.44.agent.attention.control-call-crashed")
 

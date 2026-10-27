@@ -36,6 +36,18 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:analytics]
     },
     %{
+      id: :instances,
+      label: "Instances",
+      icon: "▦",
+      description: "Shared instance liveness and lease-store details.",
+      path: "/instances",
+      type: :live,
+      owner: :instances,
+      availability: :available,
+      nav?: false,
+      active_actions: [:instances]
+    },
+    %{
       id: :experiments,
       label: "Experiments",
       icon: "⚗",
@@ -76,12 +88,12 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec routes(map()) :: [map()]
   def routes(analytics) when is_map(analytics) do
-    Enum.filter(@routes, &resolve_runtime_availability(&1, analytics))
+    Enum.filter(@routes, &(Map.get(&1, :nav?, true) and resolve_runtime_availability(&1, analytics)))
   end
 
   @spec route(atom(), map()) :: {:ok, map()} | :error
   def route(id, analytics) when is_atom(id) and is_map(analytics) do
-    case Enum.find(routes(analytics), &(&1.id == id)) do
+    case Enum.find(@routes, &(&1.id == id and resolve_runtime_availability(&1, analytics))) do
       nil -> :error
       route -> {:ok, route}
     end

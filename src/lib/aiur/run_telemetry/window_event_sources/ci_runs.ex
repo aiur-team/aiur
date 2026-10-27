@@ -2,7 +2,10 @@ defmodule Aiur.RunTelemetry.WindowEventSources.CiRuns do
   alias Aiur.GitHub.Access
   @moduledoc false
 
-  @events ["pull_request", "merge_group"]
+  @events [
+    "pull_request",
+    "merge_group"
+  ]
   @page_limit 10
   @per_page 100
   @run_limit 10_000

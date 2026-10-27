@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Answers do
 
   require Logger
 
+  alias Aiur.Commands.ActorSource
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -93,7 +94,7 @@ defmodule Aiur.DecisionStore.Answers do
   # still be waiting on its answer, so expiry must not remove that path.
   def require_answerable(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: :ok
 
-  def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved],
+  def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved, :dismissed],
     do: {:error, {:conflict, status}}
 
   def require_answerable(%Decision{}), do: :ok
@@ -101,8 +102,16 @@ defmodule Aiur.DecisionStore.Answers do
   @spec fetch_actor(term()) :: term()
   def fetch_actor(opts) do
     case Keyword.fetch(opts, :actor) do
-      {:ok, actor} when is_map(actor) -> {:ok, actor}
-      _other -> {:error, {:answer_invalid, {:actor, :missing}}}
+      {:ok, actor} when is_map(actor) ->
+        actor = Map.put(actor, :source, ActorSource.from_opts(opts))
+
+        case DecisionAnswer.normalize_actor(actor) do
+          {:ok, normalized} -> {:ok, normalized}
+          {:error, reason} -> {:error, {:answer_invalid, reason}}
+        end
+
+      _other ->
+        {:error, {:answer_invalid, {:actor, :missing}}}
     end
   end
 

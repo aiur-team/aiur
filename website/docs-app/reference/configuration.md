@@ -78,6 +78,15 @@ Choose a topic below. Existing section links lead to the same reference content.
 
 [Read this section](./configuration-daemon#usage).
 
+## netlify
+
+| Key | Type | Default | Controls | <!-- generated-reference:config-configuration-24 -->
+| --- | --- | --- | --- |
+| `netlify.account_id` | string | nil | Netlify team/account ID to read. |
+| `netlify.credit_alert_threshold` | integer | 0 | Emit a low-credit alert at or below this estimated balance; 0 disables the threshold. |
+| `netlify.enabled` | boolean | false | Enable the read-only Netlify usage poller and dashboard card. |
+| `netlify.poll_seconds` | integer | 900 | Netlify usage polling interval in seconds. |
+
 ## elevenlabs
 
 [Read this section](./configuration-integrations#elevenlabs).

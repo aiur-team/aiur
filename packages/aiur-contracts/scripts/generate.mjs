@@ -5,6 +5,16 @@ import { compile } from 'json-schema-to-typescript';
 const cwd = fileURLToPath(new URL('../schemas/', import.meta.url));
 const outputs = [
   {
+    name: 'EventsContract',
+    target: new URL('../src/events.generated.ts', import.meta.url),
+    refs: ['events.v1.schema.json', 'events-catalog.v1.schema.json'],
+  },
+  {
+    name: 'CommandContract',
+    target: new URL('../src/command.generated.ts', import.meta.url),
+    refs: ['command.v2.schema.json'],
+  },
+  {
     name: 'WireContract',
     target: new URL('../src/generated.ts', import.meta.url),
     refs: ['capabilities.v1.schema.json', 'capability-error.v1.schema.json'],
@@ -28,6 +38,11 @@ const outputs = [
       'ticket-spend-cap.v1.schema.json',
       'ticket-spend-cap-reached.v1.schema.json',
     ],
+  },
+  {
+    name: 'VoiceConverseContract',
+    target: new URL('../src/voice-converse.generated.ts', import.meta.url),
+    refs: ['voice-converse.v1.schema.json'],
   },
 ];
 

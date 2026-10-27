@@ -111,7 +111,7 @@ defmodule Aiur.AgentQueueStore.Correlation do
   @doc false
   @spec normalize_delivery(term()) :: term()
   def normalize_delivery(delivery) when is_map(delivery) do
-    %{
+    Map.merge(delivery, %{
       priority: Map.get(delivery, :priority, :next),
       durability: Map.get(delivery, :durability, :durable),
       consume_at: Map.get(delivery, :consume_at, :safe_checkpoint),
@@ -122,6 +122,6 @@ defmodule Aiur.AgentQueueStore.Correlation do
       # claude-repl agent on a long turn never received Executor input.
       immediate: Map.get(delivery, :immediate, false),
       fallback: Map.get(delivery, :fallback)
-    }
+    })
   end
 end

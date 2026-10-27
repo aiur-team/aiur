@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import unittest
@@ -60,6 +61,28 @@ class HotListFormatTest(unittest.TestCase):
         write_manifest(self.root, read_manifest(self.root))
         self.assertEqual(path.read_bytes(), first)
         self.assertEqual(CHECKER.check(self.root), [])
+
+    def test_additional_telemetry_attributes_reject_single_line_lists(self):
+        cases = [
+            ('src/lib/aiur/run_telemetry/event_fields.ex', 'fields'),
+            ('src/lib/aiur/run_telemetry/window_event_sources/ci_runs.ex', 'events'),
+            ('src/lib/aiur/run_telemetry/sampler.ex', 'build_fields'),
+        ]
+        for name, attribute in cases:
+            with self.subTest(attribute=attribute, path=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                original = (REPO / name).read_text()
+                pattern = r'(@' + attribute + r'\s+(?:~w\(|\[))(.*?)(\)a|\])'
+                flattened, count = re.subn(
+                    pattern, lambda match: match[1] + ' '.join(match[2].split()) + match[3],
+                    original, count=1, flags=re.S)
+                self.assertEqual(count, 1)
+                path.write_text(flattened)
+                try:
+                    self.assertIn(f'{name}: @{attribute} needs one item per line', CHECKER.check(self.root))
+                finally:
+                    path.write_text(original)
 
     def test_future_object_list_order_is_preserved(self):
         values = [{'from': 'z'}, {'from': 'a'}]

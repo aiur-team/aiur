@@ -55,5 +55,6 @@
   "capabilities": [
     "voice.stt",
     "voice.tts"
-  ]
+  ],
+  "goal": "voice"
 }

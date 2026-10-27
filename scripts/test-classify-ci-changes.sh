@@ -146,8 +146,8 @@ for review in REVIEW_REQUIRED CHANGES_REQUESTED ''; do
   TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
   grep -Fxq 'dialyzer=false' "$test_dir/out"
   grep -Fq 'fast checks only' "$test_dir/summary"
-  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/test/support/helper.exs"}]' '[]' full
-  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:401
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/test/support/helper.exs"}]' '[]' full
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[]' scoped:401
   TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=true full_ci=false' pull_request false '[{"filename":"website/docs-app/guide/a.md"}]'
   TEST_REVIEW="$review" expect 'browser_smoke=true docs_only=false full_ci=true' pull_request false '[{"filename":".github/workflows/ci.yml"}]' '[{"name":"ci:full"}]'
   TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=true' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]' '[{"name":"main-fix"}]'

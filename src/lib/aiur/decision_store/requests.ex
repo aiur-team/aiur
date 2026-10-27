@@ -3,6 +3,7 @@ defmodule Aiur.DecisionStore.Requests do
 
   require Logger
 
+  alias Aiur.Commands.{RequestAttributes, SuggestedResponses}
   alias Aiur.DecisionProjection.AuthorityReclassification
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
@@ -158,8 +159,12 @@ defmodule Aiur.DecisionStore.Requests do
   @spec handle_request(term(), term(), term()) :: term()
   def handle_request(payload, opts, state) do
     with {:ok, requested_version} <- fetch_requested_version(payload),
-         {:ok, decision} <- DecisionValidation.normalize(payload, opts) do
-      evaluate_and_apply(decision, requested_version, state)
+         {:ok, opts} <- RequestAttributes.normalize_opts(opts),
+         {:ok, decision} <- DecisionValidation.normalize(payload, opts),
+         :ok <- SuggestedResponses.validate(decision, opts) do
+      decision
+      |> evaluate_and_apply(requested_version, state, opts)
+      |> SuggestedResponses.warn_once(state, opts)
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
@@ -177,8 +182,8 @@ defmodule Aiur.DecisionStore.Requests do
   @spec raw_version(term()) :: term()
   def raw_version(payload), do: Map.get(payload, "version", Map.get(payload, :version))
 
-  @spec evaluate_and_apply(term(), term(), term()) :: term()
-  def evaluate_and_apply(decision, requested_version, state) do
+  @spec evaluate_and_apply(term(), term(), term(), keyword()) :: term()
+  def evaluate_and_apply(decision, requested_version, state, opts \\ []) do
     case evaluate(decision, requested_version, state) do
       {:duplicate, existing} ->
         {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
@@ -187,18 +192,18 @@ defmodule Aiur.DecisionStore.Requests do
         {:reply, {:error, {:conflict, reason}}, state}
 
       {:accept, decision} ->
-        accept(decision, state)
+        accept(decision, state, opts)
 
       {:supersede_expired, decision, expired} ->
-        accept_expired_reraise(decision, expired, state)
+        accept_expired_reraise(decision, expired, state, opts)
     end
   end
 
   # Persist and publish the replacement before retiring the old expired row.
   # If the replacement append fails, the existing answerable record stays
   # available for an Executor instead of being lost to a premature moot.
-  defp accept_expired_reraise(decision, expired, state) do
-    case accept(decision, state) do
+  defp accept_expired_reraise(decision, expired, state, opts) do
+    case accept(decision, state, opts) do
       {:reply, {:ok, result}, accepted_state} ->
         case Dedup.moot_expired_reraise(accepted_state, expired, decision) do
           {:ok, next_state} -> {:reply, {:ok, result}, next_state}
@@ -276,10 +281,10 @@ defmodule Aiur.DecisionStore.Requests do
     decision.decision_status == :expired and decision.blocking and is_nil(decision.answer)
   end
 
-  @spec accept(term(), term()) :: term()
-  def accept(decision, state) do
+  @spec accept(term(), term(), keyword()) :: term()
+  def accept(decision, state, opts \\ []) do
     case Events.reserve_durable_id() do
-      {:ok, event_id} -> Persistence.persist_and_notify(decision, event_id, state)
+      {:ok, event_id} -> Persistence.persist_and_notify({decision, RequestAttributes.from_opts(opts)}, event_id, state)
       {:error, :not_durable} -> {:reply, {:error, :event_id_not_durable}, state}
     end
   end
@@ -342,6 +347,11 @@ defmodule Aiur.DecisionStore.Requests do
   end
 
   @spec lifecycle_slug(term()) :: term()
+  def lifecycle_slug(:routed), do: "routed"
+  def lifecycle_slug(:escalated), do: "escalated"
+  def lifecycle_slug(:human_needed), do: "human-needed"
+  def lifecycle_slug(:executor_acknowledged), do: "executor-acknowledged"
+  def lifecycle_slug(:request_attributed), do: "request-attributed"
   def lifecycle_slug(:answer_recorded), do: "answered"
   def lifecycle_slug(:pending_for_session), do: "pending-for-session"
   def lifecycle_slug(:session_started), do: "session-started"

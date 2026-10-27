@@ -158,7 +158,7 @@ defmodule Aiur.UsageLedger.StoreTest do
 
   test "recovers one uncheckpointed canonical append after a checkpoint failure without a second delta", %{root: root, name: name} do
     {:ok, pid} =
-      start_store(root, name, checkpoint_fun: fn _path, _checkpoint -> {:error, :eio} end)
+      start_store(root, name, checkpoint_interval: 1, checkpoint_fun: fn _path, _checkpoint -> {:error, :eio} end)
 
     first = envelope(%{})
     assert {:error, :persistence_failed} = append(name, first)
@@ -236,7 +236,7 @@ defmodule Aiur.UsageLedger.StoreTest do
       end
     end
 
-    {:ok, pid} = start_store(root, name, checkpoint_fun: checkpoint_fun)
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 1, checkpoint_fun: checkpoint_fun)
 
     next =
       envelope(%{
@@ -308,7 +308,7 @@ defmodule Aiur.UsageLedger.StoreTest do
     GenServer.stop(pid)
   end
 
-  test "encodes each candidate checkpoint once and retains records in an append-efficient queue", %{
+  test "writes at most ten checkpoints for one thousand appends", %{
     root: root,
     name: name
   } do
@@ -319,9 +319,9 @@ defmodule Aiur.UsageLedger.StoreTest do
       Checkpoint.encode(checkpoint, max_bytes)
     end
 
-    {:ok, pid} = start_store(root, name, checkpoint_encode_fun: encode_fun)
+    {:ok, pid} = start_store(root, name, checkpoint_interval: 100, checkpoint_encode_fun: encode_fun)
 
-    Enum.each(1..32, fn offset ->
+    Enum.each(1..1_000, fn offset ->
       measurement =
         envelope(%{
           idempotency_key: "codex:scaling-#{offset}",
@@ -335,14 +335,30 @@ defmodule Aiur.UsageLedger.StoreTest do
     end)
 
     encoded_positions =
-      Enum.map(1..32, fn _offset ->
+      Enum.map(1..10, fn _offset ->
         assert_receive({:checkpoint_encoded, position}, 2_000)
         position
       end)
 
-    assert encoded_positions == Enum.to_list(1..32)
-    assert :queue.len(:sys.get_state(name).records) == 32
+    assert encoded_positions == Enum.to_list(100..1_000//100)
+    refute_receive {:checkpoint_encoded, _position}, 100
+    assert :queue.len(:sys.get_state(name).records) == 1_000
     GenServer.stop(pid)
+  end
+
+  test "recovers journal records after the checkpoint interval", %{root: root, name: name} do
+    {:ok, pid} = start_store(root, name)
+    first = envelope(%{})
+
+    assert {:ok, %{position: 1}} = append(name, first)
+    assert {:ok, checkpoint} = Checkpoint.load(Path.join(root, "checkpoint.json"))
+    assert checkpoint.position == 0
+    GenServer.stop(pid)
+
+    {:ok, restarted} = start_store(root, name)
+    assert {:ok, [%{position: 1}]} = scan(name)
+    assert {:duplicate, %{position: 1}} = append(name, first)
+    GenServer.stop(restarted)
   end
 
   defp start_store(root, name, opts \\ []) do

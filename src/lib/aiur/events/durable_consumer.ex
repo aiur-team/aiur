@@ -51,7 +51,8 @@ defmodule Aiur.Events.DurableConsumer do
       retry_ms: Keyword.get(opts, :retry_ms, 5_000),
       cursor: load_cursor(path),
       mode: :catching_up,
-      outage: false
+      outage: false,
+      retry_timer: nil
     }
 
     {:ok, state, {:continue, :catch_up}}
@@ -135,8 +136,9 @@ defmodule Aiur.Events.DurableConsumer do
   end
 
   defp retry(state) do
-    Process.send_after(self(), :catch_up, state.retry_ms)
-    %{state | mode: :waiting}
+    if state.retry_timer, do: Process.cancel_timer(state.retry_timer)
+    timer = Process.send_after(self(), :catch_up, state.retry_ms)
+    %{state | mode: :waiting, retry_timer: timer}
   end
 
   defp persist(state, cursor) do

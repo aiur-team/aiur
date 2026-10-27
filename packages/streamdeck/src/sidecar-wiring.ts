@@ -89,6 +89,7 @@ export const surfaceState = (
   selectedOption: current.selectedOption,
   commandDictation: current.commandDictation,
   commandsError: current.commandsError,
+  commandFeedback: current.commandFeedback,
 });
 
 /** Routes a runtime log entry to the matching console level. */

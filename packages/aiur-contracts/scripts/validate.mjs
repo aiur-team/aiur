@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs';
 import Ajv2020 from 'ajv/dist/2020.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'));
+export const eventsSchema = read('schemas/events.v1.schema.json');
+export const eventsCatalogSchema = read('schemas/events-catalog.v1.schema.json');
+export const events = read('fixtures/events.v1.json');
+export const eventsReset = read('fixtures/events-reset.v1.json');
+export const eventsCatalog = read('fixtures/events-catalog.v1.json');
 export const reportSchema = read('schemas/capabilities.v1.schema.json');
 export const errorSchema = read('schemas/capability-error.v1.schema.json');
 export const agentsSchema = read('schemas/agents.v1.schema.json');
@@ -12,6 +17,7 @@ export const ticketUsageSchema = read('schemas/ticket-usage.v1.schema.json');
 export const ticketProgressSchema = read('schemas/ticket-progress.v1.schema.json');
 export const ticketSpendCapSchema = read('schemas/ticket-spend-cap.v1.schema.json');
 export const ticketSpendCapReachedSchema = read('schemas/ticket-spend-cap-reached.v1.schema.json');
+export const voiceConverseSchema = read('schemas/voice-converse.v1.schema.json');
 export const report = read('fixtures/capabilities.v1.json');
 export const error = read('fixtures/capability-error.v1.json');
 export const agents = read('fixtures/agents.v1.json');
@@ -22,8 +28,13 @@ export const ticketUsage = read('fixtures/ticket-usage.v1.json');
 export const ticketProgress = read('fixtures/ticket-progress.v1.json');
 export const ticketSpendCap = read('fixtures/ticket-spend-cap.v1.json');
 export const ticketSpendCapReached = read('fixtures/ticket-spend-cap-reached.v1.json');
+export const voiceConverse = read('fixtures/voice-converse.v1.json');
+export const commandSchema = read('schemas/command.v2.schema.json');
+export const command = read('fixtures/command.v2.json');
 const ajv = new Ajv2020({ allErrors: true });
 for (const schema of [
+  eventsSchema,
+  eventsCatalogSchema,
   reportSchema,
   agentsSchema,
   statusSchema,
@@ -33,9 +44,13 @@ for (const schema of [
   ticketProgressSchema,
   ticketSpendCapSchema,
   ticketSpendCapReachedSchema,
+  voiceConverseSchema,
 ]) {
   ajv.addSchema(schema);
 }
+export const validateEvents = ajv.getSchema(eventsSchema.$id);
+export const validateEventsCatalog = ajv.getSchema(eventsCatalogSchema.$id);
+export const validateCommand = ajv.compile(commandSchema);
 export const validateReport = ajv.getSchema(reportSchema.$id);
 export const validateError = ajv.compile(errorSchema);
 export const validateAgents = ajv.getSchema(agentsSchema.$id);
@@ -46,6 +61,8 @@ export const validateTicketUsage = ajv.getSchema(ticketUsageSchema.$id);
 export const validateTicketProgress = ajv.getSchema(ticketProgressSchema.$id);
 export const validateTicketSpendCap = ajv.getSchema(ticketSpendCapSchema.$id);
 export const validateTicketSpendCapReached = ajv.getSchema(ticketSpendCapReachedSchema.$id);
+const validateVoiceConverseFrame = ajv.getSchema(voiceConverseSchema.$id);
+export const validateVoiceConverse = (frames) => Array.isArray(frames) && frames.every(validateVoiceConverseFrame);
 
 export const contractCases = [
   { name: 'agents', schema: agentsSchema, fixture: agents, validate: validateAgents },
@@ -59,9 +76,14 @@ export const contractCases = [
 ];
 
 for (const [validate, fixture] of [
+  [validateEvents, events],
+  [validateEvents, eventsReset],
+  [validateEventsCatalog, eventsCatalog],
+  [validateCommand, command],
   [validateReport, report],
   [validateError, error],
   ...contractCases.map(({ validate, fixture }) => [validate, fixture]),
+  [validateVoiceConverse, voiceConverse],
 ]) {
   if (!validate(fixture)) throw new Error(JSON.stringify(validate.errors));
 }

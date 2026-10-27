@@ -31,6 +31,7 @@
       "executor",
       "instance",
       "merge_policy",
+      "netlify",
       "prompt_file",
       "usage"
     ],
@@ -63,6 +64,7 @@
   ],
   "config": [
     "executor",
+    "netlify",
     "usage"
   ],
   "env": [
@@ -75,5 +77,6 @@
   ],
   "capabilities": [
     "merge_policy"
-  ]
+  ],
+  "goal": "run-agents"
 }

@@ -50,5 +50,6 @@
     "AIUR_INSTANCE_KEY",
     "USER"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

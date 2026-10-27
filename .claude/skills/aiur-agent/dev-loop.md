@@ -196,7 +196,7 @@ The Elixir examples below apply only to Aiur's Elixir core.
    `cd src && mise exec -- mix aiur.affected_tests`, which maps the modules you
    changed to their sibling test files and prints the exact root-runnable test
    command (or advises `make ci` when the change cannot be scoped safely).
-   Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness.
+   Run only affected browser specs locally (browser runs go through the build gate); CI runs the full harness. From the repo root, install the pinned harness with `npm ci --prefix src/browser`, then run `npm run test:browser-self-check --prefix src/browser` once to verify the pinned Chromium can launch in this workspace. If that passes, run the affected spec through the same package: `npm run test:browser-suite --prefix src/browser -- <suite>` or `node src/browser/scripts/run-browser-tests.mjs tests/<spec>.browser.spec.mjs`. Do not use bare `npx playwright`, which can select an unrelated version when dependencies are absent. The self-check prints the failing stage and browser launch diagnostic; install Chromium with `npx --prefix src/browser playwright install chromium` when missing.
    Follow `src/prompts/shared-agent-instructions.md` for PR body evidence,
    pre-handoff guards, and test cleanup; validate each body with
    `mix pr_body.check --file <body>`. Before marking the PR ready or handing

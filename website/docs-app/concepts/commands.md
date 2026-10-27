@@ -21,7 +21,7 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 | --- | --- |
 | Answer directly | Pick an option or write a bounded response and send it to the agent. |
 | Defer | Leave the Command for a designated Executor agent to investigate and decide. |
-| Revise | Append a corrected action without rewriting the original record. |
+| Send correction | Append a corrected action without rewriting the original record. |
 
 ## Authority and attention signals
 
@@ -96,6 +96,31 @@ is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 
+## Routing and escalation
+
+With `decisions.escalation.enabled` (default `true`), Commands route using the
+Executor roster. A live Executor receives answerable Commands first. Without a
+live Executor, the human receives them immediately. Human-required Commands
+reach both responders when an Executor is live; Executor-originated Commands
+go directly to the human.
+
+Unacknowledged Commands escalate after five minutes; acknowledged but unanswered
+Commands escalate after fifteen minutes. Urgent blocking Commands use half
+those deadlines by default.
+
+An offline or stalled roster escalates at the next
+sweep, within 30 seconds. Roster lookup failures count as stalled.
+
+Deadlines and
+first human visibility survive restarts, and routing emits `human_needed` only
+once per Command. Routing never re-asks. Answers and terminal lifecycle states
+stop routing deadlines. Disabling escalation stops these routing writes.
+
+Defer to Executor accepts worker Commands whose authority permits an Executor
+answer. Human-required and Executor-originated Commands cannot defer. An accepted
+defer starts routing deadlines again and preserves first human visibility,
+without another `human_needed` notification.
+
 ## Durability
 
 | Contract | Why it matters |
@@ -131,3 +156,27 @@ When you answer a Command in conversation with an attended Executor, it can reco
 Command detail, history and `aiur commands <decision-id>` distinguish it as **answered by operator, relayed by `<executor-id>`** and retain your verbatim quote and the recording timestamp.
 
 Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; delivery-state guards still apply.
+
+## Who can replace an answer
+
+Both revise and supersede use the current active answer's precedence:
+**direct operator > operator relayed by an Executor > Executor or supervisor**.
+A caller can replace an answer of equal or lower precedence while delivery guards
+permit it.
+
+A relayed answer never replaces a direct operator answer; an Executor
+or supervisor cannot replace either human-attributed kind.
+
+Supersede is refused once an answer has been delivered or is in flight.
+Revisions keep their existing delivery and correction follow-up rules.
+
+Answer attribution records `actor_source`, the entry point that accepted it,
+such as `executor_cli` or `supervisor_api`.
+
+An already-answered supervisor API
+conflict includes a `winner` summary with the actor, source, accepted time,
+answer summary, delivery state and whether that caller can replace it.
+
+Older records and calls without a recorded surface use `rpc`, meaning
+“no surface recorded.” Attribution is separate from authentication:
+`human_required` does not stop a same-user process with the distribution cookie.
