@@ -129,7 +129,8 @@ export default withMermaid(defineConfig({
             { text: 'GUI', link: '/guide/gui' },
             { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
             { text: 'Outbound events', link: '/guide/outbound-events' },
-            { text: 'Stream Deck', link: '/guide/stream-deck' }
+            { text: 'Stream Deck', link: '/guide/stream-deck' },
+            { text: 'Mobile local builds', link: '/guide/mobile' }
           ]
         },
         {
