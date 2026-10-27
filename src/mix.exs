@@ -130,6 +130,7 @@ defmodule Aiur.MixProject do
         ]
       ],
       test_ignore_filters: [
+        "test/support/analytics_live_fixtures.exs",
         "test/support/dashboard_live_orchestrator_stubs.exs",
         "test/support/dashboard_live_store_stubs.exs",
         "test/support/dashboard_live_unit_fixtures.exs",

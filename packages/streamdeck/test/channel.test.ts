@@ -317,6 +317,18 @@ describe("Stream Deck Phoenix channel", () => {
       ]);
     });
 
+    it.each([
+      { reason: "already_answered", winner: { actor_kind: "operator", summary: "Ship it", accepted_at: "2026-10-26T00:00:00Z" } },
+      { reason: "withdrawn", status: "expired" },
+      { reason: "stale" },
+    ])("preserves structured answer outcome $reason", async (outcome) => {
+      const events = commandsEvents();
+      const { socket, channel } = await joined(events);
+      channel.answerCommand("dec-9", 7, "sd-key", { option_id: "ship" });
+      socket.message(["4", JSON.parse(socket.sent[1])[1], "streamdeck:fleet", "phx_reply", { status: "error", response: outcome }]);
+      expect(events.commandsError).toHaveBeenCalledWith(outcome.reason, outcome, "sd-key");
+    });
+
     it("routes the answer_command reply to commandAnswered or commandsError", async () => {
       const events = commandsEvents();
       const { socket, channel } = await joined(events);

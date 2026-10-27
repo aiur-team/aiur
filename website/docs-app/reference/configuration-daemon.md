@@ -198,11 +198,13 @@ Outbound export is opt-in: `events.export.enabled` remains `false` by default; e
 | `events.export.enabled` | boolean | false | Enables the external event journal; a configured webhook URL also enables signed delivery. Restart to apply. |
 | `events.export.max_pending_events` | integer | 10000 | Maximum admitted events waiting for acknowledgement. |
 | `events.export.request_timeout_ms` | integer | 15000 | Per-attempt webhook request timeout. |
-| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); reserved until retention is installed. Not enforced by the writer. |
-| `events.export.retention_max_events` | integer | 50000 | Maximum retained records (1000..1000000); reserved until retention is installed. Not enforced by the writer. |
+| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); trims whole closed export segments at boot and segment roll. |
+| `events.export.retention_max_events` | integer | 50000 | Retained-record target (1000..1000000); whole-segment granularity may keep one extra segment (up to 8 MiB). |
 | `events.export.retry_ms` | integer | 5000 | Initial delay for capped exponential delivery retries. |
 | `events.export.subject_id` | string | nil | Delivers only events for this exact ticket or job identifier. |
 | `events.export.webhook_url` | string | nil | HTTPS endpoint receiving outbound event POSTs. |
+
+Export retention only removes the export copy. Restarts preserve the epoch; identity changes archive old segments and restart sequence numbering. Stale, future, or previous-epoch cursors receive a reset; corrupt metadata is rebuilt with a new epoch without archiving readable segments.
 
 ## upgrade
 
@@ -304,6 +306,7 @@ An exported value wins, followed by the global file and then the repository file
 | `decisions.escalation.executor_ack_ms` | integer | 300000 | Acknowledgement deadline in milliseconds; minimum 10000. |
 | `decisions.escalation.executor_answer_ms` | integer | 900000 | Answer deadline in milliseconds; must be at least executor_ack_ms. |
 | `decisions.escalation.urgent_factor` | float | 0.5 | Multiplies both deadlines for urgent Commands; greater than 0 and at most 1. |
+| `decisions.require_suggested_responses` | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
 | `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
 | `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
 

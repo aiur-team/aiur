@@ -185,6 +185,7 @@ export function detailKeyDescriptors(
   selectedOption: number | null,
   micHeld: boolean,
   hasDictation: boolean,
+  feedback?: { decisionId: string; key: number; title: string; label: string } | null,
 ): (AgentInput | undefined)[] {
   const answerable = isAnswerable(command);
   const count = command.options.length;
@@ -263,6 +264,13 @@ export function detailKeyDescriptors(
     };
   }
 
+  if (feedback?.decisionId === command.decision_id) {
+    slots[feedback.key] = {
+      identifier: `command:${command.decision_id}:feedback`, title: feedback.title,
+      subLabel: feedback.label, vendor: "commands", icon: "question", role: "event",
+      bucket: "paused", selected: false, progress_percent: null, priority: false,
+    };
+  }
   return slots;
 }
 

@@ -313,6 +313,7 @@ alerts:
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, capture_tags: {}, capture_label_prefixes: ["experiment:", "cohort:", "feature:"], capture_github_facts: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions:
+#   require_suggested_responses: false # opt in after reviewing informational warning counts
 #   escalation:
 #     enabled: true
 #     executor_ack_ms: 300000
@@ -340,8 +341,8 @@ alerts:
 #     max_pending_events: 10000
 #     retry_ms: 5000
 #     request_timeout_ms: 15000
-#     retention_days: 7              # 1..90; reserved until retention is installed
-#     retention_max_events: 50000     # 1000..1000000; not enforced by writer
+#     retention_days: 7              # 1..90; whole closed segments, at boot and roll
+#     retention_max_events: 50000     # 1000..1000000; may retain one extra segment
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
 
 # Build queue (GitHub only; defaults shown except opt-in set ordering).

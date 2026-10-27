@@ -20,7 +20,9 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
       ci_recovery_enabled: true,
       ci_recovery_now: 1000,
       ci_failure_digest: fn _, _ -> {:ok, %FailureDigest{checks: [%{id: 1, name: "test", url: @run_url}]}} end,
+      alert_condition_state: fn _, _ -> if(Process.get(:repo_failure_alert_fired), do: :firing, else: :unknown) end,
       alert_emitter: fn topic, _details ->
+        Process.put(:repo_failure_alert_fired, true)
         send(parent, {:attention, topic})
         :ok
       end
@@ -52,6 +54,75 @@ defmodule Aiur.Events.GithubCIPoller.RecoveryBaseGateTest do
 
     opts = Keyword.put(opts, :main_watch_history, [base("success")])
     assert %{decision: :failed, recovery: nil} = Recovery.recover(ctx.issue, ctx.result, opts)
+  end
+
+  test "matching latest main failure signature is held with one repository attention", ctx do
+    digest = %FailureDigest{signature: "same-failure-signature", checks: [%{id: 1, name: "test", url: @run_url}]}
+    main = %{sha: "main-head", completed_at: 900, checks: [%{name: "test", conclusion: "failure"}], digest: digest}
+    Process.delete(:repo_failure_alert_fired)
+    opts = ctx.opts |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end) |> Keyword.put(:main_watch_history, [main])
+
+    assert %{decision: :pending, recovery: "repo_wide_failure"} = Recovery.recover(ctx.issue, ctx.result, opts)
+    assert_received {:attention, topic}
+    assert topic == repo_wide_topic(digest.signature)
+
+    assert %{decision: :pending, recovery: "repo_wide_failure"} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:attention, _}
+  end
+
+  test "a different main failure signature does not hold the PR failure", ctx do
+    digest = %FailureDigest{signature: "pr-signature", checks: [%{id: 1, name: "test", url: @run_url}]}
+    main_digest = %FailureDigest{signature: "main-signature"}
+    main = %{sha: "main-head", completed_at: 900, checks: [%{name: "test", conclusion: "failure"}], digest: main_digest}
+    opts = ctx.opts |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end) |> Keyword.put(:main_watch_history, [base("success"), main])
+
+    assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:attention, _}
+  end
+
+  test "a failed repository attention is logged while the PR remains held", ctx do
+    digest = %FailureDigest{signature: "same-failure-signature", checks: [%{id: 1, name: "test", url: @run_url}]}
+    main = %{sha: "main-head", completed_at: 900, checks: [%{name: "test", conclusion: "failure"}], digest: digest}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
+      |> Keyword.put(:main_watch_history, [main])
+      |> Keyword.put(:alert_emitter, fn _, _ -> {:error, :offline} end)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert %{decision: :pending, recovery: "repo_wide_failure"} = Recovery.recover(ctx.issue, ctx.result, opts)
+      end)
+
+    assert log =~ "Repo-wide CI attention failed: :offline"
+  end
+
+  test "unavailable MainWatch history does not classify the PR as repo-wide", ctx do
+    digest = %FailureDigest{signature: "same-failure-signature"}
+
+    opts =
+      ctx.opts
+      |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end)
+      |> Keyword.put(:main_watch_history, :disabled)
+
+    assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:attention, "system.main.ci.repo_wide_failure." <> _}
+  end
+
+  test "a newer green main run means the matching old signature no longer holds", ctx do
+    digest = %FailureDigest{signature: "old-main-failure", checks: [%{id: 1, name: "test", url: @run_url}]}
+    main_red = %{sha: "main-red", completed_at: 900, checks: [%{name: "test", conclusion: "failure"}], digest: digest}
+    main_green = %{sha: "main-green", completed_at: 1000, checks: [%{name: "test", conclusion: "success"}], digest: %FailureDigest{signature: "green-signature"}}
+    opts = ctx.opts |> Keyword.put(:ci_failure_digest, fn _, _ -> {:ok, digest} end) |> Keyword.put(:main_watch_history, [base("success"), main_red, main_green])
+
+    assert %{decision: :failed} = Recovery.recover(ctx.issue, ctx.result, opts)
+    refute_received {:attention, _}
+  end
+
+  defp repo_wide_topic(signature) do
+    suffix = :crypto.hash(:sha256, signature) |> Base.encode16(case: :lower) |> binary_part(0, 12)
+    "system.main.ci.repo_wide_failure.#{suffix}"
   end
 
   test "a base commit with no recorded result holds as unknown for one main CI run, then routes", ctx do

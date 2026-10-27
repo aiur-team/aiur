@@ -85,7 +85,11 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
     assert {:ok, %{decision: decision}} = request(pid, "before-failure")
     assert_received {:notified, id}
     assert id == decision.decision_id
-    :ok = Exchange.subscribe("ticket.3275.agent.decision.*")
+    # Informational suggestion warnings are independent of journal lifecycle delivery.
+    for event <- ~w(requested enriched deferred) do
+      :ok = Exchange.subscribe("ticket.3275.agent.decision.#{event}")
+    end
+
     broken = break_projection(dir)
     assert {:ok, %{decision: second}} = request(pid, "withheld-request")
 

@@ -33,10 +33,10 @@ defmodule Aiur.Config.Schema.EventsExport do
     # @config-detail events.export.request_timeout_ms | integer | 15000 | Per-attempt webhook request timeout. |
     field(:request_timeout_ms, :integer, default: 15_000)
     # @config-reference config-configuration-11 events.export.retention_days
-    # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); reserved until retention is installed. Not enforced by the writer. |
+    # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); trims whole closed export segments at boot and segment roll. |
     field(:retention_days, :integer, default: 7)
     # @config-reference config-configuration-11 events.export.retention_max_events
-    # @config-detail events.export.retention_max_events | integer | 50000 | Maximum retained records (1000..1000000); reserved until retention is installed. Not enforced by the writer. |
+    # @config-detail events.export.retention_max_events | integer | 50000 | Retained-record target (1000..1000000); whole-segment granularity may keep one extra segment (up to 8 MiB). |
     field(:retention_max_events, :integer, default: 50_000)
   end
 

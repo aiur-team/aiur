@@ -4,7 +4,8 @@
   "layer": 3,
   "kind": "in-app",
   "paths": [
-    "src/lib/aiur/listener/effective.ex"
+    "src/lib/aiur/listener/effective.ex",
+    "src/lib/aiur/listener/mode_store.ex"
   ],
   "facades": [
     "*"
@@ -14,13 +15,16 @@
     "config",
     "event-bus",
     "harness-adapters",
-    "identity"
+    "identity",
+    "kernel"
   ],
   "optional": [],
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
+    "state": [
+      "file: <runtime_state_dir>/listen-modes/*.json"
+    ],
     "capabilities": []
   },
   "prior": [],

@@ -240,6 +240,7 @@ netlify:
 
 # Command escalation policy (defaults; routing consumes these settings).
 # decisions:
+#   require_suggested_responses: false # opt in after reviewing informational warnings
 #   escalation:
 #     enabled: true
 #     executor_ack_ms: 300000
