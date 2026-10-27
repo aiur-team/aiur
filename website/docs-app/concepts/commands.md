@@ -267,7 +267,9 @@ as a readable queued message. Ordinary queue notifications wait while a
 native question is held.
 
 If the session has exited, Aiur records the release without writing to the
-closed session. With Claude capture enabled, a replacement thread attempts to
+closed session.
+
+With Claude capture enabled, a replacement thread attempts to
 release open deferred Commands from the previous thread before starting work.
 Cleanup failures are logged without preventing the worker from starting.
 Answered Commands are unchanged. Releasing a hold leaves the Command open and
