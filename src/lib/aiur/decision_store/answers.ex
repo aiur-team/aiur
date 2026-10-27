@@ -94,7 +94,7 @@ defmodule Aiur.DecisionStore.Answers do
   # still be waiting on its answer, so expiry must not remove that path.
   def require_answerable(%Decision{decision_status: :expired, blocking: true, answer: nil}), do: :ok
 
-  def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved],
+  def require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved, :dismissed],
     do: {:error, {:conflict, status}}
 
   def require_answerable(%Decision{}), do: :ok
