@@ -66,7 +66,9 @@ Successful Executor answers, escalations, moots, and supersedes also record an a
 Human rows show `ID`, `ROUTE`, `AGE`, `WHY` (latest escalation cause), `ASKS`
 (short label), and `TICKET|EXECUTOR`. Simultaneous routing reads `Needs you and Executor`;
 unknown routes show `?`. `WHY` shows `-` for an empty escalation history and `?` for
-missing or malformed escalation data. Open Commands routed to the human or both
+missing or malformed escalation data.
+
+Open Commands routed to the human or both
 also show how long they have needed you; answered Commands omit that line. Partial retained data is
 labelled below the rows; an unavailable store exits with status 1.
 
