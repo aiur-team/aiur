@@ -155,6 +155,7 @@ Code.put_compiler_option(:no_warn_undefined, :all)
 
 # Dashboard support imports shared fixtures; load them in dependency order.
 Code.require_file("support/usage_aggregate_support.ex", __DIR__)
+Code.require_file("support/analytics_live_fixtures.exs", __DIR__)
 
 for file <-
       ~w(
