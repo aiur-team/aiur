@@ -29,6 +29,24 @@ defmodule Aiur.Listener.ModeCleanupTest do
     assert_receive {:workspace_cleanup_finished, "98761", :ok}, 5_000
   end
 
+  test "unresolvable runtime state returns defaults and errors without interrupting cleanup" do
+    previous_key = System.get_env("AIUR_INSTANCE_KEY")
+    previous_dir = Application.get_env(:aiur, :runtime_state_dir)
+    System.delete_env("AIUR_INSTANCE_KEY")
+    Application.delete_env(:aiur, :runtime_state_dir)
+
+    try do
+      assert Aiur.Config.Paths.runtime_state_dir() == {:error, :missing_instance_key}
+      assert ModeStore.get("98761") == %{requested: :sync, version: 0, actor: :default, updated_at: nil}
+      assert ModeStore.put("98761", :async, 0, %{actor: :human}) == {:error, {:runtime_state_dir_unavailable, :missing_instance_key}}
+      assert ModeStore.clear("98761") == {:error, {:runtime_state_dir_unavailable, :missing_instance_key}}
+      assert :ok = WorkspaceCleanup.clear_listen_mode("98761")
+    after
+      if previous_key, do: System.put_env("AIUR_INSTANCE_KEY", previous_key), else: System.delete_env("AIUR_INSTANCE_KEY")
+      Application.put_env(:aiur, :runtime_state_dir, previous_dir)
+    end
+  end
+
   test "startup terminal sweep clears persisted listener modes" do
     previous = Application.get_env(:aiur, :memory_tracker_issues)
     Application.put_env(:aiur, :memory_tracker_issues, [%Aiur.Issue{id: "98761", identifier: "98761", state: "Done"}])

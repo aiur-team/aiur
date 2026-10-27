@@ -11,6 +11,7 @@ defmodule Aiur.Listener.ModeStore do
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
 
+  @type path_error :: {:runtime_state_dir_unavailable, atom()}
   @type mode :: :sync | :steer | :async
   @type record :: %{
           required(:requested) => mode(),
@@ -23,17 +24,27 @@ defmodule Aiur.Listener.ModeStore do
 
   @spec get(String.t(), keyword()) :: record()
   def get(identifier, opts \\ []) do
-    case JsonStore.read(path_for(identifier, opts)) do
-      {:ok, raw} -> decode(raw, identifier)
+    with path when is_binary(path) <- path_for(identifier, opts),
+         {:ok, raw} <- JsonStore.read(path) do
+      decode(raw, identifier)
+    else
       {:error, _reason} -> @default
     end
   end
 
   @spec put(String.t(), mode(), non_neg_integer(), %{required(:actor) => :human | :executor | :system, optional(:idempotency_key) => String.t() | nil}, keyword()) ::
-          {:ok, record()} | {:error, :invalid_mode | {:mode_conflict, record()} | {:write_failed, term()}}
+          {:ok, record()} | {:error, :invalid_mode | {:mode_conflict, record()} | {:write_failed, term()} | path_error()}
   def put(identifier, mode, expected_version, meta, opts \\ [])
 
   def put(identifier, mode, expected_version, meta, opts) when mode in [:sync, :steer, :async] do
+    with path when is_binary(path) <- path_for(identifier, opts) do
+      compare_and_set(identifier, mode, expected_version, meta, opts, path)
+    end
+  end
+
+  def put(_identifier, _mode, _expected_version, _meta, _opts), do: {:error, :invalid_mode}
+
+  defp compare_and_set(identifier, mode, expected_version, meta, opts, path) do
     current = get(identifier, opts)
     key = Map.get(meta, :idempotency_key)
 
@@ -42,38 +53,48 @@ defmodule Aiur.Listener.ModeStore do
         {:ok, current}
 
       expected_version == current.version ->
-        persist(identifier, mode, current.version + 1, meta, opts)
+        persist(path, mode, current.version + 1, meta)
 
       true ->
         {:error, {:mode_conflict, current}}
     end
   end
 
-  def put(_identifier, _mode, _expected_version, _meta, _opts), do: {:error, :invalid_mode}
-
-  @spec clear(String.t(), keyword()) :: :ok | {:error, File.posix()}
+  @spec clear(String.t(), keyword()) :: :ok | {:error, File.posix() | path_error()}
   def clear(identifier, opts \\ []) do
-    case File.rm(path_for(identifier, opts)) do
-      {:error, :enoent} -> :ok
-      result -> result
+    with path when is_binary(path) <- path_for(identifier, opts) do
+      case File.rm(path) do
+        {:error, :enoent} -> :ok
+        result -> result
+      end
     end
   end
 
-  @spec path_for(String.t(), keyword()) :: Path.t()
+  @spec path_for(String.t(), keyword()) :: Path.t() | {:error, path_error()}
   def path_for(identifier, opts \\ []) do
-    dir =
-      Keyword.get_lazy(opts, :dir, fn ->
-        {:ok, root} = Paths.runtime_state_dir()
-        Path.join(root, "listen-modes")
-      end)
-
-    repo = Keyword.get_lazy(opts, :repo_name, &Paths.repo_name/0)
-    Path.join(dir, "#{repo}.#{Paths.sanitize(to_string(identifier))}.listen-mode.json")
+    with {:ok, dir} <- directory(opts) do
+      repo = Keyword.get_lazy(opts, :repo_name, &Paths.repo_name/0)
+      Path.join(dir, "#{repo}.#{Paths.sanitize(to_string(identifier))}.listen-mode.json")
+    end
   end
 
-  defp persist(identifier, mode, version, meta, opts) do
+  defp directory(opts) do
+    case Keyword.fetch(opts, :dir) do
+      {:ok, dir} -> {:ok, dir}
+      :error -> default_dir()
+    end
+  end
+
+  defp default_dir do
+    case Paths.runtime_state_dir() do
+      {:ok, root} -> {:ok, Path.join(root, "listen-modes")}
+      {:error, reason} -> {:error, {:runtime_state_dir_unavailable, reason}}
+    end
+  end
+
+  defp persist(path, mode, version, meta) do
     record = %{requested: mode, version: version, actor: Map.fetch!(meta, :actor), idempotency_key: Map.get(meta, :idempotency_key), updated_at: DateTime.to_iso8601(DateTime.utc_now())}
-    JsonStore.write!(path_for(identifier, opts), Map.put(record, :schema_version, 1))
+    JsonStore.write!(path, Map.put(record, :schema_version, 1))
     {:ok, record}
   rescue
     error -> {:error, {:write_failed, error}}
