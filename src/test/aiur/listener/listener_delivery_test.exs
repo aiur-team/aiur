@@ -93,14 +93,14 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     {store, legacy} = AgentQueueStore.enqueue(store, AgentQueue.operator_message(id, "legacy"))
     state = %{state | queue_store: store}
     view = %{effective: :steer, support: %{steer: %{carrier: :emulated_interrupt}}}
-    assert {:noreply, next} = Orchestrator.handle_info({:listener_mode_view_changed, id, view}, state)
+    assert {:noreply, next} = Orchestrator.handle_info({:listen_mode_changed, id, view}, state)
     pending_id = pending.id
     assert_received {:agent_queue_updated, ^id, ^pending_id, true}
     assert AgentQueueStore.get(next.queue_store, pending.id).delivery.listener_mode_at_claim == :steer
     assert AgentQueueStore.get(next.queue_store, pending.id).delivery.interrupt_requested
     assert AgentQueueStore.get(next.queue_store, claimed.id).delivery == claimed.delivery
     assert AgentQueueStore.get(next.queue_store, legacy.id).delivery == legacy.delivery
-    assert {:noreply, ^next} = Orchestrator.handle_info({:listener_mode_view_changed, id, view}, next)
+    assert {:noreply, ^next} = Orchestrator.handle_info({:listen_mode_changed, id, view}, next)
     refute_received {:agent_queue_updated, _, _, _}
   end
 
