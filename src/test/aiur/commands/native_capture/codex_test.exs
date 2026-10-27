@@ -37,8 +37,14 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
       :persistent_term.put(key, tracked)
     end)
 
-    store = start_store!(dir, dispatch_delay_ms: 60_000)
-    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    store =
+      start_supervised!(
+        Supervisor.child_spec(
+          {DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, dispatch_delay_ms: 60_000},
+          restart: :temporary
+        )
+      )
+
     relay = start_supervised!(RecordingRelay)
     ctx = %{ticket: @ticket, source: @source, session_ref: "thread-1-turn-1", tool_call_thread_id: "thread-1", turn_id: "turn-1", store: store, workspace: dir}
     %{ctx: ctx, relay: relay, path: path, store: store}
@@ -154,7 +160,7 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
     assert_received {:delivered, %{provider: :native_reply, native_ref: ^ref}}
   end
 
-  test "turn handler tracks two held requests, emits events, skips checkpoints and defers unrelated queue items", c do
+  test "turn handler tracks two held requests, emits events, skips checkpoints and releases before operator interrupts", c do
     enable(c.path)
     owner = self()
 
@@ -180,8 +186,11 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
       end)
 
     assert Map.keys(next.held_native_questions) |> Enum.sort() == ["codex:thread-1:turn-1:0", "codex:thread-1:turn-1:1"]
-    assert {:continue, ^next} = Interrupts.handle_operator_queue_update(session, next)
-    assert frames(c) == []
+    assert {:continue, interrupted} = Interrupts.handle_operator_queue_update(session, next)
+    assert interrupted.held_native_questions == %{}
+    assert [first, second, interrupt] = frames(c)
+    assert Enum.sort([first["id"], second["id"]]) == [0, 1]
+    assert interrupt["method"] == "turn/interrupt"
     refute_received {:checkpoint, _}
   end
 

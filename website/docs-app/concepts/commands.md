@@ -189,10 +189,17 @@ allows it.
 Command details show recorded escalation causes and timestamps;
 missing audit history is explicitly unavailable rather than an empty timeline.
 
-When native Codex question capture holds a tool request in-band, answering the
-Command returns every question's structured answer to that same request. The
-queue records provider delivery through the normal Command delivery path.
+## Held native questions
 
-If the asking turn has already released the request, the answer remains a readable
-queued message for the ticket's next delivery opportunity. Unrelated messages
-wait while a native question is held.
+With Codex native capture enabled, Aiur holds the native question while its
+Command awaits an answer. Answering the Command returns every question's
+structured answer to that same request. The queue records provider delivery
+through the normal Command delivery path.
+
+An idle timeout, pause, explicit operator interrupt, or turn ending releases
+the hold. Aiur tells the agent the Command ID and that the answer will arrive
+as a readable queued message. Ordinary queue notifications wait while a
+native question is held.
+
+If the session has exited, Aiur records the release without writing to the
+closed session. Releasing a hold leaves the Command open and answerable.

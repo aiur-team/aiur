@@ -4,8 +4,9 @@ defmodule Aiur.AppServer.TurnLoop do
   """
 
   alias Aiur.AgentRunner.Handoff
-  alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, Transport, TurnState}
+  alias Aiur.AppServer.{Adapter, Interrupts, Messages, NativeReplies, OperatorDelivery, Rpc, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
+  alias Aiur.Commands.NativeCapture
 
   @spec receive_loop(map(), map()) :: term()
   def receive_loop(%{port: port} = session, %{relay_manual_ack_port: port} = state) do
@@ -79,9 +80,9 @@ defmodule Aiur.AppServer.TurnLoop do
       {:pause_agent, request_id} when is_integer(request_id) ->
         continue_or_return(session, Interrupts.handle_pause_request(session, state, request_id))
 
-      {:agent_queue_updated, issue_identifier, _item_id, _deliver_now}
+      {:agent_queue_updated, issue_identifier, _item_id, false}
       when issue_identifier == state.issue_identifier and map_size(state.held_native_questions) > 0 ->
-        continue_or_return(session, Interrupts.handle_operator_queue_update(session, state))
+        receive_loop(session, NativeReplies.deliver(session, state))
 
       {:agent_queue_updated, issue_identifier, _item_id, true}
       when issue_identifier == state.issue_identifier ->
@@ -102,7 +103,11 @@ defmodule Aiur.AppServer.TurnLoop do
         receive_loop(session, state)
     after
       state.timeout_ms ->
-        {:error, :turn_timeout}
+        if map_size(Map.get(state, :held_native_questions, %{})) > 0 do
+          receive_loop(session, NativeCapture.release_held(session, state, :idle_timeout))
+        else
+          {:error, :turn_timeout}
+        end
     end
   end
 
@@ -127,8 +132,9 @@ defmodule Aiur.AppServer.TurnLoop do
     end
   end
 
-  defp handle_decoded_incoming(_session, state, %{"id" => request_id, "result" => _} = payload, _payload_string, _port, _on_message)
+  defp handle_decoded_incoming(session, state, %{"id" => request_id, "result" => _} = payload, _payload_string, _port, _on_message)
        when request_id == state.pending_interrupt_request_id do
+    state = NativeCapture.release_held(session, state, :interrupt)
     TurnState.acknowledge_interrupt(state, payload)
   end
 
@@ -184,6 +190,8 @@ defmodule Aiur.AppServer.TurnLoop do
   defp resolve_pending_anonymous_completion(_state), do: :none
 
   defp handle_port_exit(session, state, 0) do
+    state = NativeCapture.release_held(session, state, :session_gone)
+
     case resolve_pending_anonymous_completion(state) do
       :none -> port_exit_failure(session, state, 0)
       {:continue, _next_state} -> port_exit_failure(session, state, 0)
@@ -199,6 +207,8 @@ defmodule Aiur.AppServer.TurnLoop do
   # exhaustion signature is a pause (which the rate-limit fallback acts on),
   # not a turn failure that burns the ticket's retries (#2607).
   defp port_exit_failure(session, state, status) do
+    _ = NativeCapture.release_held(session, state, :session_gone)
+
     case Adapter.classify_stream_failure(state.backend, StreamDiagnostics.recent_text(session.port)) do
       {:paused, payload} -> {:paused, payload}
       :unclassified -> {:error, {:port_exit, status}}

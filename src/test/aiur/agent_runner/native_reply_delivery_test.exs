@@ -4,7 +4,7 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
   use Aiur.DecisionStoreCase, async: false
 
   alias Aiur.AgentRunner.CheckpointDelivery
-  alias Aiur.AppServer.Interrupts
+  alias Aiur.AppServer.{Interrupts, NativeReplies}
   alias Aiur.Commands.{Answering, NativeAnswer, NativeCapture}
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionDispatch
@@ -100,7 +100,7 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
     answer!(c, d)
     assert {:queued, item} = receive_barrier({:queued, _item})
     held = state(c, d) |> Map.put(:held_native_questions, %{"other-ref" => %{request_id: 55}})
-    assert {:continue, ^held} = Interrupts.handle_operator_queue_update(session(c), held)
+    assert ^held = NativeReplies.deliver(session(c), held)
     assert GenServer.call(c.queue, {:item, item.id}).status == :pending
     refute_received {_, {:data, _}}
     assert {:ok, fallback} = OperatorMessages.claim_next_queue_item(c.queue, "979")
@@ -114,7 +114,7 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
     assert {:queued, item} = receive_barrier({:queued, _item})
     Port.close(c.port)
     held = state(c, d)
-    assert {:continue, ^held} = Interrupts.handle_operator_queue_update(session(c), held)
+    assert ^held = NativeReplies.deliver(session(c), held)
     restored = GenServer.call(c.queue, {:item, item.id})
     assert restored.status == :pending
     assert restored.delivery_attempts == 1
