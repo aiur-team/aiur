@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrder.Features.Operations do
   @moduledoc false
   alias Aiur.BuildOrder.Features.FeatureData
 
-  @spec events(atom(), term(), term(), keyword(), map(), map()) :: {:ok, list()} | {:error, term()}
+  @spec events(atom(), term(), term(), keyword(), map(), map()) :: {:ok, list()} | {:ok, list(), [pos_integer()]} | {:error, term()}
   def events(op, slug, input, metadata, projection, context) do
     with :ok <- check(FeatureData.slug?(slug), :invalid_slug),
          {:ok, meta} <- meta(metadata, context.now) do
@@ -64,10 +64,13 @@ defmodule Aiur.BuildOrder.Features.Operations do
   defp change(:add, feature, input, meta, projection, _context) do
     epic = Map.get(meta, :epic, hd(feature.epics).key)
 
-    with {:ok, numbers} <- numbers(input),
+    with :ok <- check(not (meta.source == "backfill-agent" and Map.get(meta, :move, false)), :backfill_cannot_move),
+         {:ok, numbers} <- numbers(input),
          :ok <- check(Enum.any?(feature.epics, &(&1.key == epic)), {:unknown_epic, epic}),
          :ok <- ownership(numbers, feature.slug, meta, projection.owners) do
-      {:ok, Enum.flat_map(numbers, &add_events(&1, feature.slug, epic, meta, projection))}
+      kept = if meta.source == "backfill-agent", do: Enum.filter(numbers, &owned_elsewhere?(&1, feature.slug, projection.owners)), else: []
+      events = Enum.flat_map(numbers -- kept, &add_events(&1, feature.slug, epic, meta, projection))
+      {:ok, events, kept}
     end
   end
 
@@ -159,6 +162,10 @@ defmodule Aiur.BuildOrder.Features.Operations do
     join = if same?, do: [], else: [member_event("member.added", slug, number, meta.at, %{epic: epic, confirmed: confirmed, at_basis: meta.at_basis})]
     leave ++ unlink ++ join
   end
+
+  defp owned_elsewhere?(number, slug, owners), do: match?(%{feature: other} when other != slug, owners[number])
+
+  defp ownership(_numbers, _slug, %{source: "backfill-agent"}, _owners), do: :ok
 
   defp ownership(numbers, slug, meta, owners) do
     conflicts =

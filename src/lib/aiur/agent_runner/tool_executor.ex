@@ -18,6 +18,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
   alias Aiur.AgentTools.Dispatch
+  alias Aiur.BuildOrder.HistoryBackfill
   alias Aiur.Events
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
@@ -148,6 +149,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         unblocker: fn blocker_number ->
           ToolCoordination.unblock_for_issue(issue, blocker_number, coordination)
         end,
+        history_exporter: fn args -> HistoryBackfill.tool_call(issue, args, Keyword.get(opts, :history_export_opts, [])) end,
         feature_writer: fn args ->
           FeatureWriter.write(issue, args, Keyword.get(opts, :feature_opts, []))
         end,
