@@ -7,6 +7,20 @@ defmodule Aiur.Listener do
   @type target :: String.t() | TrackerIdentity.t()
   @type result :: {:ok, Effective.view()} | {:error, term()}
 
+  @doc "Enqueue conversation text; reuse client_request_id on retry of the same user action."
+  @spec send(target(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
+  def send(target, text, opts \\ []) do
+    origin = Keyword.get(opts, :origin, :internal)
+    origin = if origin in [:agent_chat, :http, :tui, :voice_assistant, :internal], do: origin, else: :internal
+
+    if valid_target?(target) and is_binary(text) do
+      opts = opts |> Keyword.put(:origin, origin) |> Keyword.put_new(:delivery_policy, :listener)
+      delivery_target().enqueue(target, text, opts)
+    else
+      {:error, :invalid_message}
+    end
+  end
+
   @spec get_mode(target()) :: result()
   def get_mode(target) do
     if valid_target?(target), do: delivery_target().get_mode(target), else: {:error, :invalid_target}

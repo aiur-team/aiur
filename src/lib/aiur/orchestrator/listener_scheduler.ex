@@ -5,7 +5,7 @@ defmodule Aiur.Listener.Scheduler do
   alias Aiur.AgentQueue
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
-  @type origin :: :agent_chat | :http | :tui | :internal
+  @type origin :: :agent_chat | :voice_assistant | :http | :tui | :internal
 
   @spec routing() :: :legacy | :listener
   def routing, do: routing([])
@@ -54,7 +54,7 @@ defmodule Aiur.Listener.Scheduler do
 
   defp listener(_view), do: {:error, :listener_mode_unavailable}
 
-  defp legacy(:agent_chat, caps), do: DeliveryPolicy.normalize_delivery_request(:interrupt, :queue_next, caps)
+  defp legacy(origin, caps) when origin in [:agent_chat, :voice_assistant], do: DeliveryPolicy.normalize_delivery_request(:interrupt, :queue_next, caps)
   defp legacy(:http, caps), do: DeliveryPolicy.normalize_delivery_request(:checkpoint, nil, caps)
   defp legacy(:tui, caps), do: DeliveryPolicy.normalize_delivery_request(:auto, nil, caps)
   defp legacy(_origin, _caps), do: {:error, :invalid_message}

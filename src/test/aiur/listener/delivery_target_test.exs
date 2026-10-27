@@ -6,6 +6,8 @@ defmodule Aiur.Listener.DeliveryTargetTest do
   defmodule SnapshotTarget do
     @behaviour Aiur.Listener.DeliveryTarget
     @impl true
+    def enqueue(_target, _text, _opts), do: {:error, :unsupported}
+    @impl true
     def get_mode(_target), do: {:error, :unsupported}
     @impl true
     def set_mode(_target, _mode, _opts), do: {:error, :unsupported}
