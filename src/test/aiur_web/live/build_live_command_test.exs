@@ -56,7 +56,7 @@ defmodule AiurWeb.BuildLiveCommandTest do
     stored = stored_answer(store, decision)
     assert stored.selected_option_id == "persist"
     # The trusted dashboard identity (test_helper's AIUR_DASHBOARD_USERNAME), never a client value.
-    assert stored.actor == %{kind: :operator, id: "operator", source: :rpc}
+    assert stored.actor == %{kind: :operator, id: "dashboard", source: :dashboard_session}
     assert reply.action_id == stored.action_id
   end
 
@@ -83,7 +83,7 @@ defmodule AiurWeb.BuildLiveCommandTest do
              )
 
     assert %{status: "error", message: message, card: %{state: "open", version: version}} = answer(view, decision, "option:persist")
-    assert message =~ "changed to version #{enriched.version}"
+    assert message =~ "This Command changed. Refresh to see the latest."
     assert version == enriched.version
     assert %{status: "accepted"} = answer(view, decision, "option:persist")
     assert stored_answer(store, decision).selected_option_id == "persist"

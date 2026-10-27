@@ -160,7 +160,7 @@ A branch push alone never resumes a dependent ticket. Before the blocker merges,
 | Delivery | Aiur sends that action to the target. |
 | Acknowledge | The target repeats the decision ID, action ID, and expected version. |
 | Resolve | The target repeats the same fields after finishing. |
-| Revise | A new action is appended instead of rewriting history. |
+| Send correction | A new action is appended instead of rewriting history. |
 
 See [Commands](/concepts/commands) for the Executor view.
 

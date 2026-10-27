@@ -8,28 +8,22 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   alias Aiur.{Commands, ExecutorEvents, Issue}
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.OperatorControlCenter.DecisionProvider
+  alias AiurWeb.OperatorControlCenter.{DecisionAnswerCommands, DecisionProvider}
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
 
   @spec change(Socket.t(), String.t(), map()) :: Socket.t()
-  def change(socket, decision_id, form) do
-    case selected_open_decision(socket, decision_id) do
-      {:ok, decision} -> put_form(socket, decision_id, form, decision)
-      :error -> socket
-    end
-  end
+  defdelegate change(socket, decision_id, form), to: DecisionAnswerCommands
 
   @spec record_answer(Socket.t(), String.t(), map(), reload_fun()) :: Socket.t()
-  def record_answer(socket, decision_id, form, reload_fun) when is_function(reload_fun, 1) do
-    form = normalize_form(form)
+  defdelegate record_answer(socket, decision_id, form, reload_fun), to: DecisionAnswerCommands
 
-    case selected_open_decision(socket, decision_id) do
-      {:ok, decision} -> socket |> put_form(decision_id, form, decision) |> submit_answer(decision, form, reload_fun)
-      :error -> put_error(reload_fun.(socket), decision_id, "This Command is not loaded on this page; return to the Commands list.")
-    end
-  end
+  @spec replace(Socket.t(), String.t(), map(), reload_fun()) :: Socket.t()
+  defdelegate replace(socket, decision_id, form, reload_fun), to: DecisionAnswerCommands
+
+  @spec begin_replace(Socket.t(), String.t()) :: Socket.t()
+  defdelegate begin_replace(socket, decision_id), to: DecisionAnswerCommands
 
   @spec defer(Socket.t(), String.t(), reload_fun()) :: Socket.t()
   def defer(socket, decision_id, reload_fun) when is_function(reload_fun, 1) do
@@ -122,30 +116,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   @spec actor() :: %{kind: :operator, id: String.t()}
   def actor, do: %{kind: :operator, id: dashboard_operator_id()}
 
-  defp submit_answer(socket, decision, form, reload_fun) do
-    case answer_content(form) do
-      {:ok, answer} ->
-        {idempotency_key, socket} = ensure_action_key(socket, decision.decision_id)
-
-        payload =
-          answer
-          |> Map.put("idempotency_key", idempotency_key)
-          |> Map.put("expected_version", decision.version)
-          |> maybe_put_rationale(Map.get(form, "rationale"))
-
-        result = safe_answer(decision.decision_id, payload)
-        socket = reload_fun.(socket)
-
-        case result do
-          {:ok, accepted} -> put_notice(socket, decision.decision_id, answer_notice(accepted))
-          {:error, reason} -> put_error(socket, decision.decision_id, command_error(reason))
-        end
-
-      {:error, message} ->
-        put_error(socket, decision.decision_id, message)
-    end
-  end
-
   defp selected_open_decision(
          %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
          decision_id
@@ -182,43 +152,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
        do: {:ok, decision}
 
   defp selected_decision(_socket, _decision_id), do: :error
-
-  defp normalize_form(form) when is_map(form) do
-    Map.take(form, ["choice", "custom_response", "rationale", "confirmed"])
-  end
-
-  defp normalize_form(_form), do: %{}
-
-  defp answer_content(%{"choice" => "option:" <> option_id}) when option_id != "" do
-    {:ok, %{"option_id" => option_id}}
-  end
-
-  defp answer_content(%{"choice" => "custom", "custom_response" => response}) when is_binary(response) do
-    case String.trim(response) do
-      "" -> {:error, "Enter a custom response before recording this answer."}
-      response -> {:ok, %{"custom_response" => response}}
-    end
-  end
-
-  defp answer_content(%{"choice" => "custom"}),
-    do: {:error, "Enter a custom response before recording this answer."}
-
-  defp answer_content(_form), do: {:error, "Choose an option or a custom response."}
-
-  defp maybe_put_rationale(payload, rationale) when is_binary(rationale) do
-    case String.trim(rationale) do
-      "" -> payload
-      rationale -> Map.put(payload, "rationale", rationale)
-    end
-  end
-
-  defp maybe_put_rationale(payload, _rationale), do: payload
-
-  defp safe_answer(decision_id, payload) do
-    Commands.answer(decision_id, payload, [actor: actor()], decision_store())
-  catch
-    :exit, _reason -> {:error, :store_unavailable}
-  end
 
   defp safe_dismiss(decision_id) do
     Commands.dismiss(decision_id, [actor: actor()], decision_store())
@@ -314,29 +247,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp present_or("", fallback), do: fallback
   defp present_or(value, _fallback), do: value
 
-  defp ensure_action_key(socket, decision_id) do
-    state = Map.get(socket.assigns.decision_actions, decision_id, %{})
-
-    case Map.get(state, :idempotency_key) do
-      key when is_binary(key) ->
-        {key, socket}
-
-      _key ->
-        key = "ui_" <> Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
-        {key, put_state(socket, decision_id, Map.put(state, :idempotency_key, key))}
-    end
-  end
-
-  defp put_form(socket, decision_id, form, decision) do
-    update_state(socket, decision_id, fn state ->
-      state
-      |> Map.put(:decision_identity, decision_identity(decision))
-      |> Map.put(:form, normalize_form(form))
-      |> Map.delete(:error)
-      |> Map.delete(:notice)
-    end)
-  end
-
   defp put_error(socket, decision_id, message) do
     update_state(
       socket,
@@ -359,23 +269,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
   defp put_state(socket, decision_id, state) do
     assign(socket, :decision_actions, Map.put(socket.assigns.decision_actions, decision_id, state))
   end
-
-  defp decision_identity(decision) do
-    {Map.get(decision, :version), Map.get(decision, :active_action_id)}
-  end
-
-  defp answer_notice(%{status: :duplicate}),
-    do: "This durable answer was already recorded. Canonical state was refreshed."
-
-  defp answer_notice(%{dispatch_status: :queued}), do: "Answer recorded and queued for delivery."
-
-  defp answer_notice(%{dispatch_status: :delivered}),
-    do: "Answer recorded and delivered; acknowledgement is pending."
-
-  defp answer_notice(%{dispatch_status: :consumed}),
-    do: "Answer recorded and consumed by the target queue."
-
-  defp answer_notice(_accepted), do: "Answer recorded. Durable dispatch is pending."
 
   defp dismiss_notice(%{status: :duplicate}), do: "This Command was already closed."
 

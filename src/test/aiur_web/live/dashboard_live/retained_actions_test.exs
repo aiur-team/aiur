@@ -9,6 +9,25 @@ defmodule AiurWeb.DashboardLive.RetainedActionsTest do
 
   alias Aiur.DecisionStore
 
+  # This boundary double implements the complete Answering read/write contract;
+  # retained reads intentionally differ from the priority overview.
+  defmodule AnsweringDetailStore do
+    use GenServer
+    alias AiurWeb.DashboardLiveSupport.StoreStubs.VersionedDetailStore
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    @impl true
+    def init(opts), do: VersionedDetailStore.init(opts)
+    @impl true
+    def handle_call({:get, id}, _from, %{detail: %{decision_id: id}} = state), do: {:reply, {:ok, state.detail}, state}
+
+    def handle_call({:answer, id, payload, opts}, _from, state) do
+      send(state.report, {:versioned_detail_answer, id, payload, opts})
+      {:reply, {:ok, %{status: :accepted, decision: state.detail}}, state}
+    end
+
+    def handle_call(request, from, state), do: VersionedDetailStore.handle_call(request, from, state)
+  end
+
   @endpoint AiurWeb.Endpoint
 
   test "a writable answer uses selected retained detail outside the overview window" do
@@ -134,7 +153,7 @@ defmodule AiurWeb.DashboardLive.RetainedActionsTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
-    assert html =~ "Revise Command"
+    assert html =~ "Send correction"
 
     html =
       render_submit(view, "revise-decision", %{
@@ -220,7 +239,7 @@ defmodule AiurWeb.DashboardLive.RetainedActionsTest do
     {:ok, view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
     add_newer_dashboard_decisions(store, decision, "stale-payload-revision-newer")
     refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
-    assert reload_view(view) =~ "Revise Command"
+    assert reload_view(view) =~ "Send correction"
 
     html =
       render_submit(view, "revise-decision", %{
@@ -254,7 +273,7 @@ defmodule AiurWeb.DashboardLive.RetainedActionsTest do
         option_label: "Destroy the active release"
       )
 
-    start_versioned_detail_store(detail_store_name, overview, detail)
+    start_supervised!({__MODULE__.AnsweringDetailStore, name: detail_store_name, overview: overview, detail: detail, report: self()})
 
     start_counting_orchestrator(orchestrator_name)
 

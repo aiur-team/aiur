@@ -2,6 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
   @moduledoc false
 
   use Phoenix.Component
+  alias AiurWeb.OperatorControlCenter.{DecisionOutcomes, DecisionReplacement}
 
   attr(:decision, :map, required: true)
   attr(:state, :map, default: %{})
@@ -18,7 +19,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     status = decision.decision_status
     blocking? = Map.get(decision, :blocking, false)
 
-    answerable? = answerable?(decision)
+    replacing? = Map.get(assigns.state, :replacing?, false)
+    disabled? = DecisionOutcomes.disabled?(decision, assigns.state)
+    answerable? = answerable?(decision) or replacing? or disabled?
 
     # Dismiss closes a Command outright: the operator waves it off and, when the
     # agent is live, the agent is told to proceed under its own judgement. Any
@@ -37,34 +40,34 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     assigns =
       assign(assigns,
         form: form,
+        replacing?: replacing?,
+        disabled?: disabled?,
         choice: choice,
         answerable?: answerable?,
         deferrable?: deferrable?,
         dismissible?: dismissible?,
-        acknowledgeable?: acknowledgeable?,
-        error: Map.get(assigns.state, :error),
-        notice: Map.get(assigns.state, :notice)
+        acknowledgeable?: acknowledgeable?
       )
 
     ~H"""
     <section class={["decision-action", @compact && "compact"]} aria-label="Command actions">
 
-      <p :if={@error} class="decision-action-message error" role="alert">{@error}</p>
-      <p :if={@notice} class="decision-action-message success" role="status">{@notice}</p>
       <p :if={@writable and not @live_connected} class="decision-action-message" role="status">
         Connecting to the live dashboard. Decision controls will be ready when connected.
       </p>
+
+      <DecisionReplacement.decision_replacement decision={@decision} state={@state} writable={@writable} live_connected={@live_connected} />
 
       <form
         :if={@writable and @answerable?}
         id={"decision-answer-form-#{@decision.decision_id}"}
         class="decision-answer-form"
         phx-change="decision-action-change"
-        phx-submit="answer-decision"
+        phx-submit={if @replacing?, do: "replace-decision", else: "answer-decision"}
       >
         <input type="hidden" name="decision_id" value={@decision.decision_id} />
 
-        <fieldset :if={@decision.options != []} class="decision-choice-list">
+        <fieldset :if={@decision.options != []} class="decision-choice-list" disabled={@disabled? or not @live_connected}>
           <legend class="sr-only">Choose an answer</legend>
           <label
             :for={option <- @decision.options}
@@ -101,6 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         <label :if={@choice == "custom"} class="decision-action-field">
           <span>Response</span>
           <textarea
+            disabled={@disabled? or not @live_connected}
             name="answer[custom_response]"
             rows="4"
             maxlength="4000"
@@ -118,7 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-click="defer-decision"
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Deferring…"
-              disabled={!@live_connected}
+              disabled={!@live_connected or @disabled?}
             >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
             <button
               :if={@dismissible?}
@@ -129,7 +133,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-disable-with="×"
               aria-label="Dismiss blocker"
               title="Dismiss blocker"
-              disabled={!@live_connected}
+              disabled={!@live_connected or @disabled?}
             >×</button>
             <button
               :if={@acknowledgeable?}
@@ -138,14 +142,18 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-click="dismiss-decision"
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Acknowledging…"
-              disabled={!@live_connected}
+              disabled={!@live_connected or @disabled?}
             >Acknowledge</button>
-            <button class="aiur-button aiur-button--dashboard btn" type="submit" disabled={!@live_connected} phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
+            <button class="aiur-button aiur-button--dashboard btn" type="submit" disabled={!@live_connected or @disabled?} phx-disable-with="Recording…">{cond do
+              @replacing? -> "Replace answer"
+              @decision.decision_status in [:dismissed, :deferred] -> "Change choice"
+              true -> "Decision"
+            end}</button>
           </div>
         </footer>
       </form>
 
-      <div :if={!@answerable? and @decision.answer} class="decision-answer-summary">
+      <div :if={not @replacing? and @decision.answer} class="decision-answer-summary">
         <div>
           <span class="decision-answer-label">{if Map.get(@decision, :revision_sequence, 0) > 0, do: "Current revised answer", else: "Recorded answer"}</span>
           <strong>{answer_label(@decision)}</strong>
