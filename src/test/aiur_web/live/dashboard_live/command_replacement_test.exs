@@ -6,6 +6,7 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
   import AiurWeb.DashboardLiveSupport.DecisionFixtures
   import AiurWeb.DashboardLiveSupport.Processes
   alias Aiur.{Decision, DecisionStore}
+  alias AiurWeb.OperatorControlCenter.{DecisionCommands, DecisionEvents, DecisionPresenter}
   @endpoint AiurWeb.Endpoint
 
   setup do
@@ -130,9 +131,9 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
 
   test "a stale replacement socket receives too_late from the store", ctx do
     answered = answer(ctx, :executor)
-    [row] = AiurWeb.OperatorControlCenter.DecisionPresenter.present(answered)
+    [row] = DecisionPresenter.present(answered)
     socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, selected_decision: row, selected_decision_id: row.decision_id, decision_actions: %{}}}
-    socket = AiurWeb.OperatorControlCenter.DecisionCommands.begin_replace(socket, row.decision_id)
+    socket = DecisionCommands.begin_replace(socket, row.decision_id)
 
     item = %{
       id: 1,
@@ -147,11 +148,11 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
 
     reload = fn socket ->
       {:ok, delivered} = DecisionStore.get(answered.decision_id, ctx.store)
-      [current] = AiurWeb.OperatorControlCenter.DecisionPresenter.present(delivered)
+      [current] = DecisionPresenter.present(delivered)
       Phoenix.Component.assign(socket, :selected_decision, current)
     end
 
-    result = AiurWeb.OperatorControlCenter.DecisionEvents.handle("replace-decision", params(answered.decision_id), socket, reload)
+    result = DecisionEvents.handle("replace-decision", params(answered.decision_id), socket, reload)
     assert %{status: :too_late, reason: :answer_delivered, delivered_at: %DateTime{}} = result.assigns.decision_actions[row.decision_id].outcome
     assert {:ok, %{revision_sequence: 0}} = DecisionStore.get(answered.decision_id, ctx.store)
   end
