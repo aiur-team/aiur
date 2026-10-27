@@ -3,39 +3,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   A1, asserted by call count and run on every CI build: opening a dashboard page
   against a cold store reaches GitHub **zero** times.
 
-  There are no exceptions: every dashboard route, including `/`, reaches
-  GitHub zero times on open. The ticket backlog, Ad
-  Hoc overlay and Build Order catalog are event-sourced (#2325) — they
-  subscribe to `ResourceStore` changes and keep one listing per daemon boot, so
-  a page opens onto the held snapshot and costs nothing. The two routes that
-  used to be the deliberate one-request exceptions (a first demander buying a
-  view-originated refresh) are now asserted as zeros below, with the
-  github-tracker path proven explicitly so that zero means something.
+  Every dashboard route, including `/`, is asserted below. The test intercepts
+  Aiur's GitHub transport at the shared REST and GraphQL request boundary, so it
+  counts every attempted request without a token or network access.
 
-  ## Why this file is hermetic and the `:external` one is not
-
-  There is a companion measurement that reads real `x-ratelimit-used` deltas from
-  GitHub. It is the operator-facing corroboration, but it is tagged `:external`,
-  so it does **not run in CI** — which makes it useless as a regression guard. A
-  guard that never executes protects nothing.
-
-  This file therefore installs a counting plug at Aiur's own transport boundary
-  and needs no token, no network, and no tags. Every HTTP request Aiur would send
-  to GitHub — REST or GraphQL, from any module, on any code path — is counted
-  instead of sent, because `Aiur.GitHub.Transport` funnels both through
-  `request_options/2` (`transport.ex:453`) and `Transport.github_graphql/*` shares
-  that path.
-
-  Zero requests is zero rate limit by construction: no window, no shard, no
-  propagation delay to argue about.
-
-  ## The positive control is not optional
-
-  A zero from an instrument that was never wired up looks exactly like a zero
-  from a page that does not fetch. `the counter observes a real fetch` drives a
-  genuine application call through the same seam and asserts the counter fires,
-  so the zeros above it mean something. If that control ever fails, treat every
-  other assertion in this file as unproven rather than passing.
+  The positive-control test drives a real fetch through the same seam and asserts
+  that the counter fires. If that control fails, the zero assertions are unproven.
 
   To exclude unrelated egress, the test suspends MainWatch, LandingWatch,
   HealthScanner, HeadVerdictRouter, and ReworkRequeue after draining in-flight
