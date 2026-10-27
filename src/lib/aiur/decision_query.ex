@@ -83,6 +83,11 @@ defmodule Aiur.DecisionQuery do
       {:error, :store_unavailable} ->
         {:ok,
          %{
+           needs_you: nil,
+           needs_you_blocking: nil,
+           with_executor: nil,
+           from_executor: nil,
+           needs_you_by_ticket: nil,
            open: nil,
            blocking: nil,
            total: nil,
@@ -124,7 +129,7 @@ defmodule Aiur.DecisionQuery do
         partial_reason: partial_reason,
         label: pagination_label(query.limit, snapshot.has_next?, partial_reason)
       },
-      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :search, :ticket]),
+      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :route, :search, :ticket]),
       counts: snapshot.counts
     }
   end
@@ -144,7 +149,7 @@ defmodule Aiur.DecisionQuery do
         partial_reason: :retained_store_unavailable,
         label: "Retained Decision page unavailable"
       },
-      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :search, :ticket])
+      filters: Map.take(query, [:authority, :blocking, :kind, :lifecycle, :route, :search, :ticket])
     }
   end
 
