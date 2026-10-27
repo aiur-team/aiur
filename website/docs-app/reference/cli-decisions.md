@@ -109,6 +109,7 @@ A stopped daemon is reported separately with the command needed to start it; a l
 Executor-originated Command answers produce `executor.decision.answered` wakes
 with `topic_class: "executor.decision"`, `action: "answered"`, `decision_id`,
 and `ticket: null`. These records contain identifiers rather than answer text.
+
 Read the answer with `aiur commands <decision_id> --json`. Journal replay delivers
 answers published while the listener was stopped.
 
