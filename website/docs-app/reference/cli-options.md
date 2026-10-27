@@ -54,7 +54,7 @@ instances:
     token_env: AIUR_TOKEN_NUC
 ```
 
-Use an `AIUR_TOKEN_*` environment variable for write tokens. A `token_file` is intended for read tokens, must be absolute or start with `~/`, and must have mode `0600`. Remote URLs require HTTPS; plain HTTP is accepted only for `127.0.0.0/8`, `::1`, and `localhost`.
+Use an `AIUR_TOKEN_*` environment variable for write tokens. A `token_file` is intended for read tokens, must be absolute or start with `~/` (resolved beneath the current user's home directory), and must have mode `0600`. Remote URLs require HTTPS; plain HTTP is accepted only for `127.0.0.0/8`, `::1`, and `localhost`.
 
 The client refuses commands that need local files, processes, or terminal streaming before it makes an HTTP request:
 
