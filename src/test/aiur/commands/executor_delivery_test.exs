@@ -4,9 +4,12 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
   use Aiur.DecisionStoreCase, async: false
 
   alias Aiur.Commands.ExecutorDelivery
+  alias Aiur.DecisionStore.Retry
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorEvents
   alias Aiur.ExecutorListener
   alias Aiur.ExecutorWakeInbox
+  alias Aiur.ExecutorWakeInbox.Storage
   alias Aiur.ExecutorWakeProjection
 
   setup %{dir: dir} do
@@ -48,7 +51,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
 
   test "Executor answers with ticket context never schedule worker dispatch; worker answers still do", ctx do
     d = answered(ctx.store, "executor")
-    refute Aiur.DecisionStore.Retry.dispatchable?(d, true)
+    refute Retry.dispatchable?(d, true)
     refute_received {:scheduled, {:dispatch_action, _, _}}
     answered(ctx.store, "worker", :worker)
     assert_received {:scheduled, {:dispatch_action, _, false}}
@@ -118,7 +121,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
     second = answered(ctx.store, "second")
     # Publications originate from the store; its completed calls precede this listener barrier.
     :sys.get_state(pid)
-    assert {:ok, pending} = Aiur.ExecutorWakeInbox.Storage.read_pending(Aiur.Executor.StatePaths.pending_path())
+    assert {:ok, pending} = Storage.read_pending(StatePaths.pending_path())
     assert map_size(pending) == 2
     assert :ok = stop_supervised(ExecutorWakeInbox)
     restarted = start_supervised!({ExecutorWakeInbox, name: nil, debounce_ms: 60_000})
@@ -162,7 +165,7 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
       assert :sys.get_state(pid).delivery_failed?
       assert {:ok, current} = DecisionStore.get(d.decision_id, ctx.store)
       assert current.requester_notified_at == nil
-      assert Enum.count(history(ctx.store, d.decision_id), &(&1.type == :requester_notified)) == 0
+      refute Enum.any?(history(ctx.store, d.decision_id), &(&1.type == :requester_notified))
       {:ok, later, _} = ExecutorEvents.publish("executor.decision.deferred", %{decision_id: d.decision_id}, source: :internal)
       :sys.get_state(pid)
       assert (:sys.get_state(pid).watermark || 0) < later

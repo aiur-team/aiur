@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.EventData do
   @moduledoc "Closed, bounded data for additive Command facts outside the v1 request snapshot."
 
+  alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.RequestContent
   alias Aiur.Commands.Routing.FactData
   alias Aiur.DecisionEvent.Validation
@@ -21,7 +22,7 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
-  def normalize(:requester_notified, raw) when is_map(raw), do: Aiur.Commands.ExecutorDelivery.normalize(raw)
+  def normalize(:requester_notified, raw) when is_map(raw), do: ExecutorDelivery.normalize(raw)
 
   def normalize(type, raw) when type in @routing_types and is_map(raw), do: FactData.normalize(type, raw)
 

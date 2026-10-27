@@ -36,7 +36,9 @@ Even when a human drives, a second agent is recommended for log analysis, snag d
 A designated Executor can ask the human with `aiur command request 'Ship today?'
 --option yes=Ship --option no=Wait`. When the human answers, the durable Executor
 journal delivers an `executor.decision.answered` wake on the next
-`aiur executor-wait --json`, including after a listener restart. The wake carries
+`aiur executor-wait --json`, including after a listener restart.
+
+The wake carries
 the `decision_id`; read the answer with `aiur commands <decision_id> --json`.
 An Executor request's optional ticket context never routes its answer to a worker.
 Once the wake is enqueued, the answer counts as delivered and cannot be superseded.

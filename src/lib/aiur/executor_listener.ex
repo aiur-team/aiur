@@ -172,15 +172,17 @@ defmodule Aiur.ExecutorListener do
   defp replay_and_deliver(pattern, state) do
     case ExecutorEvents.replay([pattern], state.watermark) do
       {:ok, events} ->
-        Enum.reduce_while(events, %{state | delivery_failed?: false}, fn event, acc ->
-          next = process_event(event, acc)
-          if next.delivery_failed?, do: {:halt, next}, else: {:cont, next}
-        end)
+        Enum.reduce_while(events, %{state | delivery_failed?: false}, &replay_event/2)
 
       {:error, reason} ->
         Logger.error("aiur_executor_listener phase=replay_failed reason=#{inspect(reason)}")
         state
     end
+  end
+
+  defp replay_event(event, state) do
+    next = process_event(event, state)
+    if next.delivery_failed?, do: {:halt, next}, else: {:cont, next}
   end
 
   defp process_event(event, state) do
@@ -251,13 +253,17 @@ defmodule Aiur.ExecutorListener do
     with {:ok, record} <- ExecutorWakeProjection.project(event),
          {:ok, %{decision: decision}} <- Aiur.Commands.get(record["decision_id"], store: store) do
       if is_nil(decision.requester_notified_at) and decision.decision_status == :decided do
-        with :ok <- enqueue_wake(record, inbox),
-             {:ok, _result} <- Aiur.Commands.requester_notified(record["decision_id"], decision.active_action_id, server: store) do
-          :ok
-        end
+        enqueue_answer(record, decision.active_action_id, inbox, store)
       else
         :ok
       end
+    end
+  end
+
+  defp enqueue_answer(record, action_id, inbox, store) do
+    with :ok <- enqueue_wake(record, inbox),
+         {:ok, _result} <- Aiur.Commands.requester_notified(record["decision_id"], action_id, server: store) do
+      :ok
     end
   end
 

@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
+  alias Aiur.Commands.ExecutorDelivery
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Facts
 
@@ -75,7 +76,7 @@ defmodule Aiur.Commands.Projection do
     end
   end
 
-  def apply(decision, %{type: :requester_notified} = event), do: Aiur.Commands.ExecutorDelivery.apply_fact(decision, event)
+  def apply(decision, %{type: :requester_notified} = event), do: ExecutorDelivery.apply_fact(decision, event)
 
   def apply(decision, %{type: type} = event) when type in @routing_types, do: Facts.apply(decision, event)
 end
