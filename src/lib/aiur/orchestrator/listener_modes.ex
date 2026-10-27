@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @moduledoc "Serialized mode reads and compare-and-set writes; queue state is unchanged."
 
   require Logger
+  alias Aiur.AgentPubSub
   alias Aiur.Listener.{Effective, ModeStore}
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.State
@@ -24,7 +25,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
           {:ok, record} ->
             result = view(state, id, entry, record)
             Logger.info("listener_mode_set issue=#{id} requested=#{result.requested} effective=#{inspect(result.effective)} version=#{result.version} actor=#{result.actor}")
-            {:ok, result}
+            {:ok, id, result}
 
           {:error, {:mode_conflict, record}} ->
             {:error, {:mode_conflict, view(state, id, entry, record)}}
@@ -37,8 +38,48 @@ defmodule Aiur.Orchestrator.ListenerModes do
         _invalid_version -> {:error, :invalid_expected_version}
       end
 
-    {:reply, reply, state}
+    case reply do
+      {:ok, id, result} ->
+        AgentPubSub.broadcast_listen_mode(id, event_payload(result))
+        key = State.find_running_key_by_identifier(state.running, id)
+        next = if key, do: put_in(state.running[key][:listener_effective], result), else: state
+        {:reply, {:ok, result}, next}
+
+      _error ->
+        {:reply, reply, state}
+    end
   end
+
+  @doc "Refresh derived listener mode and control flags after a session or dispatch update."
+  @spec on_session_execution(State.t(), String.t(), map() | nil) :: State.t()
+  def on_session_execution(state, issue_id, previous_entry) do
+    entry = Map.fetch!(state.running, issue_id)
+    harness = Capabilities.harness_delivery(state, to_string(issue_id), entry)
+    updated = entry |> refresh_view(state, previous_entry, harness) |> refresh_control(harness)
+    put_in(state.running[issue_id], updated)
+  end
+
+  defp refresh_view(%{identifier: id} = entry, state, previous_entry, harness) when is_binary(id) and id != "" do
+    record = ModeStore.get(id)
+    result = %{Effective.compute(record, harness) | actor: :system}
+    previous = if previous_entry, do: previous_entry[:listener_effective] || view(state, id, previous_entry, record)
+
+    if is_nil(previous) or {previous.effective, previous.effective_reason} != {result.effective, result.effective_reason} do
+      AgentPubSub.broadcast_listen_mode(id, event_payload(result))
+    end
+
+    Map.put(entry, :listener_effective, result)
+  end
+
+  # Identifier-less tracker entries can still dispatch and report their running backend.
+  defp refresh_view(entry, _state, _previous_entry, _harness), do: entry
+
+  defp refresh_control(entry, %{harness_id: backend}) do
+    flags = Capabilities.backend_control_flags(backend)
+    Map.update(entry, :control, flags, &Map.merge(&1, flags))
+  end
+
+  defp event_payload(result), do: Map.take(result, [:requested, :effective, :effective_reason, :version, :actor])
 
   defp view(state, id, entry, record), do: Effective.compute(record, Capabilities.harness_delivery(state, id, entry))
 

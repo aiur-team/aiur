@@ -43,7 +43,9 @@ defmodule Aiur.ListenerTest do
 
     assert log =~ "listener_mode_set issue=42 requested=async effective=:sync version=1 actor=executor"
     assert %{requested: :async, version: 1, actor: :executor} = ModeStore.get("42")
-    assert :sys.get_state(pid) == state
+    updated = :sys.get_state(pid)
+    assert updated.queue_store == state.queue_store
+    assert updated.running["id"].listener_effective.requested == :async
     assert {:ok, %{requested: :async, version: 1}} = Listener.get_mode("42")
   end
 

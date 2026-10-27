@@ -106,12 +106,13 @@ defmodule Aiur.DecisionValidation do
              :reversibility
            ),
          {:ok, context} <- Context.normalize(payload),
+         # Trusted Executor requests need the human by origin, without implying a product/spend/security cause.
          :ok <-
            validate_authority_basis(
              authority,
              kind,
              context,
-             Keyword.get(opts, :legacy_replay, false)
+             Keyword.get(opts, :legacy_replay, false) or Requester.executor?(%{requester: Keyword.get(opts, :requester)})
            ),
          {:ok, options} <- fetch_options(payload),
          {:ok, recommendation} <- fetch_recommendation(payload, options),

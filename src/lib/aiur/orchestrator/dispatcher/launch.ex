@@ -16,6 +16,8 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.ListenerModes
+  alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.RetryEngine
@@ -306,6 +308,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             retry_attempts: Map.delete(state.retry_attempts, issue.id),
             released_claims: Map.delete(state.released_claims, issue.id)
         }
+        |> ListenerModes.on_session_execution(issue.id, nil)
 
       {:error, reason} ->
         Logger.error("Unable to spawn agent for #{State.issue_context(issue)}: #{inspect(reason)}")
@@ -466,16 +469,9 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
 
   defp default_running_control(%Issue{} = issue, worker_generation)
        when is_integer(worker_generation) do
-    backend = CodingAgent.backend_for(issue)
-
-    %{
-      can_interrupt: CodingAgent.can_interrupt?(backend),
-      safe_checkpoints: CodingAgent.safe_checkpoints(backend),
-      immediate_delivery: CodingAgent.immediate_delivery?(backend),
-      application_confirmation: CodingAgent.control_application_confirmation(backend),
-      generation: worker_generation,
-      version: 0,
-      status: :working
-    }
+    issue
+    |> CodingAgent.backend_for()
+    |> Capabilities.backend_control_flags()
+    |> Map.merge(%{generation: worker_generation, version: 0, status: :working})
   end
 end

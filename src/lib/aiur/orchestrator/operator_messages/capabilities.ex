@@ -8,6 +8,21 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   alias Aiur.Harness.Capabilities, as: HarnessCapabilities
   alias Aiur.Orchestrator.{ControlLifecycle, State}
 
+  @doc "Delivery flags shared by dispatch and running transport updates; unknown backends fail closed."
+  @spec backend_control_flags(String.t()) :: map()
+  def backend_control_flags(backend) do
+    if Map.has_key?(CodingAgent.backends(), backend) do
+      %{
+        can_interrupt: CodingAgent.can_interrupt?(backend),
+        safe_checkpoints: CodingAgent.safe_checkpoints(backend),
+        immediate_delivery: CodingAgent.immediate_delivery?(backend),
+        application_confirmation: CodingAgent.control_application_confirmation(backend)
+      }
+    else
+      %{can_interrupt: false, safe_checkpoints: [], immediate_delivery: false, application_confirmation: :unsupported}
+    end
+  end
+
   @type harness_delivery :: %{
           harness_id: String.t(),
           source: :session | :dispatch,
