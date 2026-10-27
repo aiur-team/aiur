@@ -94,12 +94,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
               </td>
 
-              <td data-label="Ticket" data-sort-value={row.title} class="ut-ticket-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
+              <td data-label="Ticket" data-sort-value={row.title} class="ut-ticket-cell ut-open" phx-click={not UnitsPolicy.condition?(:waiting_on_you, row) && "inspect-unit"} phx-value-unit={token}>
                 <div class="ut-title">{known(row.title, "Title unknown")}</div>
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
-                <span :if={state_label = UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
+                <a :if={UnitsPolicy.condition?(:waiting_on_you, row)} class="u-lane is-state" href={"/commands/#{URI.encode_www_form(row.reasons.native_hold.decision_id)}"}>
+                  Waiting for your answer <span>{UnitsPresentation.native_hold_age(row.reasons.native_hold, @now)}</span>
+                </a>
+                <span :if={state_label = not UnitsPolicy.condition?(:waiting_on_you, row) && UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{state_label}
                 </span>
                 <span :if={reason_label = UnitsPresentation.reason_label(row)} class="u-lane is-state" title={reason_label}>
@@ -340,6 +343,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     end
   end
 
+  defp attention_tone(%{reasons: %{native_hold: %{}}}), do: "is-blocked"
   defp attention_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp attention_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
   defp attention_tone(_row), do: nil

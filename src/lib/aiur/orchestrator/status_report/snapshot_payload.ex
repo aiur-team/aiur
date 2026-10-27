@@ -213,6 +213,7 @@ defmodule Aiur.Orchestrator.StatusReport.SnapshotPayload do
       last_codex_timestamp: Map.get(metadata, :last_codex_timestamp),
       last_codex_message: Map.get(metadata, :last_codex_message),
       last_codex_event: Map.get(metadata, :last_codex_event),
+      native_hold: Map.get(metadata, :native_hold),
       work_state: work_state,
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
