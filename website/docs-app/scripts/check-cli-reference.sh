@@ -56,6 +56,11 @@ source_flags="$(
       | sed -n 's/^[[:space:]]*\([a-z_][a-z_]*\):.*/\1/p' \
       | sed '/^\(spec_json\|contract_json\)$/d; s/^/--/; s/_/-/g'
 
+    # Listener mode control validates its transported argv in Elixir.
+    sed -n '/^  @switches \[/,/^  \]/p' "$repo_root/src/lib/aiur/listen_mode_cli.ex" \
+      | sed -n 's/^[[:space:]]*\([a-z_][a-z_]*\):.*/\1/p' \
+      | sed 's/^/--/; s/_/-/g'
+
     # The offline statistics CLI owns its arguments in argparse declarations.
     sed -n 's/.*add_argument("\(--[a-z][a-z-]*\)".*/\1/p' \
       "$repo_root/analytics/lib/analytics/experiment_stats_cmd.py"

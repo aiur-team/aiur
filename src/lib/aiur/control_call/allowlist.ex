@@ -214,6 +214,7 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @rows Enum.map(@agent_rows, fn {function, arity, class, positional, options} -> {{@agent, function, arity}, %{class: class, positional: positional, options: options}} end) ++
           [
+            {{[:Aiur, :ListenModeCli], :run, 2}, %{class: &__MODULE__.listen_mode_scope/1, positional: [:non_empty_string, :string_list], options: %{}}},
             {{@handoff, :report, 0}, %{class: :read, positional: [], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :report, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
@@ -235,6 +236,9 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @spec facade_functions() :: [{atom(), non_neg_integer()}]
   def facade_functions, do: Facade.functions()
+
+  @spec listen_mode_scope(list()) :: :read | :write
+  def listen_mode_scope([_ticket, argv]), do: if(argv in [[], ["--json"]], do: :read, else: :write)
 
   @spec watch_scope(list()) :: :read | :write
   def watch_scope(args), do: if(option(args, :mode) == :full, do: :read, else: :write)

@@ -111,9 +111,16 @@ defmodule Aiur.Orchestrator.ListenerModes do
     end
   end
 
-  defp resolve(state, id) when is_binary(id), do: {:ok, id, State.find_running_by_identifier(state.running, id)}
+  defp resolve(state, id) when is_binary(id) do
+    canonical = Enum.find_value(state.last_polled_issues, fn {key, issue} -> if id in [to_string(key), issue.identifier], do: issue.identifier end)
+    entry = State.find_running_by_identifier(state.running, canonical || id)
+
+    if entry || canonical,
+      do: {:ok, canonical || id, entry},
+      else: {:error, :issue_not_found}
+  end
 
   defp stopped_identity(state, id) do
-    if State.find_running_by_identifier(state.running, id), do: {:error, :ambiguous_identifier}, else: {:ok, id, nil}
+    if State.find_running_by_identifier(state.running, id), do: {:error, :ambiguous_identifier}, else: resolve(state, id)
   end
 end
