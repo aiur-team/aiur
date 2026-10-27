@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator do
   @moduledoc "Polls the issue tracker and dispatches repository copies to agent-backed workers."
   use GenServer
 
+  alias Aiur.Orchestrator.OperatorMessages.HeldReads
   alias Aiur.Orchestrator.ListenerModes
   require Logger
 
@@ -33,7 +34,7 @@ defmodule Aiur.Orchestrator do
   @doc "Consume this ticket's held async operator messages in queue order."
   @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def read_held_messages(identifier, max \\ 50),
-    do: Aiur.Orchestrator.OperatorMessages.HeldReads.read(__MODULE__, identifier, max)
+    do: HeldReads.read(__MODULE__, identifier, max)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do

@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.HeldReadsTest do
   alias Aiur.{AgentQueue, AgentQueueStore}
   alias Aiur.Listener.{ModeStore, Receipt}
   alias Aiur.Orchestrator.OperatorMessages.HeldReads
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{LifecycleFence, State}
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("held-reads")
@@ -76,13 +76,13 @@ defmodule Aiur.Orchestrator.HeldReadsTest do
     {store, second} = enqueue(store, "second")
     issue = %Aiur.Issue{id: "issue-42", identifier: "held-42", state: "in-progress"}
     state = %State{queue_store: store, running: %{issue.id => %{identifier: issue.identifier, issue: issue}}}
-    state = Enum.reduce([first, second], state, &Aiur.Orchestrator.LifecycleFence.protect_queued_item(&2, issue.identifier, &1))
-    assert Aiur.Orchestrator.LifecycleFence.handoff_blocked?(state, issue)
+    state = Enum.reduce([first, second], state, &LifecycleFence.protect_queued_item(&2, issue.identifier, &1))
+    assert LifecycleFence.handoff_blocked?(state, issue)
     assert {:reply, {:ok, %{remaining: 1}}, next} = HeldReads.handle_call(state, issue.identifier, 1, opts)
-    refute Aiur.Orchestrator.LifecycleFence.protected_item?(next, first)
-    assert Aiur.Orchestrator.LifecycleFence.protected_item?(next, second)
+    refute LifecycleFence.protected_item?(next, first)
+    assert LifecycleFence.protected_item?(next, second)
     assert {:reply, {:ok, %{remaining: 0}}, next} = HeldReads.handle_call(next, issue.identifier, 1, opts)
-    refute Aiur.Orchestrator.LifecycleFence.handoff_blocked?(next, issue)
+    refute LifecycleFence.handoff_blocked?(next, issue)
   end
 
   test "expired serialized request never consumes messages", %{opts: opts} do

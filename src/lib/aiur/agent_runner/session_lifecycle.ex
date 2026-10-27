@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   alias Aiur.AgentRunner.DispatchSelectionEvent
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.AgentRunner.ModelLabelRefresh
+  alias Aiur.AgentRunner.PullToolInstallation
   alias Aiur.AgentRunner.SessionContainment
   alias Aiur.AgentRunner.SessionDisplay
   alias Aiur.AgentRunner.SessionIdentity
@@ -246,7 +247,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          session_context
        ) do
     handle_opts = Keyword.get(opts, :session_handle_opts, [])
-    session = Aiur.AgentRunner.PullToolInstallation.stamp(session, issue.identifier, handle_opts)
+    session = PullToolInstallation.stamp(session, issue.identifier, handle_opts)
     report_session_execution(codex_update_recipient, issue, session)
     DispatchSelectionEvent.write(workspace, worker_host, issue)
     SessionResume.persist_session_handle(session, issue.identifier, worker_host, handle_opts)

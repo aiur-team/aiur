@@ -1,7 +1,7 @@
 defmodule Aiur.AgentTools.ReadMessagesTest do
   use ExUnit.Case, async: true
-  alias Aiur.AgentTools.{Catalog, Dispatch}
   alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.AgentTools.{Catalog, Dispatch}
 
   test "catalog schema and executor callback expose consuming reads" do
     spec = Enum.find(Catalog.specs(), &(&1["name"] == "aiur_read_messages"))
