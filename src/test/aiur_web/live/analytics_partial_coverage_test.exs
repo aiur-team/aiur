@@ -13,6 +13,7 @@ defmodule AiurWeb.AnalyticsPartialCoverageTest do
 
   setup context do
     previous_telemetry = Application.get_env(:aiur, :analytics_telemetry_file)
+    previous_schedulers_online_fun = Application.get_env(:aiur, :analytics_schedulers_online_fun)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
 
     endpoint_config =
@@ -25,10 +26,12 @@ defmodule AiurWeb.AnalyticsPartialCoverageTest do
       )
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
+    Application.put_env(:aiur, :analytics_schedulers_online_fun, fn -> 13 end)
     Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
       reset_env(:analytics_telemetry_file, previous_telemetry)
+      reset_env(:analytics_schedulers_online_fun, previous_schedulers_online_fun)
       reset_env(Endpoint, previous_endpoint)
     end)
 
@@ -69,8 +72,8 @@ defmodule AiurWeb.AnalyticsPartialCoverageTest do
     refute peak =~ ~s(<span class="an-kpi-val">0</span>)
     assert utilization =~ "no fleet-capacity or agent samples in this window"
     assert peak =~ "no fleet-capacity or agent samples in this window"
-    assert utilization =~ "of 4 cores"
-    assert peak =~ "of 4 cores"
+    assert utilization =~ "of 13 cores"
+    assert peak =~ "of 13 cores"
 
     assert view |> element("#analytics-concurrency-chart") |> render() =~
              "Concurrency unknown: no fleet-capacity or agent samples in this window."
