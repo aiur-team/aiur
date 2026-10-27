@@ -238,7 +238,10 @@ defmodule Aiur.Events.DurableConsumer.ExportSourceTest do
 
   defp consumer(ctx, extra \\ %{}) do
     state = Map.merge(%{owner: self()}, extra)
-    start_supervised!({DurableConsumer, name: nil, cursor_path: ctx.path, source: {ExportSource, [cursor_path: ctx.path, retry_ms: 60_000]}, handler: {Handler, state}, replay_batch: 2, retry_ms: 60_000})
+
+    start_supervised!(
+      {DurableConsumer, name: nil, cursor_path: ctx.path, source: {ExportSource, [cursor_path: ctx.path, retry_ms: 60_000]}, handler: {Handler, state}, replay_batch: 2, retry_ms: 60_000}
+    )
   end
 
   defp assert_records(seqs) do
