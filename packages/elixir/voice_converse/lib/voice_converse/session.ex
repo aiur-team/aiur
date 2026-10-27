@@ -16,23 +16,23 @@ defmodule VoiceConverse.Session do
 
   @transport_grace_ms 10_000
   @max_queued_audio 8
-  def start_link(opts) do
-    id = Keyword.fetch!(opts, :conversation_id)
-    instance = Keyword.fetch!(opts, :instance)
-    GenServer.start_link(__MODULE__, opts, name: SessionRegistry.via(instance, id))
-  end
+  def start_link(opts),
+    do:
+      GenServer.start_link(__MODULE__, opts,
+        name: SessionRegistry.via(Keyword.fetch!(opts, :instance), Keyword.fetch!(opts, :conversation_id))
+      )
 
-  def child_spec(opts) do
-    %{
+  def child_spec(opts),
+    do: %{
       id: {__MODULE__, Keyword.fetch!(opts, :conversation_id)},
       start: {__MODULE__, :start_link, [opts]},
       restart: :temporary
     }
-  end
 
   def push_audio(session, audio_b64), do: GenServer.cast(session, {:audio, audio_b64})
   def end_session(session, reason), do: GenServer.call(session, {:end, reason})
   def subscribe(session, subscriber), do: GenServer.call(session, {:subscribe, subscriber})
+  def unsubscribe(session, subscriber), do: GenServer.call(session, {:unsubscribe, subscriber})
   @impl true
   def init(opts) do
     config = Keyword.fetch!(opts, :config)
@@ -50,9 +50,7 @@ defmodule VoiceConverse.Session do
   end
 
   @impl true
-  def handle_continue(:open_provider, state) do
-    {:noreply, open_provider_async(state, :initial)}
-  end
+  def handle_continue(:open_provider, state), do: {:noreply, open_provider_async(state, :initial)}
 
   @impl true
   def handle_cast({:audio, audio_b64}, state) when is_binary(audio_b64) do
@@ -66,6 +64,9 @@ defmodule VoiceConverse.Session do
     send(subscriber, {:voice_conversation_state, state.id, state.state})
     {:reply, :ok, state}
   end
+
+  def handle_call({:unsubscribe, subscriber}, _from, state) when is_pid(subscriber),
+    do: {:reply, :ok, remove_subscriber(state, subscriber)}
 
   def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
     do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
@@ -178,8 +179,7 @@ defmodule VoiceConverse.Session do
   defp handle_provider_opened(:reconnect, _result, state), do: stop_provider_error(state)
 
   defp schedule_limits(state) do
-    duration_ms = state.config.limits.max_session_seconds * 1_000
-    max_timer = state.schedule_after.(duration_ms, :max_duration)
+    max_timer = state.schedule_after.(state.config.limits.max_session_seconds * 1_000, :max_duration)
     state |> Map.put(:max_timer, max_timer) |> reset_idle_timer()
   end
 

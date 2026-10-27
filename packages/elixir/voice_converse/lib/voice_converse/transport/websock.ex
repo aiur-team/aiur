@@ -104,9 +104,10 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
         state =
           VoiceConverse.Transport.WebSock.socket_state(opts, VoiceConverse.Transport.WebSock.authorized?(conn, opts))
 
-        # The protocol cap is enforced by Socket so an oversized frame receives the specified
-        # `frame_too_large` reply while its WebSocket (and existing session) remain open.
-        WebSockAdapter.upgrade(conn, VoiceConverse.Transport.WebSock.Socket, state, [])
+        WebSockAdapter.upgrade(conn, VoiceConverse.Transport.WebSock.Socket, state,
+          max_frame_size: VoiceConverse.Transport.WebSock.max_frame_bytes(),
+          max_fragmented_message_size: VoiceConverse.Transport.WebSock.max_frame_bytes()
+        )
       end
 
       def call(conn, _opts), do: Elixir.Plug.Conn.send_resp(conn, 404, "not found")
@@ -125,7 +126,9 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       def init(state), do: {:ok, state}
 
       @impl WebSock
-      def handle_in({payload, :text}, state) when byte_size(payload) > @max_frame_bytes,
+      # The adapter rejects this before allocating a complete frame. Keep this guard for direct
+      # callback users and alternate adapters that do not honour the upgrade option.
+      def handle_in({payload, _opcode}, state) when is_binary(payload) and byte_size(payload) > @max_frame_bytes,
         do: error(state, "frame_too_large", "Frame exceeds 400000 bytes.")
 
       def handle_in({payload, :text}, state) do
@@ -138,6 +141,14 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       end
 
       def handle_in({_payload, :binary}, state), do: error(state, "invalid_frame", "Frames must be JSON text.")
+
+      @impl WebSock
+      def terminate(_reason, %{conversation_id: conversation_id} = state) when is_binary(conversation_id) do
+        _ = invoke(state, :unsubscribe, [state.instance, conversation_id, self()])
+        :ok
+      end
+
+      def terminate(_reason, _state), do: :ok
 
       @impl WebSock
       def handle_info({:voice_conversation_state, conversation_id, name}, %{conversation_id: conversation_id} = state),
@@ -219,6 +230,9 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
 
       defp default_invoke(_state, :subscribe, [instance, conversation_id, subscriber]),
         do: VoiceConverse.subscribe(instance, conversation_id, subscriber)
+
+      defp default_invoke(_state, :unsubscribe, [instance, conversation_id, subscriber]),
+        do: VoiceConverse.unsubscribe(instance, conversation_id, subscriber)
 
       defp default_invoke(_state, :push_audio, [instance, conversation_id, audio]),
         do: VoiceConverse.push_audio(instance, conversation_id, audio)

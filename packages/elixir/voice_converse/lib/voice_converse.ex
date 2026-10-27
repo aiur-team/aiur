@@ -79,6 +79,14 @@ defmodule VoiceConverse do
     end
   end
 
+  @doc "Removes a process from conversation event delivery and starts transport grace when it was last."
+  @spec unsubscribe(module(), String.t(), pid()) :: :ok | {:error, :not_found}
+  def unsubscribe(instance, conversation_id, subscriber \\ self()) do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+      VoiceConverse.Session.unsubscribe(pid, subscriber)
+    end
+  end
+
   defp session_availability(config) do
     case Config.check_session_start(config) do
       :ok -> :ok
