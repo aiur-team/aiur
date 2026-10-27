@@ -49,6 +49,10 @@ defmodule AiurWeb.DashboardLive.CommandRoutingTest do
                server: store
              )
 
+    eventually(fn -> refute has_element?(view, "#decision-#{executor.decision_id}") end, 2_000)
+    assert has_element?(view, "#decisions-banner", "3 Commands need you")
+    payload = AiurWeb.OperatorControlCenter.PayloadLoader.load(:fresh)
+    assert payload.units.command_counts.needs_you_by_ticket == %{"6411" => 3}
     # Navigate through the same filter control after the store fact; no reload.
     view |> element("button[phx-value-filter=needs_you]") |> render_click()
     assert has_element?(view, "#decision-#{executor.decision_id}", "Needs you")

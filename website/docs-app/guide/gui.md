@@ -54,6 +54,7 @@ routing, how long they have needed you.
 Use **Needs you**, **With Executor**, **From Executor**, or **Resolved** to filter;
 links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and All
 include unrouted Commands. Resolved Commands appear in the history table.
+
 Only Commands routed to you (including those shared with the Executor) count in the
 banner, navigation badge, and Units **Commands** column. Unknown counts display an
 unavailable notice or `—`; partial retained data is labelled partial.

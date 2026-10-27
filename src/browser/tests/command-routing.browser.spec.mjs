@@ -7,8 +7,11 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 })
     await openFixture(page)
     await page.context().setHTTPCredentials(dashboardCredentials)
-    await page.goto('/commands')
+    await page.goto('/command-answer-control/answerable')
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+
+    await page.locator('.decision-card-head').first().click()
+    await expect(page).toHaveURL(/\/commands$/)
 
     for (const [route, label] of [
       ['needs_you', 'Needs you'],
