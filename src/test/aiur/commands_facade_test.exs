@@ -5,6 +5,8 @@ defmodule Aiur.CommandsFacadeTest do
 
   @renamed %{
     public_v2: {Aiur.Commands.Projection, :public_v2},
+    needs_you?: {Aiur.Commands.Routing.Policy, :needs_you?},
+    matches_route?: {Aiur.Commands.Routing.Policy, :matches_route?},
     capability_ids: {Aiur.DecisionStore.CapabilityProvider, :capability_ids},
     capabilities: {Aiur.DecisionStore.CapabilityProvider, :capabilities},
     query_list: {Aiur.DecisionQuery, :list},
