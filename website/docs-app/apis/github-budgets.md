@@ -223,3 +223,9 @@ still exhausts it, just later.
 
 The pool total is also a ceiling rather than a balance, because the credentials'
 windows reset at different moments. Pooling buys margin while the burn itself is reduced.
+
+## History label writes
+
+[Optional history label writes](/reference/build-history-commands#optional-history-label-writes) spend one Core `POST /issues/:n/labels` per label on confirmed, closed historical tickets, using the daemon credential. Label creation also consumes the job's rolling-hour bucket. The default is 60 requests/h, capped at half the effective agent Core ceiling (125 when disabled).
+
+The job makes no remote reads or idle requests. Budget holds and rate limits defer writes durably until reset. Plan output includes label creation requests and names code-derived cost as unmeasured; it claims no saving.

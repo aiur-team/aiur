@@ -317,7 +317,8 @@ defmodule Aiur.Application.Children do
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts) ++
-        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0))
+        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
+        List.wrap(if(recording?, do: Aiur.BuildOrder.History.LabelBackfill))
     )
   end
 

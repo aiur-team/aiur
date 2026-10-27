@@ -41,6 +41,8 @@ defmodule Aiur.AgentControlCLI do
   defdelegate ticket_estimate(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate queue(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate analytics(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  @spec history_label_writes(keyword()) :: :ok
+  defdelegate history_label_writes(opts), to: Aiur.HistoryLabelWritesCLI, as: :rpc
   defdelegate github_cost(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate experiments(opts \\ []), to: Aiur.ControlCLI.EntryPoints
   defdelegate capabilities(opts \\ []), to: Aiur.ControlCLI.EntryPoints
