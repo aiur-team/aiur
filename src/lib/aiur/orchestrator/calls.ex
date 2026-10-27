@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.Calls do
   @moduledoc "Synchronous Orchestrator message routing; clause order follows the GenServer facade."
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
 
+  alias Aiur.Orchestrator.OperatorMessages.Snapshot
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
@@ -197,7 +198,7 @@ defmodule Aiur.Orchestrator.Calls do
       do: GlobalPause.set_global_pause_call(state, on?, source)
 
   def handle_call({:operator_message_snapshot, item_id}, _from, state) when is_integer(item_id),
-    do: Aiur.Orchestrator.OperatorMessages.Snapshot.handle_call(state, item_id)
+    do: Snapshot.handle_call(state, item_id)
 
   def handle_call({:operator_message_status, item_id}, _from, state)
       when is_integer(item_id),
