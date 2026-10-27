@@ -47,6 +47,60 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     %{id: id, entry: entry, state: %State{running: %{id => entry}, queue_store: AgentQueueStore.new()}}
   end
 
+  test "REPL listener sync accepts checkpoint and holds until turn boundary", %{id: id, entry: entry, state: state} do
+    entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
+    state = %{state | running: %{id => entry}}
+    assert Capabilities.issue_control_capabilities(state, id).accepted_delivery_policies == [:immediate, :checkpoint]
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "after Stop", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_checkpoint_queue_item_call(queued, id)
+    ActiveTurns.mark_closed(id, "active", :completed)
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert claimed.id == request
+    assert claimed.body.text == "after Stop"
+  end
+
+  test "urgent event wake cannot claim held REPL sync input before Stop", %{id: id, entry: entry, state: state} do
+    entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
+    state = %{state | running: %{id => entry}}
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "after Stop", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    opts = DeliveryPolicy.event_digest_delivery_opts(entry, [], true)
+    {store, digest} = AgentQueueStore.enqueue(queued.queue_store, AgentQueue.coordination_event(id, :events_digest, %{events: []}, opts))
+    queued = %{queued | queue_store: store}
+    DeliveryPolicy.notify_running_queue_update(queued, entry, digest)
+    digest_id = digest.id
+    assert_received {:agent_queue_updated, ^id, ^digest_id, true}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert AgentQueueStore.get(queued.queue_store, request).status == :pending
+    ActiveTurns.mark_closed(id, "active", :completed)
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert claimed.id == request
+  end
+
+  test "REPL native steer wakes the active session; legacy routing stays immediate only", %{id: id, entry: entry, state: state} do
+    entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
+    state = %{state | running: %{id => entry}}
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, view}, state} = ListenerModes.set_mode(state, id, :steer, expected_version: 0)
+    assert view.effective == :steer
+    assert view.support.steer.carrier == :native
+    {store, held} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held sync", listener_mode: :sync))
+    state = %{state | queue_store: store}
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "now", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, ^request, :steer}
+    assert {:reply, {:ok, claimed}, after_steer} = OperatorMessages.claim_next_steer_queue_item_call(queued, id)
+    assert claimed.id == request
+    assert AgentQueueStore.get(after_steer.queue_store, held.id).status == :pending
+    Application.put_env(:aiur, :listener_send_routing, :legacy)
+    assert Capabilities.issue_control_capabilities(state, id).accepted_delivery_policies == [:immediate]
+  end
+
   test "native steer enqueue wakes active turn and stays sync-safe on unsupported harness", %{id: id, entry: entry, state: state} do
     :ok = ActiveTurns.put(id, "active")
     on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)

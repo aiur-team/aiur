@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   import Aiur.Orchestrator.OperatorMessages.Enqueue, only: [enqueue_event_digest_item: 4, enqueue_event_digest_item: 5, enqueue_operator_message: 4, enqueue_operator_message: 5]
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, Commands, OperatorWaitLog, Signal, TrackerIdentity}
+  alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{AutoSubscriptions, DigestCoalescer, LifecycleFence, State}
   alias Aiur.Orchestrator.OperatorMessages.Unread
 
@@ -149,11 +150,13 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
           {:reply, :empty | {:ok, map()}, State.t()}
   def claim_next_operator_queue_item_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
+    active_turn? = ActiveTurns.active_turn_ids(issue_identifier) != []
+
     {queue_store, item} =
       AgentQueueStore.claim_next_deliverable_matching(
         state.queue_store,
         issue_identifier,
-        &match?(%{category: :operator_message}, &1)
+        fn item -> item.category == :operator_message and not (active_turn? and item.delivery[:listener_mode_at_claim] == :sync) end
       )
 
     queue_claim_reply(state, queue_store, item)
