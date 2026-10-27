@@ -8,7 +8,7 @@
 export type CommandContract = CommandV2;
 
 /**
- * Additive read-API Command projection. Legacy rows have no payload_version; persisted decisions.json uses the v1 shape.
+ * Additive read-API Command projection. Legacy rows have no payload_version; routing facts are separate from frozen request snapshots.
  */
 export interface CommandV2 {
   decision_id: string;
@@ -35,5 +35,16 @@ export interface CommandV2 {
    */
   short_label: string | null;
   payload_version?: 2;
+  route_policy?: "executor_first" | "simultaneous" | "human_only" | null;
+  route_state?: "with_executor" | "with_both" | "with_human" | null;
+  routed_at?: string | null;
+  human_visible_at?: string | null;
+  executor_acknowledged_at?: string | null;
+  escalations?: {
+    cause: string;
+    at: string;
+    detail: string | null;
+    decision_version: number;
+  }[];
   [k: string]: unknown;
 }
