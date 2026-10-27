@@ -3,7 +3,7 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
   alias Aiur.{AgentQueue, AgentQueueStore, Issue, Orchestrator, TrackerIdentity}
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{ControlLifecycle, ListenerModes, OperatorMessages, State}
-  alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
+  alias Aiur.Orchestrator.OperatorMessages.{DeliveryPolicy, Enqueue}
 
   setup_all do
     # The optional build artifact is the external boundary; exercise the real scheduler.
@@ -59,6 +59,18 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     ActiveTurns.mark_closed(id, "active", :completed)
     assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
     assert claimed.id == request
+  end
+
+  test "listener input to a deactivated entry obeys the reactivation capacity gate", %{id: id, entry: entry, state: state} do
+    parked = entry |> put_in([:control, :status], :deactivated) |> Map.put(:pid, nil)
+    occupied = %{entry | identifier: "occupied", issue: %Issue{id: "occupied", identifier: "occupied"}}
+    state = %{state | running: %{id => parked, "occupied" => occupied}, max_concurrent_agents: 1}
+
+    assert {:reply, {:error, :max_concurrent_agents_reached}, ^state} =
+             OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "restart", delivery_policy: :listener, origin: :http})
+
+    assert AgentQueueStore.list_pending(state.queue_store, id) == []
+    refute_received {:agent_queue_updated, _, _, _}
   end
 
   test "unavailable effective mode refuses enqueue without changing the queue", %{id: id, state: state} do
@@ -150,6 +162,15 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert claimed.id == item.id
   end
 
+  test "async listener input cannot lift a cooperative self-pause", %{id: id, state: state} do
+    state = state |> put_in([Access.key(:running), id, :control, :status], :paused) |> put_in([Access.key(:running), id, :paused_reason], :agent_pause_request)
+    entry = state.running[id]
+    # Until the pull tool is installed, Effective cannot emit async; constrain
+    # the pause decision used by enqueue before that later rollout enables it.
+    refute Enqueue.listener_resumes_pause?(state, entry, %{effective: :async})
+    assert Enqueue.listener_resumes_pause?(state, entry, %{effective: :sync})
+  end
+
   test "sync listener input lifts a cooperative self-pause through the enqueue path", %{id: id, state: state} do
     state = state |> put_in([Access.key(:running), id, :control, :status], :paused) |> put_in([Access.key(:running), id, :paused_reason], :agent_pause_request)
     assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "continue", delivery_policy: :listener, origin: :http})
@@ -173,6 +194,11 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     refute_received {:resume_agent, _, _}
     assert next.running[id].pending_pause_reason.reason == :input_required
     assert_received {:agent_queue_updated, ^id, ^request, false}
+  end
+
+  test "mode-change signals for a removed issue leave the state intact" do
+    state = %State{queue_store: AgentQueueStore.new()}
+    assert {:noreply, ^state} = Orchestrator.handle_info({:listen_mode_changed, "removed-issue", %{}}, state)
   end
 
   test "mode-change signals re-read the current view instead of applying a stale payload", %{id: id, state: state} do
