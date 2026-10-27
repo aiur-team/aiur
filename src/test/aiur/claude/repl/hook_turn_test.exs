@@ -104,6 +104,35 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     refute_received {:delivery_failed, _}
   end
 
+  @tag timeout: 5_000
+  test "adopted turn types steer input through the selective claim", %{tmux: tmux} do
+    identifier = "HT-ADOPT-STEER-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    parent = self()
+    state = %{repl_acc: %{session_id: nil, message: nil, provider_delivered?: false}}
+
+    on_steer_claim = fn ->
+      {:deliver_text, "native steer", fn _ -> send(parent, :adopted_steer_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task =
+      Task.async(fn ->
+        HookTurn.adopt(session, state, 0,
+          poll_interval_ms: 10,
+          on_steer_claim: on_steer_claim,
+          on_operator_message: fn -> flunk("adopted steer must use its selective claim") end
+        )
+      end)
+
+    send(task.pid, {:agent_queue_updated, identifier, 1, :steer})
+    expect_steer_input(tmux)
+    receive_barrier(:adopted_steer_delivered)
+    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "session_id" => "adopted-session", "last_assistant_message" => "done"})
+    assert {:ok, %{result: :completed, thread_id: "adopted-session"}} = drain_pane_pid(tmux, task)
+    refute_received {:delivery_failed, _}
+    refute_received {:tmux_mock_out, "load-buffer " <> _}
+  end
+
   defp expect_steer_input(tmux) do
     receive_barrier({:tmux_mock_out, command})
 
