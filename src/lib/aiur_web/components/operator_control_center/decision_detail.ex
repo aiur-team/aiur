@@ -9,6 +9,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
     DecisionRevisionAction
   }
 
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
+
   attr(:decision, :map, required: true)
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
@@ -26,6 +28,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
     ~H"""
     <div id={"decision-detail-#{@decision.decision_id}"} class="decision-detail" tabindex="-1">
+      <header class="decision-meta-row">
+        <span class="requester-line">{DecisionPresenter.requester_label(@decision)}</span>
+        <span :if={DecisionPresenter.executor?(@decision)} class="chip accent requester-badge">From Executor</span>
+      </header>
       <DecisionAction.decision_action
         decision={@decision}
         state={@action_state}
