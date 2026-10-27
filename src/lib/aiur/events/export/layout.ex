@@ -76,8 +76,8 @@ defmodule Aiur.Events.Export.Layout do
   def recover(dir, instance) do
     meta = read_meta(dir)
     :ok = archive_previous_instance(dir, meta, instance)
-    meta = if is_map(meta) and meta["instance"] == instance, do: meta, else: nil
-    floor = if is_map(meta), do: meta["oldest_seq"], else: 1
+    meta = current_meta(meta, instance)
+    floor = retained_floor(meta)
     paths = Enum.reject(segments(dir), fn {first, _} -> first < floor end)
 
     with {:ok, summary} <- recover_segments(paths),
@@ -97,6 +97,11 @@ defmodule Aiur.Events.Export.Layout do
       _ -> {:error, :journal_corrupt}
     end
   end
+
+  defp current_meta(%{"instance" => instance} = meta, instance), do: meta
+  defp current_meta(_, _), do: nil
+  defp retained_floor(nil), do: 1
+  defp retained_floor(meta), do: meta["oldest_seq"]
 
   defp empty_head([]), do: 0
   defp empty_head(paths), do: elem(List.last(paths), 0) - 1
@@ -140,12 +145,8 @@ defmodule Aiur.Events.Export.Layout do
 
   defp read_meta(dir) do
     case JsonStore.read(Path.join(dir, "export.meta.json")) do
-      {:ok, %{"v" => 1, "epoch" => epoch, "instance" => instance, "oldest_seq" => oldest, "head_seq" => head} = meta}
-      when is_binary(epoch) and epoch != "" and is_binary(instance) and is_integer(oldest) and oldest > 0 and is_integer(head) and head >= oldest - 1 ->
-        meta
-
-      {:ok, _} ->
-        nil
+      {:ok, meta} ->
+        if valid_meta?(meta), do: meta, else: nil
 
       {:error, %Jason.DecodeError{}} ->
         nil
@@ -154,6 +155,12 @@ defmodule Aiur.Events.Export.Layout do
         raise File.Error, reason: reason, action: "read export metadata", path: dir
     end
   end
+
+  defp valid_meta?(%{"v" => 1, "epoch" => epoch, "instance" => instance, "oldest_seq" => oldest, "head_seq" => head}) do
+    is_binary(epoch) and epoch != "" and is_binary(instance) and is_integer(oldest) and oldest > 0 and is_integer(head) and head >= oldest - 1
+  end
+
+  defp valid_meta?(_), do: false
 
   defp archive_previous_instance(dir, %{"instance" => previous, "epoch" => epoch}, instance) when previous != instance do
     archive = Path.join(dir, "old-#{epoch}")
