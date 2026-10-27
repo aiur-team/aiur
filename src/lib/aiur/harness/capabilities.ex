@@ -54,23 +54,25 @@ defmodule Aiur.Harness.Capabilities do
       hard_interrupt: hard_interrupt(entry),
       native_queue: entry[:immediate_delivery] == true,
       pull_tool: Map.get(delivery, :pull_tool, false),
-      hook_boundaries: Map.get(delivery, :hook_boundaries, []),
-      native_question: native_question(delivery)
+      hook_boundaries: Map.get(delivery, :hook_boundaries, [])
     }
-    |> maybe_put_native_question_reason(delivery)
+    |> Map.merge(native_question(delivery))
   end
 
   defp native_question(%{native_question_gate: gate} = delivery) do
-    if Aiur.Config.decisions_native_capture?(gate), do: delivery.native_question, else: :none
+    case Aiur.Config.settings() do
+      {:ok, settings} ->
+        case Map.fetch!(settings.decisions.native_capture, gate) do
+          true -> %{native_question: delivery.native_question, native_question_reason: nil}
+          false -> %{native_question: :none, native_question_reason: :gate_off}
+        end
+
+      {:error, _reason} ->
+        %{native_question: :unknown, native_question_reason: :unknown}
+    end
   end
 
-  defp native_question(delivery), do: Map.get(delivery, :native_question, :none)
-
-  defp maybe_put_native_question_reason(capabilities, %{native_question_gate: _gate}) do
-    Map.put(capabilities, :native_question_reason, if(capabilities.native_question == :none, do: :gate_off))
-  end
-
-  defp maybe_put_native_question_reason(capabilities, _delivery), do: capabilities
+  defp native_question(delivery), do: %{native_question: Map.get(delivery, :native_question, :none)}
 
   defp hard_interrupt(entry) do
     cond do
