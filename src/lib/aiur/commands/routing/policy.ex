@@ -33,6 +33,9 @@ defmodule Aiur.Commands.Routing.Policy do
   def matches_route?(decision, :from_executor), do: open?(decision) and executor_requester?(decision)
   def matches_route?(decision, :resolved), do: not open?(decision)
 
+  @spec executor_may_answer?(map()) :: boolean()
+  def executor_may_answer?(decision), do: not Requester.executor?(decision) and DecisionAuthority.executor_answerable?(decision)
+
   @spec deferrable?(map()) :: boolean()
   def deferrable?(decision), do: decision.authority != :human_required and not Requester.executor?(decision)
 

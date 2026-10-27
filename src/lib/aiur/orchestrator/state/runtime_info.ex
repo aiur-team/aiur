@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.State.RuntimeInfo do
   @moduledoc false
   alias Aiur.Issue
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
-  alias Aiur.Orchestrator.{PauseResume, State, StatusReport}
+  alias Aiur.Orchestrator.{ListenerModes, PauseResume, State, StatusReport}
   alias Aiur.Orchestrator.State.RunningEntries
 
   @spec handle_worker_runtime_info(State.t(), String.t(), map()) :: {:noreply, State.t()}
@@ -150,6 +150,7 @@ defmodule Aiur.Orchestrator.State.RuntimeInfo do
   defp put_session_execution(%State{running: running} = state, issue_id, running_entry, session_execution) do
     updated_state =
       %{state | running: Map.put(running, issue_id, Map.put(running_entry, :session_execution, session_execution))}
+      |> ListenerModes.on_session_execution(issue_id, running_entry)
 
     StatusReport.notify_dashboard(updated_state)
     updated_state
