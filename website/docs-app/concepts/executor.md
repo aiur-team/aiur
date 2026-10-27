@@ -31,6 +31,26 @@ Even when a human drives, a second agent is recommended for log analysis, snag d
 | Protect capacity | Pause work or change the live agent cap. |
 | Finish safely | Keep CI, review, and merge gates moving without self-merging agent work. |
 
+## Acknowledge before investigating
+
+When a designated Executor takes a Command, it records
+`aiur executor-ack <decision-id>` before investigating. Reading the Command or
+receiving a wake does not acknowledge it. Repeated acknowledgements are safe.
+Acknowledgement means “seen”, not “answered” or “resolved”.
+
+By default, an Executor has five minutes to acknowledge and fifteen minutes from
+routing to answer. Acknowledgement removes only the acknowledgement deadline.
+Urgent blocking Commands halve both deadlines.
+
+Missing a deadline, going offline
+or stalling routes the question to the human; acknowledging after escalation
+does not take it back. The Executor may still answer only within its authority,
+and cannot replace a direct or relayed human answer.
+
+See [Command routing](/concepts/commands#when-a-command-becomes-yours), the
+[deadline configuration](/reference/configuration-daemon#decisions) and
+[Executor CLI actions](/reference/cli-decisions).
+
 ## Asking the human
 
 A designated Executor can ask the human with `aiur command request 'Ship today?'
