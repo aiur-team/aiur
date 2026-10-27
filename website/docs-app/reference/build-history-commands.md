@@ -67,7 +67,9 @@ Exit 64 is a usage error and 124 an RPC timeout. The export only reads, so retry
 
 ## Optional history label writes
 
-Confirmed historical classifications stay local until an Executor opts into paced GitHub writes. Imported features remain exempt. Only held-backfill feature joins and closed tickets qualify; open, unconfirmed or unknown facts never cause a write.
+Confirmed historical classifications stay local until an Executor opts into paced GitHub writes.
+
+Imported features remain exempt; only held-backfill feature joins and closed tickets qualify, while open, unconfirmed or unknown facts never cause a write.
 
 | Syntax | Behavior | Runnable example |
 | --- | --- | --- |
