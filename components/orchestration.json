@@ -19,6 +19,7 @@
     "src/lib/aiur/handoff/report.ex",
     "src/lib/aiur/landing_watch.ex",
     "src/lib/aiur/landing_watch/**",
+    "src/lib/aiur/listener.ex",
     "src/lib/aiur/orchestrator.ex",
     "src/lib/aiur/orchestrator/**",
     "src/lib/aiur/orchestrator/comment_polling_state.ex",
