@@ -28,38 +28,57 @@ async function tabPixelsMatch(page: Page, switchTab = true) {
   }, switchTab);
 }
 
-for (const unavailable of ['2D context', 'ResizeObserver']) {
-  test(`field returns an inert handle without ${unavailable}`, async ({ page }) => {
-    await page.goto('field.html?legacy');
-    const result = await page.evaluate(async (unavailable) => {
-      const { createFlowField } = await import('../dist/js/field.js');
-      const canvas = document.querySelector('canvas')!;
-      canvas.removeAttribute('aria-hidden');
-      const resizeObserver = window.ResizeObserver;
-      const requestFrame = window.requestAnimationFrame;
-      let frames = 0;
-      window.requestAnimationFrame = () => { frames++; return 0; };
-      if (unavailable === '2D context') Object.defineProperty(canvas, 'getContext', { value: () => null });
-      else (window as any).ResizeObserver = undefined;
-      try {
-        const field = createFlowField(canvas);
-        field.redraw();
-        field.rebuild();
-        document.dispatchEvent(new CustomEvent('aiur:themechange'));
-        document.dispatchEvent(new CustomEvent('aiur:layoutchange'));
-        window.dispatchEvent(new Event('resize'));
-        field.destroy();
-        field.destroy();
-        await Promise.resolve();
-        return { debug: field.debug(), aria: canvas.getAttribute('aria-hidden'), frames };
-      } finally {
-        window.ResizeObserver = resizeObserver;
-        window.requestAnimationFrame = requestFrame;
-      }
-    }, unavailable);
-    expect(result).toEqual({ debug: { obstacles: [] }, aria: 'true', frames: 0 });
+test('field returns an inert handle without a 2D context', async ({ page }) => {
+  await page.goto('field.html?legacy');
+  const result = await page.evaluate(async () => {
+    const { createFlowField } = await import('../dist/js/field.js');
+    const canvas = document.querySelector('canvas')!;
+    canvas.removeAttribute('aria-hidden');
+    const requestFrame = window.requestAnimationFrame;
+    let frames = 0;
+    window.requestAnimationFrame = () => { frames++; return 0; };
+    Object.defineProperty(canvas, 'getContext', { value: () => null });
+    try {
+      const field = createFlowField(canvas);
+      field.redraw();
+      field.rebuild();
+      document.dispatchEvent(new CustomEvent('aiur:themechange'));
+      document.dispatchEvent(new CustomEvent('aiur:layoutchange'));
+      window.dispatchEvent(new Event('resize'));
+      field.destroy();
+      field.destroy();
+      await Promise.resolve();
+      return { debug: field.debug(), aria: canvas.getAttribute('aria-hidden'), frames };
+    } finally {
+      window.requestAnimationFrame = requestFrame;
+    }
   });
-}
+  expect(result).toEqual({ debug: { obstacles: [] }, aria: 'true', frames: 0 });
+});
+
+test('field renders and resizes without ResizeObserver', async ({ page }) => {
+  await page.goto('field.html?legacy');
+  const result = await page.evaluate(async () => {
+    const { createFlowField } = await import('../dist/js/field.js');
+    const canvas = document.querySelector('canvas')!;
+    const resizeObserver = window.ResizeObserver;
+    Object.defineProperty(window, 'ResizeObserver', { value: undefined, configurable: true });
+    const field = createFlowField(canvas);
+    await new Promise(requestAnimationFrame);
+    const initial = canvas.width;
+    const expected = document.querySelector('.hero')!.clientWidth + 100;
+    document.querySelector('.hero')!.style.width = `${expected}px`;
+    window.dispatchEvent(new Event('resize'));
+    await new Promise(requestAnimationFrame);
+    const resized = canvas.width;
+    field.destroy();
+    Object.defineProperty(window, 'ResizeObserver', { value: resizeObserver, configurable: true });
+    return { initial, expected, resized, aria: canvas.getAttribute('aria-hidden') };
+  });
+  expect(result.initial).toBeGreaterThan(0);
+  expect(result.resized).toBe(result.expected);
+  expect(result.aria).toBe('true');
+});
 
 test('field R-TAB-1: command obstacle follows tab rect inside one frame', async ({ page }) => {
   await open(page);
