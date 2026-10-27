@@ -15,7 +15,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
 
   cat "$log_file" >&2
   if ! grep -Eiq \
-    'Failed to fetch record for .* from registry|registry.*(:timeout|timed out|timeout)|(:timeout|timed out|timeout).*registry|HTTP.*(502|503|504)|connection reset|temporary failure in name resolution|could not resolve host|network is unreachable|TLS handshake timeout' \
+    'Failed to fetch record for .* from registry|registry.*(:timeout|timed out|timeout)|(:timeout|timed out|timeout).*registry|request timed out after [0-9]+ms|HTTP.*(502|503|504)|connection reset|temporary failure in name resolution|could not resolve host|network is unreachable|TLS handshake timeout' \
     "$log_file"; then
     exit "$status"
   fi

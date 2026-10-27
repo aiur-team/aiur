@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.Calls do
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.OperatorMessages.Snapshot
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
   @spec handle_call(term(), GenServer.from(), Aiur.Orchestrator.State.t()) :: tuple()
@@ -195,6 +196,9 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:set_global_pause, on?, source}, _from, state)
       when is_boolean(on?) and is_binary(source),
       do: GlobalPause.set_global_pause_call(state, on?, source)
+
+  def handle_call({:operator_message_snapshot, item_id}, _from, state) when is_integer(item_id),
+    do: Snapshot.handle_call(state, item_id)
 
   def handle_call({:operator_message_status, item_id}, _from, state)
       when is_integer(item_id),

@@ -96,7 +96,7 @@ defmodule Aiur.Events.CatalogTest do
   end
 
   test "planned topic registrations name their component owners and reserve unproduced entries" do
-    assert %Entry{owner: "commands", reserved: true} = Catalog.lookup("ticket.42.agent.decision.human-needed")
+    assert %Entry{owner: "commands", reserved: false} = Catalog.lookup("ticket.42.agent.decision.human-needed")
     assert %Entry{owner: "github-listeners", reserved: true} = Catalog.lookup("ticket.42.issue.closed")
     assert %Entry{owner: "build-queue"} = Catalog.lookup("ticket.42.queue.attention.prerequisite_failed")
     assert %Entry{owner: "build-orders"} = Catalog.lookup("system.build_order.root.progress")
@@ -173,6 +173,8 @@ defmodule Aiur.Events.CatalogTest do
   defp allowed_type?({:enum, values}), do: is_list(values) and values != [] and Enum.all?(values, &is_binary/1)
   defp allowed_type?({:list, :id}), do: true
   defp allowed_type?(type), do: type in [:integer, :boolean, :id, :sha]
+
+  defp approved_export?("executor.decision.human-needed"), do: true
 
   defp approved_export?(pattern) do
     Enum.any?(

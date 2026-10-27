@@ -75,7 +75,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsAnalyticsCardsTest do
     assert writable =~ "Original answer · preserved"
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
-    assert writable =~ "Revise Command"
+    assert writable =~ "Send correction"
     assert writable =~ "Revising sets new direction — it does not undo what already happened."
     assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")

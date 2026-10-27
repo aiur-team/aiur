@@ -1,11 +1,12 @@
 defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
   @moduledoc """
   The focused agent's Commands for `AiurWeb.StreamdeckChannel`: projecting the
-  history page, enforcing that a device answers only the Command it is focused
-  on at the version it read, and recording that answer as the operator's.
+  history page, enforcing the focused-ticket boundary, and submitting versioned
+  operator answers through the shared answer facade.
   """
 
   alias Aiur.Commands
+  alias Aiur.Commands.Answering
   alias AiurWeb.{EndpointConfig, StreamdeckCommands}
 
   # The focused agent's Commands page. An unreadable store is projected as
@@ -41,32 +42,15 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
     _kind, _reason -> true
   end
 
-  # The device may only answer a Command that belongs to the agent it is
-  # currently focused on, and only the exact version it read. Fetching the
-  # decision here both enforces the boundary and lets the store's replay
-  # semantics decide duplicate-versus-conflict for a retried answer.
-  @spec validate_focused_command(Phoenix.Socket.t(), String.t(), String.t(), pos_integer()) :: :ok | {:error, term()}
-  def validate_focused_command(socket, decision_id, identifier, version) do
+  # Check ticket ownership here; the answer facade/store owns version and
+  # lifecycle checks so completed Commands can return a winner or a replay.
+  @spec validate_focused_command(Phoenix.Socket.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  def validate_focused_command(socket, decision_id, identifier) do
     case StreamdeckCommands.detail(decision_id, store: command_store(socket)) do
       {:ok, item} ->
-        cond do
-          get_in(item, ["ticket", "identifier"]) != identifier ->
-            {:error, :command_not_focused}
-
-          Map.get(item, "version") != version ->
-            {:error, {:stale_version, version, Map.get(item, "version")}}
-
-          # Only open and deferred Commands are answerable, allowlisted rather
-          # than blocklisted: every newly-added terminal status would otherwise
-          # silently become answerable the moment it exists. The TS client
-          # renders the same two statuses as answerable (`commands.ts`), so
-          # client and server agree on what "answerable" means.
-          not answerable?(item) ->
-            {:error, {:not_answerable, Map.get(item, "status")}}
-
-          true ->
-            :ok
-        end
+        if get_in(item, ["ticket", "identifier"]) == identifier,
+          do: :ok,
+          else: {:error, :command_not_focused}
 
       {:error, :not_found} ->
         {:error, :not_found}
@@ -76,36 +60,12 @@ defmodule AiurWeb.StreamdeckChannel.CommandAnswers do
     end
   end
 
-  defp answerable?(%{"status" => status}) when status in ["open", "deferred"], do: true
-
-  defp answerable?(%{"status" => "expired", "blocking" => true, "answer" => nil}), do: true
-  defp answerable?(_item), do: false
-
-  @spec record_command_answer(String.t(), map()) :: {:ok, term()} | {:error, term()}
+  @spec record_command_answer(String.t(), map()) :: {:ok, map()} | {:error, map()}
   def record_command_answer(decision_id, answer) do
-    store = command_store()
-    actor = StreamdeckCommands.actor()
-
-    # `store` is the decision server — a module or a pid — so the answer must
-    # go through `Aiur.DecisionStore.answer/5` with the server passed as the
-    # fourth argument, exactly as the dashboard's decision commands do. Calling
-    # `store.answer/4` would `apply/3` a pid as a module and fail.
-    case Commands.answer(decision_id, answer, [actor: actor], store) do
-      {:ok, result} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
-    end
-  rescue
-    error -> {:error, {:answer_failed, Exception.message(error)}}
-  catch
-    :exit, reason -> {:error, {:store_unavailable, reason}}
+    decision_id
+    |> Answering.answer(answer, actor: StreamdeckCommands.actor(), actor_source: :streamdeck, client: %{surface: :streamdeck}, store: command_store())
+    |> StreamdeckCommands.answer_reply()
   end
-
-  @spec answer_result(term()) :: term()
-  def answer_result(%{status: status, decision: decision}) do
-    %{"status" => Atom.to_string(status), "decision" => StreamdeckCommands.item(decision)}
-  end
-
-  def answer_result(result), do: result
 
   # Exactly one of option_id or custom_response, mirroring the CLI's
   # `executor-answer --option|--custom-response` contract so the custom-response

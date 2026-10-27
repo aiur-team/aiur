@@ -6,6 +6,7 @@ defmodule Aiur.DecisionStore.Calls do
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.AppendRecovery
   alias Aiur.DecisionStore.Audit
+  alias Aiur.DecisionStore.CommandFacts
   alias Aiur.DecisionStore.Dispatch
   alias Aiur.DecisionStore.Enrichment
   alias Aiur.DecisionStore.Index
@@ -41,6 +42,14 @@ defmodule Aiur.DecisionStore.Calls do
   def handle_call({operation, _payload, _opts}, _from, %{writable?: false} = state)
       when operation in [:project_attention, :enrich_attention] do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:command_fact, _id, _type, _data, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, :store_read_only}, state}
+  end
+
+  def handle_call({:command_fact, id, type, data, opts}, _from, state) do
+    CommandFacts.record(state, id, type, data, opts)
   end
 
   def handle_call({:request, payload, opts}, _from, state) do
