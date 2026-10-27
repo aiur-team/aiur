@@ -32,6 +32,7 @@
     "Aiur.AppServer.RelayPort",
     "Aiur.AppServer.ToolCallLedger",
     "Aiur.AppServer.TurnLoop",
+    "Aiur.Codex.UserInputAnswers",
     "Aiur.CodexProber",
     "Aiur.CodingAgent",
     "Aiur.CodingAgent.Backend",

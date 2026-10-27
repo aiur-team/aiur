@@ -46,6 +46,7 @@ If writing fails, the lease stays held and status names `aiur workspace-recover 
 | `aiur resume 142` | Resumes a paused ticket, including one whose pause is still pending, or starts an idle eligible ticket. It also reactivates a deactivated agent and starts a new worker for a completed one, as the dashboard and API do, and names the prior state (`was: deactivated`, `was: completed`). It reports `already running` only when a live worker is working the ticket, and `already running (sleeping ...)` for an idle agent whose stream closed. A queue-held idle ticket reports `build_queue_hold`; use `aiur queue release` first. It refuses by name an agent whose worker failed to start (the retry schedule owns that restart), an agent whose worker is gone, and an idle ticket held by an open blocking decision, which it names by id; answer the decision, then resume. During a global pause, per-ticket resume is refused until global resume. | `aiur resume 142` |
 | `aiur resume --all` | Resumes every individually paused ticket. | `aiur resume --all` |
 | `aiur reset-budget 142` | Clears a named ticket's dispatch-budget latch. It does not accept `--all`; `resume` cannot clear this latch. | `aiur reset-budget 142` |
+| `aiur listen-mode <ticket> [mode] [--actor human]` | Reads or sets a ticket's listener mode. Writes use compare-and-set; `--expected-version N` pins the version (otherwise the command reads it first). Conflicts print the current record and exit 3. `--actor human\|executor` records the caller (default human). `--json` includes requested/effective mode, reason, version, actor, `observed_at`, `age_ms`, and freshness. | `aiur listen-mode 142 async --expected-version 0 --json` |
 | `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. Text must be nonblank and at most 8,000 characters. The command reports what it observed: `delivered message to #142` once the agent has claimed it, otherwise `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0 — a queued message is normally claimed at the agent's next checkpoint. Use `aiur message --status REQUEST_ID` to check later delivery. | `aiur message 142 "Check the latest review"` |
 | `aiur message 142 --message-id ID "Check review"` | Names this send. A repeat with the same id, ticket and text returns the first copy and queues nothing new. The same id with other text is refused. Use it only to retry a send whose outcome was unknown. | `aiur message 142 --message-id cli-1a2b "Check the latest review"` |
 | `aiur stop` | Gracefully stops the BEAM and its tmux lifetime session, reaping agent process trees and workspace-rooted descendants before a final launcher backstop removes stragglers. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
@@ -78,6 +79,20 @@ For completed or exited providers, a fence expires on the first dispatch poll tw
 Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label writes outside the orchestrator process, so slow tracker requests do not hold up its control calls. Budget changes and resume eligibility checks remain serialized in the orchestrator.
 
 If the orchestrator does not answer a per-ticket `aiur resume` or `aiur reset-budget` mutation in time, the command exits 124 and reports `outcome unknown`. The queued request may still apply after the command exits. Check the ticket status and log before retrying; a reset is confirmed by its completed dispatch-budget reset alert.
+
+Listener mode writes are stored for the ticket run, including stopped tickets, and survive restart. Unknown tickets are refused. The current legacy routing ignores the stored mode; `listen-mode` says so explicitly.
+
+When a send receipt carries a listener mode, `aiur message` also prints `accepted under <mode> listener mode`; legacy sends retain their existing output.
+
+Use `--idempotency-key KEY` on `listen-mode` to retry an uncertain write with the same mode and `--expected-version`. A write timeout reports `outcome unknown` and the key; it does not prove failure. `--actor executor` is permitted for a worker's mode.
+
+The authenticated HTTP equivalent is `GET /api/v1/:issue_identifier/listen-mode` or `POST` to the same path with `{mode, expected_version, idempotency_key, actor}` (`actor` defaults to `human`).
+
+POST uses the message endpoint's origin/header and dashboard-writable protections.
+
+Success returns the record and `routing: "legacy"`; stale versions return `409 {error: "mode_conflict", current: …}`, invalid metadata returns 422, unknown tickets 404, and unavailable/unknown outcomes 503.
+
+GET remains available when the dashboard is read-only.
 
 The daemon enqueue RPC allows 30 seconds; the CLI allows 70 seconds total. Dashboard and HTTP sends allow 30 seconds (60 with reconciliation). CLI reports delivered or queued with a request id; check with `aiur message --status REQUEST_ID`. On timeout, the message may still be queued; retry only with the same `--message-id`.
 
@@ -135,6 +150,25 @@ The discard file is a deliberate operator signal outside the workspace, not an a
 If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace. The terminal sweep at the next Aiur start tries again. If a new run of a reopened ticket holds the workspace when the delete is due, Aiur keeps the workspace and the save, and the notice does not expire.
 
 To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
+
+## Executor Command requests
+
+`aiur command request "<question>"` accepts repeated `--option <id>=<label>` flags and an optional `--recommend <id>` (moves that response first). Prefer two or three responses. Requests default to blocking, normal urgency and human-required authority. `--blocking` is accepted explicitly; `--urgency low|normal|high|critical` sets priority.
+
+Use `--short-summary <text>` for a concise title and `--context-file <path>` for Markdown context (at most 20,000 characters, read on the caller's machine before RPC).
+
+`--ticket <n>` adds context only: the reserved `executor` ticket owns the Command and no worker receives its answer.
+
+`--executor-id <id>` identifies the requester, falling back to `AIUR_EXECUTOR_ID` and then the host/instance identity; a live claim is not required.
+
+The output prints the Command ID and retry key. Reuse `--idempotency-key <key>` after an uncertain submission to return the same Command. Without a key, one is generated.
+
+`--json` returns `decision_id`, `version`, `route_state`, `source_id` and `status`; routing may still be pending (`route_state: null`) when creation returns.
+
+Routing sends these Commands directly to the human with cause `executor_originated`.
+
+Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
+
 ## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
 
 ## Dashboard page commands
@@ -143,6 +177,7 @@ To recover saved work by hand, run the `restore_commands` of `manifest.json` in 
 | Command | Page view and important inputs | Example |
 | --- | --- | --- |
 | `aiur units` | Filtered Units catalog; use `--scope`, repeated `--condition`, `--format`, or `--json`. | `aiur units --scope unfinished --condition alert --json` |
+| `aiur command request <question>` | Creates an Executor-originated Command for the human in the shared inbox. Requires the daemon. | `aiur command request 'Ship the beta today?' --option yes=Ship --option no=Wait --recommend yes` |
 | `aiur commands [decision-id]` | Durable decision inbox, or one selected decision. Use `--filter all\|open\|blocking\|resolved\|needs-you\|with-executor\|from-executor`, `--blocking`, `--ticket`, `--search`, `--cursor`, `--limit`, and `--json`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter blocking --json` |
 | `aiur queue show [--queue NAME] [--json]` | Read set rank, counts and state, held status, start order, prerequisites, progress, and source ages; optionally select a named queue. | `aiur queue show --queue paseo --json` |
 | `aiur queue add <ids…> [--after N] [--queue NAME] [--at POS] [--rank POS] [--start-on TRIGGER]` | Adds tickets to a list (default name: `default`); `--after` adds local prerequisite edges and requires N to be in the target queue or included in the same command; the command's add is atomic when `--after` names one of its IDs. Positions are zero-based. An ID missing from the latest tracker observation is checked against its cached closure state, or with one single-issue read when nothing is cached. If that shows it closed, it is reported `closed` and not queued; otherwise it is queued pending and reported as `not yet observed (retry after next poll)`. | `aiur queue add 141 142 143 --queue paseo --after 141 --at 0` |

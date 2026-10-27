@@ -348,3 +348,15 @@ cmd_set() {
       ;;
   esac
 }
+
+cmd_listen_mode() {
+  local ticket="${1:-}" encoded_args="" arg
+  [ -n "$ticket" ] || { echo 'aiur: listen-mode requires a ticket' >&2; exit 64; }
+  shift
+  for arg in "$@"; do
+    [ -z "$encoded_args" ] || encoded_args+=", "
+    encoded_args+="Base.decode64!(\"$(encode_control_value "$arg")\")"
+  done
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
+  run_control_rpc "Aiur.ListenModeCli.run(Base.decode64!(\"$(encode_control_value "$ticket")\"), [$encoded_args])"
+}

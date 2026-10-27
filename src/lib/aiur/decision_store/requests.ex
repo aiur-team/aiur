@@ -254,7 +254,7 @@ defmodule Aiur.DecisionStore.Requests do
   end
 
   defp identical_expired_retry(decision, requested_version, existing) do
-    expired_unanswered_blocking?(existing) and requested_version == existing.version and
+    decision.ticket.identifier != "executor" and expired_unanswered_blocking?(existing) and requested_version == existing.version and
       decision.content_hash == existing.content_hash
   end
 
@@ -352,6 +352,7 @@ defmodule Aiur.DecisionStore.Requests do
   def lifecycle_slug(:human_needed), do: "human-needed"
   def lifecycle_slug(:executor_acknowledged), do: "executor-acknowledged"
   def lifecycle_slug(:request_attributed), do: "request-attributed"
+  def lifecycle_slug(:requester_notified), do: "requester-notified"
   def lifecycle_slug(:answer_recorded), do: "answered"
   def lifecycle_slug(:pending_for_session), do: "pending-for-session"
   def lifecycle_slug(:session_started), do: "session-started"

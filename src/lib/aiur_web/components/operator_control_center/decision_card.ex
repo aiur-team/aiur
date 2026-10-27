@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   use Phoenix.Component
 
   alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias Phoenix.LiveView.JS
 
   attr(:decision, :map, required: true)
@@ -50,8 +51,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       >
         <div>
           <div class="decision-meta-row">
-            <span class="ticket-id">{@decision.ticket[:identifier] || @decision.decision_id}</span>
-            <span class="decision-ticket-title">{@decision.ticket[:title]}</span>
+            <span class="ticket-id">{DecisionPresenter.requester_label(@decision)}</span>
+            <span :if={DecisionPresenter.executor?(@decision)} class="chip accent requester-badge">From Executor</span>
+            <span :if={!DecisionPresenter.executor?(@decision)} class="decision-ticket-title">{@decision.ticket[:title]}</span>
           </div>
           <h3>{@decision.question}</h3>
           <p :if={present?(@decision.context.short)} class="decision-context">{@decision.context.short}</p>
@@ -65,6 +67,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
             <span :if={length(@decision.options) > 2} class="chip faint">+{length(@decision.options) - 2} more</span>
           </div>
           <div class="decision-card-foot">
+            <AiurWeb.OperatorControlCenter.CommandRouting.routing decision={@decision} now={@now} />
             <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
             <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]}>{@agent_label}</span>
             <span :if={@model_label} class="chip mono">{@model_label}</span>
@@ -79,7 +82,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           </div>
         </div>
         <div class="decision-card-side">
-          <span class="decision-age mono">{@age}</span>
+          <span class="decision-age mono">asked {@age}</span>
           <span :if={@status_badge} class={["cmd-status-badge", @status_badge.tone]}><span class="chip-dot"></span>{@status_badge.label}</span>
           <span class="expand-hint">
             {expand_label(@decision, @selected)}

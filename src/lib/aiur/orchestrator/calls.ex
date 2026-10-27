@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.Calls do
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
-  alias Aiur.Orchestrator.OperatorMessages.Snapshot
+  alias Aiur.Orchestrator.OperatorMessages.{HeldReads, Snapshot}
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
   @spec handle_call(term(), GenServer.from(), Aiur.Orchestrator.State.t()) :: tuple()
@@ -15,6 +15,9 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
       when is_binary(identifier) and is_list(events),
       do: OM.enqueue_event_digest_batch_call(state, identifier, events)
+
+  def handle_call({:read_held_messages, identifier, max, deadline}, _from, state),
+    do: HeldReads.handle_call(state, identifier, max, deadline: deadline)
 
   def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
 

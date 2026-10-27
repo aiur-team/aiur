@@ -50,6 +50,11 @@ Copies and cross-area moves can change area totals without text churn. Binary
 changes are file counts; symlink blobs are excluded. This report does not enforce
 a CI limit or claim savings.
 
+The `aiur-agent` skill teaches 2–3 suggested responses, recommended first.
+Agents prefer supported native questions when available in their current mode;
+these retain the tool's option rules. Enforcement remains opt-in through
+[`decisions.require_suggested_responses`](/reference/configuration-daemon#decisions).
+
 The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
 credential failure. A budget-held agent requests a typed, expiring pause and is
 resumed automatically; it does not raise a credential attention for a healthy

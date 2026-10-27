@@ -215,9 +215,21 @@ defmodule Aiur.AiurAgentSkillTest do
     relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
 
     assert skill =~ "A question phrased as “A or B?” must produce clickable A/B options"
-    assert relay =~ "you **must** encode them"
-    assert relay =~ "does not replace `decision.requested`"
-    assert relay =~ "free-text-only Decision only when predefined choices would genuinely be"
+    assert relay =~ "**2–3 suggested responses**"
+    assert relay =~ "putting the recommended option first"
+    assert relay =~ "`recommendation.option_id` at its `id`"
+    assert relay =~ "Neither event replaces `decision.requested`"
+    assert relay =~ "Use free text alone only when predefined choices would genuinely mislead"
+  end
+
+  test "native questions fall back to a Decision unless captured with a Command id" do
+    attention = File.read!(Path.join(@claude_skill, "attention-and-resolve.md"))
+    attention = String.replace(attention, ~r/\s+/, " ")
+
+    assert attention =~ "Native capture is off by default"
+    assert attention =~ "If the tool replies “Executor input is unavailable”, the question was not recorded: emit `decision.requested`"
+    assert attention =~ "Only when the reply includes a Command id is the question captured"
+    assert attention =~ "do not also emit `decision.requested` for that captured question"
   end
 
   test "Command authoring assumes the operator has zero ticket context" do

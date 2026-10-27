@@ -121,7 +121,7 @@ defmodule AiurWeb.DashboardLive.Session do
   @doc false
   @spec handle_params(map(), String.t(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_params(params, uri, socket) do
-    filter = Commands.normalize_filter(params["filter"])
+    filter = Commands.normalize_filter(params["route"] || params["filter"])
     conversation_route? = String.starts_with?(URI.parse(uri).path || "", "/chat/")
 
     {:noreply,

@@ -10,7 +10,7 @@ defmodule Aiur.DecisionStore.CommandFacts do
     with true <- type in EventData.fact_types() and type != :request_attributed,
          {:ok, decision} <- Map.fetch(state.current, id),
          {:ok, normalized} <- EventData.normalize(type, data) do
-      if Facts.duplicate?(decision, type, normalized) do
+      if duplicate?(decision, type, normalized) do
         {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
       else
         persist(state, decision, type, normalized, Keyword.get(opts, :now, DateTime.utc_now()))
@@ -21,6 +21,9 @@ defmodule Aiur.DecisionStore.CommandFacts do
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
+
+  defp duplicate?(decision, :requester_notified, _data), do: not is_nil(decision.requester_notified_at)
+  defp duplicate?(decision, type, data), do: Facts.duplicate?(decision, type, data)
 
   defp persist(state, decision, type, data, now) do
     case Persistence.build_and_persist_event(type, decision, data, now, state) do

@@ -58,6 +58,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       end
 
     %{
+      command_counts: Map.get(payload, :retained_counts, %{}),
       status: status,
       message: catalog_message(status, membership, snapshot),
       truncated?: snapshot.truncated?,

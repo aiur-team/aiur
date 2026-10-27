@@ -100,7 +100,7 @@ defmodule Aiur.Events.CatalogTest do
     assert %Entry{owner: "github-listeners", reserved: true} = Catalog.lookup("ticket.42.issue.closed")
     assert %Entry{owner: "build-queue"} = Catalog.lookup("ticket.42.queue.attention.prerequisite_failed")
     assert %Entry{owner: "build-orders"} = Catalog.lookup("system.build_order.root.progress")
-    assert %Entry{owner: "orchestration", reserved: true} = Catalog.lookup("ticket.42.agent.listen-mode.changed")
+    assert %Entry{owner: "orchestration", reserved: false, attribution: :payload_actor} = Catalog.lookup("ticket.42.agent.listen-mode.changed")
     assert %Entry{owner: "identity"} = Catalog.lookup("system.capabilities.changed")
     assert %Entry{owner: "conversations", reserved: true, export?: false} = Catalog.lookup("executor.conversation.appended")
   end

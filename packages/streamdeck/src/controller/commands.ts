@@ -4,7 +4,7 @@ import {
   clampOptionOffset,
   commandIdempotencyKey,
   hasMoreOptions,
-  isAnswerable,
+  canAnswerOnDeck,
 } from "../commands.js";
 import {
   COMMANDS_OPTION_SLOTS,
@@ -110,7 +110,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       return;
     }
     const command = core.state.selectedCommand;
-    if (command === null) return;
+    if (command === null || command.answerable_on_deck === false) return;
     if (index < COMMANDS_OPTION_SLOTS) {
       // Selecting an option is reading, not committing — the deliberate
       // second action (dial D) is what turns it into the answer.
@@ -119,11 +119,11 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       publish({ ...core.state, selectedOption: optionIndex, commandsError: null });
       return;
     }
-    if (index === COMMANDS_MIC && isAnswerable(command)) {
+    if (index === COMMANDS_MIC && canAnswerOnDeck(command)) {
       holdMic();
       return;
     }
-    if (index === COMMANDS_APPROVE && core.state.commandDictation && isAnswerable(command)) {
+    if (index === COMMANDS_APPROVE && core.state.commandDictation && canAnswerOnDeck(command)) {
       // Fire-and-forget: the key derivation is async (SHA-256), so the answer
       // is sent once the digest resolves.
       void approveCommand(command);
@@ -155,6 +155,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
    * dropped reply that is retried records a replay, never a second decision.
    */
   const approveCommand = async (command: StreamDeckCommand): Promise<void> => {
+    if (!canAnswerOnDeck(command)) return;
     const port = voice();
     const response = port?.hasMessage() === true ? port.message() : null;
     const answer =

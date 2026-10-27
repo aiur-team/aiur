@@ -224,28 +224,28 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~ ~s(data-nav-collapsed="false")
   end
 
-  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, needs_you: 2, needs_you_blocking: 1}
   test "carries the awaiting-Commands banner into Stream Deck" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "2 units awaiting commands"
-    assert html =~ ~s(href="/commands")
+    assert html =~ "2 Commands need you"
+    assert html =~ ~s(href="/commands?route=needs_you")
   end
 
-  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, needs_you: 0, needs_you_blocking: 0}
   test "omits the awaiting-Commands banner from Stream Deck when nothing is waiting" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    refute html =~ "units awaiting commands"
+    refute html =~ "Commands need you"
   end
 
-  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, needs_you: 2, needs_you_blocking: 1}
   test "survives every message the Command topic carries" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
-    assert html =~ "2 units awaiting commands"
+    assert html =~ "2 Commands need you"
 
     # Stream Deck is a control surface the operator runs the fleet from. An
     # unrelated Command action anywhere must not take it down.
-    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 Commands need you"
   end
 end

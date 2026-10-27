@@ -17,7 +17,7 @@ Global launches require Issues write access; conflicting repos fail. Omit `track
 | --- | --- | --- |
 | Start or attach | `aiur`, `aiur run` | Bare `aiur` attaches to this repository's live session when one exists; otherwise foreground gives the TUI board and chat panes. Background is headless unless launched with `--interactive`. |
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage` | Read-only reports from the running daemon. |
-| Operate the fleet | `set`, `pause`, `resume`, `park`, `take`, `release`, `message`, `reset-budget`, `workspace-recover`, `stop`, `restart` | Steers a live run, manages persistent runtime settings, assigns Executor-owned tickets, recovers identified workspace holds, and manages paused reservations. |
+| Operate the fleet | `set`, `pause`, `resume`, `park`, `take`, `release`, `message`, `listen-mode`, `reset-budget`, `workspace-recover`, `stop`, `restart` | Steers a live run, manages persistent runtime settings, assigns Executor-owned tickets, recovers identified workspace holds, and manages paused reservations. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `queue show`, `analytics` | Read-only terminal forms of dashboard data; `build-orders` and `queue show` read the Build Order and queue projections. |
 | Act on durable records | `ask`, `asks`, `executor-ack`, `executor-answer`, `operator-relay-answer`, `executor-escalate`, `executor-reclassify`, `executor-moot`, `executor-emit`, `listen`, `findings`, `feature`, `epic`, `ticket estimate` | Decision inbox, Executor actions, and findings ledger. |
 

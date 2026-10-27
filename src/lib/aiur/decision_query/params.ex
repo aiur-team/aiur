@@ -8,7 +8,7 @@ defmodule Aiur.DecisionQuery.Params do
   @maximum_limit 100
   @maximum_decision_id_bytes 256
   @maximum_search_bytes 200
-  @query_fields ~w(authority blocking cursor kind lifecycle limit search ticket)
+  @query_fields ~w(authority blocking cursor kind lifecycle limit route search ticket)
   @lifecycle_by_name %{
     "open" => :open,
     # `awaiting` is the operator's own queue: open minus everything already
@@ -43,6 +43,7 @@ defmodule Aiur.DecisionQuery.Params do
             | :acknowledged
             | :resolved
             | nil,
+          route: :needs_you | :with_executor | :from_executor | :resolved | nil,
           search: String.t() | nil,
           ticket: String.t() | nil
         }
@@ -55,6 +56,7 @@ defmodule Aiur.DecisionQuery.Params do
          {:ok, authority} <- optional_authority(normalized["authority"]),
          {:ok, blocking} <- optional_boolean(normalized["blocking"]),
          {:ok, kind} <- optional_kind(normalized["kind"]),
+         {:ok, route} <- optional_route(normalized["route"]),
          {:ok, lifecycle} <- optional_lifecycle(normalized["lifecycle"]),
          {:ok, ticket} <- optional_string(normalized["ticket"], @maximum_search_bytes, :ticket),
          {:ok, search} <- optional_string(normalized["search"], @maximum_search_bytes, :search),
@@ -67,6 +69,7 @@ defmodule Aiur.DecisionQuery.Params do
          blocking: blocking,
          kind: kind,
          lifecycle: lifecycle,
+         route: route,
          ticket: ticket,
          search: search
        }}
@@ -128,6 +131,15 @@ defmodule Aiur.DecisionQuery.Params do
   end
 
   defp parse_integer(_value), do: nil
+
+  defp optional_route(nil), do: {:ok, nil}
+
+  defp optional_route(value) do
+    case Enum.find([:needs_you, :with_executor, :from_executor, :resolved], &(value in [&1, Atom.to_string(&1)])) do
+      nil -> {:error, {:route, :invalid}}
+      route -> {:ok, route}
+    end
+  end
 
   defp optional_lifecycle(nil), do: {:ok, nil}
   defp optional_lifecycle(value) when is_atom(value), do: optional_lifecycle(Atom.to_string(value))

@@ -120,6 +120,17 @@ Every manual `aiur_subscribe` pattern must start with one literal ticket identif
 
 Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
 
+## Listener-mode changes
+
+`ticket.<id>.agent.listen-mode.changed` is a live hint published after each local
+mode broadcast. Its payload carries `requested`, `effective`, `effective_reason`,
+`version`, and `actor` (`human`, `executor`, or `system`), with no message text.
+Consumers re-read listener-mode state. Default agent bindings exclude this topic.
+
+IssueLog attributes these events to the payload actor rather than the agent.
+Publication failures are logged without rolling back the saved mode or local
+broadcast; missed hints are not replayed.
+
 ## Queue transitions
 
 `ticket.<id>.queue.<verb>` publishes live hints after a saved transition, with
@@ -282,3 +293,63 @@ Query failures use these codes:
 Errors use `{"error":{"code":"…","message":"…"}}`. Authentication failures
 are handled before feed content is read. With export disabled, `/api/v1/events`
 now reports `feature_disabled` instead of treating `events` as a ticket ID.
+
+### Foreground live connection
+
+With export enabled, request `POST /api/v1/events/token` using dashboard
+credentials or an authenticated dashboard session. The response contains `token`
+and `expires_in_seconds: 300`; disabled export returns 404 `feature_disabled`.
+Tokens use a separate signing salt from Stream Deck and responses use `no-store`.
+
+Connect a Phoenix WebSocket to `/events/websocket?token=<token>&vsn=2.0.0`
+and join `events:feed` with `{after, topics, epoch}`. `after` is a non-negative
+JSON integer or null, `topics` is an array of exported or narrower patterns,
+and `epoch` is a string or null.
+
+Omitted/null values start at the current head,
+select all exported topics, and use the current epoch respectively.
+Join errors reuse `invalid_cursor`, `topic_not_exported`, and `feature_disabled`.
+
+The channel pushes journal records as `record`, replaying pages of 500 before
+following live appends. Retained `gap` records and cursor/epoch `reset` records
+have the same meaning as the pull API. A live backlog exceeding 2,000 sequence
+positions produces one `reset` to the current head; re-read snapshots to recover.
+The channel accepts no client writes.
+
+A `heartbeat` every 25 seconds carries `head_seq` and ISO 8601 `observed_at`.
+Judge liveness by heartbeats, not event silence. Thirty seconds before expiry,
+a `record` with `{type: "auth_expiring", in_ms: 30000}` prompts token refresh.
+
+The channel closes at expiry or when dashboard credentials change. Obtain a new
+token and reconnect with the last applied sequence and epoch to replay missed
+records.
+
+Disabled export or an unreadable journal sends an error `record` with
+`code: "feature_disabled"` or `"events_unavailable"`, then closes the channel.
+
+## Held async messages
+
+Agents with a tool path can call `aiur_read_messages` to consume their own held
+async operator messages. Its optional `max` accepts 1–50 (default 50). Results
+contain `messages` (`id`, `text`, `from`, `accepted_at`) and `remaining`, oldest
+first.
+
+Each batch contains at most 64 KiB of text; a clipped final message has
+`truncated: true` and is acknowledged in full. Normal sync messages stay with
+the scheduler. A consumed held message reports receipt `read`.
+
+The daemon serializes reads and saves `last_read_sequence` in the listener
+record.
+
+This position belongs to the current queue run: the queue itself is
+in memory and is not recovered after restart. It must not be used to skip
+new messages whose sequence numbers restart.
+
+Requests expired before acknowledgement begins consume nothing;
+the caller waits for the serialized result rather than abandoning a read on a
+transport timeout. A lost reply after acknowledgement cannot be replayed.
+
+A resumed older Codex thread keeps its original tool catalog. Async stays
+unavailable there unless its saved session handle confirms the read tool was
+installed. Fresh threads register the current catalog; Claude REPL has no tool
+path and continues to fall back to sync.

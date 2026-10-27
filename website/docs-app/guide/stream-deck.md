@@ -284,6 +284,8 @@ The Approve state is unmistakable: when an answer is armed the strip shows a gre
 
 If another surface answers first, the attempted answer key briefly shows the winning answer and “Answered by …”; withdrawn or changed Commands show a message and refresh the page.
 
+Single-question Commands, including native agent questions, use the same option keys. Commands with multiple questions or any multi-select question show “Answer on dashboard”; option keys, dictation, and approval are disabled for them. Older plugins are also refused by the server with `dashboard_only`. Rebuild and install the sidecar after updating Aiur.
+
 Completed Commands are read-only — they show what was asked and what was decided, with no Approve affordance.
 
 ### Attribution

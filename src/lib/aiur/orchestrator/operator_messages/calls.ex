@@ -112,7 +112,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
       AgentQueueStore.claim_next_deliverable_matching(
         state.queue_store,
         issue_identifier,
-        fn item -> item.delivery[:interrupt_requested] != true end
+        fn item -> item.delivery[:interrupt_requested] != true and item.delivery[:listener_mode_at_claim] != :sync end
       )
 
     queue_claim_reply(state, queue_store, item)

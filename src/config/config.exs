@@ -1,5 +1,7 @@
 import Config
 
+config :aiur, :listener_delivery_target, Aiur.Orchestrator.ListenerDeliveryTarget
+
 config :aiur, :github_access_settings_provider, Aiur.GitHub.AccessSettings
 
 # OTP terminate reports inspect the last message and server state while they
@@ -86,7 +88,8 @@ config :aiur, :capability_providers, [
   Aiur.Webhooks.CapabilityProvider,
   Aiur.Claude.RemoteControl.CapabilityProvider,
   Aiur.ProviderMeterProjection.CapabilityProvider,
-  Aiur.LiveConversation.CapabilityProvider
+  Aiur.LiveConversation.CapabilityProvider,
+  Aiur.Events.CapabilityProvider
 ]
 
 config :aiur, :project_identity_source, Aiur.Tracker
@@ -195,6 +198,11 @@ if config_env() == :test do
   # on one VM-wide ledger written before per-test path isolation is applied.
   # Recording cases supervise their own pair against their own state directory.
   config :aiur, :executor_recording?, false
+
+  # An answered decision starts an answer-comment task that outlives its test and
+  # calls GitHub inside unrelated tests (#6463, #6579). nil starts no task; tests
+  # that verify publishing pass their own :answer_comment_publisher.
+  config :aiur, :decision_answer_comment_publisher, nil
 
   # Durable Executor state resolves to `~/.aiur/repo/<owner>/<repo>/executor` in
   # a real run. A case that touches it without TestSupport's per-test root would

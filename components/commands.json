@@ -29,6 +29,8 @@
     "Aiur.Commands",
     "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.NativeCapture",
+    "Aiur.Commands.NativeCapture.Codex",
     "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
@@ -42,6 +44,7 @@
   "requires": [
     "config",
     "event-bus",
+    "harness-adapters",
     "identity",
     "kernel",
     "signal",
