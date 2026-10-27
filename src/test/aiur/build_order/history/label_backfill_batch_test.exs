@@ -88,7 +88,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillBatchTest do
     if Enum.any?(messages, &match?({:"$gen_call", _, ^message}, &1)) do
       :ok
     else
-      Process.sleep(1)
+      :erlang.yield()
       await_call(server, message, attempts - 1)
     end
   end
