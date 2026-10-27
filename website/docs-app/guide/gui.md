@@ -269,7 +269,11 @@ summaries. Rolling medians appear only when supplied in the stored analysis.
 
 Command details include an escalation timeline from recorded facts, with the
 cause, absolute time, and relative age. An unavailable timeline is labeled
-explicitly. Native requests show every question together: choose one answer
+explicitly.
+
+Native requests show every question together: choose one answer
 (or several when offered), select Other to write a response where allowed,
-and submit all answers at once. Suggested responses for single-question
+and submit all answers at once.
+
+Suggested responses for single-question
 Commands place the recommended option first and mark it Recommended.

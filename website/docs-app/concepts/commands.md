@@ -159,5 +159,7 @@ Older records and calls without a recorded surface use `rpc`, meaning
 Native requests can contain several questions. The dashboard records all answers
 in a single submission; a partial answer leaves the Command open. Multi-select
 questions retain a list of choices, and Other is available when the requester
-allows it. Command details show recorded escalation causes and timestamps;
+allows it.
+
+Command details show recorded escalation causes and timestamps;
 missing audit history is explicitly unavailable rather than an empty timeline.
