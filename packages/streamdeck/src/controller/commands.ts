@@ -196,7 +196,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
     if (core.state.commandsView === "detail" && core.state.selectedCommand !== null) {
       const refreshed = page.items.find((item) => item.decision_id === core.state.selectedCommand?.decision_id);
       if (refreshed !== undefined) next = { ...next, selectedCommand: refreshed };
-      else next = { ...next, commandsView: "history" };
+      else if (!core.state.commandFeedback) next = { ...next, commandsView: "history" };
     }
     publish(next);
   };
@@ -249,7 +249,8 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       clearTimeout(feedbackTimer);
       publish({ ...core.state, commandsError: `${label}: ${title}`, commandFeedback: { ...target, title, label } });
       feedbackTimer = setTimeout(() => {
-        publish({ ...core.state, commandFeedback: null, commandsError: null });
+        const stillListed = core.state.commandsPage.items.some((item) => item.decision_id === target.decisionId);
+        publish({ ...core.state, commandsView: stillListed ? core.state.commandsView : "history", commandFeedback: null, commandsError: null });
       }, 3_000);
       feedbackTimer.unref?.();
     }

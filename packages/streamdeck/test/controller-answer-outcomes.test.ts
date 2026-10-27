@@ -49,6 +49,18 @@ describe("answer race feedback", () => {
     expect(controller.state().commandsError).toBeNull();
   });
 
+  it("keeps feedback visible when the refreshed first page omits the attempted Command", async () => {
+    const { controller } = await harness();
+    vi.useFakeTimers();
+    controller.commandsError("already_answered", { reason: "already_answered", winner: { actor_kind: "operator", summary: "Wait for QA", accepted_at: "2026-10-26T00:00:00Z" } });
+    controller.setCommands({ items: [] });
+    expect(controller.state().commandsView).toBe("detail");
+    expect(keys(controller)[0]?.title).toBe("Wait for QA");
+    vi.advanceTimersByTime(3_000);
+    expect(controller.state().commandsView).toBe("history");
+    expect(controller.state().commandFeedback).toBeNull();
+  });
+
   it.each([
     [{ reason: "withdrawn", status: "expired" }, "Command withdrawn", "expired"],
     [{ reason: "stale" }, "Command changed", "Refresh and retry"],
