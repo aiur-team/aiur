@@ -6,6 +6,12 @@ defmodule Aiur.ExecutorCommandAckTest do
   alias Aiur.Commands.Routing.Policy
 
   setup %{dir: dir} do
+    previous_workflow = Aiur.Workflow.workflow_file_path()
+    File.mkdir_p!(dir)
+    workflow = Path.join(dir, "test.yaml")
+    Aiur.TestSupport.write_workflow_file!(workflow)
+    Aiur.Workflow.set_workflow_file_path(workflow)
+    on_exit(fn -> Aiur.Workflow.set_workflow_file_path(previous_workflow) end)
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     {:ok, %{decision: decision}} = request(pid, %{question: "Which scope?", blocking: false})
@@ -37,8 +43,10 @@ defmodule Aiur.ExecutorCommandAckTest do
   end
 
   test "ack after escalation retains the human route", %{pid: pid, decision: d, at: at} do
-    route = %{policy: :human_only, state: :with_human, cause: :executor_offline, at: at, actor: %{kind: :system, id: "routing"}}
+    route = %{policy: :executor_first, state: :with_executor, cause: nil, at: at, actor: %{kind: :system, id: "routing"}}
     assert {:ok, _} = DecisionStore.record_command_fact(d.decision_id, :routed, route, server: pid)
+    escalation = %{cause: :executor_escalated, at: at, detail: "Needs operator", actor: %{kind: :executor, id: "executor-one"}}
+    assert {:ok, _} = DecisionStore.record_command_fact(d.decision_id, :escalated, escalation, server: pid)
     capture_io(fn -> assert ExecutorCommandCLI.ack([decision_id: d.decision_id], decision_store: pid, now: at) == 0 end)
     assert {:ok, acked} = DecisionStore.get(d.decision_id, pid)
     assert {acked.route_state, acked.executor_acknowledged_at} == {:with_human, at}
