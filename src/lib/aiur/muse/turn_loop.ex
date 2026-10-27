@@ -85,7 +85,8 @@ defmodule Aiur.Muse.TurnLoop do
   defp continue(prior, result), do: close(prior, result)
 
   defp close(state, result) do
-    if state.steer, do: state.steer.fail.(:parent_turn_completed)
+    reason = if match?({:ok, _}, result), do: :parent_turn_completed, else: :turn_closed
+    if state.steer, do: state.steer.fail.(reason)
     Approvals.close(state.approvals)
     result
   end
