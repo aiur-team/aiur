@@ -106,8 +106,12 @@ go directly to the human.
 
 Unacknowledged Commands escalate after five minutes; acknowledged but unanswered
 Commands escalate after fifteen minutes. Urgent blocking Commands use half
-those deadlines by default. An offline or stalled roster escalates at the next
-sweep, within 30 seconds. Roster lookup failures count as stalled. Deadlines and
+those deadlines by default.
+
+An offline or stalled roster escalates at the next
+sweep, within 30 seconds. Roster lookup failures count as stalled.
+
+Deadlines and
 first human visibility survive restarts, and routing emits `human_needed` only
 once per Command. Routing never re-asks. Answers and terminal lifecycle states
 stop routing deadlines. Disabling escalation stops these routing writes.
