@@ -23,18 +23,42 @@ defmodule Aiur.AppServer.NativeSteerTest do
     def backend_label, do: "test app-server"
     def metadata_from_message(_port, _payload), do: %{}
     def loop_state_extras(_session), do: %{}
-    defdelegate steer(session, payload, turn_id), to: CodingAgent
-    defdelegate send_frame(port, frame), to: CodingAgent
+
+    def steer(session, %{kind: :text, body: text}, turn_id) do
+      id = System.unique_integer([:positive])
+      frame = Frames.turn_steer_frame(session, id, text, turn_id)
+      :ok = send_frame(session.report, frame)
+      if session[:loop], do: send(self(), {session.port, {:data, {:eol, Jason.encode!(frame)}}})
+      {:ok, id}
+    end
+
+    def send_frame(recipient, frame) do
+      send(recipient, {:wire_frame, frame})
+      :ok
+    end
 
     def start_turn(_session, _prompt, issue) do
       send(self(), {:agent_queue_updated, issue.identifier, 1, :steer})
       {:ok, "turn-1"}
     end
 
-    def handle_method(session, _state, payload, _raw, _method) do
-      send(session.report, {:wire_frame, payload})
-      {:ok, :turn_completed}
-    end
+    def handle_method(_session, _state, _payload, _raw, _method), do: {:ok, :turn_completed}
+  end
+
+  defmodule FailedBackend do
+    def steer(_session, _payload, _turn_id), do: {:error, :port_closed}
+  end
+
+  defmodule LoopTransport do
+    use GenServer
+    def start_link(state), do: GenServer.start_link(__MODULE__, state)
+    @impl true
+    def init(state), do: {:ok, state}
+    @impl true
+    def handle_call(:metadata, _from, state), do: {:reply, %{}, state}
+    def handle_call(request, _from, state) when request in [:manual_acknowledgements, :acknowledge], do: {:reply, :ok, state}
+    @impl true
+    def handle_cast(:reap_orphans, state), do: {:noreply, state}
   end
 
   setup do
@@ -43,12 +67,10 @@ defmodule Aiur.AppServer.NativeSteerTest do
     {store, first} = AgentQueueStore.enqueue(store, native_item(issue, "first"))
     {store, second} = AgentQueueStore.enqueue(store, native_item(issue, "second"))
     {:ok, queue} = QueueServer.start_link(%State{queue_store: store})
-    port = Port.open({:spawn_executable, System.find_executable("cat") |> String.to_charlist()}, [:binary, :exit_status, {:line, 64_000}])
-    on_exit(fn -> if Port.info(port), do: Port.close(port) end)
     parent = self()
 
     state = %{
-      backend: CodingAgent,
+      backend: LoopBackend,
       issue: issue,
       current_turn_id: "turn-1",
       outstanding_turns: 1,
@@ -60,7 +82,7 @@ defmodule Aiur.AppServer.NativeSteerTest do
       on_steer_claim: TurnCallbacks.build(%{backend: "codex"}, issue, orchestrator: queue, recipient: nil, live_conversation: :disabled).on_steer_claim
     }
 
-    %{state: state, session: %{port: port, thread_id: "thread-1"}, queue: queue, first: first, second: second, sync: sync}
+    %{state: state, session: %{port: self(), report: self(), thread_id: "thread-1"}, queue: queue, first: first, second: second, sync: sync}
   end
 
   test "a stale steer wake cannot claim or resume a paused runner", ctx do
@@ -89,7 +111,7 @@ defmodule Aiur.AppServer.NativeSteerTest do
 
   test "live-turn steer bypasses writer lock, claims only native items and serializes writes", ctx do
     next = OperatorDelivery.steer_pending(ctx.session, ctx.state)
-    frame = read_frame(ctx.session.port)
+    frame = read_frame()
     assert frame["method"] == "turn/steer"
     assert frame == Frames.turn_steer_frame(ctx.session, frame["id"], "first", "turn-1")
     assert status(ctx.queue, ctx.first.id) == :delivered
@@ -97,12 +119,12 @@ defmodule Aiur.AppServer.NativeSteerTest do
     assert status(ctx.queue, ctx.second.id) == :pending
     assert next.outstanding_turns == 1
     assert OperatorDelivery.steer_pending(ctx.session, next) == next
-    refute_received {_, {:data, _}}
+    refute_received {:wire_frame, _}
   end
 
   test "turnId acknowledgement settles delivery without registering a turn and advances waiting steer", ctx do
     next = OperatorDelivery.steer_pending(ctx.session, ctx.state)
-    frame = read_frame(ctx.session.port)
+    frame = read_frame()
     payload = %{"result" => %{"turnId" => "turn-1"}}
     assert {:continue, accepted} = OperatorDelivery.handle_pending_operator_response(ctx.session, next, payload, "{}", frame["id"])
     delivered = AgentQueueStore.get(queue_state(ctx.queue).queue_store, ctx.first.id)
@@ -113,7 +135,7 @@ defmodule Aiur.AppServer.NativeSteerTest do
     assert accepted.active_turn_ids == ctx.state.active_turn_ids
     assert accepted.accepted_turn_ids == MapSet.new()
     assert_received {:message, %{event: :operator_steered, turn_id: "turn-1"}}
-    second_frame = read_frame(ctx.session.port)
+    second_frame = read_frame()
     assert second_frame["params"]["input"] == [%{"type" => "text", "text" => "second"}]
     assert status(ctx.queue, ctx.second.id) == :delivered
   end
@@ -125,18 +147,18 @@ defmodule Aiur.AppServer.NativeSteerTest do
     end
 
     next = OperatorDelivery.steer_pending(ctx.session, ctx.state)
-    frame = read_frame(ctx.session.port)
+    frame = read_frame()
     stopping = Map.put(next, :pending_interrupt_request_id, 123)
     assert {:continue, settled} = OperatorDelivery.handle_pending_operator_response(ctx.session, stopping, %{"result" => %{"turnId" => "turn-1"}}, "{}", frame["id"])
     assert settled.pending_operator_requests == %{}
     assert status(ctx.queue, ctx.second.id) == :pending
-    refute_received {_, {:data, _}}
+    refute_received {:wire_frame, _}
   end
 
   test "rejected or malformed responses restore the claimed item for boundary delivery", ctx do
     for response <- [%{"error" => %{"code" => -32_600, "message" => "turn mismatch"}}, %{"result" => %{}}] do
       next = OperatorDelivery.steer_pending(ctx.session, ctx.state)
-      frame = read_frame(ctx.session.port)
+      frame = read_frame()
       assert {:continue, restored} = OperatorDelivery.handle_pending_operator_response(ctx.session, next, response, "{}", frame["id"])
       assert restored.pending_operator_requests == %{}
       assert OperatorDelivery.steer_pending(ctx.session, restored) == restored
@@ -149,21 +171,19 @@ defmodule Aiur.AppServer.NativeSteerTest do
   end
 
   test "transport failure and parent completion restore in-flight steer without interrupt", ctx do
-    Port.close(ctx.session.port)
-    assert OperatorDelivery.steer_pending(ctx.session, ctx.state).steer_fallback?
+    failing = %{ctx.state | backend: FailedBackend}
+    assert OperatorDelivery.steer_pending(ctx.session, failing).steer_fallback?
     assert status(ctx.queue, ctx.first.id) == :pending
 
-    port = Port.open({:spawn_executable, System.find_executable("cat") |> String.to_charlist()}, [:binary, :exit_status, {:line, 64_000}])
-    session = %{ctx.session | port: port}
-    next = OperatorDelivery.steer_pending(session, ctx.state)
-    assert read_frame(port)["method"] == "turn/steer"
+    next = OperatorDelivery.steer_pending(ctx.session, ctx.state)
+    assert read_frame()["method"] == "turn/steer"
     assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(next)
     assert status(ctx.queue, ctx.first.id) == :pending
-    Port.close(port)
   end
 
   test "adapter wires queue wake and claim callback without interrupting", ctx do
-    session = Map.merge(ctx.session, %{metadata: %{}, report: self()})
+    port = start_supervised!({LoopTransport, nil})
+    session = Map.merge(ctx.session, %{port: port, metadata: %{}, loop: true})
     issue = %Issue{id: "native-steer", identifier: "native-steer"}
     callbacks = TurnCallbacks.build(%{backend: "codex"}, issue, orchestrator: ctx.queue, recipient: nil, live_conversation: :disabled)
     assert {:ok, _} = Adapter.run_turn(LoopBackend, session, "work", issue, on_steer_claim: callbacks.on_steer_claim)
@@ -176,8 +196,8 @@ defmodule Aiur.AppServer.NativeSteerTest do
   defp queue_state(queue), do: :sys.get_state(queue)
   defp status(queue, id), do: AgentQueueStore.get(queue_state(queue).queue_store, id).status
 
-  defp read_frame(port) do
-    receive_barrier({^port, {:data, {:eol, line}}})
-    Jason.decode!(line)
+  defp read_frame do
+    receive_barrier({:wire_frame, frame})
+    frame
   end
 end

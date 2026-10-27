@@ -132,7 +132,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   defp deliver_now?(state, %{control: %{status: :paused}} = running_entry, item) do
     if input_waiting_self_pause?(running_entry) and
          is_nil(PauseResume.current_pending_pause_reason(state, running_entry)) do
-      wake_now?(running_entry, item)
+      wake_now?(state, running_entry, item)
     else
       false
     end
@@ -141,21 +141,21 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   defp deliver_now?(state, running_entry, item) do
     if PauseResume.current_pending_pause_reason(state, running_entry),
       do: false,
-      else: wake_now?(running_entry, item)
+      else: wake_now?(state, running_entry, item)
   end
 
-  @spec wake_now?(map(), map()) :: boolean() | :steer
-  defp wake_now?(running_entry, item) do
+  @spec wake_now?(State.t(), map(), map()) :: boolean() | :steer
+  defp wake_now?(state, running_entry, item) do
     cond do
       queue_wake_required?(running_entry) -> true
       item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true -> true
-      item.delivery[:steer_requested] == true and native_steer?(running_entry) -> :steer
+      item.delivery[:steer_requested] == true and native_steer?(state, running_entry) -> :steer
       true -> false
     end
   end
 
-  defp native_steer?(entry) do
-    case Capabilities.harness_delivery(%State{}, entry.identifier, entry) do
+  defp native_steer?(state, entry) do
+    case Capabilities.harness_delivery(state, entry.identifier, entry) do
       %{source: :session, primitives: %{mid_turn_inject: :native}} -> not no_active_turn?(entry)
       _ -> false
     end
