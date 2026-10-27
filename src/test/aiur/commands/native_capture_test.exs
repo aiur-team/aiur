@@ -120,6 +120,33 @@ defmodule Aiur.Commands.NativeCaptureTest do
     assert records(dir) == []
   end
 
+  test "native and ordinary questions stay independent in either order", %{ctx: ctx} do
+    for first_kind <- [:ordinary, :native] do
+      input = put_in(normalized(), [:questions, Access.at(0), :question], "Boundary choice #{first_kind}?")
+      input = %{input | native_ref: "boundary-#{first_kind}"}
+      {:ok, payload, _opts} = NativeCapture.to_request(input, ctx)
+      ordinary = %{payload | kind: "ordinary", source_id: "ordinary-#{first_kind}"}
+
+      results =
+        for kind <- [first_kind, if(first_kind == :ordinary, do: :native, else: :ordinary)] do
+          case kind do
+            :native ->
+              assert {:command, decision} = NativeCapture.capture(input, ctx)
+              decision
+
+            :ordinary ->
+              assert {:ok, %{decision: decision}} = request(ctx.store, ordinary)
+              decision
+          end
+        end
+
+      [first, second] = results
+      refute first.decision_id == second.decision_id
+      assert {:ok, %{decision: _answered}} = answer(ctx.store, first.decision_id, %{expected_version: 1, idempotency_key: "answer-boundary", option_id: "o1"})
+      assert {:ok, %{decision_status: :open}} = DecisionStore.get(second.decision_id, ctx.store)
+    end
+  end
+
   test "derived secret flag releases without storing or publishing the question text", %{ctx: ctx, dir: dir} do
     topic = "ticket.979.agent.native-secret-question"
     :ok = Exchange.subscribe(topic)
