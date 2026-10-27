@@ -301,6 +301,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
     {queue_store, items} = update.(state.queue_store)
     Commands.record_transport_batch_async(transition, List.wrap(items), reason)
+
+    for id <- items |> List.wrap() |> Enum.map(& &1.target_issue_identifier) |> Enum.uniq(),
+        do: Aiur.Orchestrator.OperatorMessages.Unread.broadcast_change(state.queue_store, queue_store, id)
+
     next_state = %{state | queue_store: queue_store}
     maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
     {:reply, :ok, next_state}

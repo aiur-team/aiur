@@ -223,4 +223,39 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     item_id = item.id
     assert_received {:agent_queue_updated, ^id, ^item_id, true}
   end
+
+  test "held enqueue, retry, partial read and restamp emit current unread counts", %{id: id, state: state} do
+    :ok = Aiur.AgentPubSub.subscribe_agent(id)
+    state = put_in(state.running[id].session_execution, %{backend: "codex", pull_tool_installed: true})
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    request = %{kind: :text, body: "first", delivery_policy: :listener, origin: :http, message_id: "unread-first"}
+    assert {:reply, {:ok, first}, state} = OperatorMessages.send_operator_message_call(state, id, request)
+    assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 1, oldest_unread_at: oldest}}}}
+    assert oldest == AgentQueueStore.get(state.queue_store, first).inserted_at
+    assert {:reply, {:ok, ^first}, ^state} = OperatorMessages.send_operator_message_call(state, id, request)
+    refute_received {:transcript_event, %{payload: %{listener: _}}}
+    assert {:reply, {:ok, second}, state} = OperatorMessages.send_operator_message_call(state, id, %{request | body: "second", message_id: "unread-second"})
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 2}}}}
+    assert {:reply, {:ok, %{remaining: 1}}, state} = Aiur.Orchestrator.OperatorMessages.HeldReads.handle_call(state, id, 1)
+    assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 1, oldest_unread_at: remaining_at}}}}
+    assert remaining_at == AgentQueueStore.get(state.queue_store, second).inserted_at
+    state = ListenerModes.mode_view_changed(state, id, %{effective: :sync})
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
+    assert ListenerModes.mode_view_changed(state, id, %{effective: :sync}) == state
+    refute_received {:transcript_event, %{payload: %{listener: _}}}
+  end
+
+  test "correlated holds emit count once and failure clears it", %{id: id, state: state} do
+    :ok = Aiur.AgentPubSub.subscribe_agent(id)
+    state = put_in(state.running[id].session_execution, %{backend: "codex", pull_tool_installed: true})
+    assert {:reply, {:ok, _}, state} = ListenerModes.set_mode(state, id, :async, expected_version: 0)
+    payload = %{delivery_policy: :listener, origin: :http, action_id: "held-correlated", correlation: %{action_id: "held-correlated"}}
+    assert {{:ok, %{item: item}}, state} = Enqueue.enqueue_operator_message(state, id, "held", payload, :correlated)
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 1}}}}
+    assert {{:ok, %{status: :duplicate}}, ^state} = Enqueue.enqueue_operator_message(state, id, "held", payload, :correlated)
+    refute_received {:transcript_event, %{payload: %{listener: _}}}
+    assert {:reply, :ok, state} = OperatorMessages.mark_queue_item_failed_call(state, item.id, :failed)
+    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
+    assert Aiur.Orchestrator.OperatorMessages.Capabilities.issue_control_capabilities(state, id).listener.unread_count == 0
+  end
 end
