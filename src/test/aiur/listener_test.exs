@@ -148,8 +148,21 @@ defmodule Aiur.ListenerTest do
     end
   end
 
-  test "regression guard: control capabilities retain exact key set", %{state: state} do
+  test "control capabilities include the unread listener projection", %{state: state} do
     keys = Capabilities.issue_control_capabilities(state, "42") |> Map.keys() |> Enum.sort()
-    assert keys == Enum.sort([:accepts_operator_messages, :accepted_delivery_policies, :can_interrupt, :immediate_delivery, :safe_checkpoints, :status, :unit_control, :pending_control, :queue_depth])
+
+    assert keys ==
+             Enum.sort([
+               :accepts_operator_messages,
+               :accepted_delivery_policies,
+               :can_interrupt,
+               :immediate_delivery,
+               :safe_checkpoints,
+               :status,
+               :unit_control,
+               :pending_control,
+               :queue_depth,
+               :listener
+             ])
   end
 end
