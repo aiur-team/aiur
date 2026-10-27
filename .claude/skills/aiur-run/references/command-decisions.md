@@ -8,11 +8,10 @@ to list open decisions and report new ones or blockers at least 15 minutes old.
 
 Triage Commands currently routed to you with `aiur commands --filter
 with-executor`; this is a triage view, while the listener remains the primary
-arrival path. Each routed worker Command has acknowledgement and answer
-deadlines under `decisions.escalation.*`: by default, 5 minutes to acknowledge
-and 15 minutes to answer. Blocking Commands with high or critical urgency
-halve both by default. When escalation is enabled (the default), a missed
-deadline moves the Command to the operator.
+arrival path. Read [routing and escalation](../../../../website/docs-app/concepts/commands.md#routing-and-escalation)
+for the acknowledgement and answer deadlines and how Commands reach the human.
+If the Executor goes offline or stalls, routed Commands escalate within 30 seconds,
+so keep `executor-wait` running.
 Run `"$AIUR_CMD" executor-ack <decision-id>` as soon as you start handling it.
 Reading the record or receiving a wake does not acknowledge it. Ack stops only
 the acknowledgement deadline; answer or explicitly escalate before the answer
