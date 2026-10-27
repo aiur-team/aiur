@@ -21,7 +21,7 @@ defmodule Aiur.Events.DurableConsumer.ExportSource do
 
   @impl Aiur.Events.DurableConsumer.Source
   def replay(opts, cursor, limit) do
-    GenServer.call(Process.get({__MODULE__, opts}), {:replay, cursor, min(limit, 500)})
+    GenServer.call(Process.get({__MODULE__, opts}), {:replay, cursor, min(limit, 500)}, :infinity)
   end
 
   @impl Aiur.Events.DurableConsumer.Source
