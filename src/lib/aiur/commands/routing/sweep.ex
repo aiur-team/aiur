@@ -66,19 +66,19 @@ defmodule Aiur.Commands.Routing.Sweep do
 
   defp human_needed(%{human_visible_at: at, human_needed_at: nil} = decision, _history, liveness, now, store) when not is_nil(at) do
     # Re-read after writes to recover the actual visibility cause, including crash repair.
-    {:ok, history} = DecisionStore.audit_history(decision.decision_id, store)
+    with {:ok, history} <- DecisionStore.audit_history(decision.decision_id, store) do
+      cause =
+        case Enum.find(Enum.reverse(history), &(&1.type in [:routed, :escalated] and not is_nil(&1.data.cause))) do
+          nil -> List.last(decision.escalations, %{})[:cause] || Policy.route(decision, liveness).cause
+          event -> event.data.cause
+        end
 
-    cause =
-      case Enum.find(Enum.reverse(history), &(&1.type in [:routed, :escalated] and not is_nil(&1.data.cause))) do
-        nil -> List.last(decision.escalations, %{})[:cause] || Policy.route(decision, liveness).cause
-        event -> event.data.cause
+      data = %{cause: cause, at: now, short_label: nil, requester_kind: Requester.kind(decision), blocking: decision.blocking, urgency: decision.urgency}
+
+      case fact(decision, :human_needed, data, store) do
+        {:ok, _updated} -> :ok
+        error -> error
       end
-
-    data = %{cause: cause, at: now, short_label: nil, requester_kind: Requester.kind(decision), blocking: decision.blocking, urgency: decision.urgency}
-
-    case fact(decision, :human_needed, data, store) do
-      {:ok, _updated} -> :ok
-      error -> error
     end
   end
 

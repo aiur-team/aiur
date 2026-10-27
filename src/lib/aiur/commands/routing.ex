@@ -65,9 +65,15 @@ defmodule Aiur.Commands.Routing do
 
     # A change can introduce an earlier deadline; preserve the earlier full-sweep timer.
     due = if id, do: earliest(due, state.next_due_at), else: due
-    if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
     delay = if due, do: DateTime.diff(due, now, :millisecond) |> max(1) |> min(@ceiling_ms), else: @ceiling_ms
-    %{state | next_due_at: due, timer_ref: Process.send_after(self(), :tick, delay)}
+    remaining = state.timer_ref && Process.read_timer(state.timer_ref)
+
+    if id && is_integer(remaining) && remaining <= delay do
+      %{state | next_due_at: due}
+    else
+      if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
+      %{state | next_due_at: due, timer_ref: Process.send_after(self(), :tick, delay)}
+    end
   end
 
   defp read_config(config) do
@@ -92,6 +98,10 @@ defmodule Aiur.Commands.Routing do
     {due, errors} = Sweep.run(decisions, roster(state, now), now, config, state.store)
     if errors != [], do: Logger.warning("aiur_command_routing write_failed errors=#{inspect(errors)}")
     due
+  rescue
+    error ->
+      Logger.warning("aiur_command_routing sweep_failed reason=#{Exception.message(error)}")
+      nil
   catch
     :exit, reason ->
       Logger.warning("aiur_command_routing store_unavailable reason=#{inspect(reason)}")
