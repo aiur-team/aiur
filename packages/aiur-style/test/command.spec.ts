@@ -44,6 +44,33 @@ test('active content controls width and each change emits one bubbling layout ev
   expect(await page.evaluate(() => (window as any).layoutChanges.length)).toBe(4);
 });
 
+// These skins share command.html's fixture and browser-facing command component.
+test('hovering an inactive command tab uses the foreground color', async ({ page }) => {
+  const prompt = page.getByRole('tab', { name: 'Prompt', exact: true });
+  await page.getByRole('tab', { name: 'npm', exact: true }).click();
+  await prompt.hover();
+  await expect(prompt).toHaveCSS('color', 'rgb(237, 238, 240)');
+  await expect(prompt).toHaveCSS('line-height', 'normal');
+  await expect(prompt).toHaveCSS('letter-spacing', '0.25px');
+  await expect(prompt).toHaveCSS('transition-property', 'color, background-color');
+  const tabs = page.getByRole('tab');
+  await expect(tabs.nth(0)).toHaveCSS('border-right-width', '1px');
+  await expect(tabs.nth(4)).toHaveCSS('border-right-width', '0px');
+});
+
+test('command skins preserve the accent prompt variant and copy icon size', async ({ page }) => {
+  const command = page.locator('#command-tabs');
+  const prompt = command.locator('.aiur-command__prompt');
+  await prompt.evaluate(element => element.removeAttribute('hidden'));
+  await expect(prompt).toHaveCSS('color', 'rgb(140, 141, 147)');
+  await command.evaluate(element => element.classList.add('aiur-command--accent-prompt'));
+  await expect(command.locator('.aiur-command__row')).toHaveCSS('line-height', 'normal');
+  await expect(prompt).toHaveCSS('color', 'rgb(47, 134, 255)');
+  await expect(command.locator('.aiur-command__text')).toHaveCSS('letter-spacing', '0.14px');
+  await expect(command.locator('.aiur-command__copy svg')).toHaveCSS('width', '15px');
+  await expect(command.locator('.aiur-command__copy svg')).toHaveCSS('height', '15px');
+});
+
 test('width assertion rejects a box pinned to the Prompt width', async ({ page }) => {
   const promptWidth = (await width(page)).box;
   await page.locator(root).evaluate((el, fixed) => {
