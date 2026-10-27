@@ -27,8 +27,9 @@ defmodule Aiur.Machine.InstanceRecordTest do
   @tag :tmp_dir
   test "rejects command substitution without executing its side effect", %{tmp_dir: dir} do
     path = Path.join(dir, "side-effect")
-    assert {:error, {:unsupported_value, "NODE"}} = InstanceRecord.parse(@required <> "\nAIUR_RECORD_NODE=$(touch #{path})")
+    result = InstanceRecord.parse(@required <> "\nAIUR_RECORD_NODE=$(touch #{path})")
     refute File.exists?(path)
+    assert result == {:error, {:unsupported_value, "NODE"}}
   end
 
   test "ignores unknown keys and counts non-record lines" do

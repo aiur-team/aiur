@@ -23,8 +23,8 @@
   },
   "prior": [],
   "dependency_kind": "optional",
-  "summary": "Gives paired devices access to machine settings and available Aiur instances.",
-  "status": "planned",
+  "summary": "Decodes launcher instance records for future paired-device discovery.",
+  "status": "experimental",
   "install": {
     "type": "included"
   },
