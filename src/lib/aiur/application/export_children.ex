@@ -20,7 +20,7 @@ defmodule Aiur.Application.ExportChildren do
            Aiur.Signal.alert("system.events.export_backlog.resolved", reason: "Exporter mailbox #{len} below half of #{threshold} on two checks", needs_attention: false, severity: "info")
        end,
        on_appended: fn head, epoch ->
-         Phoenix.PubSub.broadcast(Aiur.PubSub, "events:export", {:export_appended, head, epoch})
+         Phoenix.PubSub.local_broadcast(Aiur.PubSub, "events:export", {:export_appended, head, epoch})
        end}
 
     delivery =

@@ -258,6 +258,7 @@ defmodule Aiur.Application.Children do
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
+      Aiur.Commands.Routing,
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.

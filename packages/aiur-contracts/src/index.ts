@@ -13,6 +13,7 @@ export type {
   TicketSpendCapReachedEvent,
   TicketUsageChangedEvent,
 } from "./outbound-events.generated.js";
+export type * from "./voice-converse.generated.js";
 
 export const KNOWN_CAPABILITY_IDS = [
   "identity",

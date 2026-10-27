@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { contractCases } from '../scripts/validate.mjs';
+import { contractCases, validateVoiceConverse, voiceConverse } from '../scripts/validate.mjs';
 
 for (const { name, fixture, validate, marker = 'contract', version = 'contract_version', additive = true } of contractCases) {
   test(`${name} golden fixture validates`, () => {
@@ -23,6 +23,12 @@ for (const { name, fixture, validate, marker = 'contract', version = 'contract_v
     assert.equal(validate({ ...fixture, future_field: true }), additive, JSON.stringify(validate.errors));
   });
 }
+
+test('voice converse v1 golden frames validate and accept additive fields', () => {
+  assert.equal(validateVoiceConverse(voiceConverse), true);
+  assert.equal(validateVoiceConverse(voiceConverse.map((frame) => ({ ...frame, future_field: true }))), true);
+  assert.equal(validateVoiceConverse([{ ...voiceConverse[0], v: 2 }]), false);
+});
 
 test('ticket progress preserves explicitly unknown readings', () => {
   const { fixture, validate } = contractCases.find(({ name }) => name === 'ticket progress');

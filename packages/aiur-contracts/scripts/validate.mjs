@@ -23,6 +23,7 @@ export const ticketProgressEventSchema = read('schemas/ticket-progress-event.v1.
 export const ticketUsageEventSchema = read('schemas/ticket-usage-event.v1.schema.json');
 export const ticketSpendCapReachedEventSchema = read('schemas/ticket-spend-cap-reached-event.v1.schema.json');
 export const ticketCancelResultEventSchema = read('schemas/ticket-cancel-result-event.v1.schema.json');
+export const voiceConverseSchema = read('schemas/voice-converse.v1.schema.json');
 export const report = read('fixtures/capabilities.v1.json');
 export const error = read('fixtures/capability-error.v1.json');
 export const agents = read('fixtures/agents.v1.json');
@@ -33,6 +34,7 @@ export const ticketUsage = read('fixtures/ticket-usage.v1.json');
 export const ticketProgress = read('fixtures/ticket-progress.v1.json');
 export const ticketSpendCap = read('fixtures/ticket-spend-cap.v1.json');
 export const ticketSpendCapReached = read('fixtures/ticket-spend-cap-reached.v1.json');
+export const voiceConverse = read('fixtures/voice-converse.v1.json');
 export const commandSchema = read('schemas/command.v2.schema.json');
 export const command = read('fixtures/command.v2.json');
 export const ticketLifecycleEvent = read('fixtures/ticket-lifecycle-event.v1.json');
@@ -59,6 +61,7 @@ for (const schema of [
   ticketUsageEventSchema,
   ticketSpendCapReachedEventSchema,
   ticketCancelResultEventSchema,
+  voiceConverseSchema,
 ]) {
   ajv.addSchema(schema);
 }
@@ -80,6 +83,8 @@ export const validateTicketProgressEvent = ajv.getSchema(ticketProgressEventSche
 export const validateTicketUsageEvent = ajv.getSchema(ticketUsageEventSchema.$id);
 export const validateTicketSpendCapReachedEvent = ajv.getSchema(ticketSpendCapReachedEventSchema.$id);
 export const validateTicketCancelResultEvent = ajv.getSchema(ticketCancelResultEventSchema.$id);
+const validateVoiceConverseFrame = ajv.getSchema(voiceConverseSchema.$id);
+export const validateVoiceConverse = (frames) => Array.isArray(frames) && frames.every(validateVoiceConverseFrame);
 
 export const contractCases = [
   { name: 'agents', schema: agentsSchema, fixture: agents, validate: validateAgents },
@@ -105,6 +110,7 @@ for (const [validate, fixture] of [
   [validateReport, report],
   [validateError, error],
   ...contractCases.map(({ validate, fixture }) => [validate, fixture]),
+  [validateVoiceConverse, voiceConverse],
 ]) {
   if (!validate(fixture)) throw new Error(JSON.stringify(validate.errors));
 }
