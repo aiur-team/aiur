@@ -79,13 +79,13 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
   test "in-band answer writes exact structured frame and records durable delivered evidence", c do
     d = capture(c)
     answer!(c, d)
-    assert_receive {:queued, item}, 1_000
+    assert {:queued, item} = receive_barrier({:queued, _item})
     assert item.correlation.native_ref == "ref-1"
     assert item.correlation.question_answers == %{"colour" => ["red"]}
     assert {:continue, next} = Interrupts.handle_operator_queue_update(session(c), state(c, d))
     assert next.held_native_questions == %{}
     assert_frame(c, %{"colour" => %{"answers" => ["red"]}})
-    assert_receive {:event, %{event: :native_question_resolved, native_ref: "ref-1", reason: :answered}}, 1_000
+    assert_received {:event, %{event: :native_question_resolved, native_ref: "ref-1", reason: :answered}}
     assert {:ok, delivered} = DecisionStore.get(d.decision_id, c.store)
     assert delivered.delivery_status == :delivered
     assert Aiur.Decision.delivered?(delivered)
@@ -97,11 +97,11 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
   test "unrelated items stay pending while held and released answers use readable normal delivery", c do
     d = capture(c)
     answer!(c, d)
-    assert_receive {:queued, item}, 1_000
+    assert {:queued, item} = receive_barrier({:queued, _item})
     held = state(c, d) |> Map.put(:held_native_questions, %{"other-ref" => %{request_id: 55}})
     assert {:continue, ^held} = Interrupts.handle_operator_queue_update(session(c), held)
     assert GenServer.call(c.queue, {:item, item.id}).status == :pending
-    refute_receive {_, {:data, _}}, 50
+    refute_received {_, {:data, _}}
     assert {:ok, fallback} = OperatorMessages.claim_next_queue_item(c.queue, "979")
     assert fallback.id == item.id
     assert fallback.body.text =~ "Which colour?: red"
@@ -110,14 +110,14 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
   test "closed port restores the claimed item without resolving the held question", c do
     d = capture(c)
     answer!(c, d)
-    assert_receive {:queued, item}, 1_000
+    assert {:queued, item} = receive_barrier({:queued, _item})
     Port.close(c.port)
     held = state(c, d)
     assert {:continue, ^held} = Interrupts.handle_operator_queue_update(session(c), held)
     restored = GenServer.call(c.queue, {:item, item.id})
     assert restored.status == :pending
     assert restored.delivery_attempts == 1
-    refute_receive {:event, %{event: :native_question_resolved}}, 50
+    refute_received {:event, %{event: :native_question_resolved}}
     assert {:ok, current} = DecisionStore.get(d.decision_id, c.store)
     refute Aiur.Decision.delivered?(current)
   end
@@ -125,9 +125,9 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
   test "a superseded queued answer is refused before writing and only the current action replies", c do
     d = capture(c)
     answer!(c, d)
-    assert_receive {:queued, first}, 1_000
+    assert {:queued, first} = receive_barrier({:queued, _item})
     assert %{status: :accepted} = Answering.supersede(d.decision_id, %{expected_version: 1, idempotency_key: "replacement", rationale: "Choose blue instead", option_id: "o2"}, answer_opts(c))
-    assert_receive {:queued, second}, 1_000
+    assert {:queued, second} = receive_barrier({:queued, _item})
     held = state(c, d)
     assert {:continue, next} = Interrupts.handle_operator_queue_update(session(c), held)
     assert GenServer.call(c.queue, {:item, first.id}).status == :failed
@@ -140,7 +140,7 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
     d = capture(c, [question("colour", true), question("other", false)])
     answers = %{"colour" => ["red", "blue"], "other" => ["a custom value"]}
     assert %{status: :accepted} = Answering.answer(d.decision_id, %{expected_version: 1, idempotency_key: "multi", question_answers: answers}, answer_opts(c))
-    assert_receive {:queued, _item}, 1_000
+    assert {:queued, _item} = receive_barrier({:queued, _item})
     assert {:continue, next} = Interrupts.handle_operator_queue_update(session(c), state(c, d))
     assert next.held_native_questions == %{}
     assert_frame(c, Map.new(answers, fn {id, values} -> {id, %{"answers" => values}} end))
@@ -190,7 +190,7 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
 
   defp assert_frame(c, answers) do
     port = c.port
-    assert_receive {^port, {:data, line}}, 1_000
+    assert {^port, {:data, line}} = receive_barrier({^port, {:data, _line}})
     assert Jason.decode!(line) == %{"id" => 17, "result" => %{"answers" => answers}}
   end
 end

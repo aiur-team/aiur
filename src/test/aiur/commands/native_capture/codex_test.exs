@@ -149,9 +149,9 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
     assert {:continue, next} = TurnLoop.handle_method(session, state, payload, Jason.encode!(payload), payload["method"])
     assert next.held_native_questions == %{}
     assert frames(c) == [%{"id" => 0, "result" => %{"answers" => %{"colour" => %{"answers" => ["red"]}}}}]
-    assert_receive {:update, %{event: :native_question_held, native_ref: ref}}, 1_000
-    assert_receive {:update, %{event: :native_question_resolved, native_ref: ^ref, reason: :answered}}, 1_000
-    assert_receive {:delivered, %{provider: :native_reply, native_ref: ^ref}}, 1_000
+    assert_received {:update, %{event: :native_question_held, native_ref: ref}}
+    assert_received {:update, %{event: :native_question_resolved, native_ref: ^ref, reason: :answered}}
+    assert_received {:delivered, %{provider: :native_reply, native_ref: ^ref}}
   end
 
   test "turn handler tracks two held requests, emits events, skips checkpoints and defers unrelated queue items", c do
