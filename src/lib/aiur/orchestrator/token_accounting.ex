@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
   All functions execute inside the orchestrator GenServer process.
   """
 
+  alias Aiur.Orchestrator.NativeHold
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.Orchestrator.TokenAccounting.Payloads
@@ -128,6 +129,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
         completed_turn_count: completed_turn_count_for_update(completed_turn_count, update)
       })
       |> record_runtime_terminal_evidence(update)
+      |> NativeHold.integrate(update)
 
     {updated_running_entry, token_delta}
   end

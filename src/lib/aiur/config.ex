@@ -233,6 +233,9 @@ defmodule Aiur.Config do
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  @spec decisions_native_capture?(:codex) :: boolean()
+  def decisions_native_capture?(:codex), do: settings!().decisions.native_capture.codex
+
   @spec decisions_require_suggested_responses?() :: boolean()
   def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
 
