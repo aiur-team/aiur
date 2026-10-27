@@ -25,7 +25,12 @@ defmodule Aiur.Orchestrator.Cancellation.OutboundEvents do
   @doc false
   @spec payload(map()) :: map()
   def payload(result) do
-    %{outbound_event: %{kind: :ticket_cancel_result, data: JSONSafe.normalize(result)}}
+    result = JSONSafe.normalize(result)
+
+    %{
+      tracker_state: result["tracker_state"],
+      process_status: get_in(result, ["process", "status"])
+    }
   end
 
   defp observed_at(result) do

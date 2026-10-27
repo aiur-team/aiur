@@ -64,7 +64,6 @@ defmodule Aiur.Config.SchemaSectionsTest do
       refute settings.events.export.allow_private_destinations
       assert settings.events.export.webhook_url == nil
       assert settings.events.export.subject_id == nil
-      assert settings.events.export.max_pending_events == 10_000
       assert settings.events.export.retry_ms == 5_000
       assert settings.events.export.request_timeout_ms == 15_000
     end
@@ -92,7 +91,6 @@ defmodule Aiur.Config.SchemaSectionsTest do
                      "enabled" => true,
                      "webhook_url" => "https://events.example.test/aiur?tenant=mobile",
                      "subject_id" => "5695",
-                     "max_pending_events" => 500,
                      "retry_ms" => 1_000,
                      "request_timeout_ms" => 3_000
                    }
@@ -102,7 +100,6 @@ defmodule Aiur.Config.SchemaSectionsTest do
       assert settings.events.export.enabled
       assert settings.events.export.webhook_url == "https://events.example.test/aiur?tenant=mobile"
       assert settings.events.export.subject_id == "5695"
-      assert settings.events.export.max_pending_events == 500
       assert settings.events.export.retry_ms == 1_000
       assert settings.events.export.request_timeout_ms == 3_000
     end
@@ -143,7 +140,6 @@ defmodule Aiur.Config.SchemaSectionsTest do
       for export <- [
             %{"subject_id" => " "},
             %{"subject_id" => "ticket/5695"},
-            %{"max_pending_events" => 0},
             %{"retry_ms" => 0},
             %{"request_timeout_ms" => 0}
           ] do

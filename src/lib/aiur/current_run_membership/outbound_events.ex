@@ -14,14 +14,8 @@ defmodule Aiur.CurrentRunMembership.OutboundEvents do
   @spec payload(Event.t()) :: map()
   def payload(%Event{} = event) do
     %{
-      outbound_event: %{
-        kind: :ticket_lifecycle,
-        data: %{
-          "lifecycle" => Atom.to_string(event.lifecycle),
-          "source" => Atom.to_string(event.source),
-          "observed_at" => DateTime.to_iso8601(event.observed_at)
-        }
-      }
+      lifecycle: Atom.to_string(event.lifecycle),
+      lifecycle_source: Atom.to_string(event.source)
     }
   end
 end

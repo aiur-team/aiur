@@ -1,10 +1,11 @@
 defmodule Aiur.Events.Outbound.Delivery do
-  @moduledoc "Supervises at-least-once signed webhook delivery from the export journal."
+  @moduledoc "Starts at-least-once signed webhook delivery from the canonical export journal."
   # aiur:event-bus-boundary-member
 
   alias Aiur.Config.{Paths, WebhookDestination}
   alias Aiur.Events.DurableConsumer
-  alias Aiur.Events.Outbound.{ExportJournal, Webhook}
+  alias Aiur.Events.DurableConsumer.ExportSource
+  alias Aiur.Events.Outbound.Webhook
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -22,6 +23,8 @@ defmodule Aiur.Events.Outbound.Delivery do
     export = Keyword.get_lazy(opts, :export, &Aiur.Config.events_export/0)
 
     with {:ok, cursor_path} <- cursor_path(opts) do
+      retry_ms = Keyword.get(opts, :retry_ms, export.retry_ms)
+
       handler =
         Webhook.new!(
           url: Keyword.get(opts, :url, export.webhook_url),
@@ -37,11 +40,11 @@ defmodule Aiur.Events.Outbound.Delivery do
 
       DurableConsumer.start_link(
         name: Keyword.get(opts, :name, __MODULE__),
-        source: Keyword.get(opts, :source, {ExportJournal, ExportJournal}),
+        source: Keyword.get(opts, :source, {ExportSource, [cursor_path: cursor_path, retry_ms: retry_ms]}),
         handler: {Webhook, handler},
         cursor_path: cursor_path,
         replay_batch: Keyword.get(opts, :replay_batch, 500),
-        retry_ms: Keyword.get(opts, :retry_ms, export.retry_ms),
+        retry_ms: retry_ms,
         retry_max_ms: Keyword.get(opts, :retry_max_ms, max(export.retry_ms, 60_000)),
         jitter_fun: Keyword.get(opts, :jitter_fun, &random_jitter/1),
         schedule_fun: Keyword.get(opts, :schedule_fun, &Process.send_after/3)

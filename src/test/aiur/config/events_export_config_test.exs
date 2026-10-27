@@ -122,7 +122,6 @@ defmodule Aiur.Config.EventsExportConfigTest do
     assert events["events"]["export"] == %{
              "allow_private_destinations" => false,
              "enabled" => false,
-             "max_pending_events" => 10_000,
              "request_timeout_ms" => 15_000,
              "retention_days" => 7,
              "retention_max_events" => 50_000,

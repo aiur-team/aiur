@@ -21,7 +21,6 @@ events:
     webhook_url: https://consumer.example.com/webhooks/aiur
     allow_private_destinations: false
     # subject_id: "5695"       # optional exact ticket or job ID
-    max_pending_events: 10000
     retry_ms: 5000
     request_timeout_ms: 15000
 ```
@@ -87,7 +86,7 @@ event as a refresh signal and re-read the owning API for authoritative state.
 Unknown topics or newer `v` values require a newer contract package; a breaking
 wire change adds another schema version instead of changing v1 in place.
 
-## Retry and queue behavior
+## Retry and journal behavior
 
 Aiur persists an exportable event before attempting delivery. Transport errors,
 redirects, 408, 429, and 5xx responses leave the durable cursor unchanged and
@@ -96,12 +95,12 @@ retry the identical event body with capped exponential backoff and jitter.
 A 2xx response acknowledges it. Other 4xx responses are permanent: Aiur raises a
 needs-attention alert, advances past that event, and continues the queue.
 
-Internal event publication is fail-open. Non-exportable topics bypass the
-export journal; exportable topics receive a short durability budget so a slow
-disk cannot stall orchestration. A journal timeout or admission failure is
-reported and the internal event still fans out.
+Internal event publication is fail-open. The canonical exporter subscribes only
+to catalog entries marked for export, and its journal write does not add a
+synchronous call to `Publisher`.
 
-The queue is bounded by `max_pending_events`. A full queue never evicts pending
-events and raises a needs-attention alert. The alert resolves after acknowledged
-records are compacted and admission resumes. Queue files and logs never include
-the signing secret or the webhook URL query.
+Webhook delivery reads that same segmented export journal through its own
+durable cursor; it does not write a second queue. Export retention therefore
+bounds replay: if delivery falls behind the retained floor, it logs a cursor
+reset and resumes from the oldest available record. Journal, cursor, and log
+files never include the signing secret or the webhook URL query.

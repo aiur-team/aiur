@@ -187,7 +187,7 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 
 ## events
 
-Outbound export is opt-in: `events.export.enabled` remains `false` by default; enabling it starts the segmented journal, while configuring `events.export.webhook_url` additionally starts signed delivery and its durable queue.
+Outbound export is opt-in: `events.export.enabled` remains `false` by default; enabling it starts one segmented journal, while configuring `events.export.webhook_url` additionally starts signed delivery with its own cursor over that journal.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-11 -->
 | --- | --- | --- | --- |
@@ -196,7 +196,6 @@ Outbound export is opt-in: `events.export.enabled` remains `false` by default; e
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
 | `events.export.allow_private_destinations` | boolean | false | Allows loopback, private, link-local, CGNAT and ULA webhook destinations. |
 | `events.export.enabled` | boolean | false | Enables the external event journal; a configured webhook URL also enables signed delivery. Restart to apply. |
-| `events.export.max_pending_events` | integer | 10000 | Maximum admitted events waiting for acknowledgement. |
 | `events.export.request_timeout_ms` | integer | 15000 | Per-attempt webhook request timeout. |
 | `events.export.retention_days` | integer | 7 | Retention age in days (1..90); trims whole closed export segments at boot and segment roll. |
 | `events.export.retention_max_events` | integer | 50000 | Retained-record target (1000..1000000); whole-segment granularity may keep one extra segment (up to 8 MiB). |

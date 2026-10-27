@@ -17,9 +17,7 @@ defmodule Aiur.Events.Publisher do
     3. **Replay dedup** — sources that poll replay-prone APIs can pass
        a stable `:dedup_key` to avoid publishing the same PR/comment
        event repeatedly.
-    4. **Outbound admission** — when configured, synchronously fsyncs a
-       versioned external event before internal fan-out.
-    5. **Exchange.publish/2 fan-out** — once filters pass, hands off
+    4. **Exchange.publish/2 fan-out** — once filters pass, hands off
        to the Exchange which sends to every matching subscriber.
 
   ## Why a GenServer
@@ -41,7 +39,6 @@ defmodule Aiur.Events.Publisher do
   require Logger
 
   alias Aiur.Events.{Exchange, HistoryStore, IdGenerator, SourcePolicy, Trace}
-  alias Aiur.Events.Outbound.{Event, ExportJournal}
   alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
@@ -53,7 +50,6 @@ defmodule Aiur.Events.Publisher do
   # of ETS state per dedupe key.
   @default_ttl_ms 3_600_000
   @sweep_interval_ms 60_000
-  @outbound_admission_timeout_ms 100
   @durable_decision_names ["decision.requested", "decision.acknowledged", "decision.resolved"]
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -165,7 +161,6 @@ defmodule Aiur.Events.Publisher do
     id = IdGenerator.next_id()
     event = event_with_observation(topic, payload, id, opts)
 
-    maybe_admit_outbound(topic, event)
     subscribers = Exchange.publish(topic, event)
     record_emit_marker(topic, event, opts)
     # Recorded *after* the publish, never before. A crash in between then
@@ -196,7 +191,6 @@ defmodule Aiur.Events.Publisher do
     else
       event = event_with_observation(topic, payload, id, opts)
 
-      maybe_admit_outbound(topic, event)
       subscribers = Exchange.publish(topic, event)
       record_emit_marker(topic, event, opts)
       Trace.trace(:publish, topic, id: id, body: payload)
@@ -218,20 +212,6 @@ defmodule Aiur.Events.Publisher do
   # ticket-namespace prefix a caller builds the topic with.
   defp durable_decision_topic?(topic) do
     Enum.any?(@durable_decision_names, &(topic == &1 or String.ends_with?(topic, ".#{&1}")))
-  end
-
-  # External export is fail-open relative to the internal event bus. Eligible
-  # topics get a short durability budget; an unavailable or saturated exporter
-  # alerts independently and must not stall orchestration.
-  defp maybe_admit_outbound(topic, event) do
-    if Event.exportable_topic?(topic) do
-      case ExportJournal.maybe_ingest(event, @outbound_admission_timeout_ms) do
-        {:error, reason} -> Logger.warning("outbound event admission failed; continuing internal publish: #{inspect(reason)}")
-        _admitted_or_disabled -> :ok
-      end
-    end
-
-    :ok
   end
 
   # Compatibility boundary: every event gains an envelope, but legacy callers

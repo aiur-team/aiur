@@ -21,7 +21,7 @@ defmodule Aiur.Events.Outbound.WebhookTest do
     end
 
     state = webhook_state(request_fun: request_fun)
-    record = %{"seq" => 1, "event" => event()}
+    record = record()
     assert {:ok, ^state} = Webhook.handle_record(record, state)
     assert_receive {:request, opts}, 1_000
 
@@ -50,7 +50,7 @@ defmodule Aiur.Events.Outbound.WebhookTest do
           {:error, %RuntimeError{message: "closed"}}
         ] do
       state = webhook_state(request_fun: fn _opts -> result end)
-      assert {:error, _reason} = Webhook.handle_record(%{"seq" => 1, "event" => event()}, state)
+      assert {:error, _reason} = Webhook.handle_record(record(), state)
     end
   end
 
@@ -69,7 +69,7 @@ defmodule Aiur.Events.Outbound.WebhookTest do
         end
       )
 
-    assert {:ok, ^state} = Webhook.handle_record(%{"seq" => 1, "event" => event()}, state)
+    assert {:ok, ^state} = Webhook.handle_record(record(), state)
     assert_receive {:request, opts}, 1_000
     assert {"host", "consumer.example.test:8443"} in Keyword.fetch!(opts, :headers)
     assert Keyword.fetch!(opts, :connect_options)[:hostname] == "consumer.example.test"
@@ -86,7 +86,7 @@ defmodule Aiur.Events.Outbound.WebhookTest do
     state = webhook_state(request_fun: fn _opts -> {:ok, %Req.Response{status: 422}} end, alert_fun: alert_fun)
 
     assert {:discard, {:http_status, 422}, ^state} =
-             Webhook.handle_record(%{"seq" => 1, "event" => event()}, state)
+             Webhook.handle_record(record(), state)
 
     assert_receive {:alert, "system.outbound_events.delivery.permanent_failure", opts}, 1_000
     assert opts[:needs_attention]
@@ -102,14 +102,26 @@ defmodule Aiur.Events.Outbound.WebhookTest do
       )
 
     assert {:error, :destination_unavailable} =
-             Webhook.handle_record(%{"seq" => 1, "event" => event()}, state)
+             Webhook.handle_record(record(), state)
   end
 
   test "advances past records outside the configured ticket or job subscription without posting" do
     request_fun = fn _opts -> flunk("filtered event must not be posted") end
     state = webhook_state(request_fun: request_fun, subject_id: "other")
 
-    assert {:ok, ^state} = Webhook.handle_record(%{"seq" => 1, "event" => event()}, state)
+    assert {:ok, ^state} = Webhook.handle_record(record(), state)
+  end
+
+  test "advances past journal gaps and other exported families without posting" do
+    state = webhook_state(request_fun: fn _opts -> flunk("non-webhook records must not be posted") end)
+
+    assert {:ok, ^state} = Webhook.handle_record(%{"type" => "gap", "seq" => 1}, state)
+
+    assert {:ok, ^state} =
+             Webhook.handle_record(
+               %{"type" => "event", "seq" => 2, "instance" => "host/default", "id" => 22, "topic" => "ticket.5695.pr.merged"},
+               state
+             )
   end
 
   defp webhook_state(overrides) do
@@ -132,4 +144,6 @@ defmodule Aiur.Events.Outbound.WebhookTest do
   defp event do
     Jason.decode!(@body)
   end
+
+  defp record, do: event() |> Map.put("type", "event")
 end

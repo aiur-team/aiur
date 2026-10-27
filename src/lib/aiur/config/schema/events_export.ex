@@ -23,9 +23,6 @@ defmodule Aiur.Config.Schema.EventsExport do
     # @config-reference config-configuration-11 events.export.subject_id
     # @config-detail events.export.subject_id | string | nil | Delivers only events for this exact ticket or job identifier. |
     field(:subject_id, :string)
-    # @config-reference config-configuration-11 events.export.max_pending_events
-    # @config-detail events.export.max_pending_events | integer | 10000 | Maximum admitted events waiting for acknowledgement. |
-    field(:max_pending_events, :integer, default: 10_000)
     # @config-reference config-configuration-11 events.export.retry_ms
     # @config-detail events.export.retry_ms | integer | 5000 | Initial delay for capped exponential delivery retries. |
     field(:retry_ms, :integer, default: 5_000)
@@ -50,7 +47,6 @@ defmodule Aiur.Config.Schema.EventsExport do
         :allow_private_destinations,
         :webhook_url,
         :subject_id,
-        :max_pending_events,
         :retry_ms,
         :request_timeout_ms,
         :retention_days,
@@ -59,7 +55,6 @@ defmodule Aiur.Config.Schema.EventsExport do
       empty_values: []
     )
     |> validate_required([:enabled, :retention_days, :retention_max_events])
-    |> validate_number(:max_pending_events, greater_than: 0)
     |> validate_number(:retry_ms, greater_than: 0)
     |> validate_number(:request_timeout_ms, greater_than: 0)
     |> validate_number(:retention_days, greater_than_or_equal_to: 1, less_than_or_equal_to: 90)
