@@ -12,6 +12,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
 
     defp request(message) do
       send(Process.get(:test_owner), {:request, message})
+      send(Process.get(:test_owner), {:writer, message, Process.get(:aiur_ticket_writer)})
 
       case Process.get(:tracker_result, :ok) do
         :crash_label when elem(message, 0) == :label ->
@@ -109,6 +110,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
       sync: fn -> :ok end,
       tick_ms: 3_600_000,
       budget_settings: fn -> %{agent_core_limit_per_hour: 250} end,
+      max_writes_per_minute: 20,
       agent_workspace: ""
     ]
 
@@ -316,6 +318,8 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     assert {:error, :checkpoint_corrupt} = start(server)
     output = capture_io(fn -> assert Aiur.HistoryLabelWritesCLI.run(action: :status, server: server, json: true) == 1 end)
     assert Jason.decode!(output) == %{"state" => "unavailable", "reason" => ":checkpoint_corrupt"}
+    human = capture_io(fn -> assert Aiur.HistoryLabelWritesCLI.run(action: :status, server: server) == 1 end)
+    assert human == "history label-writes: unavailable (:checkpoint_corrupt)\n"
     assert File.read!(ctx.opts[:state_path] <> ".corrupt") == "{bad"
     stop_supervised!(LabelBackfill)
     server = boot(ctx.opts)
@@ -400,6 +404,50 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     assert Supervisor.child_spec(List.last(enabled), []).id == LabelBackfill
     disabled = Aiur.Application.child_specs([recording?: false] ++ opts)
     refute Enum.any?(disabled, &(Supervisor.child_spec(&1, []).id == LabelBackfill))
+  end
+
+  test "minute pacing counts ensure and label requests and survives restart", ctx do
+    update(ctx.fixture, %{owners: %{1 => %{feature: "h", confirmed: true}, 2 => %{feature: "h", confirmed: true}}, projection: %{1 => :held_backfill, 2 => :held_backfill}})
+    opts = Keyword.put(ctx.opts, :max_writes_per_minute, 2)
+    server = boot(opts)
+    start(server, per_hour: 60)
+    assert %{requests_last_hour: 2, counts: %{written: 1, pending: 1}} = tick(server)
+    assert requests() == [{:ensure, ["feature:h"]}, {:label, "1", "feature:h"}]
+    assert_received {:writer, {:ensure, ["feature:h"]}, :history_label_backfill}
+    assert_received {:writer, {:label, "1", "feature:h"}, :history_label_backfill}
+    stop_supervised!(LabelBackfill)
+    update(ctx.fixture, %{now: DateTime.add(ctx.now, 59)})
+    server = boot(opts)
+    tick(server)
+    assert requests() == []
+    update(ctx.fixture, %{now: DateTime.add(ctx.now, 60)})
+    assert %{requests_last_hour: 3, counts: %{written: 2}, run: %{state: :finished}} = tick(server)
+    assert requests() == [{:label, "2", "feature:h"}]
+  end
+
+  test "a batch plans once while retaining each pre-write owner check", ctx do
+    owners = Map.new(1..3, &{&1, %{feature: "h", confirmed: true}})
+    update(ctx.fixture, %{owners: owners, projection: Map.new(1..3, &{&1, :held_backfill})})
+    parent = self()
+    readers = ctx.opts[:readers]
+
+    features = fn ->
+      send(parent, :planned)
+      readers.features.()
+    end
+
+    owner = fn n ->
+      send(parent, {:owner_read, n})
+      readers.owner.(n)
+    end
+
+    server = boot(Keyword.put(ctx.opts, :readers, %{readers | features: features, owner: owner}))
+    start(server)
+    tick(server)
+    messages = drain([])
+    assert Enum.count(messages, &(&1 == :planned)) in 2..3
+    for n <- 1..3, do: assert({:owner_read, n} in messages)
+    assert Enum.count(messages, &match?({:request, _}, &1)) == 4
   end
 
   test "workspace refusal applies at server boundary too", ctx do

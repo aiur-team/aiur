@@ -29,8 +29,9 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Rules do
   def max_per_hour(0), do: 125
   def max_per_hour(limit), do: div(limit, 2)
 
-  @spec window_allows?([DateTime.t()], pos_integer(), DateTime.t()) :: boolean()
-  def window_allows?(window, limit, now), do: length(recent(window, now)) < limit
+  @spec window_allows?([DateTime.t()], pos_integer(), pos_integer(), DateTime.t()) :: boolean()
+  def window_allows?(window, hourly, minute, now),
+    do: length(recent(window, now)) < hourly and Enum.count(window, &(DateTime.diff(now, &1, :millisecond) < 60_000)) < minute
 
   @spec recent([DateTime.t()], DateTime.t()) :: [DateTime.t()]
   def recent(window, now), do: Enum.filter(window, &(DateTime.diff(now, &1, :millisecond) < 3_600_000))

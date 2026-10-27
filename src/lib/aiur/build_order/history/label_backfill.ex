@@ -46,6 +46,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       tracker: Keyword.get(opts, :tracker, Aiur.Tracker),
       budget_settings: Keyword.get(opts, :budget_settings, &Access.guard_settings/0),
+      per_minute: Keyword.get_lazy(opts, :max_writes_per_minute, &write_limit/0),
       batch: nil,
       tick_ms: Keyword.get(opts, :tick_ms, 60_000)
     }
@@ -53,6 +54,13 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
     schedule(state)
     if data.run.state == :running, do: send(self(), :work)
     {:ok, state}
+  end
+
+  defp write_limit do
+    case Aiur.Config.settings() do
+      {:ok, settings} -> settings.build_queue.max_writes_per_minute
+      _ -> 20
+    end
   end
 
   defp state_path do
@@ -170,7 +178,8 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
   defp begin_tick(%{batch: nil} = state, from) do
     ids = state.data.items |> Enum.sort_by(fn {_, item} -> {item.ticket, item.label} end) |> Enum.map(&elem(&1, 0))
     send(self(), :next)
-    %{state | batch: %{ids: ids, waiters: List.wrap(from)}}
+    plan = if state.unavailable == nil and state.data.run.state == :running, do: Sources.plan(state.readers, Map.to_list(state.data.run)), else: nil
+    %{state | batch: %{ids: ids, waiters: List.wrap(from), plan: plan}}
   end
 
   defp begin_tick(state, nil), do: state

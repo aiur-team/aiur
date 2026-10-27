@@ -228,6 +228,10 @@ windows reset at different moments. Pooling buys margin while the burn itself is
 
 [Optional history label writes](/reference/build-history-commands#optional-history-label-writes) spend one Core `POST /issues/:n/labels` per label on confirmed, closed historical tickets, using the daemon credential.
 
-Label creation also consumes the job's rolling-hour bucket. The default is 60 requests/h, capped at half the effective agent Core ceiling (125 when disabled).
+Label creation and label POSTs share a persisted rolling window: at most `build_queue.max_writes_per_minute` requests per minute (default 20) and 60 requests/h by default, capped at half the effective agent Core ceiling (125 when disabled). Restarting preserves both limits.
+
+Ledger callers `history_label_backfill_ensure` and `history_label_backfill_post` distinguish label creation from issue-label writes and from normal feature projection.
+
+The minute ceiling applies to this job; the build queue and feature projection retain their own ceilings.
 
 The job makes no remote reads or idle requests. Budget holds and rate limits defer writes durably until reset. Plan output includes label creation requests and names code-derived cost as unmeasured; it claims no saving.

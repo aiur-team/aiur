@@ -81,6 +81,8 @@ Imported features remain exempt; only held-backfill feature joins and closed tic
 
 Read `plan` first and pass its total request count as `--expect`. For example, one absent feature label plans `2 requests (feature 1, epic 0, ensure 1)`. Existing labels are skipped case-insensitively and handed to normal feature projection without rewriting them.
 
-Every attempt, including label creation and failures, consumes a persisted request token before calling GitHub. Holds survive restarts; a missing reset waits 15 minutes. Authentication and permission failures stop until explicit resume. A corrupt or mismatched checkpoint is unavailable, never a fresh idle run.
+Every attempt, including label creation and failures, consumes a persisted request token before calling GitHub. The same window enforces `build_queue.max_writes_per_minute` (default 20/min) as well as the selected hourly ceiling; both limits survive restarts.
+
+Holds survive restarts; a missing reset waits 15 minutes. Authentication and permission failures stop until explicit resume. A corrupt or mismatched checkpoint is unavailable, never a fresh idle run.
 
 Start and resume are refused inside agent workspaces. Exit codes: 0 success, 1 refusal/unavailable, 64 invalid usage, 124 RPC timeout (outcome unknown). No labels are removed by this job; epic labels remain after later override changes. See [GitHub budgets](/apis/github-budgets#history-label-writes) for spending details.

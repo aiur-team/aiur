@@ -8,7 +8,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
     if held?(state) do
       state
     else
-      plan = Sources.plan(state.readers, Map.to_list(state.data.run))
+      plan = state.batch.plan
       decisions = Map.new(plan.items, &{Rules.item_key(&1), &1})
       process(id, decisions, plan.unknown, state)
     end
@@ -63,7 +63,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
   defp request(id, operation, state) do
     now = state.clock.()
 
-    if Rules.window_allows?(state.data.window, state.data.run.per_hour, now) do
+    if Rules.window_allows?(state.data.window, state.data.run.per_hour, state.per_minute, now) do
       next = persist(%{state | data: %{state.data | window: [now | Rules.recent(state.data.window, now)]}})
       if is_nil(next.unavailable), do: perform(id, operation, next), else: next
     else
@@ -76,7 +76,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
 
     result =
       if operation == :ensure,
-        do: state.tracker.ensure_labels([item.label]),
+        do: TicketTransition.with_writer(:history_label_backfill, fn -> state.tracker.ensure_labels([item.label]) end),
         else: TicketTransition.write_marker(to_string(item.ticket), :add, item.label, writer: :history_label_backfill, tracker: state.tracker)
 
     case {operation, Rules.on_result(result, state.clock.())} do

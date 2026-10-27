@@ -71,4 +71,26 @@ defmodule Aiur.GitHub.QueueCostTest do
     assert_raise RuntimeError, "tracker failed", fn -> TicketTransition.write_marker("1", :add, "agent:queued", writer: :build_queue, tracker: BrokenTracker) end
     assert Process.get(:aiur_ticket_writer) == :outer
   end
+
+  test "historical label POST and repository ensure have distinct ledger callers", %{quota: quota, path: path} do
+    assert :ok = TicketTransition.write_marker("3182", :add, "feature:history", writer: :history_label_backfill, tracker: Tracker)
+
+    assert {:ok, %{status: 200}} =
+             TicketTransition.with_writer(:history_label_backfill, fn ->
+               Transport.default_request_fun(%{
+                 method: :post,
+                 url: "https://api.github.com/repos/queue/cost/labels",
+                 token: "test-token",
+                 body: %{"name" => "feature:history"}
+               })
+             end)
+
+    assert Process.get(:aiur_ticket_writer) == nil
+    callers = Map.new(Quota.snapshot(quota).callers, &{&1.caller, &1.calls})
+    assert callers == %{"history_label_backfill_post" => 1, "history_label_backfill_ensure" => 1}
+    assert :ok = Quota.flush_request_log(quota)
+    rows = path |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&String.split(&1, "\t"))
+    assert Enum.count(rows, &(Enum.at(&1, 3) == "history_label_backfill_post" and Enum.at(&1, 4) == "post")) == 1
+    assert Enum.count(rows, &(Enum.at(&1, 3) == "history_label_backfill_ensure" and Enum.at(&1, 4) == "post")) == 1
+  end
 end

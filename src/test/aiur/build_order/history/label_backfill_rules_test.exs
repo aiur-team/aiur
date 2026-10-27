@@ -62,7 +62,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.RulesTest do
     assert Rules.max_per_hour(250) == 125
     assert Rules.max_per_hour(0) == 125
     assert Rules.max_per_hour(100) == 50
-    refute Rules.window_allows?([now, DateTime.add(now, -3599)], 2, now)
-    assert Rules.window_allows?([now, DateTime.add(now, -3600)], 2, now)
+    refute Rules.window_allows?([now, DateTime.add(now, -3599)], 2, 20, now)
+    assert Rules.window_allows?([now, DateTime.add(now, -3600)], 2, 20, now)
   end
 end
