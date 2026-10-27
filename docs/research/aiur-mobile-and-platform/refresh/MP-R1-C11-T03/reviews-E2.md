@@ -15,7 +15,7 @@ For each named item, read the current owner and rewrite the cited starting point
 | REFRESH-MP-E2-C2-T04-4fbe1095 | `src/lib/aiur/agent_control_cli.ex:354-366` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C2-T04-4fbe1095 | `src/lib/aiur/executor_command_cli.ex:8-66` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C4-T02-4fbe1095 (resolved) | `src/lib/aiur/app_server/turn_loop.ex:9-52` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
-| REFRESH-MP-E2-C4-T03-4fbe1095 | `src/lib/aiur/decision_dispatch.ex:36-66` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
+| REFRESH-MP-E2-C4-T03-4fbe1095 (resolved) | `src/lib/aiur/decision_dispatch.ex:36-66` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C5-T00-4fbe1095 | `src/lib/aiur/claude/coding_agent.ex:302-399` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C5-T02-4fbe1095 | `src/lib/aiur/claude/coding_agent.ex:302-383` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C5-T03-4fbe1095 | `src/lib/aiur/decision_store.ex:4725-4764` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f | LINES-CHANGED: source range has no unique byte-identical destination |
@@ -54,3 +54,16 @@ Accounting integration is `token_accounting.ex:114–154`; the stall and duratio
 guards belong in `runtime_watchdog.ex:327` and `:92`. C4-T00 findings report
 Q1–Q3 PASS; the capture facade landed in #6550. Product and predecessor gates
 are retained; the capture gate stays disabled pending reply/release support.
+
+## REFRESH-MP-E2-C4-T03-4fbe1095 — closed (2026-10-27)
+
+Re-resolved on the implementation checkout for #6408. `DecisionDispatch.dispatch/2`
+builds original-answer correlation and routes through `Commands.DeliveryTarget`;
+corrective revisions have their own dispatcher. `Answering.decode_question_answers/2`
+and `render_question_answers/2` provide C3's structured encoding. C4's hold is retained
+by `Codex.TurnLoop`; `AppServer.Interrupts` suppresses unrelated queue interrupts.
+`OperatorMessages.Calls` owns queue claims behind `Orchestrator.Calls`; runner
+`TurnCallbacks` carries callbacks through both turn entry points and the app-server
+adapter. `QueueDrain` delegates validation and delivery evidence to
+`AgentRunner.DeliveryCorrelation`. The store's queue-item settlement contract remains
+unchanged. These symbols replace the historical line ranges for implementation.

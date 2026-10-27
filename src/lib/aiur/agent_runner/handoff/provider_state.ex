@@ -30,6 +30,7 @@ defmodule Aiur.AgentRunner.Handoff.ProviderState do
     state
     |> Map.put(:on_message, Keyword.get(opts, :on_message, fn _ -> :ok end))
     |> Map.put(:on_safe_checkpoint, Keyword.get(opts, :on_safe_checkpoint, fn _ -> :noop end))
+    |> Map.put(:on_native_reply, Keyword.get(opts, :on_native_reply, fn _ -> :none end))
     |> Map.put(:tool_executor, Keyword.get(opts, :tool_executor, &Dispatch.execute/2))
     |> Map.put(:pending_operator_requests, pending)
     |> Map.put(:timeout_ms, Aiur.Config.agent_turn_timeout_ms())

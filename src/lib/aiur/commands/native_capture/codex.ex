@@ -14,6 +14,16 @@ defmodule Aiur.Commands.NativeCapture.Codex do
     end
   end
 
+  @doc "Reply to a held JSON-RPC user-input request with all structured answers."
+  @spec reply(port() | pid(), term(), map()) :: :ok | {:error, :port_closed}
+  def reply(port, request_id, answers) do
+    answers = Map.new(answers, fn {id, values} -> {id, %{"answers" => values}} end)
+    Aiur.AppServer.Rpc.send_line(port, %{"id" => request_id, "result" => %{"answers" => answers}})
+    :ok
+  rescue
+    ArgumentError -> {:error, :port_closed}
+  end
+
   defp capture(port, id, params, ctx) do
     with {:ok, answers} <- UserInputAnswers.unavailable_answers(params),
          thread when is_binary(thread) <- Map.get(ctx, :tool_call_thread_id),

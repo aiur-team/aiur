@@ -226,6 +226,10 @@ defmodule Aiur.Orchestrator.Calls do
       when is_binary(issue_identifier),
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_operator_queue_item_call(state, issue_identifier) end)
 
+  def handle_call({:claim_native_reply_item, identifier, refs}, _from, state)
+      when is_binary(identifier) and is_list(refs),
+      do: Aiur.Handoff.claim_or_empty(state, fn -> Aiur.Orchestrator.OperatorMessages.Calls.claim_native_reply_item_call(state, identifier, refs) end)
+
   def handle_call({:claim_operator_response, identifier, command}, _from, state)
       when is_binary(identifier) and is_binary(command) and command != "",
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_operator_response_call(state, identifier, command) end)

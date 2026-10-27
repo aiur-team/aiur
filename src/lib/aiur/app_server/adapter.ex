@@ -56,7 +56,8 @@ defmodule Aiur.AppServer.Adapter do
     callbacks = %{
       on_message: on_message,
       on_provider_delivery: on_provider_delivery,
-      on_safe_checkpoint: on_safe_checkpoint
+      on_safe_checkpoint: on_safe_checkpoint,
+      on_native_reply: Keyword.get(opts, :on_native_reply, fn _refs -> :none end)
     }
 
     tool_executor =
@@ -112,6 +113,7 @@ defmodule Aiur.AppServer.Adapter do
               backend: backend,
               on_message: callbacks.on_message,
               on_safe_checkpoint: callbacks.on_safe_checkpoint,
+              on_native_reply: callbacks.on_native_reply,
               tool_executor: tool_executor,
               timeout_ms: Config.agent_turn_timeout_ms(),
               pending_line: "",

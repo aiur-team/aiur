@@ -188,3 +188,10 @@ allows it.
 
 Command details show recorded escalation causes and timestamps;
 missing audit history is explicitly unavailable rather than an empty timeline.
+
+When native Codex question capture holds a tool request in-band, answering the
+Command returns every question's structured answer to that same request. The
+queue records provider delivery through the normal Command delivery path. If the
+asking turn has already released the request, the answer remains a readable
+queued message for the ticket's next delivery opportunity. Unrelated messages
+wait while a native question is held.
