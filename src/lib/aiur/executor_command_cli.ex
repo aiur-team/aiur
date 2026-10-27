@@ -349,6 +349,11 @@ defmodule Aiur.ExecutorCommandCLI do
     1
   end
 
+  defp command_error(_action, {:answer_invalid, {:executor_scope, :executor_originated}}, deps) do
+    write_error(deps, "aiur: you raised this Command; it needs the human")
+    1
+  end
+
   defp command_error(_action, {:answer_invalid, {:executor_scope, {field, value}}}, deps) do
     write_error(
       deps,

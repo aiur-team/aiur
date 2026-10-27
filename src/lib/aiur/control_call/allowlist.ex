@@ -101,6 +101,20 @@ defmodule Aiur.ControlCall.Allowlist do
        idempotency_key: :non_empty_string,
        supersede: :boolean
      }},
+    {:command_request, 1, :write, [:keyword],
+     %{
+       question: :non_empty_string,
+       options: :string_list,
+       recommend: :non_empty_string,
+       blocking: :boolean,
+       urgency: {:enum, ["low", "normal", "high", "critical"]},
+       ticket: :non_empty_string,
+       long_context_markdown: :string,
+       short_summary: :string,
+       executor_id: :non_empty_string,
+       idempotency_key: :non_empty_string,
+       json: :boolean
+     }},
     {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{

@@ -135,6 +135,25 @@ The discard file is a deliberate operator signal outside the workspace, not an a
 If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace. The terminal sweep at the next Aiur start tries again. If a new run of a reopened ticket holds the workspace when the delete is due, Aiur keeps the workspace and the save, and the notice does not expire.
 
 To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
+
+## Executor Command requests
+
+`aiur command request "<question>"` accepts repeated `--option <id>=<label>` flags and an optional `--recommend <id>` (moves that response first). Prefer two or three responses. Requests default to blocking, normal urgency and human-required authority. `--blocking` is accepted explicitly; `--urgency low|normal|high|critical` sets priority.
+
+Use `--short-summary <text>` for a concise title and `--context-file <path>` for Markdown context (at most 20,000 characters, read on the caller's machine before RPC).
+
+`--ticket <n>` adds context only: the reserved `executor` ticket owns the Command and no worker receives its answer.
+
+`--executor-id <id>` identifies the requester, falling back to `AIUR_EXECUTOR_ID` and then the host/instance identity; a live claim is not required.
+
+The output prints the Command ID and retry key. Reuse `--idempotency-key <key>` after an uncertain submission to return the same Command. Without a key, one is generated.
+
+`--json` returns `decision_id`, `version`, `route_state`, `source_id` and `status`; routing may still be pending (`route_state: null`) when creation returns.
+
+Routing sends these Commands directly to the human with cause `executor_originated`.
+
+Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
+
 ## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
 
 ## Dashboard page commands
@@ -143,6 +162,7 @@ To recover saved work by hand, run the `restore_commands` of `manifest.json` in 
 | Command | Page view and important inputs | Example |
 | --- | --- | --- |
 | `aiur units` | Filtered Units catalog; use `--scope`, repeated `--condition`, `--format`, or `--json`. | `aiur units --scope unfinished --condition alert --json` |
+| `aiur command request <question>` | Creates an Executor-originated Command for the human in the shared inbox. Requires the daemon. | `aiur command request 'Ship the beta today?' --option yes=Ship --option no=Wait --recommend yes` |
 | `aiur commands [decision-id]` | Durable decision inbox, or one selected decision. Use `--filter all\|open\|blocking\|resolved`, `--blocking`, `--ticket`, `--search`, `--cursor`, `--limit`, and `--json`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter blocking --json` |
 | `aiur queue show [--queue NAME] [--json]` | Read set rank, counts and state, held status, start order, prerequisites, progress, and source ages; optionally select a named queue. | `aiur queue show --queue paseo --json` |
 | `aiur queue add <ids…> [--after N] [--queue NAME] [--at POS] [--rank POS] [--start-on TRIGGER]` | Adds tickets to a list (default name: `default`); `--after` adds local prerequisite edges and requires N to be in the target queue or included in the same command; the command's add is atomic when `--after` names one of its IDs. Positions are zero-based. An ID missing from the latest tracker observation is checked against its cached closure state, or with one single-issue read when nothing is cached. If that shows it closed, it is reported `closed` and not queued; otherwise it is queued pending and reported as `not yet observed (retry after next poll)`. | `aiur queue add 141 142 143 --queue paseo --after 141 --at 0` |

@@ -20,6 +20,7 @@ defmodule Aiur.DecisionStore.Revisions do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
          {:ok, actor} <- Answers.fetch_actor(opts),
+         :ok <- Answers.validate_requester_actor(actor, decision),
          :ok <- require_new_actor_may_replace(decision, payload, actor),
          :ok <- Answers.require_relay_enabled(actor, state),
          :ok <- require_relay_may_replace(decision, actor) do
