@@ -63,7 +63,10 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
 
-  def handle_info({:listen_mode_changed, id, view}, state), do: {:noreply, ListenerModes.mode_view_changed(state, id, view)}
+  def handle_info({:listen_mode_changed, id, _view}, state) do
+    {:reply, {:ok, view}, _state} = ListenerModes.get_mode(state, id)
+    {:noreply, ListenerModes.mode_view_changed(state, id, view)}
+  end
 
   def handle_info(:tick, state),
     do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
