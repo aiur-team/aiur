@@ -52,15 +52,18 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
 
   import Plug.Conn
 
+  alias Aiur.Commands.Answering
   alias Aiur.DecisionStore
   alias Aiur.Events.IdGenerator
 
   @store __MODULE__.Store
 
-  def configure(conn, _params) do
-    decision = seed_decision!()
+  def configure(conn, params) do
+    native? = params["native"] == "true"
+    if native?, do: :persistent_term.erase({__MODULE__, :decision_id})
+    decision = seed_decision!(native?)
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, true)
-    :persistent_term.put({__MODULE__, :join_delay_ms}, 4_000)
+    :persistent_term.put({__MODULE__, :join_delay_ms}, if(native?, do: 0, else: 4_000))
     :persistent_term.put({__MODULE__, :join_state}, :waiting)
     redirect(conn, to: "/commands/#{decision.decision_id}")
   end
@@ -75,6 +78,7 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
         json(conn, %{
           decision_status: to_string(decision.decision_status),
           selected_option_id: decision.answer && decision.answer.selected_option_id,
+          question_answers: question_answers(decision),
           actor: decision.answer && %{kind: to_string(decision.answer.actor.kind), id: decision.answer.actor.id}
         })
 
@@ -100,7 +104,14 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
 
   def store_name, do: @store
 
-  defp seed_decision! do
+  defp question_answers(%{questions: [_ | _] = questions, answer: answer}) when not is_nil(answer) do
+    {:ok, answers} = Answering.decode_question_answers(questions, answer)
+    answers
+  end
+
+  defp question_answers(_decision), do: nil
+
+  defp seed_decision!(native?) do
     unless Process.whereis(@store) do
       dir = Path.join(System.tmp_dir!(), "aiur-browser-command-answer-#{System.unique_integer([:positive])}")
       File.mkdir_p!(dir)
@@ -137,7 +148,8 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
             },
             [
               ticket: %{identifier: "BROWSER-5149", title: "Browser answer fixture", url: "https://example.invalid/5149"},
-              source: %{agent_id: "browser-fixture", session_id: "browser-fixture", event_id: nil}
+              source: %{agent_id: "browser-fixture", session_id: "browser-fixture", event_id: nil},
+              questions: if(native?, do: questions(), else: [])
             ],
             @store
           )
@@ -149,6 +161,13 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
         {:ok, decision} = DecisionStore.get(decision_id, @store)
         decision
     end
+  end
+
+  defp questions do
+    [
+      %{question_id: "q1", question: "Which release strategy?", options: [%{id: "safe", label: "Safe rollout"}, %{id: "fast", label: "Fast rollout"}], allow_other: false},
+      %{question_id: "q2", question: "Which targets?", options: [%{id: "a", label: "Alpha"}, %{id: "b", label: "Beta"}], multi_select: true, allow_other: true}
+    ]
   end
 end
 

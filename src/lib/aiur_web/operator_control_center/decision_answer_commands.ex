@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
   import Phoenix.Component, only: [assign: 3]
   alias Aiur.Commands.Answering
   alias AiurWeb.EndpointConfig
-  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionCommands, DecisionOutcomes}
+  alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionCommands, DecisionOutcomes, DecisionQuestionsForm}
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -49,7 +49,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
     form = normalize_form(form)
     socket = put_form(socket, id, form, decision)
 
-    case answer_content(form) do
+    case answer_content(decision, form) do
       {:ok, answer} ->
         {key, socket} = ensure_action_key(socket, id)
         payload = Map.merge(answer, %{"idempotency_key" => key, "expected_version" => decision.version})
@@ -72,7 +72,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
   end
 
   defp retain_draft(reloaded, _previous, _id, _result), do: reloaded
-  defp normalize_form(form) when is_map(form), do: Map.take(form, ["choice", "custom_response", "rationale"])
+  defp normalize_form(form) when is_map(form), do: Map.take(form, ["choice", "custom_response", "rationale", "question_choices", "question_other"])
   defp normalize_form(_form), do: %{}
 
   defp options do
@@ -113,6 +113,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
 
   defp enrich_outcome(outcome, _decision), do: outcome
 
+  defp answer_content(decision, form) do
+    case DecisionQuestionsForm.questions(decision) do
+      [] -> answer_content(form)
+      questions -> DecisionQuestionsForm.answer_content(questions, form)
+    end
+  end
+
   defp answer_content(%{"choice" => "option:" <> id}) when id != "", do: {:ok, %{"option_id" => id}}
 
   defp answer_content(%{"choice" => "custom", "custom_response" => response}) when is_binary(response) do
@@ -142,7 +149,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAnswerCommands do
 
   defp put_form(socket, id, form, decision) do
     update_state(socket, id, fn state ->
-      state |> Map.put(:decision_identity, identity(decision)) |> Map.put(:form, Map.take(form, ["choice", "custom_response", "rationale"])) |> Map.drop([:error, :notice, :outcome])
+      state
+      |> Map.put(:decision_identity, identity(decision))
+      |> Map.put(:form, form)
+      |> Map.drop([:error, :notice, :outcome])
     end)
   end
 

@@ -266,3 +266,10 @@ empty samples show zero.
 Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
+
+Command details include an escalation timeline from recorded facts, with the
+cause, absolute time, and relative age. An unavailable timeline is labeled
+explicitly. Native requests show every question together: choose one answer
+(or several when offered), select Other to write a response where allowed,
+and submit all answers at once. Suggested responses for single-question
+Commands place the recommended option first and mark it Recommended.

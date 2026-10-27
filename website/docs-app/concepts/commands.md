@@ -155,3 +155,9 @@ answer summary, delivery state and whether that caller can replace it.
 Older records and calls without a recorded surface use `rpc`, meaning
 “no surface recorded.” Attribution is separate from authentication:
 `human_required` does not stop a same-user process with the distribution cookie.
+
+Native requests can contain several questions. The dashboard records all answers
+in a single submission; a partial answer leaves the Command open. Multi-select
+questions retain a list of choices, and Other is available when the requester
+allows it. Command details show recorded escalation causes and timestamps;
+missing audit history is explicitly unavailable rather than an empty timeline.
