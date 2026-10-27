@@ -24,7 +24,7 @@ defmodule Aiur.Commands.EventData do
 
   def normalize(:native_released, raw) when is_map(raw) do
     with {:ok, ref} <- Validation.map_required_string(raw, :native_ref, 256),
-         {:ok, reason} <- enum(Validation.get(raw, :reason), [:idle_timeout, :pause, :interrupt, :turn_ended, :session_gone], :reason),
+         {:ok, reason} <- enum(Validation.get(raw, :reason), [:idle_timeout, :pause, :interrupt, :turn_ended, :session_gone, :not_holdable], :reason),
          {:ok, at} <- release_timestamp(Validation.get(raw, :at)) do
       {:ok, %{native_ref: ref, reason: reason, at: at}}
     end

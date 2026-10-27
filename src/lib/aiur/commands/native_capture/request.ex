@@ -8,7 +8,8 @@ defmodule Aiur.Commands.NativeCapture.Request do
     with {:ok, answers} <- UserInputAnswers.unavailable_answers(params),
          thread when is_binary(thread) <- Map.get(ctx, :tool_call_thread_id),
          turn when is_binary(turn) <- Map.get(ctx, :turn_id) do
-      ref = "#{harness}:#{thread}:#{turn}:#{id}"
+      identity = if harness == :claude, do: params["questions"] |> Enum.map(& &1["id"]) |> Enum.sort() |> Jason.encode!() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower), else: id
+      ref = "#{harness}:#{thread}:#{turn}:#{identity}"
 
       normalized = %{
         harness: harness,
@@ -26,6 +27,9 @@ defmodule Aiur.Commands.NativeCapture.Request do
 
         {:release, text} ->
           release(port, id, answers, text, ctx)
+
+        {:command, %{native: %{hold: :released}} = decision} ->
+          release(port, id, answers, NativeCapture.release_text(decision.decision_id), ctx)
 
         {:command, decision} ->
           {:held, ref,
