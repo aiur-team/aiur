@@ -135,6 +135,7 @@ test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
   await expect(card).toHaveAttribute('aria-label', /^Not filed yet\./)
   await expect(card.locator('.bd-status')).toContainText('Not filed')
   await expect(card.locator('.bd-q.promo')).toHaveCount(0)
+  await expect(page.locator('.bd-card[data-id="607"] .bd-q.promo')).toHaveCount(1)
 })
 
 test('arrow keys move focus and space uses the board button behavior', async ({ page }) => {
