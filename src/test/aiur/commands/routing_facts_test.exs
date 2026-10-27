@@ -144,7 +144,7 @@ defmodule Aiur.Commands.RoutingFactsTest do
     assert {:ok, _} = fact(pid, d, :escalated, escalation(at))
     assert {:ok, %{decision: current}} = fact(pid, d, :routed, route(DateTime.add(at, 1)))
     assert current.human_visible_at == at
-    assert {:ok, %{status: :duplicate}} = fact(pid, d, :escalated, escalation(at))
+    assert {:ok, %{status: :accepted}} = fact(pid, d, :escalated, escalation(at))
     assert {:ok, event} = DecisionEvent.new(:escalated, d.decision_id, 2, escalation(at), event_id: "next-version", run_id: "test")
     assert {:ok, updated} = Facts.apply(%{current | version: 2}, event)
     assert length(updated.escalations) == 2

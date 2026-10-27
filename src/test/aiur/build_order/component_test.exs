@@ -125,6 +125,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.GitHub.Listeners,
     {Aiur.Orchestrator, [name: Aiur.Orchestrator, initial_poll?: true]},
     Aiur.BuildQueue.Server,
+    Aiur.Commands.Routing,
     Aiur.DecisionExpiry,
     Aiur.CurrentRunMembership.Reconciler,
     {Aiur.CurrentRunProjections, [idle_without_subscribers?: true]},
