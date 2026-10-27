@@ -91,6 +91,7 @@ defmodule AiurWeb.EventsControllerTest do
     assert %{"error" => %{"code" => "topic_not_exported"}} = request("/api/v1/events?topics[]=ticket.42.pr.merged", 422)
   end
 
+  # Future regression guard: the existing API auth policy must protect these new routes too.
   test "unauthenticated request gets no event content" do
     for path <- ["/api/v1/events", "/api/v1/events/catalog"] do
       response = call(path, :get, "wrong")
