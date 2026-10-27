@@ -24,6 +24,8 @@ defmodule Aiur.Events.Catalog.TicketEntries do
     {"ticket.*.agent.lifecycle_fence_expired", "orchestration"},
     # aiur/orchestrator/dispatcher/shared_lease_dispatch.ex
     {"ticket.*.agent.model_fallback_waiting", "orchestration"},
+    # aiur/commands/native_capture.ex
+    {"ticket.*.agent.native-secret-question", "commands"},
     # aiur/agent_runner/turn_alerts.ex
     {"ticket.*.agent.noop_turns_bounded", "agent-runner"},
     # aiur/orchestrator/retry_engine/agent_down.ex
