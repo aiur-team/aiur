@@ -149,4 +149,12 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_checkpoint_queue_item_call(%{state | queue_store: store}, id)
     assert claimed.id == item.id
   end
+
+  test "sync listener input lifts a cooperative self-pause through the enqueue path", %{id: id, state: state} do
+    state = state |> put_in([Access.key(:running), id, :control, :status], :paused) |> put_in([Access.key(:running), id, :paused_reason], :agent_pause_request)
+    assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "continue", delivery_policy: :listener, origin: :http})
+    assert next.running[id].control.status == :working
+    assert Map.get(next.running[id], :paused_reason) == nil
+    assert next.running[id].resume_input_id == request
+  end
 end
