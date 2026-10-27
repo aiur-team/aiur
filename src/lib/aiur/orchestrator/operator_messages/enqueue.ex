@@ -228,7 +228,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # conversation pane surfaces it.
   defp enqueue_for_running_entry(state, running_entry, issue_identifier, text, request) do
     cond do
-      State.deactivated_running_entry?(running_entry) and not (request.delivery_policy == :listener and Scheduler.routing() == :listener) ->
+      State.deactivated_running_entry?(running_entry) ->
         enqueue_after_reactivate(state, running_entry, issue_identifier, text, request)
 
       message_resumes_pause?(state, running_entry, request) ->
@@ -249,14 +249,21 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # resumed it before #2730 and still does.
   defp message_resumes_pause?(state, entry, request) do
     if request.delivery_policy == :listener and Scheduler.routing() == :listener do
-      {:reply, {:ok, view}, _state} = ListenerModes.get_mode(state, entry.identifier)
-
-      pending = PauseResume.current_pending_pause_reason(state, entry)
-      self_paused? = State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :agent_pause_request and is_nil(pending)
-      view.effective in [:sync, :steer] and (self_paused? or pending == :agent_pause_request) and no_hold?(state, entry)
+      case ListenerModes.get_mode(state, entry.identifier) do
+        {:reply, {:ok, view}, _state} -> listener_resumes_pause?(state, entry, view)
+        {:reply, {:error, _reason}, _state} -> false
+      end
     else
       legacy_resumes_pause?(state, entry, request)
     end
+  end
+
+  @doc false
+  @spec listener_resumes_pause?(State.t(), map(), map()) :: boolean()
+  def listener_resumes_pause?(state, entry, view) do
+    pending = PauseResume.current_pending_pause_reason(state, entry)
+    self_paused? = State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :agent_pause_request and is_nil(pending)
+    view.effective in [:sync, :steer] and (self_paused? or pending == :agent_pause_request) and no_hold?(state, entry)
   end
 
   defp legacy_resumes_pause?(state, entry, request) do
@@ -348,7 +355,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   end
 
   defp listener_context(state, id, %{delivery_policy: :listener, origin: origin}, capabilities) do
-    {:reply, {:ok, view}, _state} = ListenerModes.get_mode(state, id)
+    view =
+      case ListenerModes.get_mode(state, id) do
+        {:reply, {:ok, view}, _state} -> view
+        {:reply, {:error, _reason}, _state} -> nil
+      end
+
     Map.merge(capabilities, %{listener_view: view, listener_origin: origin})
   end
 
