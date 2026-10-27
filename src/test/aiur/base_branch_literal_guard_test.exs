@@ -22,6 +22,7 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|{"system.main.ci.failed", "github-listeners"}|,
       ~S|{"system.main.ci.flake_rerun", "github-listeners"}|,
       ~S|{"system.main.ci.flaked", "github-listeners"}|,
+      ~S|{"system.main.ci.repo_wide_failure.*", "github-listeners"}|,
       ~S|{"system.main.ci.unavailable", "github-listeners"}|,
       ~S|{"system.main.fixer.dispatch_unavailable", "github-listeners"}|,
       ~S|{"system.main.fixer.failed", "github-listeners"}|,
