@@ -212,12 +212,12 @@ defmodule Aiur.Events.DurableConsumer.ExportSourceTest do
 
   test "catch-up drains more than one bounded page", ctx do
     exporter = exporter(ctx)
-    for id <- 2..503, do: append(exporter, id)
+    for id <- 2..6, do: append(exporter, id)
     seed_cursor(ctx, 1)
     consumer = consumer(ctx)
-    assert_records(2..503)
+    assert_records(2..6)
     sync(consumer)
-    assert cursor(ctx) == 503
+    assert cursor(ctx) == 6
   end
 
   defp exporter(ctx) do
@@ -238,7 +238,7 @@ defmodule Aiur.Events.DurableConsumer.ExportSourceTest do
 
   defp consumer(ctx, extra \\ %{}) do
     state = Map.merge(%{owner: self()}, extra)
-    start_supervised!({DurableConsumer, name: nil, cursor_path: ctx.path, source: {ExportSource, [cursor_path: ctx.path, retry_ms: 60_000]}, handler: {Handler, state}, retry_ms: 60_000})
+    start_supervised!({DurableConsumer, name: nil, cursor_path: ctx.path, source: {ExportSource, [cursor_path: ctx.path, retry_ms: 60_000]}, handler: {Handler, state}, replay_batch: 2, retry_ms: 60_000})
   end
 
   defp assert_records(seqs) do
