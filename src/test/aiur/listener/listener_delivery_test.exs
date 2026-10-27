@@ -62,6 +62,26 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert claimed.body.text == "after Stop"
   end
 
+  test "urgent event wake cannot claim held REPL sync input before Stop", %{id: id, entry: entry, state: state} do
+    entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
+    state = %{state | running: %{id => entry}}
+    :ok = ActiveTurns.put(id, "active")
+    on_exit(fn -> ActiveTurns.mark_closed(id, "active", :test_cleanup) end)
+    assert {:reply, {:ok, request}, queued} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "after Stop", delivery_policy: :listener, origin: :tui})
+    assert_received {:agent_queue_updated, ^id, ^request, false}
+    opts = DeliveryPolicy.event_digest_delivery_opts(entry, [], true)
+    {store, digest} = AgentQueueStore.enqueue(queued.queue_store, AgentQueue.coordination_event(id, :events_digest, %{events: []}, opts))
+    queued = %{queued | queue_store: store}
+    DeliveryPolicy.notify_running_queue_update(queued, entry, digest)
+    digest_id = digest.id
+    assert_received {:agent_queue_updated, ^id, ^digest_id, true}
+    assert {:reply, :empty, ^queued} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert AgentQueueStore.get(queued.queue_store, request).status == :pending
+    ActiveTurns.mark_closed(id, "active", :completed)
+    assert {:reply, {:ok, claimed}, _} = OperatorMessages.claim_next_operator_queue_item_call(queued, id)
+    assert claimed.id == request
+  end
+
   test "REPL native steer wakes the active session; legacy routing stays immediate only", %{id: id, entry: entry, state: state} do
     entry = %{entry | session_execution: %{backend: "claude-repl"}, control: Capabilities.backend_control_flags("claude-repl") |> Map.put(:status, :working)}
     state = %{state | running: %{id => entry}}
