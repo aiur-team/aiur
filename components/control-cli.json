@@ -6,6 +6,7 @@
   "paths": [
     "src/lib/aiur.ex",
     "src/lib/aiur/*_cli.ex",
+    "src/lib/aiur/commands_cli/**",
     "src/lib/aiur/affected_tests.ex",
     "src/lib/aiur/affected_tests/**",
     "src/lib/aiur/agent_control_cli_freshness.ex",

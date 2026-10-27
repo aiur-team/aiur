@@ -24,7 +24,7 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur asks` | Lists open asks by default. Use `--all` to include resolved records and `--json` for the durable rows. | `aiur asks --all --json` |
 | `aiur asks --open` | Makes the open-asks default explicit. | `aiur asks --open --json` |
 | `aiur commands` | Lists durable Executor decisions. An optional decision ID selects one record. | `aiur commands` |
-| `aiur commands --filter open` | Accepts `all`, `open`, `blocking`, or `resolved`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter open` |
+| `aiur commands --filter open` | Accepts `all`, `open`, `blocking`, `resolved`, `needs-you`, `with-executor`, or `from-executor`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter open` |
 | `aiur commands --blocking` | Limits the decision list to blocking records. | `aiur commands --blocking` |
 | `aiur commands --ticket 142` | Narrows an `all` decision query to a ticket. | `aiur commands --filter all --ticket 142` |
 | `aiur commands --search timeout` | Searches an `all` decision query. | `aiur commands --filter all --search timeout` |
@@ -53,6 +53,19 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur executor-moot DECISION-ID --executor-id exec-1` | Optional attribution for the Executor retiring the Command. It must not be empty when present. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --executor-id exec-1` |
 
 Successful Executor answers, escalations, moots, and supersedes also record an acknowledgement. A failed acknowledgement write is logged without changing the action’s result. Reading a Command or receiving an Executor wake does not acknowledge it. Acknowledging after escalation remains audit evidence and does not change routing.
+
+Human rows show `ID`, `ROUTE`, `AGE`, `WHY` (latest escalation cause), `ASKS`
+(short label), and `TICKET|EXECUTOR`. Unknown routes show `?`. Human-visible
+Commands also show how long they have needed you. Partial retained data is
+labelled below the rows; an unavailable store exits with status 1.
+
+`--filter needs-you` selects open Commands routed to the human or both;
+`with-executor` selects open Commands routed to the Executor, and `from-executor`
+selects open Commands requested by the Executor. These use the dashboard's query path.
+JSON rows and selected detail add `observed_at`, `age_ms` (since creation),
+`needs_you_ms` (since human visibility, otherwise null), and `freshness`
+(`fresh`, `partial`, or `unavailable`). Ages use the snapshot clock; human output
+renders both ages and observation freshness.
 
 `aiur commands --json` rows and `GET /api/v1/decisions[/:id]` expose `requester`,
 `origin`, `native`, `questions`, and `short_label`. Legacy Commands default to a

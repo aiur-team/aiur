@@ -85,7 +85,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur restart [--keep-agents] [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
-       aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur commands [<decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
        aiur executor-ack <decision-id> [--executor-id <id>]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]

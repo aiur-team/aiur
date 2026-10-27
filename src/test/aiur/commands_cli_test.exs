@@ -191,6 +191,38 @@ defmodule Aiur.CommandsCLITest do
     assert message =~ "only supports --ticket"
   end
 
+  test "JSON rows and detail carry clock-derived ages and freshness", %{store: store} do
+    decision = request!(store, "ages", false)
+    at = ~U[2026-08-08 11:00:00Z]
+
+    assert {:ok, _} =
+             DecisionStore.record_command_fact(decision.decision_id, :routed, %{policy: :human_only, state: :with_human, cause: nil, at: at, actor: %{kind: :system, id: "routing"}}, server: store)
+
+    assert {:ok, envelope} = CommandsCLI.build(decision_id: decision.decision_id, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end, now: DateTime.add(at, 60))
+    assert [row] = envelope["data"]["page"]["decisions"]
+
+    for value <- [row, envelope["data"]["selected"]] do
+      assert value["age_ms"] == 3_660_000
+      assert value["needs_you_ms"] == 60_000
+      assert value["observed_at"] == "2026-08-08T11:01:00Z"
+      assert value["freshness"] == "fresh"
+    end
+  end
+
+  test "unknown route prints question mark and never guesses Executor ownership", %{store: store} do
+    request!(store, "unknown-route", false)
+    output = capture_io(fn -> assert 0 == CommandsCLI.run(decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end, now: ~U[2026-08-08 10:00:30Z]) end)
+    assert output =~ "ID  ROUTE  AGE  WHY  ASKS  TICKET|EXECUTOR"
+    assert output =~ "  ?  30s  -  "
+    refute output =~ "With Executor"
+    assert output =~ "Freshness: fresh; observed: 2026-08-08T10:00:30Z"
+  end
+
+  test "unavailable retained store returns exit one" do
+    output = capture_io(:stderr, fn -> assert 1 == CommandsCLI.run(decision_store: make_ref()) end)
+    assert output =~ "retained data unavailable"
+  end
+
   defp request!(store, source_id, blocking, extra \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(

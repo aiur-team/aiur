@@ -11,7 +11,14 @@ defmodule AiurEngineCommandsTest do
       )
 
     assert out =~
-             "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+             "RPC:Aiur.AgentControlCLI.commands([filter: \"resolved\", json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+  end
+
+  test "commands passes hyphenated routing filters as quoted strings" do
+    for filter <- ["needs-you", "with-executor", "from-executor"] do
+      {out, 0} = run_sourced_engine("run_control_rpc() { echo \"RPC:$1\"; }\ncmd_commands --filter #{filter}", [])
+      assert out =~ "commands([filter: \"#{filter}\"])"
+    end
   end
 
   test "units routes page-visible filters through the control rpc" do
