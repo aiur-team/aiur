@@ -409,6 +409,8 @@ defmodule Aiur.Orchestrator do
   use Aiur.Orchestrator.ClientDelegates
 
   @impl true
+  def handle_call({:listener_get_mode, id}, _from, state), do: Aiur.Orchestrator.ListenerModes.get_mode(state, id)
+  def handle_call({:listener_set_mode, id, mode, opts}, _from, state), do: Aiur.Orchestrator.ListenerModes.set_mode(state, id, mode, opts)
   defdelegate handle_call(message, from, state), to: Aiur.Orchestrator.Calls
 
   @doc false

@@ -4,6 +4,8 @@
   "layer": 3,
   "kind": "in-app",
   "paths": [
+    "src/lib/aiur/listener.ex",
+    "src/lib/aiur/listener/delivery_target.ex",
     "src/lib/aiur/listener/effective.ex",
     "src/lib/aiur/listener/mode_store.ex"
   ],
