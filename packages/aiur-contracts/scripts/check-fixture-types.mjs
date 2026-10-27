@@ -10,7 +10,10 @@ const fixture = (name) => readFileSync(join(root, 'fixtures', name), 'utf8');
 const dir = mkdtempSync(join(tmpdir(), 'aiur-contracts-'));
 const probe = join(dir, 'fixtures.mts');
 writeFileSync(probe, [
-  `import type { CommandV2, AgentsStatus, CapabilitiesReport, CapabilityError, FleetStatus, TicketCancel, TicketProgress, TicketSpendCap, TicketSpendCapReached, TicketStatus, TicketUsage } from ${JSON.stringify(join(root, 'src/index.js'))};`,
+  `import type { EventsFeed, EventsCatalog, CommandV2, AgentsStatus, CapabilitiesReport, CapabilityError, FleetStatus, TicketCancel, TicketProgress, TicketSpendCap, TicketSpendCapReached, TicketStatus, TicketUsage } from ${JSON.stringify(join(root, 'src/index.js'))};`,
+  `export const events: EventsFeed = ${fixture('events.v1.json')};`,
+  `export const eventsReset: EventsFeed = ${fixture('events-reset.v1.json')};`,
+  `export const eventsCatalog: EventsCatalog = ${fixture('events-catalog.v1.json')};`,
   `export const command: CommandV2 = ${fixture('command.v2.json')};`,
   `export const report: CapabilitiesReport = ${fixture('capabilities.v1.json')};`,
   `export const error: CapabilityError = ${fixture('capability-error.v1.json')};`,

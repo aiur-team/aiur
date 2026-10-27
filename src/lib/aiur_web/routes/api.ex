@@ -46,6 +46,10 @@ defmodule AiurWeb.Routes.Api do
       scope "/" do
         pipe_through(:client_token_read)
 
+        get("/api/v1/events", AiurWeb.EventsController, :index)
+        get("/api/v1/events/catalog", AiurWeb.EventsController, :catalog)
+        match(:*, "/api/v1/events", AiurWeb.EventsController, :method_not_allowed)
+        match(:*, "/api/v1/events/catalog", AiurWeb.EventsController, :method_not_allowed)
         get("/api/v1/state", AiurWeb.ObservabilityApiController, :state)
         get("/api/v1/streamdeck/grid", AiurWeb.ObservabilityApiController, :streamdeck_grid)
         get("/api/v1/:issue_identifier/events", AiurWeb.ObservabilityApiController, :events)

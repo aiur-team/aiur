@@ -212,3 +212,59 @@ from readable segments with a new epoch, without archiving those segments.
 
 Cursors older than retention, beyond the head, or from another epoch receive
 one reset response carrying the current epoch and oldest/head sequence bounds.
+
+## External event feed
+
+The authenticated pull API reads the export journal. It is off by default:
+[`events.export.enabled`](/reference/configuration-daemon#events) must be `true`
+(restart to apply). Both endpoints use the dashboard authentication policy and
+return `Cache-Control: no-store`. The existing per-ticket transcript endpoint,
+`GET /api/v1/:issue_identifier/events`, remains separate.
+
+`GET /api/v1/events/catalog` returns the exported topic patterns and their
+persistence classes and payload versions:
+
+```json
+{"v":1,"topics":[{"pattern":"ticket.*.pr.merged","class":"live","payload_version":1}]}
+```
+
+`GET /api/v1/events?after=4&limit=100&topics=ticket.*.pr.merged&epoch=current-epoch`
+returns `instance` (an instance ID or `null`), `epoch`, `head_seq`, `oldest_seq`,
+and `records`. Records have increasing `seq` values greater than `after`.
+Event records contain the identifier-only external envelope: `v`, `instance`,
+`id`, `topic`, `class`, timestamps, `source`, `refs`, `attrs`, `payload_version`
+and `anchor`. They contain no transcript or message content.
+
+Omit `after` to get the current head with no backlog. Bootstrap by noting that
+head, reading the required snapshots, then following with `after=<head_seq>`.
+Save the epoch with the cursor. `limit` defaults to 100 and accepts 1–500;
+`after` must be a non-negative integer. `topics` is a comma-separated filter;
+omitting it includes all exported topics. A filter can equal an exported
+pattern or replace wildcard segments with literals to narrow it. Filters cannot
+broaden the catalog or select private topics.
+
+A cursor older than retention, beyond the head, or from another epoch returns
+HTTP 200 with exactly one control record:
+
+```json
+{"instance":null,"epoch":"new-epoch","head_seq":60,"oldest_seq":50,"records":[{"type":"reset","oldest_seq":50,"head_seq":60}]}
+```
+
+A `reset` has no sequence number. Re-read snapshots and resume from the returned
+head and epoch. A retained `gap` has a sequence number, `scope: "*"`,
+`reason: "exporter_start"`, and `from`/`to` timestamps (`from` may be `null`).
+Gaps survive topic filters and require clients to re-read snapshots; resume
+after the gap's sequence. Use the response time and `head_seq` to judge freshness.
+
+| Condition | HTTP status and error code |
+| --- | --- |
+| Export disabled (either endpoint) | 404 `feature_disabled`: `event export is disabled (events.export.enabled: false)` |
+| Invalid `limit` | 422 `invalid_limit` |
+| Invalid `after` | 422 `invalid_cursor` |
+| Malformed or non-exported topic filter | 422 `topic_not_exported` |
+| Unreadable or corrupt journal | 503 `events_unavailable` |
+| Method other than GET | 405 `method_not_allowed` |
+
+Errors use `{"error":{"code":"…","message":"…"}}`. Authentication failures
+are handled before feed content is read. With export disabled, `/api/v1/events`
+now reports `feature_disabled` instead of treating `events` as a ticket ID.

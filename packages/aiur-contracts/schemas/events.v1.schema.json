@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/events.v1.schema.json",
+  "title": "EventsFeed",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "instance": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "epoch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "head_seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "oldest_seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "records": {
+      "oneOf": [
+        {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/event"
+              },
+              {
+                "$ref": "#/$defs/gap"
+              }
+            ]
+          }
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "#/$defs/reset"
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "instance",
+    "epoch",
+    "head_seq",
+    "oldest_seq",
+    "records"
+  ],
+  "$defs": {
+    "event": {
+      "title": "ExportedEvent",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "const": "event"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "v": {
+          "const": 1
+        },
+        "instance": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "class": {
+          "enum": [
+            "ephemeral",
+            "live",
+            "ledgered",
+            "logged",
+            "journaled"
+          ]
+        },
+        "occurred_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "payload_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "anchor": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "v",
+        "instance",
+        "id",
+        "topic",
+        "class",
+        "occurred_at",
+        "observed_at",
+        "source",
+        "refs",
+        "attrs",
+        "payload_version",
+        "anchor"
+      ]
+    },
+    "gap": {
+      "title": "EventsGap",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "const": "gap"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scope": {
+          "const": "*"
+        },
+        "reason": {
+          "const": "exporter_start"
+        },
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "scope",
+        "reason",
+        "from",
+        "to"
+      ]
+    },
+    "reset": {
+      "title": "EventsReset",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "const": "reset"
+        },
+        "oldest_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_seq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "oldest_seq",
+        "head_seq"
+      ],
+      "not": {
+        "required": [
+          "seq"
+        ]
+      }
+    }
+  }
+}

@@ -1,3 +1,4 @@
+export type * from "./events.generated.js";
 export type * from "./command.generated.js";
 export type * from "./generated.js";
 export type * from "./status.generated.js";
