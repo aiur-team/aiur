@@ -19,13 +19,15 @@ These registered namespaces freeze producer ownership before every producer ship
 
 | Namespace | Owner | Client action |
 | --- | --- | --- |
-| `ticket.<id>.agent.decision.human-needed` | DecisionStore / MP-E2 | Re-read the Decision API. |
+| `ticket.<id>.agent.decision.human-needed`, `executor.decision.human-needed` | DecisionStore / MP-E2 | Re-read the Decision API. |
 | `ticket.<id>.pr.closed_unmerged`, `ticket.<id>.issue.closed` | Queue readiness / MP-E1 | Re-read queue and pull-request state. |
 | `ticket.<id>.queue.*`, `system.queue.*` | Build queue / MP-E1 | Re-read queue state. |
 | `system.build_order.<root>.progress` | Build orders / MP-E1-C7 | Re-read Build Order progress. |
 | `ticket.<id>.agent.listen-mode.changed` | Listener modes / MP-E7 | Re-read listener-mode state. |
 | `system.capabilities.changed` | Capabilities / MP-R1 | Re-read `GET /api/v1/capabilities`. |
 | `executor.conversation.*` | Conversations / MP-E3 | Reserved only; no event producer exists. |
+
+The human-needed signal exports only Command identity, requester kind, blocking, urgency and cause. Its short label stays in the private journal payload. Routing facts persist without changing the Command’s answer or delivery status; the signal is recorded once per Command across restarts.
 
 ## What survives a restart
 
@@ -160,7 +162,7 @@ A branch push alone never resumes a dependent ticket. Before the blocker merges,
 | Delivery | Aiur sends that action to the target. |
 | Acknowledge | The target repeats the decision ID, action ID, and expected version. |
 | Resolve | The target repeats the same fields after finishing. |
-| Revise | A new action is appended instead of rewriting history. |
+| Send correction | A new action is appended instead of rewriting history. |
 
 See [Commands](/concepts/commands) for the Executor view.
 
@@ -201,5 +203,14 @@ Readers never repair files. Corruption or append failure makes export unavailabl
 and raises one attention per exporter boot. Move a corrupt export directory aside
 before restarting to rebuild it; this starts a new epoch.
 
-Retention and network feed delivery are separate components. The writer does not
-enforce retention age or count settings yet.
+At boot and segment roll, retention removes whole closed export segments, leaving
+retained bytes unchanged and never trimming the active segment. Whole-segment
+granularity can keep one extra segment (up to 8 MiB) beyond the record target.
+Transcripts and Command records are unaffected.
+
+Restarts preserve the epoch. Changing instance identity archives old segments in
+`old-<epoch>/` and starts a new epoch at sequence 1. Corrupt metadata is rebuilt
+from readable segments with a new epoch, without archiving those segments.
+
+Cursors older than retention, beyond the head, or from another epoch receive
+one reset response carrying the current epoch and oldest/head sequence bounds.

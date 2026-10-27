@@ -2,6 +2,9 @@ defmodule Aiur.Commands.Projection do
   @moduledoc "Projects additive Command facts without changing either lifecycle status."
 
   alias Aiur.Commands.Requester
+  alias Aiur.Commands.Routing.Facts
+
+  @routing_types Aiur.Commands.Routing.FactData.types()
   alias Aiur.Decision
   alias Aiur.DecisionEvent
   alias Aiur.DecisionProjection.TransitionValidation
@@ -17,6 +20,7 @@ defmodule Aiur.Commands.Projection do
       questions: JSONSafe.normalize(decision.questions),
       short_label: short_label(decision)
     }
+    |> Map.merge(Facts.public(decision))
   end
 
   @doc false
@@ -54,7 +58,7 @@ defmodule Aiur.Commands.Projection do
   @spec inherit_attributes(Decision.t(), Decision.t()) :: Decision.t()
   def inherit_attributes(current, candidate) do
     fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label])
-    struct!(candidate, fields)
+    Facts.inherit(current, struct!(candidate, fields))
   end
 
   @spec apply(Decision.t(), DecisionEvent.t()) :: {:ok, Decision.t()} | {:error, term()}
@@ -70,4 +74,6 @@ defmodule Aiur.Commands.Projection do
       end
     end
   end
+
+  def apply(decision, %{type: type} = event) when type in @routing_types, do: Facts.apply(decision, event)
 end

@@ -5,7 +5,8 @@
   "kind": "in-app",
   "paths": [
     "src/lib/aiur/listener/effective.ex",
-    "src/lib/aiur/listener/mode_store.ex"
+    "src/lib/aiur/listener/mode_store.ex",
+    "src/lib/aiur/listener/receipt.ex"
   ],
   "facades": [
     "*"

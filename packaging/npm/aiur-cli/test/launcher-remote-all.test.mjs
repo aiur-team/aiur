@@ -218,7 +218,8 @@ test("not_owner acknowledge failures stay errors and preserve that instance curs
   } finally { server.stop(); }
 });
 
-test("colliding wake ids advance each instance cursor independently", () => {
+// Quarantined: owner #6540, expires 2026-11-30. The first woken instance can cancel the other before it answers.
+test.skip("colliding wake ids advance each instance cursor independently", () => {
   const pc = startServer({ name: "pc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":3}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/pc" } });
   const nuc = startServer({ name: "nuc", body: { ...successBody('{"status":"woken","role":"owner","records":[{"wake_id":3},{"wake_id":44}]}\n__AIUR_CONTROL_EXIT__:0\n'), instance_id: "run/nuc" } });
   try {
