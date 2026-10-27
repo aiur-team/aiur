@@ -161,40 +161,36 @@ npm run test:visual:docker # Run visual tests in the pinned CI container
 
 ## Releases
 
-Releases use `.github/workflows/aiur-style-release.yml`, independently of the
-`aiur-cli` workflow. PRs touching this package run `check-dist`, the release
-verifier's node:test suite, `npm pack`, and `npm publish --dry-run`. The pack file
-list appears in the Actions summary and the `aiur-style-pack` artifact. PRs never
-publish and do not receive OIDC write permission. Both jobs set the packed
-manifest's `repository` to `aiur-team/aiur` and directory to `packages/aiur-style`
-for npm provenance; the checked-in manifest is unchanged.
+`.github/workflows/aiur-style-release.yml` runs only on PRs touching this
+package or the workflow. It runs `check-dist`, the release verifier's node:test
+suite, `npm pack`, and `npm publish --dry-run`. The pack file list appears in
+the Actions summary and the `aiur-style-pack` artifact. The packed manifest gets
+repository metadata for `aiur-team/aiur`, directory `packages/aiur-style`.
+The checked-in manifest is unchanged.
 
-One-time operator setup (before the first automated release):
+This workflow has read-only repository permissions, no OIDC publishing
+permission, and no tag-triggered or manual real-publish job. Real npm publishing
+is Kevin's decision in [#2786](https://github.com/aiur-team/aiur/issues/2786).
 
-1. Establish ownership of the unscoped npm package `aiur-style`. If it does not
-   exist, an authorized maintainer must bootstrap it on npm; that initial publish
-   is a separate operator action, not part of this workflow change.
-2. In the package's npm settings, add a GitHub Actions trusted publisher:
-   organization **aiur-team**, repository **aiur**, workflow filename
-   **aiur-style-release.yml**. Leave the environment field empty (the job uses no
-   GitHub environment), and allow direct `npm publish` if that option is shown.
-   See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
-   No npm token secret is required. The job uses Node 24 and npm >= 11.5.1.
+Before that first release, the operator must establish ownership of the npm
+package `aiur-style` and configure its GitHub Actions trusted publisher for
+organization **aiur-team**, repository **aiur**, workflow filename
+**aiur-style-release.yml** when the approved publish job is added. An initial
+package bootstrap, if needed, is a separate authorized operator action. See
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 
-For a release, update `package.json` and the lockfile to a stable semver, add a
-`## [<version>]` heading to `CHANGELOG.md`, rebuild and commit `dist/`, and merge
-those changes. Push the tag `aiur-style-v<version>` on the release commit.
-The workflow rejects a tag/version mismatch, a missing changelog heading, or
-stale `dist/`, then publishes with provenance and waits up to about two minutes
-for that exact version to become visible on npm. Do not push a release tag just
-to test the workflow: tags trigger a real publish after validation.
-
-Run the release checks locally from the repository root:
+Prepare a release with a stable semver in `package.json` and its lockfile, a
+`## [<version>]` changelog heading, and current committed `dist/`. Check it from
+the repository root without publishing:
 
 ```bash
 node packages/aiur-style/scripts/verify-release.mjs --self-test
 node packages/aiur-style/scripts/verify-release.mjs aiur-style-v<version>
 ```
+
+The verifier rejects a tag/version mismatch, a missing changelog heading, or
+stale `dist/`. It does not publish anything. Pushing a tag does not trigger this
+PR-only workflow.
 
 ## License
 

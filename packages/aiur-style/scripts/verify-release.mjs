@@ -31,6 +31,14 @@ function verifyRelease(tag, root) {
 async function selfTest() {
   const { test } = await import('node:test');
   const assert = await import('node:assert/strict');
+  test('workflow only runs PR dry-runs without publishing credentials', () => {
+    const workflow = readFileSync(resolve(packageRoot, '../../.github/workflows/aiur-style-release.yml'), 'utf8');
+    assert.match(workflow, /^  pull_request:/m);
+    assert.doesNotMatch(workflow, /^  (push|workflow_dispatch):|id-token:/m);
+    const publishes = workflow.split('\n').filter(line => /\bnpm publish\b/.test(line));
+    assert.equal(publishes.length, 1);
+    assert.match(publishes[0], /--dry-run\b/);
+  });
   const cases = [
     ['accepts matching tag and changelog and runs check-dist', 'aiur-style-v0.1.0', '## [0.1.0] - 2026-10-01', 0, 0, /Release verified: 0\.1\.0/],
     ['rejects tag/version mismatch', 'aiur-style-v0.1.1', '## [0.1.0]', 0, 1, /must match aiur-style-v0\.1\.0/],
