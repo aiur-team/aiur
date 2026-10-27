@@ -1,11 +1,22 @@
 defmodule Aiur.Orchestrator.NativeHoldTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Issue
   alias Aiur.Orchestrator.{RuntimeWatchdog, State, TokenAccounting}
 
   test "held event exempts a silent worker from stall and duration checks until resolution" do
     now = DateTime.utc_now()
-    entry = %{session_id: "thread-turn", identifier: "979", started_at: DateTime.add(now, -120, :second)}
+
+    entry = %{
+      session_id: "thread-turn",
+      identifier: "979",
+      started_at: DateTime.add(now, -120, :second),
+      pid: self(),
+      ref: nil,
+      issue: %Issue{id: "979", identifier: "979", state: "in-progress"},
+      control: %{status: :working, can_interrupt: true}
+    }
+
     update = %{event: :native_question_held, timestamp: now, native_ref: "first", decision_id: "d1", since: now}
     {held, _delta} = TokenAccounting.integrate_codex_update(entry, update)
     assert held.native_hold == %{decision_id: "d1", since: now}
