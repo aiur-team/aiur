@@ -1,6 +1,7 @@
 defmodule Aiur.Events.CapabilityProvider do
   @moduledoc "External event feed availability and configured retention."
   @behaviour Aiur.Capabilities.Provider
+  alias Aiur.Capabilities.Provider
   alias Aiur.Events.Export
   alias Aiur.Events.Export.Exporter
 
@@ -33,6 +34,6 @@ defmodule Aiur.Events.CapabilityProvider do
   end
 
   defp from_status(%{reason: :journal_corrupt}, _), do: %{state: :degraded, reason: :journal_corrupt}
-  defp from_status(%{reason: :identity_unavailable}, _), do: Aiur.Capabilities.Provider.dependency("identity")
+  defp from_status(%{reason: :identity_unavailable}, _), do: Provider.dependency("identity")
   defp from_status(_status, _), do: %{state: :unknown, reason: :unknown}
 end
