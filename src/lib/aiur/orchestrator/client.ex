@@ -1,5 +1,7 @@
 defmodule Aiur.Orchestrator.Client do
   @moduledoc "Client forwarding for the Orchestrator RPC facade, with the original server defaults."
+  alias Aiur.Listener
+  alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{Cancellation, GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -279,7 +281,7 @@ defmodule Aiur.Orchestrator.Client do
   @doc false
   @spec listener_prompt_context(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def listener_prompt_context(identifier, opts) do
-    if Aiur.Listener.Scheduler.routing(opts) == :listener do
+    if Scheduler.routing(opts) == :listener do
       reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context/1)
       reader.(identifier)
     else
@@ -288,7 +290,7 @@ defmodule Aiur.Orchestrator.Client do
   end
 
   defp read_listener_prompt_context(identifier) do
-    with {:ok, %{effective: :async}} <- Aiur.Listener.get_mode(identifier) do
+    with {:ok, %{effective: :async}} <- Listener.get_mode(identifier) do
       count =
         case control_capabilities(identifier) do
           {:ok, %{listener: %{unread_count: count}}} -> count
