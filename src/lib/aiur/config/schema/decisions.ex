@@ -2,12 +2,14 @@ defmodule Aiur.Config.Schema.Decisions do
   @moduledoc false
 
   @external_resource Path.relative_to(Path.join(__DIR__, "decisions_escalation.ex"), File.cwd!(), force: true)
+  @external_resource Path.relative_to(Path.join(__DIR__, "decisions_native_capture.ex"), File.cwd!(), force: true)
   use Ecto.Schema
 
   import Ecto.Changeset
 
-  alias Aiur.Config.Schema.Decisions.Escalation
+  alias Aiur.Config.Schema.Decisions.{Escalation, NativeCapture}
   require Escalation
+  require NativeCapture
 
   @max_allowed_kinds 100
   @max_kind_length 100

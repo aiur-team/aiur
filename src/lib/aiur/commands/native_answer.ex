@@ -4,7 +4,7 @@ defmodule Aiur.Commands.NativeAnswer do
   alias Aiur.Commands.Answering
 
   @spec correlate(Aiur.Decision.t(), Aiur.DecisionAnswer.t(), map()) :: map()
-  def correlate(%{native: %{hold: :in_band, native_ref: ref}, questions: questions}, answer, correlation) do
+  def correlate(%{native: %{hold: hold, native_ref: ref}, questions: questions}, answer, correlation) when hold in [:in_band, :deferred] do
     case complete_answers(questions, answer) do
       {:ok, answers} -> Map.merge(correlation, %{native_ref: ref, question_answers: answers})
       {:error, _reason} -> correlation

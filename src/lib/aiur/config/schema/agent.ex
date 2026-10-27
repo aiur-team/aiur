@@ -5,7 +5,7 @@ defmodule Aiur.Config.Schema.Claude do
 
   @primary_key false
   embedded_schema do
-    # @config-reference config-configuration-agent-04 agent.claude.command | string | `aiur-claude` | Command launching the Claude backend. |
+    # @config-reference config-configuration-agent-04 agent.claude.command | string | `aiur-claude` | Command launching the backend; native questions require aiur-claude >= 1.3.0. |
     field(:command, :string, default: "aiur-claude")
     # @config-reference config-configuration-agent-04 agent.claude.model | string or nil | nil | Optional Claude model override. |
     field(:model, :string)
