@@ -12,6 +12,18 @@ defmodule Aiur.AgentList.Renderer.ListenerTest do
     assert Listener.label(%{effective: :async, requested: :async, unread_count: 0}) == "async / 0 unread"
   end
 
+  test "constrained row reserves the full listener label alongside long title and latest" do
+    summary = %{identifier: "42", title: String.duplicate("title ", 20), listener: %{effective: :sync, requested: :steer, unread_count: 2}}
+
+    layout =
+      Layout.compute([summary], 100)
+      |> Map.put(:latest_event_by_id, %{"42" => %{message: String.duplicate("latest ", 20)}})
+
+    row = Table.render_row(summary, false, 100, layout, %{}) |> IO.iodata_to_binary()
+    assert Text.visual_width(Text.strip_ansi(row)) == 100
+    assert row =~ "sync (req steer) / 2 unread"
+  end
+
   test "unknown listener renders unavailable instead of a plausible default" do
     for listener <- [nil, :unavailable, %{}, %{requested: :async, effective: nil, unread_count: 3}] do
       summary = %{identifier: "42", title: "Working", listener: listener}
