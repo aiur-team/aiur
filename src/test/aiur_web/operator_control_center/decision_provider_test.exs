@@ -313,7 +313,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
              %{type: :escalated, at: later, cause: :executor_answer_timeout}
            ]
 
-    refute inspect(row.audit_history) =~ "Private routing detail"
+    Aiur.TestSupport.refute_leak(row.audit_history, "Private routing detail")
   end
 
   test "failed audit reads and unknown records preserve explicit timeline states", %{store: store} do

@@ -60,7 +60,6 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
 
   def configure(conn, params) do
     native? = params["native"] == "true"
-    if native?, do: :persistent_term.erase({__MODULE__, :decision_id})
     decision = seed_decision!(native?)
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, true)
     :persistent_term.put({__MODULE__, :join_delay_ms}, if(native?, do: 0, else: 4_000))
@@ -134,33 +133,27 @@ defmodule Aiur.BrowserHarness.CommandAnswerFixture do
       System.at_exit(fn _ -> Aiur.TestCleanup.rm_rf!(dir) end)
     end
 
-    case :persistent_term.get({__MODULE__, :decision_id}, nil) do
-      nil ->
-        {:ok, %{decision: decision}} =
-          DecisionStore.request(
-            %{
-              "question" => "Should the browser fixture record this operator decision?",
-              "blocking" => true,
-              "authority" => "human_required",
-              "reversibility" => "reversible",
-              "context" => %{"authority_basis" => "security"},
-              "options" => [%{"id" => "approve", "label" => "Approve"}]
-            },
-            [
-              ticket: %{identifier: "BROWSER-5149", title: "Browser answer fixture", url: "https://example.invalid/5149"},
-              source: %{agent_id: "browser-fixture", session_id: "browser-fixture", event_id: nil},
-              questions: if(native?, do: questions(), else: [])
-            ],
-            @store
-          )
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{
+          "source_id" => "browser-answer-#{System.unique_integer([:positive])}",
+          "question" => "Should the browser fixture record this operator decision?",
+          "blocking" => true,
+          "authority" => "human_required",
+          "reversibility" => "reversible",
+          "context" => %{"authority_basis" => "security"},
+          "options" => [%{"id" => "approve", "label" => "Approve"}]
+        },
+        [
+          ticket: %{identifier: "BROWSER-5149", title: "Browser answer fixture", url: "https://example.invalid/5149"},
+          source: %{agent_id: "browser-fixture", session_id: "browser-fixture", event_id: nil},
+          questions: if(native?, do: questions(), else: [])
+        ],
+        @store
+      )
 
-        :persistent_term.put({__MODULE__, :decision_id}, decision.decision_id)
-        decision
-
-      decision_id ->
-        {:ok, decision} = DecisionStore.get(decision_id, @store)
-        decision
-    end
+    :persistent_term.put({__MODULE__, :decision_id}, decision.decision_id)
+    decision
   end
 
   defp questions do
