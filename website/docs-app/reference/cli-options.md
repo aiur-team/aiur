@@ -8,6 +8,9 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | --- | --- | --- |
 | `aiur --all` | Includes all matching results instead of the default subset. | `aiur --all` |
 | `aiur --bg` | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
+| `aiur --context-file PATH` | Reads up to 20,000 characters of local Markdown context for `command request` before RPC. | `aiur command request 'Ship?' --context-file release.md` |
+| `aiur --recommend ID` | Moves the named `command request` option first; omitted by default. | `aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes` |
+| `aiur --short-summary TEXT` | Adds a concise Command title; omitted by default. | `aiur command request 'Ship?' --short-summary 'Beta release'` |
 | `aiur --blocking` | Marks a supported command as blocking. | `aiur --blocking` |
 | `aiur --body TEXT` | Uses the supplied text as a command body. | `aiur --body 'Investigate this issue'` |
 | `aiur --body-file PATH` | Reads a command body from a file. | `aiur --body-file request.md` |

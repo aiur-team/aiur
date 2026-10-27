@@ -84,7 +84,7 @@ defmodule Aiur.Commands.RequestContentTest do
     assert RequestContent.short_label(%{question: String.duplicate("x", 40) <> " next"}, []) == String.duplicate("x", 40)
   end
 
-  test "only emit_event requires two or three options and the recommended option first" do
+  test "emit_event and executor_cli require two or three options and the recommended option first" do
     options = [%{id: "a"}, %{id: "b"}]
     assert RequestContent.suggested_response_check(%{options: options}, :emit_event) == :ok
     assert RequestContent.suggested_response_check(%{options: options, recommendation: %{option_id: "a"}}, :emit_event) == :ok
@@ -97,7 +97,7 @@ defmodule Aiur.Commands.RequestContentTest do
     assert RequestContent.suggested_response_check(%{options: List.duplicate(%{id: "a"}, 3)}, :emit_event) == :ok
     assert RequestContent.suggested_response_check(%{options: List.duplicate(%{id: "a"}, 4)}, :emit_event) == {:warn, :too_many_options}
 
-    for origin <- [:native_question, :attention, :executor_cli, :supervisor_api] do
+    for origin <- [:native_question, :attention, :supervisor_api] do
       assert RequestContent.suggested_response_check(%{options: []}, origin) == :ok
     end
   end

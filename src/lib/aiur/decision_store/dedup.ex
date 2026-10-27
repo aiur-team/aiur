@@ -32,6 +32,9 @@ defmodule Aiur.DecisionStore.Dedup do
   # sibling. Matching is exact-after-normalization on purpose; see
   # `normalized_question/1`.
   @spec supersede_duplicates(term(), term()) :: term()
+  # The sentinel groups independent Executor requests; only source-key idempotency applies.
+  def supersede_duplicates(state, %Decision{ticket: %{identifier: "executor"}}), do: state
+
   def supersede_duplicates(state, %Decision{} = answered) do
     case normalized_question(answered.question) do
       nil ->
@@ -104,6 +107,8 @@ defmodule Aiur.DecisionStore.Dedup do
   # widens it with a token-overlap floor so paraphrases (the #2099 shape) also
   # collapse, while a genuinely different question still creates its own row.
   @spec find_creation_duplicate(term(), term()) :: term()
+  def find_creation_duplicate(%Decision{ticket: %{identifier: "executor"}}, _state), do: nil
+
   def find_creation_duplicate(decision, state) do
     state.current
     |> Map.values()
@@ -112,6 +117,8 @@ defmodule Aiur.DecisionStore.Dedup do
   end
 
   @spec find_expired_reraise_duplicate(term(), term()) :: Decision.t() | nil
+  def find_expired_reraise_duplicate(%Decision{ticket: %{identifier: "executor"}}, _state), do: nil
+
   def find_expired_reraise_duplicate(decision, state) do
     state.current
     |> Map.values()

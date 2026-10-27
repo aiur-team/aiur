@@ -27,6 +27,11 @@ defmodule Aiur.ControlCLI.EntryPoints do
     guarded("executor-ack", fn -> opts |> ExecutorCommandCLI.ack(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec command_request(keyword()) :: :ok
+  def command_request(opts) do
+    guarded("command request", fn -> opts |> Aiur.ControlCLI.ExecutorRequest.request(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec executor_answer(keyword()) :: :ok
   def executor_answer(opts) when is_list(opts) do
     guarded("executor-answer", fn -> opts |> ExecutorCommandCLI.answer(error_fun: &control_error/1) |> exit_marker() end)

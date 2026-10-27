@@ -21,6 +21,9 @@ defmodule Aiur.Commands.Routing.Policy do
   @type config :: %{ack_ms: non_neg_integer(), answer_ms: non_neg_integer(), urgent_factor: number()}
   @type escalation :: :none | {:due, cause(), DateTime.t()} | {:next, DateTime.t()}
 
+  @spec executor_may_answer?(map()) :: boolean()
+  def executor_may_answer?(decision), do: not Requester.executor?(decision) and DecisionAuthority.executor_answerable?(decision)
+
   @spec deferrable?(map()) :: boolean()
   def deferrable?(decision), do: decision.authority != :human_required and not Requester.executor?(decision)
 
