@@ -254,7 +254,7 @@ defmodule Aiur.DecisionStore.Requests do
   end
 
   defp identical_expired_retry(decision, requested_version, existing) do
-    expired_unanswered_blocking?(existing) and requested_version == existing.version and
+    decision.ticket.identifier != "executor" and expired_unanswered_blocking?(existing) and requested_version == existing.version and
       decision.content_hash == existing.content_hash
   end
 

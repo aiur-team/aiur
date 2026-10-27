@@ -1,6 +1,7 @@
 # Module, full ExUnit test name (describe prefix included, as failures print it), owner fix ticket, and YYYY-MM-DD expiry. Tabs delimit four fields.
 Aiur.AgentGitHubGuard.GraphqlAndPagination2Test	a broker failure refuses the real gh command	#5511	2026-12-31
 Aiur.AgentGitMergeQueuePushGuardTest	refuses detached pushes to a branch ref after handoff	#6538	2026-12-31
+Aiur.AgentRunner.TurnLoopNoopBoundTest	a run of consecutive no-op turns hands a no-PR active ticket to human review with a reason	#6328	2026-12-31
 Aiur.AppServer.TurnLoopTest	active relay turn keeps a sustained output flood below one hundred mailbox messages	#6476	2026-12-31
 Aiur.Claude.Repl.HookTurnTest	post_tool_use hook resets the deadline so the loop survives past the original timeout	#6227	2026-12-31
 Aiur.Codex.StartupFailureTest	a process exiting before initialize persists its status and a redacted bounded diagnostic	#6212	2026-12-31
@@ -14,6 +15,8 @@ Aiur.LandingWatch.LocalHoldTest	an expired observation hold retries without logg
 Aiur.LandingWatch.UnlinkedPrTest	unlinked approved PR is skipped while linked PRs route and the watcher stays running	#6474	2026-12-31
 Aiur.OpenAICompat.CommandRunnerBudgetTest	a direct system gh API path is intercepted by the workspace guard	#5669	2026-12-31
 Aiur.OperatorSendTimeoutTest	*	#6144	2026-12-31
+Aiur.Orchestrator.NonblockingQuestionTest	a non-blocking Command records the question without pausing the worker	#6571	2027-01-25
+Aiur.Orchestrator.NonblockingQuestionTest	only an open blocking Command holds waiting_for_human, even with a stale attention	#6574	2027-01-25
 Aiur.Orchestrator.OperatorMessages.CorrelatedReplayWakeTest	*	#6126	2026-12-31
 Aiur.Orchestrator.QueueSetsDispatchTest	CLI reorders three persisted sets and real reconciliation and dispatch follow the new ranks	#5564	2026-12-31
 Aiur.Orchestrator.Status.ProgressAndIdentityTest	orchestrator snapshot reads open decisions without calling the per-ticket store	#5519	2026-12-31

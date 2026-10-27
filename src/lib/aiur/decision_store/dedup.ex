@@ -32,6 +32,9 @@ defmodule Aiur.DecisionStore.Dedup do
   # sibling. Matching is exact-after-normalization on purpose; see
   # `normalized_question/1`.
   @spec supersede_duplicates(term(), term()) :: term()
+  # The sentinel groups independent Executor requests; only source-key idempotency applies.
+  def supersede_duplicates(state, %Decision{ticket: %{identifier: "executor"}}), do: state
+
   def supersede_duplicates(state, %Decision{} = answered) do
     case normalized_question(answered.question) do
       nil ->
@@ -47,6 +50,7 @@ defmodule Aiur.DecisionStore.Dedup do
 
   defp duplicate_of?(%Decision{} = candidate, %Decision{} = answered, question) do
     candidate.decision_id != answered.decision_id and
+      candidate.kind != "native_question" and answered.kind != "native_question" and
       candidate.decision_status in [:open, :deferred] and
       is_nil(candidate.answer) and
       candidate.ticket.identifier == answered.ticket.identifier and
@@ -104,6 +108,8 @@ defmodule Aiur.DecisionStore.Dedup do
   # widens it with a token-overlap floor so paraphrases (the #2099 shape) also
   # collapse, while a genuinely different question still creates its own row.
   @spec find_creation_duplicate(term(), term()) :: term()
+  def find_creation_duplicate(%Decision{ticket: %{identifier: "executor"}}, _state), do: nil
+
   def find_creation_duplicate(decision, state) do
     state.current
     |> Map.values()
@@ -112,6 +118,8 @@ defmodule Aiur.DecisionStore.Dedup do
   end
 
   @spec find_expired_reraise_duplicate(term(), term()) :: Decision.t() | nil
+  def find_expired_reraise_duplicate(%Decision{ticket: %{identifier: "executor"}}, _state), do: nil
+
   def find_expired_reraise_duplicate(decision, state) do
     state.current
     |> Map.values()
@@ -157,6 +165,10 @@ defmodule Aiur.DecisionStore.Dedup do
       candidate.authority == decision.authority and
       creation_duplicate_match?(candidate, decision)
   end
+
+  # Each native request needs its own reply; source-id retry handling still deduplicates retries.
+  defp creation_duplicate_match?(%Decision{kind: "native_question"}, _decision), do: false
+  defp creation_duplicate_match?(_candidate, %Decision{kind: "native_question"}), do: false
 
   defp creation_duplicate_match?(candidate, decision) do
     case {normalized_question(candidate.question), normalized_question(decision.question)} do
