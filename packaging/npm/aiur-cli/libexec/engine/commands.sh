@@ -257,7 +257,8 @@ cmd_commands() {
   [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
   [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
 
-  local opts="filter: \"$filter\""
+  local opts="filter: :$filter"
+  case "$filter" in needs-you|with-executor|from-executor) opts="filter: :\"$filter\"" ;; esac
   [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   [ -n "$limit" ] && opts="$opts, limit: $limit"
