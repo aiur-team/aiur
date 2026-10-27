@@ -51,6 +51,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <th class="ut-col-unit" data-sort-key="unit">Unit</th>
               <th class="ut-col-ticket" data-sort-key="ticket">Ticket</th>
               <th class="ut-col-latest" data-sort-key="latest" data-sort-type="number">Latest</th>
+              <th>Commands</th>
               <th class="ut-col-cmd">Command</th>
             </tr>
           </thead>
@@ -59,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 a table of its own. --%>
           <tbody :if={@status == :unavailable}>
             <tr class="units-row units-empty-row">
-              <td class="units-empty-cell" colspan="5">No active units</td>
+              <td class="units-empty-cell" colspan="6">No active units</td>
             </tr>
           </tbody>
           <tbody id="units-rows">
@@ -93,12 +94,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
               </td>
 
-              <td data-label="Ticket" data-sort-value={row.title} class="ut-ticket-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
+              <td data-label="Ticket" data-sort-value={row.title} class="ut-ticket-cell ut-open" phx-click={not UnitsPolicy.condition?(:waiting_on_you, row) && "inspect-unit"} phx-value-unit={token}>
                 <div class="ut-title">{known(row.title, "Title unknown")}</div>
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
                 </span>
-                <span :if={state_label = UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
+                <a :if={UnitsPolicy.condition?(:waiting_on_you, row)} class="u-lane is-state" href={"/commands/#{URI.encode_www_form(row.reasons.native_hold.decision_id)}"}>
+                  Waiting for your answer <span>{UnitsPresentation.native_hold_age(row.reasons.native_hold, @now)}</span>
+                </a>
+                <span :if={state_label = not UnitsPolicy.condition?(:waiting_on_you, row) && UnitsPresentation.workflow_state_label(row)} class="u-lane is-state" title={state_label}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{state_label}
                 </span>
                 <span :if={reason_label = UnitsPresentation.reason_label(row)} class="u-lane is-state" title={reason_label}>
@@ -130,6 +134,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
               </td>
 
+              <td data-label="Commands">
+                <.link patch={AiurWeb.OperatorControlCenter.DecisionPath.inbox(:needs_you, %{ticket: row.identity.identifier})} class="chip" title="Commands that need you">
+                  {needs_you_count(@view, row.identity.identifier)}
+                </.link>
+              </td>
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
@@ -169,6 +178,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     </div>
     """
   end
+
+  defp needs_you_count(%{command_counts: %{needs_you_by_ticket: counts}}, identifier) when is_map(counts),
+    do: Map.get(counts, identifier, 0)
+
+  defp needs_you_count(_view, _identifier), do: "—"
 
   defp turn_count(%{turn_count: count}) when is_integer(count) and count >= 0, do: count
   defp turn_count(row), do: unreported_label(row)
@@ -329,6 +343,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     end
   end
 
+  defp attention_tone(%{reasons: %{native_hold: %{}}}), do: "is-blocked"
   defp attention_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp attention_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
   defp attention_tone(_row), do: nil

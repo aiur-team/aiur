@@ -21,6 +21,17 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
     %{state: state, id: id, issue: issue}
   end
 
+  test "session installation proof enables async and missing proof falls back", %{state: state, id: id, issue: issue} do
+    assert {:ok, _} = ModeStore.put(id, :async, 0, %{actor: :human})
+    assert {:noreply, legacy} = State.handle_session_execution_info(state, issue.id, %{backend: "codex"})
+    assert legacy.running[issue.id].listener_effective.effective == :sync
+    assert legacy.running[issue.id].listener_effective.effective_reason == :pull_tool_unavailable
+    assert {:noreply, installed} = State.handle_session_execution_info(legacy, issue.id, %{backend: "codex", pull_tool_installed: true})
+    assert installed.running[issue.id].listener_effective.effective == :async
+    assert installed.running[issue.id].session_execution.pull_tool_installed
+    assert {:reply, {:ok, %{effective: :async}}, _} = ListenerModes.get_mode(installed, id)
+  end
+
   test "fallback recomputes effective reason, broadcasts as system, and preserves requested record", %{state: state, id: id, issue: issue} do
     assert {:ok, record} = ModeStore.put(id, :sync, 0, %{actor: :executor})
     bytes = File.read!(ModeStore.path_for(id))

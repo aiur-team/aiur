@@ -114,6 +114,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       Dispatch.execute(
         tool,
         arguments,
+        message_reader: Keyword.get(opts, :message_reader, fn max -> Orchestrator.read_held_messages(issue.identifier, max) end),
         alert_emitter: fn name, message, reason, needs_attention, severity ->
           # Agent-emitted alerts are always per-ticket — namespace under
           # `ticket.<id>.agent.<name>` so subscribers can bind by ticket

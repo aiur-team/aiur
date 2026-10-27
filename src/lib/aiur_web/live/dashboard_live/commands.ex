@@ -13,7 +13,7 @@ defmodule AiurWeb.DashboardLive.Commands do
   alias AiurWeb.OperatorControlCenter.DecisionPath
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
-  @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
+  @decision_filters [:needs_you, :with_executor, :from_executor, :all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
 
   @doc false
   @spec reload_payload(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
@@ -111,6 +111,10 @@ defmodule AiurWeb.DashboardLive.Commands do
   @spec unavailable_retained_counts() :: term()
   def unavailable_retained_counts do
     %{
+      needs_you: nil,
+      needs_you_blocking: nil,
+      with_executor: nil,
+      from_executor: nil,
       open: nil,
       blocking: nil,
       total: nil,
@@ -199,17 +203,10 @@ defmodule AiurWeb.DashboardLive.Commands do
     assign(socket, :decision_page, page)
   end
 
-  defp decision_query(:all, params) do
+  defp decision_query(_filter, params) do
     %{}
     |> maybe_put_query(:ticket, params["ticket"])
     |> maybe_put_query(:search, params["search"])
-    |> maybe_put_query(:requester, if(params["requester"] == "executor", do: "executor"))
-    |> maybe_put_query(:cursor, params["cursor"])
-    |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
-  end
-
-  defp decision_query(_filter, params) do
-    %{}
     |> maybe_put_query(:requester, if(params["requester"] == "executor", do: "executor"))
     |> maybe_put_query(:cursor, params["cursor"])
     |> maybe_put_query(:sort, UnitsPanel.normalize_table_sort(params["sort"]))
@@ -224,6 +221,9 @@ defmodule AiurWeb.DashboardLive.Commands do
 
   # The inbox lists outstanding Commands, including work deferred to the
   # Executor. Only completed or retired Commands move into history.
+  defp put_filter_query(query, filter) when filter in [:needs_you, :with_executor, :from_executor],
+    do: query |> Map.put("lifecycle", "open") |> Map.put("route", Atom.to_string(filter))
+
   defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "open")
 
   defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)

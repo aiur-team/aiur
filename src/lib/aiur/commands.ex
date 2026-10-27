@@ -13,6 +13,12 @@ defmodule Aiur.Commands do
   @spec record_command_fact(String.t(), atom(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate record_command_fact(decision_id, type, data, opts \\ []), to: Aiur.DecisionStore
 
+  @spec needs_you?(map()) :: boolean()
+  defdelegate needs_you?(decision), to: Aiur.Commands.Routing.Policy
+
+  @spec matches_route?(map(), atom() | nil) :: boolean()
+  defdelegate matches_route?(decision, route), to: Aiur.Commands.Routing.Policy
+
   @spec public_v2(Aiur.Decision.t()) :: map()
   defdelegate public_v2(decision), to: Aiur.Commands.Projection
 

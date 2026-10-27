@@ -18,6 +18,7 @@ defmodule Aiur.Listener.ModeStore do
           required(:version) => non_neg_integer(),
           required(:actor) => :default | :human | :executor | :system,
           required(:updated_at) => String.t() | nil,
+          optional(:last_read_sequence) => non_neg_integer(),
           optional(:idempotency_key) => String.t() | nil
         }
   @default %{requested: :sync, version: 0, actor: :default, updated_at: nil}
@@ -53,11 +54,23 @@ defmodule Aiur.Listener.ModeStore do
         {:ok, current}
 
       expected_version == current.version ->
-        persist(path, mode, current.version + 1, meta)
+        persist(path, mode, current.version + 1, meta, Map.take(current, [:last_read_sequence]))
 
       true ->
         {:error, {:mode_conflict, current}}
     end
+  end
+
+  @doc "Record the queue-epoch read position without changing mode or its CAS version. Caller serializes writes."
+  @spec record_read(String.t(), non_neg_integer(), keyword()) :: :ok | {:error, term()}
+  def record_read(identifier, sequence, opts \\ []) do
+    with path when is_binary(path) <- path_for(identifier, opts) do
+      record = get(identifier, opts) |> Map.put(:last_read_sequence, sequence) |> Map.put(:schema_version, 1)
+      JsonStore.write!(path, record)
+      :ok
+    end
+  rescue
+    error -> {:error, {:write_failed, error}}
   end
 
   @spec clear(String.t(), keyword()) :: :ok | {:error, File.posix() | path_error()}
@@ -92,8 +105,9 @@ defmodule Aiur.Listener.ModeStore do
     end
   end
 
-  defp persist(path, mode, version, meta) do
+  defp persist(path, mode, version, meta, extra) do
     record = %{requested: mode, version: version, actor: Map.fetch!(meta, :actor), idempotency_key: Map.get(meta, :idempotency_key), updated_at: DateTime.to_iso8601(DateTime.utc_now())}
+    record = Map.merge(record, extra)
     JsonStore.write!(path, Map.put(record, :schema_version, 1))
     {:ok, record}
   rescue
@@ -101,9 +115,14 @@ defmodule Aiur.Listener.ModeStore do
   end
 
   defp decode(%{"schema_version" => 1, "requested" => mode, "version" => version, "actor" => actor, "updated_at" => updated_at} = raw, identifier)
-       when is_binary(mode) and is_integer(version) and version > 0 and
-              actor in ["human", "executor", "system"] and is_binary(updated_at) do
-    %{requested: decode_mode(mode, identifier), version: version, actor: decode_actor(actor), idempotency_key: Map.get(raw, "idempotency_key"), updated_at: updated_at}
+       when is_binary(mode) and is_integer(version) and version >= 0 and
+              actor in ["default", "human", "executor", "system"] and (is_binary(updated_at) or is_nil(updated_at)) do
+    record = %{requested: decode_mode(mode, identifier), version: version, actor: decode_actor(actor), idempotency_key: Map.get(raw, "idempotency_key"), updated_at: updated_at}
+
+    case raw["last_read_sequence"] do
+      n when is_integer(n) and n >= 0 -> Map.put(record, :last_read_sequence, n)
+      _ -> record
+    end
   end
 
   defp decode(_raw, _identifier), do: @default
@@ -121,6 +140,7 @@ defmodule Aiur.Listener.ModeStore do
     :sync
   end
 
+  defp decode_actor("default"), do: :default
   defp decode_actor("human"), do: :human
   defp decode_actor("executor"), do: :executor
   defp decode_actor("system"), do: :system
