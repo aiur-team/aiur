@@ -43,7 +43,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
     <section :if={@decision.answer} class="decision-revision" aria-labelledby={"decision-revision-title-#{@decision.decision_id}"}>
       <header class="decision-action-header">
         <div>
-          <h4 id={"decision-revision-title-#{@decision.decision_id}"}>Revise Command</h4>
+          <h4 id={"decision-revision-title-#{@decision.decision_id}"}>Send correction</h4>
         </div>
         <span class="chip super">Revision {@decision.revision_sequence}</span>
       </header>
@@ -137,7 +137,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
 
         <footer class="decision-action-footer">
           <span>Targets action {@decision.active_action_id} · sequence {@decision.revision_sequence}</span>
-          <button class="aiur-button aiur-button--dashboard btn" type="submit" phx-disable-with="Recording…">Record revision</button>
+          <button class="aiur-button aiur-button--dashboard btn" type="submit" phx-disable-with="Recording…">Send correction</button>
         </footer>
       </form>
 

@@ -21,7 +21,7 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 | --- | --- |
 | Answer directly | Pick an option or write a bounded response and send it to the agent. |
 | Defer | Leave the Command for a designated Executor agent to investigate and decide. |
-| Revise | Append a corrected action without rewriting the original record. |
+| Send correction | Append a corrected action without rewriting the original record. |
 
 ## Authority and attention signals
 
