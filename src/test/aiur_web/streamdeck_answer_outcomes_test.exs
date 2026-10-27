@@ -6,7 +6,7 @@ defmodule AiurWeb.StreamdeckAnswerOutcomesTest do
 
   setup do
     dir = Path.join(System.tmp_dir!(), "deck-outcomes-#{System.unique_integer([:positive])}")
-    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, answer_comment_publisher: fn _ -> :ok end)
     EndpointStubs.put(decision_store: store)
 
     on_exit(fn ->
