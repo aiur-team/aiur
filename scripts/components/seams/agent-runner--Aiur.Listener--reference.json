@@ -1,0 +1,9 @@
+{
+  "from": "agent-runner",
+  "to_module": "Aiur.Listener",
+  "kind": "reference",
+  "only_paths": [
+    "src/lib/aiur/agent_runner/async_message_prompt.ex"
+  ],
+  "reason": "#6502 turn prompts read the effective listener mode and existing rollout gate through their public APIs"
+}
