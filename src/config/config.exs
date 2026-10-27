@@ -74,6 +74,7 @@ config :aiur, :init_contributions, [Aiur.Voice]
 
 config :aiur, :capability_providers, [
   Aiur.Capabilities.IdentityProvider,
+  Aiur.Listener.CapabilityProvider,
   Aiur.Capabilities.MergePolicyProvider,
   Aiur.BuildQueue.CapabilityProvider,
   Aiur.Experiments.CapabilityProvider,

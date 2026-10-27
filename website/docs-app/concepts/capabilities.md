@@ -86,6 +86,13 @@ presence does not promise that its feature is installed or enabled.
 | `accounting.meters` | Provider usage meters |
 | `merge_policy` | Configured merge policy; `mode` is `ci=<mode> local_tests=<mode>` ([configuration](/reference/merge-policy)) |
 
+`listener_modes` is available only with a valid v1 specification and listener routing
+enabled; its `version` is the selected spec major (1). Missing specifications report
+`unavailable/not_installed`, failed validation reports `unavailable/spec_invalid`,
+and legacy or unrecognized routing flags report `unavailable/disabled`. Unexpected
+status or read failures report `unknown/unknown`. Sends retain legacy routing when
+listener modes are unavailable.
+
 Per-capability `version` defaults to 1. Registered `route` attributes tell clients
 where to open a feature's dashboard page; do not hard-code those destinations.
 
