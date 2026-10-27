@@ -41,7 +41,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
   def list(params \\ %{}, opts \\ [])
 
   def list(params, opts) when is_map(params) and is_list(opts) do
-    with {:ok, result} <- Commands.query_list(params, store: store(opts)) do
+    with :ok <- validate_requester(params),
+         {:ok, result} <- Commands.query_list(Map.drop(params, ["requester", :requester]), store: store(opts)) do
       {snapshots, latency_health} = latency_for_ids(Enum.map(result.decisions, & &1.decision_id), metrics(opts))
 
       rows =
@@ -49,11 +50,32 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
         |> Enum.flat_map(&DecisionPresenter.present/1)
         |> DecisionPresenter.attach_latency(snapshots, latency_health)
 
-      {:ok, %{result | decisions: rows}}
+      {:ok, filter_requester(%{result | decisions: rows}, Map.get(params, "requester", Map.get(params, :requester)))}
     end
   end
 
   def list(_params, _opts), do: {:error, {:invalid_query, {:params, :invalid_type}}}
+
+  defp validate_requester(params) do
+    case Map.get(params, "requester", Map.get(params, :requester)) do
+      value when value in [nil, "executor"] -> :ok
+      _value -> {:error, {:invalid_query, {:requester, :invalid_value}}}
+    end
+  end
+
+  # Requester has no retained-store index: preserve the underlying page cursor,
+  # and expose only a page-scoped count, never the unfiltered total as its total.
+  defp filter_requester(result, "executor") do
+    rows = Enum.filter(result.decisions, &DecisionPresenter.executor?/1)
+    partial? = result.partial_results? or result.health.partial?
+
+    result
+    |> Map.put(:decisions, rows)
+    |> Map.put(:requester_page, %{count: if(partial?, do: nil, else: length(rows)), partial?: partial?})
+    |> Map.update!(:pagination, &Map.put(&1, :total, nil))
+  end
+
+  defp filter_requester(result, _requester), do: result
 
   @spec counts(keyword()) :: {:ok, map()}
   def counts(opts \\ []) when is_list(opts), do: Commands.query_counts(store: store(opts))

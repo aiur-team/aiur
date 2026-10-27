@@ -175,7 +175,7 @@ defmodule AiurWeb.DashboardLive do
   @impl true
   def handle_event("filter-decisions", %{"filter" => filter}, socket) do
     filter = Commands.normalize_filter(filter)
-    {:noreply, push_patch(socket, to: Commands.decision_path(socket.assigns.selected_decision_id, filter, %{}))}
+    {:noreply, push_patch(socket, to: Commands.decision_path(socket.assigns.selected_decision_id, filter, Map.take(socket.assigns.decision_query, [:requester])))}
   end
 
   def handle_event("filter-decisions", _params, socket), do: {:noreply, socket}

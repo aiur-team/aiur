@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.DecisionCard
+  alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionPath}
 
   @filter_specs [
     {:open, "Open"},
@@ -36,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       |> assign(:visible_decisions, decisions)
       |> assign(:counts, filter_counts(assigns.retained_counts, assigns.history_total))
       |> assign(:filter_specs, @filter_specs)
-      |> assign(:page_health, get_in(assigns.page, [:health, :status]))
+      |> assign(:page_health, page_health(assigns.page))
 
     ~H"""
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
@@ -51,8 +51,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           active={@filter == filter}
           blocking={filter == :blocking}
         />
+        <.link
+          patch={DecisionPath.inbox(@filter, if(@query[:requester] == "executor", do: Map.drop(@query, [:requester, :cursor]), else: Map.put(Map.delete(@query, :cursor), :requester, "executor")))}
+          class={["filter-chip", @query[:requester] == "executor" && "is-active"]}
+          aria-current={@query[:requester] == "executor" && "page"}
+        >From Executor</.link>
       </div>
 
+      <p :if={@query[:requester] == "executor"} class="empty-state compact" role="status" data-requester-count>
+        {requester_count_label(@page)}
+      </p>
       <div class="decision-list">
         <div :if={@provider_health != :ok or @page_health == :unavailable} class="empty-state">
           Commands are unavailable right now. Unit state is still live.
@@ -60,8 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
         <div :if={@page_health == :partial} class="empty-state compact" role="status">
           Showing a partial list of Commands.
         </div>
-        <div :if={@provider_health == :ok and @page_health != :unavailable and @visible_decisions == []} class="empty-state">
-          {empty_message(@filter)}
+        <div :if={@provider_health == :ok and @page_health not in [:unavailable, :partial] and @visible_decisions == []} class="empty-state">
+          {if @query[:requester] == "executor", do: "No Commands from the Executor on this retained page.", else: empty_message(@filter)}
         </div>
         <DecisionCard.decision_card
           :for={decision <- @visible_decisions}
@@ -77,9 +85,23 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
         />
       </div>
 
+      <.link
+        :if={@query[:requester] == "executor" and get_in(@page, [:pagination, :next_cursor])}
+        patch={DecisionPath.inbox(@filter, Map.put(@query, :cursor, @page.pagination.next_cursor))}
+        class="aiur-button aiur-button--dashboard aiur-button--ghost"
+      >Next retained page</.link>
     </section>
     """
   end
+
+  defp page_health(%{health: %{status: :unavailable}}), do: :unavailable
+  defp page_health(%{partial_results?: true}), do: :partial
+  defp page_health(page), do: get_in(page, [:health, :status])
+
+  defp requester_count_label(%{requester_page: %{count: count, partial?: false}}) when is_integer(count),
+    do: "#{count} from Executor on this retained page (not a total)."
+
+  defp requester_count_label(_page), do: "Executor count unknown; retained Command data is partial or unavailable."
 
   attr(:filter, :string, required: true)
   attr(:label, :string, required: true)
