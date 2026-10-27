@@ -96,6 +96,7 @@ defmodule AiurWeb.RouterTableTest do
     {:*, "/api/v1/pane/hide", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write], :debug},
     {:post, "/api/v1/:issue_identifier/claude-hook", AiurWeb.ObservabilityApiController, :claude_hook, [:client_token_write, :api_write], :debug},
     {:*, "/api/v1/:issue_identifier/claude-hook", AiurWeb.ObservabilityApiController, :method_not_allowed, [:client_token_write, :api_write], :debug},
+    {:post, "/api/v1/events/token", AiurWeb.EventsSessionController, :create, [:dashboard_auth_required], :debug},
     {:post, "/api/v1/streamdeck/token", AiurWeb.StreamdeckSessionController, :create, [:dashboard_auth_required], :debug},
     {:get, "/api/v1/capabilities", AiurWeb.CapabilitiesController, :show, [:client_token_read], :debug},
     {:*, "/api/v1/capabilities", AiurWeb.CapabilitiesController, :method_not_allowed, [:client_token_read], :debug},
