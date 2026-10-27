@@ -64,8 +64,10 @@ its default is blocking.
 Successful Executor answers, escalations, moots, and supersedes also record an acknowledgement. A failed acknowledgement write is logged without changing the action’s result. Reading a Command or receiving an Executor wake does not acknowledge it. Acknowledging after escalation remains audit evidence and does not change routing.
 
 Human rows show `ID`, `ROUTE`, `AGE`, `WHY` (latest escalation cause), `ASKS`
-(short label), and `TICKET|EXECUTOR`. Unknown routes show `?`. Human-visible
-Commands also show how long they have needed you. Partial retained data is
+(short label), and `TICKET|EXECUTOR`. Simultaneous routing reads `Needs you and Executor`;
+unknown routes show `?`. `WHY` shows `-` for an empty escalation history and `?` for
+missing or malformed escalation data. Open Commands routed to the human or both
+also show how long they have needed you; answered Commands omit that line. Partial retained data is
 labelled below the rows; an unavailable store exits with status 1.
 
 `--filter needs-you` selects open Commands routed to the human or both;
@@ -76,7 +78,7 @@ The requester filter applies within each retained page; follow `pagination.next_
 to continue. `requester_page` carries its page count; `pagination.total` stays null.
 
 JSON rows and selected detail add `observed_at`, `age_ms` (since creation),
-`needs_you_ms` (since human visibility, otherwise null), and `freshness`
+`needs_you_ms` (since human visibility while the Command needs you, otherwise null), and `freshness`
 (`fresh`, `partial`, or `unavailable`). Ages use the snapshot clock; human output
 renders both ages and observation freshness.
 

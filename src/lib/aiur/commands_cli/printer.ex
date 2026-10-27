@@ -33,18 +33,22 @@ defmodule Aiur.CommandsCLI.Printer do
 
   defp route("with_executor"), do: "With Executor"
   defp route("with_human"), do: "Needs you"
-  defp route("with_both"), do: "With both"
+  defp route("with_both"), do: "Needs you and Executor"
   defp route(_unknown), do: "?"
 
   defp duration(ms) when is_integer(ms), do: "#{div(ms, 1000)}s"
   defp duration(_unknown), do: "unknown"
 
   defp cause(row) do
-    case List.last(row["escalations"] || []) do
-      %{"cause" => cause} -> cause
-      _none -> "-"
+    case row["escalations"] do
+      [] -> "-"
+      entries when is_list(entries) -> escalation_cause(List.last(entries))
+      _unknown -> "?"
     end
   end
+
+  defp escalation_cause(%{"cause" => cause}) when is_binary(cause) and cause != "", do: cause
+  defp escalation_cause(_unknown), do: "?"
 
   defp requester(row) do
     if get_in(row, ["requester", "kind"]) == "executor",

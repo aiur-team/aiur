@@ -209,6 +209,37 @@ defmodule Aiur.CommandsCLITest do
     end
   end
 
+  test "answered human-routed Commands have no needs-you age in resolved rows or detail", %{store: store} do
+    decision = request!(store, "answered-human", false)
+    at = ~U[2026-08-08 11:00:00Z]
+
+    assert {:ok, _} =
+             DecisionStore.record_command_fact(decision.decision_id, :routed, %{policy: :human_only, state: :with_human, cause: nil, at: at, actor: %{kind: :system, id: "routing"}}, server: store)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "answered-human", "expected_version" => decision.version, "option_id" => "ship"},
+               [actor: %{kind: :operator, id: "operator"}, now: DateTime.add(at, 30)],
+               store
+             )
+
+    opts = [filter: :resolved, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end, now: DateTime.add(at, 90)]
+
+    for selection <- [[], [decision_id: decision.decision_id]] do
+      assert {:ok, envelope} = CommandsCLI.build(opts ++ selection)
+      assert [row] = envelope["data"]["page"]["decisions"]
+      assert row["decision_id"] == decision.decision_id
+      assert row["human_visible_at"] == "2026-08-08T11:00:00Z"
+      assert row["route_state"] == "with_human"
+      assert row["needs_you_ms"] == nil
+
+      if selection != [], do: assert(envelope["data"]["selected"]["needs_you_ms"] == nil)
+      output = capture_io(fn -> assert 0 == CommandsCLI.run(opts ++ selection) end)
+      refute output =~ "Needs you since:"
+    end
+  end
+
   test "unknown route prints question mark and never guesses Executor ownership", %{store: store} do
     request!(store, "unknown-route", false)
     output = capture_io(fn -> assert 0 == CommandsCLI.run(decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end, now: ~U[2026-08-08 10:00:30Z]) end)

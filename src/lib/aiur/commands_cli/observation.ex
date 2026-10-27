@@ -8,7 +8,7 @@ defmodule Aiur.CommandsCLI.Observation do
     Map.merge(row, %{
       observed_at: now,
       age_ms: elapsed(row.created_at, now),
-      needs_you_ms: elapsed(Map.get(row, :human_visible_at), now),
+      needs_you_ms: if(Aiur.Commands.needs_you?(row), do: elapsed(Map.get(row, :human_visible_at), now)),
       freshness: freshness(source)
     })
   end
