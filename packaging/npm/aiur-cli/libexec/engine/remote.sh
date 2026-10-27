@@ -296,7 +296,7 @@ load_remote_token() {
     token_file)
       case "$reference" in
         "~") path="$HOME" ;;
-        "~/"*) path="$HOME/${reference#~/}" ;;
+        "~/"*) path="$HOME/${reference#\~/}" ;;
         /*) path="$reference" ;;
         *)
           echo "aiur: remote instance '$name' token_file must be absolute or start with ~/" >&2
