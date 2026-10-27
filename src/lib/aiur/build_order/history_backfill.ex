@@ -30,7 +30,7 @@ defmodule Aiur.BuildOrder.HistoryBackfill do
     repository = Keyword.get_lazy(opts, :repository, &Aiur.Tracker.project_identity/0)
     opts = Keyword.put_new(opts, :cap, @max_tickets_per_run)
 
-    if is_binary(repository) and Regex.match?(~r/\A[^\s\/]+\/[^\s\/]+\z/, repository) do
+    if is_binary(repository) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, repository) do
       :global.trans({{__MODULE__, repository, issue}, self()}, fn -> allocate(issue, limit, start_after, repository, opts) end, [node()])
     else
       {:error, :history_export_needs_github_issue}

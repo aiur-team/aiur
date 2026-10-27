@@ -50,9 +50,11 @@ defmodule Aiur.AgentTools.HistoryExportTest do
       refute File.exists?(c.dir)
     end
 
-    response = executor(Keyword.put(c.opts, :repository, nil)).("aiur_history_export", %{})
-    assert result(response)["error"]["code"] == "history_export_needs_github_issue"
-    refute File.exists?(c.dir)
+    for repository <- [nil, "acme", "linear:team/repo", "https://github.com/acme/app"] do
+      response = executor(Keyword.put(c.opts, :repository, repository)).("aiur_history_export", %{})
+      assert result(response)["error"]["code"] == "history_export_needs_github_issue"
+      refute File.exists?(c.dir)
+    end
   end
 
   test "invalid and unknown arguments fail before invoking bound exporter", c do
