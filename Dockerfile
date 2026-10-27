@@ -41,7 +41,7 @@ COPY packages/elixir/ ./packages/elixir/
 COPY src/mix.exs src/mix.lock ./src/
 
 RUN cd src && \
-    mise exec -- mix deps.get && \
+    bash ../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get && \
     MIX_ENV=dev mise exec -- mix deps.compile && \
     MIX_ENV=test mise exec -- mix deps.compile
 

@@ -46,5 +46,6 @@
   "env": [
     "CI"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

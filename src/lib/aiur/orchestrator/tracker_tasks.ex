@@ -130,6 +130,7 @@ defmodule Aiur.Orchestrator.TrackerTasks do
   # deadline; killing the task after the generic two-minute timeout would lose
   # the write.
   defp task_timer({:retry_exhausted, _issue_id}, _ref), do: nil
+  defp task_timer({:terminal_policy_failure, _issue_id}, _ref), do: nil
   defp task_timer({:merged_comment, _identifier}, _ref), do: nil
   defp task_timer({:stranded_work, _identifier}, _ref), do: nil
   defp task_timer(_key, ref), do: Process.send_after(self(), {:tracker_task_timeout, ref}, @timeout_ms)

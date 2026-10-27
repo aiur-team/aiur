@@ -3,11 +3,13 @@ defmodule Aiur.Application.Children do
   The one boot-order authority: the supervision child list for a run shape.
   """
 
+  alias Aiur.Application.ExportChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
-  alias Aiur.GitHub.{BlockerProgress, Config}
-  alias Aiur.Instance.{Heartbeat, LeaseStore}
+  alias Aiur.GitHub.{Access, BlockerProgress, Config}
+  alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
+  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
 
   @doc """
   Build the supervision children for the given run shape.
@@ -46,8 +48,7 @@ defmodule Aiur.Application.Children do
         Application.get_env(:aiur, :ls_remote_ticker_enabled?, true)
       )
 
-    primary_instance? =
-      Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0) == "primary"
+    instance_role = Keyword.get_lazy(opts, :instance_role, &AiurConfig.instance_role/0)
 
     github_tracker? =
       Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
@@ -133,7 +134,7 @@ defmodule Aiur.Application.Children do
       Aiur.DecisionDispatchTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
-      Aiur.GitHub.AppTokenRefresher,
+      Access.app_token_refresher_child_spec([]),
       # The next three are passive tables a GitHub request consults, started in
       # the order a request touches them: choose a credential, then look for a
       # cached answer, then price and admit what is left. Neither of the first
@@ -145,21 +146,21 @@ defmodule Aiur.Application.Children do
       # Owns the per-credential rate-limit table the selector reads. First of the
       # three because selection happens in `default_request_fun`, outside the
       # cache: a request has picked its credential before a lookup is attempted.
-      Aiur.GitHub.CredentialHeadroom,
+      Access.credential_headroom_child_spec([]),
       # The daemon's read-through cache, owning the tables `Aiur.GitHub.Transport`
       # consults on every request. It starts before `Quota` and before anything
       # that polls, because a request issued while its tables do not exist is a
       # request that pays: the lookup degrades to a miss rather than failing, and
       # a miss is the full price. Reads never call this process.
-      Aiur.GitHub.ReadCache,
-      Aiur.GitHub.Quota,
+      Access.read_cache_child_spec([]),
+      Access.quota_child_spec([]),
       # Turns the budget-broker-timeout retry rate into a signal (#2464): a
       # queryable retry event per backoff plus one dwelled degraded alert. The
       # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
       # owns the sliding-window rate and alert latch.
-      Aiur.GitHub.BrokerTimeout,
+      Access.broker_timeout_child_spec([]),
       Aiur.GitHub.HoldPressure,
-      Aiur.GitHub.BudgetBroker,
+      Access.budget_broker_child_spec([]),
       Aiur.Voice.child_specs(),
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
@@ -175,11 +176,11 @@ defmodule Aiur.Application.Children do
       # comment — and so the first poll sweep already has last run's ETags.
       # Owns open-issue close signals (#2714); a poll-writer-owned table would die with it.
       Aiur.GitHub.OpenIssueSnapshot,
-      Aiur.GitHub.ResourceStore,
+      Access.resource_store_child_spec([]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
-      Aiur.GitHub.AgentCacheBridge,
+      Access.agent_cache_bridge_child_spec([]),
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.Capabilities.Monitor,
@@ -203,6 +204,9 @@ defmodule Aiur.Application.Children do
       # is broadcast before there is anything retaining it.
       Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
+      # Subscribe after the projection exists and before refresh emits the
+      # baseline observation used to initialize low-usage alert episodes.
+      Aiur.Usage.Alerts,
       # Decides when usage is observed: one baseline after boot, then while a
       # surface is watched or headroom account selection is on. Starts after the projection so a baseline
       # observation always has somewhere to land.
@@ -247,9 +251,13 @@ defmodule Aiur.Application.Children do
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
       # View-state cadence reconciles the pack-status writer; starts after its timerless sources so its first tick never races boot fill.
       BuildOrders.child_specs(:view_state_sweep, opts),
+      # Seed the fail-closed admission table before the Orchestrator can perform
+      # its initial dispatch.
+      Aiur.Orchestrator.SpendCap.Store,
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
+      Aiur.Commands.Routing,
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.
@@ -290,8 +298,7 @@ defmodule Aiur.Application.Children do
       # last in this `:rest_for_one` list so their restarts can never cascade
       # into the dashboard, the Principal, or the opencode supervisors.
       if(recording?, do: [Aiur.AllowedContributors, BuildOrders.child_specs(:recording, opts)]),
-      BuildOrders.child_specs(:final, opts),
-      if(primary_instance? and main_watch_enabled?, do: Aiur.MainWatch)
+      BuildOrders.child_specs(:final, opts)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
@@ -304,18 +311,19 @@ defmodule Aiur.Application.Children do
           feature_opts: [recent_merges: &Aiur.RecentMergeStore.list/0]
         ) ++
         BuildOrders.child_specs(:label_projection, opts) ++
-        landing_watch_children(primary_instance?, github_tracker?) ++
         executor_sweep_children() ++
         Aiur.Experiments.window_children(recording?) ++
-        quarantine_lifter_children(primary_instance?, github_tracker?) ++
         dashboard_cache_children(dashboard?) ++
+        coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
+        [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts) ++
-        coordination_children()
+        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0))
     )
   end
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
+      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
@@ -331,19 +339,27 @@ defmodule Aiur.Application.Children do
     )
   end
 
-  defp coordination_children do
-    if LeaseStore.configured?(),
-      do: [LeaseStore, Heartbeat],
-      else: []
+  defp coordination_children(role, github_tracker?, main_watch_enabled?) do
+    store_children =
+      if LeaseStore.configured?(),
+        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
+        else: []
+
+    services =
+      []
+      |> maybe_service(github_tracker?, Aiur.LandingWatch)
+      |> maybe_service(github_tracker?, Aiur.LandingWatch.QuarantineLifter)
+      |> maybe_service(github_tracker? and main_watch_enabled?, Aiur.MainWatch)
+
+    store_children ++
+      [
+        {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Instance.GlobalServices},
+        {RepositoryLeader, role: role, services: services, supervisor: Aiur.Instance.GlobalServices}
+      ]
   end
 
-  defp landing_watch_children(true, true), do: [Aiur.LandingWatch]
-
-  defp landing_watch_children(_primary_instance?, _github_tracker?), do: []
-
-  defp quarantine_lifter_children(true, true), do: [Aiur.LandingWatch.QuarantineLifter]
-
-  defp quarantine_lifter_children(_primary_instance?, _github_tracker?), do: []
+  defp maybe_service(children, true, service), do: children ++ [service]
+  defp maybe_service(children, false, _service), do: children
 
   defp executor_sweep_children do
     if AiurConfig.tracker_kind() == "github", do: [Aiur.ExecutorSweep], else: []

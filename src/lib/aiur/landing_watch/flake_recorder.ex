@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.FlakeRecorder do
   @moduledoc "Creates durable, deduplicated issue evidence for tests that fail only in one merge group."
 
-  alias Aiur.GitHub.{AgentMarker, Errors, Transport}
+  alias Aiur.GitHub.{Access, AgentMarker}
   alias Aiur.LandingWatch.Journal
 
   # Leave fix work at default priority so build-order tickets remain ahead of it.
@@ -17,8 +17,8 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     claim_key = identity <> " :: run " <> to_string(run["id"])
     evidence = evidence(failure, run, passed_prs)
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
       claim_and_record(claim_key, identity, evidence, owner, repo, token, opts)
     else
       {:error, _} = error -> error
@@ -64,7 +64,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   end
 
   defp find_or_create(owner, repo, token, identity, evidence, opts) do
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
     query =
       URI.encode_query(%{
@@ -72,14 +72,14 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
         "per_page" => 100
       })
 
-    url = "#{Transport.base_url()}/search/issues?#{query}"
+    url = "#{Access.base_url()}/search/issues?#{query}"
 
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_flake_search"}) do
       {:ok, %{status: 200, body: %{"items" => issues}}} when is_list(issues) ->
         resolve_issue(issues, identity, evidence, request, token, owner, repo)
 
       {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, _} = error ->
         error
@@ -107,7 +107,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   end
 
   defp add_flake_label(number, request, token, owner, repo) do
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/labels"
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/labels"
 
     case request.(%{
            method: :post,
@@ -117,7 +117,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
            body: %{"labels" => ["flake"]}
          }) do
       {:ok, %{status: status}} when status in [200, 201] -> :ok
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
       {:error, _} = error -> error
     end
   end
@@ -135,7 +135,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   defp create_issue(identity, evidence, request, token, owner, repo) do
     title = "Flaky test: " <> identity
     body = marker(identity) <> "\n\n" <> evidence <> "\n\n" <> @quarantine_note
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues"
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues"
 
     case request.(%{
            method: :post,
@@ -149,7 +149,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
         {:ok, number}
 
       {:ok, response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, _} = error ->
         error
@@ -157,7 +157,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   end
 
   defp comment(number, evidence, request, token, owner, repo) do
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/comments"
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{number}/comments"
     body = AgentMarker.stamp(evidence)
 
     case request.(%{
@@ -168,7 +168,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
            body: %{"body" => body}
          }) do
       {:ok, %{status: status}} when status in [200, 201] -> :ok
-      {:ok, response} -> {:error, Errors.github_status_error(response)}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
       {:error, _} = error -> error
     end
   end

@@ -33,6 +33,7 @@ log_ctrlc() {
 }
 
 close_pane() {
+  [ -z "${header_file:-}" ] || rm -f "$header_file"
   log_ctrlc "action=close_pane reason=${1:-degraded}"
   [ -n "$pane_id" ] && tmux kill-pane -t "$pane_id" 2>/dev/null
   exit 0
@@ -52,6 +53,7 @@ hide_pane() {
       $auth_args \
       "${control_url}/api/v1/pane/hide" >/dev/null 2>&1; then
       log_ctrlc "action=hide_pane reason=${1:-requested}"
+      [ -z "$header_file" ] || rm -f "$header_file"
       exit 0
     fi
   fi
@@ -65,7 +67,17 @@ hide_pane() {
 # Loopback dashboards bind without auth; only attach credentials when the
 # Executor has explicitly configured them for a non-loopback bind.
 auth_args=""
-if [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
+header_file=""
+if [ -n "${AIUR_CLIENT_TOKEN:-}" ]; then
+  token="${AIUR_CLIENT_TOKEN:-}"
+  if [ -n "$token" ]; then
+    header_file="$(mktemp "${TMPDIR:-/tmp}/aiur-client-token.XXXXXX")" || close_pane "token_file_failed"
+    chmod 600 "$header_file"
+    printf 'Authorization: Bearer %s\n' "$token" >"$header_file"
+    unset token
+    auth_args="--header @${header_file}"
+  fi
+elif [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
   auth_args="--user ${AIUR_DASHBOARD_USERNAME}:${AIUR_DASHBOARD_PASSWORD}"
 fi
 
@@ -102,11 +114,14 @@ curl_status=$?
 # back to kill only if the hide call also fails.
 if [ "$curl_status" -ne 0 ]; then
   if [ "$curl_status" -eq 28 ]; then
+    [ -z "$header_file" ] || rm -f "$header_file"
     log_ctrlc "action=keep_open reason=curl_timeout"
     exit 0
   fi
   hide_pane "curl_failed_${curl_status}"
 fi
+
+[ -z "$header_file" ] || rm -f "$header_file"
 
 # opencode owns the interrupt for codex/opencode agents: forward its native
 # interrupt key (Esc) to the pane so it drains its queued Executor message and

@@ -148,11 +148,13 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Handoff.Fallback,
       Aiur.Orchestrator.TicketTransition,
       Aiur.Orchestrator.Lifecycle,
+      Aiur.Orchestrator.ListenerModes,
       Aiur.Orchestrator.MembershipLifecycle,
       Aiur.Orchestrator.Parking,
       Aiur.Orchestrator.RetryEngine,
       Aiur.Orchestrator.Reconciler,
       Aiur.Orchestrator.AgentTeardown,
+      Aiur.Orchestrator.Cancellation,
       Aiur.Orchestrator.AutoResume,
       Aiur.Orchestrator.StartupClaimReconciler,
       Aiur.Orchestrator.OrphanedWorkers,
@@ -171,7 +173,7 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Orchestrator.RestackScheduler,
       Aiur.Orchestrator.MergeOrderAudit
     ],
-    messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer],
+    messaging: [Aiur.Orchestrator.OperatorMessages, Aiur.Orchestrator.DigestCoalescer, Aiur.Orchestrator.ListenerModes],
     accounting: [Aiur.Orchestrator.TokenAccounting],
     # Listener names are data; this table neither loads nor calls the optional component.
     github_listeners: [

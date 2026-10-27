@@ -59,7 +59,9 @@ shared [dictated-input note](dictated-input.md).
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
 - Integration safety is your responsibility. During `human-review` or
   `ci-wait`, integrate the configured base only when GitHub reports the exact
-  PR head as `CONFLICTING` or a reviewer asks. File overlap and base movement
+  PR head as `CONFLICTING` or a newer base commit fixes a failing required
+  check (name the commit and check). A reviewer request alone does not
+  authorize integration. File overlap and base movement
   alone do not require a push; the merge queue tests the PR on current base.
   Never open a blocking decision for base integration. Record any required
   conflict resolution in `dev-loop.md`.

@@ -6,8 +6,11 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
   alias AiurWeb.OperatorControlCenter.{
     DecisionAction,
     DecisionPath,
-    DecisionRevisionAction
+    DecisionRevisionAction,
+    DecisionTimeline
   }
+
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
   attr(:decision, :map, required: true)
   attr(:history, :list, default: [])
@@ -26,6 +29,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
     ~H"""
     <div id={"decision-detail-#{@decision.decision_id}"} class="decision-detail" tabindex="-1">
+      <header class="decision-meta-row">
+        <span class="requester-line">{DecisionPresenter.requester_label(@decision)}</span>
+        <span :if={DecisionPresenter.executor?(@decision)} class="chip accent requester-badge">From Executor</span>
+      </header>
       <DecisionAction.decision_action
         decision={@decision}
         state={@action_state}
@@ -36,6 +43,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
       <div class="decision-detail-grid single-column">
         <div>
+          <DecisionTimeline.decision_timeline audit_history={Map.get(@decision, :audit_history, :unavailable)} />
           <.detail_block title="Context">
             <p :if={present?(@decision.context.short)} class="context-summary">{@decision.context.short}</p>
             <div class="markdown-source">{@decision.context.long_markdown || "The agent did not provide deeper context for this Command."}</div>
@@ -48,7 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
           <.detail_block :if={@decision.options != []} title="Options">
             <div class="option-list">
               <article
-                :for={option <- @decision.options}
+                :for={option <- DecisionAction.ordered_options(@decision)}
                 class={["option-card", recommended?(@decision, option) && "recommended"]}
               >
                 <header class="option-head">
@@ -82,6 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
               <li :for={entry <- @history_rows}>
                 <span class="timeline-time mono">{format_datetime(entry.changed_at)}</span>
                 <strong>{humanize(entry.change)}</strong>
+                <p :if={present?(Map.get(entry, :operator_quote))}>Operator quote: {entry.operator_quote}</p>
                 <p :if={present?(entry.rationale)}>{entry.rationale}</p>
                 <div class="timeline-facts">
                   <span class="actor-tag">

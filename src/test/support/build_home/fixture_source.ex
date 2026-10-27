@@ -127,7 +127,8 @@ defmodule Aiur.TestSupport.BuildHome.FixtureSource do
     path = Path.join(dir, dataset <> ".json")
 
     with {:ok, body} <- File.read(path), {:ok, json} <- Jason.decode(body) do
-      {:ok, if(dataset == "hostile", do: json["snapshot"], else: json)}
+      data = if(dataset == "hostile", do: json["snapshot"], else: json)
+      {:ok, Map.put_new(data, "feature_progress", %{"features" => %{}, "observed_at" => nil, "plan_version" => nil, "extras" => 0, "reason" => nil})}
     else
       _error -> {:error, {:fixture_missing, path}}
     end

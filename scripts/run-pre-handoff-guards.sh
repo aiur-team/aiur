@@ -4,7 +4,13 @@ set -euo pipefail
 case "${GITHUB_EVENT_NAME:?}" in
   pull_request)
     # pr-body.yml checks the body and reruns on edits; ci gate requires its newest run.
-    scripts/pre-handoff-guards --skip-pr-body "${AIUR_PR_BASE_SHA:?}"
+    # Full-CI PRs already run coverage shards and Dialyzer in parallel.
+    if [[ "${AIUR_CI_FULL_CI:-false}" == true ]]; then
+      export AIUR_PRE_HANDOFF_EVIDENCE_NOTE='deferred to the parallel coverage and dialyzer jobs'
+      AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS=1 scripts/pre-handoff-guards --skip-pr-body "${AIUR_PR_BASE_SHA:?}"
+    else
+      scripts/pre-handoff-guards --skip-pr-body "${AIUR_PR_BASE_SHA:?}"
+    fi
     ;;
   merge_group)
     code_base="${AIUR_MERGE_BASE_SHA:?}"
@@ -24,9 +30,11 @@ case "${GITHUB_EVENT_NAME:?}" in
 esac
 
 if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
-  # Merge-queue, main and scheduled runs execute the full suite and Dialyzer;
-  # selected tests here would only repeat them.
-  AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS=1 scripts/pre-handoff-guards --skip-pr-body "$code_base"
+  # Merge-queue, main, scheduled, and full-CI PR runs execute the full suite
+  # and Dialyzer elsewhere; selected tests here would only repeat them.
+  AIUR_PRE_HANDOFF_SKIP_CODE_CHECKS=1 \
+    AIUR_PRE_HANDOFF_EVIDENCE_NOTE='deferred to the merge-queue full suite' \
+    scripts/pre-handoff-guards --skip-pr-body "$code_base"
 fi
 
 python3 scripts/check-config-docs.py

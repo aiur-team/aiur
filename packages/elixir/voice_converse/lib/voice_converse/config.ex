@@ -31,6 +31,7 @@ defmodule VoiceConverse.Config do
             credentials: nil,
             briefing_source: nil,
             agent_channel: nil,
+            ask_requires_confirm: :first_in_session,
             command_source: nil,
             token_issuer: nil,
             transcript_root: nil,
@@ -154,6 +155,10 @@ defmodule VoiceConverse.Config do
   defp check_session_settings(%{cloud_disclosure_accepted: accepted})
        when not (is_nil(accepted) or is_boolean(accepted)),
        do: {:error, %{field: :cloud_disclosure_accepted, reason: :invalid}}
+
+  defp check_session_settings(%{ask_requires_confirm: value})
+       when value not in [:first_in_session, :always, :never],
+       do: {:error, %{field: :ask_requires_confirm, reason: :invalid}}
 
   defp check_session_settings(_config), do: :ok
 

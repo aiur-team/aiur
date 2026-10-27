@@ -49,5 +49,7 @@ export function mapRawToPayload({ meta, data, usage, daemon }, { featureStats = 
       apis: [provider({ name: 'GitHub', icon: 'github', lines: usage.apis.filter(a => ['core', 'gql'].includes(a.tag))
         .map(a => ({ ...a, acc: [a.pct ?? null], tip: a.rows })) }),
         ...usage.apis.filter(a => a.tag === 'credits').map(a => provider({ name: 'Search', icon: 'bars', lines: [{ ...a, acc: [a.pct ?? null], tip: a.rows }] }))],
-      providers: usage.models.map(provider) }, daemon };
+      providers: usage.models.map(provider) }, daemon,
+    // The design datasets carry no feature-progress facts, so the block reports them unavailable.
+    feature_progress: { features: {}, observed_at: meta.now, plan_version: null, extras: null, reason: 'states unavailable · CI state unknown · planned count unavailable' } };
 }

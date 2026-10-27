@@ -46,7 +46,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   require Logger
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot
-  alias Aiur.GitHub.{Config, Issues, ResourceStore, Transport, ViewStateSweep}
+  alias Aiur.GitHub.{Access, Config, Issues, ViewStateSweep}
   alias Aiur.Issue
   alias Aiur.Webhooks.ModeRegistry
 
@@ -95,9 +95,9 @@ defmodule Aiur.BuildOrder.AdHocSource do
       # and a store event must not upgrade it back to `:available`.
       baseline_ok?: false,
       repo: nil,
-      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
-      repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
-      token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
+      request_fun: Keyword.get(opts, :request_fun, &Access.default_request_fun/1),
+      repo_fun: Keyword.get(opts, :repo_fun, &Access.parse_repo/0),
+      token_fun: Keyword.get(opts, :token_fun, &Access.require_token/0),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       label_prefix: Keyword.get(opts, :label_prefix, safe_label_prefix())
     }
@@ -173,7 +173,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
         remove_member(state, id)
 
       _change ->
-        case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+        case Access.data(Access.key(:issue, owner, repo, id)) do
           # A labels-only mutation on an issue the store never held. The
           # projection still holds the member, so reconcile it from the label
           # set alone rather than dropping it because the store lacks a body it
@@ -187,7 +187,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp reconcile_issue(state, _owner, _repo, _id, _change), do: state
 
   defp apply_issue_change(%{repo: {owner, repo}} = state, id) do
-    case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+    case Access.data(Access.key(:issue, owner, repo, id)) do
       nil ->
         remove_member(state, id)
 
@@ -208,7 +208,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp update_held_member(%{repo: {owner, repo}} = state, id) do
     case Map.fetch(state.members, id) do
       {:ok, member} ->
-        labels = label_names(ResourceStore.data(ResourceStore.key(:issue_labels, owner, repo, id)))
+        labels = label_names(Access.data(Access.key(:issue_labels, owner, repo, id)))
 
         if @label in labels do
           %{state | members: Map.put(state.members, id, %{member | labels: labels})}
@@ -262,7 +262,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
     with {:ok, {owner, repo}} <- state.repo_fun.(),
          {:ok, token} <- state.token_fun.() do
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(@label)}&state=all&per_page=100"
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(@label)}&state=all&per_page=100"
 
       case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, []) do
         {:ok, issues} -> {:ok, issues |> Enum.filter(&adhoc?/1) |> Enum.map(&member/1)}
@@ -276,7 +276,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
 
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+        case Access.parse_next_page_url(Map.get(response, :headers, [])) do
           nil -> {:ok, acc ++ issues}
           next_url -> fetch_pages(request_fun, next_url, token, owner, repo, prefix, acc ++ issues)
         end
@@ -385,8 +385,8 @@ defmodule Aiur.BuildOrder.AdHocSource do
   # -- subscriptions and delivery mode --------------------------------------
 
   defp subscribe_to_events do
-    ResourceStore.subscribe(:issue)
-    ResourceStore.subscribe(:issue_labels)
+    Access.subscribe(:issue)
+    Access.subscribe(:issue_labels)
     ModeRegistry.subscribe()
     ModeRegistry.subscribe_recovered()
     ViewStateSweep.subscribe_diverged()

@@ -9,6 +9,7 @@ defmodule Aiur.AgentEvents do
 
   Topic conventions:
     * `"agent:<identifier>"` carries `t:transcript_message/0` and `t:alert_message/0`
+    * `"listen_mode:<identifier>"` carries `{:listen_mode_changed, identifier, view}`
     * `"agents:running"` carries `t:running_change_message/0`
     * `"agents:status"` carries `t:status_change_message/0`
   """
@@ -315,6 +316,9 @@ defmodule Aiur.AgentEvents do
 
   @spec agent_topic(agent_identifier()) :: String.t()
   def agent_topic(identifier) when is_binary(identifier), do: "agent:" <> identifier
+
+  @spec listen_mode_topic(agent_identifier()) :: String.t()
+  def listen_mode_topic(identifier) when is_binary(identifier), do: "listen_mode:" <> identifier
 
   @spec running_topic() :: String.t()
   def running_topic, do: "agents:running"

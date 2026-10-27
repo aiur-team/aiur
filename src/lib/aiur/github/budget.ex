@@ -24,11 +24,6 @@ defmodule Aiur.GitHub.Budget do
 
   @release_topic "github:budget:lease_release"
 
-  # Keep this source-tree path strictly compile-time-only so changes to the
-  # broker invalidate the module. Runtime calls resolve `priv/` from the
-  # installed application because release layouts do not retain this checkout.
-  @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
-  @external_resource @broker_source_path
   @retry_floor_ms 5
   @priority_key :aiur_github_budget_priority
 
@@ -89,8 +84,8 @@ defmodule Aiur.GitHub.Budget do
       path when is_binary(path) and path != "" -> path
       # Tests inject a broker variant (e.g. one without the `reconcile`
       # subcommand) through the `:broker_path` option; production always uses
-      # the broker shipped in `priv/`.
-      _missing -> :aiur |> :code.priv_dir() |> to_string() |> Path.join("github_budget.py")
+      # the compile-time assembly in the installed application.
+      _missing -> Path.join(:code.priv_dir(:aiur), "github_budget.py")
     end
   end
 
@@ -232,19 +227,7 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  @doc """
-  Per-actor (daemon vs each agent workspace) Core/GraphQL usage and ceilings.
-
-  Reads the broker's whole actor inventory — one entry per consumer it has seen,
-  keyed by credential and consumer fingerprint — with the rolling-hour `used`
-  count, the configured `limit` (0 = no ceiling), and `reset_at_ms`: the wall-
-  clock moment the actor's usage next drops (the hold release when the actor is
-  over its ceiling, otherwise when its oldest in-window admission ages out).
-
-  Returns `%{actors: []}` when the broker is unavailable or disabled, so a
-  report command degrades to "nothing observed" rather than failing loudly on a
-  host without a broker.
-  """
+  @doc "Per-actor Core/GraphQL usage and ceilings, or no actors when unavailable."
   @spec usage(keyword()) :: map()
   def usage(opts \\ []) do
     case BrokerPort.command(["usage"], "", Keyword.put(opts, :include_token_key, false)) do
@@ -266,6 +249,19 @@ defmodule Aiur.GitHub.Budget do
   @spec request_resource(map()) :: String.t()
   def request_resource(%{url: url}) when is_binary(url), do: EndpointPolicy.resource(url)
   def request_resource(_request), do: "core"
+
+  @doc false
+  @spec command([String.t()], String.t(), keyword()) :: {:ok, String.t()} | {:error, term()} | :bypass
+  def command(args, key, opts \\ []), do: BrokerPort.command(args, key, opts)
+
+  @doc false
+  @spec agent_families() :: [{String.t(), String.t(), boolean()}]
+  def agent_families, do: EndpointPolicy.families()
+
+  @doc false
+  @spec publish_shared_hold(map(), String.t(), String.t(), non_neg_integer()) :: :ok
+  def publish_shared_hold(request, key, resource, delay_ms),
+    do: Shared.publish_hold(request, key, resource, delay_ms)
 
   defp do_acquire(request, key, python, opts, deadline_at) do
     case Shared.hold_status(request, key) do
@@ -422,7 +418,7 @@ defmodule Aiur.GitHub.Budget do
       Integer.to_string(graphql_limit),
       "--search-limit",
       Integer.to_string(search_limit)
-    ] ++ billable_args ++ priority_args(request)
+    ] ++ billable_args ++ Keyword.get(opts, :broker_extra_args, []) ++ priority_args(request)
   end
 
   # Main-watch (and the base-CI fixer it drives) may hold one lease above the in-flight caps so bulk

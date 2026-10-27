@@ -8,21 +8,27 @@ defmodule Aiur.Claude.CodingAgent.Methods do
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, ToolCallIdentity, ToolCallLedger, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Claude.{AccountMeters, CodingAgent, NotificationPolicy}
+  alias Aiur.Claude.{AccountGeneration, AccountMeters, CodingAgent, NotificationPolicy}
 
   @doc false
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
   def handle_method(session, state, %{"method" => "turn/completed"} = payload, payload_string, _method) do
-    Messages.emit_message(
-      state.on_message,
-      :turn_completed,
-      %{payload: payload, raw: payload_string},
-      metadata_from_message(session.port, payload)
-    )
+    case AccountGeneration.authorize_action(session) do
+      :ok ->
+        Messages.emit_message(
+          state.on_message,
+          :turn_completed,
+          %{payload: payload, raw: payload_string},
+          metadata_from_message(session.port, payload)
+        )
 
-    case TurnState.turn_completion_status(payload) do
-      "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
-      _ -> TurnState.continue_after_turn_completion(state)
+        case TurnState.turn_completion_status(payload) do
+          "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
+          _ -> TurnState.continue_after_turn_completion(state)
+        end
+
+      {:error, reason} ->
+        refuse_hosted_auth(session, state, reason)
     end
   end
 
@@ -50,25 +56,31 @@ defmodule Aiur.Claude.CodingAgent.Methods do
         payload_string,
         _method
       ) do
-    metadata = metadata_from_message(session.port, payload)
-    tool_name = Messages.tool_call_name(params)
-    result = execute_tool_call(session, state, params, id, metadata)
+    case AccountGeneration.authorize_action(session) do
+      :ok ->
+        metadata = metadata_from_message(session.port, payload)
+        tool_name = Messages.tool_call_name(params)
+        result = execute_tool_call(session, state, params, id, metadata)
 
-    CodingAgent.send_frame(session.port, %{
-      "id" => id,
-      "result" => result
-    })
+        CodingAgent.send_frame(session.port, %{
+          "id" => id,
+          "result" => result
+        })
 
-    event =
-      case result do
-        %{"success" => true} -> :tool_call_completed
-        _ when is_nil(tool_name) -> :unsupported_tool_call
-        _ -> :tool_call_failed
-      end
+        event =
+          case result do
+            %{"success" => true} -> :tool_call_completed
+            _ when is_nil(tool_name) -> :unsupported_tool_call
+            _ -> :tool_call_failed
+          end
 
-    Messages.emit_message(state.on_message, event, %{payload: payload, raw: payload_string}, metadata)
+        Messages.emit_message(state.on_message, event, %{payload: payload, raw: payload_string}, metadata)
 
-    {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :tool_result, method: "item/tool/call"})}
+        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :tool_result, method: "item/tool/call"})}
+
+      {:error, reason} ->
+        refuse_hosted_auth(session, state, reason)
+    end
   end
 
   def handle_method(
@@ -78,7 +90,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
         _payload_string,
         method
       ) do
-    _ = AccountMeters.handle_notification(session, payload)
+    result = AccountMeters.handle_notification(session, payload)
 
     Messages.emit_message(
       state.on_message,
@@ -87,7 +99,13 @@ defmodule Aiur.Claude.CodingAgent.Methods do
       metadata_from_message(session.port, %{"method" => "provider_account/rate_limits_changed"})
     )
 
-    {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
+    case result do
+      {:error, {:unsafe_hosted_authentication, _provider, _class} = reason} ->
+        {:error, {:turn_unretryable, reason}}
+
+      _local_or_meter_result ->
+        {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
+    end
   end
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
@@ -145,6 +163,19 @@ defmodule Aiur.Claude.CodingAgent.Methods do
         {:error, :missing_tool_call_identity}
     end
     |> normalize_ledger_result()
+  end
+
+  defp refuse_hosted_auth(session, state, {:unsafe_hosted_authentication, provider, auth_class} = reason) do
+    details = %{
+      payload: %{
+        "method" => "provider_account/authentication_refused",
+        "params" => %{"provider" => provider, "auth_class" => Atom.to_string(auth_class)}
+      },
+      raw: nil
+    }
+
+    Messages.emit_message(state.on_message, :notification, details, metadata_from_message(session.port, details.payload))
+    {:error, {:turn_unretryable, reason}}
   end
 
   defp normalize_ledger_result({:error, :outcome_uncertain}),

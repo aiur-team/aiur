@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Handoff
   alias Aiur.Instance
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
   alias Aiur.Orchestrator.HostedModeCheck
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
 
   @spec dispatch(State.t(), Issue.t(), term(), term(), keyword(), function()) :: State.t()
   def dispatch(state, issue, attempt, worker_host, opts, dispatch_to_worker) do
@@ -131,7 +131,7 @@ defmodule Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch do
         if MapSet.member?(state.model_fallback_waiting, issue.id) do
           {:hold, state}
         else
-          Alerts.emit_system("ticket.#{issue.identifier}.agent.model_fallback_waiting",
+          Signal.alert("ticket.#{issue.identifier}.agent.model_fallback_waiting",
             issue: issue.identifier,
             reason: "All configured fallback backends are usage-limited: #{Enum.join(candidates, ", ")}. Waiting for a reset before retrying.",
             needs_attention: true,

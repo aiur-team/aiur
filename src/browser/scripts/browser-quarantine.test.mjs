@@ -11,11 +11,10 @@ import { playwrightChildEnvironment } from './run-browser-tests.mjs'
 
 const browserRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-// Real flakes of 2026-10-18: #5118 (main + merge group 39133390224) and #5111.
+// Real flake of 2026-10-18: #5118 (main + merge group 39133390224).
 const list = [
   '# BrowserSpec, spec path (as the failure annotation names it), and tracking ticket. Tabs delimit fields.',
   'BrowserSpec\tsrc/browser/tests/build-home-list.browser.spec.mjs\t#5118',
-  'BrowserSpec\tsrc/browser/tests/build-home-usage-parity.browser.spec.mjs\t#5111',
   ''
 ].join('\n')
 
@@ -28,7 +27,6 @@ test('blocking runs skip exactly the listed spec files', () => {
   assert.ok(args.includes('--pass-with-no-tests'))
   const pattern = new RegExp(args[1])
   assert.match(subject('build-home-list.browser.spec.mjs', 'B4 server paging disables duplicate clicks and permits an explicit retry'), pattern)
-  assert.match(subject('build-home-usage-parity.browser.spec.mjs', 'usage 1440 dark gruvbox n4'), pattern)
   assert.doesNotMatch(subject('build-home-usage.browser.spec.mjs', 'usage 1440 dark gruvbox n4'), pattern)
   assert.doesNotMatch(subject('build-home-list-unit.browser.spec.mjs', 'B4 server paging'), pattern)
   assert.doesNotMatch(subject('nested/build-home-list.browser.spec.mjs', 'B4 server paging'), pattern)
@@ -49,8 +47,7 @@ test('the quarantine step and an empty list add no filter', () => {
 
 test('a blocking run prints one skip line per quarantined spec, naming the override', () => {
   assert.deepEqual(quarantineNotices(parseQuarantine(list), {}), [
-    'Skipped by quarantine (#5118): tests/build-home-list.browser.spec.mjs; set AIUR_RUN_QUARANTINED=1 to run it.',
-    'Skipped by quarantine (#5111): tests/build-home-usage-parity.browser.spec.mjs; set AIUR_RUN_QUARANTINED=1 to run it.'
+    'Skipped by quarantine (#5118): tests/build-home-list.browser.spec.mjs; set AIUR_RUN_QUARANTINED=1 to run it.'
   ])
   assert.deepEqual(quarantineNotices(parseQuarantine(list), { AIUR_RUN_QUARANTINED: '1' }), [])
   assert.match(readFileSync(path.join(browserRoot, 'scripts/run-browser-tests.mjs'), 'utf8'), /quarantineNotices\(quarantine, environment\)/)

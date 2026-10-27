@@ -118,7 +118,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     decided_body = Jason.decode!(decided.resp_body)
     refute decided.resp_body =~ secret
     assert decided_body["status"] == "accepted"
-    assert decided_body["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert decided_body["action"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
     assert decided_body["action"]["supervisor_basis"]["confidence"] == 93
 
     assert_receive {:dispatch_observed, action_id, {:ok, audit}}, 1_000
@@ -169,7 +169,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
                  "custom_response" => "Original direction",
                  "rationale" => "Initial evidence"
                },
-               [actor: %{kind: :operator, id: "operator-1"}],
+               [actor: %{kind: :executor, id: "executor-1"}],
                store
              )
 
@@ -202,7 +202,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     assert body["status"] == "accepted"
     assert body["revision_result"] == "recorded"
     assert body["action"]["prior_action_id"] == original.action_id
-    assert body["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent"}
+    assert body["action"]["answer"]["actor"] == %{"kind" => "supervisor", "id" => "supervising-agent", "source" => "supervisor_api"}
     assert body["action"]["answer"]["supervisor_basis"]["confidence"] == 89
 
     revision_action_id = body["action"]["action_id"]

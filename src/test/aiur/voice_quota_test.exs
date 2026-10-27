@@ -3,6 +3,7 @@ defmodule Aiur.VoiceQuotaTest do
 
   import Phoenix.LiveViewTest
 
+  alias Aiur.GitHub.{BrokerTimeout, BudgetBroker}
   alias Aiur.Voice
   alias AiurWeb.OperatorControlCenter.RunSummaryStrip
 
@@ -68,8 +69,8 @@ defmodule Aiur.VoiceQuotaTest do
   test "voice children retain the quota boot position and disappear without a provider" do
     Application.delete_env(:aiur, :voice_provider)
     children = children()
-    index = Enum.find_index(children, &(&1 == Aiur.GitHub.BudgetBroker))
-    assert Enum.at(children, index - 2) == Aiur.GitHub.BrokerTimeout
+    index = Enum.find_index(children, &(&1 == BudgetBroker.child_spec([])))
+    assert Enum.at(children, index - 2) == BrokerTimeout.child_spec([])
     assert Enum.at(children, index - 1) == Aiur.GitHub.HoldPressure
     assert Enum.at(children, index + 1) == Aiur.ElevenLabs.Quota
 

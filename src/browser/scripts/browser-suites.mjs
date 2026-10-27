@@ -35,9 +35,7 @@ export function shardCommands(shards, root = browserRoot) {
   return plan
 }
 
-// `-parity` suites compare against design baselines, like the hand-registered parity suites.
-export const suiteArgs = name => [`tests/${name}.browser.spec.mjs`,
-  ...(name.endsWith('-parity') ? ['--config', 'playwright.design-parity.config.mjs'] : [])]
+export const suiteArgs = name => [`tests/${name}.browser.spec.mjs`]
 
 async function main(args) {
   const { runBrowserTests } = await import('./run-browser-tests.mjs')

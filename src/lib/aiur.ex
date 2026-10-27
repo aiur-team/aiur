@@ -20,9 +20,9 @@ defmodule Aiur.Application do
 
   require Logger
 
-  alias Aiur.{AgentGitHubGuard, GitHub.Budget}
+  alias Aiur.AgentGitHubGuard
   alias Aiur.Application.StartupChecks
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{Access, Config}
   alias Aiur.Identity.Machine
   alias Aiur.Instance
 
@@ -62,8 +62,8 @@ defmodule Aiur.Application do
     # for its own duration, while a bare `curl` or a dependency build script
     # finds no token in the environment.
     _ = AgentGitHubGuard.ensure_agent_token_file()
-    if Budget.enabled?(), do: AgentGitHubGuard.install_host()
-    Budget.warn_metering_unavailable()
+    if Access.budget_enabled?(), do: AgentGitHubGuard.install_host()
+    Access.warn_metering_unavailable()
     Aiur.RtkStartupCheck.run()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)

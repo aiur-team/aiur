@@ -42,6 +42,7 @@ defmodule Aiur.Projections.UnitsRow.Fields do
 
     %{
       waiting: waiting,
+      native_hold: native_hold(status_row),
       blocking: blocking_reason(status_row, waiting),
       alert: alert_reason(explicit_alert, open_command_count),
       pause: pause_reason(status_row, pause),
@@ -178,6 +179,11 @@ defmodule Aiur.Projections.UnitsRow.Fields do
   end
 
   defp normalize_nonempty(_value), do: nil
+
+  defp native_hold(%{bucket: :running, native_hold: %{decision_id: id} = hold}) when is_binary(id) and id != "",
+    do: Map.take(hold, [:decision_id, :since])
+
+  defp native_hold(_row), do: nil
 
   defp blocking_reason(status_row, waiting) do
     Value.get(status_row, :blocking_reason) || if(waiting in @blocking_reasons, do: waiting)

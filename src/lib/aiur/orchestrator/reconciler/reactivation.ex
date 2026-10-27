@@ -3,6 +3,8 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
 
   require Logger
 
+  alias Aiur.Config
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Issue
   alias Aiur.Orchestrator.{CiLifecycle, DispatchCandidates, DispatchPolicy, Parking, PauseResume, State, TicketTransition}
 
@@ -58,7 +60,8 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
       state.last_polled_issues
       |> Map.values()
       |> Enum.reject(&(&1.id == issue.id))
-      |> Enum.filter(&DispatchPolicy.dispatch_candidate?(&1, state))
+      |> Enum.flat_map(&replacement_dispatch_candidate/1)
+      |> Enum.filter(&(DispatchPolicy.dispatch_decision(&1, state) == :dispatch))
 
     case ready do
       [] ->
@@ -67,6 +70,17 @@ defmodule Aiur.Orchestrator.Reconciler.Reactivation do
       candidates ->
         ordered = DispatchCandidates.order([issue | candidates], DispatchPolicy.terminal_state_set(), candidates)
         match?([%Issue{id: id} | _] when id != issue.id, ordered)
+    end
+  end
+
+  defp replacement_dispatch_candidate(%Issue{} = issue) do
+    if Config.tracker_kind() == "github" do
+      case GitHubTracker.cached_blocked_by(%{issue | blocked_by: []}) do
+        {:ok, %Issue{} = hydrated} -> [hydrated]
+        {:error, _cache_miss_or_stale} -> []
+      end
+    else
+      [issue]
     end
   end
 

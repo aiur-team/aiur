@@ -16,6 +16,22 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
       ~S|{"system.main.ci.unavailable", "attention:auto"},|,
       ~S|{"system.main.fixer.*", "attention:auto"},|
     ],
+    # Catalog rows describe these same fixed producer topics; they are not branch defaults.
+    "aiur/events/catalog/github_system_entries.ex" => [
+      ~S|{"system.main.ci.canary", "github-listeners"}|,
+      ~S|{"system.main.ci.failed", "github-listeners"}|,
+      ~S|{"system.main.ci.flake_rerun", "github-listeners"}|,
+      ~S|{"system.main.ci.flaked", "github-listeners"}|,
+      ~S|{"system.main.ci.repo_wide_failure.*", "github-listeners"}|,
+      ~S|{"system.main.ci.unavailable", "github-listeners"}|,
+      ~S|{"system.main.fixer.dispatch_unavailable", "github-listeners"}|,
+      ~S|{"system.main.fixer.failed", "github-listeners"}|,
+      ~S|{"system.main.fixer.held", "github-listeners"}|,
+      ~S|{"system.main.fixer.needs_triage", "github-listeners"}|,
+      ~S|{"system.main.fixer.no_pr", "github-listeners"}|,
+      ~S|{"system.main.fixer.stalled", "github-listeners"}|
+    ],
+    "aiur/events/catalog/system_entries.ex" => [~S|{"system.main.ci.failed.resolved", "orchestration"}|],
     "aiur/main_watch.ex" => [
       ~S|Logger.warning("main-watch poll failed: #{inspect(reason)}")|,
       ~S|if Enum.any?(events, &(elem(&1, 0) == "system.main.ci.flaked")) do|,
@@ -34,6 +50,10 @@ defmodule Aiur.BaseBranchLiteralGuardTest do
     # This recovery protocol's event topic and PR comment are fixed identifiers.
     "aiur/landing_watch.ex" => [~S|"system.main.ci.failed.resolved"|],
     "aiur/landing_watch/pr_rerun.ex" => [~S|"main CI recovered"|],
+    "aiur/events/github_ci_poller/repo_wide_failure.ex" => [
+      ~S|"system.main.ci.repo_wide_failure.#{suffix}"|,
+      ~S|"Required PR checks match the latest failing main run; affected PRs remain in CI wait until main is green."|
+    ],
     # Fixer topics and evidence markers are protocol identifiers, independent of the base branch.
     "aiur/main_watch/fixer.ex" => [
       ~S|"system.main.fixer.failed"|,

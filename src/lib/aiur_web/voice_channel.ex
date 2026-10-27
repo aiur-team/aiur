@@ -117,6 +117,11 @@ defmodule AiurWeb.VoiceChannel do
   end
 
   @impl true
+  def handle_in("audio", _payload, %{assigns: %{stt: nil}} = socket) do
+    push_error(socket, "error", "Dictation is not active.", "invalid_payload")
+    {:noreply, socket}
+  end
+
   def handle_in("audio", %{"data" => data}, socket) when is_binary(data) do
     case decode_audio(data) do
       {:ok, pcm} ->
@@ -148,6 +153,21 @@ defmodule AiurWeb.VoiceChannel do
       nil -> push(socket, "stopped", %{"text" => ""})
     end
 
+    {:noreply, socket}
+  end
+
+  def handle_in("cancel", _payload, %{assigns: %{voice_mode: :dictation, stt: %{}}} = socket) do
+    :ok = Voice.stop(socket.assigns.stt)
+    push(socket, "stopped", %{"cancelled" => true})
+
+    {:noreply,
+     socket
+     |> assign(:voice_cancelled?, true)
+     |> release_stt()}
+  end
+
+  def handle_in("cancel", _payload, %{assigns: %{voice_mode: :dictation}} = socket) do
+    push(socket, "stopped", %{"cancelled" => true})
     {:noreply, socket}
   end
 
@@ -187,6 +207,10 @@ defmodule AiurWeb.VoiceChannel do
   def handle_in(_event, _payload, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_info({:voice_transcript, kind, text}, %{assigns: %{voice_cancelled?: true}} = socket) when kind in [:partial, :final] and is_binary(text) do
+    {:noreply, socket}
+  end
+
   def handle_info({:voice_transcript, kind, text}, socket) when kind in [:partial, :final] and is_binary(text) do
     push(socket, "transcript", %{"kind" => Atom.to_string(kind), "text" => text})
     {:noreply, socket}
@@ -201,6 +225,8 @@ defmodule AiurWeb.VoiceChannel do
     push_error(socket, "error", reason, VoiceReasonCode.provider(reason))
     {:noreply, socket}
   end
+
+  def handle_info({:voice_closed}, %{assigns: %{voice_cancelled?: true}} = socket), do: {:noreply, socket}
 
   def handle_info({:voice_closed}, socket) do
     push(socket, "stopped", %{})

@@ -7,11 +7,14 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
 
   alias Aiur.AgentEvents
   alias Aiur.Issue
+  alias Aiur.Listener.Scheduler
+  alias Aiur.Orchestrator.OperatorMessages.Unread
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.State
 
   @spec running_summaries(State.t()) :: [map()]
-  def running_summaries(state) do
+  @spec running_summaries(State.t(), keyword()) :: [map()]
+  def running_summaries(state, opts \\ []) do
     now = DateTime.utc_now()
 
     polled_summaries =
@@ -27,7 +30,19 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
 
     (polled_summaries ++ extra_running)
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
+    |> listener_summaries(state, Scheduler.routing(opts))
   end
+
+  defp listener_summaries(summaries, state, :listener) do
+    Enum.map(summaries, fn summary ->
+      entry = State.find_running_by_identifier(state.running, summary.identifier)
+      view = if entry, do: entry[:listener_effective]
+      unread = Unread.queue_summary(state.queue_store, summary.identifier).listener
+      Map.put(summary, :listener, Map.merge(view || %{}, unread))
+    end)
+  end
+
+  defp listener_summaries(summaries, _state, :legacy), do: summaries
 
   defp polled_summary({issue_id, issue}, state, now) do
     identifier = Map.get(issue, :identifier) || ""
@@ -72,6 +87,8 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
   end
 
   defp running_summary(identifier, entry, tag, title, now) do
+    control = Map.get(entry, :control)
+
     AgentEvents.agent_summary(identifier, :running, 0, %{
       tag: tag,
       title: title,
@@ -80,7 +97,7 @@ defmodule Aiur.Orchestrator.StatusReport.RunningSummaries do
       turn_count: Map.get(entry, :turn_count, 0),
       context_usage: Map.get(entry, :context_usage),
       telemetry_attempt_id: Map.get(entry, :telemetry_attempt_id),
-      work_state: get_in(entry, [:control, :status]) || :working,
+      work_state: if(is_map(control), do: Map.get(control, :status) || :working, else: :unknown),
       pause_reason: Map.get(entry, :paused_reason),
       backend: entry_backend(entry),
       model: entry_model(entry),

@@ -20,6 +20,7 @@
     "event-bus",
     "identity",
     "kernel",
+    "listener-modes",
     "orchestration",
     "projections",
     "signal",
@@ -60,5 +61,6 @@
   ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

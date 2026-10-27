@@ -19,6 +19,11 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   alias Aiur.OpaqueIdentifier
   alias AiurWeb.OperatorControlCenter.AgentUsageSnapshot
 
+  attr(:listener, :any, default: :unavailable)
+  attr(:listener_feedback, :map, default: %{})
+  attr(:receipts, :list, default: [])
+  attr(:now, :any, default: nil)
+
   attr(:id, :string, required: true)
   attr(:view, :map, default: nil)
   attr(:close_event, :any, default: nil)
@@ -78,6 +83,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               data-conversation-focus="close"
             >Close</button>
           </div>
+          <AiurWeb.OperatorControlCenter.ListenerMode.listener_mode listener={@listener} writable={@composer_writable} feedback={@listener_feedback} now={@now} />
         </header>
 
         <div class="conversation-drawer-summary">
@@ -172,6 +178,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
         </div>
 
         <footer class="conversation-drawer-footer">
+          <AiurWeb.OperatorControlCenter.ListenerMode.receipt :for={receipt <- @receipts} receipt={receipt} />
           <dl class="conversation-drawer-provenance">
             <div><dt>Last observation</dt><dd><.timestamp value={@view.observed_at} /></dd></div>
             <div><dt>Messages</dt><dd class="mono num">{@view.message_count}</dd></div>

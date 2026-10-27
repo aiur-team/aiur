@@ -74,55 +74,6 @@ cmd_status() {
   fi
 }
 
-# `aiur usage` — Codex/Claude limit headroom from the daemon's meter
-# projection, each value carrying the age of its observation.
-cmd_usage() {
-  [ "$#" -eq 0 ] || die "usage does not accept arguments"
-  run_control_rpc "Aiur.AgentControlCLI.usage()"
-}
-
-cmd_accounts() {
-  local json_arg=false harness="" arg encoded expression
-  for arg in "$@"; do
-    case "$arg" in
-      --json)
-        [ "$json_arg" = false ] || die "accounts accepts --json only once"
-        json_arg=true
-        ;;
-      --all)
-        ;;
-      -*)
-        die "accounts accepts an optional harness and --json"
-        ;;
-      *)
-        [ -z "$harness" ] || die "accounts accepts only one harness"
-        harness="$arg"
-        ;;
-    esac
-  done
-
-  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ]; then
-    resolve_release || return $?
-    prepare_distribution || die "distribution setup failed; cannot contact aiur"
-    resolve_control_identity_from_records
-  fi
-
-  if [ -z "${AIUR_REMOTE_INSTANCE:-}" ] && [ "$(probe_node_liveness)" = "down" ]; then
-    # The local one-shot CLI renders the identity and marks usage unavailable.
-    # It never makes a provider request.
-    run_local_cli accounts "$@"
-    return
-  fi
-
-  if [ -n "$harness" ]; then
-    encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
-    expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
-  else
-    expression="Aiur.AgentControlCLI.accounts($json_arg)"
-  fi
-  run_control_rpc "$expression"
-}
-
 cmd_pause_resume() {
   local command="$1"
   shift
@@ -301,12 +252,13 @@ cmd_commands() {
     shift
   done
 
-  case "$filter" in all|open|blocking|resolved) ;; *) echo "aiur: commands --filter accepts all, open, blocking, or resolved" >&2; exit 64 ;; esac
+  case "$filter" in all|open|blocking|resolved|needs-you|with-executor|from-executor) ;; *) echo "aiur: commands --filter accepts all, open, blocking, resolved, needs-you, with-executor, or from-executor" >&2; exit 64 ;; esac
   [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
   [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
   [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
 
   local opts="filter: :$filter"
+  case "$filter" in needs-you|with-executor|from-executor) opts="filter: :\"$filter\"" ;; esac
   [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   [ -n "$limit" ] && opts="$opts, limit: $limit"
@@ -396,4 +348,16 @@ cmd_set() {
       run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\"))"
       ;;
   esac
+}
+
+cmd_listen_mode() {
+  local ticket="${1:-}" encoded_args="" arg
+  [ -n "$ticket" ] || { echo 'aiur: listen-mode requires a ticket' >&2; exit 64; }
+  shift
+  for arg in "$@"; do
+    [ -z "$encoded_args" ] || encoded_args+=", "
+    encoded_args+="Base.decode64!(\"$(encode_control_value "$arg")\")"
+  done
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
+  run_control_rpc "Aiur.ListenModeCli.run(Base.decode64!(\"$(encode_control_value "$ticket")\"), [$encoded_args])"
 }

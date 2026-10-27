@@ -1,27 +1,26 @@
 defmodule AiurWeb.DashboardLive.GitHubQuotaSnapshot do
   @moduledoc false
 
-  alias Aiur.GitHub.Budget.FleetSnapshot
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.Quota
 
   @spec read() :: map()
   def read do
     snapshot =
-      case Quota.cached_snapshot(Quota, 24 * 60 * 60_000) do
+      case Access.quota_cached_snapshot(Access.quota_server(), 24 * 60 * 60_000) do
         {:ok, snapshot, age_ms, observed_at_ms} ->
           stale(snapshot, age_ms, observed_at_ms)
 
         :miss ->
           try do
-            Quota.snapshot!(Quota, 1_000)
+            Access.cost_report(Access.quota_server(), 1_000)
           catch
             :exit, _reason -> %{state: :unknown, windows: %{}, backoffs: []}
           end
       end
 
     snapshot
-    |> Map.put(:fleet_budget, FleetSnapshot.read())
+    |> Map.put(:fleet_budget, Access.fleet_budget_snapshot())
     |> Map.put(:auth_mode, GitHubConfig.token_source())
   end
 

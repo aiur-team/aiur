@@ -3,7 +3,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
 
   alias Aiur.ModelCatalog
   alias Aiur.ProviderMeterProbe
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
 
   @spec headless() :: Aiur.CodingAgent.Backend.capabilities()
   def headless do
@@ -76,7 +76,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       },
       usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
       meter_probe: &ProviderMeterProbe.probe_usage_api/3,
-      run_telemetry: &Lifecycle.decode_claude_operation/1,
+      run_telemetry: &Signal.decode_claude_operation/1,
       account_generation: %{
         backends: [:app_server],
         trusted_sources: [:claude_app_server],
@@ -121,7 +121,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # backend. Declared here so the fallback never lives in a
       # dispatch `case`.
       fallback_backend: "claude",
-      run_telemetry: &Lifecycle.decode_claude_operation/1,
+      run_telemetry: &Signal.decode_claude_operation/1,
       # Only the hook-driven RC REPL needs the pane display tailer; every
       # other backend streams its own rich transcript.
       rc_display_tail: true,

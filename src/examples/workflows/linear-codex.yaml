@@ -1,7 +1,9 @@
 instance:
-  mode: local                        # local | hosted; hosted refuses unsafe agent boundaries
+  mode: local                        # local | hosted; hosted requires safe boundaries and API-key auth/fallback
+  deployment_kind: operator         # operator | consumer; hosted consumers use API keys only
   # id: worker-west                 # optional stable coordination identity; defaults to host + runtime state directory, read once at boot
-  role: primary                       # primary | secondary; one primary per repository
+  role: primary                       # eligible primary candidates share leader election; secondary never leads
+  roster_stale_retention_ms: 300000    # keep expired instance heartbeats visible for five minutes
   # owns: [{label: "build-lane:voice"}] # reserve matching tickets for this live instance
   # pool: true                         # also dispatch tickets no live instance reserves
   # ignore:                           # tickets another daemon owns; skipped by per-ticket watchers
@@ -112,6 +114,12 @@ agent:
     approval_policy: never
     thread_sandbox: workspace-write
 prompt_file: linear-codex.prompt.md
+
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false
+
 compaction:
   # Opt in only when you want synchronous native compaction at handoff.
   # Codex's app-server API has no threshold trigger; other providers are unsupported.
@@ -122,6 +130,16 @@ compaction:
     enabled: false
     token_threshold: 50000
   timeout_ms: 30000
+
+# Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when enabled).
+# events:
+#   export:
+#     enabled: false
+#     webhook_url: https://consumer.example.com/webhooks/aiur
+#     allow_private_destinations: false # opt in only for trusted dev/intranet endpoints
+#     subject_id: "ENG-5695"         # optional exact ticket or job ID
+#     retry_ms: 5000
+#     request_timeout_ms: 15000
 
 # Build queue is unsupported on Linear; no queue label writes.
 # build_queue:
@@ -167,3 +185,19 @@ compaction:
 #     after_step_days: 7
 #     after_max_days: 42
 #     metric_packs: ["delivery"]
+# Optional read-only Netlify account usage; requires NETLIFY_AUTH_TOKEN in .env.
+netlify:
+  enabled: false
+  # account_id: your-netlify-team-id
+  poll_seconds: 900
+  credit_alert_threshold: 100
+
+# Command escalation policy (defaults; routing consumes these settings).
+# decisions:
+#   native_capture: {codex: false} # experimental; requires native reply and release support
+#   require_suggested_responses: false # opt in after reviewing informational warnings
+#   escalation:
+#     enabled: true
+#     executor_ack_ms: 300000
+#     executor_answer_ms: 900000
+#     urgent_factor: 0.5

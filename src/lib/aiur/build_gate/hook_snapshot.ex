@@ -22,14 +22,24 @@ defmodule Aiur.BuildGate.HookSnapshot do
   @spec ensure(Path.t(), Path.t()) :: {:ok, Path.t()} | {:error, term()}
   def ensure(source_dir, root) do
     with {:ok, files} <- read_files(source_dir) do
-      target = Path.join(root, digest(files))
-      remove_stale_stages(root)
-
-      if intact?(target, files), do: {:ok, hook(target)}, else: publish(files, root, target)
+      ensure_files(files, root, "build_gate.bash")
     end
   end
 
-  defp hook(target), do: Path.join(target, "build_gate.bash")
+  @doc "Publishes one immutable shell hook outside the replaceable release tree."
+  @spec ensure_file(Path.t(), Path.t(), String.t()) :: {:ok, Path.t()} | {:error, term()}
+  def ensure_file(source, root, name) do
+    with {:ok, contents} <- File.read(source) do
+      ensure_files([{name, contents}], root, name)
+    end
+  end
+
+  defp ensure_files(files, root, entry) do
+    target = Path.join(root, digest(files))
+    remove_stale_stages(root)
+
+    if intact?(target, files), do: {:ok, Path.join(target, entry)}, else: publish(files, root, target, entry)
+  end
 
   defp intact?(target, files), do: Enum.all?(files, fn {relative, contents} -> File.read(Path.join(target, relative)) == {:ok, contents} end)
 
@@ -71,14 +81,14 @@ defmodule Aiur.BuildGate.HookSnapshot do
   end
 
   # Stage then rename, so a reader never sees a partially written snapshot.
-  defp publish(files, root, target) do
+  defp publish(files, root, target, entry) do
     stage = Path.join(root, ".stage-#{Path.basename(target)}-#{System.unique_integer([:positive])}")
 
     result =
       with :ok <- File.mkdir_p(stage),
            :ok <- write_files(files, stage),
            :ok <- seal(stage) do
-        rename(stage, target, files)
+        rename(stage, target, files, entry)
       end
 
     _ = remove(stage)
@@ -87,26 +97,26 @@ defmodule Aiur.BuildGate.HookSnapshot do
 
   # Never remove the target before re-checking it: a concurrent publisher may
   # have just published it, and its hook may already be sourcing it (#4902).
-  defp rename(stage, target, files) do
+  defp rename(stage, target, files, entry) do
     with {:error, _reason} = error <- File.rename(stage, target),
          false <- intact?(target, files) do
-      replace_damaged(stage, target, files, error)
+      replace_damaged(stage, target, files, entry, error)
     else
-      _ -> {:ok, hook(target)}
+      _ -> {:ok, Path.join(target, entry)}
     end
   end
 
   # A damaged snapshot is replaced, not trusted. Moving it aside keeps a
   # concurrent repair from deleting the copy that replaced it.
-  defp replace_damaged(stage, target, files, error) do
+  defp replace_damaged(stage, target, files, entry, error) do
     aside = stage <> ".damaged"
 
     result =
       with :ok <- File.rename(target, aside),
            :ok <- File.rename(stage, target) do
-        {:ok, hook(target)}
+        {:ok, Path.join(target, entry)}
       else
-        _ -> if intact?(target, files), do: {:ok, hook(target)}, else: error
+        _ -> if intact?(target, files), do: {:ok, Path.join(target, entry)}, else: error
       end
 
     _ = remove(aside)

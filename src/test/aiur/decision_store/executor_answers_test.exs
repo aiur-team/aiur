@@ -27,7 +27,7 @@ defmodule Aiur.DecisionStore.ExecutorAnswersTest do
                pid
              )
 
-    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert answer.actor == %{kind: :executor, id: "executor-1", source: :rpc}
     assert answer.supervisor_basis == nil
 
     assert {:ok, [_requested, %DecisionEvent{type: :answer_recorded, data: ^answer}]} =
@@ -196,7 +196,7 @@ defmodule Aiur.DecisionStore.ExecutorAnswersTest do
                pid
              )
 
-    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert answer.actor == %{kind: :executor, id: "executor-1", source: :rpc}
     assert {:ok, %Decision{answer: %{actor: %{kind: :executor}}, decision_status: status}} = DecisionStore.get(decision.decision_id, pid)
     assert status in [:acknowledged, :resolved, :decided]
   end
@@ -226,7 +226,7 @@ defmodule Aiur.DecisionStore.ExecutorAnswersTest do
                pid
              )
 
-    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert answer.actor == %{kind: :executor, id: "executor-1", source: :rpc}
   end
 
   test "a known-irreversible Command still refuses the Executor and still escalates", %{dir: dir} do
@@ -292,7 +292,7 @@ defmodule Aiur.DecisionStore.ExecutorAnswersTest do
                pid
              )
 
-    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert answer.actor == %{kind: :executor, id: "executor-1", source: :rpc}
   end
 
   test "records an Executor escalation durably, attributably, and idempotently", %{dir: dir} do

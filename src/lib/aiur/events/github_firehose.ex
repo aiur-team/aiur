@@ -41,7 +41,7 @@ defmodule Aiur.Events.GithubFirehose do
   alias Aiur.Events.{GithubKeys, Sanitizer}
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.PullRequests
-  alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Signal
   alias Aiur.StartTrigger.ProgressStore
   alias Aiur.TicketBranch
 
@@ -403,7 +403,7 @@ defmodule Aiur.Events.GithubFirehose do
     # cannot count an older merge as work completed in this run.
     event = Map.merge(payload, %{topic: topic, source: :github_reconciliation})
 
-    case Lifecycle.external_anchor(event) do
+    case Signal.external_anchor(event) do
       {:ok, attributes, timestamp} -> %{event: attributes, timestamp: timestamp}
       :skip -> nil
     end

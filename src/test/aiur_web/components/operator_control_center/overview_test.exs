@@ -12,17 +12,17 @@ defmodule AiurWeb.OperatorControlCenterOverviewTest do
     html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [answered, open],
-        retained_counts: %{open: 1, blocking: 0, awaiting: 1, awaiting_blocking: 0, health: %{status: :available}}
+        retained_counts: %{open: 1, blocking: 0, needs_you: 1, needs_you_blocking: 0, health: %{status: :available}}
       })
 
     empty_html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [answered],
-        retained_counts: %{open: 0, blocking: 0, awaiting: 0, awaiting_blocking: 0, health: %{status: :available}}
+        retained_counts: %{open: 0, blocking: 0, needs_you: 0, needs_you_blocking: 0, health: %{status: :available}}
       })
 
-    assert html =~ ~s(href="/commands")
-    assert html =~ "1 unit awaiting commands"
+    assert html =~ ~s(href="/commands?route=needs_you")
+    assert html =~ "1 Command needs you"
     refute empty_html =~ "decisions-banner"
   end
 
@@ -30,11 +30,11 @@ defmodule AiurWeb.OperatorControlCenterOverviewTest do
     html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [],
-        retained_counts: %{open: 3, blocking: 1, awaiting: 3, awaiting_blocking: 1, health: %{status: :available}}
+        retained_counts: %{open: 3, blocking: 1, needs_you: 3, needs_you_blocking: 1, health: %{status: :available}}
       })
 
-    assert html =~ "3 units awaiting commands"
-    refute html =~ "1 unit awaiting commands"
+    assert html =~ "3 Commands need you"
+    refute html =~ "1 Command needs you"
   end
 
   test "the unavailable-counts banner states only what is true on every route" do
@@ -43,8 +43,8 @@ defmodule AiurWeb.OperatorControlCenterOverviewTest do
         retained_counts: %{
           open: nil,
           blocking: nil,
-          awaiting: nil,
-          awaiting_blocking: nil,
+          needs_you: nil,
+          needs_you_blocking: nil,
           health: %{status: :unavailable}
         }
       })

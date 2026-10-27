@@ -58,6 +58,18 @@ defmodule Aiur.Muse.Protocol do
     request(id, "turn/start", with_options(params, opts, %{display_text: "displayText", if_busy: "ifBusy", reasoning_effort: "reasoningEffort"}))
   end
 
+  @spec turn_steer_frame(request_id(), String.t(), String.t(), String.t(), keyword()) :: frame()
+  def turn_steer_frame(id, session_id, turn_id, text, opts \\ []) do
+    params = %{
+      "commandId" => Keyword.get_lazy(opts, :command_id, &command_id/0),
+      "sessionId" => session_id,
+      "expectedTurnId" => turn_id,
+      "input" => [%{"type" => "text", "text" => text}]
+    }
+
+    request(id, "turn/steer", with_options(params, opts, %{reasoning_effort: "reasoningEffort"}))
+  end
+
   @spec turn_interrupt_frame(request_id(), String.t(), String.t() | nil, keyword()) :: frame()
   def turn_interrupt_frame(id, session_id, turn_id \\ nil, opts \\ []) do
     params = %{"commandId" => Keyword.get_lazy(opts, :command_id, &command_id/0), "sessionId" => session_id}
@@ -89,6 +101,12 @@ defmodule Aiur.Muse.Protocol do
       do: {:accepted, result}
 
   def turn_start_result(_, _), do: {:error, :invalid_turn_start_receipt}
+
+  @spec turn_steer_result(map(), String.t()) :: {:accepted, map()} | {:error, term()}
+  def turn_steer_result(%{"commandId" => command_id, "status" => "accepted", "turnId" => turn_id} = result, command_id)
+      when is_binary(turn_id), do: {:accepted, result}
+
+  def turn_steer_result(_, _), do: {:error, :invalid_turn_steer_receipt}
 
   @spec turn_interrupt_result(map(), String.t()) :: {:accepted, map()} | {:error, term()}
   def turn_interrupt_result(%{"commandId" => command_id, "status" => "accepted", "turnId" => turn_id} = result, command_id)

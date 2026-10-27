@@ -1,17 +1,17 @@
 defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
   @moduledoc "Fetches the active and completed merge-group workflow runs."
   alias Aiur.Config.TrackerSettings
-  alias Aiur.GitHub.{Errors, ResourceFetch, ResourceStore, Transport}
+  alias Aiur.GitHub.Access
   @page_limit 5
 
   @spec active_runs(String.t(), String.t(), String.t(), String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def active_runs(owner, repo, base, token, opts) do
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
     ["queued", "in_progress", "waiting", "requested"]
     |> Enum.reduce_while({:ok, []}, fn status, {:ok, acc} ->
       url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
+        "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
           URI.encode_query(%{event: "merge_group", per_page: 100, status: status})
 
       context = %{request: request, token: token, owner: owner, repo: repo, base: base, status: status}
@@ -32,10 +32,10 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
 
   @spec completed_runs(String.t(), String.t(), String.t(), String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def completed_runs(owner, repo, base, token, opts) do
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
     url =
-      "#{Transport.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
+      "#{Access.base_url()}/repos/#{owner}/#{repo}/actions/runs?" <>
         URI.encode_query(%{event: "merge_group", per_page: 100, status: "completed"})
 
     context = %{request: request, token: token, owner: owner, repo: repo, base: base, status: "completed"}
@@ -46,24 +46,24 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
 
   @spec queue_group_refs(String.t(), String.t(), String.t(), String.t(), keyword()) :: {:ok, MapSet.t()} | {:error, term()}
   def queue_group_refs(owner, repo, base, token, opts) do
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/git/matching-refs/heads/gh-readonly-queue/#{base}/"
-    request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/git/matching-refs/heads/gh-readonly-queue/#{base}/"
+    request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_merge_group_refs"}) do
       {:ok, %{status: 200, body: refs}} when is_list(refs) ->
         refs = MapSet.new(refs, &get_in(&1, ["ref"]))
         # The Executor sweep drops a stale merge-group finding whose queue ref is gone (#5738).
-        ResourceStore.put_resource(ResourceStore.key(:landing_merge_group_runs, owner, repo, "#{base}:refs"), Enum.sort(refs), source: :fetch)
+        Access.put_resource(Access.key(:landing_merge_group_runs, owner, repo, "#{base}:refs"), Enum.sort(refs), source: :fetch)
         {:ok, refs}
 
       {:ok, %{status: 200}} ->
         {:error, :invalid_merge_group_refs}
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 
@@ -74,11 +74,11 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
 
   # Each page keeps its ETag so an unchanged page costs a free 304 (#4496).
   defp read_pages(context, url, acc, page) do
-    key = ResourceStore.key(:landing_merge_group_runs, context.owner, context.repo, "#{context.base}:#{context.status}:#{page}")
+    key = Access.key(:landing_merge_group_runs, context.owner, context.repo, "#{context.base}:#{context.status}:#{page}")
     fetcher = fn fetch_opts -> fetch_run_page(context.request, context.token, url, fetch_opts) end
 
     with {:ok, %{"workflow_runs" => runs, "next" => next}, meta} <-
-           ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "landing merge-group runs") do
+           Access.resource_need(key, fetcher, freshness: Access.resource_decision(), reason: "landing merge-group runs") do
       persist_age_index(key, runs, meta)
 
       case next do
@@ -89,14 +89,14 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
   end
 
   defp persist_age_index(page_key, runs, meta) do
-    case ResourceStore.fetch(page_key) do
+    case Access.fetch_resource(page_key) do
       {:ok, %{fetched_at_ms: fetched_at_ms}} when fetched_at_ms == meta.fetched_at_ms -> :ok
       _ -> persist_uncached_page_age_index(page_key, runs)
     end
   end
 
   defp persist_uncached_page_age_index({:landing_merge_group_runs, owner, repo, page_id}, runs) do
-    age_key = ResourceStore.key(:landing_merge_group_runs, owner, repo, "#{page_id}:age-index")
+    age_key = Access.key(:landing_merge_group_runs, owner, repo, "#{page_id}:age-index")
 
     ids =
       runs
@@ -108,9 +108,9 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
         end
       end)
 
-    case ResourceStore.fetch(age_key) do
-      {:ok, %{data: ^ids, etag: etag}} -> ResourceStore.revalidate(age_key, ids, etag)
-      _ -> ResourceStore.put_resource(age_key, ids, source: :fetch)
+    case Access.fetch_resource(age_key) do
+      {:ok, %{data: ^ids, etag: etag}} -> Access.revalidate(age_key, ids, etag)
+      _ -> Access.put_resource(age_key, ids, source: :fetch)
     end
   end
 
@@ -121,19 +121,19 @@ defmodule Aiur.LandingWatch.MergeGroupRunFetcher do
     case request.(call) do
       {:ok, %{status: 200, body: %{"workflow_runs" => runs}} = response} when is_list(runs) ->
         headers = Map.get(response, :headers, [])
-        {:ok, %{"workflow_runs" => runs, "next" => Transport.parse_next_page_url(headers)}, Transport.header(headers, "etag")}
+        {:ok, %{"workflow_runs" => runs, "next" => Access.parse_next_page_url(headers)}, Access.header(headers, "etag")}
 
       {:ok, %{status: 200}} ->
         {:error, :invalid_merge_group_run_list}
 
       {:ok, %{status: 304} = response} ->
-        {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || fetch_opts[:etag]}
+        {:not_modified, Access.header(Map.get(response, :headers, []), "etag") || fetch_opts[:etag]}
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, Access.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, Access.classify_error({:error, reason})}
     end
   end
 

@@ -367,6 +367,7 @@ run_session_write_pane_launcher() {
       AIUR_BG_STATE_DIR AIUR_INSTANCE_KEY AIUR_CLI_VERSION AIUR_CI_READINESS_TOKEN; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
+    if [ -n "${AIUR_CLIENT_TOKEN:-}" ]; then printf 'export AIUR_CLIENT_TOKEN=%q\n' "$AIUR_CLIENT_TOKEN"; fi
     printf 'capture=%q\n' "$startup_capture"
     printf 'source %q\n' "$engine_dir/aiur-engine.sh"
     printf 'supervise_daemon %q %q %q ' "$supervisor_file" "$startup_capture" "$crash_dump_baseline_file"

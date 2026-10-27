@@ -25,6 +25,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
           optional(:authority) => Decision.authority() | nil,
           optional(:blocking) => boolean() | nil,
           optional(:kind) => String.t() | nil,
+          optional(:route) => :needs_you | :with_executor | :from_executor | :resolved | nil,
           optional(:ordering) => :audit | :current,
           required(:lifecycle) => Decision.decision_status() | :awaiting | :historic | :history | nil,
           required(:search) => String.t() | nil,
@@ -126,6 +127,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
     [
       valid_cursor?(cursor),
       valid_lifecycle?(lifecycle),
+      Map.get(query, :route) in [nil, :needs_you, :with_executor, :from_executor, :resolved],
       valid_optional_authority?(Map.get(query, :authority)),
       valid_optional_boolean?(Map.get(query, :blocking)),
       valid_optional_string?(Map.get(query, :kind)),

@@ -89,6 +89,19 @@ defmodule Aiur.Codex.Frames do
     }
   end
 
+  @spec turn_steer_frame(map(), integer(), String.t(), String.t()) :: map()
+  def turn_steer_frame(session, request_id, text, expected_turn_id) do
+    %{
+      "method" => "turn/steer",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => session.thread_id,
+        "input" => [%{"type" => "text", "text" => text}],
+        "expectedTurnId" => expected_turn_id
+      }
+    }
+  end
+
   @spec operator_turn_frame(map(), integer(), String.t()) :: map()
   def operator_turn_frame(session, request_id, text) do
     %{

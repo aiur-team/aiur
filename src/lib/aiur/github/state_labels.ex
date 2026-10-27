@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.StateLabels do
 
   alias Aiur.GitHub.StatePolicy
 
-  @known_states ~w(todo in-progress rework ci-wait human-review error done cancelled canceled merging)
+  @known_states ~w(todo in-progress rework ci-wait human-review error done cancelled canceled budget-exhausted merging)
 
   @spec foreign_candidate_state_label?([String.t()], String.t(), MapSet.t()) :: boolean()
   def foreign_candidate_state_label?(labels, prefix, active_states) do

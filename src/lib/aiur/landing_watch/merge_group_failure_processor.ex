@@ -1,7 +1,7 @@
 defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   @moduledoc "Classifies failed merge-group runs and routes each PR outcome."
   alias Aiur.Alerts
-  alias Aiur.GitHub.{CIRecovery, Errors, Transport}
+  alias Aiur.GitHub.{Access, CIRecovery}
   alias Aiur.LandingWatch
   alias Aiur.LandingWatch.{Journal, MergeFailureClassifier, MergeFailureOptions, MergeGroupFailureEvidence, MergeGroupJournal, MergeGroupRequeue, QuarantineEvidence}
 
@@ -85,7 +85,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
   # Budget holds and GitHub rate limits throttle every run, not this one, so they retry uncounted.
   defp throttled?({:job_log, _job_id, reason}), do: throttled?(reason)
   defp throttled?({:github, :rate_limited, _}), do: true
-  defp throttled?(reason), do: Errors.outcome({:error, reason}) == :held
+  defp throttled?(reason), do: Access.outcome({:error, reason}) == :held
 
   defp release_counted_failure(run, base, reason, error, opts) do
     case MergeGroupJournal.release_failed_merge_group_run(run["id"], @lasting_failure_polls, opts) do
@@ -446,7 +446,7 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     }
 
   defp run_url(run_id, opts) do
-    case Keyword.get(opts, :repo_fun, &Transport.parse_repo/0).() do
+    case Keyword.get(opts, :repo_fun, &Access.parse_repo/0).() do
       {:ok, {owner, repo}} -> "https://github.com/#{owner}/#{repo}/actions/runs/#{run_id}"
       _ -> "https://github.com/actions/runs/#{run_id}"
     end

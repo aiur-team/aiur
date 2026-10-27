@@ -72,6 +72,7 @@ defmodule AiurWeb.Build.Index.RefreshState do
   def mark_failed_part(parts, :health, reason), do: Map.put(parts, :health, {:error, reason})
   def mark_failed_part(parts, :features, reason), do: Map.put(parts, :features, {:error, reason})
   def mark_failed_part(parts, :now, reason), do: Map.put(parts, :now, {:error, reason})
+  def mark_failed_part(parts, :packs, _reason), do: Map.put(parts, :packs, {:error, :read_failed})
   def mark_failed_part(parts, :queue, reason), do: Map.put(parts, :planned, {:error, reason})
   def mark_failed_part(parts, :planned, reason), do: Map.put(parts, :planned, {:error, reason})
 

@@ -4,7 +4,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   """
 
   alias Aiur.Config.TrackerSettings
-  alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
+  alias Aiur.GitHub.{Access, PollSnapshots}
 
   # A delivery is a fact about GitHub state that arrived for free, and the
   # `ReadCache` entries about the resources it touches are stale from that
@@ -30,17 +30,17 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
     clear_open_pull_request_listing(repo)
 
     case delivery_numbers("pull_request", payload) do
-      [number | _] -> ReadCache.invalidate_number(repo, number)
-      [] -> ReadCache.invalidate_repo(repo)
+      [number | _] -> Access.invalidate_number(repo, number)
+      [] -> Access.invalidate_repo(repo)
     end
   end
 
   def invalidate_read_cache(event_type, _payload, repo)
       when event_type in ["branch_protection_rule", "repository_ruleset", "repository"],
-      do: ReadCache.invalidate_repo_config(repo)
+      do: Access.invalidate_repo_config(repo)
 
   def invalidate_read_cache("push", payload, repo) do
-    if base_branch_push?(payload), do: ReadCache.invalidate_repo_config(repo)
+    if base_branch_push?(payload), do: Access.invalidate_repo_config(repo)
     invalidate_numbered_delivery("push", payload, repo)
   end
 
@@ -54,8 +54,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
 
   defp invalidate_numbered_delivery(event_type, payload, repo) do
     case delivery_numbers(event_type, payload) do
-      [] -> ReadCache.invalidate_repo(repo)
-      numbers -> Enum.each(numbers, &ReadCache.invalidate_number(repo, &1))
+      [] -> Access.invalidate_repo(repo)
+      numbers -> Enum.each(numbers, &Access.invalidate_number(repo, &1))
     end
   end
 
@@ -89,7 +89,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   defp clear_open_pull_request_listing(repo) do
     case String.split(repo, "/") do
       [owner, name] when owner != "" and name != "" ->
-        ResourceStore.clear(:branch_pull_request_listing_all, owner, name)
+        Access.clear(:branch_pull_request_listing_all, owner, name)
 
       _invalid_repo ->
         :ok
@@ -102,7 +102,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit.CacheRetirement do
   # one sequence, so a delivery about either retires the single shared
   # `{:number, ...}` identity.
   #
-  # Retiring goes through `ReadCache.invalidate_number/2`, which marks the
+  # Retiring goes through `Access.invalidate_number/2`, which marks the
   # numbered issue-or-pull-request and, unconditionally, the repository's
   # collections. The collections marker goes on *every* delivery, not only on
   # actions that create or destroy a set member: a `labeled` delivery changes

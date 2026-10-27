@@ -5,7 +5,6 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
 
   require Logger
 
-  alias Aiur.Alerts
   alias Aiur.{Config, SystemCgroup}
   alias Aiur.Issue
   alias Aiur.Orchestrator.Dispatcher
@@ -17,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.RunTelemetry
+  alias Aiur.Signal
   alias Aiur.SystemCpu
 
   @capacity_backoff_alert_ms 30_000
@@ -362,7 +362,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Capacity do
   end
 
   defp default_capacity_alert(name, reason) do
-    Alerts.emit_system(name,
+    Signal.alert(name,
       reason:
         "Fleet admission is being limited by #{capacity_signal_label(reason)} " <>
           "(measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}).",

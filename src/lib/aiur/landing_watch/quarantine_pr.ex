@@ -7,7 +7,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   """
 
   alias Aiur.Config.TrackerSettings
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.Access
 
   @branch_prefix "aiur/quarantine/"
   @exunit_list "src/test/quarantine.txt"
@@ -30,8 +30,8 @@ defmodule Aiur.LandingWatch.QuarantinePR do
       when is_binary(identity) and is_list(observations) do
     opts = Keyword.put_new(opts, :quarantine_expires_on, Date.add(Date.utc_today(), 90))
 
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          base <- Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0),
          ctx <- %{
            owner: owner,
@@ -60,8 +60,8 @@ defmodule Aiur.LandingWatch.QuarantinePR do
 
   @spec already_quarantined?(String.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
   def already_quarantined?(identity, opts) when is_binary(identity) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          base <- Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0),
          ctx <- %{owner: owner, repo: repo, token: token, base: base, path: list_path(identity), opts: opts},
          {:ok, contents} <- list_contents(ctx) do
@@ -310,7 +310,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   defp skip_scope(_identity), do: {"one flaky test", "the test"}
 
   defp enable_auto_merge(ctx, %{"node_id" => id}) when is_binary(id) do
-    case Transport.github_graphql(request(ctx.opts), ctx.token, @auto_merge, %{"id" => id}, caller: "landing_watch_quarantine_auto_merge") do
+    case Access.github_graphql(request(ctx.opts), ctx.token, @auto_merge, %{"id" => id}, caller: "landing_watch_quarantine_auto_merge") do
       {:ok, %{"data" => %{"enablePullRequestAutoMerge" => %{}}}} -> :ok
       {:ok, _} -> {:error, :quarantine_auto_merge_unconfirmed}
       {:error, _} = error -> error
@@ -322,7 +322,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   defp get(ctx, path, caller) do
     request(ctx.opts).(%{
       method: :get,
-      url: "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/#{path}",
+      url: "#{Access.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/#{path}",
       token: ctx.token,
       caller: caller
     })
@@ -332,7 +332,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   defp write(ctx, method, path, body) do
     request(ctx.opts).(%{
       method: method,
-      url: "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/#{path}",
+      url: "#{Access.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/#{path}",
       token: ctx.token,
       caller: "landing_watch_quarantine_pr",
       body: body
@@ -343,11 +343,11 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   defp response({:ok, %{status: status, body: body}}) when status in 200..201, do: {:ok, body}
 
   defp response({:ok, %{status: _} = response}),
-    do: {:error, Errors.github_status_error(response)}
+    do: {:error, Access.github_status_error(response)}
 
   defp response({:error, _} = error), do: error
 
   defp expect_ok({:ok, _}), do: :ok
   defp expect_ok(error), do: error
-  defp request(opts), do: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+  defp request(opts), do: Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 end

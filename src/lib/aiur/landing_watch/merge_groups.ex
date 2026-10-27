@@ -3,22 +3,17 @@ defmodule Aiur.LandingWatch.MergeGroups do
 
   require Logger
 
-  alias Aiur.GitHub.{CIRecovery, Transport}
+  alias Aiur.GitHub.{Access, CIRecovery}
 
-  alias Aiur.LandingWatch.{
-    MergeGroupFailureProcessor,
-    MergeGroupQuarantine,
-    MergeGroupRunFetcher,
-    Observer
-  }
+  alias Aiur.LandingWatch.{MergeGroupFailureProcessor, MergeGroupQuarantine, MergeGroupRunFetcher, Observer}
 
   @spec cancel_stale([map()], keyword()) :: :ok | {:error, term()}
   def cancel_stale(observations, opts \\ [])
 
   def cancel_stale(observations, opts) when is_list(observations) do
     with {:ok, base} <- MergeGroupRunFetcher.base_branch(opts),
-         {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
+         {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts),
          {:ok, runs} <- MergeGroupRunFetcher.active_runs(owner, repo, base, token, opts),
          {:ok, completed} <- MergeGroupRunFetcher.completed_runs(owner, repo, base, token, opts),
          {:ok, fresh_observations} <- live_observations(observations, opts) do
