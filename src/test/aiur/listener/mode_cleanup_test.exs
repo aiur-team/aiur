@@ -1,6 +1,7 @@
 defmodule Aiur.Listener.ModeCleanupTest do
   use Aiur.TestSupport
 
+  alias Aiur.Config.Paths
   alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.WorkspaceCleanup
 
@@ -36,7 +37,7 @@ defmodule Aiur.Listener.ModeCleanupTest do
     Application.delete_env(:aiur, :runtime_state_dir)
 
     try do
-      assert Aiur.Config.Paths.runtime_state_dir() == {:error, :missing_instance_key}
+      assert Paths.runtime_state_dir() == {:error, :missing_instance_key}
       assert ModeStore.get("98761") == %{requested: :sync, version: 0, actor: :default, updated_at: nil}
       assert ModeStore.put("98761", :async, 0, %{actor: :human}) == {:error, {:runtime_state_dir_unavailable, :missing_instance_key}}
       assert ModeStore.clear("98761") == {:error, {:runtime_state_dir_unavailable, :missing_instance_key}}
