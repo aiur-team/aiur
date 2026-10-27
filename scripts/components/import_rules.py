@@ -18,7 +18,8 @@ def client_imports(root):
         source, specifier, resolved = row.split('\t')
         package = root.joinpath(*Path(source).parts[:2])
         if package not in manifests:
-            manifest = json.loads((package / 'package.json').read_text())
+            manifest_path = package / 'package.json'
+            manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
             manifests[package] = {name for key in ('dependencies', 'devDependencies', 'peerDependencies')
                                   for name in manifest.get(key, {})}
         reason = client_reason(root, package, manifests[package], specifier, resolved)
