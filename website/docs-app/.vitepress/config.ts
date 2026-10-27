@@ -14,7 +14,7 @@ export default withMermaid(defineConfig({
   ignoreDeadLinks: [/\.claude\//, /\.codex\//, /src\/lib\//, /src\/test\//],
   appearance: {
     initialValue: 'dark',
-    storageKey: 'aiur-theme'
+    storageKey: 'vitepress-theme-appearance'
   },
   vite: {
     publicDir: '../public',
