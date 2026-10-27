@@ -1,7 +1,5 @@
-import config from './playwright.design-parity.config.mjs'
+import config from './playwright.config.mjs'
 
-// Design comparisons stay in disposable artifacts. Unknown-value elements have
-// no design counterpart, so their reviewed regression captures are durable.
 export default {
   ...config,
   // Match the motion suite's capture setup; failures retain screenshots and

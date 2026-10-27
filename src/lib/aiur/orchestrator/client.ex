@@ -1,6 +1,8 @@
 defmodule Aiur.Orchestrator.Client do
   @moduledoc "Client forwarding for the Orchestrator RPC facade, with the original server defaults."
-  alias Aiur.Orchestrator.{GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
+  alias Aiur.Listener
+  alias Aiur.Listener.Scheduler
+  alias Aiur.Orchestrator.{Cancellation, GlobalPause, Interrupts, Lifecycle, PauseResume, PriorityControl, PushRouting, Slots, SnapshotStore, StatusReport, TelemetryEvents}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
@@ -33,6 +35,13 @@ defmodule Aiur.Orchestrator.Client do
           {:ok, map()} | {:error, term()}
   def send_correlated_operator_message(server, identifier, payload),
     do: OM.send_correlated_operator_message(server, identifier, payload)
+
+  @spec cancel_agent(String.t()) :: {:ok, Cancellation.result()} | {:error, term()}
+  def cancel_agent(identifier), do: Cancellation.cancel_agent(identifier)
+
+  @spec cancel_agent(GenServer.server(), String.t()) ::
+          {:ok, Cancellation.result()} | {:error, term()}
+  def cancel_agent(server, identifier), do: Cancellation.cancel_agent(server, identifier)
 
   @spec pause_agent(String.t() | Aiur.TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(identifier), do: PauseResume.pause_agent(identifier)
@@ -181,6 +190,11 @@ defmodule Aiur.Orchestrator.Client do
   def claim_next_checkpoint_queue_item(server, identifier),
     do: OM.claim_next_checkpoint_queue_item(server, identifier)
 
+  @spec claim_next_steer_queue_item(GenServer.server(), String.t()) ::
+          {:ok, map()} | :empty | {:error, term()}
+  def claim_next_steer_queue_item(server, identifier),
+    do: OM.claim_next_steer_queue_item(server, identifier)
+
   @spec claim_blocker_critical_events_digest(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_blocker_critical_events_digest(server, identifier),
@@ -190,6 +204,9 @@ defmodule Aiur.Orchestrator.Client do
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_operator_queue_item(server, identifier),
     do: OM.claim_next_operator_queue_item(server, identifier)
+
+  @spec claim_native_reply_item(GenServer.server(), String.t(), [String.t()]) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_native_reply_item(server, identifier, refs), do: OM.claim_native_reply_item(server, identifier, refs)
 
   @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_operator_response(server, identifier, command), do: OM.claim_operator_response(server, identifier, command)
@@ -268,4 +285,27 @@ defmodule Aiur.Orchestrator.Client do
   """
   @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
   def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
+
+  @doc false
+  @spec listener_prompt_context(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def listener_prompt_context(identifier, opts) do
+    if Scheduler.routing(opts) == :listener do
+      reader = Keyword.get(opts, :listener_prompt_reader, &read_listener_prompt_context/1)
+      reader.(identifier)
+    else
+      {:error, :legacy}
+    end
+  end
+
+  defp read_listener_prompt_context(identifier) do
+    with {:ok, %{effective: :async}} <- Listener.get_mode(identifier) do
+      count =
+        case control_capabilities(identifier) do
+          {:ok, %{listener: %{unread_count: count}}} -> count
+          _unavailable -> nil
+        end
+
+      {:ok, %{effective: :async, unread_count: count}}
+    end
+  end
 end

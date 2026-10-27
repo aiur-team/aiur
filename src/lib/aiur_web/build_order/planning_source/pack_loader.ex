@@ -1,16 +1,30 @@
 defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
   @moduledoc "Pack discovery, loading, duplicate reconciliation and pack-derived identities for the planning source."
-
   require Logger
 
   alias Aiur.BuildOrder.PackPaths
   alias Aiur.GitHub.Config
   alias Aiur.TrackerIdentity
+  alias AiurWeb.BuildOrder.PlanningSource.FeatureIconGuard
 
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
   @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
   @pack_source_precedence_description "workspace > state > environment > configured > explicit"
+
+  @doc false
+  @spec feature_metadata() :: map()
+  def feature_metadata do
+    %{
+      "workstreams" =>
+        Enum.flat_map(load_packs(), fn pack ->
+          pack.metadata
+          |> Map.get("workstreams", [])
+          |> Enum.filter(&is_map/1)
+          |> Enum.map(&Map.put(&1, "root_number", pack.root_number))
+        end)
+    }
+  end
 
   @doc false
   @spec load_packs(keyword()) :: [map()]
@@ -28,6 +42,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
     |> Enum.sort(&pack_before?/2)
     |> assign_default_root_numbers()
     |> assign_default_icons()
+    |> Enum.map(&FeatureIconGuard.sanitize/1)
   end
 
   # A single explicit pack is a test/demo override. Every normal catalog source,
@@ -122,7 +137,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource.PackLoader do
           completed: declared_completed? or status_completed?(status),
           completed_at: status_completed_at(status),
           status: status,
-          metadata: Map.take(json, ["workstreams", "phases", "external_gates"]),
+          metadata: Map.take(json, ["workstreams", "phases", "external_gates", "label_projection"]),
           materialized?: Enum.any?(tickets, &is_integer(&1.number)),
           tickets: tickets
         }

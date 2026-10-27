@@ -10,7 +10,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live
-      support voice_provider build_order_source meters_live experiments index_live base_navigation
+      support voice_provider build_order_source meters_live experiments index_live
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -153,7 +153,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{BaseNavigation, ExperimentsFixture, FixtureEndpoint}
+  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
   alias Aiur.BrowserHarness.FixtureEndpointStart
   alias Aiur.Experiments
   alias Aiur.IssueLog
@@ -180,7 +180,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
-    Application.put_env(:aiur, :workflow_file_path, BaseNavigation.workflow_path(Path.expand("../fixtures/test.yaml", __DIR__)))
+    Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)

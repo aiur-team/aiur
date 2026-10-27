@@ -40,6 +40,7 @@ defmodule Aiur.CLI do
   defp dispatch({:account_login, harness, name, dir}), do: command_result(Aiur.AccountsCLI.login(harness, name, dir))
   defp dispatch({:account_login_prepare, harness, name, dir}), do: prepare_account_login(harness, name, dir)
   defp dispatch({:account_logout, harness, name, purge}), do: command_result(Aiur.AccountsCLI.logout(harness, name, purge))
+  defp dispatch({:client_token, args}), do: command_result(Aiur.ClientTokensCLI.run(args))
 
   defp dispatch({:error, message}), do: shutdown_with_error(message)
 
@@ -120,8 +121,13 @@ defmodule Aiur.CLI do
           | {:account_login, String.t(), String.t(), String.t() | nil}
           | {:account_login_prepare, String.t(), String.t(), String.t() | nil}
           | {:account_logout, String.t(), String.t(), boolean()}
+          | {:client_token, [String.t()]}
           | {:error, String.t()}
-  def evaluate(args, deps \\ RuntimeDeps.get()) do
+  def evaluate(args, deps \\ RuntimeDeps.get())
+
+  def evaluate(["token" | rest], _deps), do: {:client_token, rest}
+
+  def evaluate(args, deps) do
     case OptionParser.parse(args, strict: ReferenceOptions.strict_switches()) do
       {opts, positional, []} ->
         cond do

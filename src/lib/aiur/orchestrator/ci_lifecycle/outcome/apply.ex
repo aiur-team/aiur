@@ -14,8 +14,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
   alias Aiur.Orchestrator.CiLifecycle.PrLessReview
   alias Aiur.Orchestrator.CiLifecycle.ResultProjection
   alias Aiur.Orchestrator.CiLifecycle.ReviewHandoff
-  alias Aiur.Orchestrator.CiLifecycle.TerminalEvent
-  alias Aiur.Orchestrator.CiLifecycle.Transition
+  alias Aiur.Orchestrator.CiLifecycle.{TerminalEvent, TerminalPR, Transition}
   alias Aiur.Orchestrator.CiLifecycle.WaitRewake
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.HumanReview
@@ -33,23 +32,25 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
   @active_handoff_state "in-progress"
 
   defp apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
-    cond do
-      CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
-        reconcile_ci_wait_reason(state, issue, result)
+    TerminalPR.route(state, issue, result, fn ->
+      cond do
+        CiLifecycle.ci_wait_state?(Transition.effective_ci_state(issue)) ->
+          reconcile_ci_wait_reason(state, issue, result)
 
-      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
-        Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
+        HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and result[:pending_reason] == :draft_pull_request ->
+          Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
-      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
-        Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
+        HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
+          Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
-      # No open PR means no CI run could ever resolve ci-wait (#5816).
-      HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and PrLessReview.no_pull_request?(result) ->
-        Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
+        # No open PR means no CI run could ever resolve ci-wait (#5816).
+        HumanReview.human_review_state?(Transition.effective_ci_state(issue)) and PrLessReview.no_pull_request?(result) ->
+          Reconciler.refresh_running_issue_state(state, Transition.effective_issue_state(issue))
 
-      true ->
-        pending_ci_wait(state, issue, result)
-    end
+        true ->
+          pending_ci_wait(state, issue, result)
+      end
+    end)
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
@@ -137,8 +138,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
     )
   end
 
-  # The CI batch carries these exact-head fields already. Reuse them here so a
-  # failed CI poll does not add another GitHub request (#4631).
+  # The CI batch carries these exact-head fields already; reuse them here to avoid another GitHub request (#4631).
   defp approved_landing_pr?(
          %Issue{},
          %{decision: :failed, review_decision: "APPROVED", auto_merge_request: auto_merge_request, merge_queue_entry: merge_queue_entry} = result
@@ -304,8 +304,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.Outcome.Apply do
     end
   end
 
-  # Legacy anchors also include operator-dismissed failures. Only a recorded CI
-  # pass proves that a same-head failure in human-review is new repair work.
+  # Legacy anchors include operator-dismissed failures; only a recorded CI pass proves same-head review failure is new repair work.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
     target = CiLifecycle.ci_target_for_issue(issue)
     approved_head = Map.get(state.ci_lifecycle.approved_heads, target)

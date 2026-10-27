@@ -20,6 +20,19 @@ defmodule Aiur.Instance.LeaseStore.Postgres do
            Postgrex.query(
              conn,
              """
+             CREATE TABLE IF NOT EXISTS aiur_repository_leases (
+               repository text PRIMARY KEY,
+               instance_id text NOT NULL,
+               heartbeat_at timestamptz NOT NULL,
+               expires_at timestamptz NOT NULL
+             )
+             """,
+             []
+           ),
+         {:ok, _} <-
+           Postgrex.query(
+             conn,
+             """
              CREATE TABLE IF NOT EXISTS aiur_instances (
                instance_id text PRIMARY KEY,
                build_version text NOT NULL,

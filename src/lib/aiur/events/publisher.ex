@@ -38,7 +38,7 @@ defmodule Aiur.Events.Publisher do
 
   require Logger
 
-  alias Aiur.Events.{Exchange, HistoryStore, IdGenerator, SourcePolicy, Trace}
+  alias Aiur.Events.{Catalog, Exchange, HistoryStore, IdGenerator, SourcePolicy, Trace}
   alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
@@ -275,6 +275,7 @@ defmodule Aiur.Events.Publisher do
       ticket_id ->
         kind =
           cond do
+            Catalog.lookup(topic).attribution == :payload_actor -> :emit
             opts[:self_emit] == true -> :self
             String.starts_with?(topic, "ticket.#{ticket_id}.agent.") -> :self
             true -> :emit

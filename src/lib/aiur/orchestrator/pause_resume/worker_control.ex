@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
   Applies worker-reported control state and rejections to the running entry.
   """
 
-  alias Aiur.{AlertFeed, Alerts}
+  alias Aiur.{AlertFeed, Signal}
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DurationCapRelease
@@ -98,7 +98,7 @@ defmodule Aiur.Orchestrator.PauseResume.WorkerControl do
     )
 
     if previous_status == :paused and status == :working and stalled_alert_open?(updated_running_entry) do
-      Alerts.emit_system("ticket.#{Map.get(updated_running_entry, :identifier)}.agent.stalled.resolved",
+      Signal.alert("ticket.#{Map.get(updated_running_entry, :identifier)}.agent.stalled.resolved",
         message: "Agent resumed and is making progress",
         issue: Map.get(updated_running_entry, :issue),
         workspace: Map.get(updated_running_entry, :workspace_path),

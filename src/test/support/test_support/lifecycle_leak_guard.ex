@@ -117,6 +117,12 @@ defmodule Aiur.TestSupport.LifecycleLeakGuard do
     if leaked?("backend_message"), do: :ok, else: Lifecycle.observe_backend_message(ticket, attempt_id, backend, message, opts)
   end
 
+  defdelegate enabled?(opts), to: Lifecycle
+  defdelegate decode_codex_operation(message), to: Lifecycle
+  defdelegate decode_claude_operation(message), to: Lifecycle
+  defdelegate external_anchor(event), to: Lifecycle
+  defdelegate terminal_capture(identity, lifecycle), to: Lifecycle
+
   defp leaked?(event) do
     with test_pid when is_pid(test_pid) <- owner(self(), []),
          [{^test_pid, test, true}] <- :ets.lookup(@tests, test_pid) do

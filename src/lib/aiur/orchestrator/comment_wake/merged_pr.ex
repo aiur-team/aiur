@@ -5,9 +5,8 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   alias Aiur.Alerts
   alias Aiur.CurrentRunMembership
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{Access, Config}
   alias Aiur.GitHub.Issues, as: GitHubIssues
-  alias Aiur.GitHub.LocalHold
   alias Aiur.Issue
   alias Aiur.Orchestrator.CommentWake.MergeAudit
   alias Aiur.Orchestrator.Dispatcher
@@ -24,6 +23,7 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
   alias Aiur.Orchestrator.WorkspaceCleanup
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
+  alias Aiur.Signal
 
   @non_closing_merge_state "needs-triage"
   @max_closing_refreshes 10
@@ -230,13 +230,13 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   defp emit_merge_alert(name, opts) do
     {message, alert_opts} = Keyword.pop!(opts, :message)
-    Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+    Signal.agent_alert(name, message, Keyword.put(alert_opts, :event_source, :system))
   end
 
   defp emit_merge_terminal_write_failed_alert(identifier, reason) do
     reason = MergeTransition.reason_name(reason)
 
-    Alerts.emit_custom(
+    Signal.agent_alert(
       "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
       "Merged PR could not transition ticket #{identifier} to done (#{reason}).",
       issue: identifier,
@@ -371,9 +371,9 @@ defmodule Aiur.Orchestrator.CommentWake.MergedPr do
 
   defp write_merged_issue_target({emit_alert_fun, identifier, merged_by_login, merger_allowed_fun, opts, update_issue_state_fun}) do
     target =
-      LocalHold.run(
+      Access.with_transient_retry(
         fn -> merged_issue_target_state(identifier, opts) end,
-        LocalHold.caller_opts(opts)
+        Access.transient_retry_opts(opts)
       )
 
     {target, result} =

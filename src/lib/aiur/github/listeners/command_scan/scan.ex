@@ -32,8 +32,8 @@ defmodule Aiur.GitHub.Listeners.CommandScan.Scan do
 
   alias Aiur.{Config, Events}
   alias Aiur.Events.{GithubKeys, PrCommandScanner, Sanitizer}
+  alias Aiur.GitHub.Access
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.ResourceStore
 
   defstruct since: nil, etags: %{}
   @type t :: %__MODULE__{since: String.t() | nil, etags: map()}
@@ -68,8 +68,8 @@ defmodule Aiur.GitHub.Listeners.CommandScan.Scan do
     repo = command_scan_repo(opts)
     fetch_opts = Keyword.put(opts, :since, since)
 
-    review_resource = ResourceStore.key_for_repo(:repo_review_comment_stream, repo, @review_comment_stream)
-    issue_resource = ResourceStore.key_for_repo(:repo_issue_comment_stream, repo, @issue_comment_stream)
+    review_resource = Access.key_for_repo(:repo_review_comment_stream, repo, @review_comment_stream)
+    issue_resource = Access.key_for_repo(:repo_issue_comment_stream, repo, @issue_comment_stream)
 
     {review_etag_in, review_provenance} = durable_etag(review_resource, Map.get(etags, :command_scan_review))
     {issue_etag_in, issue_provenance} = durable_etag(issue_resource, Map.get(etags, :command_scan_issue))
@@ -189,7 +189,7 @@ defmodule Aiur.GitHub.Listeners.CommandScan.Scan do
   # validator's provenance is returned with it because it decides what a `304`
   # against it is allowed to mean — see `command_scan_unchanged_list/3`.
   defp durable_etag(_resource, etag) when is_binary(etag) and etag != "", do: {etag, :cycle}
-  defp durable_etag(resource, _etag), do: {ResourceStore.etag(resource), :store}
+  defp durable_etag(resource, _etag), do: {Access.etag(resource), :store}
 
   # The stream's comment list and its validator, deposited together and only
   # after the commands in it were published — the poller's `remember_list/3`,
@@ -203,13 +203,13 @@ defmodule Aiur.GitHub.Listeners.CommandScan.Scan do
   # held validator explicitly, matching the poller: the store would otherwise
   # keep a validator for an unchanged body even when the reader offered none.
   defp remember_list(resource, comments, nil) when is_list(comments) do
-    ResourceStore.put_resource(resource, comments, etag: nil, source: :poll)
-    ResourceStore.drop_etag(resource)
+    Access.put_resource(resource, comments, etag: nil, source: :poll)
+    Access.drop_etag(resource)
     nil
   end
 
   defp remember_list(resource, comments, etag) when is_list(comments) do
-    ResourceStore.put_resource(resource, comments, etag: etag, source: :poll)
+    Access.put_resource(resource, comments, etag: etag, source: :poll)
     etag
   end
 
@@ -236,7 +236,7 @@ defmodule Aiur.GitHub.Listeners.CommandScan.Scan do
   #     inside it. Unusable, so the validator is dropped and the next scan reads
   #     unconditionally.
   defp command_scan_unchanged_list(resource, provenance, etag) do
-    case ResourceStore.fetch(resource) do
+    case Access.fetch_resource(resource) do
       {:ok, %{data: comments}} when is_list(comments) -> {comments, etag, true}
       _other when provenance == :cycle -> {[], etag, false}
       _other -> {[], drop_validator(resource), false}
@@ -248,7 +248,7 @@ defmodule Aiur.GitHub.Listeners.CommandScan.Scan do
   # reads unconditionally — the reader's half of the store's validator/body
   # contract; see `Aiur.GitHub.ResourceStore`.
   defp drop_validator(resource) do
-    ResourceStore.drop_etag(resource)
+    Access.drop_etag(resource)
     nil
   end
 

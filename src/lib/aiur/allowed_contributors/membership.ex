@@ -28,7 +28,7 @@ defmodule Aiur.AllowedContributors.Membership do
   """
 
   alias Aiur.AllowedContributors.AllowList
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.Access
 
   @positive_ttl_ms 300_000
   @negative_ttl_ms 60_000
@@ -68,7 +68,7 @@ defmodule Aiur.AllowedContributors.Membership do
     {verdict, store(cache, key, verdict, now_ms)}
   end
 
-  defp url(org_login, user_login), do: "#{Transport.base_url()}/orgs/#{org_login}/memberships/#{user_login}"
+  defp url(org_login, user_login), do: "#{Access.base_url()}/orgs/#{org_login}/memberships/#{user_login}"
 
   defp interpret({:ok, %{status: 200, body: body}}, org, author) when is_map(body) do
     cond do

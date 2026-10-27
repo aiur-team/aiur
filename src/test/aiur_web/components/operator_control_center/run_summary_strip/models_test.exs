@@ -444,7 +444,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripModelsTest do
       })
 
     assert html =~ ~s(<span class="rs-pc">60% left</span>)
-    refute html =~ ~r/>[^<]*stale/i
+    assert html =~ ~s(<span class="rs-stale" aria-label="stale usage">stale</span>)
     assert html =~ ~s(class="rs-ln is-stale")
   end
 end

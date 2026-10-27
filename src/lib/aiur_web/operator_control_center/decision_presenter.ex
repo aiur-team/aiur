@@ -7,6 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   """
 
   alias Aiur.{Commands, Decision}
+  alias Aiur.Commands.Answering
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
 
@@ -44,6 +45,24 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
     Enum.map(decisions, &Map.put(&1, :latency, %{status: health, snapshot: nil}))
   end
 
+  @doc "Whether a projected dashboard row was requested by the Executor."
+  @spec executor?(map()) :: boolean()
+  def executor?(%{requester: %{"kind" => "executor"}}), do: true
+  def executor?(%{requester: %{kind: :executor}}), do: true
+  def executor?(_row), do: false
+
+  @doc "Human-readable requester, including legacy worker attribution."
+  @spec requester_label(map()) :: String.t()
+  def requester_label(row) do
+    if executor?(row) do
+      "Executor"
+    else
+      ticket = row.ticket[:identifier] || row.decision_id
+      agent = row.source[:agent_id]
+      Enum.join(Enum.reject(["#" <> ticket, agent], &is_nil/1), " · ")
+    end
+  end
+
   defp row(%Decision{} = decision) do
     active_answer = Decision.active_answer(decision)
 
@@ -70,6 +89,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       source_created_at: decision.source_created_at,
       decision_status: decision.decision_status,
       delivery_status: decision.delivery_status,
+      pending_for_session?: decision.pending_for_session?,
+      conflict_summary: Answering.conflict_summary(decision, %{kind: :operator, id: "dashboard"}),
       original_answer: answer_row(decision.answer),
       answer: answer_row(active_answer),
       active_action_id: decision.active_action_id,
@@ -87,6 +108,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       failure_reason: failure_reason(decision),
       lifecycle: lifecycle(decision)
     }
+    |> Map.merge(Commands.public_v2(decision))
   end
 
   defp option_row(option) do
@@ -111,6 +133,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       rationale: answer.rationale,
       actor: Commands.sanitize_actor(answer.actor),
       supervisor_basis: answer.supervisor_basis,
+      operator_quote: answer.operator_quote,
+      relayed_by: answer.relayed_by,
       accepted_at: answer.accepted_at
     }
   end

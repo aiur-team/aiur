@@ -2,9 +2,9 @@
 
 ## API budgets
 
-With `AIUR_LEASE_DATABASE_URL`, daemons share admissions, holds, quota snapshots and account-scoped provider readings. During outages, each divides ceilings by the persisted last roster; if unknown, it reserves at least half. Agent `gh` ledgers stay host-local; agents never receive the URL.
+With `AIUR_LEASE_DATABASE_URL`, local agents send governed `gh` budget commands to their daemon over an instance-local Unix socket. Instances using the shared store draw from one credential budget. If the socket is unreachable, the guard reports its per-host ledger fallback. Agents never receive the database URL. Remote agents keep their host-local ledger.
 
-`aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls are per-host and excluded. Without `AIUR_LEASE_DATABASE_URL`, sharing is off.
+`aiur status` and the dashboard show cached shared daemon spend, instance count and sample age. `aiur github-cost` reports per-instance and total daemon spend. Agent `gh` calls use separate per-workspace ceilings within the shared credential budget. Without `AIUR_LEASE_DATABASE_URL`, shared admission is off.
 
 The request pacer may refuse a read as `:shared_budget` before GitHub. Dispatch retries these holds and escalates after `agent.dispatch_hold_attention_threshold` consecutive declines; `aiur status` reports their per-resource rate as `GITHUB HOLDS`.
 
@@ -43,11 +43,13 @@ Sustained timeouts raise one `system.github.budget_broker_degraded` attention wi
 
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
-| Core | REST requests | The Build page usage strip, the Units meter, `aiur units`, or `aiur github-cost --budget core`. |
-| GraphQL | Query points | The Build page usage strip, the Units meter, `aiur units`, or `aiur github-cost`. |
+| Core | REST requests | The Build page usage strip, the Units meter, `aiur units`, or `aiur usage github`. |
+| GraphQL | Query points | The Build page usage strip, the Units meter, `aiur units`, or `aiur usage github`. |
 | Anonymous core | REST requests made without a token | A `core:anonymous` row, present only once an anonymous read has been observed. |
 | Secondary limit | Temporary abuse-control backoff | A separate Units row while the backoff is active. |
 | Issue dependencies / sub-issues | Route-specific REST windows | Separate `core:issue_dependencies` and `core:sub_issues` observations in the quota snapshot; excluded from primary Core and dispatch. |
+
+The shared provider view is available as `aiur usage github` or `GET /api/v1/usage/github`. See the provider-specific quota, attribution, and reconciliation detail in this page before interpreting those readings.
 
 Broker command summaries include mailbox, Python queue, SQLite open, lock-wait,
 SQL execution, and commit latency by request type so the slow stage can be
@@ -74,7 +76,10 @@ again.
 
 ### Where the budget went
 
-The meters above say how much is left.
+`aiur usage github` exposes the daemon's observed quota windows and
+reconciliation fields in the shared usage envelope. The deprecated
+`aiur github-cost` command retains its caller ranking and `--budget` and
+`--format` selectors; `aiur github-usage` retains its per-actor broker report.
 
 `aiur github-cost` says which code path spent it, ranked by points and by points per hour, for one budget at a time.
 
@@ -124,9 +129,22 @@ A monitoring loop sampling the API on the same credential *is itself* unattribut
 **Agent `gh` calls do not bill the daemon's credential.**
 
 Agents hold the bot PAT; the daemon under App auth holds an installation token.
-Separate budgets, separate windows.
+Those credentials have separate GitHub windows. Agent calls from local instances
+sharing the bot PAT now share that credential's budget through the daemon broker;
+the daemon's App pool remains separate.
 
 An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and never spends the App pool. Agent activity correlating with App-pool spend means something else scales with the fleet.
+
+GitHub's window is credential-wide, while daemon attribution covers only calls
+observed since that daemon process started. A restart can therefore leave spend
+in the GitHub window that has no matching daemon-side attribution.
+
+Calls from other tools using the same credential are also outside this process's
+attribution; they are not evidence of duplicate accounting by themselves.
+
+Agent `gh` calls use the bot PAT while the daemon may use an installation
+token. Those credentials have separate budgets and windows, so agent activity
+does not explain spend in the daemon's App pool.
 
 Related: a low read-cache hit rate is not automatically a defect. See
 [Shared agent reads](/apis/github-agent-cache#shared-agent-reads) for what the cache refuses on purpose
@@ -170,7 +188,7 @@ making, so selection costs no budget of its own.
 
 The dashboard's primary GitHub window follows the daemon's primary credential.
 Readiness checks that use the operator-only `AIUR_CI_READINESS_TOKEN` do not
-replace it; other credential windows remain available in `aiur github-usage`.
+replace it; other credential windows remain available in `aiur usage github`.
 
 Readiness requests carry an explicit non-primary identity. Requests without a
 resolved credential identity are retained under their token fingerprint and
@@ -180,8 +198,8 @@ identified as the primary credential.
 A credential with no observation this window is treated as probably full rather
 than as empty, and ties resolve to the primary credential.
 
-`aiur github-usage` grows a per-credential section and a pool total. Both
-commands show them only when more than one credential is configured.
+`aiur usage github` includes the observed credential windows and pool totals
+when those observations are available.
 
 #### Writes stay on their own identity
 

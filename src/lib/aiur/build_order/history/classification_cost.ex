@@ -11,7 +11,7 @@ defmodule Aiur.BuildOrder.History.ClassificationCost do
   Samples and timestamps are native Elixir terms, intended for local release RPC.
   """
 
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Access
   alias Aiur.{TrackerIdentity, UsageAggregate, UsageEnvelope}
 
   @resources [:core, :graphql, :search]
@@ -97,8 +97,8 @@ defmodule Aiur.BuildOrder.History.ClassificationCost do
   end
 
   defp github(label, opts) do
-    enabled = Keyword.get(opts, :enabled_fun, &Budget.enabled?/0)
-    usage = Keyword.get(opts, :usage_fun, &Budget.usage/0)
+    enabled = Keyword.get(opts, :enabled_fun, &Access.budget_enabled?/0)
+    usage = Keyword.get(opts, :usage_fun, &Access.usage/0)
 
     if enabled.() do
       case usage.() do

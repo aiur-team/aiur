@@ -3,7 +3,10 @@ defmodule Aiur.AppServer.OperatorDelivery do
   Shared safe-checkpoint delivery and Executor response tracking.
   """
 
-  alias Aiur.AppServer.{Messages, TurnState}
+  alias Aiur.AppServer.{Messages, NativeSteer, TurnState}
+
+  @spec steer_pending(map(), map()) :: map()
+  defdelegate steer_pending(session, state), to: NativeSteer
 
   @spec handle_pending_operator_response(map(), map(), map(), String.t(), integer()) ::
           {:continue, map()} | {:ok, :turn_completed}
@@ -23,6 +26,9 @@ defmodule Aiur.AppServer.OperatorDelivery do
         )
 
         {:continue, state}
+
+      {%{kind: :steer} = request, pending} ->
+        NativeSteer.handle_response(session, %{state | pending_operator_requests: pending}, request, payload)
 
       {%{on_success: on_success, on_failure: on_failure}, pending_operator_requests} ->
         handle_claimed_operator_response(

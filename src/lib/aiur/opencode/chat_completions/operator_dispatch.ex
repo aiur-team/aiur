@@ -26,10 +26,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
     end
   end
 
-  # `:auto` lets the backend decide: the persistent-REPL backend takes the
-  # message immediately mid-turn, while codex/headless-claude hold it at the
-  # next safe checkpoint (native CLI UX). Wait time is captured by
-  # `Aiur.OperatorWaitLog`.
+  # Listener routing preserves the backend-specific legacy policy until rollout.
   @spec send_operator(String.t(), String.t(), String.t()) :: {:ok, term()} | {:error, term()}
   @spec send_operator(String.t(), String.t(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
   def send_operator(identifier, text, turn_id, message_id \\ nil) do
@@ -45,7 +42,8 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
 
       operator_text ->
         AgentChat.send(identifier, operator_text,
-          delivery_policy: :auto,
+          delivery_policy: :listener,
+          origin: :tui,
           turn_id: turn_id,
           message_id: message_id
         )

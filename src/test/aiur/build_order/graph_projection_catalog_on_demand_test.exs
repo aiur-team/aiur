@@ -1,4 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
+  # Catalog on-demand cadence, failure recovery and staleness behavior share
+  # one deterministic projection harness; keeping them together avoids
+  # duplicating task, clock and authority setup for each policy guarantee.
   # The `planning: 0` on-demand catalog guarantees from #2309/#2399, pinned
   # under the event-sourced model (#2313).
   #
@@ -106,6 +109,14 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   # timer*, not zero-width staleness. This drives the production snapshot path
   # (`selected/2` → `Policy.snapshot` with `selected_staleness_ms/1`) and fails
   # if the bound regresses to the catalog cadence.
+  test "a crashing catalog task is not reported as a transport failure" do
+    {:ok, _projection} = start_projection(catalog_refresh_ms: 0)
+    reader = await_reader(:catalog)
+    Process.exit(reader, :kill)
+
+    receive_barrier({:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog, health: %{failure: :unknown}}}})
+  end
+
   test "an on-demand catalog keeps a selected root's staleness bound at delivery latency, not zero" do
     first = identity(1, "I1")
     clock = supervised_agent(0)

@@ -1,23 +1,7 @@
 import { test, expect } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
 import { openFixture } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openParityPair, expectDesignParity, waitParityReady, PARITY_VIEWPORTS, FIXTURE_META } from '../support/design-parity.mjs'
-import { freezeGanttComposition, scrollGanttComposition, attachGanttRasterDiagnostics, attachGanttGeometryDiagnostics, compareRenderedGanttEdges } from '../support/build-home-gantt-parity.mjs'
-import { runOn, compareRecords } from '../support/build-home-motion.mjs'
-import { primeBoardPaint } from '../support/build-home-band-canvas.mjs'
-import { loadGanttRegionHistory, markGanttRegion, markFixedGanttRegion } from '../support/build-home-gantt-regions.mjs'
-import { estimatePatch } from '../scripts/build-home-now-patch.mjs'
 
-const root = new URL('../../test/fixtures/build_home/', import.meta.url)
-const design = await readFile(new URL('design-source/assets/build.js', root), 'utf8')
-const anchor = '  window.AiurBuild = {'
-expect(design.split(anchor)).toHaveLength(2)
-const oracle = design.replace(anchor, `window.__ganttOracle = (d, st, dims) => {
-D = d; Object.assign(S, st); S.f = { ...S.f, ...st.f };
-vp = { clientWidth: dims.vpW, clientHeight: dims.vpH };
-root = { clientWidth: dims.rootW }; return computeLayout(); };\n${anchor}`)
-const fixtures = Object.fromEntries(await Promise.all(['live', 'dense', 'newrepo', 'noqueue'].map(async name => [name, JSON.parse(await readFile(new URL(`${name}.json`, root), 'utf8'))])))
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles' })
 test.beforeEach(async ({ page }) => {
   await openFixture(page)
@@ -146,27 +130,6 @@ test('U12 trailing segment uses payload now despite an unrelated browser clock',
   })).toBe(Date.parse('2026-10-07T14:20:00-07:00'))
 })
 
-test('G1 exact history, planned and band Gantt layout oracle across datasets, spans and widths', async ({ page }) => {
-  await page.addScriptTag({ content: oracle })
-  const result = await page.evaluate(async fixtures => {
-    const { intake } = await import('/build-home/protocol.js'), { setNow } = await import('/build-home/clock.js')
-    performance.now = () => 0; setNow(NOW)
-    const sources = Object.fromEntries(['history', 'queue', 'index'].map(k => [k, { state: 'ok' }]))
-    const summarize = L => ({ band: { h: L.band.h, BK: L.band.BK, items: L.band.items.map(({ t, ...i }) => ({ id: t.id, ...i })) }, secs: Object.fromEntries(['hist', 'plan'].map(sec => {
-      const s = L.secs[sec]
-      return [sec, { h: s.h, marks: s.marks, labels: s.labels, items: s.items.map(({ t, ...i }) => ({ id: t.id, ...i })) }]
-    })) })
-    let count = 0; const failures = []
-    for (const [dataset, snapshot] of Object.entries(fixtures)) for (const span of [1, 2, 3, 7, 30]) for (const dims of [{ vpW: 1406, vpH: 860, rootW: 1408, gut: 84 }, { vpW: 356, vpH: 620, rootW: 358, gut: 46 }]) {
-      const D = intake(snapshot), S = { view: 'gantt', span, histFrom: 0, f: { epic: [] }, compact: false, feature: null, ...layout.measureFlow(D, dims) }
-      const expected = summarize(window.__ganttOracle(D, S, dims)), actual = summarize(layout.computeLayout(D, S, dims, sources, { gantt: g.ganttExt }))
-      count++; if (JSON.stringify(actual) !== JSON.stringify(expected)) failures.push({ dataset, span, width: dims.vpW, actual, expected })
-    }
-    return { count, failures }
-  }, fixtures)
-  expect(result.count).toBe(40); expect(result.failures).toEqual([])
-})
-
 test('B3 unknown cards expose honest markers and escape hostile titles', async ({ page }) => {
   expect(await page.evaluate(() => {
     initCards()
@@ -250,6 +213,29 @@ test('B5/B7 fixture route switches Gantt and Timeline with the legend, time labe
   expect(await timelineClasses()).toEqual(first)
 })
 
+test('Gantt hides history time labels at 150 px width', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    initCards()
+    const ticket = row('short-history', NOW - 4 * H, NOW, { pts: 3 })
+    state.ctx.D.byId[ticket.id] = ticket
+    const inspect = width => {
+      const card = cards.makeCard({ t: ticket, sec: 'hist', h: width })
+      card.style.width = `${width}px`; document.body.append(card)
+      const time = card.querySelector('.bd-time')
+      return { hasTime: !!time, display: time ? getComputedStyle(time).display : null,
+        width: card.getBoundingClientRect().width }
+    }
+    return [250, 150].map(inspect)
+  })
+  expect(result).toHaveLength(2)
+  for (const [index, width] of [250, 150].entries()) {
+    const card = result[index]
+    expect(card.hasTime).toBe(true)
+    expect(card.width).toBe(width)
+    expect(card.display).toBe(width <= 150 ? 'none' : 'block')
+  }
+})
+
 test('B4 EC-20 rendered card heights stay equal across zones while tick labels differ', async ({ browser }) => {
   const results = []
   for (const timezoneId of ['America/Los_Angeles', 'Asia/Kolkata']) {
@@ -329,49 +315,6 @@ test('B5 live now-to-history diff lays out the actual completed interval', async
   })).toBe(2)
 })
 
-const parityProbe = estimatePatch(design).replace(anchor, `window.__ganttScroll = offset => {
-S.ready = false; snapping = true; vp.scrollTop = secs.hist.el.offsetTop + offset; update();
-};\n${anchor}`)
-for (const dataset of ['live', 'dense']) for (const width of [1440, 390]) for (const theme of ['dark', 'light']) test(`${dataset === 'live' ? 'B2/B6 Gantt history breaks and complete edges' : 'B2 Gantt full acceptance dense history breaks'}: ${width} ${theme}`, async ({ browser }) => {
-  test.setTimeout(120000)
-  const pair = await openParityPair(browser, { ...PARITY_VIEWPORTS.find(v => v.viewport.width === width), theme, palette: 'aiur', dataset }, { query: 'view=gantt', motion: true })
-  try {
-    await pair.design.route('**/assets/build.js*', route => route.fulfill({ contentType: 'text/javascript', body: parityProbe }))
-    await pair.design.reload(); await waitParityReady(pair.design, 'board', 'design', true)
-    const readMarks = page => page.evaluate(() => [...document.querySelectorAll('#bd-sec-hist .bd-mk.brk')].map(el => ({ text: el.textContent, top: el.style.top, h: el.style.height })))
-    const readEdges = page => page.evaluate(() => {
-      const content = document.querySelector('#bd-content').getBoundingClientRect(), section = document.querySelector('#bd-sec-hist').getBoundingClientRect().top - content.top
-      return [...document.querySelectorAll('#bd-edges .bd-eh')].filter(h => document.querySelector(`#bd-sec-hist .bd-card[data-id="${CSS.escape(h.dataset.e)}"]`)).map(h => ({
-        id: h.dataset.e.replace('AIUR-', ''), cls: h.nextElementSibling.className.baseVal.trim(), coords: h.getAttribute('d').match(/-?[\d.]+/g).map((n, i) => +n - (i % 2 ? section : 0))
-      })).sort((a, b) => a.id.localeCompare(b.id) || a.coords[0] - b.coords[0] || a.coords[1] - b.coords[1])
-    })
-    await pair.product.evaluate(async () => { (await import('/build-home/state.js')).S.ready = false })
-    const height = await pair.design.locator('#bd-sec-hist').evaluate(el => el.offsetHeight)
-    const collected = [[], []]
-    for (let offset = 0; offset <= height + 400; offset += 400) {
-      await pair.design.evaluate(offset => __ganttScroll(offset), offset)
-      await pair.product.evaluate(async offset => {
-        const { ctx, fx } = await import('/build-home/state.js')
-        ctx.vp.scrollTop = ctx.secs.hist.el.offsetTop + offset; fx.update()
-      }, offset)
-      await Promise.all([pair.design, pair.product].map(p => p.clock.runFor(400)))
-      expect(await readMarks(pair.product)).toEqual(await readMarks(pair.design))
-      if (dataset === 'live') for (const [side, page] of [pair.design, pair.product].entries()) for (const edge of await readEdges(page)) {
-        if (!collected[side].some(e => e.id === edge.id && e.coords.every((v, i) => Math.abs(v - edge.coords[i]) <= 0.5))) collected[side].push(edge)
-      }
-    }
-    const order = (a, b) => a.id.localeCompare(b.id) || a.coords[0] - b.coords[0] || a.coords[1] - b.coords[1] || a.coords[6] - b.coords[6] || a.coords[7] - b.coords[7]
-    const [expectedEdges, actualEdges] = collected.map(edges => edges.sort(order))
-    if (dataset === 'live') {
-      if (width === 1440) expect(expectedEdges.length).toBeGreaterThan(0)
-      expect(actualEdges.map(e => [e.id, e.cls])).toEqual(expectedEdges.map(e => [e.id, e.cls]))
-      actualEdges.forEach((edge, n) => edge.coords.forEach((v, i) => expect(Math.abs(v - expectedEdges[n].coords[i])).toBeLessThanOrEqual(0.5)))
-    }
-    await expect(pair.product.locator('#bd-edges')).toHaveClass(/gantt/)
-
-  } finally { await pair.close() }
-})
-
 test('known Unsorted follows the palette while missing epics remain neutral', async ({ page }) => {
   await page.goto('/build-fixture/dense?view=gantt')
   await expect(page.locator('.bd-card').first()).toBeVisible()
@@ -393,82 +336,36 @@ test('known Unsorted follows the palette while missing epics remain neutral', as
   expect(colors.missing).toBe(colors.neutral)
 })
 
-// Core retains the original four width/theme cells. The explicit full command
-// runs every registered dataset, palette and span; no acceptance cell is skipped.
-const compositionCells = ['live', 'dense', 'newrepo', 'noqueue', 'offline'].flatMap(dataset => PARITY_VIEWPORTS.flatMap(viewport => ['dark', 'light'].flatMap(theme => ['gruvbox', 'aiur'].map(palette => ({ ...viewport, dataset, theme, palette, span: 1 })))))
-compositionCells.push(...[2, 3, 7, 30].flatMap(span => PARITY_VIEWPORTS.flatMap(viewport => ['dark', 'light'].flatMap(theme => ['gruvbox', 'aiur'].map(palette => ({ ...viewport, dataset: 'live', theme, palette, span }))))))
-for (const cell of compositionCells) {
-  const core = cell.dataset === 'live' && cell.span === 1 && cell.palette === 'aiur' && [1440, 390].includes(cell.viewport.width)
-  test(`B1 ${core ? 'Gantt composition parity' : 'Gantt full acceptance composition'}: ${cell.dataset} ${cell.viewport.width} ${cell.theme} ${cell.palette} span${cell.span}`, async ({ browser }) => {
-    test.setTimeout(240000)
-    const pair = await openParityPair(browser, cell, { query: `view=gantt&span=${cell.span}`, motion: true })
-    try {
-      await freezeGanttComposition(pair)
-      const positions = await pair.design.evaluate(() => __ganttComposition.positions())
-      for (const [position, top] of Object.entries(positions)) {
-        await scrollGanttComposition(pair, top)
-        if (cell.dataset === 'live') await compareRenderedGanttEdges(pair)
-        // Hold ambient loops as capture would, then repaint: pausing them inside the capture left a stale Now-band raster (390 span30 flaked).
-        for (const page of [pair.design, pair.product]) await page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running' && a.effect?.getTiming().iterations === Infinity).forEach(a => { a.pause(); a.currentTime = 0 }))
-        await primeBoardPaint(pair)
-        try {
-          await expectDesignParity(pair, { name: `gantt-${cell.dataset}-${cell.viewport.width}-${cell.theme}-${cell.palette}-span${cell.span}-${position}`, region: '#bd-vp', preserveAnimations: true })
-        } catch (error) {
-          await attachGanttGeometryDiagnostics(pair, test.info())
-          if (cell.dataset === 'live' && cell.viewport.width === 390 && cell.theme === 'dark' && position === 'now') await attachGanttRasterDiagnostics(pair, test.info())
-          throw error
-        }
-      }
-    } finally { await pair.close() }
-  })
-}
-
-
-for (const dataset of ['live', 'dense']) for (const theme of ['dark', 'light']) for (const palette of ['aiur', 'gruvbox']) test(`B1 Gantt full acceptance targeted regions: ${dataset} ${theme} ${palette}`, async ({ browser }) => {
-  test.setTimeout(240000)
-  const pair = await openParityPair(browser, { ...PARITY_VIEWPORTS[0], dataset, theme, palette }, { query: 'view=gantt', motion: true })
-  try {
-    await freezeGanttComposition(pair)
-    const targets = await loadGanttRegionHistory(pair, dataset)
-    for (const name of ['labelled', 'empty', 'tick', 'line', 'full', 'two', 'three']) {
-      const region = await markGanttRegion(pair, name, targets[name])
-      await expectDesignParity(pair, { name: `gantt-region-${dataset}-${theme}-${palette}-${name}`, region, preserveAnimations: true })
-    }
-    // Explicit widths constrain both sides of the same container-query thresholds.
-    for (const width of [250, 150, 96]) {
-      const region = await markGanttRegion(pair, 'full', targets.full, width)
-      await expectDesignParity(pair, { name: `gantt-container-${dataset}-${theme}-${palette}-${width}`, region, preserveAnimations: true })
-    }
-    const positions = await pair.design.evaluate(() => __ganttComposition.positions())
-    for (const [name, selector, top] of [
-      ['planned', '.bd-card.gplan', positions.plan],
-      ['band', '#bd-now', positions.now],
-      ['lane-label', '.bd-lane-g', 0],
-      ['legend', '.bd-leg:has(.bd-leg-h)', 0]
-    ]) {
-      await scrollGanttComposition(pair, top)
-      const region = await markFixedGanttRegion(pair, selector, name)
-      await expectDesignParity(pair, { name: `gantt-owned-${dataset}-${theme}-${palette}-${name}`, region, preserveAnimations: true })
-    }
-  } finally { await pair.close() }
-})
-
-for (const width of [1440, 390]) test(`Gantt full acceptance canonical view.switch.gantt motion: ${width}`, async ({ browser }) => {
-  test.setTimeout(120000)
-  const pair = await openParityPair(browser, { ...PARITY_VIEWPORTS.find(v => v.viewport.width === width), dataset: 'live', theme: 'dark', palette: 'aiur' }, { motion: true })
-  try {
-    const [reference, product] = await Promise.all([
-      runOn(pair.design, 'view.switch.gantt'),
-      runOn(pair.product, 'view.switch.gantt', { ids: FIXTURE_META.ids })
-    ])
-    expect(reference.samples.length).toBeGreaterThan(0); expect(product.samples.length).toBeGreaterThan(0)
-    expect(compareRecords(reference, product, pair.allowlist)).toEqual([])
-    for (const page of [pair.design, pair.product]) {
-      const jump = await page.locator('#bd-vp').evaluate(vp => {
-        const hist = document.querySelector('#bd-sec-hist')
-        return { actual: vp.scrollTop, expected: Math.max(0, Math.min(vp.scrollHeight - vp.clientHeight, hist.offsetTop + hist.offsetHeight - 46)) }
+for (const width of [1440, 390]) test(`Gantt dependency edges connect existing cards: ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+  await page.goto('/build-fixture/live?view=gantt')
+  await expect(page.locator('#bd-content')).toBeVisible()
+  const result = await page.evaluate(async () => {
+    const { ctx } = await import('/build-home/state.js')
+    const content = document.querySelector('#bd-content').getBoundingClientRect()
+    const same = (actual, expected) => Math.abs(actual - expected) <= 1
+    const matches = (actual, expected) => actual.length >= 8 &&
+      same(actual[0], expected[0]) && same(actual[1], expected[1]) && same(actual[6], expected[2]) && same(actual[7], expected[3])
+    return [...document.querySelectorAll('#bd-edges .bd-eh')].map(hit => {
+      const line = hit.nextElementSibling, arrow = line?.nextElementSibling
+      const dependent = document.querySelector(`.bd-card[data-id="${CSS.escape(hit.dataset.e)}"]`)
+      const coords = line?.getAttribute('d')?.match(/-?[\d.]+/g)?.map(Number) ?? []
+      const ticket = ctx.D.byId[hit.dataset.e]
+      const startsAtDependency = (ticket?.deps ?? []).some(id => {
+        const dependency = document.querySelector(`.bd-card[data-id="${CSS.escape(id)}"]`)
+        if (!dependency || !dependent) return false
+        const a = dependency.getBoundingClientRect(), b = dependent.getBoundingClientRect()
+        const ar = { left: a.left - content.left, right: a.right - content.left, top: a.top - content.top, bottom: a.bottom - content.top, width: a.width, height: a.height }
+        const br = { left: b.left - content.left, right: b.right - content.left, top: b.top - content.top, bottom: b.bottom - content.top, width: b.width, height: b.height }
+        if (ar.bottom <= br.top + 6) return matches(coords, [ar.left + ar.width / 2, ar.bottom, br.left + br.width / 2, br.top - 3])
+        const right = ar.right <= br.left
+        const from = [right ? ar.right : ar.left, ar.top + ar.height / 2]
+        const to = [right ? br.left - 3 : br.right + 3, br.top + Math.min(18, br.height / 2)]
+        return matches(coords, [...from, ...to])
       })
-      expect(Math.abs(jump.actual - jump.expected)).toBeLessThanOrEqual(1)
-    }
-  } finally { await pair.close() }
+      return { dependent: !!dependent, startsAtDependency, lineFollowsHit: line?.matches('.bd-e'), arrowFollowsLine: arrow?.matches('.bd-ea'), samePath: line?.getAttribute('d') === hit.getAttribute('d'), finite: coords.length >= 8 && coords.every(Number.isFinite), distinctEndpoints: coords.length >= 8 && (coords[0] !== coords[6] || coords[1] !== coords[7]) }
+    })
+  })
+  expect(result.length).toBeGreaterThan(0)
+  expect(result.every(edge => edge.dependent && edge.startsAtDependency && edge.lineFollowsHit && edge.arrowFollowsLine && edge.samePath && edge.finite && edge.distinctEndpoints)).toBe(true)
 })

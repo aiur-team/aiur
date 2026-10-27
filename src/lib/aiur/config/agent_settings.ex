@@ -131,15 +131,21 @@ defmodule Aiur.Config.AgentSettings do
   @spec rate_limit_fallback_backend() :: String.t() | nil | BackendCatalog.unavailable()
   def rate_limit_fallback_backend do
     with {:ok, _catalog} <- BackendCatalog.impl() do
-      case agent_priority_backends() do
-        [_primary | rest] -> Enum.find(rest, &(&1 in BackendCatalog.rate_limit_fallback_targets()))
-        [] -> legacy_rate_limit_fallback()
-      end
+      rate_limit_fallback_backend(Aiur.Config.settings!(), BackendCatalog.rate_limit_fallback_targets())
     end
   end
 
-  defp legacy_rate_limit_fallback do
-    case Aiur.Config.settings!().agent.rate_limit_fallback do
+  @doc false
+  @spec rate_limit_fallback_backend(Schema.t(), [String.t()]) :: String.t() | nil
+  def rate_limit_fallback_backend(settings, fallback_targets) when is_list(fallback_targets) do
+    case agent_priority_backends(settings) do
+      [_primary | rest] -> Enum.find(rest, &(&1 in fallback_targets))
+      [] -> legacy_rate_limit_fallback(settings)
+    end
+  end
+
+  defp legacy_rate_limit_fallback(settings) do
+    case settings.agent.rate_limit_fallback do
       backend when is_binary(backend) and backend != "" -> backend
       _ -> nil
     end

@@ -33,6 +33,14 @@ function headingSlugs(markdown: string): string[] {
   )
 }
 
+async function referenceText(websiteRoot: string, name: 'cli' | 'configuration'): Promise<string> {
+  const directory = path.join(websiteRoot, 'docs-app/reference')
+  const pages = (await readdir(directory)).filter((file) =>
+    file.startsWith(`${name}-`) && file.endsWith('.md')
+  ).sort()
+  return (await Promise.all([`${name}.md`, ...pages].map((file) => readFile(path.join(directory, file), 'utf8')))).join('\n')
+}
+
 test('every dashboard surface screenshot is published on the page that explains it', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
 
@@ -90,7 +98,7 @@ test('parity guides are linked and contain their operational contracts', async (
     readFile(path.join(websiteRoot, 'docs-app/guide/gui.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/stream-deck.md'), 'utf8'),
     readFile(path.join(websiteRoot, '../packages/streamdeck/README.md'), 'utf8'),
-    readFile(path.join(websiteRoot, 'docs-app/reference/cli.md'), 'utf8'),
+    referenceText(websiteRoot, 'cli'),
     readFile(path.join(websiteRoot, 'docs-app/concepts/operating-aiur.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/.vitepress/config.ts'), 'utf8')
   ])
@@ -114,6 +122,8 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(streamDeck).toContain('## Physical sidecar status')
   expect(streamDeck).toContain('`STREAMDECK_BRIGHTNESS`')
   expect(streamDeck).toContain('`~/.config/aiur/streamdeck.env`')
+  expect(streamDeck).toContain('the sidecar sends it as a bearer credential and its scope controls API access.')
+  expect(streamDeck).not.toContain('the sidecar stores the dashboard credentials and re-mints the token itself over HTTP Basic')
   expect(streamDeck).toContain('reconnects after device hotplug, suspend, or a dashboard disconnect')
   expect(streamDeck).toContain('including ALSA, USB, and Bluetooth devices')
   expect(streamDeck).not.toContain('pair the sidecar by creating')
@@ -121,8 +131,8 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(streamDeck).not.toMatch(/pw-dump|pactl|parec|parity vectors|key-face contract|hardware proof|AgentChat/i)
   expect(sidecarRunbook).toMatch(/production\s+sidecar opens the device, connects to the\s+authenticated Aiur Phoenix channel/)
   expect(sidecarRunbook).toContain('`AIUR_PHOENIX_URL`')
-  expect(sidecarRunbook).toContain('`AIUR_DASHBOARD_USERNAME`')
-  expect(sidecarRunbook).toContain('`AIUR_DASHBOARD_PASSWORD`')
+  expect(sidecarRunbook).toContain('`AIUR_CLIENT_TOKEN`')
+  expect(sidecarRunbook).toContain('is sent as a bearer credential rather than exchanged from')
   expect(sidecarRunbook).toContain('physically replug')
   expect(sidecarRunbook).toContain('does not recover a failed image transfer or issue a device reset on this path')
   expect(sidecarRunbook).not.toContain('let the sidecar perform its key-stream reset and device reset')
@@ -281,7 +291,7 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   const markdown = await Promise.all(markdownPaths.map(async (file) => [file, await readFile(file, 'utf8')] as const))
   const byRelativePath = new Map(markdown.map(([file, contents]) => [path.relative(docsRoot, file), contents]))
   const sidebar = await readFile(path.join(docsRoot, '.vitepress/config.ts'), 'utf8')
-  const configuration = byRelativePath.get('reference/configuration.md') ?? ''
+  const configuration = await referenceText(websiteRoot, 'configuration')
   const github = byRelativePath.get('apis/github.md') ?? ''
   const githubPolling = byRelativePath.get('apis/github-polling.md') ?? ''
   const githubBudgets = byRelativePath.get('apis/github-budgets.md') ?? ''

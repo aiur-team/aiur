@@ -69,6 +69,7 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
           title={line.title}
         >
           <span :if={line.tag} class="rs-tg">{line.tag}</span>
+          <span :if={line.stale?} class="rs-stale" aria-label="stale usage">stale</span>
           <span class={classes(["rs-pc", tone(line.percent)])}>{percent_text(line.percent)}</span>
           <span class="rs-rs">
             <span :if={line.reset}>{line.reset}<em :if={line.window}>/{line.window}</em></span>
@@ -104,9 +105,12 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
     accounts = accounts(card)
     windows = windows(card, accounts)
     tagged? = accounts != []
+    usage = Map.get(card, :usage)
+    usage_age = if is_map(usage), do: Map.get(usage, :age_ms), else: :unavailable
+    usage_freshness = if is_map(usage), do: Map.get(usage, :freshness)
 
     account_lines = Enum.map(accounts, &account_line(&1, now))
-    window_lines = Enum.map(windows, &window_line(&1, tagged?, now))
+    window_lines = Enum.map(windows, &window_line(&1, tagged?, now, usage_age, usage_freshness))
     headroom_lines = if card.provider == :codex and Map.has_key?(card, :headroom), do: [headroom_line(card.headroom)], else: []
 
     case account_lines ++ window_lines ++ headroom_lines do
@@ -177,8 +181,11 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
 
   defp age_text(age) when is_integer(age), do: "#{age}s"
   defp age_text(_unknown), do: "age unknown"
+  defp usage_age_label(age_ms) when is_integer(age_ms), do: " · usage observed #{age_text(div(age_ms, 1_000))} ago"
+  defp usage_age_label(:unavailable), do: ""
+  defp usage_age_label(_unknown), do: " · usage age unknown"
 
-  defp window_line(%{kind: :credit} = window, tagged?, _now) do
+  defp window_line(%{kind: :credit} = window, tagged?, _now, usage_age, usage_freshness) do
     percent = credit_percent(window)
     amount = credit_amount(window)
 
@@ -187,12 +194,13 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       percent: percent,
       amount: amount,
       note: if(is_nil(amount), do: credit_status(window)),
+      stale?: usage_freshness in [:stale, "stale"],
       aria_label: "#{Map.get(window, :name, "Credits")} remaining",
-      title: "Prepaid credits · #{amount || credit_status(window)}#{if percent, do: " · #{format_percent(percent)}% left"}"
+      title: "Prepaid credits · #{amount || credit_status(window)}#{if percent, do: " · #{format_percent(percent)}% left"}#{usage_age_label(usage_age)}"
     })
   end
 
-  defp window_line(window, tagged?, now) do
+  defp window_line(window, tagged?, now, usage_age, usage_freshness) do
     percent = window_percent(window)
     reset = percent && reset_label(Map.get(window, :resets_at), now)
     name = Map.get(window, :name, "Limit")
@@ -205,9 +213,9 @@ defmodule AiurWeb.OperatorControlCenter.ModelsPanel do
       note: if(is_nil(percent), do: "unknown"),
       # Same cutoff as the account lines and `aiur accounts`: an unmarked old
       # number reads as current (#5747).
-      stale?: UsageReadings.stale?(Map.get(window, :observed_at), now),
+      stale?: usage_freshness in [:stale, "stale"] or UsageReadings.stale?(Map.get(window, :observed_at), now),
       aria_label: "#{name} remaining",
-      title: "#{name} · #{title_percent(percent)}#{if is_number(percent), do: " (#{format_percent(100 - percent)}% used)"}#{title_reset(reset)}"
+      title: "#{name} · #{title_percent(percent)}#{if is_number(percent), do: " (#{format_percent(100 - percent)}% used)"}#{title_reset(reset)}#{usage_age_label(usage_age)}"
     })
   end
 

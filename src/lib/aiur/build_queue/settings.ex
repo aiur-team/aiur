@@ -20,7 +20,7 @@ defmodule Aiur.BuildQueue.Settings do
 
   @spec terminal_states(Schema.t()) :: MapSet.t(String.t())
   def terminal_states(%Schema{} = settings) do
-    (settings.tracker.terminal_states ++ ["closed"])
+    (settings.tracker.terminal_states ++ ["closed", "budget-exhausted"])
     |> Enum.map(&(String.trim(&1) |> String.downcase()))
     |> MapSet.new()
   end

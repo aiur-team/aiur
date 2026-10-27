@@ -7,8 +7,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   import Aiur.Orchestrator.OperatorMessages.Capabilities, only: [issue_control_capabilities: 2]
   import Aiur.Orchestrator.OperatorMessages.Enqueue, only: [enqueue_event_digest_item: 4, enqueue_event_digest_item: 5, enqueue_operator_message: 4, enqueue_operator_message: 5]
 
-  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, Alerts, Commands, OperatorWaitLog, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, Commands, OperatorWaitLog, Signal, TrackerIdentity}
   alias Aiur.Orchestrator.{AutoSubscriptions, DigestCoalescer, LifecycleFence, State}
+  alias Aiur.Orchestrator.OperatorMessages.Unread
 
   @spec enqueue_event_digest_call(State.t(), String.t(), map(), keyword()) ::
           {:reply, :ok, State.t()}
@@ -112,10 +113,20 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
       AgentQueueStore.claim_next_deliverable_matching(
         state.queue_store,
         issue_identifier,
-        fn item -> item.delivery[:interrupt_requested] != true end
+        fn item -> item.delivery[:interrupt_requested] != true and item.delivery[:listener_mode_at_claim] != :sync end
       )
 
     queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_next_steer_queue_item_call(State.t(), String.t()) :: tuple()
+  def claim_next_steer_queue_item_call(%State{} = state, identifier) do
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn item ->
+        item.category == :operator_message and item.delivery[:steer_requested] == true
+      end)
+
+    queue_claim_reply(state, store, item)
   end
 
   @spec claim_blocker_critical_events_digest_call(State.t(), String.t()) ::
@@ -146,6 +157,18 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
       )
 
     queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_native_reply_item_call(State.t(), String.t(), [String.t()]) :: tuple()
+  def claim_native_reply_item_call(state, identifier, refs) do
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn item ->
+        correlation = item.correlation || %{}
+        ref = Map.get(correlation, :native_ref, Map.get(correlation, "native_ref"))
+        item.category == :operator_message and is_binary(ref) and ref in refs
+      end)
+
+    queue_claim_reply(state, store, item)
   end
 
   @spec claim_operator_response_call(State.t(), String.t(), String.t()) :: tuple()
@@ -301,6 +324,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
   defp update_queue_store(%State{} = state, update, transition, reason \\ nil) when is_function(update, 1) do
     {queue_store, items} = update.(state.queue_store)
     Commands.record_transport_batch_async(transition, List.wrap(items), reason)
+
+    for id <- items |> List.wrap() |> Enum.map(& &1.target_issue_identifier) |> Enum.uniq(),
+        do: Unread.broadcast_change(state.queue_store, queue_store, id)
+
     next_state = %{state | queue_store: queue_store}
     maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
     {:reply, :ok, next_state}
@@ -347,7 +374,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
       if LifecycleFence.protected_item?(state, item) do
         identifier = item.target_issue_identifier
 
-        Alerts.emit_system("ticket.#{identifier}.agent.provider_delivery_failed",
+        Signal.alert("ticket.#{identifier}.agent.provider_delivery_failed",
           issue: identifier,
           reason: "Authoritative input request #{item.id} failed before provider acknowledgement and still fences lifecycle handoff: #{inspect(reason)}.",
           needs_attention: true,

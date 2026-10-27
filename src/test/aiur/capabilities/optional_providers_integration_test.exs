@@ -105,6 +105,7 @@ defmodule Aiur.Capabilities.OptionalProvidersIntegrationTest do
     end)
 
     Aiur.TestSupport.start_owned_endpoint!()
+    assert Application.fetch_env!(:aiur, AiurWeb.Endpoint)[:server] == false
     spec = Supervisor.child_spec({Bandit, plug: AiurWeb.Endpoint, port: 0}, id: {AiurWeb.Endpoint, :http})
     assert {:ok, _server} = Supervisor.start_child(AiurWeb.Endpoint, spec)
   end

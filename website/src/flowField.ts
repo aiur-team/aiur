@@ -19,7 +19,7 @@ interface Obstacle {
 }
 
 // Diagonal line field that bends around the logo/wordmark lockup in the hero.
-export function createFlowField(): { redraw: () => void } {
+export function createFlowField(): { redraw: () => void; debugObstacles?: () => Obstacle[] } {
   const canvas = document.getElementById("field") as HTMLCanvasElement | null;
   const hero = document.querySelector(".hero") as HTMLElement | null;
   const ctx = canvas?.getContext("2d") ?? null;
@@ -39,6 +39,28 @@ export function createFlowField(): { redraw: () => void } {
   let lines: Line[] = [];
   let obstacles: Obstacle[] = [];
   let progress = 1; // entrance progress 0..1
+  let entranceFrame = 0;
+  let layoutFrame = 0;
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+    if (layoutFrame) return;
+    layoutFrame = requestAnimationFrame(() => {
+      layoutFrame = 0;
+      const previous = obstacles;
+      const dimensionsChanged = W !== hero!.clientWidth || H !== hero!.clientHeight + FADE;
+      if (dimensionsChanged) resize();
+      else buildObstacles();
+      const changed = dimensionsChanged || previous.length !== obstacles.length || obstacles.some((ob, i) => {
+        const old = previous[i];
+        return !old || ob.cx !== old.cx || ob.cy !== old.cy || ob.hx !== old.hx || ob.hy !== old.hy;
+      });
+      if (!changed) return;
+      // Initial notifications preserve the entrance; later layout changes show the final field.
+      cancelAnimationFrame(entranceFrame);
+      progress = 1;
+      buildLines();
+      draw();
+    });
+  });
 
   function roundRectSDF(px: number, py: number, ob: Obstacle): number {
     const qx = Math.abs(px - ob.cx) - (ob.hx - ob.r);
@@ -149,6 +171,9 @@ export function createFlowField(): { redraw: () => void } {
     canvas!.width = W * DPR;
     canvas!.height = H * DPR;
     ctx!.setTransform(DPR, 0, 0, DPR, 0, 0);
+    observer?.disconnect();
+    observer?.observe(hero!);
+    document.querySelectorAll(".keepout").forEach((el) => observer?.observe(el));
     buildObstacles();
     buildLines();
     draw();
@@ -163,9 +188,9 @@ export function createFlowField(): { redraw: () => void } {
       const e = (ts - startTs) / DUR;
       progress = e >= 1 ? 1 : 1 - Math.pow(1 - e, 3); // easeOutCubic
       draw();
-      if (e < 1) requestAnimationFrame(frame);
+      if (e < 1) entranceFrame = requestAnimationFrame(frame);
     }
-    requestAnimationFrame(frame);
+    entranceFrame = requestAnimationFrame(frame);
   }
 
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -196,5 +221,10 @@ export function createFlowField(): { redraw: () => void } {
   window.addEventListener("load", start);
   if (document.readyState === "complete") start();
 
-  return { redraw: draw };
+  return {
+    redraw: draw,
+    ...(document.documentElement.dataset.fieldDebug !== undefined
+      ? { debugObstacles: () => obstacles.map((obstacle) => ({ ...obstacle })) }
+      : {}),
+  };
 }

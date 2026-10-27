@@ -22,6 +22,12 @@ defmodule Aiur.AgentControlCLI do
   defdelegate alerts(opts \\ []), to: Aiur.ExecutorAttention.CLI
   defdelegate executor_sweep(opts), to: Aiur.ExecutorSweep.CLI, as: :rpc
   defdelegate commands(opts \\ []), to: Aiur.ControlCLI.EntryPoints
+  @spec command_request(keyword()) :: :ok
+  defdelegate command_request(opts), to: Aiur.ControlCLI.EntryPoints
+
+  defdelegate operator_relay_answer(opts), to: Aiur.ControlCLI.EntryPoints
+  @spec executor_ack(keyword()) :: :ok
+  defdelegate executor_ack(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate executor_answer(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate operator_answer(opts), to: Aiur.ControlCLI.EntryPoints
   defdelegate operator_answer_preview(opts), to: Aiur.ControlCLI.EntryPoints

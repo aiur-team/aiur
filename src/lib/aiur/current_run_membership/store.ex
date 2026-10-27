@@ -9,7 +9,7 @@ defmodule Aiur.CurrentRunMembership.Store do
   use GenServer
 
   alias Aiur.Boot
-  alias Aiur.CurrentRunMembership.{Event, Projection}
+  alias Aiur.CurrentRunMembership.{Event, OutboundEvents, Projection}
   alias Aiur.CurrentRunMembership.Store.{Recovery, Runtime}
   alias Aiur.TrackerIdentity
 
@@ -90,6 +90,7 @@ defmodule Aiur.CurrentRunMembership.Store do
       state
       |> Map.put(:projection_checkpoint, nil)
       |> Map.put(:projection_checkpoint_generation, 0)
+      |> Map.put(:event_publish_fun, Keyword.get(opts, :event_publish_fun, &OutboundEvents.publish/2))
 
     Runtime.notify(state, nil)
     {:ok, state}

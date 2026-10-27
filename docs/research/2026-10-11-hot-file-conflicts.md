@@ -150,9 +150,13 @@ The real local merge reported success and produced `alpha`, `left`, `right`,
 `pull/4292/merge` failed because that merge ref did not exist. Thus the local
 union behavior is not portable to GitHub in this tested scenario.
 
-No union attribute ships. JSON commas make union unsafe; sorted/unique
+The initial list-layout PR shipped no union attribute. JSON commas make union unsafe; sorted/unique
 exemption lists can become unsorted or duplicated. All four scratch PRs were
 closed after verifying their bodies, branch identities, and results.
+
+Later PRs #4464 and #4505 added union attributes to registries and generated
+references. Their local merge tests do not establish GitHub support; the
+GitHub result above remains the observed result of this ticket's experiment.
 
 ## One-week baseline: recorded lower bound
 
@@ -199,5 +203,71 @@ current-side additions. It refuses removals, scalar edits, and conflicting new
 components for manual reconciliation. Review the resulting diff and run the
 component gates before committing; it neither commits nor pushes.
 
-The docs-stage handoff will supply the exact moved-section map and a carry-over
-command for docs changes. Those are pending work, not delivered by this stage.
+## Carry an existing PR's reference edits
+
+After the separate docs landing, from a clean checkout:
+
+```bash
+python3 scripts/carry-reference-edits.py --pr 4257
+```
+
+The command maps old CLI/config headings to topic pages using
+`scripts/reference-sections.tsv`. It preserves current-side edits when they
+do not overlap the incoming changes, refuses overlapping edits, and writes
+nothing when reconciliation fails. New headings and changed introductions
+require manual migration. It neither commits nor pushes.
+
+Every old section anchor remains at its index and links to its topic. The
+sidebar reaches all seven new topics and retains the existing topic pages.
+Moved pages stay below 400 lines; existing small config topics remain intact.
+Current-main root CLI and config content survives exactly once, and all 282
+config keys plus the CLI command/flag inventory are checked across topic files. No saving is claimed before measurement.
+
+
+## Docs-stage rollout census (2026-10-25)
+
+At 22:05 UTC, `gh pr list --state open --limit 100 --json number,files`
+returned 62 open PRs. PR #6241 reached the 100-file response bound; its complete
+188-file list was fetched with `gh api --paginate repos/aiur-team/aiur/pulls/6241/files`.
+The completed population has these hot-file overlaps:
+
+| File | Open PRs | PR numbers |
+| --- | ---: | --- |
+| `components.json` | 1 | 6150 |
+| `website/docs-app/reference/cli.md` | 3 | 6250, 6249, 2643 |
+| `website/docs-app/reference/configuration.md` | 6 | 6203, 6173, 6167, 6161, 2870, 2510 |
+| `src/lib/aiur/run_telemetry/lifecycle.ex` | 1 | 2936 |
+| `src/test/support/state_writers_allowlist.exs` | 0 | — |
+
+The first stage landed as #4295 on October 12. This docs stage starts at main
+`2b2d195b4c3af60eceaf5a6c8590950d55a1d9b9` and preserves its newer commands,
+keys, existing config topics and stricter checkers. The section map and carry
+command above route outstanding root-reference changes; new headings and
+introduction edits still need manual reconciliation. The original incomplete
+one-week conflict baseline remains explicitly a lower bound, not a measured saving.
+
+## Post-landing list audit (2026-10-26)
+
+Both scheduled stages landed: #4295 for list layout and #6285 for the docs
+split. A follow-up audit found two remaining inline telemetry attributes:
+`EventFields.@fields` and `WindowEventSources.CiRuns.@events`.
+
+The follow-up makes those lists vertical without changing their elements or
+order, and protects them with the workflow-security formatter check. It also
+protects the already-vertical `Sampler.@build_fields`. The targeted lifecycle
+attributes, pinned application children, TSV exemptions and state-writer
+allowlist already pass the same check.
+
+The native GitHub merge proof was rechecked after both landings. GitHub's
+commit API still returns `3aa9bd89ecf36cdbef04b96e29f1177b406c71c5` with the
+recorded alpha and omega parents. Reading that object confirms both component
+paths and both configuration table keys occur exactly once.
+
+```bash
+gh api repos/aiur-team/aiur/git/commits/3aa9bd89ecf36cdbef04b96e29f1177b406c71c5 \
+  --jq '{sha, parents: [.parents[].sha]}'
+```
+
+This reuses the real scratch-PR pair documented above; it does not claim
+same-position additions are conflict-free or infer GitHub behavior from the
+later local union tests.

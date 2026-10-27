@@ -1,36 +1,161 @@
 # History classification cost
 
-Date: 2026-10-25. Repository: `aiur-team/aiur`. Instrumentation: #3180.
+Date: 2026-10-25 (instrumentation), 2026-10-26 (pilot). Repository:
+`aiur-team/aiur`. Ticket: #3180. Pilot ticket: #6353.
 
-**This PR claims no saving.** The reader is read-only and changes no runtime
-behavior at merge. The live pilot has not run in the issue workspace. All
-measurements below are unknown until the Executor performs the pilot after
-deployment; they are not zero. Do not start the classification backfill or
-choose its cap from this unmeasured record.
+**This PR claims no saving.** It records a measurement. Nothing changes at
+merge. The figures describe a backfill that has not run.
 
-## Measurement status
+## Pilot measurement (2026-10-26)
 
-| Figure | Result |
+The Executor ran the pilot on the live PC daemon at `26231c7235`, with the
+normal fleet running (about 15 other agents). The daemon had restarted at
+about 07:31Z, 17 minutes before the export.
+
+### Token source: transcript, not the usage ledger
+
+The reader's token path could not be used. The live usage ledger is
+`{:degraded, :capacity_exhausted}`: its checkpoint is 1,048,197 bytes against
+the 1,048,576-byte cap, and it has refused every append since the last record
+at 2026-10-06T06:47:50Z (position 2,367). See #6106. The usage aggregate still
+reports `healthy`, so `read_sample/2` returned `{:unknown, [:no_usage_recorded]}`
+for every token dimension, at dispatch and at the hourly mark. A recent
+completed fleet ticket (#6337) read the same, so no routing records usage today.
+
+The token figures below are the provider-reported cumulative thread totals
+(`thread/tokenUsage/updated`, field `tokenUsage.total`) from the last such
+event in the pilot's `logs/agent.ndjson`. The pilot had one thread and one
+turn, so there is nothing to add across threads. These are measured values,
+not estimates. The GitHub figures come from the reader (`read_sample/2` and
+`github_total/2`) as designed.
+
+### Population and sample
+
+| Figure | Value |
 | --- | --- |
-| Population N, export captured_at, unresolved_total | unknown — live export not captured |
-| Bodies held / of; sample rows with PR numbers | unknown — live export not captured |
-| Actual sample size | unknown — sample not selected |
-| Pilot ticket, model, model mix, attempt count | unknown — pilot not dispatched |
-| Input, cached input, cache creation input, output, reasoning output tokens | unknown — pilot not run |
-| Pilot actor Core, GraphQL, Search admissions | unknown — hourly samples not collected |
-| Export GitHub cost | unknown — before/after meter reads not taken |
-| Wall time, holds, restarts, compaction, context limits | unknown — pilot not run |
-| Proposals made, left unsorted | unknown — proposals not produced |
-| Projected runs and tokens per dimension | unknown — population and sample not measured |
-| Feature label writes; optional epic label writes | unknown — proposals not produced |
-| Hours at 60/h and 125/h, with and without epic labels | unknown — write counts not measured |
-| Additional body and PR-file read population | unknown — export not captured |
-| recommended_tickets_per_run | unknown — completion and context evidence not available |
+| Export | `aiur history export --unsorted --json --limit 500`, 2 pages (500 + 302 rows) |
+| Population N (`matching_total`) | 802, the same on both pages |
+| `snapshot.captured_at` | 2026-10-26T07:48:18.435446Z (page 1), 07:48:24.514206Z (page 2) |
+| `unresolved_total` | 2,101 (not in N, not sampled) |
+| Bodies held / of (summed over pages) | 33 / 802 |
+| Sample rule | sort by number, every 8th row (k = div(802, 100)) from the first, first 100 |
+| Sample size; number range | 100; #1 to #3238 |
+| Sample rows with a held body | 3 |
+| Sample rows with a `pr_number`; population rows with one | 13; 106 |
+| Sample rows already in an epic or feature | 0 (all `unsorted`, feature null) |
+| Registries | `aiur epic list --json` (4 epics), `aiur feature show --json` (14 features) |
 
-The measured fixture at `src/test/fixtures/history/classification_cost_sample.json`
-is deferred with the pilot. After the pilot, commit measured counts and assert
-the exact projected numbers in a test alongside this table and the PR evidence.
-No titles, bodies, proposal reasons, or financial data belong in that fixture.
+### Pilot run
+
+| Figure | Value |
+| --- | --- |
+| Routing; resolved model | `codex:sol:medium` (complexity:2 first choice); `gpt-6.1-sol`, effort medium, Codex app-server |
+| Attempts; threads; turns | 1; 1; 1 |
+| Compaction; context limit hit | none; no (peak call input 67,778 of a 475,000 window) |
+| Dispatch (`agent:in-progress`) | 2026-10-26T07:51:36Z |
+| First turn started | 07:53:02Z |
+| `agent:human-review` | 07:54:25Z |
+| Wall time | 2 min 49 s from dispatch; 1 min 23 s of model turn |
+| GitHub holds; restarts during pilot | none; none |
+| Proposals | 100 rows, numbers and order equal the sample |
+| Proposals with an epic; with a feature; with both | 95; 11; 11 |
+| Left unsorted (no epic, no feature) | 5 |
+| Proposals naming a key not in the registries | 0 |
+
+### Tokens (pilot, 100 tickets, one run)
+
+Dimensions overlap (Codex `input` includes `cached_input`). Never add them.
+
+| Dimension | Tokens |
+| --- | --- |
+| Input | 411,256 |
+| Cached input | 345,600 |
+| Cache creation input | 0 (provider reported 0) |
+| Output | 3,266 |
+| Reasoning output | 241 |
+
+### GitHub admissions (pilot actor)
+
+Actor `workspace:/home/everdred/code/aiur-workspaces/aiur-team/aiur/6353`.
+Samples: dispatch read 07:53:28Z (core 0, GraphQL 0, search 0); hourly read
+08:51:56Z, 60 min 20 s after dispatch. `github_total/2` with a 3,600,000 ms
+window gives `window_sum` (no gap, no overlap):
+
+| Resource | Broker requests |
+| --- | --- |
+| Core | 2 |
+| GraphQL | 0 |
+| Search | 0 |
+
+The pilot made no GitHub read for classification. The issue shows one
+workpad comment (07:54:14Z) and the handoff label moves (07:54:25Z-07:54:26Z).
+The hourly window starts at 07:51:56Z, 20 s after dispatch, so the dispatch
+label moves at 07:51:36Z-07:51:40Z are outside it. `github_total/2` accepts
+this (inside the 5-minute tolerance); a request in those 20 s is not counted.
+
+### Export GitHub cost
+
+Not measurable as a delta. `aiur github-cost --json --budget all` was taken at
+07:48:16Z and 07:48:24Z around the full export. Reconciliation was
+`reconciled?: false` for Core and GraphQL in both reads, the window was only
+1,043 s old (restart), and the fleet was busy. No caller row for history or
+export appeared in the second read. The export reads local stores only.
+
+### Projection to the full backfill
+
+From `ClassificationCost.project/2` on the live release (RPC, 2026-10-26
+08:52Z), with the transcript token figures above, the reader's GitHub total,
+`population: 802`, `sample_size: 100`, `feature_writes_in_sample: 11`,
+`epic_writes_in_sample: 95` and `ceilings_per_hour: [60, 125]`. Called with the
+reader's own token figures, `project/2` returns
+`{:unknown, [:no_usage_recorded]}`, as designed.
+
+Runs = ceil(802 / 100) = 9. Upper bound: 9 x one pilot run.
+
+| Figure | Per ticket | Full backfill (9 runs) |
+| --- | --- | --- |
+| Input tokens | 4,113 | 3,701,304 |
+| Cached input tokens | 3,456 | 3,110,400 |
+| Cache creation input tokens | 0 | 0 |
+| Output tokens | 33 | 29,394 |
+| Reasoning output tokens | 3 | 2,169 |
+| Pilot-actor Core requests | — | 18 |
+| Pilot-actor GraphQL / search requests | — | 0 / 0 |
+
+Label writes (C13-T02), **from the code, not measured**: one Core request per
+label (`Aiur.GitHub.IssueState.add_label/3`).
+
+| Figure | Value |
+| --- | --- |
+| Feature label writes | ceil(11 x 802 / 100) = 89 |
+| Epic label writes (only with `--epic-labels`) | ceil(95 x 802 / 100) = 762 |
+| Hours, feature labels only, at 60/h; at 125/h | 2; 1 |
+| Hours, feature and epic labels, at 60/h; at 125/h | 15; 7 |
+
+Read population if C13-T04 reads more input, **from the code, not measured**:
+769 tickets have no held body (802 - 33), one agent Core request each; 106
+population rows have a `pr_number` (counted, not projected), at least one
+request each and more for paged file lists. The pilot ran neither read arm.
+
+**`recommended_tickets_per_run` = 100.** The pilot finished in one attempt and
+one turn, with no compaction, and its largest call used 14% of the context
+window.
+
+### What must be true for these numbers to hold
+
+- Same routing and model (`codex:sol:medium`, `gpt-6.1-sol`), the same
+  runbook (#6353 body) and the same export shape (title, labels, held excerpt;
+  33 of 802 bodies held).
+- N stays near 802. The 2,101 `unresolved_total` tickets are outside N. If the
+  resolver later places them in the unsorted population, re-measure.
+- The usage ledger must record again (#6106) before C13-T04 can compare its
+  first run through `read_sample/2`; until then, read the transcript totals.
+
+### Still open
+
+The counts-only fixture `src/test/fixtures/history/classification_cost_sample.json`
+and test V-12 (projection equals this record) are worker work on #3180.
+No titles, bodies, proposal reasons or money figures belong in that fixture.
 
 ## Reader reliability observation (not the pilot)
 

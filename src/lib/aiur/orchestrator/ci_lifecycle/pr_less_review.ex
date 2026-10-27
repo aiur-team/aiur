@@ -7,14 +7,14 @@ defmodule Aiur.Orchestrator.CiLifecycle.PrLessReview do
   Executor attention; a visible PR or leaving human-review resolves it.
   """
 
-  alias Aiur.Alerts
   alias Aiur.Orchestrator.CiLifecycle
   alias Aiur.Orchestrator.CiLifecycle.Transition
   alias Aiur.Orchestrator.HumanReview
   alias Aiur.Orchestrator.State
+  alias Aiur.Signal
   require Logger
 
-  @no_pr_reasons [:open_pr_not_yet_visible, :open_pr_no_longer_visible]
+  @no_pr_reasons [:open_pr_not_yet_visible, :open_pr_no_longer_visible, :pr_merged, :pr_closed_unmerged]
 
   @doc "True when the CI poll found no open PR for the ticket."
   @spec no_pull_request?(map()) :: boolean()
@@ -86,7 +86,7 @@ defmodule Aiur.Orchestrator.CiLifecycle.PrLessReview do
 
   defp topic(target), do: "ticket.#{target}.pr.human_review_without_pr"
 
-  defp emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+  defp emitter(opts), do: Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
   defp put_mark(state, target, mark) do
     marks = Map.get(state.ci_lifecycle, :pr_less_review, %{})

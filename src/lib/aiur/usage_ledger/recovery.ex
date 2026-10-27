@@ -2,7 +2,7 @@ defmodule Aiur.UsageLedger.Recovery do
   @moduledoc false
 
   alias Aiur.{Config, Fs, Journal}
-  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, RetiredFloor}
+  alias Aiur.UsageLedger.{Checkpoint, CounterPolicy, Paths, Record, RetiredFloor, RetiredRecovery}
 
   @default_limits %{
     max_record_bytes: 32_768,
@@ -53,7 +53,10 @@ defmodule Aiur.UsageLedger.Recovery do
          {:ok, checkpoint, checkpoint_status} <- checkpoint(paths.checkpoint_path, persistence.limits) do
       if floor == 0 do
         recovery = restore(records, checkpoint, checkpoint_status, segment_health)
-        state = recovered_state(paths, records, recovery, marker_status, persistence)
+
+        state =
+          recovered_state(paths, records, recovery, marker_status, persistence)
+          |> Map.put(:checkpoint_position, checkpoint_position(checkpoint, checkpoint_status, recovery))
 
         {:ok,
          finalize_recovery(
@@ -71,6 +74,9 @@ defmodule Aiur.UsageLedger.Recovery do
       {:error, reason} -> {:ok, unavailable_state(reason, persistence)}
     end
   end
+
+  defp checkpoint_position(checkpoint, :healthy, _recovery), do: checkpoint.position
+  defp checkpoint_position(_checkpoint, _status, recovery), do: recovery.position
 
   # A corrupt floor is only ever present once retirement has run, and without a
   # trustworthy watermark the retained tail cannot reconstruct the retired
@@ -96,28 +102,30 @@ defmodule Aiur.UsageLedger.Recovery do
       segment_health != :healthy ->
         %{unavailable_state(:retired_segment_unhealthy, persistence) | retired_through: floor}
 
-      not contiguous_tail?(retained, floor, checkpoint.position) ->
+      not RetiredRecovery.valid_tail?(retained, floor, checkpoint.position) ->
         %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
 
       true ->
-        %{
-          paths: paths,
-          records: retained,
-          policy: checkpoint.policy,
-          position: checkpoint.position,
-          generation: checkpoint.generation,
-          coverage: checkpoint.policy.coverage,
-          health: marker_health(:healthy, marker_status),
-          writable?: marker_status == :absent,
-          limits: persistence.limits,
-          retired_through: floor
-        }
-    end
-  end
+        case RetiredRecovery.replay_tail(checkpoint.policy, checkpoint.position, retained, paths.retired_keys_path) do
+          {:ok, policy, position} ->
+            %{
+              paths: paths,
+              records: retained,
+              policy: policy,
+              position: position,
+              generation: position,
+              coverage: policy.coverage,
+              health: marker_health(:healthy, marker_status),
+              writable?: marker_status == :absent,
+              limits: persistence.limits,
+              retired_through: floor,
+              checkpoint_position: checkpoint.position
+            }
 
-  defp contiguous_tail?(records, floor, position) do
-    expected = if position > floor, do: Enum.to_list((floor + 1)..position), else: []
-    Enum.map(records, & &1.position) == expected
+          {:error, _reason} ->
+            %{unavailable_state(:retired_segment_inconsistent, persistence) | retired_through: floor}
+        end
+    end
   end
 
   defp replay(path, limits, tail_status) do
@@ -196,7 +204,7 @@ defmodule Aiur.UsageLedger.Recovery do
          {:ok, prefix_policy, checkpoint_position} <-
            records |> Enum.take(checkpoint.position) |> replay_records(),
          true <- checkpoint_position == checkpoint.position,
-         true <- CounterPolicy.dump(checkpoint.policy) == CounterPolicy.dump(prefix_policy) do
+         true <- CounterPolicy.checkpoint_matches?(checkpoint.policy, prefix_policy) do
       :healthy
     else
       _ -> :corrupt
@@ -218,7 +226,8 @@ defmodule Aiur.UsageLedger.Recovery do
         recovery.checkpoint_health in [:healthy, :missing] and
           recovery.segment_health == :healthy and marker_status == :absent,
       limits: persistence.limits,
-      retired_through: 0
+      retired_through: 0,
+      checkpoint_position: 0
     }
   end
 

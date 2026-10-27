@@ -1,9 +1,12 @@
 defmodule Aiur.Orchestrator do
   @moduledoc "Polls the issue tracker and dispatches repository copies to agent-backed workers."
   use GenServer
+
+  alias Aiur.Orchestrator.ListenerModes
+  alias Aiur.Orchestrator.OperatorMessages.HeldReads
   require Logger
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Issue, Signal}
 
   alias Aiur.Orchestrator.{
     AutoSubscriptions,
@@ -27,6 +30,11 @@ defmodule Aiur.Orchestrator do
     TrackerTasks,
     WorkspaceCleanup
   }
+
+  @doc "Consume this ticket's held async operator messages in queue order."
+  @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def read_held_messages(identifier, max \\ 50),
+    do: HeldReads.read(__MODULE__, identifier, max)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -60,6 +68,13 @@ defmodule Aiur.Orchestrator do
       do: Lifecycle.handle_tick(state)
 
   def handle_info({:tick, _tick_token}, state), do: {:noreply, state}
+
+  def handle_info({:listen_mode_changed, id, _view}, state) do
+    case ListenerModes.get_mode(state, id) do
+      {:reply, {:ok, view}, _state} -> {:noreply, ListenerModes.mode_view_changed(state, id, view)}
+      {:reply, {:error, _reason}, _state} -> {:noreply, state}
+    end
+  end
 
   def handle_info(:tick, state),
     do: if(Map.get(state, :poll_frozen), do: {:noreply, state}, else: Lifecycle.handle_tick(state))
@@ -199,13 +214,13 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:emit_system_alert, alert_name, %Issue{} = issue, worker_host}, state)
       when is_binary(alert_name) do
-    Alerts.emit_system(alert_name, issue: issue, worker_host: worker_host)
+    Signal.alert(alert_name, issue: issue, worker_host: worker_host)
     {:noreply, state}
   end
 
   def handle_info({:emit_system_alert, alert_name, issue_identifier, worker_host}, state)
       when is_binary(alert_name) and is_binary(issue_identifier) do
-    Alerts.emit_system(alert_name, issue: issue_identifier, worker_host: worker_host)
+    Signal.alert(alert_name, issue: issue_identifier, worker_host: worker_host)
     {:noreply, state}
   end
 
@@ -409,6 +424,8 @@ defmodule Aiur.Orchestrator do
   use Aiur.Orchestrator.ClientDelegates
 
   @impl true
+  def handle_call({:listener_get_mode, id}, _from, state), do: ListenerModes.get_mode(state, id)
+  def handle_call({:listener_set_mode, id, mode, opts}, _from, state), do: ListenerModes.set_mode(state, id, mode, opts)
   defdelegate handle_call(message, from, state), to: Aiur.Orchestrator.Calls
 
   @doc false

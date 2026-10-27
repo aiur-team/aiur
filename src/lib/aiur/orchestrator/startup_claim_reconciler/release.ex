@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
   @moduledoc false
 
-  alias Aiur.{Alerts, Config, Issue, Tracker}
+  alias Aiur.{Config, Issue, Signal, Tracker}
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate, TicketTransition}
   alias Aiur.Orchestrator.StartupClaimReconciler.Observation
@@ -146,7 +146,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler.Release do
     do: "Released orphaned in-progress claim to #{target}: no live worker or workspace lease owned this ticket throughout the recovery grace period."
 
   defp comment_failed(issue, reason, opts) do
-    emit = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
+    emit = Keyword.get(opts, :emit_alert_fun, &Signal.alert/2)
 
     emit.("ticket.#{issue.identifier}.agent.attention.orphan_release_comment_failed",
       issue: issue,

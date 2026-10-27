@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/voice-converse.v1.schema.json",
+  "title": "VoiceConverseFrame",
+  "oneOf": [
+    { "$ref": "#/$defs/start" }, { "$ref": "#/$defs/audio" }, { "$ref": "#/$defs/text" },
+    { "$ref": "#/$defs/confirm_draft" }, { "$ref": "#/$defs/discard_draft" }, { "$ref": "#/$defs/end" },
+    { "$ref": "#/$defs/state" }, { "$ref": "#/$defs/transcript" }, { "$ref": "#/$defs/agent_text" },
+    { "$ref": "#/$defs/agent_audio" }, { "$ref": "#/$defs/interrupted" }, { "$ref": "#/$defs/draft" },
+    { "$ref": "#/$defs/delivery" }, { "$ref": "#/$defs/context_gap" }, { "$ref": "#/$defs/error" }, { "$ref": "#/$defs/ended" }
+  ],
+  "$defs": {
+    "base": { "type": "object", "additionalProperties": true, "properties": { "v": { "const": 1 }, "type": { "type": "string" } }, "required": ["v", "type"] },
+    "start": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "start" }, "target": { "type": "object" } }, "required": ["target"] }] },
+    "audio": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "audio" }, "data_b64": { "type": "string" } }, "required": ["data_b64"] }] },
+    "text": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "text" }, "text": { "type": "string" } }, "required": ["text"] }] },
+    "confirm_draft": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "confirm_draft" }, "draft_id": { "type": "string" }, "edited_text": { "type": "string" } }, "required": ["draft_id"] }] },
+    "discard_draft": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "discard_draft" }, "draft_id": { "type": "string" } }, "required": ["draft_id"] }] },
+    "end": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "end" } } }] },
+    "state": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "state" }, "state": { "type": "string" } }, "required": ["state"] }] },
+    "transcript": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "transcript" }, "kind": { "enum": ["partial", "final"] }, "text": { "type": "string" } }, "required": ["kind", "text"] }] },
+    "agent_text": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "agent_text" }, "turn_id": { "type": "string" }, "text": { "type": "string" }, "final": { "type": "boolean" } }, "required": ["turn_id", "text", "final"] }] },
+    "agent_audio": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "agent_audio" }, "turn_id": { "type": "string" }, "format": { "type": "string" }, "data_b64": { "type": "string" } }, "required": ["turn_id", "format", "data_b64"] }] },
+    "interrupted": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "interrupted" }, "turn_id": { "type": "string" } }, "required": ["turn_id"] }] },
+    "draft": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "draft" }, "draft_id": { "type": "string" }, "kind": { "type": "string" }, "target": { "type": "object" }, "text": { "type": "string" }, "status": { "type": "string" } }, "required": ["draft_id", "kind", "target", "text", "status"] }] },
+    "delivery": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "delivery" }, "draft_id": { "type": "string" }, "message_id": { "type": "string" }, "status": { "type": "string" } }, "required": ["draft_id", "status"] }] },
+    "context_gap": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "context_gap" }, "source": { "type": "string" }, "message": { "type": "string" } }, "required": ["source", "message"] }] },
+    "error": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "error" }, "code": { "type": "string" }, "message": { "type": "string" } }, "required": ["code", "message"] }] },
+    "ended": { "allOf": [{ "$ref": "#/$defs/base" }, { "type": "object", "properties": { "type": { "const": "ended" }, "reason": { "type": "string" } }, "required": ["reason"] }] }
+  }
+}
