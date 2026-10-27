@@ -9,9 +9,21 @@ defmodule AiurWeb.RouteAuthCensusTest do
   import Phoenix.ChannelTest, only: [socket: 3]
 
   @endpoint AiurWeb.Endpoint
-  @authenticators [:dashboard_auth, :dashboard_auth_required, :browser_dashboard_auth, :auth_session, :auth_post, :supervisor_auth, :github_webhook]
+  @authenticators [
+    :dashboard_auth,
+    :dashboard_auth_required,
+    :client_token_read,
+    :client_token_write,
+    :control_token,
+    :browser_dashboard_auth,
+    :auth_session,
+    :auth_post,
+    :supervisor_auth,
+    :github_webhook
+  ]
   @intentionally_public [{:get, "/healthz"}, {:get, "/readyz"}]
   @audited_sockets %{
+    "/events" => AiurWeb.EventsSocket,
     "/live" => Phoenix.LiveView.Socket,
     "/streamdeck" => AiurWeb.StreamdeckSocket,
     "/voice" => AiurWeb.VoiceSocket
@@ -40,7 +52,7 @@ defmodule AiurWeb.RouteAuthCensusTest do
   test "audited channel sockets reject a connection without proof" do
     # /live accepts connect by design; FinancialDataAccess on_mount is guarded
     # by financial_data_access_test.exs, including every dashboard LiveView route.
-    for module <- [AiurWeb.StreamdeckSocket, AiurWeb.VoiceSocket] do
+    for module <- [AiurWeb.EventsSocket, AiurWeb.StreamdeckSocket, AiurWeb.VoiceSocket] do
       assert :error == module.connect(%{}, socket(module, nil, %{}), %{}),
              "#{inspect(module)} accepted a connection without proof"
     end

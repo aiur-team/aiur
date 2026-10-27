@@ -10,7 +10,7 @@ cmd_usage() {
     esac
   done
 
-  if [ -n "$provider" ] && [[ ! "$provider" =~ ^(claude|codex|github|broker|ticket)$ ]]; then
+  if [ -n "$provider" ] && [[ ! "$provider" =~ ^(claude|codex|github|broker|ticket|netlify)$ ]]; then
     die "unknown usage provider: $provider"
   fi
   local encoded_provider expression

@@ -60,5 +60,6 @@
   ],
   "config": [],
   "env": [],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

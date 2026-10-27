@@ -11,6 +11,19 @@ const data = sections => ({ epics: P.epics, features: P.features, children: {}, 
 const html = (sections, sources = P.sources, history = { more: false }) => listHTML(data(sections), state, history, { sources }, P.now);
 const cell = (t, key) => html({ [t.sec]: [t] }).match(new RegExp('class="c-' + key + '" role="cell"[^>]*>(.*?)</span>(?=<span class="c-|</div>)'))?.[1];
 
+test('list renders epic and feature icons from the compact icon catalog', () => {
+  const icon = '<svg data-icon="catalog"/>';
+  const t = row('now', { epic: 'bugs', feature: 'khala' });
+  const D = {
+    ...data({ now: [t] }),
+    icons: { custom: icon },
+    epics: { ...P.epics, bugs: { ...P.epics.bugs, icon: 'custom' } },
+    features: { ...P.features, khala: { ...P.features.khala, icon: 'custom' } },
+  };
+  const rendered = listHTML(D, state, { more: false }, { sources: P.sources }, P.now);
+  assert.equal((rendered.match(/data-icon="catalog"/g) || []).length, 2);
+});
+
 test('U1 unknown pct has no progress hue, bar or percentage', () => {
   assert.equal(cell(row('now', { pct: null }), 'pg'), '<span class=\"lr-mu\">—</span>');
   assert.match(cell(row('now', { pct: 42 }), 'pg'), /--pct:42%;--ph:85.*width:42%.*42%/);
@@ -113,4 +126,10 @@ test('unsupported tracker retains its known cause and age; unknown tags remain u
 test('loading history button stays disabled across list renders', () => {
   assert.match(html({}, P.sources, { more: true, state: 'loading' }), /id="lr-more" disabled aria-busy="true"/);
   assert.ok(!html({}, P.sources, { more: true, state: 'idle' }).includes('aria-busy'));
+});
+test('feature icon SVG from the shared resolver is rendered directly', () => {
+  const features = { ...P.features, pag: { ...P.features.pag, svg: '<svg class="heroicon-outline"></svg>' } };
+  const payload = { ...data({ hist: [row('hist', { feature: 'pag' })] }), features };
+  const rendered = listHTML(payload, state, { more: false }, { sources: P.sources }, P.now);
+  assert.match(rendered, /<svg class="heroicon-outline"><\/svg>/);
 });

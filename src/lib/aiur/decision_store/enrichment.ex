@@ -158,7 +158,7 @@ defmodule Aiur.DecisionStore.Enrichment do
     case Map.get(state.current, decision.decision_id) do
       nil ->
         case Dedup.find_creation_duplicate(decision, state) do
-          nil -> Requests.accept(%{decision | version: 1}, state)
+          nil -> Requests.accept(%{decision | version: 1}, state, opts)
           existing -> {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
         end
 
@@ -204,7 +204,7 @@ defmodule Aiur.DecisionStore.Enrichment do
       |> Keyword.put(:legacy_attention, existing.legacy_attention)
 
     case DecisionValidation.normalize(payload, normalize_opts) do
-      {:ok, merged} -> Requests.accept(%{merged | version: existing.version + 1}, state)
+      {:ok, merged} -> Requests.accept(%{merged | version: existing.version + 1}, state, opts)
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
   end

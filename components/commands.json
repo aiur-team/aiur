@@ -27,7 +27,9 @@
   ],
   "facades": [
     "Aiur.Commands",
+    "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",
@@ -79,5 +81,6 @@
     "AIUR_CI_READINESS_TOKEN",
     "AIUR_SUPERVISOR_TOKEN"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "steer"
 }

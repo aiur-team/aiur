@@ -4,11 +4,27 @@ defmodule Aiur.MergePolicyCLI do
   alias Aiur.Instance.RepositoryLeader
 
   @spec print() :: :ok
-  def print do
+  def print, do: print(Aiur.LandingWatch)
+
+  @doc false
+  @spec print(GenServer.server()) :: :ok
+  def print(landing_watch_server) do
     policy = Aiur.MergePolicy.current()
     role = Aiur.Config.booted_instance_role()
     state = if role == "primary" and Process.whereis(Aiur.MainWatch), do: Aiur.MainWatch.state(), else: %{watcher: :not_running}
-    landing = if role == "primary" and Process.whereis(Aiur.LandingWatch), do: Aiur.LandingWatch.state(), else: %{watcher: :not_running}
+
+    landing =
+      cond do
+        role != "primary" ->
+          %{watcher: :not_running}
+
+        landing_watch_server == Aiur.LandingWatch and is_nil(Process.whereis(Aiur.LandingWatch)) ->
+          %{watcher: :not_running}
+
+        true ->
+          Aiur.LandingWatch.state(landing_watch_server)
+      end
+
     IO.puts(status_line(policy, role, state, landing))
     IO.puts(leader_status_line(RepositoryLeader.status()))
   end

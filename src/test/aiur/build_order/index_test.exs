@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.IndexTest do
   use ExUnit.Case, async: true
   import Aiur.TestSupport.BuildHome.IndexParts
   alias Aiur.BuildOrder.{Epic, Index, Lifecycle, ProviderHealth}
+  alias Aiur.Heroicons
   alias AiurWeb.Build.Payload
 
   test "joins history facts, resolved membership, timing, edges and merged PR" do
@@ -82,14 +83,76 @@ defmodule Aiur.BuildOrder.IndexTest do
     p = put_in(p, [:not_queued, :rows], [%{num: 4, sec: "nq", status: "open", ord: 4, cx: 3, pts: 3}])
     feature = fn slug, date -> %{slug: slug, label: slug, hue: 42, epics: [%{key: "f-#{slug}", label: slug}], from: date, to: :none, baseline: :none} end
     p = put_in(p, [:features], {:ok, %{features: %{"aaa" => feature.("aaa", ~U[2026-10-01 00:00:00Z]), "zzz" => feature.("zzz", ~U[2026-09-01 00:00:00Z])}, owners: %{}, also: %{}, health: health()}})
+    p = Map.put(p, :pack_metadata, %{"workstreams" => [%{"id" => "aaa", "icon" => "home", "summary" => "Feature summary", "wave" => "0b"}]})
     assert {:ok, index} = assemble(p)
     assert index.order == ~w(bugs design infra docs f-zzz f-aaa unsorted)
     design = __DIR__ |> Path.join("../../fixtures/build_home/live.json") |> File.read!() |> Jason.decode!()
     # E1: actual schema defaults must retain the frozen design catalogue.
-    for key <- ~w(bugs design infra docs), do: assert(Payload.scrub(index.epics[key]) == design["epics"][key])
-    assert index.epics["f-aaa"] == %{key: "f-aaa", label: "aaa", hue: 42, icon: "layers", feature: "aaa", temp: true}
+    for key <- ~w(bugs design infra docs) do
+      assert Payload.scrub(Map.delete(index.epics[key], :svg)) == design["epics"][key]
+      assert index.epics[key].svg =~ "<svg"
+    end
+
+    assert index.epics["f-aaa"] == %{
+             key: "f-aaa",
+             label: "aaa",
+             hue: 42,
+             icon: "home",
+             svg: Heroicons.svg("home"),
+             summary: "Feature summary",
+             wave: "0b",
+             feature: "aaa",
+             temp: true
+           }
+
+    assert index.features["aaa"].icon == "home"
+    assert index.features["aaa"].summary == "Feature summary"
+    assert index.features["aaa"].wave == "0b"
     assert index.counts == Map.new(index.order, &{&1, if(&1 == "unsorted", do: 4, else: 0)})
     assert index.all["4"].cx == 3 and index.all["4"].pts == 3
+  end
+
+  test "feature without a pack icon uses the generic Heroicon" do
+    p = parts([row(70)])
+    feature = %{slug: "plain", label: "Plain", hue: 42, epics: [%{key: "f-plain", label: "Plain"}], from: now(), to: :none, baseline: :none}
+    p = put_in(p, [:features], {:ok, %{features: %{"plain" => feature}, owners: %{}, also: %{}, health: health()}})
+
+    assert {:ok, index} = assemble(p)
+    assert index.features["plain"].icon == Heroicons.generic_name()
+    assert index.features["plain"].svg == Heroicons.svg(Heroicons.generic_name())
+    assert index.epics["f-plain"].icon == Heroicons.generic_name()
+  end
+
+  test "root-imported lane features receive default workstream metadata" do
+    root_feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-home", label: "Platform program · Home"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    p =
+      parts([row(3043)])
+      |> put_in(
+        [:features],
+        {:ok,
+         %{
+           features: %{"bo-3042" => root_feature},
+           owners: %{},
+           also: %{},
+           health: health()
+         }}
+      )
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "home", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(p)
+    assert index.features["bo-3042"].icon == "home"
+    assert index.features["bo-3042"].summary == "Show the platform program and its Build Order work clearly."
+    assert index.features["bo-3042"].wave == "0"
+    assert index.epics["f-bo-3042-home"].icon == "home"
   end
 
   test "feature progress counts indexed rows and planned members by local epic" do
@@ -176,6 +239,149 @@ defmodule Aiur.BuildOrder.IndexTest do
     assert progress.unpublished == nil
     assert progress.total == nil
     assert progress.reason == "planned count unavailable"
+  end
+
+  test "GitHub root progress counts its sub-issue membership across ticket states" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    root = row(99, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..104, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    parent = %{owner: "acme", repository: "widgets", number: 99}
+    closed = row(100, %{parent: parent, labels: ["build-lane:core", "phase:2"]})
+    ci_wait = row(101, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:core", "phase:2", "agent:human-review"], agent_model: "codex"})
+    rework = row(102, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "phase:3", "agent:rework"]})
+    parked = row(103, %{parent: parent, lifecycle: %Lifecycle{state: :open}, labels: ["build-lane:ui", "phase:3", "nuc:parked"]})
+    unowned = row(104, %{parent: parent, labels: ["build-lane:core", "phase:2"]})
+    feature = %{slug: "bo-99", label: "Build order", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}, %{key: "f-bo-99-ui", label: "UI"}], from: now(), to: :none, baseline: :none}
+    registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
+    p = parts([root, closed, ci_wait, rework, parked, unowned])
+    owner = fn epic -> %{feature: "bo-99", epic: epic, source: "import:build-order", joined_at: DateTime.from_unix!(now(), :millisecond)} end
+    registry = put_in(registry, [:owners], %{100 => owner.("f-bo-99-core"), 101 => owner.("f-bo-99-core"), 102 => owner.("f-bo-99-ui"), 103 => owner.("f-bo-99-ui")})
+
+    p =
+      put_in(p, [:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+      |> put_in([:now, :source], source())
+      |> put_in([:now, :rows, "101"], %{id: "101", num: 101, sec: "now", status: "running", ord: 101, agent: %{state: "ci_wait"}})
+      |> put_in([:not_queued, :rows], [%{num: 102, sec: "nq", status: "open", ord: 102}, %{num: 103, sec: "nq", status: "open", ord: 103}])
+
+    assert {:ok, index} = assemble(p)
+    assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :total]) == %{closed: 2, open: 0, ci_wait: 1, total: 3}
+    assert index.feature_progress.features["f-bo-99-core"].wave == "2"
+    assert Map.take(index.feature_progress.features["f-bo-99-ui"], [:closed, :open, :ci_wait, :total]) == %{closed: 0, open: 2, ci_wait: 0, total: 2}
+    assert index.feature_progress.features["f-bo-99-ui"].wave == "3"
+  end
+
+  test "root progress counts history members missing from index rows" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    root = row(99, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..102, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    parent = %{owner: "acme", repository: "widgets", number: 99}
+    closed_member = row(100, %{parent: parent, labels: ["build-lane:core"]})
+    missing_index_member = row(101, %{parent: parent, labels: ["build-lane:core"], end: :unknown})
+    indexed_member = row(102, %{parent: parent, labels: ["build-lane:core"], lifecycle: %Lifecycle{state: :open}})
+    feature = %{slug: "bo-99", label: "Build order", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}], from: nil, to: :none, baseline: :none}
+    registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
+
+    p =
+      put_in(parts([root, closed_member, missing_index_member, indexed_member]), [:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+      |> put_in([:now, :rows], %{"102" => now_row(102)})
+
+    assert {:ok, index} = assemble(p)
+    assert Map.has_key?(index.all, "101") == false
+    assert Map.take(index.feature_progress.features["f-bo-99-core"], [:closed, :open, :ci_wait, :total]) == %{closed: 2, open: 1, ci_wait: 0, total: 3}
+    refute index.feature_progress.features["f-bo-99-core"].reason =~ "CI state unknown"
+    assert index.feature_progress.features["f-bo-99-core"].root_number == 99
+    assert index.feature_progress.features["f-bo-99-core"].start_date == Date.to_iso8601(DateTime.to_date(root.created_at))
+  end
+
+  test "root progress stays unknown when a member lifecycle is unknown" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    root = row(99, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..102, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    parent = %{owner: "acme", repository: "widgets", number: 99}
+    closed_member = row(100, %{parent: parent, labels: ["build-lane:core"]})
+    unknown_member = row(101, %{parent: parent, labels: ["build-lane:core"], lifecycle: %Lifecycle{state: :unknown}})
+    open_member = row(102, %{parent: parent, labels: ["build-lane:core"], lifecycle: %Lifecycle{state: :open}})
+    feature = %{slug: "bo-99", label: "Build order", hue: 175, epics: [%{key: "f-bo-99-core", label: "Core"}], from: now(), to: :none, baseline: :none}
+    registry = %{features: %{"bo-99" => feature}, owners: %{}, also: %{}, health: health()}
+
+    p =
+      put_in(parts([root, closed_member, unknown_member, open_member]), [:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+
+    assert {:ok, index} = assemble(p)
+    progress = index.feature_progress.features["f-bo-99-core"]
+    assert progress.closed == nil
+    assert progress.open == nil
+    assert progress.total == 3
+    assert progress.reason == "states unavailable · planned count unavailable"
+  end
+
+  test "root epic matches all local pack lanes when its epic key has no lane suffix" do
+    ref = fn n -> %{owner: "acme", repository: "widgets", number: n} end
+    members = Enum.map(100..134, &row(&1, %{parent: %{owner: "acme", repository: "widgets", number: 1363}, labels: ["build-lane:core"]}))
+    root = row(1363, %{labels: ["build-order"], timeline_complete: true, sub_issues_added: Enum.map(100..134, &%{ref: ref.(&1), at: DateTime.from_unix!(now(), :millisecond)})})
+    feature = %{slug: "bo-1363", label: "Feature 1363", hue: 175, epics: [%{key: "f-bo-1363", label: "Feature 1363"}], from: now(), to: :none, baseline: :none}
+    registry = %{features: %{"bo-1363" => feature}, owners: %{}, also: %{}, health: health()}
+
+    pack = %{
+      root: 1363,
+      feature: "bo-1363",
+      complete?: true,
+      status: %{},
+      version: "v1",
+      manifest: %{"workstreams" => [%{"id" => "core"}]},
+      tickets: Enum.map(100..134, &%{id: "MP-E8-C1-T#{&1}", lane: "core", number: &1})
+    }
+
+    p =
+      parts([root | members])
+      |> put_in([:features], {:ok, registry})
+      |> put_in([:history, Access.elem(1), :repository], "acme/widgets")
+      |> Map.put(:packs, [pack])
+
+    assert {:ok, index} = Index.assemble(p, now: now())
+    assert Map.take(index.feature_progress.features["f-bo-1363"], [:closed, :total, :plan_version]) == %{closed: 35, total: 35, plan_version: "v1"}
+  end
+
+  test "platform program build-queue lane receives its default icon" do
+    feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-build-queue", label: "Platform program · Build queue"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    parts =
+      parts([row(3043)])
+      |> put_in([:features], {:ok, %{features: %{"bo-3042" => feature}, owners: %{}, also: %{}, health: health()}})
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "build-queue", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(parts)
+    assert index.features["bo-3042"].icon == "queue-list"
+    assert index.epics["f-bo-3042-build-queue"].icon == "queue-list"
+  end
+
+  test "platform program kernel lane receives its default icon" do
+    feature = %{
+      slug: "bo-3042",
+      label: "Platform program",
+      hue: 42,
+      epics: [%{key: "f-bo-3042-kernel", label: "Platform program · Kernel"}],
+      from: now(),
+      to: :none,
+      baseline: :none
+    }
+
+    parts =
+      parts([row(3043)])
+      |> put_in([:features], {:ok, %{features: %{"bo-3042" => feature}, owners: %{}, also: %{}, health: health()}})
+      |> Map.put(:pack_metadata, %{"workstreams" => [%{"id" => "kernel", "root_number" => 3042}]})
+
+    assert {:ok, index} = assemble(parts)
+    assert index.features["bo-3042"].icon == "cpu-chip"
+    assert index.epics["f-bo-3042-kernel"].icon == "cpu-chip"
   end
 
   test "producer fields win over older history fields" do

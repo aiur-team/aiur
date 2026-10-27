@@ -89,7 +89,7 @@ defmodule Aiur.Experiments.Sources.ScriptTest do
 
   test "credentials and shell startup are scrubbed; window variables are passed", %{root: root} do
     names = ~w(
-      GITHUB_TOKEN GH_TOKEN OPENAI_API_KEY GITHUB_APP_CLIENT_SECRET AIUR_SUPERVISOR_TOKEN AIUR_CI_READINESS_TOKEN AIUR_LEASE_DATABASE_URL
+      GITHUB_TOKEN GH_TOKEN OPENAI_API_KEY GITHUB_APP_CLIENT_SECRET AIUR_SUPERVISOR_TOKEN AIUR_CI_READINESS_TOKEN AIUR_CLIENT_TOKEN AIUR_LEASE_DATABASE_URL
       ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS BASH_ENV ENV
     )
     saved = Map.new(names, &{&1, System.get_env(&1)})

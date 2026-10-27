@@ -2,7 +2,7 @@ defmodule Aiur.Usage.Alerts do
   @moduledoc "Emits one low-usage alert per configured provider episode."
   use GenServer
 
-  alias Aiur.{Alerts, ProviderMeters.Events}
+  alias Aiur.{Alerts, Netlify.Usage, ProviderMeters.Events}
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -10,6 +10,7 @@ defmodule Aiur.Usage.Alerts do
   @impl true
   def init(opts) do
     _ = Events.subscribe_observed()
+    _ = Aiur.Usage.Events.subscribe_netlify()
 
     {:ok,
      %{
@@ -35,6 +36,22 @@ defmodule Aiur.Usage.Alerts do
         do: evaluate(provider, remaining, threshold, state.active, state.emit),
         else: state.active
 
+    {:noreply, %{state | active: active}}
+  end
+
+  def handle_info({:netlify_usage_changed, snapshot}, state) do
+    active? =
+      Usage.alert_transition(snapshot, Aiur.Config.netlify_settings().credit_alert_threshold, MapSet.member?(state.active, :netlify), fn event ->
+        {topic, message, severity} =
+          case event do
+            :low -> {"system.netlify.credits_low", "Netlify estimated credits are low or a depletion threshold was reached.", "warning"}
+            :resolved -> {"system.netlify.credits_low.resolved", "Netlify estimated credits recovered above the threshold.", "info"}
+          end
+
+        state.emit.(topic, message: message, needs_attention: false, severity: severity)
+      end)
+
+    active = if active?, do: MapSet.put(state.active, :netlify), else: MapSet.delete(state.active, :netlify)
     {:noreply, %{state | active: active}}
   end
 

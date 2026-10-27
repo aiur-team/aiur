@@ -6,7 +6,7 @@ defmodule Aiur.MixProject do
       app: :aiur,
       version: "0.0.9",
       elixir: "~> 1.19",
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:github_budget],
       # Test builds are copied from the prewarm base into each workspace.
       elixirc_options: if(Mix.env() == :test, do: [check_cwd: false], else: []),
       start_permanent: Mix.env() == :prod,
@@ -130,6 +130,7 @@ defmodule Aiur.MixProject do
         ]
       ],
       test_ignore_filters: [
+        "test/support/analytics_live_fixtures.exs",
         "test/support/dashboard_live_orchestrator_stubs.exs",
         "test/support/dashboard_live_store_stubs.exs",
         "test/support/dashboard_live_unit_fixtures.exs",
@@ -171,7 +172,7 @@ defmodule Aiur.MixProject do
 
   defp deps do
     [
-      {:bandit, "~> 1.12"},
+      {:bandit, "~> 1.14"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:stream_data, "~> 1.2", only: :test},
@@ -184,7 +185,7 @@ defmodule Aiur.MixProject do
       {:wax_, "~> 0.7.0"},
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
-      {:jose, "~> 1.11"},
+      {:jose, "~> 1.11 and >= 1.11.13"},
       {:nimble_options, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.1.6"},

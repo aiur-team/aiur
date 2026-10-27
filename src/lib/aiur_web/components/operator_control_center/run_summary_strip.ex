@@ -29,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   alias AiurWeb.OperatorControlCenter.ModelProviders
   alias AiurWeb.OperatorControlCenter.ModelsPanel
   alias AiurWeb.OperatorControlCenter.Money
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip.NetlifyRow
   alias AiurWeb.RemainingMeter
 
   # The provider card that leads the strip. The run summary moved out of the
@@ -41,24 +42,34 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:meters, :map, required: true)
   attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:elevenlabs_quota, :map, default: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
+  attr(:netlify_dashboard, :map, default: nil)
   attr(:now, :any, required: true)
   # Provider families the workflow routes work to; nil reads the live config.
   attr(:configured_providers, :any, default: nil)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
-    assigns = assign(assigns, :cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
+    assigns =
+      assigns
+      |> assign(:cards, provider_cards(assigns.usage, assigns.meters, assigns.configured_providers))
+      |> assign(:netlify_dashboard, assigns.netlify_dashboard || %{snapshot: usage_provider(assigns.usage, :netlify), enabled?: false})
 
     ~H"""
     <section class="run-summary" aria-label="Provider and API usage">
-      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} now={@now} />
+      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} netlify_dashboard={@netlify_dashboard} now={@now} />
       <ModelsPanel.models_panel :if={@cards != []} cards={@cards} now={@now} />
     </section>
     """
   end
 
+  defp usage_provider(usage, provider) do
+    providers = Map.get(usage || %{}, :providers, Map.get(usage || %{}, "providers", %{}))
+    Map.get(providers, provider, Map.get(providers, Atom.to_string(provider)))
+  end
+
   attr(:github_quota, :map, required: true)
   attr(:elevenlabs_quota, :map, required: true)
+  attr(:netlify_dashboard, :map, default: nil)
   attr(:now, :any, required: true)
 
   # The APIS pane holds one row per non-model API. GitHub always has a row; the
@@ -113,6 +124,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           </div>
         </div>
         <.elevenlabs_api_row :if={@elevenlabs?} quota={@elevenlabs_quota} now={@now} />
+        <NetlifyRow.netlify_api_row :if={@netlify_dashboard && @netlify_dashboard.enabled?} usage={@netlify_dashboard.snapshot} />
       </div>
     </div>
     """

@@ -3,11 +3,13 @@ defmodule Aiur.Application.Children do
   The one boot-order authority: the supervision child list for a run shape.
   """
 
+  alias Aiur.Application.ExportChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
   alias Aiur.GitHub.{Access, BlockerProgress, Config}
   alias Aiur.Instance.{Heartbeat, LeaseStore, RepositoryLeader}
+  alias Aiur.Orchestrator.InstanceHeartbeatMetadata
 
   @doc """
   Build the supervision children for the given run shape.
@@ -255,6 +257,7 @@ defmodule Aiur.Application.Children do
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
+      Aiur.Commands.Routing,
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.
@@ -312,12 +315,15 @@ defmodule Aiur.Application.Children do
         Aiur.Experiments.window_children(recording?) ++
         dashboard_cache_children(dashboard?) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
-        dashboard_final_children(dashboard?, opts)
+        [Aiur.Netlify.Usage] ++
+        dashboard_final_children(dashboard?, opts) ++
+        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0))
     )
   end
 
   defp dashboard_final_children(dashboard?, opts) do
     List.wrap(if(dashboard?, do: [AiurWeb.DashboardAuth.ChallengeStore, AiurWeb.DashboardAuthRateLimit.Store])) ++
+      List.wrap(if(LeaseStore.configured?(), do: Aiur.GitHub.AgentBudgetSocket)) ++
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
@@ -334,7 +340,10 @@ defmodule Aiur.Application.Children do
   end
 
   defp coordination_children(role, github_tracker?, main_watch_enabled?) do
-    store_children = if LeaseStore.configured?(), do: [LeaseStore, Heartbeat], else: []
+    store_children =
+      if LeaseStore.configured?(),
+        do: [LeaseStore, {Heartbeat, metadata_fun: &InstanceHeartbeatMetadata.metadata/0}],
+        else: []
 
     services =
       []

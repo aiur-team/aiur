@@ -14,7 +14,9 @@
   "optional": [],
   "owns": {
     "config": [],
-    "env": [],
+    "env": [
+      "AIUR_CLIENT_TOKEN"
+    ],
     "state": [],
     "capabilities": []
   },
@@ -30,6 +32,9 @@
     "guide/stream-deck.md"
   ],
   "config": [],
-  "env": [],
-  "capabilities": []
+  "env": [
+    "AIUR_CLIENT_TOKEN"
+  ],
+  "capabilities": [],
+  "goal": "hardware"
 }

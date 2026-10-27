@@ -102,5 +102,6 @@
   "capabilities": [],
   "forbid": [
     "Aiur.GitHub.Listeners.*"
-  ]
+  ],
+  "goal": "run-agents"
 }

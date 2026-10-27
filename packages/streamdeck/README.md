@@ -5,10 +5,11 @@ direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The production
 sidecar opens the device, connects to the authenticated Aiur Phoenix channel,
 renders live fleet/provider state, and routes physical key controls through the
 same AgentChat facade as the browser emulator. It renews its short-lived socket
-token after disconnects and retains hotplug/suspend recovery — the token expiry
-bounds the socket, not the deck's authority: the sidecar stores the dashboard
-credentials and re-mints the token itself, so a plugged-in deck is a
-permanently-authorized operator client. Terminal end-to-end
+token after disconnects and retains hotplug/suspend recovery. When configured,
+`AIUR_CLIENT_TOKEN` is sent as a bearer credential rather than exchanged from
+stored dashboard credentials. Its scope sets the sidecar's API access, and
+revocation prevents it from obtaining further channel tokens. Dashboard
+username/password remain a loopback migration fallback. Terminal end-to-end
 proof remains tracked in
 [#1358](https://github.com/aiur-team/aiur/issues/1358).
 
@@ -104,8 +105,9 @@ in time.
 
 Install the downloaded sidecar and unit, then create the required private
 environment file. The entry point reads `STREAMDECK_BRIGHTNESS`,
-`AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and
-`AIUR_DASHBOARD_PASSWORD` from `~/.config/aiur/streamdeck.env`.
+`AIUR_PHOENIX_URL`, and `AIUR_CLIENT_TOKEN` from
+`~/.config/aiur/streamdeck.env`. The token is preferred; dashboard
+username/password remain supported for loopback migration.
 
 ```sh
 install -d -m755 ~/.local/share/aiur
@@ -148,8 +150,7 @@ Set the environment file to mode `600` and use the supported settings:
 ```dotenv
 STREAMDECK_BRIGHTNESS=80
 AIUR_PHOENIX_URL=http://127.0.0.1:4000
-AIUR_DASHBOARD_USERNAME=operator
-AIUR_DASHBOARD_PASSWORD=replace-me
+AIUR_CLIENT_TOKEN=replace-with-token-from-aiur-token-create
 ```
 
 Keep the EnvironmentFile private and do not commit a populated copy. The

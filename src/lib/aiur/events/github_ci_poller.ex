@@ -158,56 +158,87 @@ defmodule Aiur.Events.GithubCIPoller do
 
   defp poll_batched_target(target, %{pull_request: pr, check_runs: check_runs, commit_status: commit_status}, opts)
        when is_map(pr) and is_list(check_runs) and is_map(commit_status) do
-    with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
-         {:ok, head_sha} <- head_sha(pr) do
-      expected_base = StackBaseEvidence.expected_base(target, pr, opts)
+    case positive_integer(Map.get(pr, "number")) do
+      {:ok, pr_number} ->
+        poll_valid_batched_pr(target, pr, pr_number, check_runs, commit_status, opts)
 
-      case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
-        {:ok, :unchanged} ->
-          Evaluation.evaluate(check_runs, commit_status)
-          |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
-          |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
-          |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{
-            target: target,
-            pr_number: pr_number,
-            head_sha: head_sha,
-            base_sha: get_in(pr, ["base", "sha"]),
-            ready_at_ms: Map.get(pr, "ready_at_ms"),
-            reviewed_head?: Map.get(pr, "reviewed_head?")
-          })
-          |> Map.merge(Evaluation.merge_queue_observation(pr))
-          |> log_classification()
-
-        {:ok, {:unchanged, recovered_invalidation}} ->
-          Evaluation.evaluate(check_runs, commit_status)
-          |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
-          |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
-          |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{
-            target: target,
-            pr_number: pr_number,
-            head_sha: head_sha,
-            base_sha: get_in(pr, ["base", "sha"]),
-            ready_at_ms: Map.get(pr, "ready_at_ms"),
-            reviewed_head?: Map.get(pr, "reviewed_head?"),
-            base_repair_invalidation: recovered_invalidation
-          })
-          |> Map.merge(Evaluation.merge_queue_observation(pr))
-          |> log_classification()
-
-        {:ok, {:repaired, invalidation}} ->
-          BaseRepair.base_branch_repaired(target, pr_number, invalidation, expected_base)
-
-        {:error, reason, invalidation} ->
-          BaseRepair.base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
-      end
-    else
-      {:error, reason} -> poll_error(target, reason)
+      {:error, reason} ->
+        poll_error(target, reason)
     end
   end
 
   defp poll_batched_target(target, _batch, _opts), do: poll_error(target, :invalid_ci_poll_batch)
+
+  defp poll_open_batched_target(target, pr, pr_number, check_runs, commit_status, opts) do
+    case head_sha(pr) do
+      {:ok, head_sha} ->
+        expected_base = StackBaseEvidence.expected_base(target, pr, opts)
+
+        case BaseRepair.ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
+          {:ok, :unchanged} ->
+            Evaluation.evaluate(check_runs, commit_status)
+            |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
+            |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+            |> Map.merge(%{
+              target: target,
+              pr_number: pr_number,
+              head_sha: head_sha,
+              base_sha: get_in(pr, ["base", "sha"]),
+              ready_at_ms: Map.get(pr, "ready_at_ms"),
+              reviewed_head?: Map.get(pr, "reviewed_head?")
+            })
+            |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> log_classification()
+
+          {:ok, {:unchanged, recovered_invalidation}} ->
+            Evaluation.evaluate(check_runs, commit_status)
+            |> Evaluation.ignore_stale_failures(check_runs, commit_status, pr)
+            |> Evaluation.enforce_required_checks(check_runs, commit_status, pr, opts)
+            |> Evaluation.enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+            |> Map.merge(%{
+              target: target,
+              pr_number: pr_number,
+              head_sha: head_sha,
+              base_sha: get_in(pr, ["base", "sha"]),
+              ready_at_ms: Map.get(pr, "ready_at_ms"),
+              reviewed_head?: Map.get(pr, "reviewed_head?"),
+              base_repair_invalidation: recovered_invalidation
+            })
+            |> Map.merge(Evaluation.merge_queue_observation(pr))
+            |> log_classification()
+
+          {:ok, {:repaired, invalidation}} ->
+            BaseRepair.base_branch_repaired(target, pr_number, invalidation, expected_base)
+
+          {:error, reason, invalidation} ->
+            BaseRepair.base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+        end
+
+      {:error, reason} ->
+        poll_error(target, reason)
+    end
+  end
+
+  defp poll_valid_batched_pr(target, pr, pr_number, check_runs, commit_status, opts) do
+    if terminal_pull_request?(pr) do
+      %{
+        target: target,
+        decision: :pending,
+        pending_reason: terminal_pr_pending_reason(pr),
+        pr_number: pr_number,
+        pull_request: pr
+      }
+    else
+      poll_open_batched_target(target, pr, pr_number, check_runs, commit_status, opts)
+    end
+  end
+
+  defp terminal_pull_request?(%{"state" => state}), do: state in ["merged", "closed"]
+  defp terminal_pull_request?(_pull_request), do: false
+
+  defp terminal_pr_pending_reason(%{"state" => "merged"}), do: :pr_merged
+  defp terminal_pr_pending_reason(_pull_request), do: :pr_closed_unmerged
 
   defp ci_batch_value(opts, target) do
     with %{} = batch <- Keyword.get(opts, :ci_batch),

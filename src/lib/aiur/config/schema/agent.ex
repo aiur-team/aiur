@@ -44,6 +44,9 @@ end
 
 defmodule Aiur.Config.Schema.Agent do
   @moduledoc false
+  for source <- ~w(codex.ex git_identity.ex pricing_policy.ex),
+      do: @external_resource(Path.relative_to(Path.join(__DIR__, source), File.cwd!(), force: true))
+
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -224,13 +227,10 @@ defmodule Aiur.Config.Schema.Agent do
 
     # @config-reference config-configuration-agent-00 agent.max_repeated_identical_commands | integer | 5 | Five tolerates brief polling; steer at 5 identical results and stop at 6. `0` disables it. |
     field(:max_repeated_identical_commands, :integer, default: 5)
-
     # @config-reference config-configuration-agent-00 agent.local_gate_wait_steer_minutes | positive integer | 20 | Green CI: steer only after this long waiting on local gate work. |
     field(:local_gate_wait_steer_minutes, :integer, default: 20)
-
     # @config-reference config-configuration-agent-00 agent.local_gate_wait_stop_minutes | positive integer | 30 | Stop after steer grace so the worker can refresh the PR body and hand off. |
     field(:local_gate_wait_stop_minutes, :integer, default: 30)
-
     # @config-reference config-configuration-agent-00 agent.local_gate_ci_max_age_minutes | positive integer | 15 | Trust cached green CI only this long to prevent stale-head actions. |
     field(:local_gate_ci_max_age_minutes, :integer, default: 15)
     # @config-reference config-configuration-agent-00 agent.max_commands_per_turn | integer or nil | nil | Optional shell-command cap per turn; null disables. Suggested value: 1,000. |

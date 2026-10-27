@@ -52,5 +52,6 @@
   "env": [],
   "capabilities": [
     "streamdeck"
-  ]
+  ],
+  "goal": "hardware"
 }

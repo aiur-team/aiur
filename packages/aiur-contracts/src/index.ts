@@ -1,6 +1,9 @@
+export type * from "./events.generated.js";
+export type * from "./command.generated.js";
 export type * from "./generated.js";
 export type * from "./status.generated.js";
 export type * from "./spend-cap.generated.js";
+export type * from "./voice-converse.generated.js";
 
 export const KNOWN_CAPABILITY_IDS = [
   "identity",

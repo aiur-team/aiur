@@ -61,8 +61,8 @@ defmodule AiurWeb.PublicBindAuthTest do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
-    System.delete_env("AIUR_DASHBOARD_USERNAME")
-    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
     endpoint_config = previous_endpoint_config || []
     Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.put(endpoint_config, :dashboard_auth_required, false))
 
@@ -95,6 +95,22 @@ defmodule AiurWeb.PublicBindAuthTest do
     if unknown.status == 302 do
       assert Plug.Conn.get_resp_header(unknown, "location") == ["/auth/login"]
     end
+
+    basic_api =
+      Plug.Test.conn(:get, "/api/v1/state")
+      |> Plug.Test.init_test_session(%{})
+      |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
+
+    assert basic_api.status == 401
+
+    basic_page =
+      Plug.Test.conn(:get, "/")
+      |> Plug.Test.init_test_session(%{})
+      |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> then(&AiurWeb.Endpoint.call(&1, AiurWeb.Endpoint.init([])))
+
+    assert basic_page.status == 401
 
     for route <- Phoenix.Router.routes(AiurWeb.Router) do
       path = Regex.replace(~r/[:*][^\/]+/, route.path, "fixture")

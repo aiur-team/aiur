@@ -1,9 +1,12 @@
 defmodule Aiur.ExecutorCommandCLI do
   @moduledoc false
 
-  alias Aiur.{Commands, ExecutorCommandAttention}
+  alias Aiur.{Commands, ExecutorCommandAck, ExecutorCommandAttention}
 
   @default_executor_id "aiur-cli"
+
+  @spec ack(keyword(), keyword()) :: 0 | 1 | 64
+  def ack(params, deps \\ []), do: ExecutorCommandAck.ack(params, deps)
 
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ [])
@@ -11,6 +14,7 @@ defmodule Aiur.ExecutorCommandCLI do
   def answer(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_answer(params),
          {:ok, result} <- call_answer(normalized, deps) do
+      ExecutorCommandAck.implicit(normalized, if(normalized.supersede, do: :supersede, else: :answer), deps)
       verb = if normalized.supersede, do: "superseded the answer of", else: "answered"
 
       IO.puts(
@@ -34,6 +38,7 @@ defmodule Aiur.ExecutorCommandCLI do
     with {:ok, normalized} <- normalize_escalation(params),
          {:ok, result} <- call_escalation(normalized, deps),
          status <- Map.get(result, :status, :opened) do
+      ExecutorCommandAck.implicit(normalized, :escalate, deps)
       IO.puts(escalation_message(normalized.decision_id, status))
       0
     else
@@ -78,6 +83,8 @@ defmodule Aiur.ExecutorCommandCLI do
   def moot(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_mooting(params),
          {:ok, result} <- call_mooting(normalized, deps) do
+      ExecutorCommandAck.implicit(normalized, :moot, deps)
+
       IO.puts(
         "aiur: Executor #{normalized.executor_id} mooted Command #{normalized.decision_id} " <>
           "(#{Map.get(result, :status, :accepted)})"
@@ -183,7 +190,7 @@ defmodule Aiur.ExecutorCommandCLI do
       end
 
     store = Keyword.get(deps, :decision_store, Commands.default_store())
-    answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}], store)
+    answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}, actor_source: :executor_cli], store)
   catch
     :exit, reason -> {:error, {:store_unavailable, reason}}
   end
@@ -284,6 +291,16 @@ defmodule Aiur.ExecutorCommandCLI do
         "rerun with --supersede to replace it, or run aiur executor-moot to withdraw it"
     )
 
+    1
+  end
+
+  defp command_error("answer", {:conflict, {:human_answer, _action_id}}, deps) do
+    write_error(deps, "aiur: a human answered this Command; the Executor cannot replace it")
+    1
+  end
+
+  defp command_error("answer", {:conflict, {:direct_operator_answer, _action_id}}, deps) do
+    write_error(deps, "aiur: the operator answered this Command directly; a relayed answer cannot replace it")
     1
   end
 

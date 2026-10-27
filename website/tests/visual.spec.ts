@@ -83,6 +83,34 @@ for (const theme of themes) {
         })
       }
 
+      if (viewport.name !== 'mobile-landscape') {
+        test('docs component directory', async ({ page }) => {
+          await page.goto('/docs/reference/components')
+          await settle(page)
+          await expect(page.locator('.component-directory article').first()).toBeVisible()
+          await expect(page).toHaveScreenshot(`docs-components-${suffix}.png`)
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+          await page.getByLabel('Optional only').check()
+          await expect(page.locator('.component-directory article .badge.core')).toHaveCount(0)
+          await expect(page.locator('.component-directory article .badge.optional').first()).toBeVisible()
+          await expect(page).toHaveScreenshot(`docs-components-optional-${suffix}.png`)
+          await page.locator('#component-accounting a[href="#component-config"]').click()
+          await expect(page.getByLabel('Optional only')).not.toBeChecked()
+          await expect(page.locator('#component-config')).toBeVisible()
+          await expect(page.locator('.directory-diagram svg')).toBeVisible()
+        })
+      }
+
+      if (viewport.name === 'desktop') {
+        test('docs component directory survives diagram failure', async ({ page }) => {
+          await page.route('**/chunks/flowDiagram-*.js', (route) => route.abort())
+          await page.goto('/docs/reference/components')
+          await expect(page.getByRole('status').filter({ hasText: 'Diagram unavailable.' })).toBeVisible()
+          await expect(page.locator('#component-voice-stt')).toBeVisible()
+          await expect(page.locator('.directory-diagram svg')).toHaveCount(0)
+        })
+      }
+
       test('docs product switcher open', async ({ page }) => {
         await page.goto('/docs/')
         const button = page.locator('#product-switcher-button')

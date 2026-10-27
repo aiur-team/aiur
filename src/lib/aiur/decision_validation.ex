@@ -35,6 +35,7 @@ defmodule Aiur.DecisionValidation do
   product direction must declare that explicitly or it will be Executor-answerable.
   """
 
+  alias Aiur.Commands.Requester
   alias Aiur.{Config, Decision, DecisionArtifact, DecisionCommandType, DecisionProvenance, SecretRedactor}
   alias Aiur.DecisionValidation.Context
 
@@ -78,6 +79,7 @@ defmodule Aiur.DecisionValidation do
     safe_roots = Keyword.get(opts, :safe_roots, default_safe_roots())
 
     with {:ok, normalized_ticket} <- normalize_ticket(ticket),
+         :ok <- Requester.validate_ticket(normalized_ticket, opts),
          {:ok, legacy_attention} <-
            normalize_legacy_attention(Keyword.get(opts, :legacy_attention), normalized_ticket),
          {:ok, provenance} <- DecisionProvenance.normalize(provenance, now),

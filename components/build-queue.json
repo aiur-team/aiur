@@ -62,5 +62,6 @@
   "capabilities": [
     "build_queue",
     "build_queue.build_order_source"
-  ]
+  ],
+  "goal": "run-agents"
 }

@@ -21,6 +21,21 @@ aiur_launch_lock_path() {
   printf '%s/locks/%s.launch' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
 }
 
+retire_aiur_launch_lock() {
+  local lock="${1:-}" retired_lock
+  [ -n "$lock" ] || return 1
+
+  retired_lock="${lock}.released.$$.$RANDOM"
+  while [ -e "$retired_lock" ]; do
+    retired_lock="${lock}.released.$$.$RANDOM"
+  done
+  if mv "$lock" "$retired_lock" 2>/dev/null; then
+    rm -rf "$retired_lock" 2>/dev/null || true
+    return 0
+  fi
+  return 1
+}
+
 acquire_aiur_launch_lock() {
   local lock="$1" owner_file="$1/owner" recovery_lock="$1.recovery"
   local owner tick lock_age
@@ -31,6 +46,10 @@ acquire_aiur_launch_lock() {
   for ((tick = 0; tick < max_ticks; tick++)); do
     if mkdir "$lock" 2>/dev/null; then
       printf '%s\n' "$$" >"$owner_file" || { rmdir "$lock" 2>/dev/null || true; return 1; }
+      # A prior takeover may have exited after atomically retiring the stale
+      # lock but before removing its recovery mutex. The new owner makes that
+      # empty mutex safe to clean up.
+      rmdir "$recovery_lock" 2>/dev/null || true
       return 0
     fi
 
@@ -54,8 +73,13 @@ acquire_aiur_launch_lock() {
       lock_age="$(aiur_lock_age_seconds "$lock")"
       if { [ -z "$owner" ] && [ -n "$lock_age" ] && [ "$lock_age" -ge "$ownerless_stale_seconds" ]; } || \
         { [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; }; then
-        rm -f "$owner_file" 2>/dev/null || true
-        rmdir "$lock" 2>/dev/null || true
+        # Retire the stale lock with one atomic rename. If this process exits
+        # before cleanup, the original path is already available to the next
+        # launcher and the recovered directory cannot block acquisition.
+        if retire_aiur_launch_lock "$lock"; then
+          rmdir "$recovery_lock" 2>/dev/null || true
+          continue
+        fi
       fi
       rmdir "$recovery_lock" 2>/dev/null || true
     fi
@@ -81,8 +105,11 @@ release_aiur_launch_lock() {
   owner_file="$lock/owner"
   owner="$(sed -n '1p' "$owner_file" 2>/dev/null || true)"
   [ "$owner" = "$$" ] || return 0
-  rm -f "$owner_file" 2>/dev/null || true
-  rmdir "$lock" 2>/dev/null || true
+
+  # Remove ownership with one atomic rename. If a termination trap runs after
+  # this command, contenders already see the original lock path as released;
+  # they can never observe our lock with its owner file missing.
+  retire_aiur_launch_lock "$lock" || true
 }
 
 write_aiur_instance_record() {

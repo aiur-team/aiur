@@ -202,6 +202,7 @@
         "summary": {
           "$ref": "#/$defs/summary"
         },
+        "goal": {"enum": ["run-agents", "steer", "notify", "voice", "hardware"]},
         "status": {
           "enum": [
             "core",
@@ -276,6 +277,7 @@
         }
       },
       "allOf": [
+        {"if": {"properties": {"status": {"enum": ["core", "optional", "experimental", "deprecated"]}}}, "then": {"required": ["goal"]}},
         {
           "if": {
             "properties": {

@@ -188,11 +188,19 @@ class AuditPolicyTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "unparsed or unmatched advisories"):
                     audit.audit_lock(b"lock", "fixture", runner)
 
-    def test_registry_cache_fallback_fails_closed(self):
-        result = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)", "returncode": 0})()
-        with patch.object(audit.subprocess, "run", return_value=result):
-            with self.assertRaisesRegex(RuntimeError, "refusing to use cached results"):
-                audit.run(["mix", "hex.audit"], cwd=Path("."), allow_advisories=True)
+    def test_audit_retries_cached_fetch_then_fails_closed_after_exhaustion(self):
+        fetch = type("Result", (), {"stdout": "Failed to fetch record for bandit from registry (using cache instead)\n:timeout\nResolution completed", "returncode": 0})()
+        clean = type("Result", (), {"stdout": self.CLEAN, "returncode": 0})()
+        lock_bytes = b'  "bandit": {:hex, :bandit, "1.12.5"}'
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(audit, "LOCK", Path(directory) / "mix.lock"), patch.object(audit.time, "sleep"):
+                with patch.object(audit.subprocess, "run", side_effect=[fetch, clean, clean]) as runner:
+                    self.assertEqual(audit.audit_lock(lock_bytes, "fixture"), set())
+                    self.assertEqual(runner.call_count, 3)
+                with patch.object(audit.subprocess, "run", side_effect=[fetch] * 3) as runner:
+                    with self.assertRaisesRegex(RuntimeError, "refusing to use cached results"):
+                        audit.audit_lock(lock_bytes, "fixture")
+                    self.assertEqual(runner.call_count, 3)
 
     def test_hex_offline_fails_closed(self):
         with patch.dict(audit.os.environ, {"HEX_OFFLINE": "1"}):

@@ -151,13 +151,6 @@ def replace_tables(text: str, tables: dict[str, list[str]], page: str) -> tuple[
     updated = text
     for start, end, replacement in reversed(replacements):
         updated = updated[:start] + replacement + updated[end:]
-    missing = set(tables) - seen
-    if missing and page in {"website/docs-app/reference/configuration.md", "website/docs-app/reference/configuration-agent.md", "website/docs-app/reference/configuration-build-order.md", "website/docs-app/reference/configuration-voice.md", "website/docs-app/reference/merge-policy.md", "website/docs-app/reference/cli.md", "website/docs-app/reference/cli-options.md"}:
-        # Each table has a single owning page; other pages intentionally have no marker.
-        page_tables = {name for name in tables if name.startswith(page.rsplit("/", 1)[-1].replace(".md", "") + "-")}
-        absent = page_tables - seen
-        if absent:
-            raise SystemExit(f"{page}: missing generated-reference markers: {sorted(absent)}")
     return updated, seen
 
 
@@ -176,29 +169,27 @@ def main() -> int:
         "website/docs-app/reference/cli.md",
         "website/docs-app/reference/cli-options.md",
     ]
+    reference_dir = ROOT / "website/docs-app/reference"
+    topics = [*reference_dir.glob("configuration-*.md"), *reference_dir.glob("cli-*.md")]
+    pages = sorted(set(pages) | {str(path.relative_to(ROOT)) for path in topics})
     originals = {relative: (ROOT / relative).read_text(encoding="utf-8") for relative in pages}
-    page_prefixes = {
-        "configuration.md": "config-configuration-",
-        "configuration-agent.md": "config-configuration-agent-",
-        "configuration-build-order.md": "config-configuration-build-order-",
-        "configuration-voice.md": "config-configuration-voice-",
-        "merge-policy.md": "config-merge-policy-",
-    }
-    for relative in pages:
-        path = ROOT / relative
-        original = originals[relative]
-        prefix = page_prefixes.get(Path(relative).name)
-        if prefix:
-            page_tables = {table_id: rows for table_id, rows in tables.items() if table_id.startswith(prefix)}
-        elif relative.endswith("cli.md"):
-            page_tables = {}
-        elif relative.endswith("cli-options.md"):
-            page_tables = {"cli-run-options": tables["cli-run-options"]}
-        updated, seen = replace_tables(original, page_tables, relative)
+    seen_tables: set[str] = set()
+    updates: dict[str, str] = {}
+    for relative, original in originals.items():
+        updated, seen = replace_tables(original, tables, relative)
+        duplicate = seen_tables & seen
+        if duplicate:
+            raise SystemExit(f"{relative}: duplicate generated-reference markers across pages: {sorted(duplicate)}")
+        seen_tables.update(seen)
         if updated != original:
             changed.append(relative)
-            if not args.check:
-                path.write_text(updated, encoding="utf-8")
+            updates[relative] = updated
+    missing = set(tables) - seen_tables
+    if missing:
+        raise SystemExit(f"missing generated-reference markers: {sorted(missing)}")
+    if not args.check:
+        for relative, updated in updates.items():
+            (ROOT / relative).write_text(updated, encoding="utf-8")
     if args.check and changed:
         print("reference table drift: " + ", ".join(changed), file=sys.stderr)
         return 1

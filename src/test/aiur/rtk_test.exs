@@ -220,7 +220,7 @@ defmodule Aiur.RtkTest do
       |> Enum.filter(fn path ->
         path not in [
           Path.join(@repo_root, "src/lib/aiur/rtk.ex"),
-          Path.join(@repo_root, "src/lib/aiur_web/live/analytics_live.ex")
+          Path.join(@repo_root, "src/lib/aiur_web/live/analytics_live/panels.ex")
         ] and String.contains?(File.read!(path), "Aiur.Rtk")
       end)
 

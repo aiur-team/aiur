@@ -259,7 +259,7 @@ defmodule Aiur.DecisionJournalOutcomeTest do
       assert %DateTime{} = current.revision_follow_ups[revision.action_id].handled_at
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.count(audit, &(&1.type == :follow_up_handled)) == 1
-      if unquote(mode) == :write_error, do: assert(List.last(audit).data.actor == @actor)
+      if unquote(mode) == :write_error, do: assert(List.last(audit).data.actor == Map.put(@actor, :source, :rpc))
       refute_received {:dispatched, _sequence}
     end
   end

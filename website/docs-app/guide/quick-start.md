@@ -119,6 +119,15 @@ For example, `instance.owns: [{label: "build-lane:voice"}]` sends matching work
 to the NUC while it is live and dispatching; when it stops or pauses, matching
 tickets return to the shared pool.
 
+When `AIUR_LEASE_DATABASE_URL` is configured, `aiur status` also prints the
+shared instance roster with each heartbeat's observation age, host kind,
+version, public URL, capacity, running tickets, and held tickets. Leadership
+comes from the current shared lease; missing metadata is shown as unknown.
+
+Open `/instances` on any instance's dashboard to see the roster and ticket rows
+with their observation ages. Expired heartbeats are stale during the retention
+window, then disappear.
+
 `instance.pool: false` keeps a daemon on its owned tickets only. These rules
 require the shared `AIUR_LEASE_DATABASE_URL`.
 

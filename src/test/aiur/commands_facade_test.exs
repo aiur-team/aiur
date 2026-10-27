@@ -4,6 +4,7 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    public_v2: {Aiur.Commands.Projection, :public_v2},
     capability_ids: {Aiur.DecisionStore.CapabilityProvider, :capability_ids},
     capabilities: {Aiur.DecisionStore.CapabilityProvider, :capabilities},
     query_list: {Aiur.DecisionQuery, :list},

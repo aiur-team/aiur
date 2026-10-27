@@ -105,5 +105,6 @@
     "Aiur.Codex.",
     "Aiur.Muse.",
     "Aiur.OpenAICompat."
-  ]
+  ],
+  "goal": "run-agents"
 }

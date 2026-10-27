@@ -42,6 +42,7 @@ defmodule Aiur.Claude.Repl.Command do
         opts
         |> Keyword.take([:base_branch])
         |> Keyword.put(:build_gate, true)
+        |> Keyword.put(:local_claude_repl, true)
       )
 
     ["cd #{shell_escape(workspace)}", environment, ProviderAuth.shell_prefix(Keyword.get(opts, :provider_auth_file)), "exec #{flags}"]

@@ -1,4 +1,4 @@
-import { captureStable } from './design-parity.mjs'
+import { productScreenshot } from './build-home-product.mjs'
 
 export async function captureStaticGrain(page, target, options) {
   await page.evaluate(() => {
@@ -7,7 +7,7 @@ export async function captureStaticGrain(page, target, options) {
     )
     window.grainAmbientAnimations.forEach(animation => { animation.pause(); animation.currentTime = 0 })
   })
-  try { return await captureStable(target, options, page) }
+  try { return await productScreenshot(target, options, page) }
   finally {
     if (!page.isClosed()) await page.evaluate(() => window.grainAmbientAnimations?.forEach(animation => animation.play()))
   }

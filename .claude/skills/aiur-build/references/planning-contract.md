@@ -12,7 +12,7 @@ array records each occupy one line; the publisher and CI share this formatter.
 A new feature outputs a collection into the repository's single continuous build.
 Record its stable feature slug, display label, optional epics, logical members,
 real prerequisites to new and existing tickets, proposed queue placement, and
-`plan_version`. Do not create a standalone Build Order root or publish a new
+`plan_version`. Each `workstreams[]` record may also include `icon` (a unique Heroicons v2 outline name), `summary` (one line, at most 100 characters, no control characters), and `wave` (a nonnegative integer or short label). Feature icons must not match a configured general-epic icon for any ticket carrying that epic's label matcher. Do not create a standalone Build Order root or publish a new
 legacy runtime pack. Existing packs remain readable history.
 
 Preserve requirements, versioned design evidence, decisions, typed scheduling

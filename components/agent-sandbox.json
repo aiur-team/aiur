@@ -61,5 +61,6 @@
     "AIUR_AGENT_WORKSPACE",
     "PATH"
   ],
-  "capabilities": []
+  "capabilities": [],
+  "goal": "run-agents"
 }

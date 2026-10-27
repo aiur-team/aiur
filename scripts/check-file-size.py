@@ -20,6 +20,8 @@ SKILL_MOUNTS = ('.codex/skills', '.agents/skills')
 CLAUDE_SKILLS = '.claude/skills'
 SKILL_PATHS = (CLAUDE_SKILLS, *SKILL_MOUNTS)
 VENDORED_DIRS = {'vendor', 'vendored', 'third_party'}
+# Imported Claude Design reference, retained byte-for-byte as vendored source.
+VENDORED_PATHS = {'src/test/fixtures/build_home/design-source'}
 
 
 def line_count_exempt(path):
@@ -27,7 +29,12 @@ def line_count_exempt(path):
     parts = PurePosixPath(os.fsdecode(path)).parts
     if any(parts[:len(PurePosixPath(root).parts)] == PurePosixPath(root).parts for root in SKILL_PATHS):
         return True
-    return bool(VENDORED_DIRS.intersection(parts))
+    if VENDORED_DIRS.intersection(parts):
+        return True
+    return any(
+        parts[:len(PurePosixPath(root).parts)] == PurePosixPath(root).parts
+        for root in VENDORED_PATHS
+    )
 
 
 def git(*args):

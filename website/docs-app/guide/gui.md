@@ -102,6 +102,12 @@ parameters (`v`, `scope`, `conditions`) on the home page become agent-state
 or ticket-state presets. The hook bridge replaces the current history entry.
 ## The pages
 
+### Keyboard
+
+Tab to the Build timeline to reach one ticket card. Use the arrow keys, Home, and End to move through cards in reading order; Enter opens its ticket. Space also opens a ticket, or locks/unlocks its dependency chain when the hidden `?trees=1` mode is active. Escape closes the ticket or tree layer and returns focus to the board.
+
+Card names include complexity. The circled complexity glyphs are decorative.
+
 Each page renders a durable concept whose detail lives in Concepts.
 
 | Page | Concept detail |
@@ -141,7 +147,13 @@ forward, so measuring the gate never perturbs a real build acquisition.
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
-| Command | Commands | Answer or revise. |
+| Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
+
+On Command detail, **Replace** asks for confirmation before opening an empty answer form. It is available for an Executor answer until delivery starts. A competing answer shows who answered, when, and their answer.
+
+Delivered and in-flight answers show their status and recorded answer. If an answer or replacement attempt loses a delivery race, its form is disabled and **Send a follow-up message** opens the unit chat.
+
+**Send correction** records new direction; it does not undo work already done. Stale Commands offer a refresh, and withdrawn Commands explain why the answer is no longer needed.
 
 Build ticket modal mutations require writable dashboard access. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
 
@@ -160,7 +172,7 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 
 ## Authentication and network exposure
 
-Browser access supports Google sign-in and passkeys. Basic Auth remains available for machine clients and, by default, as a browser fallback:
+Browser access supports Google sign-in and passkeys. On loopback, Basic Auth remains available as a browser fallback. Machine clients can use individually revocable bearer tokens created with `aiur token create`:
 
 ```bash
 export AIUR_DASHBOARD_USERNAME=example-executor
@@ -168,7 +180,7 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Public binds require machine credentials, browser Basic Auth off, and Google sign-in with an email allowlist or an enrolled passkey. Loopback may bind without machine credentials, but refuses dashboard requests until they are set.
+Public binds require machine credentials, browser Basic Auth off, and Google sign-in with an email allowlist or an enrolled passkey. Basic Auth is refused on every route when the dashboard binds beyond loopback. Loopback may bind without machine credentials, but refuses dashboard requests until they are set.
 
 To enable Google sign-in, configure an HTTPS `server.public_url`, set the operator email allowlist, and add both OAuth client values to `~/.aiur/.env`:
 
@@ -184,15 +196,15 @@ dashboard_auth:
   browser_basic_auth: false
 ```
 
-Replace the CIDR with the actual proxy peer range. The `platform` shortcut trusts private IPv4 and IPv6 peers and is safe only when the host platform isolates that network from untrusted workloads. Public deployments must keep browser Basic Auth off; the configured credentials remain available to machine clients.
+Replace the CIDR with the actual proxy peer range. The `platform` shortcut trusts private IPv4 and IPv6 peers and is safe only when the host platform isolates that network from untrusted workloads. Public deployments must keep browser Basic Auth off and use bearer tokens for machine clients.
 
 In Google Cloud, create an OAuth consent screen in External / Testing mode, add the operator as a test user, and request `openid email`. Create a Web application OAuth client with redirect URI `https://dashboard.example.com/auth/google/callback`.
 
 Put `AIUR_GOOGLE_CLIENT_ID` and `AIUR_GOOGLE_CLIENT_SECRET` in `~/.aiur/.env`, then restart Aiur. Sign in with the allowlisted, verified account and register a passkey while that Google sign-in is fresh; enroll each device (iCloud Keychain can sync Apple devices).
 
-Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` to be configured. Those credentials remain the authentication path for machine clients.
+Google and passkey sessions also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` to be configured for browser sign-in.
 
-After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. The API and Stream Deck token endpoint continue to use Basic Auth.
+After confirming Google and passkey sign-in, set `dashboard_auth.browser_basic_auth: false` and restart Aiur; this setting is read at startup. Machine API clients can use individually revocable bearer tokens created with `aiur token create`; browser routes continue to use sign-in sessions.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 

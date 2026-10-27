@@ -22,7 +22,7 @@ defmodule Aiur.GitHub.BudgetLedger do
 
   ## Families are the broker's, and carry its caveat
 
-  `endpoint_family` comes from `priv/github_budget.py`, which buckets anything
+  `endpoint_family` comes from `priv/github_budget/`, which buckets anything
   that is not literally `/graphql` as core and — for the agent `gh` wrapper —
   names families like `pulls`, `issues`, `search` and `actions`. Those commands
   are GraphQL on the wire, so until #2297 the family column mis-buckets a large
