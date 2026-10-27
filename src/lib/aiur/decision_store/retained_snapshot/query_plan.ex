@@ -28,7 +28,8 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   @spec matches?(Decision.t(), map()) :: boolean()
   def matches?(decision, query) do
-    lifecycle_match?(decision, Map.get(query, :lifecycle)) and
+    Aiur.Commands.Routing.Policy.matches_route?(decision, Map.get(query, :route)) and
+      lifecycle_match?(decision, Map.get(query, :lifecycle)) and
       ticket_match?(decision, Map.get(query, :ticket)) and
       search_match?(decision, Map.get(query, :search)) and
       optional_match?(decision.authority, Map.get(query, :authority)) and
@@ -67,7 +68,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   end
 
   defp scan_limited?(query) do
-    Enum.any?([:ticket, :search, :authority, :blocking, :kind], &(not is_nil(Map.get(query, &1))))
+    Enum.any?([:ticket, :search, :authority, :blocking, :kind, :route], &(not is_nil(Map.get(query, &1))))
   end
 
   defp lifecycle_match?(_decision, nil), do: true

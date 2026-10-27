@@ -158,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsCommandHistoryTest do
     assert final =~ "10 loaded"
   end
 
-  test "Commands inbox exposes only the four primary filters with canonical retained counts" do
+  test "Commands inbox exposes routing and primary filters with canonical retained counts" do
     html =
       render_inbox(
         [inbox_decision("dec-overview-only")],
