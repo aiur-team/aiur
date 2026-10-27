@@ -37,6 +37,24 @@ defmodule AiurWeb.Build.PayloadTest do
     refute Map.has_key?(snapshot["features"]["khala"], "svg")
   end
 
+  test "snapshot compacts feature progress metadata already carried by its lane epic" do
+    metadata = %{"icon" => "cpu", "summary" => "Scheduler and memory work", "wave" => "0b"}
+    progress = Map.merge(metadata, %{"feature" => "kernel", "label" => "Kernel · core", "closed" => 2, "open" => 1, "ci_wait" => 0, "unpublished" => 0, "total" => 3})
+
+    data =
+      fixture()
+      |> put_in(["epics", "f-kernel-core"], Map.merge(%{"key" => "f-kernel-core", "feature" => "kernel", "label" => "Kernel · core", "hue" => 210}, metadata))
+      |> put_in(["features", "kernel"], %{"key" => "kernel", "label" => "Kernel", "icon" => "cpu", "epics" => ["f-kernel-core"]})
+      |> put_in(["feature_progress"], %{"features" => %{"f-kernel-core" => progress}, "observed_at" => 1_791_408_000_000, "plan_version" => "v1", "extras" => 0, "reason" => nil})
+
+    snapshot = Payload.snapshot(data, "epoch", 1)
+
+    assert Map.take(snapshot["epics"]["f-kernel-core"], ~w(icon summary wave)) == metadata
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "icon")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "summary")
+    refute Map.has_key?(snapshot["feature_progress"]["features"]["f-kernel-core"], "wave")
+  end
+
   test "runtime reason states remain valid in the Now wire payload" do
     data = fixture()
     row = get_in(data, ["sections", "now", Access.at(0)])

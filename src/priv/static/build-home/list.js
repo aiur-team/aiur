@@ -108,13 +108,14 @@ const knownSum = (values, key) => values.every(x => Number.isFinite(x[key])) ? v
 function featureListHTML(D, state, now) {
   const values = Object.entries(D.features).flatMap(([slug, feature]) => {
     const epics = (feature.epics || []).map(key => ({ key, epic: D.epics[key], progress: D.feature_progress?.features?.[key] })).filter(x => x.epic);
-    if (!epics.length) return [{ key: slug, feature, epic: { label: feature.label, feature: slug }, lanes: [], progress: null }];
+    if (!epics.length) return [{ key: slug, feature, epic: { label: feature.label, feature: slug, icon: feature.icon, summary: feature.summary }, lanes: [], progress: null }];
     const sum = key => knownSum(epics.map(x => x.progress || {}), key);
     const closed = sum('closed'), open = sum('open'), ci = sum('ci_wait'), total = sum('total'), unpublished = sum('unpublished');
-    const waves = [...new Set(epics.map(x => x.progress?.wave).filter(x => typeof x === 'string' && x.length))];
+    const metadata = key => epics.map(x => x.epic?.[key] || x.progress?.[key]).find(x => typeof x === 'string' && x.length) || feature[key];
+    const waves = [...new Set(epics.map(x => x.epic?.wave || x.progress?.wave).filter(x => typeof x === 'string' && x.length))];
     const wave = waves.length === 1 ? waves[0] : null;
     const codes = [...new Set(epics.map(x => x.progress?.code).filter(x => typeof x === 'string' && x.length))];
-    return [{ key: slug, feature, epic: { label: feature.label, feature: slug }, lanes: epics, progress: { feature: slug, closed, open, ci_wait: ci, total, unpublished, wave, reason: epics.find(x => x.progress?.reason)?.progress?.reason || null, icon: epics.find(x => x.progress?.icon)?.progress?.icon, summary: epics.find(x => x.progress?.summary)?.progress?.summary, code: codes.length === 1 ? codes[0] : null, root_number: epics.find(x => x.progress?.root_number)?.progress?.root_number, root_title: epics.find(x => x.progress?.root_title)?.progress?.root_title, start_date: epics.find(x => x.progress?.start_date)?.progress?.start_date } }];
+    return [{ key: slug, feature, epic: { label: feature.label, feature: slug, wave, icon: metadata('icon'), summary: metadata('summary') }, lanes: epics, progress: { feature: slug, closed, open, ci_wait: ci, total, unpublished, wave, reason: epics.find(x => x.progress?.reason)?.progress?.reason || null, icon: metadata('icon'), summary: metadata('summary'), code: codes.length === 1 ? codes[0] : null, root_number: epics.find(x => x.progress?.root_number)?.progress?.root_number, root_title: epics.find(x => x.progress?.root_title)?.progress?.root_title, start_date: epics.find(x => x.progress?.start_date)?.progress?.start_date } }];
   });
   const globallyUnknown = D.feature_progress?.reason;
   const aggregate = key => globallyUnknown ? null : knownSum(values.filter(x => x.progress).map(x => x.progress), key);
