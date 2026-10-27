@@ -11,11 +11,11 @@ const skipped = new Set(['node_modules', 'dist', '.vitepress/cache', '.vitepress
 
 function scan(root) {
   const problems = [];
-  function walk(directory, extensions, recursive = true) {
+  function walk(directory, extensions, excluded = skipped) {
     for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (recursive && !skipped.has(entry.name) && !skipped.has(relative('website/docs-app', path))) walk(path, extensions);
+        if (!excluded.has(entry.name) && !excluded.has(relative('website/docs-app', path))) walk(path, extensions, excluded);
       } else if (entry.isFile() && extensions.test(entry.name)) {
         readFileSync(join(root, path), 'utf8').split('\n').forEach((line, index) => {
           // Terminal simulation colours are an independent palette.
@@ -27,7 +27,7 @@ function scan(root) {
     }
   }
   walk('website', /\.(css|ts|html|vue)$/);
-  walk('src/priv/static', /\.css$/, false);
+  walk('src/priv/static', /\.css$/, new Set(['aiur-style']));
   walk('src/lib', /\.ex$/);
   return problems;
 }
@@ -54,11 +54,14 @@ function selfTest() {
     put('website/src/duplicate.css', '--term-blue: #1f57c4; color: #1a4aa8;');
     check(1);
     rmSync(join(root, 'website/src/duplicate.css'));
-    for (const path of ['website/src/copy.ts', 'website/copy.html', 'website/docs-app/.vitepress/theme/copy.vue', 'src/priv/static/copy.css', 'src/lib/copy.ex']) {
+    for (const path of ['website/src/copy.ts', 'website/copy.html', 'website/docs-app/.vitepress/theme/copy.vue', 'src/priv/static/copy.css', 'src/priv/static/build-home/copy.css', 'src/priv/static/dist/copy.css', 'src/lib/copy.ex']) {
       put(path, '#1F57C4 fonts.googleapis.com');
       assert.match(check(1), /#1F57C4, fonts.googleapis.com/);
       rmSync(join(root, path));
     }
+    put('src/priv/static/css/duplicate.css', 'color: #1f57c4');
+    assert.match(check(1), /src\/priv\/static\/css\/duplicate.css:1: #1f57c4/);
+    rmSync(join(root, 'src/priv/static/css/duplicate.css'));
     for (const path of ['website/public/aiur-style/tokens.css', 'website/node_modules/copy.css', 'website/docs-app/.vitepress/dist/copy.html', 'src/priv/static/aiur-style/tokens.css']) put(path, '#1f57c4');
     check(0);
     console.log('aiur-style duplicate guard self-test passed');

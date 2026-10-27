@@ -36,6 +36,8 @@ Or in JavaScript/TypeScript:
 import 'aiur-style/aiur-style.css';
 ```
 
+`tokens.css` exposes `--aiur-color-fg-dark` and `--aiur-color-accent-dark` for fixed-dark device surfaces. Both are generated from the dark palette and stay constant when the page theme changes.
+
 ### JavaScript
 
 Theme and banner behaviors are exported from the package root.
