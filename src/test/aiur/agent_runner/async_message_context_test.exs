@@ -1,8 +1,8 @@
 defmodule Aiur.AgentRunner.AsyncMessageContextTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.AgentRunner.TurnPrompt
   alias Aiur.{AgentQueue, AgentQueueStore, Issue, Listener, Orchestrator}
+  alias Aiur.AgentRunner.TurnPrompt
   alias Aiur.Orchestrator.{ListenerModes, State}
   alias Aiur.Orchestrator.OperatorMessages.{Calls, HeldReads}
 
