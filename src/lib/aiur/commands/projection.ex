@@ -58,6 +58,7 @@ defmodule Aiur.Commands.Projection do
   @doc false
   @spec inherit_attributes(Decision.t(), Decision.t()) :: Decision.t()
   def inherit_attributes(current, candidate) do
+    # Enrichment snapshots omit delivery facts; retain them from the journal projection.
     fields = Map.take(current, [:requester, :origin, :native, :questions, :short_label, :requester_notified_at])
     Facts.inherit(current, struct!(candidate, fields))
   end

@@ -156,9 +156,8 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
 
   test "failed inbox enqueue records no notification and cannot advance past the lost answer", ctx do
     d = answered(ctx.store, "failure")
-    dead_inbox = spawn(fn -> :ok end)
-    ref = Process.monitor(dead_inbox)
-    assert_receive {:DOWN, ^ref, :process, ^dead_inbox, _}, 1_000
+    dead_inbox = start_supervised!({Agent, fn -> :unused end})
+    :ok = stop_supervised(Agent)
 
     capture_log(fn ->
       pid = listener(%{ctx | inbox: dead_inbox})
@@ -204,5 +203,49 @@ defmodule Aiur.Commands.ExecutorDeliveryTest do
     assert "data" in scrubbed["untrusted_fields"]
     refute scrubbed["data"]["custom_response"] =~ "ignore previous instructions"
     assert scrubbed["data"]["custom_response"] =~ "Human choice"
+  end
+
+  test "permanent answer errors do not block a later blocking request", ctx do
+    worker = answered(ctx.store, "worker-mismatch", :worker)
+
+    capture_log(fn ->
+      pid = listener(ctx)
+
+      for id <- ["dec_0000000000000000", "invalid-id", worker.decision_id] do
+        assert {:ok, _, _} = ExecutorEvents.publish("executor.decision.answered", %{decision_id: id}, source: :internal)
+      end
+
+      assert {:ok, event_id, _} = ExecutorEvents.publish("executor.decision.requested", %{decision_id: "later-request", issue_identifier: "979", blocking: true}, source: :internal)
+      :sys.get_state(pid)
+
+      for _retry <- 1..3 do
+        send(pid, :resubscribe)
+        refute :sys.get_state(pid).delivery_failed?
+      end
+
+      assert :sys.get_state(pid).watermark >= event_id
+      assert {:ok, [wake]} = ExecutorWakeInbox.wait(0, ctx.inbox)
+      assert wake["decision_id"] == "later-request"
+      assert wake["ticket"] == "979"
+      assert wake["topic_class"] == "ticket.agent.attention.operator-decision"
+    end)
+  end
+
+  test "enrichment after notification retains delivered evidence", ctx do
+    d = answered(ctx.store, "enrich-notified")
+    pid = listener(ctx)
+    :sys.get_state(pid)
+    assert {:ok, notified} = DecisionStore.get(d.decision_id, ctx.store)
+    assert %DateTime{} = notified.requester_notified_at
+    assert {:ok, %{decision: enriched}} = enrich(ctx.store, d.decision_id, %{"context" => %{"short_summary" => "More evidence"}}, d.version, now: DateTime.utc_now())
+    assert enriched.version == d.version + 1
+    assert enriched.requester_notified_at == notified.requester_notified_at
+    assert Decision.delivered?(enriched)
+    GenServer.stop(ctx.store)
+    replayed = start_store!(ctx.dir)
+    on_exit(fn -> if Process.alive?(replayed), do: GenServer.stop(replayed) end)
+    assert {:ok, restored} = DecisionStore.get(d.decision_id, replayed)
+    assert restored.requester_notified_at == notified.requester_notified_at
+    assert Decision.delivered?(restored)
   end
 end

@@ -250,14 +250,36 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp deliver_answer(event, inbox, store) do
-    with {:ok, record} <- ExecutorWakeProjection.project(event),
-         {:ok, %{decision: decision}} <- Aiur.Commands.get(record["decision_id"], store: store) do
-      if is_nil(decision.requester_notified_at) and decision.decision_status == :decided do
-        enqueue_answer(record, decision.active_action_id, inbox, store)
-      else
-        :ok
+    result =
+      with {:ok, record} <- ExecutorWakeProjection.project(event),
+           {:ok, %{decision: decision}} <- Aiur.Commands.get(record["decision_id"], store: store) do
+        deliver_current_answer(record, decision, inbox, store)
       end
+
+    case result do
+      {:error, :not_found} -> skip_answer(event, :not_found)
+      {:error, {:invalid_decision_id, _reason}} -> skip_answer(event, :invalid_decision_id)
+      {:error, {:invalid_transition, :requester_notification_mismatch}} -> skip_answer(event, :requester_notification_mismatch)
+      other -> other
     end
+  end
+
+  defp deliver_current_answer(record, decision, inbox, store) do
+    cond do
+      not match?(%{kind: :executor}, decision.requester) ->
+        skip_answer(record, :requester_notification_mismatch)
+
+      not is_nil(decision.requester_notified_at) or decision.decision_status != :decided ->
+        :ok
+
+      true ->
+        enqueue_answer(record, decision.active_action_id, inbox, store)
+    end
+  end
+
+  defp skip_answer(event, reason) do
+    Logger.warning("aiur_executor_listener phase=answer_skipped decision_id=#{inspect(value(event, :decision_id))} reason=#{inspect(reason)}")
+    :ok
   end
 
   defp enqueue_answer(record, action_id, inbox, store) do
