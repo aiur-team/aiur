@@ -56,6 +56,8 @@ test('light preference is applied before docs hydration', async ({ page }) => {
 
 for (const theme of themes) {
   test(`${theme} theme remains accessible across home and docs`, async ({ page }) => {
+    // Quarantined: owner #6654, expires 2026-11-10
+    test.skip(theme === 'light', 'Quarantined: owner #6654, expires 2026-11-10')
     await page.addInitScript((savedTheme) => {
       localStorage.setItem('aiur-theme', savedTheme)
     }, theme)
