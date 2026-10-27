@@ -33,6 +33,13 @@ The board shows one prefixed row per ticket with runtime, backend, pinned model,
 | 🏁 | awaiting human review: space or chat to reactivate |
 | ⚫ | agent waiting (queued, idle, or label only) |
 
+With listener routing enabled, the read-only `LISTENER` column shows effective
+mode (`steer`, `sync`, or `async`) and unread held-message count. A different
+requested mode appears as `(req steer)`, for example `sync (req steer) / 2 unread`.
+`unavailable` means the effective mode is unknown; `? unread` means the count is
+unavailable. The column hides in narrow terminals and under legacy routing.
+Change the mode with `aiur listen-mode <ticket> [steer|sync|async]`; v1 has no TUI mode key.
+
 Rows re-sort live: running agents bubble to the top, so the board always leads with the work that is actually moving.
 
 ## Keys
