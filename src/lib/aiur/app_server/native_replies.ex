@@ -3,6 +3,7 @@ defmodule Aiur.AppServer.NativeReplies do
 
   alias Aiur.AppServer.Messages
   alias Aiur.Codex.UserInputAnswers
+  alias Aiur.Commands.NativeCapture
 
   @spec deliver(map(), map()) :: map()
   def deliver(session, state) do
@@ -29,7 +30,13 @@ defmodule Aiur.AppServer.NativeReplies do
 
       {:error, reason} ->
         on_failure.(reason)
-        state
+
+        if String.starts_with?(ref, "claude:") and reason == :port_closed do
+          NativeCapture.release_held(session, %{state | held_native_questions: %{ref => info}}, :session_gone)
+          %{state | held_native_questions: Map.delete(state.held_native_questions, ref)}
+        else
+          state
+        end
     end
   end
 end
