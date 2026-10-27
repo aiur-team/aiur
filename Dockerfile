@@ -39,6 +39,7 @@ RUN mise trust ./mise.toml && \
 
 COPY packages/elixir/ ./packages/elixir/
 COPY src/mix.exs src/mix.lock ./src/
+COPY scripts/retry-mix-deps-get.sh ./scripts/retry-mix-deps-get.sh
 
 RUN cd src && \
     bash ../scripts/retry-mix-deps-get.sh mise exec -- mix deps.get && \
