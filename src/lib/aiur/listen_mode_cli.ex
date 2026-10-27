@@ -36,10 +36,7 @@ defmodule Aiur.ListenModeCli do
             idempotency_key: key
           )
 
-        case result do
-          {:error, {:outcome_unknown, _}} -> {:error, {:outcome_unknown, %{expected_version: version}}}
-          other -> other
-        end
+        normalize_write_result(result, version)
       end
     else
       {:error, :invalid_actor}
@@ -48,14 +45,22 @@ defmodule Aiur.ListenModeCli do
 
   defp execute(_ticket, _modes, _opts, _key), do: {:error, :invalid_mode}
 
+  defp normalize_write_result({:error, {:outcome_unknown, _}}, version), do: {:error, {:outcome_unknown, %{expected_version: version}}}
+  defp normalize_write_result(result, _version), do: result
+
   defp report({:ok, record}, opts, _key) do
     print_record(record, opts)
     0
   end
 
   defp report({:error, {:mode_conflict, current}}, opts, _key) do
-    IO.puts("aiur: mode_conflict")
-    print_record(current, opts)
+    if opts[:json] do
+      IO.puts(Jason.encode!(%{error: "mode_conflict", current: current}))
+    else
+      IO.puts("aiur: mode_conflict")
+      print_record(current, opts)
+    end
+
     3
   end
 

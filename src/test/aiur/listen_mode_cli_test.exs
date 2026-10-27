@@ -1,7 +1,7 @@
 defmodule Aiur.ListenModeCliTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
-  alias Aiur.{ListenModeCli, Listener, Orchestrator}
+  alias Aiur.{Listener, ListenModeCli, Orchestrator}
   alias Aiur.Orchestrator.{ListenerModes, State}
 
   defmodule Server do
@@ -77,6 +77,13 @@ defmodule Aiur.ListenModeCliTest do
     assert output =~ "requested steer"
     assert output =~ "__AIUR_CONTROL_EXIT__:3"
     assert {:ok, %{requested: :steer, version: 1}} = Listener.get_mode("42")
+  end
+
+  test "JSON conflicts return one parseable error record" do
+    {:ok, _} = Listener.set_mode("42", :steer, expected_version: 0)
+    output = capture_io(fn -> ListenModeCli.run("42", ["async", "--expected-version", "0", "--json"]) end)
+    [json, "__AIUR_CONTROL_EXIT__:3", ""] = String.split(output, "\n")
+    assert %{"error" => "mode_conflict", "current" => %{"requested" => "steer", "version" => 1}} = Jason.decode!(json)
   end
 
   test "invalid mode, actor, version and unknown tickets cannot write" do
