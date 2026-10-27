@@ -233,6 +233,7 @@ aiur_engine_main() {
       ;;
     token)
       shift
+      aiur_resolve_identity
       run_local_cli token "$@"
       ;;
     accounts) shift; usage_alias accounts "$@" ;;

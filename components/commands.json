@@ -27,6 +27,7 @@
   ],
   "facades": [
     "Aiur.Commands",
+    "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",

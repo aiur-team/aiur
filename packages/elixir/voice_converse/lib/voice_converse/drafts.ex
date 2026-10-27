@@ -16,6 +16,7 @@ defmodule VoiceConverse.Drafts do
                  {:proposed, :discarded},
                  {:proposed, :stale},
                  {:confirmed, :sent},
+                 {:confirmed, :failed},
                  {:sent, :delivered},
                  {:sent, :failed},
                  {:failed, :confirmed}
@@ -23,7 +24,7 @@ defmodule VoiceConverse.Drafts do
 
   defmodule Draft do
     @enforce_keys [:draft_id, :kind, :status, :text, :target, :at]
-    defstruct [:draft_id, :kind, :status, :text, :target, :base_version, :at]
+    defstruct [:draft_id, :kind, :status, :text, :target, :base_version, :at, edited?: false]
 
     @type t :: %__MODULE__{
             draft_id: String.t(),
@@ -32,6 +33,7 @@ defmodule VoiceConverse.Drafts do
             text: String.t(),
             target: map(),
             base_version: term() | nil,
+            edited?: boolean(),
             at: String.t()
           }
   end
@@ -73,6 +75,21 @@ defmodule VoiceConverse.Drafts do
     do: do_transition(projection, draft_id, :confirmed, opts)
 
   def confirm(_projection, _draft_id, _principal, _opts), do: {:error, :not_client}
+
+  @spec edit(t(), String.t(), term(), keyword()) :: {:ok, Draft.t(), t()} | {:error, term()}
+  def edit(%__MODULE__{} = projection, draft_id, text, opts \\ []) do
+    with {:ok, draft} <- fetch(projection, draft_id),
+         :proposed <- draft.status || {:error, :invalid_transition},
+         :ok <- validate_text(text),
+         text <- redact(text, Keyword.get(opts, :redactor, & &1)),
+         :ok <- validate_text(text) do
+      draft = %{draft | text: text, edited?: true, at: Keyword.get(opts, :at, now())}
+      {:ok, draft, put(projection, draft)}
+    else
+      status when is_atom(status) -> {:error, :invalid_transition}
+      {:error, _reason} = error -> error
+    end
+  end
 
   @spec transition(t(), String.t(), status(), keyword()) ::
           {:ok, Draft.t(), t()} | {:error, :invalid_transition | :not_client | :not_found}
@@ -120,6 +137,7 @@ defmodule VoiceConverse.Drafts do
       at: draft.at
     }
     |> maybe_put(:base_version, draft.base_version)
+    |> maybe_put(:edited, if(draft.edited?, do: true))
   end
 
   @spec replay([map()]) :: {:ok, t()} | {:error, :invalid_record}
@@ -184,6 +202,7 @@ defmodule VoiceConverse.Drafts do
            text: text,
            target: target,
            base_version: value(record, :base_version),
+           edited?: value(record, :edited) == true,
            at: at
          }}
       else

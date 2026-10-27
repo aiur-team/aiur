@@ -30,7 +30,7 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur commands --search timeout` | Searches an `all` decision query. | `aiur commands --filter all --search timeout` |
 | `aiur commands --cursor TOKEN` | Continues a paginated decision query. | `aiur commands --cursor TOKEN` |
 | `aiur commands --limit 20` | Sets a positive result limit. | `aiur commands --limit 20` |
-| `aiur commands --json` | Emits machine-readable decision rows. | `aiur commands --json` |
+| `aiur commands --json` | Emits machine-readable decision rows, including request attribution and short labels. | `aiur commands --json` |
 | `aiur operator-relay-answer DECISION-ID` | Records an operator's already-given answer when `executor.relay_operator_answers: true`. Requires `--expected-version`, exactly one of `--option` or `--custom-response`, `--quote` (verbatim operator words), `--relayed-by` (Executor identity), and `--idempotency-key`. Accepted for `human_required`; recorded as `operator_relayed`, never a direct operator answer. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote "keep them" --relayed-by attended-executor --idempotency-key palette-1` |
 | `aiur operator-relay-answer DECISION-ID --supersede` | Relays the operator's corrected answer before worker delivery, preserving the prior answer in history. Refused while delivery is in flight, after delivery, or when the active answer was recorded directly by the operator. | `aiur operator-relay-answer dec_123 --expected-version 1 --option replace --quote "replace them instead" --relayed-by attended-executor --idempotency-key palette-2 --supersede` |
 | `aiur answer DECISION-ID --operator` | Human operators only. Requires an interactive terminal, shows the Command question, version and selected answer, then requires typing the decision ID to confirm. Agents and Executors must never run it. It accepts only `human_required` Commands and records actor `cli:<user>`. | `aiur answer dec_123 --option build_content --operator` |
@@ -49,6 +49,15 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur executor-moot DECISION-ID --reason-class ticket_closed` | Required. A bounded class such as `ticket_closed` or `origin_agent_gone` that explains why the Command was voided. | `aiur executor-moot dec_123 --expected-version 1 --reason-class origin_agent_gone --reason "Agent no longer runs"` |
 | `aiur executor-moot DECISION-ID --reason "Text"` | Optional free-text detail explaining why the Command was retired. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --reason "Folded into #2073"` |
 | `aiur executor-moot DECISION-ID --executor-id exec-1` | Optional attribution for the Executor retiring the Command. It must not be empty when present. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --executor-id exec-1` |
+
+`aiur commands --json` rows and `GET /api/v1/decisions[/:id]` expose `requester`,
+`origin`, `native`, `questions`, and `short_label`. Legacy Commands default to a
+worker requester and an `emit_event` origin (`attention` for legacy attentions);
+the label falls back to `context.short_summary`, capped at 40 characters.
+
+`native` exposes only `harness`, `hold`, and `question_ids`; internal correlation
+references are excluded. The HTTP projection includes `payload_version: 2` only
+when stored v2 attribution is non-default. The persisted v1 snapshot is unchanged.
 
 A mooted Command leaves `aiur commands --blocking` and the open/blocking counts, and stays visible under `--filter resolved`. A Command mooted while open keeps its answer unset in the audit history. A Command mooted after it was decided keeps its undelivered answer in the audit history, but that answer is never delivered.
 
