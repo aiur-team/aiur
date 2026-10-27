@@ -53,7 +53,7 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
   @spec native_reply_handler(Issue.t(), GenServer.server(), GenServer.server(), keyword()) :: function()
   def native_reply_handler(issue, orchestrator, decision_store \\ Commands.default_store(), live_opts \\ []) do
     fn refs ->
-      case Aiur.Orchestrator.OperatorMessages.claim_native_reply_item(orchestrator, issue.identifier, refs) do
+      case Aiur.Orchestrator.claim_native_reply_item(orchestrator, issue.identifier, refs) do
         {:ok, item} -> native_delivery(issue, orchestrator, item, decision_store, live_opts, refs)
         _empty -> :none
       end

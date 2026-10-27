@@ -198,6 +198,9 @@ defmodule Aiur.Orchestrator.Client do
   def claim_next_operator_queue_item(server, identifier),
     do: OM.claim_next_operator_queue_item(server, identifier)
 
+  @spec claim_native_reply_item(GenServer.server(), String.t(), [String.t()]) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_native_reply_item(server, identifier, refs), do: OM.claim_native_reply_item(server, identifier, refs)
+
   @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
   def claim_operator_response(server, identifier, command), do: OM.claim_operator_response(server, identifier, command)
 
