@@ -149,6 +149,10 @@ jobs:
       - name: Repository lint guards
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/lint-guards
+      - name: Guard shared style ownership
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: node scripts/check-aiur-style-duplicates.mjs --self-test && node scripts/check-aiur-style-duplicates.mjs
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     needs: changes

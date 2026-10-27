@@ -1,10 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { routeFonts, settle } from './support/visual'
+import { settle } from './support/visual'
 
 test.use({ viewport: { width: 1280, height: 800 } })
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await routeFonts(page)
 })
 
 test('command box and canvas keepout follow every selected tab', async ({ page }, testInfo) => {
