@@ -130,15 +130,13 @@ defmodule AiurWeb.StreamdeckCommands do
     }
   end
 
-  defp context(context) when is_map(context) do
+  defp context(context) do
     %{
       "short" => Map.get(context, :short_summary),
       "long" => Map.get(context, :long_context_markdown)
     }
     |> reject_nils()
   end
-
-  defp context(_context), do: %{}
 
   defp option(option) when is_map(option) do
     Map.new(@option_fields, fn field -> {Atom.to_string(field), Map.get(option, field)} end)
