@@ -35,9 +35,20 @@ defmodule Aiur.IssueLog.Format do
   def format_event_marker(kind, event) do
     "#{timestamp(event)} [event:#{kind}] id=#{event_field(event, :id, "")}" <>
       flag_segment(event) <>
+      actor_segment(event) <>
       " #{event_field(event, :topic, "")}" <>
       message_suffix(event) <>
       "\n"
+  end
+
+  defp actor_segment(event) do
+    topic = event_field(event, :topic, "")
+
+    if Aiur.Events.Catalog.lookup(topic).attribution == :payload_actor do
+      " actor=#{event_field(event, :actor, :unknown)}"
+    else
+      ""
+    end
   end
 
   defp event_field(event, key, default) do

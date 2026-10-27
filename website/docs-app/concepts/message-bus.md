@@ -120,6 +120,17 @@ Every manual `aiur_subscribe` pattern must start with one literal ticket identif
 
 Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
 
+## Listener-mode changes
+
+`ticket.<id>.agent.listen-mode.changed` is a live hint published after each local
+mode broadcast. Its payload carries `requested`, `effective`, `effective_reason`,
+`version`, and `actor` (`human`, `executor`, or `system`), with no message text.
+Consumers re-read listener-mode state. Default agent bindings exclude this topic.
+
+IssueLog attributes these events to the payload actor rather than the agent.
+Publication failures are logged without rolling back the saved mode or local
+broadcast; missed hints are not replayed.
+
 ## Queue transitions
 
 `ticket.<id>.queue.<verb>` publishes live hints after a saved transition, with
