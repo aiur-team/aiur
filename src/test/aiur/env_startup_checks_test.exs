@@ -279,6 +279,31 @@ defmodule Aiur.EnvStartupChecksTest do
     assert StartupChecks.validate_github_auth(settings, env) == :ok
   end
 
+  test "outbound webhook startup requires one valid 256-bit Standard Webhooks secret only when a URL is configured" do
+    disabled = %{events: %{export: %{enabled: false}}}
+    journal_only = %{events: %{export: %{enabled: true, webhook_url: nil}}}
+    enabled = %{events: %{export: %{enabled: true, webhook_url: "https://consumer.example.com/events"}}}
+    valid = "whsec_" <> Base.encode64(String.duplicate("k", 32))
+
+    assert :ok = StartupChecks.validate_outbound_export(disabled, %{})
+    assert :ok = StartupChecks.validate_outbound_export(journal_only, %{})
+    assert {:error, [missing]} = StartupChecks.validate_outbound_export(enabled, %{})
+    assert missing =~ "AIUR_OUTBOUND_WEBHOOK_SECRET"
+
+    for invalid <- ["", "not-prefixed", "whsec_not-base64", "whsec_" <> Base.encode64("too-short")] do
+      assert {:error, [message]} =
+               StartupChecks.validate_outbound_export(enabled, %{"AIUR_OUTBOUND_WEBHOOK_SECRET" => invalid})
+
+      assert message =~ "AIUR_OUTBOUND_WEBHOOK_SECRET"
+      if invalid != "", do: refute(message =~ invalid)
+    end
+
+    assert :ok =
+             StartupChecks.validate_outbound_export(enabled, %{
+               "AIUR_OUTBOUND_WEBHOOK_SECRET" => valid
+             })
+  end
+
   test "Google OAuth client id and secret must be configured together" do
     assert {:error, errors} = Env.validate(%{"AIUR_GOOGLE_CLIENT_ID" => "client-id"})
     assert Enum.any?(errors, &(&1 =~ "Google sign-in credentials are partially configured"))

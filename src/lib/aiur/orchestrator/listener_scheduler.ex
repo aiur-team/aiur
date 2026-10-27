@@ -3,9 +3,10 @@ defmodule Aiur.Listener.Scheduler do
 
   require Logger
   alias Aiur.AgentQueue
+  alias Aiur.Listener.SpecStatus
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
-  @type origin :: :agent_chat | :http | :tui | :internal
+  @type origin :: :agent_chat | :voice_assistant | :http | :tui | :internal
 
   @spec routing() :: :legacy | :listener
   def routing, do: routing([])
@@ -19,10 +20,7 @@ defmodule Aiur.Listener.Scheduler do
   end
 
   @spec spec_status() :: term()
-  def spec_status do
-    module = Module.concat(["Aiur", "Listener", "Spec"])
-    if Code.ensure_loaded?(module), do: module.status(), else: {:error, :not_installed}
-  end
+  def spec_status, do: SpecStatus.read()
 
   @spec resolve(origin(), map() | nil, map(), atom() | nil) :: {:ok, keyword()} | {:error, atom()}
   def resolve(origin, view, capabilities, fallback), do: resolve(origin, view, capabilities, fallback, [])
@@ -54,7 +52,7 @@ defmodule Aiur.Listener.Scheduler do
 
   defp listener(_view), do: {:error, :listener_mode_unavailable}
 
-  defp legacy(:agent_chat, caps), do: DeliveryPolicy.normalize_delivery_request(:interrupt, :queue_next, caps)
+  defp legacy(origin, caps) when origin in [:agent_chat, :voice_assistant], do: DeliveryPolicy.normalize_delivery_request(:interrupt, :queue_next, caps)
   defp legacy(:http, caps), do: DeliveryPolicy.normalize_delivery_request(:checkpoint, nil, caps)
   defp legacy(:tui, caps), do: DeliveryPolicy.normalize_delivery_request(:auto, nil, caps)
   defp legacy(_origin, _caps), do: {:error, :invalid_message}

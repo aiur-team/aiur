@@ -48,6 +48,7 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate global_pause_status(server, timeout_ms), to: Aiur.Orchestrator.Client
       defdelegate set_global_pause(on?), to: Aiur.Orchestrator.Client
       defdelegate set_global_pause(on?, source), to: Aiur.Orchestrator.Client
+      defdelegate listener_prompt_context(identifier, opts), to: Aiur.Orchestrator.Client
       defdelegate control_capabilities(identifier), to: Aiur.Orchestrator.Client
       defdelegate control_capabilities(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate set_remote_control(identifier, on?), to: Aiur.Orchestrator.Client

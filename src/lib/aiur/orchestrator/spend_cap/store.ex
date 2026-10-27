@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
   require Logger
 
   alias Aiur.{AgentPubSub, Events, Signal}
-  alias Aiur.Orchestrator.SpendCap.{Evaluation, Persistence, Record, Runtime, Stop}
+  alias Aiur.Orchestrator.SpendCap.{Evaluation, OutboundEvents, Persistence, Record, Runtime, Stop}
   alias Aiur.Orchestrator.TicketTransition
   alias Aiur.TrackerIdentity
   alias Aiur.UsageAggregate
@@ -82,7 +82,7 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       alert_fun: Keyword.get(opts, :alert_fun, &Signal.alert/2),
       reserve_event_id_fun: Keyword.get(opts, :reserve_event_id_fun, &Events.reserve_durable_id/0),
       stop_fun: Keyword.get(opts, :stop_fun, fn identity, _end_state -> Stop.request(identity) end),
-      event_fun: Keyword.get(opts, :event_fun, &publish_event/3),
+      event_fun: Keyword.get(opts, :event_fun, &OutboundEvents.publish/4),
       transition_fun: Keyword.get(opts, :transition_fun, &transition_ticket/2),
       task_start_fun: Keyword.get(opts, :task_start_fun, &start_effect_task/1),
       refresh_debounce_ms: Keyword.get(opts, :refresh_debounce_ms, @refresh_debounce_ms),
@@ -381,7 +381,8 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
 
   defp run_effect(state, record, :event) do
     topic = "ticket.#{record.identity.identifier}.usage.spend_cap_reached"
-    safe_call(fn -> state.event_fun.(topic, Record.event_payload(record), record.event_id) end)
+    payload = Record.event_payload(record)
+    safe_call(fn -> OutboundEvents.publish(state.event_fun, topic, payload, record.event_id, record.identity) end)
   end
 
   defp run_effect(state, record, :tracker_transition) do
@@ -441,8 +442,6 @@ defmodule Aiur.Orchestrator.SpendCap.Store do
       _other -> %{state: :unavailable}
     end
   end
-
-  defp publish_event(topic, payload, event_id), do: Events.publish_persisted(topic, payload, event_id, digest_source: :orchestrator)
 
   defp transition_ticket(identifier, state) do
     TicketTransition.write_state(identifier, state, writer: :spend_cap)

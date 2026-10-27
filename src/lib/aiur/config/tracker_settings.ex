@@ -128,19 +128,32 @@ defmodule Aiur.Config.TrackerSettings do
     Aiur.Config.settings!().events.codeowners_refresh_seconds
   end
 
+  @spec events_export() :: Aiur.Config.Schema.EventsExport.t()
+  def events_export do
+    Aiur.Config.settings!().events
+    |> Map.get(:export)
+    |> then(&(&1 || %Aiur.Config.Schema.EventsExport{}))
+  end
+
   @spec events_export_enabled?() :: boolean()
   def events_export_enabled? do
-    Aiur.Config.settings!().events.export.enabled
+    events_export().enabled
+  end
+
+  @spec events_export_webhook_enabled?() :: boolean()
+  def events_export_webhook_enabled? do
+    export = events_export()
+    export.enabled and is_binary(export.webhook_url) and export.webhook_url != ""
   end
 
   @spec events_export_retention_days() :: pos_integer()
   def events_export_retention_days do
-    Aiur.Config.settings!().events.export.retention_days
+    events_export().retention_days
   end
 
   @spec events_export_retention_max_events() :: pos_integer()
   def events_export_retention_max_events do
-    Aiur.Config.settings!().events.export.retention_max_events
+    events_export().retention_max_events
   end
 
   @spec workspace_root() :: Path.t()

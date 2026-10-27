@@ -160,6 +160,12 @@ defmodule Aiur.Journal do
     end
   end
 
+  @doc "Atomically replaces a prepared journal with pre-encoded records."
+  @spec rewrite(Path.t(), iodata()) :: :ok | {:error, term()}
+  def rewrite(path, contents) when is_binary(path) do
+    Fs.atomic_write(path, contents, fsync: true, mode: 0o600)
+  end
+
   defp append_record(fd, path, encoded, file_ops) do
     case :file.position(fd, :eof) do
       {:ok, offset} ->
