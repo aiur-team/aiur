@@ -251,9 +251,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
     if request.delivery_policy == :listener and Scheduler.routing() == :listener do
       {:reply, {:ok, view}, _state} = ListenerModes.get_mode(state, entry.identifier)
 
-      view.effective in [:sync, :steer] and
-        ((State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :agent_pause_request) or PauseResume.pending_input_pause?(state, entry)) and
-        no_hold?(state, entry)
+      pending = PauseResume.current_pending_pause_reason(state, entry)
+      self_paused? = State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :agent_pause_request and is_nil(pending)
+      view.effective in [:sync, :steer] and (self_paused? or pending == :agent_pause_request) and no_hold?(state, entry)
     else
       legacy_resumes_pause?(state, entry, request)
     end
