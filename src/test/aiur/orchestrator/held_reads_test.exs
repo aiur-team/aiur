@@ -34,6 +34,8 @@ defmodule Aiur.Orchestrator.HeldReadsTest do
     assert_received {:transcript_event, event}
     assert event.payload.operator_message.status == :read
     assert event.payload.operator_message.request_ids == [first.id, second.id]
+    assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
+    refute_received {:transcript_event, %{payload: %{listener: _}}}
   end
 
   test "only held operator messages from this ticket are consumed", %{opts: opts} do

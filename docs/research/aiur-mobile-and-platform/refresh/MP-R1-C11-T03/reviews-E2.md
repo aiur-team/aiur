@@ -82,3 +82,16 @@ by `Codex.TurnLoop`; `AppServer.Interrupts` suppresses unrelated queue interrupt
 adapter. `QueueDrain` delegates validation and delivery evidence to
 `AgentRunner.DeliveryCorrelation`. The store's queue-item settlement contract remains
 unchanged. These symbols replace the historical line ranges for implementation.
+
+## REFRESH-MP-E2-C6-T03-4fbe1095 — closed (2026-10-27)
+
+Source reviewed before implementation on ticket #6421. `asks_cli.ex:13–56`
+now routes legacy operations through `Commands.create_ask/resolve_ask/open_asks/all_asks`.
+CLI dispatch is `cli.ex:38,161–162`, parsing lives in `cli/subcommands.ex:106–165`,
+and local launcher execution is `engine/oneshot.sh:171–173` with dispatch in
+`aiur-engine.sh:259–261`. C6-T01 landed as `ControlCLI.ExecutorRequest.request/2`
+with caller identity (the alias adds an optional result renderer); C6-T02 delivery is merged.
+The alias uses these current APIs, preserves local legacy reads/resolution, and
+loads the current Command version before Executor withdrawal. Current IDs use
+the `dec_` prefix plus 16 hex characters; the historical bare-hex description is stale. Historical ranges
+are superseded; the design and compatibility requirements are retained.

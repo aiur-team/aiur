@@ -3,6 +3,7 @@ defmodule Aiur.Listener.Scheduler do
 
   require Logger
   alias Aiur.AgentQueue
+  alias Aiur.Listener.SpecStatus
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
   @type origin :: :agent_chat | :voice_assistant | :http | :tui | :internal
@@ -19,10 +20,7 @@ defmodule Aiur.Listener.Scheduler do
   end
 
   @spec spec_status() :: term()
-  def spec_status do
-    module = Module.concat(["Aiur", "Listener", "Spec"])
-    if Code.ensure_loaded?(module), do: module.status(), else: {:error, :not_installed}
-  end
+  def spec_status, do: SpecStatus.read()
 
   @spec resolve(origin(), map() | nil, map(), atom() | nil) :: {:ok, keyword()} | {:error, atom()}
   def resolve(origin, view, capabilities, fallback), do: resolve(origin, view, capabilities, fallback, [])

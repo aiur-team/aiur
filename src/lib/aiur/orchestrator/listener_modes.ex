@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
   alias Aiur.{AgentPubSub, AgentQueueStore, Events, TrackerIdentity}
   alias Aiur.Events.Catalog
   alias Aiur.Listener.{Effective, ModeStore, Scheduler}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
   alias Aiur.Orchestrator.State
 
   @spec get_mode(State.t(), Aiur.Listener.target()) :: tuple()
@@ -56,6 +56,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
     store = AgentQueueStore.update_pending_delivery(state.queue_store, id, Scheduler.restamp_fun(view))
     pending = AgentQueueStore.list_pending(store, id)
     changed = Enum.find(pending, fn item -> item.delivery != AgentQueueStore.get(state.queue_store, item.id).delivery end)
+    Unread.broadcast_change(state.queue_store, store, id)
     next_state = %{state | queue_store: store}
     if changed, do: DeliveryPolicy.notify_running_queue_update(next_state, State.find_running_by_identifier(state.running, id), changed)
     next_state

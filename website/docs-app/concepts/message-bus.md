@@ -353,3 +353,16 @@ A resumed older Codex thread keeps its original tool catalog. Async stays
 unavailable there unless its saved session handle confirms the read tool was
 installed. Fresh threads register the current catalog; Claude REPL has no tool
 path and continues to fall back to sync.
+
+## Held-message counts
+
+Per-ticket control capabilities include `listener.unread_count` and
+`listener.oldest_unread_at`. They count pending held-async operator messages,
+including messages retained while the agent is stopped. The oldest timestamp is
+`nil` when none remain. Ordinary pending messages and consumed, failed or
+superseded held messages are excluded.
+
+A system transcript event carries `payload.listener` with the current count and
+oldest timestamp when a hold, consuming read, mode restamp or failure changes
+these values. Clients should re-read capabilities after reconnecting; the
+projection is derived from the queue, rather than a separate counter.

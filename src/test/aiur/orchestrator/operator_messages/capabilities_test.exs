@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
              immediate_delivery: false,
              pending_control: nil,
              queue_depth: 0,
+             listener: %{unread_count: 0, oldest_unread_at: nil},
              safe_checkpoints: [],
              status: :working,
              unit_control: :unsupported
@@ -41,6 +42,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.CapabilitiesTest do
              immediate_delivery: false,
              pending_control: nil,
              queue_depth: 2,
+             listener: %{unread_count: 0, oldest_unread_at: nil},
              safe_checkpoints: [:notification, :tool_result],
              status: :sleeping,
              unit_control: :request_only

@@ -15,13 +15,13 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur ticket estimate <id> [<hours> or --clear] [--reason <text>] [--by <who>] [--json]` | Show, set or clear durable estimate overrides; writes require a reason. See the validation and recovery details above. | `aiur ticket estimate 2412 7 --reason "Three design rounds"` |
-| `aiur ask "Title"` | Creates a durable operator request for the current repository. Add `--body` or `--body-file`, `--urgency low\|normal\|high`, and `--blocking` as needed. | `aiur ask "Approve production cutover" --blocking --urgency high` |
-| `aiur ask "Title" --body "Context"` | Stores short supporting Markdown in the ask. | `aiur ask "Approve production cutover" --body "Production freeze ends today."` |
+| `aiur ask "Title"` | Deprecated alias for `aiur command request`: raises a human-directed Executor Command (daemon required). Add `--body` or `--body-file`, `--urgency low\|normal\|high`, and `--blocking` as needed. | `aiur ask "Approve production cutover" --blocking --urgency high` |
+| `aiur ask "Title" --body "Context"` | Stores supporting Markdown as the Command’s long context. | `aiur ask "Approve production cutover" --body "Production freeze ends today."` |
 | `aiur ask "Title" --body-file request.md` | Reads the supporting body from a UTF-8 file. | `aiur ask "Approve production cutover" --body-file request.md` |
 | `aiur ask "Title" --urgency high` | Classifies the request as `low`, `normal`, or `high`. | `aiur ask "Approve production cutover" --urgency high` |
-| `aiur ask --done ASK-ID` | Resolves one open ask; `--note` records the resolution context. | `aiur ask --done ask_123 --note "Approved by release manager"` |
-| `aiur ask --done ASK-ID --note "Approved"` | Saves the optional resolution context with a completed ask. | `aiur ask --done ask_123 --note "Approved by release manager"` |
-| `aiur asks` | Lists open asks by default. Use `--all` to include resolved records and `--json` for the durable rows. | `aiur asks --all --json` |
+| `aiur ask --done ASK-ID` | Withdraws a Command with reason `executor_withdrew`; legacy `ask_` IDs resolve locally. | `aiur ask --done ask_123 --note "Approved by release manager"` |
+| `aiur ask --done ASK-ID --note "Approved"` | Records withdrawal detail for Commands or resolution context for legacy asks. | `aiur ask --done ask_123 --note "Approved by release manager"` |
+| `aiur asks` | Lists legacy open asks and points to `aiur commands`. Use `--all` to include resolved records and `--json` for the durable rows. | `aiur asks --all --json` |
 | `aiur asks --open` | Makes the open-asks default explicit. | `aiur asks --open --json` |
 | `aiur commands` | Lists durable Executor decisions. An optional decision ID selects one record. | `aiur commands` |
 | `aiur commands --filter open` | Accepts `all`, `open`, `blocking`, or `resolved`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter open` |
@@ -51,6 +51,15 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 | `aiur executor-moot DECISION-ID --reason-class ticket_closed` | Required. A bounded class such as `ticket_closed` or `origin_agent_gone` that explains why the Command was voided. | `aiur executor-moot dec_123 --expected-version 1 --reason-class origin_agent_gone --reason "Agent no longer runs"` |
 | `aiur executor-moot DECISION-ID --reason "Text"` | Optional free-text detail explaining why the Command was retired. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --reason "Folded into #2073"` |
 | `aiur executor-moot DECISION-ID --executor-id exec-1` | Optional attribution for the Executor retiring the Command. It must not be empty when present. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --executor-id exec-1` |
+
+`aiur ask` creates `dec_`-prefixed Command IDs instead of `ask_` IDs.
+It keeps the old non-blocking default; add `--blocking` to hold dispatch.
+New requests never fall back to the legacy file store when the daemon is down.
+
+`aiur ask --list` is an alias for `aiur asks`; JSON output contains only legacy
+rows, while plain output points to `aiur commands`. Legacy `ask_` history remains
+readable and is not migrated. Prefer `aiur command request` for new scripts;
+its default is blocking.
 
 Successful Executor answers, escalations, moots, and supersedes also record an acknowledgement. A failed acknowledgement write is logged without changing the action’s result. Reading a Command or receiving an Executor wake does not acknowledge it. Acknowledging after escalation remains audit evidence and does not change routing.
 
