@@ -1,5 +1,6 @@
 defmodule Aiur.Machine.StoreIdentityTest do
   use ExUnit.Case, async: false
+  alias Aiur.Identity.Store, as: IdentityStore
   alias Aiur.Machine.Store
 
   setup do
@@ -26,13 +27,13 @@ defmodule Aiur.Machine.StoreIdentityTest do
     end
 
     Application.put_env(:aiur, :machine_state_dir, Path.join(root, "override"))
-    assert Store.paths().dir == Aiur.Identity.Store.dir()
+    assert Store.paths().dir == IdentityStore.dir()
     assert Store.paths().dir == Path.join(root, "override")
   end
 
   test "reads MP-R1 identity without rewriting", %{paths: p} do
     identity = %{machine_id: Base.encode32(:crypto.strong_rand_bytes(16), case: :lower, padding: false), machine_label: "workstation", created_at: DateTime.to_iso8601(DateTime.utc_now())}
-    assert :ok = Aiur.Identity.Store.create(p.dir, Map.put(identity, :schema_version, 1))
+    assert :ok = IdentityStore.create(p.dir, Map.put(identity, :schema_version, 1))
     before = File.read!(p.identity)
     assert Store.identity() == {:ok, identity}
     assert identity.machine_label == "workstation"

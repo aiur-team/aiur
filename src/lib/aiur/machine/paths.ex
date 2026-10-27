@@ -1,9 +1,11 @@
 defmodule Aiur.Machine.Paths do
   @moduledoc "Machine pairing files alongside the boot-owned machine identity."
 
+  alias Aiur.Identity.Store, as: IdentityStore
+
   @spec paths() :: %{dir: Path.t(), identity: Path.t(), store: Path.t(), machine_key: Path.t(), machine_public_key: Path.t()}
   def paths do
-    dir = Aiur.Identity.Store.dir()
+    dir = IdentityStore.dir()
 
     %{
       dir: dir,
