@@ -135,13 +135,24 @@ The discard file is a deliberate operator signal outside the workspace, not an a
 If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace. The terminal sweep at the next Aiur start tries again. If a new run of a reopened ticket holds the workspace when the delete is due, Aiur keeps the workspace and the save, and the notice does not expire.
 
 To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
-### Executor Command requests
+
+## Executor Command requests
 
 `aiur command request "<question>"` accepts repeated `--option <id>=<label>` flags and an optional `--recommend <id>` (moves that response first). Prefer two or three responses. Requests default to blocking, normal urgency and human-required authority. `--blocking` is accepted explicitly; `--urgency low|normal|high|critical` sets priority.
 
-Use `--short-summary <text>` for a concise title and `--context-file <path>` for Markdown context (at most 20,000 characters, read on the caller's machine before RPC). `--ticket <n>` adds context only: the reserved `executor` ticket owns the Command and no worker receives its answer. `--executor-id <id>` identifies the requester, falling back to `AIUR_EXECUTOR_ID` and then the host/instance identity; a live claim is not required.
+Use `--short-summary <text>` for a concise title and `--context-file <path>` for Markdown context (at most 20,000 characters, read on the caller's machine before RPC).
 
-The output prints the Command ID and retry key. Reuse `--idempotency-key <key>` after an uncertain submission to return the same Command. Without a key, one is generated. `--json` returns `decision_id`, `version`, `route_state`, `source_id` and `status`; routing may still be pending (`route_state: null`) when creation returns. Routing sends these Commands directly to the human with cause `executor_originated`. Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
+`--ticket <n>` adds context only: the reserved `executor` ticket owns the Command and no worker receives its answer.
+
+`--executor-id <id>` identifies the requester, falling back to `AIUR_EXECUTOR_ID` and then the host/instance identity; a live claim is not required.
+
+The output prints the Command ID and retry key. Reuse `--idempotency-key <key>` after an uncertain submission to return the same Command. Without a key, one is generated.
+
+`--json` returns `decision_id`, `version`, `route_state`, `source_id` and `status`; routing may still be pending (`route_state: null`) when creation returns.
+
+Routing sends these Commands directly to the human with cause `executor_originated`.
+
+Executors cannot answer them through `executor-answer` or `operator-relay-answer`, including revisions and superseding answers. The operator must use an authenticated surface such as the dashboard, Stream Deck or phone.
 
 ## Build history commands — [feature, epic and history export commands](/reference/build-history-commands)
 
