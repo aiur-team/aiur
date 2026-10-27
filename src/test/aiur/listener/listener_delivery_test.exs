@@ -3,7 +3,7 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
   alias Aiur.{AgentQueue, AgentQueueStore, Issue, Orchestrator, TrackerIdentity}
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{ControlLifecycle, ListenerModes, OperatorMessages, State}
-  alias Aiur.Orchestrator.OperatorMessages.{DeliveryPolicy, Enqueue}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Enqueue, HeldReads}
 
   setup_all do
     # The optional build artifact is the external boundary; exercise the real scheduler.
@@ -236,7 +236,7 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     refute_received {:transcript_event, %{payload: %{listener: _}}}
     assert {:reply, {:ok, second}, state} = OperatorMessages.send_operator_message_call(state, id, %{request | body: "second", message_id: "unread-second"})
     assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 2}}}}
-    assert {:reply, {:ok, %{remaining: 1}}, state} = Aiur.Orchestrator.OperatorMessages.HeldReads.handle_call(state, id, 1)
+    assert {:reply, {:ok, %{remaining: 1}}, state} = HeldReads.handle_call(state, id, 1)
     assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 1, oldest_unread_at: remaining_at}}}}
     assert remaining_at == AgentQueueStore.get(state.queue_store, second).inserted_at
     state = ListenerModes.mode_view_changed(state, id, %{effective: :sync})
@@ -256,6 +256,6 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     refute_received {:transcript_event, %{payload: %{listener: _}}}
     assert {:reply, :ok, state} = OperatorMessages.mark_queue_item_failed_call(state, item.id, :failed)
     assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
-    assert Aiur.Orchestrator.OperatorMessages.Capabilities.issue_control_capabilities(state, id).listener.unread_count == 0
+    assert Capabilities.issue_control_capabilities(state, id).listener.unread_count == 0
   end
 end

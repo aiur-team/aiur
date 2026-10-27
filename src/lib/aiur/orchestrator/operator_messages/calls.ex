@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueueStore, Commands, OperatorWaitLog, Signal, TrackerIdentity}
   alias Aiur.Orchestrator.{AutoSubscriptions, DigestCoalescer, LifecycleFence, State}
+  alias Aiur.Orchestrator.OperatorMessages.Unread
 
   @spec enqueue_event_digest_call(State.t(), String.t(), map(), keyword()) ::
           {:reply, :ok, State.t()}
@@ -303,7 +304,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
     Commands.record_transport_batch_async(transition, List.wrap(items), reason)
 
     for id <- items |> List.wrap() |> Enum.map(& &1.target_issue_identifier) |> Enum.uniq(),
-        do: Aiur.Orchestrator.OperatorMessages.Unread.broadcast_change(state.queue_store, queue_store, id)
+        do: Unread.broadcast_change(state.queue_store, queue_store, id)
 
     next_state = %{state | queue_store: queue_store}
     maybe_alert_failed_fenced_items(next_state, transition, List.wrap(items), reason)
