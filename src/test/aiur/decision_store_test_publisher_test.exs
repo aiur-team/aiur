@@ -19,7 +19,7 @@ defmodule Aiur.DecisionStoreTestPublisherTest do
       capture_log(fn ->
         store = start_supervised!({DecisionStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
         publisher = :sys.get_state(store).answer_comment_publisher
-        assert :ok = publisher.(decision)
+        assert :skip = publisher.(decision)
         refute_receive {:github_request, _, _}, 100
       end)
 

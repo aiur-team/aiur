@@ -267,6 +267,7 @@ defmodule Aiur.DecisionStore.Answers do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
       case publish_ticket_comment(decision, publisher, [0, 1_000, 5_000, 30_000]) do
         :ok -> send(store, {:answer_comment_published, decision.decision_id, decision.answer.action_id})
+        :skip -> :ok
         :error -> :ok
       end
     end)
@@ -288,6 +289,9 @@ defmodule Aiur.DecisionStore.Answers do
 
   defp publish_ticket_comment_attempt(decision, publisher, rest) do
     case publisher.(decision) do
+      :skip ->
+        :skip
+
       :ok ->
         :ok
 

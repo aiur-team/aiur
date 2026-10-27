@@ -108,7 +108,7 @@ defmodule Aiur.DecisionStore.Boot do
 
   defp default_answer_comment_publisher do
     case Application.get_env(:aiur, :env) do
-      :test -> fn _decision -> :ok end
+      :test -> fn _decision -> :skip end
       _ -> &DecisionAnswerComment.ensure/1
     end
   end
