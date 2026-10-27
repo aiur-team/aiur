@@ -104,7 +104,7 @@ defmodule Aiur.Listener.EffectiveTest do
   defp expected_support(backend, interrupt, accepted, pull, installed) do
     steer =
       case {backend, interrupt, accepted} do
-        {native, _, _} when native in ["codex", "muse"] -> %{status: :experimental, carrier: :native, reason: nil}
+        {native, _, _} when native in ["claude-repl", "codex", "muse"] -> %{status: :experimental, carrier: :native, reason: nil}
         {_, :none, _} -> %{status: :unsupported, carrier: nil, reason: :no_interrupt}
         {_, _, false} -> %{status: :unsupported, carrier: nil, reason: :steer_not_wired}
         {_, _, true} -> %{status: :experimental, carrier: :emulated_interrupt, reason: nil}
