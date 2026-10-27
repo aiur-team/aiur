@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiur.team/schemas/command.v2.schema.json",
+  "title": "CommandV2",
+  "description": "Additive read-API Command projection. Legacy rows have no payload_version; persisted decisions.json uses the v1 shape.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "decision_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "question": {
+      "type": "string"
+    },
+    "requester": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "worker",
+            "executor"
+          ]
+        },
+        "ticket": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "executor_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "origin": {
+      "enum": [
+        "emit_event",
+        "attention",
+        "native_question",
+        "executor_cli",
+        "supervisor_api"
+      ]
+    },
+    "native": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "harness": {
+          "enum": [
+            "codex",
+            "claude"
+          ]
+        },
+        "hold": {
+          "enum": [
+            "in_band",
+            "deferred",
+            "released"
+          ]
+        },
+        "question_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "harness",
+        "hold"
+      ]
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "short_label": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "At most 40 Unicode graphemes, matching the Command content validator."
+    },
+    "payload_version": {
+      "const": 2
+    }
+  },
+  "required": [
+    "decision_id",
+    "version",
+    "question",
+    "requester",
+    "origin",
+    "native",
+    "questions",
+    "short_label"
+  ]
+}
