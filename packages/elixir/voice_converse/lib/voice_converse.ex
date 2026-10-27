@@ -53,6 +53,24 @@ defmodule VoiceConverse do
     end
   end
 
+  @doc "Confirms a client-visible instruction draft and delivers it through the host channel."
+  @spec confirm_draft(module(), String.t(), String.t(), keyword()) ::
+          {:ok, VoiceConverse.Drafts.Draft.t()} | {:error, term()}
+  def confirm_draft(instance, conversation_id, draft_id, opts \\ []) do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+      GenServer.call(pid, {:confirm_draft, draft_id, opts})
+    end
+  end
+
+  @doc "Discards a client-visible instruction draft without delivering it."
+  @spec discard_draft(module(), String.t(), String.t(), keyword()) ::
+          {:ok, VoiceConverse.Drafts.Draft.t()} | {:error, term()}
+  def discard_draft(instance, conversation_id, draft_id, opts \\ []) do
+    with {:ok, pid} <- SessionRegistry.lookup(instance, conversation_id) do
+      GenServer.call(pid, {:discard_draft, draft_id, opts})
+    end
+  end
+
   @doc "Subscribes a process to conversation events."
   @spec subscribe(module(), String.t(), pid()) :: :ok | {:error, :not_found}
   def subscribe(instance, conversation_id, subscriber \\ self()) do
