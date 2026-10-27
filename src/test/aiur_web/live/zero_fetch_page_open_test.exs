@@ -82,6 +82,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "linear")
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
+    decision_store = Process.whereis(Aiur.DecisionStore)
+    previous_answer_comment_publisher = :sys.get_state(decision_store).answer_comment_publisher
+    :sys.replace_state(decision_store, &%{&1 | answer_comment_publisher: fn _decision -> :ok end})
+
+    on_exit(fn ->
+      :sys.replace_state(decision_store, &%{&1 | answer_comment_publisher: previous_answer_comment_publisher})
+    end)
+
     ZeroFetchPageOpenWatchers.suspend(fn pid ->
       on_exit(fn -> ZeroFetchPageOpenWatchers.resume(pid) end)
     end)
@@ -101,6 +109,11 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     Aiur.TestSupport.await_orchestrator_state(orchestrator, fn state ->
       map_size(state.tracker_tasks) == 0 and is_nil(:sys.get_state(Aiur.GitHub.Listeners.Comments).cursor.poll)
     end)
+
+    # A decision test may have left an answer-comment retry asleep under the
+    # shared task supervisor. Drain those tasks before installing the GitHub
+    # counter so their captured publisher cannot leak a request into this test.
+    await_answer_comment_tasks()
 
     if context[:comment_poll_leak_probe] do
       # This test sends a poll-cycle message while the page is held open. Make
@@ -418,6 +431,32 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     assert length(Agent.get(counter, & &1)) > before,
            "the transport sent nothing for a request that must always send, so the zero above " <>
              "may be an exhausted budget rather than a page that did not fetch"
+  end
+
+  defp await_answer_comment_tasks(remaining \\ 8_000)
+
+  defp await_answer_comment_tasks(0), do: flunk("answer-comment tasks did not drain before the GitHub request counter was installed")
+
+  defp await_answer_comment_tasks(remaining) do
+    case answer_comment_task_pids() do
+      [] ->
+        :ok
+
+      _children ->
+        Process.sleep(5)
+        await_answer_comment_tasks(remaining - 1)
+    end
+  end
+
+  defp answer_comment_task_pids do
+    Aiur.TaskSupervisor
+    |> Task.Supervisor.children()
+    |> Enum.filter(fn pid ->
+      case Process.info(pid, :current_stacktrace) do
+        {:current_stacktrace, stacktrace} -> Enum.any?(stacktrace, &match?({Aiur.DecisionStore.Answers, _, _, _}, &1))
+        nil -> false
+      end
+    end)
   end
 
   # Reproduce a prior event consumer still waiting to read when this test starts.
