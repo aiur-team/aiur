@@ -35,6 +35,7 @@ defmodule Aiur.TestBootGuard do
     derived_paths =
       for resolver <- [
             :runtime_state_dir,
+            :conversation_state_dir,
             :current_run_membership_state_dir,
             :progress_retention_state_dir,
             :build_history_state_dir,
