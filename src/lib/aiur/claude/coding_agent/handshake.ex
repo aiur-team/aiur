@@ -19,27 +19,28 @@ defmodule Aiur.Claude.CodingAgent.Handshake do
 
   @spec capability(map()) :: map()
   def capability(result) do
-    cond do
-      not Config.decisions_native_capture?(:claude) ->
-        %{native_question: :none, reason: :gate_off}
+    if Config.decisions_native_capture?(:claude) do
+      case version_reason(get_in(result, ["server", "version"])) do
+        nil ->
+          %{native_question: :deferred, reason: nil}
 
-      supported_version?(get_in(result, ["server", "version"])) ->
-        %{native_question: :deferred, reason: nil}
-
-      true ->
-        Logger.warning("Claude native questions disabled: sibling_too_old; install with: npm install -g aiur-claude@^#{@minimum_version}")
-        %{native_question: :none, reason: :sibling_too_old}
+        reason ->
+          Logger.warning("Claude native questions disabled: #{reason}; requires aiur-claude >= #{@minimum_version}")
+          %{native_question: :none, reason: reason}
+      end
+    else
+      %{native_question: :none, reason: :gate_off}
     end
   end
 
-  defp supported_version?(version) when is_binary(version) do
+  defp version_reason(version) when is_binary(version) do
     case Version.parse(version) do
-      {:ok, parsed} -> Version.compare(parsed, @minimum_version) != :lt
-      :error -> false
+      {:ok, parsed} -> if Version.compare(parsed, @minimum_version) == :lt, do: :sibling_too_old
+      :error -> :version_unknown
     end
   end
 
-  defp supported_version?(_unknown), do: false
+  defp version_reason(_unknown), do: :version_unknown
 
   defp start_thread(port, workspace, capability) do
     params = %{"permissionMode" => Aiur.Claude.Config.permission_mode(), "cwd" => Path.expand(workspace), "dynamicTools" => Catalog.specs()}

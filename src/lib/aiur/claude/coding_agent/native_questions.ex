@@ -31,7 +31,7 @@ defmodule Aiur.Claude.CodingAgent.NativeQuestions do
       {:error, reason} ->
         {:error, reason}
 
-      _policy_or_invalid ->
+      policy_or_invalid when policy_or_invalid in [:unhandled, :input_required] ->
         unavailable(session, state, id, params)
     end
   end

@@ -22,7 +22,7 @@ defmodule Aiur.CodingAgent.Providers.Claude do
       # Requires aiur-claude >= 1.1.0; provider_error provenance needs a later sibling revision.
       default_command: "aiur-claude",
       model_catalog: &ModelCatalog.extract_claude/1,
-      install_hint: "install it with: npm install -g aiur-claude@^1.3.0",
+      install_hint: "install it with: npm install -g aiur-claude",
       # app-server stdio; OperatorDelivery serializes turns; CodingAgent exposes dynamic tools.
       delivery: %{transport: :app_server_stdio, mid_turn_inject: :none, pull_tool: true, hook_boundaries: [], native_question: :none},
       hosted_execution: %{permission_boundary: :claude_permission_mode, network_boundary: :unrestricted, credential_boundary: :agent},

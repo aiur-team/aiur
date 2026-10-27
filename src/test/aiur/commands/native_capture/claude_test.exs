@@ -41,8 +41,8 @@ defmodule Aiur.Commands.NativeCapture.ClaudeTest do
   for {name, gate, version, reason} <- [
         {"gate off", false, "1.3.0", :gate_off},
         {"old sibling", true, "1.2.0", :sibling_too_old},
-        {"unversioned sibling", true, nil, :sibling_too_old},
-        {"invalid sibling version", true, "unknown", :sibling_too_old},
+        {"unversioned sibling", true, nil, :version_unknown},
+        {"invalid sibling version", true, "unknown", :version_unknown},
         {"prerelease sibling", true, "1.3.0-rc.1", :sibling_too_old}
       ] do
     test "#{name} omits nativeQuestions and answers defensively", c do
