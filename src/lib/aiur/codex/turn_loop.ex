@@ -5,7 +5,7 @@ defmodule Aiur.Codex.TurnLoop do
 
   require Logger
 
-  alias Aiur.AppServer.{Messages, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
+  alias Aiur.AppServer.{Messages, NativeReplies, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
   alias Aiur.Codex.{Approvals, NotificationPolicy, Notifications, TurnEvents}
   alias Aiur.Commands.NativeCapture
 
@@ -195,7 +195,8 @@ defmodule Aiur.Codex.TurnLoop do
          ) do
       {:held, ref, info} ->
         Messages.emit_message(on_message, :native_question_held, Map.take(info, [:decision_id, :native_ref, :since]), metadata)
-        {:continue, Map.update(state, :held_native_questions, %{ref => info}, &Map.put(&1, ref, info))}
+        state = Map.update(state, :held_native_questions, %{ref => info}, &Map.put(&1, ref, info))
+        {:continue, NativeReplies.deliver(session, state)}
 
       :input_required ->
         Messages.emit_message(

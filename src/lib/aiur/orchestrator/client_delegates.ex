@@ -63,6 +63,7 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate claim_next_checkpoint_queue_item(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate claim_blocker_critical_events_digest(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate claim_next_operator_queue_item(server, identifier), to: Aiur.Orchestrator.Client
+      defdelegate claim_native_reply_item(server, identifier, refs), to: Aiur.Orchestrator.Client
       defdelegate claim_operator_response(server, identifier, command), to: Aiur.Orchestrator.Client
       defdelegate mark_queue_item_consumed(server, item_id), to: Aiur.Orchestrator.Client
       defdelegate restore_queue_item_pending(server, item_id), to: Aiur.Orchestrator.Client
