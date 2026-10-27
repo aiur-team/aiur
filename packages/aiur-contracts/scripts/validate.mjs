@@ -17,6 +17,12 @@ export const ticketUsageSchema = read('schemas/ticket-usage.v1.schema.json');
 export const ticketProgressSchema = read('schemas/ticket-progress.v1.schema.json');
 export const ticketSpendCapSchema = read('schemas/ticket-spend-cap.v1.schema.json');
 export const ticketSpendCapReachedSchema = read('schemas/ticket-spend-cap-reached.v1.schema.json');
+export const outboundEventEnvelopeSchema = read('schemas/outbound-event-envelope.v1.schema.json');
+export const ticketLifecycleEventSchema = read('schemas/ticket-lifecycle-event.v1.schema.json');
+export const ticketProgressEventSchema = read('schemas/ticket-progress-event.v1.schema.json');
+export const ticketUsageEventSchema = read('schemas/ticket-usage-event.v1.schema.json');
+export const ticketSpendCapReachedEventSchema = read('schemas/ticket-spend-cap-reached-event.v1.schema.json');
+export const ticketCancelResultEventSchema = read('schemas/ticket-cancel-result-event.v1.schema.json');
 export const voiceConverseSchema = read('schemas/voice-converse.v1.schema.json');
 export const report = read('fixtures/capabilities.v1.json');
 export const error = read('fixtures/capability-error.v1.json');
@@ -31,7 +37,12 @@ export const ticketSpendCapReached = read('fixtures/ticket-spend-cap-reached.v1.
 export const voiceConverse = read('fixtures/voice-converse.v1.json');
 export const commandSchema = read('schemas/command.v2.schema.json');
 export const command = read('fixtures/command.v2.json');
-const ajv = new Ajv2020({ allErrors: true });
+export const ticketLifecycleEvent = read('fixtures/ticket-lifecycle-event.v1.json');
+export const ticketProgressEvent = read('fixtures/ticket-progress-event.v1.json');
+export const ticketUsageEvent = read('fixtures/ticket-usage-event.v1.json');
+export const ticketSpendCapReachedEvent = read('fixtures/ticket-spend-cap-reached-event.v1.json');
+export const ticketCancelResultEvent = read('fixtures/ticket-cancel-result-event.v1.json');
+const ajv = new Ajv2020({ allErrors: true, formats: { 'date-time': true } });
 for (const schema of [
   eventsSchema,
   eventsCatalogSchema,
@@ -44,6 +55,12 @@ for (const schema of [
   ticketProgressSchema,
   ticketSpendCapSchema,
   ticketSpendCapReachedSchema,
+  outboundEventEnvelopeSchema,
+  ticketLifecycleEventSchema,
+  ticketProgressEventSchema,
+  ticketUsageEventSchema,
+  ticketSpendCapReachedEventSchema,
+  ticketCancelResultEventSchema,
   voiceConverseSchema,
 ]) {
   ajv.addSchema(schema);
@@ -61,6 +78,11 @@ export const validateTicketUsage = ajv.getSchema(ticketUsageSchema.$id);
 export const validateTicketProgress = ajv.getSchema(ticketProgressSchema.$id);
 export const validateTicketSpendCap = ajv.getSchema(ticketSpendCapSchema.$id);
 export const validateTicketSpendCapReached = ajv.getSchema(ticketSpendCapReachedSchema.$id);
+export const validateTicketLifecycleEvent = ajv.getSchema(ticketLifecycleEventSchema.$id);
+export const validateTicketProgressEvent = ajv.getSchema(ticketProgressEventSchema.$id);
+export const validateTicketUsageEvent = ajv.getSchema(ticketUsageEventSchema.$id);
+export const validateTicketSpendCapReachedEvent = ajv.getSchema(ticketSpendCapReachedEventSchema.$id);
+export const validateTicketCancelResultEvent = ajv.getSchema(ticketCancelResultEventSchema.$id);
 const validateVoiceConverseFrame = ajv.getSchema(voiceConverseSchema.$id);
 export const validateVoiceConverse = (frames) => Array.isArray(frames) && frames.every(validateVoiceConverseFrame);
 
@@ -71,8 +93,13 @@ export const contractCases = [
   { name: 'ticket cancel', schema: ticketCancelSchema, fixture: ticketCancel, validate: validateTicketCancel },
   { name: 'ticket usage', schema: ticketUsageSchema, fixture: ticketUsage, validate: validateTicketUsage },
   { name: 'ticket progress', schema: ticketProgressSchema, fixture: ticketProgress, validate: validateTicketProgress },
+  { name: 'ticket lifecycle event', schema: ticketLifecycleEventSchema, fixture: ticketLifecycleEvent, validate: validateTicketLifecycleEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'ticket progress event', schema: ticketProgressEventSchema, fixture: ticketProgressEvent, validate: validateTicketProgressEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'ticket usage event', schema: ticketUsageEventSchema, fixture: ticketUsageEvent, validate: validateTicketUsageEvent, marker: 'v', version: 'v', additive: false },
   { name: 'ticket spend cap', schema: ticketSpendCapSchema, fixture: ticketSpendCap, validate: validateTicketSpendCap },
   { name: 'ticket spend cap reached', schema: ticketSpendCapReachedSchema, fixture: ticketSpendCapReached, validate: validateTicketSpendCapReached },
+  { name: 'ticket spend cap reached event', schema: ticketSpendCapReachedEventSchema, fixture: ticketSpendCapReachedEvent, validate: validateTicketSpendCapReachedEvent, marker: 'v', version: 'v', additive: false },
+  { name: 'ticket cancel result event', schema: ticketCancelResultEventSchema, fixture: ticketCancelResultEvent, validate: validateTicketCancelResultEvent, marker: 'v', version: 'v', additive: false },
 ];
 
 for (const [validate, fixture] of [

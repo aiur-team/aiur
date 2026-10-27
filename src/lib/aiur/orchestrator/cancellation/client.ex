@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.Cancellation.Client do
   @moduledoc false
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.Cancellation.Observation
+  alias Aiur.Orchestrator.Cancellation.{Observation, OutboundEvents}
   alias Aiur.Orchestrator.TicketTransition
 
   @tracker_state "cancelled"
@@ -27,10 +27,20 @@ defmodule Aiur.Orchestrator.Cancellation.Client do
     issue_key = to_string(issue.identifier || issue.id)
     tracker_result = write_tracker_cancel(issue_key, issue)
 
-    finish_tracker_result(server, identifier, stage, tracker_result, opts)
+    server
+    |> finish_tracker_result(identifier, stage, tracker_result, opts)
+    |> publish_result(issue, opts)
   end
 
   defp finish_cancel_call(reply, _server, _opts), do: reply
+
+  defp publish_result({:ok, result} = reply, issue, opts) do
+    publish_fun = Keyword.get(opts, :event_publish_fun, &OutboundEvents.publish/2)
+    _ = safe_publish(publish_fun, result, issue)
+    reply
+  end
+
+  defp publish_result(reply, _issue, _opts), do: reply
 
   defp finish_tracker_result(server, identifier, stage, :ok, opts) do
     monitor = Process.monitor(stage.pid)
@@ -74,5 +84,13 @@ defmodule Aiur.Orchestrator.Cancellation.Client do
     :exit, {:noproc, _} -> {:error, :unavailable}
     :exit, {{:nodedown, _node}, _} -> {:error, :unavailable}
     :exit, reason -> {:error, {:orchestrator_call_failed, reason}}
+  end
+
+  defp safe_publish(publish_fun, result, issue) do
+    publish_fun.(result, issue)
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 end

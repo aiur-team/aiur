@@ -48,7 +48,7 @@ defmodule Aiur.ControlCLI.ExecutorRequest do
 
     case record(payload, opts, deps) do
       {:ok, %{decision: decision, status: status}} ->
-        print_result(decision, status, source_id, params[:json])
+        Keyword.get(deps, :result_fun, &print_result/4).(decision, status, source_id, params[:json])
         0
 
       {:error, reason} ->

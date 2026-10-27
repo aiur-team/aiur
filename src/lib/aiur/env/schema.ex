@@ -45,6 +45,7 @@ defmodule Aiur.Env.Schema do
       required: "Required",
       github_app: "Optional - GitHub App auth. Gives the daemon its own rate-limit budget and a bot identity.",
       webhook: "Optional - Webhooks. Cuts API polling; needs a public URL reaching this daemon.",
+      outbound_events: "Optional - Outbound events. Signs webhook POSTs sent to an external consumer.",
       linear: "Optional - Linear tracker. Use Linear instead of GitHub as the issue tracker.",
       voice: "Optional - Voice. Mic input and spoken replies on dashboard and Stream Deck.",
       dashboard: "Optional - Aiur dashboard. Web UI at :4000; CLI and TUI work without it.",
@@ -161,6 +162,11 @@ defmodule Aiur.Env.Schema do
     # --- Webhooks ---
     {"AIUR_GITHUB_WEBHOOK_SECRET",
      type: :secret, group: :webhook, purpose: "Secret GitHub signs webhook deliveries with; unset rejects every delivery.", fetch: "openssl rand -hex 32 -> paste into repo webhook"},
+    {"AIUR_OUTBOUND_WEBHOOK_SECRET",
+     type: :secret,
+     group: :outbound_events,
+     purpose: "Standard Webhooks secret used to sign outbound event POSTs; required when events.export.enabled is true.",
+     fetch: "openssl rand -base64 32 -> prefix with whsec_"},
 
     # --- Linear tracker ---
     {"LINEAR_API_KEY", type: :secret, group: :linear, purpose: "Linear API key when the tracker is Linear.", fetch: "linear.app/settings/api -> personal API key"},

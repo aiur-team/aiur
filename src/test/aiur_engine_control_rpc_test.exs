@@ -311,11 +311,11 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     refute out =~ "BIN:"
   end
 
-  test "ask boots distribution-free without requiring a running node" do
+  test "legacy asks list boots distribution-free without requiring a running node" do
     rel = fake_release()
     state = Aiur.TestSupport.tmp_root!("aiur-st")
 
-    {out, _} = run_engine(["ask", "Enable CI readiness", "--blocking"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+    {out, _} = run_engine(["asks", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
     assert out =~ "ELIXIR_ARGS:"
     assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
