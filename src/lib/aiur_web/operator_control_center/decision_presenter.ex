@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   """
 
   alias Aiur.{Commands, Decision}
-  alias Aiur.Commands.ConflictSummary
+  alias Aiur.Commands.Answering
 
   @urgency_rank %{low: 0, normal: 1, high: 2, critical: 3}
 
@@ -72,7 +72,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       decision_status: decision.decision_status,
       delivery_status: decision.delivery_status,
       pending_for_session?: decision.pending_for_session?,
-      conflict_summary: ConflictSummary.for(decision, %{kind: :operator, id: "dashboard"}),
+      conflict_summary: Answering.conflict_summary(decision, %{kind: :operator, id: "dashboard"}),
       original_answer: answer_row(decision.answer),
       answer: answer_row(active_answer),
       active_action_id: decision.active_action_id,
