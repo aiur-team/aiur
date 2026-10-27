@@ -100,9 +100,9 @@ defmodule AiurWeb.Router do
     plug(:require_dashboard_writable)
   end
 
-  alias AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  alias AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Events, Experiments, GithubWebhook, Streamdeck}
 
-  require AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Experiments, GithubWebhook, Streamdeck}
+  require AiurWeb.Routes.{Api, Capabilities, Control, DashboardPages, Decisions, Events, Experiments, GithubWebhook, Streamdeck}
   alias AiurWeb.Api.UsageProgressRoutes
   require UsageProgressRoutes
 
@@ -138,6 +138,7 @@ defmodule AiurWeb.Router do
   Experiments.pages()
   Api.agent_writes()
   Api.machine_writes()
+  Events.session()
   Streamdeck.session()
   Capabilities.reads()
   # Per-ticket usage read (#5692).
