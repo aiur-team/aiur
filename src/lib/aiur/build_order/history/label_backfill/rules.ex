@@ -1,6 +1,9 @@
 defmodule Aiur.BuildOrder.History.LabelBackfill.Rules do
   @moduledoc "Pure eligibility, request pacing and error policy for optional history writes."
 
+  @spec item_key(map()) :: String.t()
+  def item_key(item), do: "#{item.ticket}/#{item.kind}/#{item.label}"
+
   @spec eligible(map(), map() | :unknown, map()) :: term()
   def eligible(candidate, row, settings) do
     cond do

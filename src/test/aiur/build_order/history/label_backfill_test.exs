@@ -167,6 +167,21 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     assert %{writes: %{epic: 1}, skipped: %{no_matcher: 1}, total: 3} = LabelBackfill.plan(server: server, epic_labels: true)
   end
 
+  test "a shared feature and epic label preserves both outcomes and the feature handoff", ctx do
+    update(ctx.fixture, %{overrides: %{1 => %{epic: "bugs", confirmed: true}}, catalog: [%{key: "bugs", labels: ["feature:h"]}]})
+    server = boot(ctx.opts)
+    assert %{total: 3, writes: %{feature: 1, epic: 1}} = LabelBackfill.plan(server: server, epic_labels: true)
+    start(server, epic_labels: true)
+    assert %{counts: %{written: 2}, requests_last_hour: 3} = tick(server)
+    assert Enum.sort(requests()) == Enum.sort([{:ensure, ["feature:h"]}, {:label, "1", "feature:h"}, {:label, "1", "feature:h"}])
+    assert_received {:mark, "h", 1, %{written_at: at}}
+    assert at == ctx.now
+    stop_supervised!(LabelBackfill)
+    server = boot(ctx.opts)
+    assert %{counts: %{written: 2}, requests_last_hour: 3} = LabelBackfill.status(server: server)
+    assert requests() == []
+  end
+
   test "rolling bucket counts failed requests and survives restart", ctx do
     update(ctx.fixture, %{result: {:error, {:github, :http, %{status: 500}}}})
     server = boot(ctx.opts)

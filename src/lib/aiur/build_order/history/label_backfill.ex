@@ -117,7 +117,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
       |> Enum.filter(&(&1.decision in [:write, {:done, :already_present}]))
       |> Map.new(fn item ->
         kept = Map.take(item, [:ticket, :kind, :label, :slug_or_epic])
-        {key(item), Map.merge(kept, %{status: :pending, attempts: 0, at: nil, seen_at: nil})}
+        {Rules.item_key(item), Map.merge(kept, %{status: :pending, attempts: 0, at: nil, seen_at: nil})}
       end)
 
     run = %{
@@ -180,7 +180,6 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
   defp result(%{unavailable: nil} = state), do: status_value(state)
   defp result(state), do: {:error, state.unavailable}
 
-  defp key(item), do: "#{item.ticket}/#{item.label}"
   defp process_one(id, state), do: Writer.process_one(id, state)
   defp finish(state), do: Writer.finish(state)
   defp persist(state), do: Writer.persist(state)

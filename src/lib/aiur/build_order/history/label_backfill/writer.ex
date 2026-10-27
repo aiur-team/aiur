@@ -8,7 +8,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
       state
     else
       plan = Sources.plan(state.readers, Map.to_list(state.data.run))
-      decisions = Map.new(plan.items, &{key(&1), &1})
+      decisions = Map.new(plan.items, &{Rules.item_key(&1), &1})
       process(id, decisions, plan.unknown, state)
     end
   end
@@ -119,7 +119,6 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
       else: state
   end
 
-  defp key(item), do: "#{item.ticket}/#{item.label}"
   defp put_item(state, id, fields), do: %{state | data: %{state.data | items: Map.update!(state.data.items, id, &Map.merge(&1, fields))}}
   @spec update_run(map(), map()) :: map()
   def update_run(state, fields), do: %{state | data: %{state.data | run: Map.merge(state.data.run, fields)}}
