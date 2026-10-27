@@ -1,9 +1,12 @@
 defmodule Aiur.ExecutorCommandCLI do
   @moduledoc false
 
-  alias Aiur.{Commands, ExecutorCommandAttention}
+  alias Aiur.{Commands, ExecutorCommandAck, ExecutorCommandAttention}
 
   @default_executor_id "aiur-cli"
+
+  @spec ack(keyword(), keyword()) :: 0 | 1 | 64
+  def ack(params, deps \\ []), do: ExecutorCommandAck.ack(params, deps)
 
   @spec answer(keyword(), keyword()) :: 0 | 1 | 64
   def answer(params, deps \\ [])
@@ -11,6 +14,7 @@ defmodule Aiur.ExecutorCommandCLI do
   def answer(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_answer(params),
          {:ok, result} <- call_answer(normalized, deps) do
+      ExecutorCommandAck.implicit(normalized, if(normalized.supersede, do: :supersede, else: :answer), deps)
       verb = if normalized.supersede, do: "superseded the answer of", else: "answered"
 
       IO.puts(
@@ -34,6 +38,7 @@ defmodule Aiur.ExecutorCommandCLI do
     with {:ok, normalized} <- normalize_escalation(params),
          {:ok, result} <- call_escalation(normalized, deps),
          status <- Map.get(result, :status, :opened) do
+      ExecutorCommandAck.implicit(normalized, :escalate, deps)
       IO.puts(escalation_message(normalized.decision_id, status))
       0
     else
@@ -78,6 +83,8 @@ defmodule Aiur.ExecutorCommandCLI do
   def moot(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_mooting(params),
          {:ok, result} <- call_mooting(normalized, deps) do
+      ExecutorCommandAck.implicit(normalized, :moot, deps)
+
       IO.puts(
         "aiur: Executor #{normalized.executor_id} mooted Command #{normalized.decision_id} " <>
           "(#{Map.get(result, :status, :accepted)})"
