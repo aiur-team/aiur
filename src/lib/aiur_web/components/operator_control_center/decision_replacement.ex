@@ -42,6 +42,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
   defp current_outcome(%{status: status} = outcome, %{delivery: :queued_for_restart}, decision) when status in [:accepted, :duplicate],
     do: %{outcome | delivery: :queued_for_restart, decision: decision}
 
+  defp current_outcome(%{status: :too_late}, %{status: :too_late} = canonical, _decision), do: canonical
+
   defp current_outcome(nil, canonical, _decision), do: canonical
   defp current_outcome(outcome, _canonical, _decision), do: outcome
 
