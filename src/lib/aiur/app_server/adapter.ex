@@ -117,6 +117,8 @@ defmodule Aiur.AppServer.Adapter do
               pending_line: "",
               outstanding_turns: 1,
               pending_operator_requests: %{},
+              held_native_questions: %{},
+              issue: issue,
               current_turn_id: turn_id,
               issue_identifier: Messages.issue_identifier(issue),
               pause_request_id: nil,
