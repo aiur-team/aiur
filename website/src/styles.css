@@ -151,12 +151,11 @@ body { color: var(--aiur-color-fg); font-family: var(--aiur-font-body); -webkit-
 .aiur-footer { gap: 18px 28px; }
 .aiur-footer__links { gap: 22px; }
 
+/* Preserve AS-01 parity: 34 visual cases fail without this banner rule. */
 .aiur-banner { gap: 4px 12px; background: var(--aiur-color-pill-bg); }
-.aiur-wordmark { font-weight: 700; }
 .aiur-command > .aiur-tabs, .aiur-command__row { margin-inline: 0; }
 .aiur-tabs { padding-inline: 0; }
 
 .aiur-tabs { flex-wrap: nowrap; }
 .aiur-footer__links { flex-wrap: nowrap; }
 .stage, .sub { max-width: 100%; }
-.aiur-command__copy { --aiur-button-hover: color-mix(in srgb, var(--aiur-color-fg) 9%, transparent); }
