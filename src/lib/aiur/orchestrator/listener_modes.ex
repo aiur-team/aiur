@@ -58,7 +58,6 @@ defmodule Aiur.Orchestrator.ListenerModes do
     next_state = %{state | queue_store: store}
     if changed, do: DeliveryPolicy.notify_running_queue_update(next_state, State.find_running_by_identifier(state.running, id), changed)
     next_state
-
   end
 
   @doc "Refresh derived listener mode and control flags after a session or dispatch update."
@@ -67,7 +66,12 @@ defmodule Aiur.Orchestrator.ListenerModes do
     entry = Map.fetch!(state.running, issue_id)
     harness = Capabilities.harness_delivery(state, to_string(issue_id), entry)
     updated = entry |> refresh_view(state, previous_entry, harness) |> refresh_control(harness)
-    put_in(state.running[issue_id], updated)
+    next = put_in(state.running[issue_id], updated)
+
+    case updated do
+      %{identifier: id, listener_effective: result} -> mode_view_changed(next, id, result)
+      _identifierless -> next
+    end
   end
 
   defp refresh_view(%{identifier: id} = entry, state, previous_entry, harness) when is_binary(id) and id != "" do

@@ -116,6 +116,20 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     refute_received {:agent_queue_updated, _, _, _}
   end
 
+  test "session execution refresh restamps pending delivery and notifies only once", %{id: id, state: state} do
+    previous = %{state.running[id] | session_execution: %{backend: "unknown-harness"}}
+    {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
+    state = %{state | queue_store: store}
+    next = ListenerModes.on_session_execution(state, id, previous)
+    assert next.running[id].listener_effective.effective == :sync
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.listener_mode_at_claim == :sync
+    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
+    item_id = item.id
+    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert ListenerModes.on_session_execution(next, id, next.running[id]) == next
+    refute_received {:agent_queue_updated, _, _, _}
+  end
+
   test "set_mode restamps a pending row using its actual effective view", %{id: id, state: state} do
     {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
     state = %{state | queue_store: store}
