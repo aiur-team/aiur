@@ -222,15 +222,11 @@ defmodule Aiur.BuildOrder.CatalogStore do
     repository
     |> store_entries(:issue_labels)
     |> Enum.reduce(%{}, fn {{_type, _owner, _repo, id}, entry}, acc ->
-      case positive_number(id) do
-        nil ->
-          acc
-
-        number ->
-          case Map.get(entry, :data) do
-            nil -> acc
-            data -> Map.put(acc, number, label_names(data))
-          end
+      with number when not is_nil(number) <- positive_number(id),
+           data when not is_nil(data) <- Map.get(entry, :data) do
+        Map.put(acc, number, label_names(data))
+      else
+        _missing -> acc
       end
     end)
   end
