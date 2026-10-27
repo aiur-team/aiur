@@ -19,6 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     catalog = catalog(snapshot)
     [row] = catalog.snapshot.rows
     assert row.reasons.native_hold == hold
+    assert row.tracker_state == "in-progress"
     assert UnitsPolicy.condition?(:waiting_on_you, row)
     assert UnitsPolicy.condition?(:alert, row)
     refute UnitsPolicy.condition?(:active, row)
@@ -27,7 +28,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     assert html =~ "Waiting for your answer"
     assert html =~ ~s(href="/commands/decision-held")
     assert html =~ "for 7 min"
-    assert Floki.find(html, "td.ut-ticket-cell[phx-click]") == []
+    assert html |> Floki.parse_fragment!() |> Floki.find("td.ut-ticket-cell[phx-click]") == []
+    refute html =~ "agent:in-progress"
     assert html =~ "is-blocked"
   end
 
@@ -57,6 +59,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsNativeHoldTest do
     html = render(catalog, now)
     refute html =~ "Waiting for your answer"
     refute html =~ "/commands/decision-held"
+    assert html =~ "agent:in-progress"
   end
 
   test "future regression guard: unavailable status never invents a held question" do
