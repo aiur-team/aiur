@@ -49,6 +49,23 @@ test('hovering an inactive command tab uses the foreground color', async ({ page
   await page.getByRole('tab', { name: 'npm', exact: true }).click();
   await prompt.hover();
   await expect(prompt).toHaveCSS('color', 'rgb(237, 238, 240)');
+  await expect(prompt).toHaveCSS('line-height', 'normal');
+  await expect(prompt).toHaveCSS('letter-spacing', '0.25px');
+  await expect(prompt).toHaveCSS('transition-property', 'color, background-color');
+  const tabs = page.getByRole('tab');
+  await expect(tabs.nth(0)).toHaveCSS('border-right-width', '1px');
+  await expect(tabs.nth(4)).toHaveCSS('border-right-width', '0px');
+});
+
+test('command skins preserve the accent prompt variant and copy icon size', async ({ page }) => {
+  const command = page.locator('#command-tabs');
+  await command.evaluate(element => element.classList.add('aiur-command--accent-prompt'));
+  await expect(command.locator('.aiur-command__row')).toHaveCSS('line-height', 'normal');
+  const prompt = command.locator('.aiur-command__prompt');
+  await expect(prompt).toHaveCSS('color', 'rgb(47, 134, 255)');
+  await expect(command.locator('.aiur-command__text')).toHaveCSS('letter-spacing', '0.14px');
+  await expect(command.locator('.aiur-command__copy svg')).toHaveCSS('width', '15px');
+  await expect(command.locator('.aiur-command__copy svg')).toHaveCSS('height', '15px');
 });
 
 test('width assertion rejects a box pinned to the Prompt width', async ({ page }) => {
