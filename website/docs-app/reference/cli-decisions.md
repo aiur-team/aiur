@@ -63,6 +63,9 @@ labelled below the rows; an unavailable store exits with status 1.
 `with-executor` selects open Commands routed to the Executor, and `from-executor`
 selects open Commands requested by the Executor. These use the dashboard's query path.
 
+The requester filter applies within each retained page; follow `pagination.next_cursor`
+to continue. `requester_page` carries its page count; `pagination.total` stays null.
+
 JSON rows and selected detail add `observed_at`, `age_ms` (since creation),
 `needs_you_ms` (since human visibility, otherwise null), and `freshness`
 (`fresh`, `partial`, or `unavailable`). Ages use the snapshot clock; human output

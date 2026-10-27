@@ -223,6 +223,37 @@ defmodule Aiur.CommandsCLITest do
     assert output =~ "retained data unavailable"
   end
 
+  test "routing filters return exactly human-visible or Executor-owned open Commands", %{store: store} do
+    human = request!(store, "human", false)
+    both = request!(store, "both", false)
+    executor = request!(store, "executor", false)
+    resolved = request!(store, "answered-human", false)
+    request!(store, "unknown", false)
+    at = ~U[2026-08-08 10:00:00Z]
+
+    for {decision, state, policy} <- [{human, :with_human, :human_only}, {both, :with_both, :simultaneous}, {executor, :with_executor, :executor_first}, {resolved, :with_human, :human_only}] do
+      assert {:ok, _} = DecisionStore.record_command_fact(decision.decision_id, :routed, %{policy: policy, state: state, cause: nil, at: at, actor: %{kind: :system, id: "routing"}}, server: store)
+    end
+
+    assert {:ok, _} = DecisionStore.answer(resolved.decision_id, %{"idempotency_key" => "answer-human", "expected_version" => 1, "option_id" => "ship"}, [actor: %{kind: :operator, id: "test"}], store)
+
+    for {filter, expected} <- [{"needs-you", [human.decision_id, both.decision_id]}, {"with-executor", [executor.decision_id]}] do
+      assert {:ok, envelope} = CommandsCLI.build(filter: filter, decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end, now: at)
+      assert Enum.sort(Enum.map(envelope["data"]["page"]["decisions"], & &1["decision_id"])) == Enum.sort(expected)
+    end
+  end
+
+  test "from-executor uses the provider requester filter and preserves its page scope", %{store: store} do
+    worker = request!(store, "worker-request", false)
+    executor = request!(store, "executor-request", false, requester: %{kind: :executor, executor_id: "executor"})
+    assert {:ok, envelope} = CommandsCLI.build(filter: "from-executor", decision_store: store, decision_metrics: make_ref(), history_fun: fn -> [] end)
+    assert [row] = envelope["data"]["page"]["decisions"]
+    assert row["decision_id"] == executor.decision_id
+    refute row["decision_id"] == worker.decision_id
+    assert envelope["data"]["page"]["requester_page"] == %{"count" => 1, "partial?" => false}
+    assert envelope["data"]["page"]["pagination"]["total"] == nil
+  end
+
   defp request!(store, source_id, blocking, extra \\ []) do
     assert {:ok, %{decision: decision}} =
              DecisionStore.request(
@@ -235,7 +266,7 @@ defmodule Aiur.CommandsCLITest do
                  "context" => %{"authority_basis" => "security"},
                  "options" => [%{"id" => "ship", "label" => "Ship", "description" => "Deploy the change.", "risk" => "low"}]
                },
-               [ticket: @ticket, source: @source, now: ~U[2026-08-08 10:00:00Z]],
+               Keyword.merge([ticket: @ticket, source: @source, now: ~U[2026-08-08 10:00:00Z]], Keyword.take(extra, [:requester])),
                store
              )
 
