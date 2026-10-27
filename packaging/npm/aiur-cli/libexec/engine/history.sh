@@ -4,7 +4,7 @@
 cmd_history() {
   local sub="${1:-}" json=false unsorted=false after=0 limit=200 arg
   if [ "$sub" = "label-writes" ]; then shift; cmd_history_label_writes "$@"; return; fi
-  [ "$sub" = "export" ] || { echo "aiur: history: unknown subcommand '${sub}'; expected 'export'" >&2; exit 64; }
+  [ "$sub" = "export" ] || { echo "aiur: history: unknown subcommand '${sub}'; expected 'export' or 'label-writes'" >&2; exit 64; }
   shift
   while [ "$#" -gt 0 ]; do
     arg="$1"
