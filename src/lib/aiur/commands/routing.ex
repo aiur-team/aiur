@@ -48,14 +48,34 @@ defmodule Aiur.Commands.Routing do
   end
 
   defp sweep(state, id \\ nil) do
-    config = if is_function(state.config, 0), do: state.config.(), else: state.config
     now = state.clock.()
-    due = if config.enabled, do: run_sweep(state, id, now, config), else: nil
+
+    due =
+      case read_config(state.config) do
+        {:ok, %{enabled: true} = config} ->
+          run_sweep(state, id, now, config)
+
+        {:ok, %{enabled: false}} ->
+          nil
+
+        {:error, reason} ->
+          Logger.warning("aiur_command_routing config_unavailable reason=#{inspect(reason)}")
+          nil
+      end
+
     # A change can introduce an earlier deadline; preserve the earlier full-sweep timer.
     due = if id, do: earliest(due, state.next_due_at), else: due
     if state.timer_ref, do: Process.cancel_timer(state.timer_ref)
     delay = if due, do: DateTime.diff(due, now, :millisecond) |> max(1) |> min(@ceiling_ms), else: @ceiling_ms
     %{state | next_due_at: due, timer_ref: Process.send_after(self(), :tick, delay)}
+  end
+
+  defp read_config(config) do
+    {:ok, if(is_function(config, 0), do: config.(), else: config)}
+  rescue
+    error -> {:error, Exception.message(error)}
+  catch
+    kind, reason -> {:error, {kind, reason}}
   end
 
   defp run_sweep(state, id, now, config) do

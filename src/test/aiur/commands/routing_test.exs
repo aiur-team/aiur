@@ -283,6 +283,25 @@ defmodule Aiur.Commands.RoutingTest do
     end
   end
 
+  test "config outage retains the process and timer then recovers", ctx do
+    d = command(ctx)
+    {:ok, available} = Agent.start_link(fn -> false end)
+
+    config = fn ->
+      if Agent.get(available, & &1), do: @config, else: raise("missing_workflow_file")
+    end
+
+    capture_log(fn ->
+      pid = router(ctx, config: config)
+      assert Process.alive?(pid)
+      assert is_reference(:sys.get_state(pid).timer_ref)
+      assert current(ctx, d).routed_at == nil
+      Agent.update(available, fn _ -> true end)
+      tick(pid)
+      assert current(ctx, d).route_state == :with_executor
+    end)
+  end
+
   test "change feed routes newly created Commands without waiting for tick", ctx do
     pid = router(ctx)
     d = command(ctx)
