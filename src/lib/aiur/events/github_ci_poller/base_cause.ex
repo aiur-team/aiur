@@ -28,7 +28,7 @@ defmodule Aiur.Events.GithubCIPoller.BaseCause do
   @doc "Classifies each failed check separately against the exact PR base and MainWatch history."
   @spec classify_checks(map(), keyword()) :: [%{name: String.t(), class: :caused_by_pr | :inherited | :unknown}]
   def classify_checks(result, opts) do
-    case Keyword.get_lazy(opts, :main_watch_history, &history/0) do
+    case Keyword.get_lazy(opts, :main_watch_history, &main_watch_history/0) do
       :disabled -> Enum.map(Map.get(result, :failures, []), &%{name: &1.name, class: :caused_by_pr})
       history -> classify_checks_against(Map.get(result, :failures, []), Enum.find(history, &(&1.sha == result[:base_sha] and is_binary(&1.sha))), history)
     end
@@ -52,7 +52,9 @@ defmodule Aiur.Events.GithubCIPoller.BaseCause do
     end
   end
 
-  defp history do
+  @doc false
+  @spec main_watch_history() :: :disabled | [map()]
+  def main_watch_history do
     if Aiur.MainWatch.enabled?(), do: Map.get(Aiur.MainWatch.state(), :history, []), else: :disabled
   end
 end

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import AxeBuilder from '@axe-core/playwright'
 import { expectSpanAuditClean } from './support/build-home-span-audit.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openFixture } from './support/browser-helpers.mjs'
+import { openFixture, assertNoDocumentOverflow, assertControlsRemainReachable } from './support/browser-helpers.mjs'
 
 test.beforeEach(async ({ page }) => {
   await page.route(/\/build-home\/tools\.js$/, route => route.fulfill({
@@ -127,6 +127,45 @@ test('phone footer shows the whole held note and keeps the status dot', async ({
   await expect(footer).toHaveAttribute('title', /open_tickets held by GitHub, read 47 h ago/)
   expect(await footer.evaluate(el => ({ fits: el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= innerWidth,
     dot: el.querySelector('i').getBoundingClientRect().width }))).toEqual({ fits: true, dot: 7 })
+})
+
+// Moved from the removed toolbar design-parity spec (#6061).
+async function expectSpanTargets(page) {
+  const sizes = await page.locator('[data-span], [data-z]').evaluateAll(nodes => nodes.map(el => { const r = el.getBoundingClientRect(); return [r.width, r.height] }))
+  expect(sizes.length).toBeGreaterThan(0)
+  for (const [w, h] of sizes) { expect(w).toBeGreaterThanOrEqual(30); expect(h).toBeGreaterThanOrEqual(28) }
+}
+test('toolbar wraps the filters below 1181px and reduced motion stops the live pulse', async ({ page }) => {
+  await page.context().setHTTPCredentials(dashboardCredentials)
+  await page.goto('/build-fixture/live')
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+  await expect(page.locator('#bd-tools-l .bd-seg.vw')).toHaveCount(1)
+  await expectSpanTargets(page)
+  for (const width of [1181, 1180, 721, 720]) {
+    await page.setViewportSize({ width, height: 900 })
+    const boxes = await page.evaluate(() => ['bd-filters', 'bd-tools-l', 'bd-tools'].map(id => { const r = document.getElementById(id).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, width: r.width } }))
+    if (width > 1180) { expect(boxes[0].top).toBeGreaterThanOrEqual(boxes[1].top); expect(boxes[0].top).toBeLessThanOrEqual(boxes[1].bottom) }
+    else { expect(boxes[0].top).toBeGreaterThanOrEqual(boxes[1].bottom); expect(boxes[0].width).toBeGreaterThan(boxes[1].width) }
+  }
+  await expect(page.locator('.bd-live i')).toHaveCSS('animation-name', 'bdPulse')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.bd-live i')).toHaveCSS('animation-name', 'none')
+  expect(parseFloat(await page.locator('.bd-live').evaluate(el => getComputedStyle(el).transitionDuration))).toBeLessThanOrEqual(0.00001)
+})
+
+test('phone toolbar switches view by tap without page overflow', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: test.info().project.use.baseURL, httpCredentials: dashboardCredentials, viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true })
+  try {
+    const page = await context.newPage()
+    await page.goto('/build-fixture/live')
+    await expect(page.locator('#build-root')).toHaveAttribute('data-build-generation', /\d+/)
+    await page.tap('[data-v="gantt"]')
+    await expect(page.locator('[data-v="gantt"]')).toHaveAttribute('aria-selected', 'true')
+    await assertNoDocumentOverflow(page)
+    await assertControlsRemainReachable(page)
+    await page.tap('[data-v="graph"]')
+    await expectSpanTargets(page)
+  } finally { await context.close() }
 })
 
 test('real LiveView URL history and server diff retain selected view and focused tab', async ({ page }) => {

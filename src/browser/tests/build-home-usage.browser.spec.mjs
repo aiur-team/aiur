@@ -243,6 +243,24 @@ test('hidden ticks wait for visibility and remount owns one popover', async ({ p
   await expect(page.locator('body > .ax-pop')).toHaveCount(1)
 })
 
+// Moved from the removed usage design-parity spec (#6061).
+test('model count classes, bd container, popover transitions and light-theme grain', async ({ page }) => {
+  await page.clock.resume()
+  await expect(page.locator('.ax-usage')).toHaveClass(/\bn4\b/)
+  for (const count of [2, 7]) {
+    expect((await page.request.get(`/build-control/usage?name=n${count}`)).status()).toBe(200)
+    await expect(page.locator('.ax-usage')).toHaveClass(new RegExp(`\\bn${count}\\b`))
+  }
+  expect(await page.locator('#build-root').evaluate(el => getComputedStyle(el).containerName)).toBe('bd')
+  await page.locator('.mdl .ax-ln').first().dispatchEvent('mouseover')
+  const transitions = await page.locator('body > .ax-pop').evaluate(el => getComputedStyle(el).transitionProperty.split(', '))
+  expect(transitions).toEqual(expect.arrayContaining(['opacity', 'transform']))
+  const grain = () => page.locator('.ax-uc').first().evaluate(el => getComputedStyle(el, '::after').display)
+  expect(await grain()).toBe('none')
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark' })
+  expect(await grain()).toBe('block')
+})
+
 test('edge state screenshots for S-50 owner sign-off', async ({ page }, info) => {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await expect(page.locator('html')).toHaveAttribute('data-palette', 'gruvbox')
