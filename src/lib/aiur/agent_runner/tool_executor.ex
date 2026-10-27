@@ -17,8 +17,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   alias Aiur.{Commands, CoordinationTasks, EventPublicationLog, Issue, Signal}
 
-  alias Aiur.BuildOrder.HistoryBackfill
   alias Aiur.AgentTools.Dispatch
+  alias Aiur.BuildOrder.HistoryBackfill
   alias Aiur.Events
   alias Aiur.GitHub.IssueDependencies
   alias Aiur.{Orchestrator, Orchestrator.TicketTransition}
