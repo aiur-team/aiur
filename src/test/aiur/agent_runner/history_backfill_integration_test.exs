@@ -51,7 +51,7 @@ defmodule Aiur.AgentRunner.HistoryBackfillIntegrationTest do
       export: fn request -> Export.page(Keyword.merge(readers, request)) end
     ]
 
-    build = fn id -> ToolExecutor.build(%Aiur.Issue{id: id, identifier: id, labels: ["history-backfill"]}, nil, nil, %{}, history_export_opts: opts, epic_opts: [server: name]) end
+    build = fn id -> ToolExecutor.build(%Aiur.Issue{id: id, identifier: id, labels: ["history-backfill"]}, nil, nil, %{}, history_export_opts: opts, epic_opts: [server: name, now: F.now(c)]) end
     run = build.("77")
     response = run.("aiur_history_export", %{})
     assert response["success"]
