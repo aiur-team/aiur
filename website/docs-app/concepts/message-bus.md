@@ -217,7 +217,9 @@ one reset response carrying the current epoch and oldest/head sequence bounds.
 
 The authenticated pull API reads the export journal. It is off by default:
 [`events.export.enabled`](/reference/configuration-daemon#events) must be `true`
-(restart to apply). Both endpoints use the dashboard authentication policy and
+(restart to apply).
+
+Both endpoints use the dashboard authentication policy and
 return `Cache-Control: no-store`. The existing per-ticket transcript endpoint,
 `GET /api/v1/:issue_identifier/events`, remains separate.
 
@@ -231,14 +233,18 @@ persistence classes and payload versions:
 `GET /api/v1/events?after=4&limit=100&topics=ticket.*.pr.merged&epoch=current-epoch`
 returns `instance` (an instance ID or `null`), `epoch`, `head_seq`, `oldest_seq`,
 and `records`. Records have increasing `seq` values greater than `after`.
+
 Event records contain the identifier-only external envelope: `v`, `instance`,
 `id`, `topic`, `class`, timestamps, `source`, `refs`, `attrs`, `payload_version`
 and `anchor`. They contain no transcript or message content.
 
 Omit `after` to get the current head with no backlog. Bootstrap by noting that
 head, reading the required snapshots, then following with `after=<head_seq>`.
+
 Save the epoch with the cursor. `limit` defaults to 100 and accepts 1–500;
-`after` must be a non-negative integer. `topics` is a comma-separated filter;
+`after` must be a non-negative integer.
+
+`topics` is a comma-separated filter;
 omitting it includes all exported topics. A filter can equal an exported
 pattern or replace wildcard segments with literals to narrow it. Filters cannot
 broaden the catalog or select private topics.
@@ -251,10 +257,16 @@ HTTP 200 with exactly one control record:
 ```
 
 A `reset` has no sequence number. Re-read snapshots and resume from the returned
-head and epoch. A retained `gap` has a sequence number, `scope: "*"`,
+head and epoch.
+
+A retained `gap` has a sequence number, `scope: "*"`,
 `reason: "exporter_start"`, and `from`/`to` timestamps (`from` may be `null`).
 Gaps survive topic filters and require clients to re-read snapshots; resume
-after the gap's sequence. Use the response time and `head_seq` to judge freshness.
+after the gap's sequence.
+
+Use the response time and `head_seq` to judge freshness.
+
+Query failures use these codes:
 
 | Condition | HTTP status and error code |
 | --- | --- |

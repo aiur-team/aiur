@@ -6,6 +6,10 @@ test('event feed fixtures cover sequenced events, gaps, and an unsequenced reset
   for (const fixture of [events, eventsReset]) {
     assert.equal(validateEvents(fixture), true, JSON.stringify(validateEvents.errors));
   }
+  const timestamped = structuredClone(events);
+  timestamped.records[1].occurred_at = '2026-10-26T12:00:00Z';
+  timestamped.records[1].observed_at = '2026-10-26T12:00:01Z';
+  assert.equal(validateEvents(timestamped), true, JSON.stringify(validateEvents.errors));
   assert.equal(validateEventsCatalog(eventsCatalog), true, JSON.stringify(validateEventsCatalog.errors));
 });
 

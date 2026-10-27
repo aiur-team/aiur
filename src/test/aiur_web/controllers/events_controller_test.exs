@@ -143,6 +143,7 @@ defmodule AiurWeb.EventsControllerTest do
 
   defp call(path, method \\ :get, password \\ "test-dashboard-secret") do
     conn(method, path)
+    |> fetch_query_params()
     |> init_test_session(%{})
     |> put_req_header("authorization", "Basic " <> Base.encode64("operator:#{password}"))
     |> AiurWeb.Router.call(AiurWeb.Router.init([]))
