@@ -139,6 +139,7 @@ defmodule Aiur.Events.EnvelopeTest do
   defp ref_value(ref, _topic), do: ref_value(ref)
 
   defp ref_value(:pr_number), do: 2210
+  defp ref_value(:job_id), do: "run-42-1"
   defp ref_value(:head_sha), do: "abc1234"
   defp ref_value(:decision_id), do: "decision-1"
   defp ref_value(:decision_version), do: 1

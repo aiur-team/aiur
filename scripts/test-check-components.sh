@@ -131,6 +131,7 @@ if with_node:
             components.append(component('daemon', ['src/lib/**']))
         check(name, components, files, code, messages, rules='all', links=links)
     imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('self_reference_passes', 'import "a";')
     imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
             ('R-client', 'src/lib/foo.js'))
     imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),
@@ -196,7 +197,6 @@ if with_node:
     imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@external_resource "../../../packages/a/other.json"'})
-
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
     'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',

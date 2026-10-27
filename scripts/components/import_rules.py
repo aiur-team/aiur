@@ -20,8 +20,9 @@ def client_imports(root):
         if package not in manifests:
             manifest_path = package / 'package.json'
             manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else {}
-            manifests[package] = {name for key in ('dependencies', 'devDependencies', 'peerDependencies')
-                                  for name in manifest.get(key, {})}
+            manifests[package] = ({manifest.get('name')} |
+                                  {name for key in ('dependencies', 'devDependencies', 'peerDependencies')
+                                   for name in manifest.get(key, {})}) - {None}
         reason = client_reason(root, package, manifests[package], specifier, resolved)
         if reason:
             problems.append((source, f'R-client: {specifier}: {reason}'))
