@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from validation_common import (
@@ -17,6 +18,7 @@ from validation_common import (
     strict_object,
 )
 from validation_requirements import validate_requirements
+from validation_icons import ALIASES, VALID_NAMES
 
 
 TOP_KEYS = {
@@ -83,7 +85,7 @@ def validate_workstreams(data: dict[str, Any], report: Report) -> set[str]:
     found: set[str] = set()
     for index, value in enumerate(records):
         label = f"workstreams[{index}]"
-        record = strict_object(value, label, {"id", "title"}, report)
+        record = strict_object(value, label, {"id", "title"}, report, optional={"icon", "summary", "wave"})
         if record is None:
             continue
         workstream_id = record.get("id")
@@ -95,7 +97,30 @@ def validate_workstreams(data: dict[str, Any], report: Report) -> set[str]:
             found.add(workstream_id)
         if not nonempty_string(record.get("title")):
             report.error(f"{label}.title must be a non-empty string")
+        icon = record.get("icon")
+        if "icon" in record:
+            if not isinstance(icon, str) or icon not in VALID_NAMES:
+                report.error(f"{label}.icon must name a Heroicons v2 outline icon")
+        summary = record.get("summary")
+        if "summary" in record and (
+            not isinstance(summary, str) or not summary.strip() or len(summary) > 100
+            or any(unicodedata.category(char) == "Cc" for char in summary)
+        ):
+            report.error(f"{label}.summary must be at most 100 characters without control characters")
+        wave = record.get("wave")
+        if "wave" in record and not (
+            (strict_int(wave) and wave >= 0)
+            or (isinstance(wave, str) and 0 < len(wave) <= 16
+                and wave.strip() == wave
+                and not any(unicodedata.category(char) == "Cc" for char in wave))
+        ):
+            report.error(f"{label}.wave must be a nonnegative integer or short label")
+    icons = [ALIASES.get(record.get("icon"), record.get("icon")) for record in records
+             if isinstance(record, dict) and isinstance(record.get("icon"), str)]
+    if len(icons) != len(set(icons)):
+        report.error("workstream icons must be unique within the pack")
     return found
+
 
 def validate_boundary(data: dict[str, Any], report: Report) -> list[str]:
     boundary = strict_object(data.get("feature_boundary"), "feature_boundary", BOUNDARY_KEYS, report)

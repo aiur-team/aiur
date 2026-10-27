@@ -9,6 +9,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   use Phoenix.Component
 
   alias Aiur.BuildOrder.ProgressRenderer
+  alias Aiur.Heroicons
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextSelection
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, BuildOrderGridModel, BuildOrderStatus}
@@ -27,10 +28,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   @spec build_order_graph(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_graph(assigns) do
-    grid = BuildOrderGridModel.build(assigns.model, assigns.adhoc)
+    grid = BuildOrderGridModel.build(assigns.model, assigns.adhoc, assigns.pack_metadata)
 
     cells = Enum.group_by(grid.cards, &{&1.lane, &1.phase})
-    columns = Enum.map(grid.columns, &(&1 |> with_html_progress() |> named_group(assigns.pack_metadata, "workstreams", "id", &1.lane)))
+    columns = Enum.map(grid.columns, &(&1 |> with_html_progress() |> Map.put(:svg, Heroicons.svg(&1.icon))))
     waves = Enum.map(grid.waves, &(&1 |> with_html_progress() |> named_group(assigns.pack_metadata, "phases", "phase", &1.phase)))
 
     assigns =
@@ -128,8 +129,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
             <div class="bo-grid-lanes" style={@columns_style} role="row">
               <div class="bo-grid-corner" role="columnheader" aria-hidden="true"></div>
               <div :for={col <- @columns} class="bo-epic" role="columnheader" data-progress-freshness={col.core? && col.progress_view.freshness}>
-                <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
-                <button type="button" class="bo-epic-label" phx-click="toggle-build-order-epic" phx-value-lane={col.lane} aria-expanded={to_string(col.lane not in @collapsed_epics)} aria-label={"#{if col.lane in @collapsed_epics, do: "Expand", else: "Collapse"} #{col.label}"}>
+                <span :if={col.icon && col.icon != col.lane} class="bo-epic-ic bo-epic-icon" role="img" aria-label={Heroicons.canonical_name(col.icon)}>{Phoenix.HTML.raw(col.svg)}</span>
+                <BuildOrderEpicIcon.build_order_epic_icon :if={!col.icon || col.icon == col.lane} lane={col.icon || col.lane} class="bo-epic-icon" colored />
+                <button type="button" class="bo-epic-label" title={col.summary} phx-click="toggle-build-order-epic" phx-value-lane={col.lane} aria-expanded={to_string(col.lane not in @collapsed_epics)} aria-label={"#{if col.lane in @collapsed_epics, do: "Expand", else: "Collapse"} #{col.label}"}>
                   {col.label}
                 </button>
                 <span class="bo-epic-count">{col.count}</span>
@@ -178,8 +180,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   defp named_group(group, metadata, collection, key, value) do
     case Enum.find(groups(metadata, collection), &(Map.get(&1, key) == value)) do
-      %{"title" => title} when is_binary(title) -> %{group | label: title}
-      _missing -> group
+      metadata when is_map(metadata) ->
+        group
+        |> Map.put(:label, Map.get(metadata, "title", group.label))
+        |> Map.put(:icon, Map.get(metadata, "icon"))
+        |> Map.put(:summary, Map.get(metadata, "summary"))
+        |> Map.put(:wave, Map.get(metadata, "wave"))
+
+      _missing ->
+        group
     end
   end
 
