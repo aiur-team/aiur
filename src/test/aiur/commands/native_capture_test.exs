@@ -4,14 +4,16 @@ defmodule Aiur.Commands.NativeCaptureTest do
   use Aiur.DecisionStoreCase, async: false
 
   alias Aiur.Codex.UserInputAnswers
+  alias Aiur.Commands.Answering
   alias Aiur.Commands.NativeCapture
+  alias Aiur.Events.Publisher
 
   @fixtures Path.expand("../../fixtures/codex/request_user_input", __DIR__)
 
   setup %{dir: dir} do
-    tracked_key = {Aiur.Events.Publisher, :tracked_fn}
+    tracked_key = {Publisher, :tracked_fn}
     tracked = :persistent_term.get(tracked_key, nil)
-    Aiur.Events.Publisher.set_tracked_fn(fn _ -> true end)
+    Publisher.set_tracked_fn(fn _ -> true end)
     on_exit(fn -> :persistent_term.put(tracked_key, tracked) end)
     store = start_store!(dir, dispatch_delay_ms: 60_000)
     on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
@@ -63,7 +65,7 @@ defmodule Aiur.Commands.NativeCaptureTest do
     assert d.origin == :native_question
     assert d.native == %{harness: :codex, native_ref: "<uuid>:0", call_id: "call_<id>", turn_id: "<uuid>", question_ids: ["colour"], hold: :in_band}
     assert [%{question_id: "colour", allow_other: true, multi_select: false}] = d.questions
-    assert Aiur.Commands.Answering.decode_question_answers(d.questions, %{selected_option_id: "o1", custom_response: nil}) == {:ok, %{"colour" => ["Red (Recommended)"]}}
+    assert Answering.decode_question_answers(d.questions, %{selected_option_id: "o1", custom_response: nil}) == {:ok, %{"colour" => ["Red (Recommended)"]}}
     assert {:ok, ^d} = DecisionStore.get(d.decision_id, ctx.store)
     assert Enum.map(records(dir), & &1["event_type"]) == ["requested", "request_attributed"]
 
