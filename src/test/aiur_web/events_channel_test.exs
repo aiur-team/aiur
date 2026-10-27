@@ -1,10 +1,11 @@
 defmodule AiurWeb.EventsChannelTest do
+  # One real-token/exporter harness covers the feed lifecycle and its reconnect boundaries.
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
   alias Aiur.Application.ExportChildren
-  alias Aiur.TestSupport.{EndpointStubs, RuntimeChildren}
   alias Aiur.Events.Export
   alias Aiur.Events.Export.Exporter
+  alias Aiur.TestSupport.{EndpointStubs, RuntimeChildren}
   alias AiurWeb.{Endpoint, EventsAuth, EventsSocket, FinancialDataAccess, StreamdeckAuth}
   @endpoint Endpoint
 
