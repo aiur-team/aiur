@@ -236,3 +236,19 @@ for (const theme of themes) {
     await testInfo.attach('CTA hover', { path, contentType: 'image/png' })
   })
 }
+
+for (const theme of themes) {
+  test(`docs ${theme} keyboard focus uses shared offset`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.addInitScript(saved => localStorage.setItem('aiur-theme', saved), theme)
+    await page.goto('/docs/')
+    await page.keyboard.press('Tab')
+    const focused = page.locator(':focus-visible')
+    const path = testInfo.outputPath(`docs-focus-${theme}.png`)
+    await page.screenshot({ path })
+    await testInfo.attach('Keyboard focus', { path, contentType: 'image/png' })
+    await expect(focused).toHaveCSS('outline-offset', '3px')
+    await expect(focused).toHaveCSS('outline-width', '2px')
+    await expect(focused).toHaveCSS('outline-color', theme === 'dark' ? 'rgb(47, 134, 255)' : 'rgb(31, 87, 196)')
+  })
+}
