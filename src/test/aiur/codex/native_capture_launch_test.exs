@@ -12,7 +12,7 @@ defmodule Aiur.Codex.NativeCaptureLaunchTest do
     assert AppServerPort.codex_command_for_test(nil) == @command
 
     assert AppServerPort.codex_command_for_test("gpt-5.5", "high") ==
-             @command <> " --config 'model=\"gpt-5.5\"' --config 'model_reasoning_effort=\"high\"'"
+             @command <> ~s( --config 'model="gpt-5.5"' --config 'model_reasoning_effort="high"')
 
     assert {:ok, %{native_question: :none, native_question_reason: :gate_off}} = Capabilities.delivery_primitives("codex")
   end
@@ -26,7 +26,7 @@ defmodule Aiur.Codex.NativeCaptureLaunchTest do
     configure(true)
 
     assert AppServerPort.codex_command_for_test("gpt-5.5", "high") ==
-             @command <> " --config 'model=\"gpt-5.5\"' --config 'model_reasoning_effort=\"high\"'" <> @flag
+             @command <> ~s( --config 'model="gpt-5.5"' --config 'model_reasoning_effort="high"') <> @flag
   end
 
   test "delivery capability follows gate reloads and retains unrelated harness defaults" do
