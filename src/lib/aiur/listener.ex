@@ -1,5 +1,5 @@
 defmodule Aiur.Listener do
-  @moduledoc "Internal listener-mode control and delivery receipts through the registered delivery target."
+  @moduledoc "Public C1 port for listener-mode control, conversation sends and delivery receipts."
 
   alias Aiur.Listener.{Effective, ModeStore, Receipt}
   alias Aiur.TrackerIdentity
@@ -7,7 +7,49 @@ defmodule Aiur.Listener do
   @type target :: String.t() | TrackerIdentity.t()
   @type result :: {:ok, Effective.view()} | {:error, term()}
 
-  @doc "Enqueue conversation text; reuse client_request_id on retry of the same user action."
+  @doc """
+  Enqueue conversation text through the C1 send port: `send(target, text, opts)`.
+
+  `target` is a ticket identifier or `%Aiur.TrackerIdentity{}`. The
+  `ConversationRef` overload belongs to C6/MP-E3. The plan form
+  `send(conversation_ref, text, client_request_id, opts)` maps its request ID
+  to `opts[:client_request_id]`; this port currently takes three arguments.
+
+  Options:
+
+    * `:origin` — required in practice: `:agent_chat`, `:voice_assistant`,
+      `:http` or `:tui`. An absent or unknown origin becomes `:internal`.
+      With the default delivery policy, `:legacy` routing rejects `:internal`
+      with `{:error, :invalid_message}`.
+    * `:client_request_id` — optional identifier for one user action; reuse it
+      when retrying. Without an identifier, every send queues a new item.
+    * `:message_id` — compatibility alias for `:client_request_id`; an explicit
+      `:client_request_id` takes precedence.
+    * `:delivery_policy` — defaults to `:listener`; an explicit value wins.
+    * `:correlation` — optional correlation map. A plain send retains it only
+      when it contains `:native_ref`; other correlation maps are dropped.
+    * `:actor` — optional actor attribution, such as `"device:<id>"`.
+    * `:turn_id` — optional turn identifier.
+    * `:fallback` — defaults to `:queue_next`; used by explicit interrupt
+      delivery when interruption is unavailable. Listener routing resolves
+      the origin's legacy policy or the effective listener mode.
+
+  Returns `{:ok, request_id}` on acceptance. `request_id` is an integer usable
+  with `receipt/2`, which reads `DeliveryTarget.read_snapshot/2`. Acceptance
+  does not prove delivery or consumption.
+
+  The same `:client_request_id`, target and text return the same `request_id`
+  without queueing a second item. Reusing the identifier with different text
+  or a different target returns `{:error, {:message_id_conflict, id}}`, where
+  `id` identifies the existing queue item.
+
+  Callers must handle `{:error, reason}`, including `:invalid_message`,
+  `:no_running_agent` (unknown target), `:unavailable` (no orchestrator),
+  `:listener_mode_unavailable`, `{:message_id_conflict, id}`,
+  `{:not_queued, :timeout}` and `{:outcome_unknown, map}`. An unknown outcome
+  may already have been enqueued; classify send results with
+  `receipt_for_send_result/1` and reuse the request identifier on retry.
+  """
   @spec send(target(), String.t(), keyword()) :: {:ok, integer()} | {:error, term()}
   def send(target, text, opts \\ []) do
     origin = Keyword.get(opts, :origin, :internal)
