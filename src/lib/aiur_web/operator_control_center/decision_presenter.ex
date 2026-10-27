@@ -90,6 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       failure_reason: failure_reason(decision),
       lifecycle: lifecycle(decision)
     }
+    |> Map.merge(Commands.public_v2(decision))
   end
 
   defp option_row(option) do
