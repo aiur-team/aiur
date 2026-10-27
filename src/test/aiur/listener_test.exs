@@ -3,7 +3,7 @@ defmodule Aiur.ListenerTest do
   import ExUnit.CaptureLog
   alias Aiur.{AgentQueueStore, Listener, Orchestrator, TrackerIdentity}
   alias Aiur.Listener.ModeStore
-  alias Aiur.Orchestrator.{ListenerModes, State}
+  alias Aiur.Orchestrator.{ListenerDeliveryTarget, ListenerModes, State}
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
 
   defmodule Server do
@@ -80,6 +80,13 @@ defmodule Aiur.ListenerTest do
     end
 
     refute File.exists?(ModeStore.path_for("42"))
+  end
+
+  test "direct delivery calls reject missing versions without crashing the orchestrator", %{pid: pid, state: state} do
+    assert {:error, :invalid_expected_version} = ListenerDeliveryTarget.set_mode("42", :async, [])
+    assert {:error, :invalid_expected_version} = ListenerDeliveryTarget.set_mode("42", :async, expected_version: -1)
+    assert :sys.get_state(pid) == state
+    assert {:ok, %{requested: :sync, version: 0}} = Listener.get_mode("42")
   end
 
   test "dead orchestrator returns unavailable", %{pid: pid} do

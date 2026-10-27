@@ -16,10 +16,11 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @spec set_mode(State.t(), Aiur.Listener.target(), ModeStore.mode(), keyword()) :: tuple()
   def set_mode(state, target, mode, opts) do
     reply =
-      with {:ok, id, entry} <- resolve(state, target) do
+      with version when is_integer(version) and version >= 0 <- opts[:expected_version],
+           {:ok, id, entry} <- resolve(state, target) do
         meta = %{actor: Keyword.get(opts, :actor, :human), idempotency_key: opts[:idempotency_key]}
 
-        case ModeStore.put(id, mode, Keyword.fetch!(opts, :expected_version), meta) do
+        case ModeStore.put(id, mode, version, meta) do
           {:ok, record} ->
             result = view(state, id, entry, record)
             Logger.info("listener_mode_set issue=#{id} requested=#{result.requested} effective=#{inspect(result.effective)} version=#{result.version} actor=#{result.actor}")
@@ -31,6 +32,9 @@ defmodule Aiur.Orchestrator.ListenerModes do
           {:error, _} = error ->
             error
         end
+      else
+        {:error, _} = error -> error
+        _invalid_version -> {:error, :invalid_expected_version}
       end
 
     {:reply, reply, state}
