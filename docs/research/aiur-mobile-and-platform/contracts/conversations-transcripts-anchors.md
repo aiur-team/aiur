@@ -115,3 +115,7 @@ inclusive range (`:infinity` is supported). With a current head it opens only
 overlapping entry segments. Rebuilding a stale head necessarily reads the
 segments first. The store is a pure file API for one writer, with no process,
 PubSub, page cursor, retention, or anchor-resolution policy.
+
+Callers must serialize recovering reads with appends. A stale-head rebuild
+may truncate an incomplete final line, so it must never run against an
+in-flight writer batch. The later writer/reader integration owns this ordering.
