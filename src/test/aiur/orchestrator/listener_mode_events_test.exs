@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.ListenerModeEventsTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Events.{Catalog, Exchange, HistoryStore, Publisher, SubscriptionStore}
+  alias Aiur.Events.{Catalog, Exchange, HistoryStore, Publisher, SubscriptionStore, UniversalSubscriptions}
+  alias Aiur.IssueLog.Format
   alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.{AutoSubscriptions, ListenerModes, State}
 
@@ -54,7 +55,7 @@ defmodule Aiur.Orchestrator.ListenerModeEventsTest do
     assert local == Map.take(view, [:requested, :effective, :effective_reason, :version, :actor])
     assert local.actor == :human
     assert_received {:history, ^id, :emit, ^event}
-    assert Aiur.IssueLog.Format.format_event_marker(:emit, event) =~ " actor=human "
+    assert Format.format_event_marker(:emit, event) =~ " actor=human "
     assert updated.queue_store == state.queue_store
     assert {:reply, {:error, {:mode_conflict, _}}, _} = ListenerModes.set_mode(updated, id, :sync, expected_version: 0)
     refute_received {:event, _}
@@ -99,7 +100,7 @@ defmodule Aiur.Orchestrator.ListenerModeEventsTest do
       :ok
     end)
 
-    assert :ok = Aiur.Events.UniversalSubscriptions.attach(id)
+    assert :ok = UniversalSubscriptions.attach(id)
     assert :ok = AutoSubscriptions.subscribe_for_declared_blocker(id, blocker)
     assert {:reply, {:ok, _}, _} = ListenerModes.set_mode(state, id, :sync, expected_version: 0)
     assert_received {:event, %{topic: topic}}

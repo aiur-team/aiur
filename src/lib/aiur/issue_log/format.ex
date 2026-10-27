@@ -2,6 +2,7 @@ defmodule Aiur.IssueLog.Format do
   @moduledoc false
 
   alias Aiur.AgentEvents
+  alias Aiur.Events.Catalog
 
   @spec format_transcript(term(), term(), map()) :: String.t()
   def format_transcript(role, body, event) do
@@ -44,7 +45,7 @@ defmodule Aiur.IssueLog.Format do
   defp actor_segment(event) do
     topic = event_field(event, :topic, "")
 
-    if Aiur.Events.Catalog.lookup(topic).attribution == :payload_actor do
+    if Catalog.lookup(topic).attribution == :payload_actor do
       " actor=#{event_field(event, :actor, :unknown)}"
     else
       ""
