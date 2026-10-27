@@ -67,6 +67,9 @@ defmodule VoiceConverse.Session do
     {:reply, :ok, state}
   end
 
+  def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
+    do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
+
   def handle_call(:await_started, _from, %{start_status: :started} = state), do: {:reply, :ok, state}
   def handle_call(:await_started, from, state), do: {:noreply, update_in(state.start_waiters, &[from | &1])}
 
