@@ -162,12 +162,15 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "org", repository: "repo", provider_id: id, identifier: "42", reason: nil}
     attrs = %{request_id: "pause-decision", issue_id: id, tracker_identity: identity, action: :pause, generation: "listener", expected_status: :working, expected_version: 0, requester: :automatic}
     {:ok, _, lifecycle} = ControlLifecycle.request(state.control_lifecycle, attrs)
-    entry = Map.put(state.running[id], :pending_pause_reason, %{request_id: "pause-decision", reason: :input_required})
+    entry = state.running[id]
+    entry = %{entry | issue: %{entry.issue | tracker_identity: identity}, control: Map.merge(entry.control, %{generation: "listener", version: 0, application_confirmation: :request_only})}
+    entry = Map.put(entry, :pending_pause_reason, %{request_id: "pause-decision", reason: :input_required})
     state = %{state | control_lifecycle: lifecycle, running: %{id => entry}}
     assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "chat", delivery_policy: :listener, origin: :http})
     assert next.control_lifecycle == lifecycle
     refute Map.has_key?(next.running[id], :resume_input_id)
     refute_received {:resume_agent, _}
+    refute_received {:resume_agent, _, _}
     assert next.running[id].pending_pause_reason.reason == :input_required
     assert_received {:agent_queue_updated, ^id, ^request, false}
   end
