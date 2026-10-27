@@ -245,7 +245,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-agent-04 -->
 | --- | --- | --- | --- |
-| `agent.claude.command` | string | `aiur-claude` | Command launching the Claude backend. |
+| `agent.claude.command` | string | `aiur-claude` | Command launching the Claude backend. Native question capture requires aiur-claude >= 1.3.0 (`npm install -g aiur-claude@^1.3.0`); leave the gate off until that version is available. |
 | `agent.claude.model` | string or nil | nil | Optional Claude model override. |
 | `agent.claude.permission_mode` | string | `bypassPermissions` | Claude permission mode. |
 

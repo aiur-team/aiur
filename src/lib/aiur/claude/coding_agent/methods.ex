@@ -9,6 +9,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
   alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, ToolCallIdentity, ToolCallLedger, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountGeneration, AccountMeters, CodingAgent, NotificationPolicy}
+  alias Aiur.Commands.NativeCapture
 
   @doc false
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
@@ -23,8 +24,8 @@ defmodule Aiur.Claude.CodingAgent.Methods do
         )
 
         case TurnState.turn_completion_status(payload) do
-          "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
-          _ -> TurnState.continue_after_turn_completion(state)
+          "interrupted" -> TurnState.continue_after_turn_interrupted(NativeCapture.release_held(session, state, :turn_ended), payload)
+          _ -> TurnState.continue_after_turn_completion(NativeCapture.release_held(session, state, :turn_ended))
         end
 
       {:error, reason} ->
@@ -40,6 +41,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
       metadata_from_message(session.port, payload)
     )
 
+    state = NativeCapture.release_held(session, state, :turn_ended)
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
 
     # CLI provenance first (#2727); provider_error text never feeds the
@@ -106,6 +108,10 @@ defmodule Aiur.Claude.CodingAgent.Methods do
       _local_or_meter_result ->
         {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
     end
+  end
+
+  def handle_method(session, state, %{"method" => "item/tool/requestUserInput", "id" => id, "params" => params}, raw, _method) do
+    NativeCapture.Claude.handle(session, state, id, params, raw)
   end
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)

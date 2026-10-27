@@ -17,7 +17,7 @@ For each named item, read the current owner and rewrite the cited starting point
 | REFRESH-MP-E2-C4-T02-4fbe1095 (resolved) | `src/lib/aiur/app_server/turn_loop.ex:9-52` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C4-T03-4fbe1095 (resolved) | `src/lib/aiur/decision_dispatch.ex:36-66` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C5-T00-4fbe1095 | `src/lib/aiur/claude/coding_agent.ex:302-399` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
-| REFRESH-MP-E2-C5-T02-4fbe1095 | `src/lib/aiur/claude/coding_agent.ex:302-383` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
+| REFRESH-MP-E2-C5-T02-4fbe1095 (resolved) | `src/lib/aiur/claude/coding_agent.ex:302-383` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C5-T03-4fbe1095 | `src/lib/aiur/decision_store.ex:4725-4764` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C6-T01-4fbe1095 | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:88-89` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C6-T01-4fbe1095 | `src/lib/aiur/agent_control_cli.ex:354-366` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f | LINES-CHANGED: source range has no unique byte-identical destination |
@@ -95,3 +95,17 @@ The alias uses these current APIs, preserves local legacy reads/resolution, and
 loads the current Command version before Executor withdrawal. Current IDs use
 the `dec_` prefix plus 16 hex characters; the historical bare-hex description is stale. Historical ranges
 are superseded; the design and compatibility requirements are retained.
+
+## REFRESH-MP-E2-C5-T02-4fbe1095 — closed (2026-10-27)
+
+Re-resolved before implementation on #6417. CodingAgent now delegates method
+routing to `claude/coding_agent/methods.ex` (explicit methods at 17–115,
+catch-all at 117–133); add native request routing before that catch-all.
+The handshake remains at `claude/coding_agent.ex:217–262`; extract it for
+version negotiation. Shared capture is `commands/native_capture.ex`, replies
+are `app_server/native_replies.ex`, release is `commands/native_capture/release.ex`.
+Sibling PR 13 merged with version 1.3.0: initialize returns `server.version`,
+questions use Codex-shaped IDs/answers, and Variant A defers then resumes the
+same logical turn. Preserve `native.hold: :deferred` and use shared queue delivery.
+#6406, #6408 and #6409 are closed; npm publication remains a rollout prerequisite.
+Product defaults and predecessor gates are retained.

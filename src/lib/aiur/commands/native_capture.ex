@@ -59,7 +59,7 @@ defmodule Aiur.Commands.NativeCapture do
       native =
         normalized
         |> Map.take([:harness, :native_ref, :call_id, :turn_id])
-        |> Map.merge(%{hold: :in_band, question_ids: Enum.map(questions, & &1.question_id)})
+        |> Map.merge(%{hold: Map.get(normalized, :hold, :in_band), question_ids: Enum.map(questions, & &1.question_id)})
 
       opts = [
         ticket: Map.fetch!(ctx, :ticket),

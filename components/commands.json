@@ -30,6 +30,7 @@
     "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
     "Aiur.Commands.NativeCapture",
+    "Aiur.Commands.NativeCapture.Claude",
     "Aiur.Commands.NativeCapture.Codex",
     "Aiur.Commands.RequestContent",
     "Aiur.Decision",
