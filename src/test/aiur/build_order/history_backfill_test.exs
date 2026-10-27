@@ -21,7 +21,7 @@ defmodule Aiur.BuildOrder.HistoryBackfillTest do
       next_after: nil,
       matching_total: 20,
       unresolved_total: unresolved,
-      sources: %{history: %{state: :available, freshness: freshness, age_ms: 41000, observed_at: DateTime.utc_now()}}
+      sources: %{history: %{state: :available, freshness: freshness, age_ms: 41_000, observed_at: DateTime.utc_now()}}
     }
 
   test "page is persisted before return and cap/cursor survive a new call", c do
@@ -106,7 +106,7 @@ defmodule Aiur.BuildOrder.HistoryBackfillTest do
       opts = Keyword.put(c.opts, :export, fn _ -> {:ok, page([], freshness, unresolved)} end)
       assert {:ok, result} = Backfill.next_page(2901, 1, 0, opts)
       assert result.exhausted == expected
-      assert result.history.age_ms == 41000 and result.history.freshness == freshness
+      assert result.history.age_ms == 41_000 and result.history.freshness == freshness
       assert result.unresolved_total == unresolved
     end
   end

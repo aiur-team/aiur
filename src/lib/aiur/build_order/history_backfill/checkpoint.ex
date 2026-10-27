@@ -42,11 +42,12 @@ defmodule Aiur.BuildOrder.HistoryBackfill.Checkpoint do
 
   defp valid?(%{"version" => 1, "issue" => issue, "repository" => repository, "cap" => cap, "handed_out" => count, "cursor" => cursor, "updated_at" => at} = data, issue, repository) do
     Enum.sort(Map.keys(data)) == ~w(cap cursor handed_out issue repository updated_at version) and
-      is_integer(cap) and cap > 0 and is_integer(count) and count >= 0 and count <= cap and
-      is_integer(cursor) and cursor >= 0 and is_binary(at) and match?({:ok, _, _}, DateTime.from_iso8601(at))
+      valid_counters?(cap, count, cursor) and is_binary(at) and match?({:ok, _, _}, DateTime.from_iso8601(at))
   end
 
   defp valid?(_, _, _), do: false
+
+  defp valid_counters?(cap, count, cursor), do: is_integer(cap) and cap > 0 and is_integer(count) and count >= 0 and count <= cap and is_integer(cursor) and cursor >= 0
 
   @spec save(Path.t(), map(), keyword()) :: :ok | {:error, atom()}
   def save(path, checkpoint, opts) do

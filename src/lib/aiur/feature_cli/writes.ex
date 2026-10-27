@@ -91,6 +91,12 @@ defmodule Aiur.FeatureCLI.Writes do
     cond do
       id in Map.get(result, :kept, []) -> :kept_existing
       id not in result.changed -> :unchanged
+      true -> changed_outcome(id, args, snapshot)
+    end
+  end
+
+  defp changed_outcome(id, args, snapshot) do
+    cond do
       args.op == :remove or (args.op == :also and args[:remove]) -> :removed
       args.op == :also -> :added
       is_nil(snapshot.owners[id]) -> :added

@@ -3,11 +3,11 @@ defmodule Aiur.AgentTools.Errors do
   Error payload catalog for dynamic tool failures.
   """
 
-  alias Aiur.AgentTools.AgentLifecycleErrors
+  alias Aiur.AgentTools.{AgentLifecycleErrors, HistoryExportErrors}
   alias Aiur.AgentTools.Response
 
   @spec payload(term()) :: map()
-  def payload({:history_export, reason}), do: Aiur.AgentTools.HistoryExportErrors.payload(reason)
+  def payload({:history_export, reason}), do: HistoryExportErrors.payload(reason)
 
   def payload(:invalid_epic_arguments),
     do: %{
