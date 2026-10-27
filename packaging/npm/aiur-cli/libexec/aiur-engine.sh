@@ -140,6 +140,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
+       aiur listen-mode <id> [steer|sync|async] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur message --status <request-id>          inspect a queued message
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
@@ -410,6 +411,10 @@ aiur_engine_main() {
     workspace-recover)
       shift
       cmd_workspace_recover "$@"
+      ;;
+    listen-mode)
+      shift
+      cmd_listen_mode "$@"
       ;;
     message)
       shift

@@ -38,6 +38,7 @@
     "config",
     "event-bus",
     "identity",
+    "listener-modes",
     "projections",
     "signal",
     "web-kit"
