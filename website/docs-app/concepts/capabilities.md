@@ -70,7 +70,7 @@ presence does not promise that its feature is installed or enabled.
 | `executor.conversation` | Managed Executor conversation |
 | `executor.background_agents` | Executor background agent observations |
 | `harness.<id>.native_question` | Harness questions; `mode` is `in_band_hold`, `defer_resume`, or `none` |
-| `events.export` | External event export; may include `v` and `retention` |
+| `events.export` | External event feed: `v: 1`, `retention.max_age_s` and `retention.max_records`; disabled → `unavailable/disabled`, no HTTP listener or exporter → `unavailable/not_running`, corrupt journal → `degraded/journal_corrupt` |
 | `listener_modes` | Listener routing modes; unavailable modes retain legacy sends |
 | `voice.stt` | Speech recognition |
 | `voice.tts` | Speech synthesis |

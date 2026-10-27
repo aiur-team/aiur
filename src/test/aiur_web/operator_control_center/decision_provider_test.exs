@@ -106,7 +106,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     assert {:ok, %{decision: detail, health: %{status: :available}}} =
              DecisionProvider.detail(decision.decision_id, decision_store: store, decision_metrics: make_ref())
 
-    assert Map.delete(detail, :latency) == overview
+    assert Map.drop(detail, [:latency, :audit_history]) == overview
     assert detail.latency == %{status: :unavailable, snapshot: nil}
     assert detail.question == SecretRedactor.redact("Can #{secret} be rendered?")
     refute Map.has_key?(detail.source, :session_id)
@@ -286,6 +286,47 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
 
     assert {:ok, %{open: nil, blocking: nil, total: nil, health: %{status: :unavailable, partial?: true}}} =
              DecisionProvider.counts(decision_store: unavailable_store)
+  end
+
+  defmodule AuditProxy do
+    use GenServer
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+    @impl true
+    def init(opts), do: {:ok, opts}
+    @impl true
+    def handle_call({:audit_history, _id}, _from, opts), do: {:reply, opts[:audit], opts}
+    def handle_call(request, _from, opts), do: {:reply, GenServer.call(opts[:store], request), opts}
+  end
+
+  test "detail reads durable routing facts with only display-safe fields", %{store: store} do
+    now = DateTime.utc_now()
+    decision = request!(store, "timeline", now)
+    route = %{policy: :executor_first, state: :with_executor, cause: nil, at: now, actor: %{kind: :system, id: "routing"}}
+    assert {:ok, _} = DecisionStore.record_command_fact(decision.decision_id, :routed, route, server: store, now: now)
+    later = DateTime.add(now, 10)
+    escalation = %{cause: :executor_answer_timeout, detail: "Private routing detail", at: later, actor: %{kind: :system, id: "routing"}}
+    assert {:ok, _} = DecisionStore.record_command_fact(decision.decision_id, :escalated, escalation, server: store, now: later)
+    assert {:ok, %{decision: row}} = DecisionProvider.detail(decision.decision_id, decision_store: store, decision_metrics: make_ref())
+
+    assert Enum.take(row.audit_history, -2) == [
+             %{type: :routed, at: now, cause: nil},
+             %{type: :escalated, at: later, cause: :executor_answer_timeout}
+           ]
+
+    Aiur.TestSupport.refute_leak(row.audit_history, "Private routing detail")
+  end
+
+  test "failed audit reads and unknown records preserve explicit timeline states", %{store: store} do
+    decision = request!(store, "audit-unavailable", DateTime.utc_now())
+    at = DateTime.utc_now()
+
+    for audit <- [{:error, :unavailable}, {:ok, [%{event_type: "future_fact", occurred_at: at, raw: %{secret: "private"}}]}] do
+      {:ok, proxy} = AuditProxy.start_link(store: store, audit: audit)
+      assert {:ok, %{decision: row}} = DecisionProvider.detail(decision.decision_id, decision_store: proxy, decision_metrics: make_ref())
+      expected = if elem(audit, 0) == :error, do: :unavailable, else: [%{type: :unknown, at: at, cause: nil}]
+      assert row.audit_history == expected
+      GenServer.stop(proxy)
+    end
   end
 
   defp request!(store, source_id, now) do

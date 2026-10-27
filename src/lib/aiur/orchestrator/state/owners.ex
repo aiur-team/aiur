@@ -148,6 +148,7 @@ defmodule Aiur.Orchestrator.State.Owners do
       Aiur.Handoff.Fallback,
       Aiur.Orchestrator.TicketTransition,
       Aiur.Orchestrator.Lifecycle,
+      Aiur.Orchestrator.ListenerModes,
       Aiur.Orchestrator.MembershipLifecycle,
       Aiur.Orchestrator.Parking,
       Aiur.Orchestrator.RetryEngine,
