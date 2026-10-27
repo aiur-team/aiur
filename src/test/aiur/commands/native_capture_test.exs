@@ -82,13 +82,10 @@ defmodule Aiur.Commands.NativeCaptureTest do
     assert {:ok, %{source_id: "native:other"}, _} = NativeCapture.to_request(%{input | native_ref: "other"}, ctx)
   end
 
-  test "captured multiple questions retain the single-option question and project first options", %{ctx: ctx} do
+  test "recorded multiple questions release without writing when a question has one option", %{ctx: ctx, dir: dir} do
     input = normalized("request_user_input_two_questions.json")
-    assert {:command, d} = NativeCapture.capture(input, ctx)
-    assert d.question == "2 questions: Colour, Dummy token"
-    assert Enum.map(d.options, & &1.label) == ["Red", "Blue"]
-    assert d.native.question_ids == ["colour", "dummy_token"]
-    assert [%{question_id: "colour"}, %{question_id: "dummy_token", options: [%{label: "Enter token"}]}] = d.questions
+    capture_log(fn -> assert NativeCapture.capture(input, ctx) == {:release, UserInputAnswers.non_interactive_answer()} end)
+    assert records(dir) == []
   end
 
   test "distinct native requests survive creation dedup and answering a sibling", %{ctx: ctx} do
@@ -100,8 +97,17 @@ defmodule Aiur.Commands.NativeCaptureTest do
     assert {:ok, %{decision: _answered}} = answer(ctx.store, first.decision_id, %{expected_version: 1, idempotency_key: "answer-first", option_id: "o1"})
     assert {:ok, %{decision_status: :open, native: %{native_ref: "second"}}} = DecisionStore.get(second.decision_id, ctx.store)
 
-    multi = normalized("request_user_input_two_questions.json") |> Map.put(:native_ref, "multi")
+    # Derive a second option so every question satisfies the shared 2..4 option contract.
+    multi =
+      normalized("request_user_input_two_questions.json")
+      |> Map.put(:native_ref, "multi")
+      |> update_in([:questions, Access.at(1), :options], &(&1 ++ [%{label: "Skip token", description: "Continue without a token"}]))
+
     assert {:command, multi_first} = NativeCapture.capture(multi, ctx)
+    assert multi_first.question == "2 questions: Colour, Dummy token"
+    assert Enum.map(multi_first.options, & &1.label) == ["Red", "Blue"]
+    assert multi_first.native.question_ids == ["colour", "dummy_token"]
+    assert [%{question_id: "colour"}, %{question_id: "dummy_token", options: [%{label: "Enter token"}, %{label: "Skip token"}]}] = multi_first.questions
     changed = update_in(multi.questions, fn [first, second] -> [%{first | question: "Which host should run the build?"}, second] end)
     assert {:command, multi_second} = NativeCapture.capture(%{changed | native_ref: "multi-second"}, ctx)
     refute multi_first.decision_id == multi_second.decision_id

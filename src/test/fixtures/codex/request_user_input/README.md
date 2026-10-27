@@ -10,3 +10,5 @@ The tests explicitly derive approval labels and `secret: true` from the normaliz
 recording; neither variant is presented as a real captured frame.
 
 The two-question recording includes a one-option question, accepted by Codex.
+Aiur's shared 2–4 option contract rejects that frame; capture releases without
+storing it. Valid multi-question coverage explicitly derives a second option.
