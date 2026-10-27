@@ -62,10 +62,6 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-command': 99,
   // CI run 39758422723, shard 5/8: duration read from its suite log.
   'test:browser-suite -- build-home-live-top': 10,
-  // Conservative CI-measured full-selection bounds from review5564161995 (#5124).
-  // Routine commands select fewer cells; these are NOT routine measurements.
-  // Refresh with routine suite-duration logs after the first new-head CI run.
-  'test:build-home-band-motion': 280,
   // PR #4805 suite-duration logs (2026-10-18): units/browser from run 39093008001 at ea5f25e39.
   // Parity uses the latest green run 39093008001 at ea5f25e39 (102.5s).
   'test:build-home-edges-unit': 0.2,
@@ -131,6 +127,4 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-states-e2e': 15,
   // Local functional harness timing (2026-10-18): 130.4s.
   'test:build-home-filters': 131,
-  // Seven-case local JSON report (2026-10-23, b33f2f685): 417.6s, excluding build-gate wait; round up.
-  // Scoped desktop/reduced/mobile filter motion: local harness 49.3s (2026-10-18).
 }

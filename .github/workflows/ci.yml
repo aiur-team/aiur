@@ -356,7 +356,7 @@ jobs:
         include: [{ shard: 1, verify_fixtures: true, upload_evidence: true },
           { shard: 2, visual_regression: first },
           { shard: 5, visual_regression: second },
-          { shard: 2, upload_evidence: true }, { shard: 8, upload_evidence: true }]
+          { shard: 2, upload_evidence: true }, { shard: 5, upload_evidence: true }, { shard: 8, upload_evidence: true }]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -467,7 +467,7 @@ jobs:
         run: python3 scripts/check-ci-gate.py
   nightly-trigger:
     name: nightly trigger
-    needs: [ci-gate, changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    needs: [ci-gate, changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
     if: ${{ !cancelled() && github.repository == 'aiur-team/aiur' && github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
