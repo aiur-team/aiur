@@ -55,6 +55,21 @@ restart share that cap and cursor.
 
 This is a classification workflow, with no cost saving claimed.
 
+The [#3180 measurement](https://github.com/aiur-team/aiur/issues/3180) of
+[pilot #6353](https://github.com/aiur-team/aiur/issues/6353) observed Core 2 /
+GraphQL 0 / Search 0 broker requests for one 100-ticket run. Nine runs project
+18 Core requests; these are pilot-actor admissions, not daemon-wide costs.
+
+The pilot made no classification reads on GitHub; its GitHub writes were its
+own lifecycle labels and workpad. This run enables no classified-ticket label
+writes: feature joins stay `held_backfill`. Read [GitHub costs](/apis/github-costs)
+and [budget interpretation](/apis/github-budgets) before comparing costs.
+
+The projected 89 feature-label writes and 762 epic-label writes (only with
+`--epic-labels`) are code-derived, not measured. They belong to
+[#3182](https://github.com/aiur-team/aiur/issues/3182), paced through
+`build_queue.max_writes_per_minute`, and are not enabled here.
+
 Create the `history-backfill` label, then file and dispatch this template through
 the normal fleet queue. Replace the prior cursor and batch number:
 

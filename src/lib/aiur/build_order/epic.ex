@@ -59,7 +59,7 @@ defmodule Aiur.BuildOrder.Epic do
   defp unconfirmed_label(ticket, %{confirmed: false}, general, acc) do
     case labels(ticket, general, acc) do
       {:done, result} -> {:done, %{result | ignored: result.ignored ++ [:override_unconfirmed_below_label]}}
-      {:next, _} -> {:next, acc}
+      {:next, acc} -> {:next, acc}
     end
   end
 

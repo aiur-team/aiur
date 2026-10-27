@@ -58,7 +58,13 @@ defmodule Aiur.BuildOrder.BackfillGuardsTest do
     assert %{key: "design", source: "override:agent:2901", gaps: []} = Epic.resolve(%{ticket | labels: []}, context)
     assert %{key: "design", source: "override:agent:2901"} = Epic.resolve(%{ticket | override: Map.put(ticket.override, :confirmed, true)}, context)
     assert %{key: "design", source: "override:agent:2901"} = Epic.resolve(%{ticket | override: Map.delete(ticket.override, :confirmed)}, context)
-    assert %{key: "design", gaps: []} = Epic.resolve(%{ticket | labels: :unknown}, context)
+    assert %{key: "design", gaps: [:labels]} = Epic.resolve(%{ticket | labels: :unknown}, context)
+  end
+
+  test "an unconfirmed override reports incomplete labels" do
+    context = %{general: @general, features: %{}}
+    ticket = %{labels: [], labels_complete: false, override: %{epic: "design", actor: "agent:2901", confirmed: false}}
+    assert %{key: "design", source: "override:agent:2901", gaps: [:labels]} = Epic.resolve(ticket, context)
   end
 
   defp guess(opts), do: Keyword.merge(opts, Map.to_list(@guess))
