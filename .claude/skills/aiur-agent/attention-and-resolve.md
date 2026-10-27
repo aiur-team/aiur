@@ -9,10 +9,12 @@ an observed fact.
 When you need an **answer**, prefer the harness's native question tool (such
 as `request_user_input` or `AskUserQuestion`) when it is available in the
 current mode and supports the question. Aiur captures supported native
-questions as Commands when capture is enabled; follow the tool's own option rules. Capture alone does
-not guarantee native answer delivery: follow its release instruction and end
-the turn if told the answer will arrive as a message. Do not also emit
-`decision.requested` for the same question.
+questions as Commands when capture is enabled; follow the tool's own option
+rules. Native capture is off by default. If the tool replies “Executor input
+is unavailable”, the question was not recorded: emit `decision.requested`.
+Only when the reply includes a Command id is the question captured; do not also
+emit `decision.requested` for that captured question. Follow its release
+instruction and end the turn if told the answer will arrive as a message.
 
 When a native ask is unavailable or unsupported, emit `decision.requested`
 with 2–3 suggested responses, recommended first (see
