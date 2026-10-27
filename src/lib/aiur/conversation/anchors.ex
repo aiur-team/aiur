@@ -126,7 +126,7 @@ defmodule Aiur.Conversation.Anchors do
   defp gap?(%{kind: "gap", meta: meta}, time) do
     from = instant(Map.get(meta, :from, Map.get(meta, "from")))
     to = instant(Map.get(meta, :to, Map.get(meta, "to")))
-    before_or_equal?(from, time) && before_or_equal?(time, to)
+    (is_nil(from) || before_or_equal?(from, time)) && (is_nil(to) || before_or_equal?(time, to))
   end
 
   defp gap?(_entry, _time), do: false

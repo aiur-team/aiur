@@ -89,6 +89,38 @@ defmodule Aiur.Conversation.AnchorsPositionTest do
     assert_unanchored(event(), [entry(1, 1), atom_gap], [session()])
   end
 
+  # Regression guard requested in review: reject unknown times on both comparison inputs.
+  test "untimed entries never supply an observed position" do
+    for unknown <- [nil, "bad"] do
+      untimed = %{entry(9, 1) | observed_at: unknown}
+      assert {:ok, anchor} = Anchors.position(event(), [entry(1, 1), untimed], [session()])
+      assert anchor["pos"] == 1
+      assert anchor["precision"] == "observed"
+      assert_unanchored(event(), [untimed], [session()])
+    end
+  end
+
+  # Regression guard for the same nil-left comparison at the session boundary.
+  test "untimed sessions never cover an event" do
+    for unknown <- [nil, "bad"] do
+      assert_unanchored(event(), [entry(1, 1)], [session(%{started_at: unknown})])
+    end
+  end
+
+  test "unreadable gap bounds cover the unknown side while known bounds still constrain placement" do
+    for meta <- [%{from: time(8)}, %{to: time(12)}, %{from: time(8), to: "bad"}, %{"from" => "bad", "to" => DateTime.to_iso8601(time(12))}] do
+      gap = %Entry{pos: 2, kind: "gap", observed_at: time(20), meta: meta}
+      assert_unanchored(event(), [entry(1, 1), gap], [session()])
+    end
+
+    for meta <- [%{from: time(8)}, %{from: time(8), to: time(12)}] do
+      gap = %Entry{pos: 2, kind: "gap", observed_at: time(20), meta: meta}
+      assert {:ok, anchor} = Anchors.position(event(%{observed_at: time(7)}), [entry(1, 1), gap], [session()])
+      assert anchor["pos"] == 1
+      assert anchor["precision"] == "observed"
+    end
+  end
+
   test "nil or unusable observation time is unanchored regardless of provider time" do
     for observed_at <- [nil, "bad"], do: assert_unanchored(event(%{observed_at: observed_at, occurred_at: time(10)}), [entry(1, 1)], [session()])
   end

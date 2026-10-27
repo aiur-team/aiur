@@ -144,7 +144,8 @@ Observed placement selects the greatest position whose daemon `observed_at`
 is at or before the event's observation time, including ties. It requires a
 session covering that time (inclusive start/end; a null end is open) and no
 gap spanning it. Gap entries carry inclusive `from`/`to` observation times in
-`meta`; the gap row itself is never a target. Observed anchors use placement
+`meta`; an unreadable or missing bound covers that entire side of the gap.
+The gap row itself is never a target. Observed anchors use placement
 `after` and method `observed_at`. Otherwise precision is `unanchored`, with
 null position, placement and method. Provider occurrence times never affect
 placement. The deck's `at_or_before/2` membership rule remains unchanged:
