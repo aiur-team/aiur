@@ -71,27 +71,8 @@ export default withMermaid(defineConfig({
     }
   },
   head: [
-    [
-      'script',
-      {},
-      `(() => {
-        const savedTheme = localStorage.getItem('aiur-theme')
-        if (savedTheme === 'dark' || savedTheme === 'light') {
-          localStorage.setItem('vitepress-theme-appearance', savedTheme)
-          document.documentElement.classList.toggle('dark', savedTheme === 'dark')
-        }
-      })()`
-    ],
-    ['link', { rel: 'icon', href: '/favicon.ico', sizes: 'any' }],
-    ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
-    ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
-    [
-      'link',
-      {
-        rel: 'stylesheet',
-        href: 'https://fonts.googleapis.com/css2?family=Bungee&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap'
-      }
-    ]
+    ['script', { src: '/aiur-style/init/theme-init.js', 'data-default': 'dark', 'data-vitepress': 'true' }],
+    ['link', { rel: 'icon', href: '/aiur-style/assets/favicon.ico', sizes: 'any' }]
   ],
   themeConfig: {
     logo: aiur.logo!,

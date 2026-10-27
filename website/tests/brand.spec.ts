@@ -45,7 +45,10 @@ test('light preference is applied before docs hydration', async ({ page }) => {
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   })
 
+  // Block application hydration so only the synchronous shared init can repair the stale key.
+  await page.route('**/assets/app.*.js', route => route.abort())
   await page.goto('/docs/guide/quick-start')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await expect(page.locator('html')).not.toHaveClass(/dark/)
   expect(await page.evaluate(() => (window as typeof window & { darkThemeObserved?: boolean }).darkThemeObserved)).toBe(false)
   expect(await page.evaluate(() => localStorage.getItem('vitepress-theme-appearance'))).toBe('light')
@@ -70,20 +73,22 @@ for (const theme of themes) {
 
     const docsThemeToggle = page.locator('.VPSwitchAppearance:visible').first()
     await docsThemeToggle.click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', opposite(theme))
     await expect.poll(() => page.evaluate(() => localStorage.getItem('aiur-theme'))).toBe(opposite(theme))
     await docsThemeToggle.click()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
 
     const contrast = await page.evaluate(() => {
       const styles = getComputedStyle(document.documentElement)
       return {
-        muted: styles.getPropertyValue('--aiur-muted').trim(),
+        muted: styles.getPropertyValue('--aiur-color-muted').trim(),
         brandButton: {
           foreground: styles.getPropertyValue('--vp-button-brand-text').trim(),
           background: styles.getPropertyValue('--vp-button-brand-bg').trim()
         },
         backgrounds: [
-          styles.getPropertyValue('--aiur-bg').trim(),
-          styles.getPropertyValue('--aiur-bg-soft').trim()
+          styles.getPropertyValue('--aiur-color-bg').trim(),
+          styles.getPropertyValue('--aiur-color-bg-2').trim()
         ]
       }
     })
@@ -93,7 +98,7 @@ for (const theme of themes) {
     expect(contrastRatio(contrast.brandButton.foreground, contrast.brandButton.background)).toBeGreaterThanOrEqual(4.5)
 
     const codeLanguageLabel = page.locator('.lang').first()
-    expect(contrastRatio(...await renderedColors(codeLanguageLabel))).toBeGreaterThanOrEqual(4.5)
+    await expect.poll(async () => contrastRatio(...await renderedColors(codeLanguageLabel))).toBeGreaterThanOrEqual(4.5)
 
     const homeLink = page.getByRole('link', { name: 'Home' })
     await expect(homeLink).toHaveAttribute('href', 'https://aiur.team/')
@@ -216,3 +221,35 @@ test('light marketing scroll cue meets text contrast', async ({ page }) => {
   await page.goto('/')
   expect(contrastRatio(...await renderedColors(page.locator('.aiur-scrollcue')))).toBeGreaterThanOrEqual(4.5)
 })
+
+for (const theme of themes) {
+  test(`docs ${theme} CTA uses shared fill colours`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.addInitScript(saved => localStorage.setItem('aiur-theme', saved), theme)
+    await page.goto('/docs/')
+    const cta = page.locator('.VPButton.brand').first()
+    await expect(cta).toHaveCSS('background-color', 'rgb(31, 87, 196)')
+    await cta.hover()
+    await expect(cta).toHaveCSS('background-color', 'rgb(26, 74, 168)')
+    const path = testInfo.outputPath(`docs-cta-${theme}-hover.png`)
+    await cta.screenshot({ path })
+    await testInfo.attach('CTA hover', { path, contentType: 'image/png' })
+  })
+}
+
+for (const theme of themes) {
+  test(`docs ${theme} keyboard focus uses shared offset`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await page.addInitScript(saved => localStorage.setItem('aiur-theme', saved), theme)
+    await page.goto('/docs/')
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    const focused = page.locator(':focus-visible')
+    const path = testInfo.outputPath(`docs-focus-${theme}.png`)
+    await page.screenshot({ path })
+    await testInfo.attach('Keyboard focus', { path, contentType: 'image/png' })
+    await expect(focused).toHaveCSS('outline-offset', '3px')
+    await expect(focused).toHaveCSS('outline-width', '2px')
+    await expect(focused).toHaveCSS('outline-color', theme === 'dark' ? 'rgb(47, 134, 255)' : 'rgb(31, 87, 196)')
+  })
+}
