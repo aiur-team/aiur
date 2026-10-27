@@ -80,6 +80,7 @@ defmodule Aiur.Commands.NativeCapture.ClaudeReleaseTest do
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"id" => 3, "result" => %{"turn" => %{"id" => "next"}}})}}})
     session = %{port: port, thread_id: "replacement", workspace: c.dir, store: c.store}
     assert {:ok, "next"} = CodingAgent.start_turn(session, "continue", @ticket)
+    assert {:ok, %{native: %{hold: :released}}} = DecisionStore.get(info.decision_id, c.store)
     assert_released(c, info.decision_id, :session_gone)
     assert :ok = Claude.release_stale(session, @ticket)
   end
