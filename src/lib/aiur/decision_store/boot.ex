@@ -72,7 +72,7 @@ defmodule Aiur.DecisionStore.Boot do
         follow_up_append_retries: %{},
         held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
-        answer_comment_publisher: Keyword.get(opts, :answer_comment_publisher, &DecisionAnswerComment.ensure/1),
+        answer_comment_publisher: Keyword.get(opts, :answer_comment_publisher, default_answer_comment_publisher()),
         decision_dispatch_tasks: Keyword.get(opts, :decision_dispatch_tasks, DecisionDispatchTasks),
         decision_dispatch_monitor_pid: nil,
         decision_dispatch_monitor_ref: nil,
@@ -104,6 +104,13 @@ defmodule Aiur.DecisionStore.Boot do
       })
 
     Dispatch.monitor_decision_dispatch_tasks(state)
+  end
+
+  defp default_answer_comment_publisher do
+    case Application.get_env(:aiur, :env) do
+      :test -> fn _decision -> :ok end
+      _ -> &DecisionAnswerComment.ensure/1
+    end
   end
 
   @spec handle_continue(term(), term()) :: term()

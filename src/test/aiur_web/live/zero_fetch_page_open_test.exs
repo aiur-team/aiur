@@ -56,14 +56,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "linear")
     inherited_task = if context[:inherited_tracker_task], do: start_inherited_tracker_task()
 
-    decision_store = Process.whereis(Aiur.DecisionStore)
-    previous_answer_comment_publisher = :sys.get_state(decision_store).answer_comment_publisher
-    :sys.replace_state(decision_store, &%{&1 | answer_comment_publisher: fn _decision -> :ok end})
-
-    on_exit(fn ->
-      :sys.replace_state(decision_store, &%{&1 | answer_comment_publisher: previous_answer_comment_publisher})
-    end)
-
     ZeroFetchPageOpenWatchers.suspend(fn pid ->
       on_exit(fn -> ZeroFetchPageOpenWatchers.resume(pid) end)
     end)
