@@ -91,7 +91,9 @@ defmodule Aiur.Machine.InstanceRecord do
   defp plain(<<char, rest::binary>>, acc), do: plain(rest, [<<char>> | acc])
 
   defp ansi("'", acc), do: {:ok, acc |> Enum.reverse() |> IO.iodata_to_binary()}
-  defp ansi(<<?\\, ?x, a, b, rest::binary>>, acc), do: numeric(<<a, b>>, 16, rest, acc)
+
+  defp ansi(<<?\\, ?x, a, b, rest::binary>>, acc) when a in ~c"0123456789abcdefABCDEF" and b in ~c"0123456789abcdefABCDEF",
+    do: numeric(<<a, b>>, 16, rest, acc)
 
   defp ansi(<<?\\, a, b, c, rest::binary>>, acc) when a in ?0..?7 and b in ?0..?7 and c in ?0..?7,
     do: numeric(<<a, b, c>>, 8, rest, acc)
@@ -103,7 +105,7 @@ defmodule Aiur.Machine.InstanceRecord do
 
   defp numeric(digits, base, rest, acc) do
     case Integer.parse(digits, base) do
-      {value, ""} when value <= 255 -> ansi(rest, [<<value>> | acc])
+      {value, ""} when value in 0..255 -> ansi(rest, [<<value>> | acc])
       _ -> :error
     end
   end

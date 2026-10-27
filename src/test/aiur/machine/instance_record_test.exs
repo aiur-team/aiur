@@ -51,7 +51,8 @@ defmodule Aiur.Machine.InstanceRecordTest do
   end
 
   test "rejects unsupported and incomplete quoting in all known fields" do
-    for value <- ["$HOME", "`id`", "(cmd)", "'quoted'", "\"quoted\"", "trailing\\", "$'unterminated", "$'a'junk", "$'\\q'", "$'\\xGG'", "$'\\777'", "a;cmd", "a b"], key <- ["NODE", "AGENT_TMPFILE"] do
+    for value <- ["$HOME", "`id`", "(cmd)", "'quoted'", "\"quoted\"", "trailing\\", "$'unterminated", "$'a'junk", "$'\\q'", "$'\\xGG'", "$'\\x-1'", "$'\\x+1'", "$'\\777'", "a;cmd", "a b"],
+        key <- ["NODE", "AGENT_TMPFILE"] do
       assert InstanceRecord.parse(@required <> "\nAIUR_RECORD_#{key}=#{value}") == {:error, {:unsupported_value, key}}
     end
   end
