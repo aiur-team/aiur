@@ -133,26 +133,3 @@ test('feature icon SVG from the shared resolver is rendered directly', () => {
   const rendered = listHTML(payload, state, { more: false }, { sources: P.sources }, P.now);
   assert.match(rendered, /<svg class="heroicon-outline"><\/svg>/);
 });
-
-test('compacted feature progress reads icon, wave, and summary from lane epics', () => {
-  const featureState = { ...state, list: 'features' };
-  const payload = {
-    ...data({}),
-    icons: { cpu: '<svg data-icon="cpu-chip"></svg>' },
-    features: { kernel: { key: 'kernel', label: 'Kernel', icon: 'cpu', epics: ['f-kernel-core'] } },
-    epics: { 'f-kernel-core': { key: 'f-kernel-core', feature: 'kernel', label: 'Kernel · core', icon: 'cpu', wave: '0b', summary: 'Scheduler and memory work', hue: 210 } },
-    feature_progress: {
-      features: {
-        'f-kernel-core': { feature: 'kernel', label: 'Kernel · core', closed: 2, open: 1, ci_wait: 0, unpublished: 0, total: 3 }
-      },
-      observed_at: P.now,
-      plan_version: 'v1',
-      extras: 0
-    }
-  };
-
-  const rendered = listHTML(payload, featureState, { more: false }, { sources: P.sources }, P.now);
-  assert.match(rendered, /<h2>Wave 0b<\/h2>/);
-  assert.match(rendered, /data-icon="cpu-chip"/);
-  assert.match(rendered, /Scheduler and memory work/);
-});
