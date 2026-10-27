@@ -2,7 +2,6 @@ defmodule Aiur.Commands.NativeCapture.Release do
   @moduledoc "Releases held native requests without closing their Commands."
 
   require Logger
-  alias Aiur.AppServer.Messages
   alias Aiur.Commands.NativeCapture
   alias Aiur.DecisionStore
 
@@ -22,7 +21,8 @@ defmodule Aiur.Commands.NativeCapture.Release do
       released_reason = write_release(state, info, reason, writer)
       data = %{native_ref: info.native_ref, reason: released_reason, at: DateTime.utc_now()}
       record(state, info, data, Map.get(state, :native_release_store, DecisionStore))
-      Messages.emit_message(Map.get(state, :on_message, &Messages.default_on_message/1), :native_question_resolved, Map.put(data, :decision_id, info.decision_id), %{})
+      on_message = Map.get(state, :on_message, &Function.identity/1)
+      on_message.(Map.merge(data, %{decision_id: info.decision_id, event: :native_question_resolved, timestamp: DateTime.utc_now()}))
     end)
 
     Map.put(state, :held_native_questions, %{})
