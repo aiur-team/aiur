@@ -48,6 +48,11 @@ defmodule Aiur.AsksCommandIntegrationTest do
     assert decision.requester.executor_id == "caller-executor"
     assert decision.authority == :human_required
     assert decision.options == []
+
+    assert {:ok, %{decision: enriched}} =
+             DecisionStore.enrich(id, %{context: %{short_summary: "Updated context"}}, [expected_version: decision.version, actor: %{kind: :supervisor, id: "supervising-agent"}], store)
+
+    assert enriched.version > decision.version
     output = capture_io(fn -> Aiur.AsksCLI.rpc(["ask", "--done", id], "caller-executor", decision_store: store) end)
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert {:ok, decision} = DecisionStore.get(id, store)

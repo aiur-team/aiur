@@ -1,7 +1,8 @@
 defmodule Aiur.AsksCLI do
   @moduledoc false
 
-  alias Aiur.Commands
+  alias Aiur.{Commands, ExecutorCommandCLI}
+  alias Aiur.ControlCLI.ExecutorRequest
   alias Aiur.GitHub.Config, as: GitHubConfig
 
   @type command ::
@@ -54,14 +55,16 @@ defmodule Aiur.AsksCLI do
 
   defp execute(:request, params, executor_id, deps) do
     {result_fun, params} = Keyword.pop!(params, :result_fun)
-    Aiur.ControlCLI.ExecutorRequest.request(Keyword.put(params, :executor_id, executor_id), Keyword.put(deps, :result_fun, result_fun))
+    ExecutorRequest.request(Keyword.put(params, :executor_id, executor_id), Keyword.put(deps, :result_fun, result_fun))
   end
 
   defp execute(:moot, params, executor_id, deps) do
-    with {:ok, %{decision: decision}} <- Commands.get(params[:decision_id], store: Keyword.get(deps, :decision_store, Commands.default_store())) do
-      params |> Keyword.merge(expected_version: decision.version, executor_id: executor_id) |> Aiur.ExecutorCommandCLI.moot(Keyword.put(deps, :error_fun, params[:error_fun]))
-    else
-      {:error, reason} -> write_error(params[:error_fun], reason)
+    case Commands.get(params[:decision_id], store: Keyword.get(deps, :decision_store, Commands.default_store())) do
+      {:ok, %{decision: decision}} ->
+        params |> Keyword.merge(expected_version: decision.version, executor_id: executor_id) |> ExecutorCommandCLI.moot(Keyword.put(deps, :error_fun, params[:error_fun]))
+
+      {:error, reason} ->
+        write_error(params[:error_fun], reason)
     end
   end
 

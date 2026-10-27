@@ -43,10 +43,12 @@ defmodule Aiur.AsksCLITest do
       assert params[:decision_id] == "dec_0123456789abcdef"
       assert params[:reason_class] == "executor_withdrew"
       assert params[:reason] == "No longer needed"
+      send(self(), :moot_called)
       0
     end
 
     assert 0 == AsksCLI.run({:done, %{id: "dec_0123456789abcdef", note: "No longer needed"}}, &IO.puts/1, fn -> repo end, rpc)
+    assert_received :moot_called
   end
 
   test "legacy done resolves locally without RPC", %{repo: repo} do
