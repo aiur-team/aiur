@@ -30,6 +30,8 @@ defmodule Aiur.Commands.NativeCapture.ClaudeTest do
   end
 
   test "default-off Claude gate validates and reloads", c do
+    assert {:ok, settings} = Schema.parse(%{})
+    assert settings.decisions.native_capture.claude == false
     assert Config.decisions_native_capture?(:claude) == false
     assert {:error, {:invalid_workflow_config, _}} = Schema.parse(%{"decisions" => %{"native_capture" => %{"claude" => "bad"}}})
     configure(c, true, "false")

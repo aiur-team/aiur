@@ -2,6 +2,7 @@ defmodule Aiur.Config.Schema.Decisions do
   @moduledoc false
 
   @external_resource Path.relative_to(Path.join(__DIR__, "decisions_escalation.ex"), File.cwd!(), force: true)
+  @external_resource Path.relative_to(Path.join(__DIR__, "decisions_native_capture.ex"), File.cwd!(), force: true)
   use Ecto.Schema
 
   import Ecto.Changeset
