@@ -6,8 +6,8 @@ defmodule Aiur.AppServer.NativeSteerTest do
   alias Aiur.AgentRunner.{CheckpointDelivery, QueueDrain, TurnCallbacks}
   alias Aiur.AppServer.{Adapter, OperatorDelivery, TurnState}
   alias Aiur.Codex.{CodingAgent, Frames}
-  alias Aiur.Orchestrator.{OperatorMessages, State}
   alias Aiur.Listener.Receipt
+  alias Aiur.Orchestrator.{OperatorMessages, State}
 
   defmodule QueueServer do
     use GenServer
