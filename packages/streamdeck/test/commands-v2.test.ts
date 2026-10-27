@@ -20,6 +20,18 @@ describe("v2 Commands on deck", () => {
     expect(historyKeyDescriptors({ items: [command] }, 0, null)[0]?.title).toBe("Scope");
   });
 
+  it.each(["decided", "dismissed", "expired"])("keeps %s multi-question Commands read-only", (status) => {
+    const settled = { ...command, status, context: { short: "Original command description" },
+      answer: status === "decided" ? { selected_option_id: "small" } : null };
+    const keys = detailKeyDescriptors(settled, 0, null, false, false);
+    expect(keys[0]).toMatchObject({ title: "Small", subLabel: "OPT 1" });
+    expect(keys.slice(1).every((key) => key === undefined)).toBe(true);
+    expect(detailPanel(settled, null, false)).toMatchObject({
+      title: command.question, description: "Original command description", answerable: false, approving: false,
+      recorded: status === "decided" ? "Chose: Small" : null,
+    });
+  });
+
   it("keeps single-question and older server option faces answerable", () => {
     for (const answerable_on_deck of [true, undefined]) {
       const single = { ...command, answerable_on_deck, short_label: null };

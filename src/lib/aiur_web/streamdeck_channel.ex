@@ -150,8 +150,8 @@ defmodule AiurWeb.StreamdeckChannel do
   # an operator flavour. That is what lets the device answer `human_required`
   # Commands the Executor cannot, while the dashboard shows a true operator
   # answer. The device may only answer a Command for the agent it is currently
-  # focused on (focused-ticket enforcement), and it answers the exact `version`
-  # it read, so a retry after a dropped reply is an idempotent replay of the
+  # focused on (focused-ticket enforcement). It answers the exact version it read, so retries replay the same
+  # durable action rather than a second decision.
   def handle_in(
         "answer_command",
         %{"decision_id" => decision_id, "idempotency_key" => idempotency_key, "version" => version} = payload,

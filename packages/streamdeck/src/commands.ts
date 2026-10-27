@@ -191,7 +191,7 @@ export function detailKeyDescriptors(
   hasDictation: boolean,
   feedback?: { decisionId: string; key: number; title: string; label: string } | null,
 ): (AgentInput | undefined)[] {
-  if (command.answerable_on_deck === false) {
+  if (command.answerable_on_deck === false && isAnswerable(command)) {
     return [{ ...commandKey(command, false), title: "Answer on dashboard", subLabel: "DASHBOARD" },
       ...Array<undefined>(7).fill(undefined)];
   }
@@ -443,7 +443,7 @@ export function detailPanel(
     total: null,
     page: "",
     title: command.question,
-    description: command.answerable_on_deck === false ? "Answer on dashboard" : commandDescription(command, selectedOption),
+    description: command.answerable_on_deck === false && isAnswerable(command) ? "Answer on dashboard" : commandDescription(command, selectedOption),
     status: commandStatusLabel(command),
     answerable,
     approving: answerable && (selectedOption !== null || hasDictation),
