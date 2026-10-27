@@ -201,5 +201,13 @@ Readers never repair files. Corruption or append failure makes export unavailabl
 and raises one attention per exporter boot. Move a corrupt export directory aside
 before restarting to rebuild it; this starts a new epoch.
 
-Retention and network feed delivery are separate components. The writer does not
-enforce retention age or count settings yet.
+At boot and segment roll, retention removes whole closed export segments, leaving
+retained bytes unchanged and never trimming the active segment. Whole-segment
+granularity can keep one extra segment (up to 8 MiB) beyond the record target.
+Transcripts and Command records are unaffected.
+
+Restarts preserve the epoch. Changing instance identity archives old segments in
+`old-<epoch>/` and starts a new epoch at sequence 1. Corrupt metadata is rebuilt
+from readable segments with a new epoch, without archiving those segments.
+Cursors older than retention, beyond the head, or from another epoch receive
+one reset response carrying the current epoch and oldest/head sequence bounds.
