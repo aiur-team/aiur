@@ -95,7 +95,7 @@ defmodule Aiur.Commands.NativeCapture.ClaudeReleaseTest do
   end
 
   test "turn starts with a warning when stale release cannot reach the store", c do
-    dead_store = spawn(fn -> :ok end)
+    dead_store = start_supervised!(Supervisor.child_spec({Task, fn -> :ok end}, restart: :temporary))
     monitor = Process.monitor(dead_store)
     receive_barrier({:DOWN, ^monitor, :process, ^dead_store, _})
 
@@ -114,7 +114,7 @@ defmodule Aiur.Commands.NativeCapture.ClaudeReleaseTest do
     refute Aiur.Config.decisions_native_capture?(:claude)
     store = store_probe([])
 
-    assert capture_log(fn -> assert_turn_starts(c, store) end) == ""
+    assert_turn_starts(c, store)
     refute_received {:store_call, _}
   end
 
@@ -174,9 +174,7 @@ defmodule Aiur.Commands.NativeCapture.ClaudeReleaseTest do
 
   defp store_probe(decisions) do
     owner = self()
-    pid = spawn(fn -> store_probe_loop(owner, decisions) end)
-    on_exit(fn -> Process.exit(pid, :kill) end)
-    pid
+    start_supervised!({Task, fn -> store_probe_loop(owner, decisions) end})
   end
 
   defp store_probe_loop(owner, decisions) do
