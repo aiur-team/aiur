@@ -99,8 +99,8 @@ defmodule Aiur.Commands.NativeCapture do
          {:ok, %{decision: decision}} <- request(payload, opts, Map.get(ctx, :store, DecisionStore)) do
       {:command, decision}
     else
-      {:error, _reason} ->
-        Logger.warning("native_capture phase=request_failed ticket=#{ctx.ticket.identifier}; releasing native question")
+      {:error, reason} ->
+        warn(ctx, :request_failed, reason)
         {:release, UserInputAnswers.non_interactive_answer()}
     end
   end
@@ -118,10 +118,17 @@ defmodule Aiur.Commands.NativeCapture do
            workspace: Map.get(ctx, :workspace)
          ) do
       :ok -> :ok
-      {:error, _reason} -> Logger.warning("native_capture phase=secret_alert_failed ticket=#{ctx.ticket.identifier}")
+      {:error, reason} -> warn(ctx, :secret_alert_failed, reason)
     end
 
     {:release, secret_release_text()}
+  end
+
+  defp warn(ctx, phase, reason) do
+    Logger.warning(
+      "native_capture phase=#{phase} issue_id=#{Map.get(ctx.ticket, :id)} issue_identifier=#{ctx.ticket.identifier} " <>
+        "session_id=#{Map.get(ctx, :session_ref)} reason=#{Signal.reason_class(reason)}"
+    )
   end
 
   @spec release_text(String.t()) :: String.t()

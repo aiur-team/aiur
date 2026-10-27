@@ -154,7 +154,7 @@ defmodule Aiur.Commands.NativeCaptureTest do
   test "unavailable store and rejected request release with the existing noninteractive text", %{ctx: ctx, dir: dir} do
     GenServer.stop(ctx.store)
     log = capture_log(fn -> assert NativeCapture.capture(normalized(), ctx) == {:release, UserInputAnswers.non_interactive_answer()} end)
-    assert log =~ "native_capture phase=request_failed ticket=979"
+    assert log =~ "native_capture phase=request_failed issue_id= issue_identifier=979 session_id=session-1 reason=store_unavailable"
 
     store = start_store!(dir, dispatch_delay_ms: 60_000)
     on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
