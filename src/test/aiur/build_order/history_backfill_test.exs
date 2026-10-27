@@ -42,13 +42,39 @@ defmodule Aiur.BuildOrder.HistoryBackfillTest do
   end
 
   test "parallel calls spend each allocation only once", c do
+    parent = self()
+
     opts =
       Keyword.put(c.opts, :export, fn request ->
-        Process.sleep(20)
+        send(parent, {:export_entered, self()})
+        assert_receive :release_export, 5_000
         export(request)
       end)
 
-    results = 1..10 |> Task.async_stream(fn _ -> Backfill.next_page(2901, 1, 0, opts) end, max_concurrency: 10, timeout: 30_000) |> Enum.map(fn {:ok, {:ok, p}} -> p end)
+    first = Task.async(fn -> Backfill.next_page(2901, 1, 0, opts) end)
+    assert_receive {:export_entered, first_pid}, 5_000
+
+    second =
+      Task.async(fn ->
+        send(parent, {:allocation_started, self()})
+        Backfill.next_page(2901, 1, 0, opts)
+      end)
+
+    assert_receive {:allocation_started, second_pid}, 5_000
+    # The first export holds the allocation lock until explicitly released.
+    refute_receive {:export_entered, ^second_pid}, 200
+    send(first_pid, :release_export)
+    assert_receive {:export_entered, ^second_pid}, 5_000
+    send(second_pid, :release_export)
+
+    initial =
+      Enum.map([first, second], fn task ->
+        {:ok, p} = Task.await(task, 10_000)
+        p
+      end)
+
+    remaining = 1..8 |> Task.async_stream(fn _ -> Backfill.next_page(2901, 1, 0, c.opts) end, max_concurrency: 8, timeout: 30_000) |> Enum.map(fn {:ok, {:ok, p}} -> p end)
+    results = initial ++ remaining
     rows = Enum.flat_map(results, & &1.rows)
     assert Enum.sort(Enum.map(rows, & &1.number)) == [1, 2, 3, 4, 5]
     assert Jason.decode!(File.read!(c.path))["handed_out"] == 5
