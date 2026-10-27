@@ -48,16 +48,7 @@ defmodule AiurWeb.AnalyticsLiveFixtures do
 
       SnapshotStore.publish(orchestrator, %{capacity: capacity})
 
-      if age_ms = Map.get(context, :analytics_capacity_age_ms) do
-        # Pin the ceiling: it otherwise derives from the effective poll cadence,
-        # so a test that asked the code for its own ceiling would pass against
-        # one wide enough that staleness is never reported at all.
-        previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
-        Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 120_000)
-        on_exit(fn -> reset_env(:snapshot_stale_age_ceiling_ms, previous_ceiling) end)
-
-        age_published_snapshot(orchestrator, age_ms)
-      end
+      maybe_age_snapshot(context, orchestrator)
     end
 
     endpoint_config =
@@ -232,6 +223,19 @@ defmodule AiurWeb.AnalyticsLiveFixtures do
 
   # `publish/2` stamps the current monotonic clock, so restating the observation
   # time is the only way to read a ten-minute-old snapshot without waiting.
+  defp maybe_age_snapshot(context, orchestrator) do
+    if age_ms = Map.get(context, :analytics_capacity_age_ms) do
+      # Pin the ceiling: it otherwise derives from the effective poll cadence,
+      # so a test that asked the code for its own ceiling would pass against
+      # one wide enough that staleness is never reported at all.
+      previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+      Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 120_000)
+      on_exit(fn -> reset_env(:snapshot_stale_age_ceiling_ms, previous_ceiling) end)
+
+      age_published_snapshot(orchestrator, age_ms)
+    end
+  end
+
   defp age_published_snapshot(orchestrator, age_ms) do
     cached = SnapshotCache.get(orchestrator)
 

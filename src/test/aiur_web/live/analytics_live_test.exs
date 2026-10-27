@@ -3,9 +3,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
   import AiurWeb.AnalyticsLiveFixtures
-  alias AiurWeb.AnalyticsLiveFixtures.{BuildOrderSourceStub, UsageAggregateSourceStub}
   alias Aiur.RunTelemetry
   alias Aiur.TestSupport.LiveViewAsync
+  alias AiurWeb.AnalyticsLiveFixtures.{BuildOrderSourceStub, UsageAggregateSourceStub}
   alias AiurWeb.Endpoint
   @endpoint Endpoint
   @fixtures Path.expand("../../fixtures/run_telemetry", __DIR__)
