@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @moduledoc "Serialized mode reads and compare-and-set writes; queue state is unchanged."
 
   require Logger
+  alias Aiur.{AgentPubSub, CodingAgent}
   alias Aiur.Listener.{Effective, ModeStore}
   alias Aiur.Orchestrator.OperatorMessages.Capabilities
   alias Aiur.Orchestrator.State
@@ -37,8 +38,54 @@ defmodule Aiur.Orchestrator.ListenerModes do
         _invalid_version -> {:error, :invalid_expected_version}
       end
 
-    {:reply, reply, state}
+    case reply do
+      {:ok, result} ->
+        AgentPubSub.broadcast_listen_mode(result_id(target), event_payload(result))
+        key = State.find_running_key_by_identifier(state.running, result_id(target))
+        next = if key, do: put_in(state.running[key][:listener_effective], result), else: state
+        {:reply, reply, next}
+
+      _error ->
+        {:reply, reply, state}
+    end
   end
+
+  @doc "Refresh derived listener mode and control flags after a session or dispatch update."
+  @spec on_session_execution(State.t(), String.t(), map() | nil) :: State.t()
+  def on_session_execution(state, issue_id, previous_entry) do
+    entry = Map.fetch!(state.running, issue_id)
+    id = entry.identifier
+    record = ModeStore.get(id)
+    result = %{view(state, id, entry, record) | actor: :system}
+    previous = if previous_entry, do: previous_entry[:listener_effective] || view(state, id, previous_entry, record)
+
+    if is_nil(previous) or {previous.effective, previous.effective_reason} != {result.effective, result.effective_reason} do
+      AgentPubSub.broadcast_listen_mode(id, event_payload(result))
+    end
+
+    updated = entry |> Map.put(:listener_effective, result) |> refresh_control(Capabilities.harness_delivery(state, id, entry))
+    put_in(state.running[issue_id], updated)
+  end
+
+  defp refresh_control(entry, %{harness_id: backend, primitives: primitives}) do
+    flags =
+      if primitives == :unknown do
+        %{can_interrupt: false, safe_checkpoints: [], immediate_delivery: false, application_confirmation: :unsupported}
+      else
+        %{
+          can_interrupt: CodingAgent.can_interrupt?(backend),
+          safe_checkpoints: CodingAgent.safe_checkpoints(backend),
+          immediate_delivery: CodingAgent.immediate_delivery?(backend),
+          application_confirmation: CodingAgent.control_application_confirmation(backend)
+        }
+      end
+
+    Map.update(entry, :control, flags, &Map.merge(&1, flags))
+  end
+
+  defp result_id(%TrackerIdentity{identifier: id}), do: id
+  defp result_id(id), do: id
+  defp event_payload(result), do: Map.take(result, [:requested, :effective, :effective_reason, :version, :actor])
 
   defp view(state, id, entry, record), do: Effective.compute(record, Capabilities.harness_delivery(state, id, entry))
 

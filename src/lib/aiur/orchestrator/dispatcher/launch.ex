@@ -16,6 +16,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
   alias Aiur.Orchestrator.Dispatcher.Candidates
   alias Aiur.Orchestrator.Dispatcher.SharedLeaseDispatch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.ListenerModes
   alias Aiur.Orchestrator.OptimisticDispatch
   alias Aiur.Orchestrator.OptimisticSlots
   alias Aiur.Orchestrator.RetryEngine
@@ -306,6 +307,7 @@ defmodule Aiur.Orchestrator.Dispatcher.Launch do
             retry_attempts: Map.delete(state.retry_attempts, issue.id),
             released_claims: Map.delete(state.released_claims, issue.id)
         }
+        |> ListenerModes.on_session_execution(issue.id, nil)
 
       {:error, reason} ->
         Logger.error("Unable to spawn agent for #{State.issue_context(issue)}: #{inspect(reason)}")
