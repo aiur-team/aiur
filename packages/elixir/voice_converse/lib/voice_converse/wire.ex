@@ -36,7 +36,10 @@ defmodule VoiceConverse.Wire do
     frame = stringify_keys(frame)
 
     with :ok <- validate(frame) do
-      {:ok, Jason.encode!(frame)}
+      case Jason.encode(frame) do
+        {:ok, json} -> {:ok, json}
+        {:error, _reason} -> {:error, :invalid_frame}
+      end
     end
   end
 

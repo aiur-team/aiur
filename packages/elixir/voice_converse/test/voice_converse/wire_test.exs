@@ -26,4 +26,9 @@ defmodule VoiceConverse.WireTest do
     assert {:error, :unsupported_version} = Wire.decode(~s({"v":2,"type":"end"}))
     assert {:error, :invalid_frame} = Wire.decode(~s({"v":1,"type":"audio"}))
   end
+
+  test "returns an error when a valid-shape frame cannot be JSON encoded" do
+    assert {:error, :invalid_frame} =
+             Wire.encode(%{"v" => 1, "type" => "agent_text", "turn_id" => "turn-1", "text" => self(), "final" => true})
+  end
 end

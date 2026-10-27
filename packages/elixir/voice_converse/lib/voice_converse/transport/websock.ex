@@ -117,6 +117,8 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       @moduledoc false
       @behaviour WebSock
 
+      require Logger
+
       alias VoiceConverse.{Events, Wire}
 
       @max_frame_bytes 400_000
@@ -168,11 +170,11 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
           {:ok, conversation_id} ->
             case invoke(state, :subscribe, [state.instance, conversation_id, self()]) do
               :ok -> {:ok, %{state | conversation_id: conversation_id}}
-              {:error, reason} -> error(state, "session_error", "#{reason}")
+              {:error, reason} -> operation_error(state, reason)
             end
 
           {:error, reason} ->
-            error(state, "session_error", "#{reason}")
+            operation_error(state, reason)
         end
       end
 
@@ -182,14 +184,14 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
            when is_binary(conversation_id) do
         case invoke(state, :push_audio, [state.instance, conversation_id, audio]) do
           :ok -> {:ok, state}
-          {:error, reason} -> error(state, "session_error", "#{reason}")
+          {:error, reason} -> operation_error(state, reason)
         end
       end
 
       defp dispatch(%{"type" => "end"}, %{conversation_id: conversation_id} = state) when is_binary(conversation_id) do
         case invoke(state, :end_session, [state.instance, conversation_id, :user_end]) do
           :ok -> {:ok, state}
-          {:error, reason} -> error(state, "session_error", "#{reason}")
+          {:error, reason} -> operation_error(state, reason)
         end
       end
 
@@ -203,7 +205,7 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
         case invoke(state, :confirm_draft, [state.conversation_id, draft_id, edited_text]) do
           :ok -> {:ok, state}
           {:ok, _draft} -> {:ok, state}
-          {:error, reason} -> error(state, "draft_error", "#{reason}")
+          {:error, reason} -> operation_error(state, reason)
         end
       end
 
@@ -212,7 +214,7 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
         case invoke(state, :discard_draft, [state.conversation_id, draft_id]) do
           :ok -> {:ok, state}
           {:ok, _draft} -> {:ok, state}
-          {:error, reason} -> error(state, "draft_error", "#{reason}")
+          {:error, reason} -> operation_error(state, reason)
         end
       end
 
@@ -274,12 +276,31 @@ if Code.ensure_loaded?(WebSockAdapter) and Code.ensure_loaded?(Bandit) do
       defp event_frame(_event), do: nil
 
       defp push(frame, state) do
-        {:ok, json} = Wire.encode(frame)
-        {:push, {:text, json}, state}
+        case Wire.encode(frame) do
+          {:ok, json} ->
+            {:push, {:text, json}, state}
+
+          {:error, reason} ->
+            Logger.warning("voice WebSocket frame encoding failed: #{inspect(reason)}")
+            {:push, {:text, ~s({"v":1,"type":"error","code":"internal","message":"Internal transport error."})}, state}
+        end
       end
 
       defp error(state, code, message),
         do: push(%{"v" => 1, "type" => "error", "code" => code, "message" => message}, state)
+
+      defp operation_error(state, :not_client), do: error(state, "not_client", "Client origin is required.")
+      defp operation_error(state, :not_found), do: error(state, "not_found", "Requested draft was not found.")
+
+      defp operation_error(state, :invalid_transition),
+        do: error(state, "invalid_transition", "Draft cannot transition now.")
+
+      defp operation_error(state, :target_stale), do: error(state, "target_stale", "Draft target is stale.")
+
+      defp operation_error(state, :capability_unavailable),
+        do: error(state, "capability_unavailable", "Capability is unavailable.")
+
+      defp operation_error(state, _reason), do: error(state, "internal", "Internal transport error.")
     end
   end
 end

@@ -147,6 +147,33 @@ if Code.ensure_loaded?(VoiceConverse.Transport.WebSock) do
                VoiceConverse.Wire.decode(json)
     end
 
+    test "hides tuple session errors behind a stable internal response" do
+      state =
+        WebSock.socket_state(
+          api: %{start_session: fn _instance, _target -> {:error, {:provider, %{detail: "private"}}} end}
+        )
+
+      assert {:push, {:text, json}, ^state} =
+               Socket.handle_in({~s({"v":1,"type":"start","target":"target"}), :text}, state)
+
+      assert {:ok, %{"type" => "error", "code" => "internal", "message" => "Internal transport error."}} =
+               VoiceConverse.Wire.decode(json)
+    end
+
+    test "falls back to an error frame when an outbound frame cannot encode" do
+      state = WebSock.socket_state([], true) |> Map.put(:conversation_id, "conversation-1")
+
+      assert {:push, {:text, json}, ^state} =
+               Socket.handle_info(
+                 {:voice_conversation, "conversation-1",
+                  %Events.AgentText{turn_id: "turn-1", text: self(), final?: true}},
+                 state
+               )
+
+      assert {:ok, %{"type" => "error", "code" => "internal", "message" => "Internal transport error."}} =
+               VoiceConverse.Wire.decode(json)
+    end
+
     defp start_session!(root, name) do
       {:ok, config} =
         Config.new(
