@@ -11,10 +11,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
   @spec decision_replacement(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_replacement(assigns) do
     canonical = DecisionOutcomes.canonical_notice(assigns.decision)
-    canonical_overrides? = match?(%{status: :too_late}, canonical) or match?(%{delivery: :queued_for_restart}, canonical)
-    outcome = if canonical_overrides?, do: canonical, else: assigns.state[:outcome] || canonical
+    outcome = current_outcome(assigns.state[:outcome], canonical, assigns.decision)
     outcome_notice = if outcome, do: DecisionOutcomes.outcome_notice(outcome)
-    notice = if canonical_overrides?, do: outcome_notice, else: form_notice(assigns.state) || outcome_notice
+    notice = if assigns.state[:outcome], do: outcome_notice, else: form_notice(assigns.state) || outcome_notice
     actions = if outcome_notice, do: elem(outcome_notice, 2), else: []
 
     assigns = assign(assigns, notice: notice, actions: actions, replaceable?: DecisionOutcomes.replaceable?(assigns.decision), follow_up: follow_up(assigns.decision))
@@ -36,6 +35,15 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
     </div>
     """
   end
+
+  defp current_outcome(%{status: status} = outcome, %{reason: :answer_delivered}, decision) when status in [:accepted, :duplicate],
+    do: %{outcome | delivery: :delivered, decision: decision}
+
+  defp current_outcome(%{status: status} = outcome, %{delivery: :queued_for_restart}, decision) when status in [:accepted, :duplicate],
+    do: %{outcome | delivery: :queued_for_restart, decision: decision}
+
+  defp current_outcome(nil, canonical, _decision), do: canonical
+  defp current_outcome(outcome, _canonical, _decision), do: outcome
 
   defp form_notice(%{error: text}), do: {:error, text, []}
   defp form_notice(%{notice: text}), do: {:success, text, []}
