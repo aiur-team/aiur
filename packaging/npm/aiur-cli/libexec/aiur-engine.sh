@@ -279,6 +279,9 @@ aiur_engine_main() {
       shift
       cmd_agents "$@"
       ;;
+    # @cli-reference aiur command request <question> --context-file PATH | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | aiur command request 'Ship?' --context-file release.md
+    # @cli-reference aiur command request <question> --recommend ID | Moves the named supplied option first; omitted by default. | aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes
+    # @cli-reference aiur command request <question> --short-summary TEXT | Adds a concise Command title; omitted by default. | aiur command request 'Ship?' --short-summary 'Beta release'
     # @cli-reference aiur command request <question> | Creates an Executor-originated Command for the human; requires a running daemon. | aiur command request 'Ship today?' --option yes=Ship --option no=Wait
     command)
       shift
