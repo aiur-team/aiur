@@ -39,6 +39,10 @@ export const isAnswerable = (command: StreamDeckCommand | unknown): boolean => {
     (item.status === "expired" && item.blocking === true && item.answer == null);
 };
 
+/** Whether this active Command can be answered using deck controls. */
+export const canAnswerOnDeck = (command: StreamDeckCommand): boolean =>
+  command.answerable_on_deck !== false && isAnswerable(command);
+
 /** Whether a history entry is read-only (already answered, dismissed, ...). */
 export const isAnswered = (command: unknown): boolean => !isAnswerable(command);
 
@@ -118,7 +122,7 @@ const commandKey = (command: StreamDeckCommand, selected: boolean): AgentInput =
   const answerable = isAnswerable(command);
   return {
     identifier: `command:${command.decision_id}`,
-    title: command.question,
+    title: command.short_label || command.question,
     vendor: "commands",
     icon: answerable ? "question" : "check",
     role: "event",
@@ -187,7 +191,11 @@ export function detailKeyDescriptors(
   hasDictation: boolean,
   feedback?: { decisionId: string; key: number; title: string; label: string } | null,
 ): (AgentInput | undefined)[] {
-  const answerable = isAnswerable(command);
+  if (command.answerable_on_deck === false) {
+    return [{ ...commandKey(command, false), title: "Answer on dashboard", subLabel: "DASHBOARD" },
+      ...Array<undefined>(7).fill(undefined)];
+  }
+  const answerable = canAnswerOnDeck(command);
   const count = command.options.length;
   const clamped = clampOptionOffset(optionOffset, count);
 
@@ -426,7 +434,7 @@ export function detailPanel(
   selectedOption: number | null,
   hasDictation: boolean,
 ): CommandsPanelModel {
-  const answerable = isAnswerable(command);
+  const answerable = canAnswerOnDeck(command);
   const recorded = answerable ? null : commandOutcomeLabel(command);
   return {
     view: "detail",
@@ -435,7 +443,7 @@ export function detailPanel(
     total: null,
     page: "",
     title: command.question,
-    description: commandDescription(command, selectedOption),
+    description: command.answerable_on_deck === false ? "Answer on dashboard" : commandDescription(command, selectedOption),
     status: commandStatusLabel(command),
     answerable,
     approving: answerable && (selectedOption !== null || hasDictation),

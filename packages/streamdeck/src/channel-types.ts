@@ -161,6 +161,8 @@ export interface StreamDeckCommand {
   readonly version: number;
   readonly ticket?: { readonly identifier?: string } | null;
   readonly question: string;
+  readonly short_label?: string | null;
+  readonly answerable_on_deck?: boolean;
   readonly context?: { readonly short?: string | null; readonly long?: string | null } | null;
   readonly options: readonly StreamDeckCommandOption[];
   readonly status: string;

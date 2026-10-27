@@ -152,7 +152,6 @@ defmodule AiurWeb.StreamdeckChannel do
   # answer. The device may only answer a Command for the agent it is currently
   # focused on (focused-ticket enforcement), and it answers the exact `version`
   # it read, so a retry after a dropped reply is an idempotent replay of the
-  # durable action rather than a second decision.
   def handle_in(
         "answer_command",
         %{"decision_id" => decision_id, "idempotency_key" => idempotency_key, "version" => version} = payload,
@@ -162,6 +161,7 @@ defmodule AiurWeb.StreamdeckChannel do
              is_binary(idempotency_key) and idempotency_key != "" and is_integer(version) and version > 0 do
     with {:ok, answer} <- build_answer_payload(payload),
          :ok <- validate_focused_command(socket, decision_id, identifier),
+         :ok <- StreamdeckCommands.validate_deck_answer(decision_id, store: command_store(socket)),
          {:ok, result} <- record_command_answer(decision_id, answer) do
       {:reply, {:ok, result}, socket}
     else

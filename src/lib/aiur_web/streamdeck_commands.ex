@@ -61,6 +61,8 @@ defmodule AiurWeb.StreamdeckCommands do
       "version" => decision.version,
       "ticket" => %{"identifier" => get_in(decision.ticket, [:identifier])},
       "question" => decision.question,
+      "short_label" => decision.short_label,
+      "answerable_on_deck" => answerable_on_deck(decision),
       "context" => context(decision.context),
       "options" => Enum.map(decision.options, &option/1),
       "status" => Atom.to_string(decision.decision_status),
@@ -68,6 +70,20 @@ defmodule AiurWeb.StreamdeckCommands do
       "answer" => answer(Decision.active_answer(decision)),
       "created_at" => DateTime.to_iso8601(decision.created_at)
     }
+  end
+
+  @doc "Whether the Command fits the deck's single-choice answer flow."
+  @spec answerable_on_deck(Decision.t()) :: boolean()
+  def answerable_on_deck(%Decision{questions: questions}) do
+    length(questions) <= 1 and not Enum.any?(questions, &Map.get(&1, :multi_select, false))
+  end
+
+  @doc "Refuse answers requiring the dashboard, including from older plugins."
+  @spec validate_deck_answer(String.t(), keyword()) :: :ok | {:error, term()}
+  def validate_deck_answer(decision_id, opts \\ []) do
+    with {:ok, %{decision: decision}} <- Commands.query_get(decision_id, store: store(opts)) do
+      if answerable_on_deck(decision), do: :ok, else: {:error, :dashboard_only}
+    end
   end
 
   @doc "The device-side operator identity for a Command answer recorded on the deck."
