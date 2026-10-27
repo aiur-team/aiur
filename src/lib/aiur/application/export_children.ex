@@ -11,7 +11,7 @@ defmodule Aiur.Application.ExportChildren do
          Aiur.Signal.alert("system.events.export_unavailable", reason: inspect(reason), needs_attention: true, severity: "warning")
        end,
        on_appended: fn head, epoch ->
-         Phoenix.PubSub.broadcast(Aiur.PubSub, "events:export", {:export_appended, head, epoch})
+         Phoenix.PubSub.local_broadcast(Aiur.PubSub, "events:export", {:export_appended, head, epoch})
        end}
     ]
   end

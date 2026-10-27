@@ -13,13 +13,20 @@
     "src/lib/aiur_web/control_token_auth.ex",
     "src/lib/aiur_web/controllers/*api*.ex",
     "src/lib/aiur_web/controllers/control_controller.ex",
+    "src/lib/aiur_web/controllers/events_controller.ex",
+    "src/lib/aiur_web/controllers/events_session_controller.ex",
     "src/lib/aiur_web/controllers/observability*.ex",
     "src/lib/aiur_web/endpoint.ex",
     "src/lib/aiur_web/endpoint_config.ex",
+    "src/lib/aiur_web/events_auth.ex",
+    "src/lib/aiur_web/events_channel.ex",
+    "src/lib/aiur_web/events_query.ex",
+    "src/lib/aiur_web/events_socket.ex",
     "src/lib/aiur_web/financial_data_access.ex",
     "src/lib/aiur_web/router.ex",
     "src/lib/aiur_web/routes/api.ex",
     "src/lib/aiur_web/routes/control.ex",
+    "src/lib/aiur_web/routes/events.ex",
     "src/lib/aiur_web/supervisor_auth.ex"
   ],
   "facades": [
@@ -28,6 +35,7 @@
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
     "config",
+    "event-bus",
     "identity",
     "projections",
     "signal",

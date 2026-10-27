@@ -23,6 +23,7 @@ defmodule AiurWeb.Endpoint do
   @before_compile AiurWeb.EndpointCallGuard
 
   LiveView.mount(@session_options)
+  socket("/events", AiurWeb.EventsSocket, websocket: true, longpoll: false)
   Streamdeck.mount(@session_options)
   Voice.mount(@session_options)
 

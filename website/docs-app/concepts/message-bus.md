@@ -282,3 +282,31 @@ Query failures use these codes:
 Errors use `{"error":{"code":"…","message":"…"}}`. Authentication failures
 are handled before feed content is read. With export disabled, `/api/v1/events`
 now reports `feature_disabled` instead of treating `events` as a ticket ID.
+
+### Foreground live connection
+
+With export enabled, request `POST /api/v1/events/token` using dashboard
+credentials or an authenticated dashboard session. The response contains `token`
+and `expires_in_seconds: 300`; disabled export returns 404 `feature_disabled`.
+Tokens use a separate signing salt from Stream Deck and responses use `no-store`.
+
+Connect a Phoenix WebSocket to `/events/websocket?token=<token>&vsn=2.0.0`
+and join `events:feed` with `{after, topics, epoch}`. `after` is a non-negative
+JSON integer or null, `topics` is an array of exported or narrower patterns,
+and `epoch` is a string or null. Omitted/null values start at the current head,
+select all exported topics, and use the current epoch respectively.
+Join errors reuse `invalid_cursor`, `topic_not_exported`, and `feature_disabled`.
+
+The channel pushes journal records as `record`, replaying pages of 500 before
+following live appends. Retained `gap` records and cursor/epoch `reset` records
+have the same meaning as the pull API. A live backlog exceeding 2,000 sequence
+positions produces one `reset` to the current head; re-read snapshots to recover.
+The channel accepts no client writes.
+
+A `heartbeat` every 25 seconds carries `head_seq` and ISO 8601 `observed_at`.
+Judge liveness by heartbeats, not event silence. Thirty seconds before expiry,
+a `record` with `{type: "auth_expiring", in_ms: 30000}` prompts token refresh.
+The channel closes at expiry or when dashboard credentials change. Obtain a new
+token and reconnect with the last applied sequence and epoch to replay missed
+records. Disabled export or an unreadable journal sends an error `record` with
+`code: "feature_disabled"` or `"events_unavailable"`, then closes the channel.
