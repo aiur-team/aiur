@@ -12,8 +12,11 @@ export const preflightSeconds = 120
 export const setupSeconds = 600
 export const tailSeconds = 120
 export const recordedSeconds = {
-  // #6061 removed the design pixel cases from cards, Gantt, motion, columns, tools, usage, render,
-  // conversation, tokens and build-home; their bounds below overstate until the next shard log refresh.
+  'test:parity': 16,
+  // Governed local run (2026-10-25): 86 accessibility cases completed in 7.5m with four workers; rounded up.
+  'test:build-home-a11y': 460,
+  // 18 functional cases: 2.4m plus six units and startup margin (2026-10-24).
+  'test:build-home-features': 160,
   // #3166 local run (2026-10-21): six control cases 36.6s; four parity cells 133.1s.
   // Include startup margin; refresh these provisional bounds from the first CI shard log.
   'test:browser-suite -- build-home-agent-control': 50,
@@ -24,12 +27,15 @@ export const recordedSeconds = {
   // CI run 39616972873 (2026-10-21), jobs 119280971812/119280971969:
   // document functional 43.8s and parity 150.5s suite wall time, rounded up.
   'test:build-home-modal-doc': 44,
+  // Governed local run (2026-10-21): all 13 nav cells passed in 151.44s;
+  // conservative measured 200s wrapper wall bound includes gate wait/startup.
   // Green PR #5016 CI run 39273221105, head 6ed6d40de039efe1efedc30e9948090ec98a0881.
   // Whole-command wall times from completed shard logs, rounded up (not test-time sums).
   // Job 118131038618 (shard 8/9): 0.5s.
   'test:build-home-chains-unit': 1,
   // Job 118131038618 (shard 8/9): 132.3s.
   'test:build-home-chains': 133,
+  // Job 118131038704 (shard 7/9): 126.4s.
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,
@@ -59,6 +65,7 @@ export const recordedSeconds = {
   // Conservative CI-measured full-selection bounds from review5564161995 (#5124).
   // Routine commands select fewer cells; these are NOT routine measurements.
   // Refresh with routine suite-duration logs after the first new-head CI run.
+  'test:build-home-band-motion': 280,
   // PR #4805 suite-duration logs (2026-10-18): units/browser from run 39093008001 at ea5f25e39.
   // Parity uses the latest green run 39093008001 at ea5f25e39 (102.5s).
   'test:build-home-edges-unit': 0.2,
@@ -80,8 +87,7 @@ export const recordedSeconds = {
   'test:shell-chrome': 37,
   'test:shell-width': 62,
   'test:command-history': 15,
-  'test:build-order': 25,
-  'test:build-queue': 16,
+  'test:build-order': 6,
   'test:experiments': 15,
   'test:interaction': 26,
   'test:time-brush': 8,
@@ -94,7 +100,6 @@ export const recordedSeconds = {
   'test:meter-row': 15,
   'test:models-panel': 9,
   'test:quota-panel': 8,
-  'test:parity': 16,
   'test:streamdeck': 59,
   'test:streamdeck-flow': 13,
   'test:palette': 16,
@@ -124,4 +129,8 @@ export const recordedSeconds = {
   'test:browser-suite -- build-home-phone': 330,
   'test:browser-suite -- build-home-states': 9,
   'test:browser-suite -- build-home-states-e2e': 15,
+  // Local functional harness timing (2026-10-18): 130.4s.
+  'test:build-home-filters': 131,
+  // Seven-case local JSON report (2026-10-23, b33f2f685): 417.6s, excluding build-gate wait; round up.
+  // Scoped desktop/reduced/mobile filter motion: local harness 49.3s (2026-10-18).
 }

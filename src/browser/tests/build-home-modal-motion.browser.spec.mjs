@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test'
-import { openProduct, parityContextOptions, PARITY_VIEWPORTS } from '../support/design-parity.mjs'
+import { openProduct, productContextOptions, PRODUCT_VIEWPORTS } from '../support/build-home-product.mjs'
 
 test.setTimeout(90_000)
 
 test('product modal entrance uses the documented duration and easing, then closes instantly', async ({ browser }) => {
-  for (const viewport of PARITY_VIEWPORTS) {
+  for (const viewport of PRODUCT_VIEWPORTS) {
     const cell = { ...viewport, theme: 'dark', palette: 'aiur', dataset: 'offline' }
-    const context = await browser.newContext({ ...parityContextOptions(cell), baseURL: test.info().project.use.baseURL })
+    const context = await browser.newContext({ ...productContextOptions(cell), baseURL: test.info().project.use.baseURL })
     try {
       const page = await context.newPage()
       await openProduct(page, cell)

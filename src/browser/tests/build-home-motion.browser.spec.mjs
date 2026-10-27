@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test'
-import { openProduct, parityContextOptions } from '../support/design-parity.mjs'
+import { openProduct, productContextOptions } from '../support/build-home-product.mjs'
 
 const cell = { viewport: { width: 1440, height: 900 }, theme: 'dark', palette: 'gruvbox', dataset: 'live' }
 
 test('reduced-motion preference disables a running card glow animation', async ({ browser }) => {
   const inspect = async reducedMotion => {
-    const options = { ...parityContextOptions(cell), reducedMotion, baseURL: test.info().project.use.baseURL,
+    const options = { ...productContextOptions(cell), reducedMotion, baseURL: test.info().project.use.baseURL,
       httpCredentials: { username: 'aiur', password: 'test' } }
     const context = await browser.newContext(options)
     try {

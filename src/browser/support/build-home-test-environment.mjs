@@ -1,10 +1,10 @@
 import { expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
-export const FIXTURE_META = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/manifest.json', import.meta.url), 'utf8'))
+export const BUILD_FIXTURE_META = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/manifest.json', import.meta.url), 'utf8'))
 const failures = new WeakMap()
 
-export function checkPage(page) {
+export function checkProductPage(page) {
   const errors = failures.get(page) ?? []
   if (errors.length) throw new Error(errors.join('\n'))
 }
@@ -32,7 +32,7 @@ export async function guardNetwork(page, allowedOrigins, serve) {
   })
 }
 
-export async function seedRandom(page) {
+export async function seedProductRandom(page) {
   // Future re-import guard: the current home load does not call Math.random.
   await page.addInitScript(() => {
     let seed = 1
@@ -45,7 +45,7 @@ export async function seedRandom(page) {
   })
 }
 
-export async function waitParityReady(page, phase = 'board', motion = false) {
+export async function waitProductReady(page, phase = 'board', motion = false) {
   await page.evaluate(() => document.fonts.ready)
   if (motion && phase === 'board') {
     for (let elapsed = 0; elapsed < 2000; elapsed += 16) {
@@ -62,15 +62,15 @@ export async function waitParityReady(page, phase = 'board', motion = false) {
   const frames = page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   if (motion) await page.clock.runFor(40)
   await frames
-  checkPage(page)
+  checkProductPage(page)
 }
 
-export async function assertCellState(page, cell, expectedTime = FIXTURE_META.now) {
-  checkPage(page)
+export async function assertProductEnvironment(page, cell, expectedTime = BUILD_FIXTURE_META.now) {
+  checkProductPage(page)
   const state = await page.evaluate(() => ({ theme: document.documentElement.dataset.theme, palette: document.documentElement.dataset.palette,
     zone: Intl.DateTimeFormat().resolvedOptions().timeZone, now: Date.now() }))
   expect(state.theme, 'theme not applied').toBe(cell.theme)
   expect(state.palette, 'palette not applied').toBe(cell.palette)
-  expect(state.zone, `time zone ${state.zone}, expected ${FIXTURE_META.tz}`).toBe(FIXTURE_META.tz)
+  expect(state.zone, `time zone ${state.zone}, expected ${BUILD_FIXTURE_META.tz}`).toBe(BUILD_FIXTURE_META.tz)
   expect(state.now, `clock not frozen: Date.now() != ${expectedTime}`).toBe(expectedTime)
 }

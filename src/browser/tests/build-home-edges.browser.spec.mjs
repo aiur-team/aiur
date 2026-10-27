@@ -1,14 +1,14 @@
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { openProduct, parityContextOptions, PARITY_VIEWPORTS } from '../support/design-parity.mjs'
+import { openProduct, productContextOptions, PRODUCT_VIEWPORTS } from '../support/build-home-product.mjs'
 
 // Two isolated pages, font loading and six scroll windows exceed a single-page budget.
 test.setTimeout(120_000)
-const cell = { dataset: 'live', ...PARITY_VIEWPORTS[0], theme: 'dark', palette: 'gruvbox' }
+const cell = { dataset: 'live', ...PRODUCT_VIEWPORTS[0], theme: 'dark', palette: 'gruvbox' }
 
 test('edges are decorative for assistive tech', async ({ browser }) => {
-  const context = await browser.newContext({ ...parityContextOptions(cell), baseURL: test.info().project.use.baseURL })
+  const context = await browser.newContext({ ...productContextOptions(cell), baseURL: test.info().project.use.baseURL })
   try {
     const page = await context.newPage(); await openProduct(page, cell)
     expect(await page.evaluate(() => [...document.querySelectorAll('#bd-edges, .bd-now-e')].map(el => el.getAttribute('aria-hidden')))).toEqual(['true', 'true'])
@@ -17,7 +17,7 @@ test('edges are decorative for assistive tech', async ({ browser }) => {
 
 // B9: the design leaves `.hide` on after flow mode; the product removes it.
 test('edges return after a flow to wide resize', async ({ browser }) => {
-  const context = await browser.newContext({ ...parityContextOptions(cell), baseURL: test.info().project.use.baseURL })
+  const context = await browser.newContext({ ...productContextOptions(cell), baseURL: test.info().project.use.baseURL })
   try {
     const page = await context.newPage(); await openProduct(page, cell)
     await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(600)

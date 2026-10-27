@@ -3,20 +3,18 @@ import { test } from '@playwright/test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { openVisualRoute } from './visual.mjs'
 import { dashboardCredentials } from '../tests/support/layout-worker.mjs'
-import { FIXTURE_META, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage } from './design-parity-environment.mjs'
-export { FIXTURE_META }
+import { BUILD_FIXTURE_META, guardNetwork, seedProductRandom, waitProductReady, assertProductEnvironment, checkProductPage } from './build-home-test-environment.mjs'
+export { BUILD_FIXTURE_META }
 
-// CI run 37775013284: identical logo renders differ by up to 8/255 per channel.
-export const PARITY_THRESHOLD = 0.04
-export const PARITY_VIEWPORTS = [
+export const PRODUCT_VIEWPORTS = [
   { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
   { viewport: { width: 1024, height: 768 }, deviceScaleFactor: 1 },
   { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }
 ]
 
-export function parityContextOptions(cell) {
+export function productContextOptions(cell) {
   const { viewport, deviceScaleFactor = 1, isMobile = false, hasTouch = false } = cell
-  return { viewport, deviceScaleFactor, isMobile, hasTouch, timezoneId: FIXTURE_META.tz, locale: 'en-US', colorScheme: cell.theme, reducedMotion: cell.reducedMotion ?? 'no-preference', serviceWorkers: 'block' }
+  return { viewport, deviceScaleFactor, isMobile, hasTouch, timezoneId: BUILD_FIXTURE_META.tz, locale: 'en-US', colorScheme: cell.theme, reducedMotion: cell.reducedMotion ?? 'no-preference', serviceWorkers: 'block' }
 }
 
 function routeQuery(route, { query = '', ticket }) {
@@ -28,11 +26,11 @@ function routeQuery(route, { query = '', ticket }) {
 
 async function prepare(page, phase, motion = false, pauseAtSelector) {
   if (motion) {
-    await page.clock.install({ time: FIXTURE_META.now - 1000 })
-    await page.clock.pauseAt(FIXTURE_META.now)
+    await page.clock.install({ time: BUILD_FIXTURE_META.now - 1000 })
+    await page.clock.pauseAt(BUILD_FIXTURE_META.now)
   }
-  if (!motion) await page.clock.setFixedTime(FIXTURE_META.now)
-  await seedRandom(page)
+  if (!motion) await page.clock.setFixedTime(BUILD_FIXTURE_META.now)
+  await seedProductRandom(page)
   if (pauseAtSelector) await page.addInitScript(selector => {
     // URL-opened modals can finish while readiness waits; pause at their first style flush.
     const observer = new MutationObserver(() => {
@@ -58,33 +56,33 @@ export async function selectProductDataset(page, dataset) {
 
 export async function openProduct(page, cell, opts = {}) {
   const { dataset = cell.dataset ?? 'live', phase = 'board', productRoute = '/' } = opts
-  if (!['board', 'loading', 'shell'].includes(phase)) throw new Error(`unknown parity phase ${phase}`)
+  if (!['board', 'loading', 'shell'].includes(phase)) throw new Error(`unknown product phase ${phase}`)
   await prepare(page, phase, opts.motion, opts.pauseAtSelector)
   const origin = new URL(test.info().project.use.baseURL).origin
   await guardNetwork(page, [origin])
   await selectProductDataset(page, phase === 'loading' ? 'hold' : dataset)
   const route = new URL(routeQuery(productRoute, opts), 'http://fixture.invalid')
   const ticket = route.searchParams.get('ticket')
-  if (ticket) route.searchParams.set('ticket', FIXTURE_META.ids?.[ticket] ?? ticket)
+  if (ticket) route.searchParams.set('ticket', BUILD_FIXTURE_META.ids?.[ticket] ?? ticket)
   try { await openVisualRoute(page, { theme: cell.theme, palette: cell.palette, route: `${route.pathname}${route.search}`, mode: 'writable' }) }
-  catch (error) { checkPage(page); throw new Error(`product target unavailable: socket not connected or route unavailable: ${error.message}`) }
-  if (opts.productPending || (opts.productAnchor && !await page.locator(opts.productAnchor).count())) { checkPage(page); return page }
-  await waitParityReady(page, phase, opts.motion)
+  catch (error) { checkProductPage(page); throw new Error(`product target unavailable: socket not connected or route unavailable: ${error.message}`) }
+  if (opts.productPending || (opts.productAnchor && !await page.locator(opts.productAnchor).count())) { checkProductPage(page); return page }
+  await waitProductReady(page, phase, opts.motion)
   if (opts.motion) {
     const phase = await page.evaluate(() => performance.now() % 16)
     if (phase) await page.clock.runFor(16 - phase)
-    await page.clock.setSystemTime(FIXTURE_META.now)
+    await page.clock.setSystemTime(BUILD_FIXTURE_META.now)
   }
-  await assertCellState(page, cell)
+  await assertProductEnvironment(page, cell)
   return page
 }
 
-export async function captureStable(target, opts, page, viewportClip = false) {
+export async function productScreenshot(target, opts, page, viewportClip = false) {
   let previous
   const screenshotOptions = {
     ...opts,
     // Keep the native track and its layout width, but remove the thumb's
-    // scroll-position-dependent paint from sequential reference captures.
+    // scroll-position-dependent paint from consecutive captures.
     style: `${opts.style ?? ''}\n* { scrollbar-color: transparent transparent !important; }\n*::-webkit-scrollbar-thumb { background: transparent !important; }`
   }
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -105,7 +103,7 @@ export async function captureStable(target, opts, page, viewportClip = false) {
     catch (error) {
       if (!error.message.includes('Protocol error (Page.captureScreenshot): Unable to capture screenshot')) throw error
       // Chromium can briefly refuse a capture during layout; retry once without spending a settle sample.
-      console.warn(`captureStable: retrying capture attempt ${attempt + 1} of 10: ${error.message}`)
+      console.warn(`productScreenshot: retrying capture attempt ${attempt + 1} of 10: ${error.message}`)
       await delay(100)
       png = await shoot()
     }
@@ -113,5 +111,5 @@ export async function captureStable(target, opts, page, viewportClip = false) {
     previous = png
     await delay(100)
   }
-  throw new Error('design did not settle after 10 captures')
+  throw new Error('product capture did not settle after 10 attempts')
 }
