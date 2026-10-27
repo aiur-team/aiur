@@ -4,7 +4,7 @@ defmodule Aiur.AppServer.TurnLoop do
   """
 
   alias Aiur.AgentRunner.Handoff
-  alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, Transport, TurnState}
+  alias Aiur.AppServer.{Adapter, Interrupts, Messages, NativeReplies, OperatorDelivery, Rpc, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Commands.NativeCapture
 
@@ -79,6 +79,10 @@ defmodule Aiur.AppServer.TurnLoop do
 
       {:pause_agent, request_id} when is_integer(request_id) ->
         continue_or_return(session, Interrupts.handle_pause_request(session, state, request_id))
+
+      {:agent_queue_updated, issue_identifier, _item_id, false}
+      when issue_identifier == state.issue_identifier and map_size(state.held_native_questions) > 0 ->
+        receive_loop(session, NativeReplies.deliver(session, state))
 
       {:agent_queue_updated, issue_identifier, _item_id, :steer}
       when issue_identifier == state.issue_identifier ->

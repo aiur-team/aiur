@@ -255,9 +255,14 @@ with an explanation and an alert. Approval requests keep their existing approval
 policy; enabling native capture does not grant approval authority.
 
 With Codex native capture enabled, Aiur holds the native question while its
-Command awaits an answer. An idle timeout, pause, operator interrupt, or turn
-ending releases that hold. Aiur tells the agent the Command ID and that the
-answer will arrive as a message.
+Command awaits an answer. Answering the Command returns every question's
+structured answer to that same request. The queue records provider delivery
+through the normal Command delivery path.
+
+An idle timeout, pause, explicit operator interrupt, or turn ending releases
+the hold. Aiur tells the agent the Command ID and that the answer will arrive
+as a readable queued message. Ordinary queue notifications wait while a
+native question is held.
 
 If the session has exited, Aiur records the release without writing to the
 closed session. Releasing a hold leaves the Command open and answerable.

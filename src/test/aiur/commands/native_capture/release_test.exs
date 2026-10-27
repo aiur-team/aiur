@@ -241,7 +241,15 @@ defmodule Aiur.Commands.NativeCapture.ReleaseTest do
     Release.release(c.session, c.state, :idle_timeout)
     assert_released(c, :idle_timeout)
     assert [{:frame, %{"id" => 7}}] = drain_frames()
-    assert {:ok, %{decision: answered}} = DecisionStore.answer(c.id, %{expected_version: 1, option_id: "o1", idempotency_key: "after-release"}, [actor: %{kind: :operator, id: "operator-1"}], c.store)
+
+    assert {:ok, %{decision: answered}} =
+             DecisionStore.answer(
+               c.id,
+               %{expected_version: 1, custom_response: Jason.encode!(%{kind: "question_answers", question_answers: %{"colour" => ["Red"], "size" => ["Blue"]}}), idempotency_key: "after-release"},
+               [actor: %{kind: :operator, id: "operator-1"}],
+               c.store
+             )
+
     owner = self()
 
     assert {:ok, %{status: :accepted}} =

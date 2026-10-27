@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
   @type callbacks :: %{
           on_message: (map() -> :ok),
           on_safe_checkpoint: fun(),
+          on_native_reply: fun(),
           on_steer_claim: fun(),
           on_operator_message: fun(),
           on_operator_response: fun(),
@@ -55,6 +56,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
           Commands.default_store(),
           live_opts
         ),
+      on_native_reply: CheckpointDelivery.native_reply_handler(issue, orchestrator, Commands.default_store(), live_opts),
       on_operator_response: CheckpointDelivery.operator_response_handler(issue, orchestrator, live_opts),
       on_operator_message:
         CheckpointDelivery.operator_immediate_handler(

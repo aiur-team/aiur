@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.Calls do
   alias Aiur.Orchestrator.{BuildQueueClaimProbe, Cancellation, GlobalPause, Interrupts, Lifecycle, Parking, PauseResume, PriorityControl, Slots, SpendCap, StatusReport}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.OperatorMessages.Calls, as: MessageCalls
   alias Aiur.Orchestrator.OperatorMessages.{HeldReads, Snapshot}
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
 
@@ -232,6 +233,10 @@ defmodule Aiur.Orchestrator.Calls do
   def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: Aiur.Handoff.claim_or_empty(state, fn -> OM.claim_next_operator_queue_item_call(state, issue_identifier) end)
+
+  def handle_call({:claim_native_reply_item, identifier, refs}, _from, state)
+      when is_binary(identifier) and is_list(refs),
+      do: Aiur.Handoff.claim_or_empty(state, fn -> MessageCalls.claim_native_reply_item_call(state, identifier, refs) end)
 
   def handle_call({:claim_operator_response, identifier, command}, _from, state)
       when is_binary(identifier) and is_binary(command) and command != "",
