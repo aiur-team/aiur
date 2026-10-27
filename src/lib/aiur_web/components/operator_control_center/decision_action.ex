@@ -21,7 +21,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
     replacing? = Map.get(assigns.state, :replacing?, false)
     disabled? = DecisionOutcomes.disabled?(decision, assigns.state)
-    answerable? = answerable?(decision) or replacing? or disabled?
+    rejected? = match?(%{status: status} when status in [:too_late, :withdrawn], assigns.state[:outcome])
+    withdrawn? = match?(%{status: :withdrawn}, DecisionOutcomes.canonical_notice(decision))
+    answerable? = answerable?(decision) or replacing? or rejected? or withdrawn?
 
     # Dismiss closes a Command outright: the operator waves it off and, when the
     # agent is live, the agent is told to proceed under its own judgement. Any

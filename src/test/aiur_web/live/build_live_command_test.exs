@@ -55,7 +55,7 @@ defmodule AiurWeb.BuildLiveCommandTest do
     assert %{status: "accepted", text: "Answered: Persist to disk, rehydrate on boot", card: nil} = reply
     stored = stored_answer(store, decision)
     assert stored.selected_option_id == "persist"
-    # The trusted dashboard identity (test_helper's AIUR_DASHBOARD_USERNAME), never a client value.
+    # The server-assigned dashboard session identity, never a client value.
     assert stored.actor == %{kind: :operator, id: "dashboard", source: :dashboard_session}
     assert reply.action_id == stored.action_id
   end

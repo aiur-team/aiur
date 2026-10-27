@@ -11,9 +11,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
   @spec decision_replacement(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_replacement(assigns) do
     canonical = DecisionOutcomes.canonical_notice(assigns.decision)
-    outcome = current_outcome(assigns.state[:outcome], canonical, assigns.decision)
+    explicit = assigns.state[:outcome] || if(assigns.state[:replacing?], do: late_outcome(assigns.decision))
+    outcome = current_outcome(explicit, canonical, assigns.decision)
     outcome_notice = if outcome, do: DecisionOutcomes.outcome_notice(outcome)
-    notice = if assigns.state[:outcome], do: outcome_notice, else: form_notice(assigns.state) || outcome_notice
+    notice = if explicit, do: outcome_notice, else: form_notice(assigns.state) || outcome_notice
     actions = if outcome_notice, do: elem(outcome_notice, 2), else: []
 
     assigns = assign(assigns, notice: notice, actions: actions, replaceable?: DecisionOutcomes.replaceable?(assigns.decision), follow_up: follow_up(assigns.decision))
@@ -36,16 +37,22 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacement do
     """
   end
 
-  defp current_outcome(%{status: status} = outcome, %{reason: :answer_delivered}, decision) when status in [:accepted, :duplicate],
+  defp current_outcome(%{status: status} = outcome, %{delivery: :delivered}, decision) when status in [:accepted, :duplicate],
     do: %{outcome | delivery: :delivered, decision: decision}
 
   defp current_outcome(%{status: status} = outcome, %{delivery: :queued_for_restart}, decision) when status in [:accepted, :duplicate],
     do: %{outcome | delivery: :queued_for_restart, decision: decision}
 
-  defp current_outcome(%{status: :too_late}, %{status: :too_late} = canonical, _decision), do: canonical
+  defp current_outcome(%{status: :too_late} = outcome, _canonical, decision), do: late_outcome(decision) || outcome
 
   defp current_outcome(nil, canonical, _decision), do: canonical
   defp current_outcome(outcome, _canonical, _decision), do: outcome
+
+  defp late_outcome(%{conflict_summary: %{delivered?: true}} = decision),
+    do: %{status: :too_late, reason: :answer_delivered, delivered_at: DecisionOutcomes.delivered_at(decision)}
+
+  defp late_outcome(%{conflict_summary: %{in_flight?: true}}), do: %{status: :too_late, reason: :answer_in_flight}
+  defp late_outcome(_decision), do: nil
 
   defp form_notice(%{error: text}), do: {:error, text, []}
   defp form_notice(%{notice: text}), do: {:success, text, []}

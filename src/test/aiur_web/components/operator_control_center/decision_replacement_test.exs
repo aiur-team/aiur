@@ -11,7 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacementTest do
       outcome = %{status: status, delivery: delivery, decision: %{decision | dispatch_attempts: []}}
       html = render_notice(decision, %{outcome: outcome, notice: "Answer recorded. Delivering to #987…"})
       document = Floki.parse_fragment!(html)
-      assert document |> Floki.find("p[role=status]") |> Floki.text() == "Delivered to #987 at #{DateTime.to_iso8601(at)}"
+      assert document |> Floki.find("p[role=status]") |> Floki.text() == "Delivered to #987 at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}"
       assert Floki.find(document, "p[role=alert]") == []
       assert DecisionOutcomes.disabled?(decision, %{outcome: outcome})
       refute html =~ "Replace</button>"
@@ -24,7 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacementTest do
     winner = %{actor_kind: :executor, accepted_at: accepted_at, summary: "Keep the original release"}
     html = render_notice(decision, %{outcome: %{status: :already_answered, winner: winner}})
     document = Floki.parse_fragment!(html)
-    assert document |> Floki.find("p[role=alert]") |> Floki.text() == "Already answered by the Executor at #{DateTime.to_iso8601(accepted_at)}: 'Keep the original release'"
+    assert document |> Floki.find("p[role=alert]") |> Floki.text() == "Already answered by the Executor at #{DateTime.to_iso8601(DateTime.truncate(accepted_at, :second))}: 'Keep the original release'"
     assert DecisionOutcomes.disabled?(decision, %{})
   end
 
@@ -33,7 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionReplacementTest do
     decision = delivered_decision(at)
     html = render_notice(decision, %{outcome: %{status: :too_late, reason: :answer_in_flight}})
     document = Floki.parse_fragment!(html)
-    assert document |> Floki.find("p[role=alert]") |> Floki.text() == "Already delivered at #{DateTime.to_iso8601(at)}. Send a follow-up message instead."
+    assert document |> Floki.find("p[role=alert]") |> Floki.text() == "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}. Send a follow-up message instead."
     assert document |> Floki.find("a[href='/chat/owner/repo/987']") |> Floki.text() == "Send a follow-up message"
     refute html =~ "Delivery is in progress"
   end

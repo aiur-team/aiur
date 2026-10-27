@@ -49,9 +49,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionOutcomes do
   def canonical_notice(%{decision_status: status}) when status in [:moot, :expired], do: %{status: :withdrawn, reason: status}
 
   def canonical_notice(%{conflict_summary: %{delivered?: true}} = decision),
-    do: %{status: :too_late, reason: :answer_delivered, delivered_at: delivered_at(decision)}
+    do: %{status: :accepted, delivery: :delivered, decision: decision}
 
-  def canonical_notice(%{conflict_summary: %{in_flight?: true}}), do: %{status: :too_late, reason: :answer_in_flight}
+  def canonical_notice(%{conflict_summary: %{in_flight?: true}} = decision), do: %{status: :accepted, delivery: :pending, decision: decision}
   def canonical_notice(%{conflict_summary: %{actor_kind: :executor} = winner}), do: %{status: :already_answered, winner: winner}
 
   def canonical_notice(%{pending_for_session?: true, answer: answer} = decision) when is_map(answer),
@@ -69,7 +69,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionOutcomes do
   defp withdrawn?(%{decision_status: status}), do: status in [:moot, :expired, :resolved]
   defp withdrawn?(_decision), do: false
 
-  defp time(%DateTime{} = at), do: DateTime.to_iso8601(at)
+  defp time(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
   defp time(_unknown), do: "an unknown time"
   defp actor_label(%{actor_kind: :executor}), do: "the Executor"
   defp actor_label(%{actor_kind: :operator}), do: "you on another device"

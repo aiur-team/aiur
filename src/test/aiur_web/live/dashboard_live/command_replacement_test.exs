@@ -74,7 +74,7 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     answered = answer(ctx, :executor)
     html = render_submit(view, "answer-decision", params(answered.decision_id))
     assert html =~ "Already answered by the Executor"
-    assert html =~ DateTime.to_iso8601(answered.answer.accepted_at)
+    assert html =~ DateTime.to_iso8601(DateTime.truncate(answered.answer.accepted_at, :second))
     assert html =~ "Original Executor direction"
     assert {:ok, current} = DecisionStore.get(answered.decision_id, ctx.store)
     assert current.answer.actor.kind == :executor
@@ -100,13 +100,27 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     html = render_submit(view, "replace-decision", params(answered.decision_id))
     assert {:ok, delivered} = DecisionStore.get(answered.decision_id, ctx.store)
     [attempt] = delivered.dispatch_attempts
-    assert html =~ "Already delivered at #{DateTime.to_iso8601(attempt.delivered_at)}"
+    assert html =~ "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(attempt.delivered_at, :second))}"
     assert has_element?(view, ".decision-answer-summary", "Original Executor direction")
     assert has_element?(view, "form fieldset[disabled]")
     assert has_element?(view, "a[href='/chat/owner/repo/987']", "Send a follow-up message")
     refute has_element?(view, "button[phx-click=begin-replace-decision]")
     assert {:ok, current} = DecisionStore.get(answered.decision_id, ctx.store)
     assert current.revision_sequence == 0
+  end
+
+  test "the operator's delivered custom answer shows success and summary without an answer form", ctx do
+    answered = answer(ctx, :operator)
+    item = delivery_item(answered, "own-delivery")
+    assert {:ok, :accepted} = DecisionStore.record_delivery(item, ctx.store)
+    assert {:ok, delivered} = DecisionStore.get(answered.decision_id, ctx.store)
+    [attempt] = delivered.dispatch_attempts
+    at = attempt.delivered_at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    {:ok, view, _html} = live(build_conn(), "/commands/#{answered.decision_id}")
+    assert has_element?(view, ".decision-replacement p[role=status]", "Delivered to #987 at #{at}")
+    refute has_element?(view, ".decision-replacement [role=alert]")
+    refute has_element?(view, "form[id^=decision-answer-form-]")
+    assert has_element?(view, ".decision-answer-summary", answered.answer.custom_response)
   end
 
   test "in-flight Executor answers cannot be replaced", ctx do
@@ -123,9 +137,11 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
 
     assert {:ok, :accepted} = DecisionStore.validate_delivery(item, ctx.store)
     {:ok, view, html} = live(build_conn(), "/commands/#{answered.decision_id}")
-    assert html =~ "Delivery is in progress."
+    assert html =~ "Answer recorded. Delivering to #987…"
     refute html =~ "Already delivered at"
-    assert has_element?(view, "form fieldset[disabled]")
+    refute has_element?(view, "form[id^=decision-answer-form-]")
+    refute has_element?(view, ".decision-replacement [role=alert]")
+    assert has_element?(view, ".decision-answer-summary", answered.answer.custom_response)
     refute has_element?(view, "button[phx-click=begin-replace-decision]")
   end
 
@@ -155,6 +171,17 @@ defmodule AiurWeb.DashboardLive.CommandReplacementTest do
     result = DecisionEvents.handle("replace-decision", params(answered.decision_id), socket, reload)
     assert %{status: :too_late, reason: :answer_delivered, delivered_at: %DateTime{}} = result.assigns.decision_actions[row.decision_id].outcome
     assert {:ok, %{revision_sequence: 0}} = DecisionStore.get(answered.decision_id, ctx.store)
+  end
+
+  defp delivery_item(answered, attempt_id) do
+    %{
+      id: 1,
+      category: :operator_message,
+      target_issue_identifier: answered.ticket.identifier,
+      action_id: answered.answer.action_id,
+      status: :pending,
+      correlation: %{decision_id: answered.decision_id, action_id: answered.answer.action_id, decision_version: answered.answer.decision_version, attempt_id: attempt_id}
+    }
   end
 
   defp answer(ctx, kind) do

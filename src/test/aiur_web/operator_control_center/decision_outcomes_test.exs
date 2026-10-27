@@ -13,7 +13,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionOutcomesTest do
                DecisionOutcomes.outcome_notice(%{status: status, delivery: :queued_for_restart, decision: decision})
 
       assert {:success, text, []} = DecisionOutcomes.outcome_notice(%{status: status, delivery: :delivered, decision: decision})
-      assert text == "Delivered to #123 at #{DateTime.to_iso8601(at)}"
+      assert text == "Delivered to #123 at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}"
     end
   end
 
@@ -23,7 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionOutcomesTest do
     for {kind, label} <- [executor: "the Executor", operator: "you on another device"] do
       winner = %{actor_kind: kind, accepted_at: at, summary: "Hold deployment"}
       assert {:error, text, []} = DecisionOutcomes.outcome_notice(%{status: :already_answered, winner: winner})
-      assert text == "Already answered by #{label} at #{DateTime.to_iso8601(at)}: 'Hold deployment'"
+      assert text == "Already answered by #{label} at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}: 'Hold deployment'"
     end
   end
 
@@ -32,7 +32,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionOutcomesTest do
     assert {:error, "Already delivered at an unknown time. Send a follow-up message instead.", [:follow_up]} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_delivered})
     at = DateTime.utc_now()
     assert {:error, text, [:follow_up]} = DecisionOutcomes.outcome_notice(%{status: :too_late, reason: :answer_delivered, delivered_at: at})
-    assert text == "Already delivered at #{DateTime.to_iso8601(at)}. Send a follow-up message instead."
+    assert text == "Already delivered at #{DateTime.to_iso8601(DateTime.truncate(at, :second))}. Send a follow-up message instead."
   end
 
   test "withdrawn and stale Commands explain recovery without success" do
