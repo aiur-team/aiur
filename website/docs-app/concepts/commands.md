@@ -96,6 +96,31 @@ is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 
+## Routing and escalation
+
+With `decisions.escalation.enabled` (default `true`), Commands route using the
+Executor roster. A live Executor receives answerable Commands first. Without a
+live Executor, the human receives them immediately. Human-required Commands
+reach both responders when an Executor is live; Executor-originated Commands
+go directly to the human.
+
+Unacknowledged Commands escalate after five minutes; acknowledged but unanswered
+Commands escalate after fifteen minutes. Urgent blocking Commands use half
+those deadlines by default.
+
+An offline or stalled roster escalates at the next
+sweep, within 30 seconds. Roster lookup failures count as stalled.
+
+Deadlines and
+first human visibility survive restarts, and routing emits `human_needed` only
+once per Command. Routing never re-asks. Answers and terminal lifecycle states
+stop routing deadlines. Disabling escalation stops these routing writes.
+
+Defer to Executor accepts worker Commands whose authority permits an Executor
+answer. Human-required and Executor-originated Commands cannot defer. An accepted
+defer starts routing deadlines again and preserves first human visibility,
+without another `human_needed` notification.
+
 ## Durability
 
 | Contract | Why it matters |
