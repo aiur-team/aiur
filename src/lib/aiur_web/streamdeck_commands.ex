@@ -74,6 +74,33 @@ defmodule AiurWeb.StreamdeckCommands do
   @spec actor() :: %{kind: :operator, id: String.t()}
   def actor, do: %{kind: :operator, id: @actor_id}
 
+  @doc "Maps answer outcomes onto the device's allowlisted wire replies."
+  @spec answer_reply(Aiur.Commands.Answering.outcome()) :: {:ok, map()} | {:error, map()}
+  def answer_reply(%{status: status, decision: decision}) when status in [:accepted, :duplicate],
+    do: {:ok, %{"status" => Atom.to_string(status), "decision" => item(decision)}}
+
+  def answer_reply(%{status: :already_answered, winner: winner}),
+    do: {:error, %{reason: "already_answered", winner: winner(winner)}}
+
+  def answer_reply(%{status: :withdrawn, reason: status}),
+    do: {:error, %{reason: "withdrawn", status: Atom.to_string(status)}}
+
+  def answer_reply(%{status: :stale}), do: {:error, %{reason: "stale"}}
+  def answer_reply(%{reason: reason}), do: {:error, %{reason: reason_text(reason)}}
+
+  defp winner(nil), do: nil
+
+  defp winner(winner) do
+    %{
+      "actor_kind" => Atom.to_string(winner.actor_kind),
+      "summary" => winner.summary,
+      "accepted_at" => DateTime.to_iso8601(winner.accepted_at)
+    }
+  end
+
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(reason), do: inspect(reason)
+
   defp page(result) do
     %{
       "items" => Enum.map(result.decisions, &item/1),

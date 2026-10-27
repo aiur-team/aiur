@@ -1,5 +1,5 @@
 /** The Commands page: history, one Command's detail, and the answer path. */
-import { type StreamDeckCommand, type StreamDeckCommandAnswerResult, type StreamDeckCommandsPage } from "../channel.js";
+import { type StreamDeckCommand, type StreamDeckCommandAnswerResult, type StreamDeckCommandAnswerError, type StreamDeckCommandsPage } from "../channel.js";
 import {
   clampOptionOffset,
   commandIdempotencyKey,
@@ -20,6 +20,8 @@ import type { VoiceSettings } from "./voice-settings.js";
 
 export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMic }: Pick<VoiceSettings, "voice" | "leaveVoice" | "holdMic">) => {
   const { options, publish } = core;
+  const pending = new Map<string, { decisionId: string; key: number }>();
+  let feedbackTimer: ReturnType<typeof setTimeout> | undefined;
 
   /**
    * Opens the Commands page for the focused agent, at its history.
@@ -30,6 +32,8 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
    * about a ticket's conversation must not silently become a Command answer.
    */
   const enterCommands = (): void => {
+    clearTimeout(feedbackTimer);
+    pending.clear();
     leaveVoice();
     publish({
       ...core.state,
@@ -43,6 +47,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       selectedOption: null,
       commandDictation: false,
       commandsError: null,
+      commandFeedback: null,
     });
   };
 
@@ -54,6 +59,8 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
    * sent to the wrong decision.
    */
   const enterCommandDetail = (command: StreamDeckCommand): void => {
+    clearTimeout(feedbackTimer);
+    pending.clear();
     leaveVoice();
     publish({
       ...core.state,
@@ -64,11 +71,14 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       selectedOption: null,
       commandDictation: false,
       commandsError: null,
+      commandFeedback: null,
     });
   };
 
   /** Returns to the history view from a Command's detail. */
   const leaveCommandDetail = (): void => {
+    clearTimeout(feedbackTimer);
+    pending.clear();
     leaveVoice();
     publish({
       ...core.state,
@@ -78,6 +88,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       optionOffset: 0,
       commandDictation: false,
       commandsError: null,
+      commandFeedback: null,
     });
   };
 
@@ -153,7 +164,9 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
           ? { option_id: command.options[core.state.selectedOption]?.id ?? "" }
           : null;
     if (answer === null || answer.option_id === "") return;
+    const target = { decisionId: command.decision_id, key: response ? COMMANDS_APPROVE : (core.state.selectedOption ?? 0) - core.state.optionOffset };
     const idempotencyKey = await commandIdempotencyKey(command.decision_id, answer);
+    pending.set(idempotencyKey, target);
     options.channel()?.answerCommand(command.decision_id, command.version, idempotencyKey, answer);
     // The buffer is consumed by the answer; it must not also sit in the cmd
     // surface's Send buffer later.
@@ -179,7 +192,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
    * no longer current; a Command that left the page drops back to history.
    */
   const setCommands = (page: StreamDeckCommandsPage): void => {
-    let next: ControllerState = { ...core.state, commandsPage: page, commandsError: null };
+    let next: ControllerState = { ...core.state, commandsPage: page, commandsError: core.state.commandFeedback ? core.state.commandsError : null };
     if (core.state.commandsView === "detail" && core.state.selectedCommand !== null) {
       const refreshed = page.items.find((item) => item.decision_id === core.state.selectedCommand?.decision_id);
       if (refreshed !== undefined) next = { ...next, selectedCommand: refreshed };
@@ -197,6 +210,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
    * history list reflects the answer.
    */
   const commandAnswered = (result: StreamDeckCommandAnswerResult): void => {
+    clearTimeout(feedbackTimer);
     const answered = result.decision;
     const page: StreamDeckCommandsPage = {
       ...core.state.commandsPage,
@@ -209,6 +223,7 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
       commandDictation: false,
       selectedOption: null,
       commandsError: null,
+      commandFeedback: null,
     });
   };
 
@@ -216,8 +231,29 @@ export const createCommands = (core: ControllerCore, { voice, leaveVoice, holdMi
    * Applies a channel error for the Commands page or an answer: the strip
    * shows the reason instead of silently doing nothing.
    */
-  const commandsError = (reason: string): void => {
-    publish({ ...core.state, commandsError: reason });
+  const commandsError = (reason: string, outcome?: StreamDeckCommandAnswerError, requestKey?: string): void => {
+    const target = requestKey === undefined ? [...pending.values()].at(-1) : pending.get(requestKey);
+    if (requestKey === undefined) pending.clear();
+    else pending.delete(requestKey);
+    if (outcome === undefined) {
+      clearTimeout(feedbackTimer);
+      publish({ ...core.state, commandFeedback: null, commandsError: reason });
+      return;
+    }
+    const winner = outcome.reason === "already_answered" ? outcome.winner : null;
+    const title = outcome.reason === "already_answered" ? winner?.summary || "Already answered"
+      : outcome.reason === "withdrawn" ? "Command withdrawn" : "Command changed";
+    const label = outcome.reason === "already_answered" ? `Answered by ${winner?.actor_kind ?? "someone else"}`
+      : outcome.reason === "withdrawn" ? outcome.status : "Refresh and retry";
+    if (target !== undefined && core.state.mode === "commands" && core.state.selectedCommand?.decision_id === target.decisionId) {
+      clearTimeout(feedbackTimer);
+      publish({ ...core.state, commandsError: `${label}: ${title}`, commandFeedback: { ...target, title, label } });
+      feedbackTimer = setTimeout(() => {
+        publish({ ...core.state, commandFeedback: null, commandsError: null });
+      }, 3_000);
+      feedbackTimer.unref?.();
+    }
+    if (core.state.focusedIdentifier !== null) options.channel()?.focus(core.state.focusedIdentifier);
   };
 
   return {

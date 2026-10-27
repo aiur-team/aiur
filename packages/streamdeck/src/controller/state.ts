@@ -213,6 +213,7 @@ export interface ControllerState {
   readonly commandDictation: boolean;
   /** An answer error from the channel, shown on the detail strip. */
   readonly commandsError: string | null;
+  readonly commandFeedback?: { decisionId: string; key: number; title: string; label: string } | null;
   /**
    * True from a successful Implement press until the next grid push.
    *
