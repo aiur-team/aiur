@@ -16,6 +16,9 @@ defmodule Aiur.Orchestrator.Calls do
       when is_binary(identifier) and is_list(events),
       do: OM.enqueue_event_digest_batch_call(state, identifier, events)
 
+  def handle_call({:read_held_messages, identifier, max, deadline}, _from, state),
+    do: Aiur.Orchestrator.OperatorMessages.HeldReads.handle_call(state, identifier, max, deadline: deadline)
+
   def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
 
   def handle_call(:list_active_identifiers, _from, state),

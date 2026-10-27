@@ -76,7 +76,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
 
   defp refresh_view(%{identifier: id} = entry, state, previous_entry, harness) when is_binary(id) and id != "" do
     record = ModeStore.get(id)
-    result = %{Effective.compute(record, harness) | actor: :system}
+    result = %{compute(record, harness, entry) | actor: :system}
     previous = if previous_entry, do: previous_entry[:listener_effective] || view(state, id, previous_entry, record)
 
     if is_nil(previous) or {previous.effective, previous.effective_reason} != {result.effective, result.effective_reason} do
@@ -96,7 +96,12 @@ defmodule Aiur.Orchestrator.ListenerModes do
 
   defp event_payload(result), do: Map.take(result, [:requested, :effective, :effective_reason, :version, :actor])
 
-  defp view(state, id, entry, record), do: Effective.compute(record, Capabilities.harness_delivery(state, id, entry))
+  defp view(state, id, entry, record), do: compute(record, Capabilities.harness_delivery(state, id, entry), entry)
+
+  defp compute(record, harness, entry) do
+    installed? = get_in(entry || %{}, [:session_execution, :pull_tool_installed]) == true
+    Effective.compute(record, harness, pull_tool_installed?: installed?)
+  end
 
   defp resolve(state, %TrackerIdentity{} = identity) do
     case State.find_unique_running_by_identity(state.running, identity) do

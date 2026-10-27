@@ -30,6 +30,11 @@ defmodule Aiur.Orchestrator do
     WorkspaceCleanup
   }
 
+  @doc "Consume this ticket's held async operator messages in queue order."
+  @spec read_held_messages(String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def read_held_messages(identifier, max \\ 50),
+    do: Aiur.Orchestrator.OperatorMessages.HeldReads.read(__MODULE__, identifier, max)
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name)

@@ -45,6 +45,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       {:session_execution_info, issue_id,
        %{
          backend: session_backend_label(session),
+         pull_tool_installed: Map.get(session, :pull_tool_installed, false),
          requested_model: Map.get(session, :model),
          effort: Map.get(session, :effort),
          account: Map.get(session, :account_name),
@@ -244,9 +245,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          ownership,
          session_context
        ) do
+    handle_opts = Keyword.get(opts, :session_handle_opts, [])
+    session = Aiur.AgentRunner.PullToolInstallation.stamp(session, issue.identifier, handle_opts)
     report_session_execution(codex_update_recipient, issue, session)
     DispatchSelectionEvent.write(workspace, worker_host, issue)
-    handle_opts = Keyword.get(opts, :session_handle_opts, [])
     SessionResume.persist_session_handle(session, issue.identifier, worker_host, handle_opts)
     SessionResume.log_resume_outcome(issue, session, Keyword.get(session_context.session_opts, :resume_thread_id))
     report_repl_session(codex_update_recipient, issue, session)
