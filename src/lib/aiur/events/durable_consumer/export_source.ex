@@ -5,6 +5,8 @@ defmodule Aiur.Events.DurableConsumer.ExportSource do
   Append notifications invalidate the consumer's view; catch-up performs bounded
   reads and handles epoch changes even when new sequence numbers overlap the old
   cursor. A periodic invalidation also recovers a lost final notification.
+  The default five-second retry reads the journal even when idle; source option
+  `retry_ms` tunes that interval.
   """
   # Consumer adapter: intentionally outside the dependency-free bus boundary.
   use GenServer

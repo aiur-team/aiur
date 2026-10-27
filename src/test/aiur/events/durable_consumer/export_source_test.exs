@@ -18,6 +18,7 @@ defmodule Aiur.Events.DurableConsumer.ExportSourceTest do
     @impl true
     def handle_reset(oldest, state) do
       send(state.owner, {:reset, oldest})
+      if state[:reset_crash] && Agent.get_and_update(state.reset_crash, &{&1, false}), do: exit(:injected_reset)
       {:ok, state}
     end
 
@@ -87,6 +88,35 @@ defmodule Aiur.Events.DurableConsumer.ExportSourceTest do
     refute_received {:record, _}
   end
 
+  test "fresh consumer replays without a reset", ctx do
+    exporter = exporter(ctx)
+    append(exporter, 2)
+    consumer = consumer(ctx)
+    assert_records([1, 2])
+    sync(consumer)
+    assert cursor(ctx) == 2
+    refute_received {:reset, _}
+  end
+
+  test "restart after a fresh start preserves the epoch without a reset", ctx do
+    exporter = exporter(ctx)
+    append(exporter, 2)
+    consumer = consumer(ctx)
+    assert_records([1, 2])
+    sync(consumer)
+    refute_received {:reset, _}
+    stop_supervised!(DurableConsumer)
+    restarted = consumer(ctx)
+    sync(restarted)
+    refute_received {:reset, _}
+    refute_received {:record, _}
+    append(exporter, 3)
+    assert_records([3])
+    sync(restarted)
+    assert cursor(ctx) == 3
+    refute_received {:reset, _}
+  end
+
   test "crash after side effect redelivers exactly the uncommitted record", ctx do
     exporter = exporter(ctx)
     append(exporter, 2)
@@ -122,6 +152,31 @@ defmodule Aiur.Events.DurableConsumer.ExportSourceTest do
     send(consumer, :catch_up)
     sync(consumer)
     refute_received {:reset, _}
+  end
+
+  test "crash during reset repeats the reset before replaying overlapping new-epoch sequences", ctx do
+    exporter = exporter(ctx)
+    append(exporter, 2)
+    seed_cursor(ctx, 2)
+    crash = start_supervised!(Supervisor.child_spec({Agent, fn -> true end}, id: :reset_crash))
+    consumer = consumer(ctx, %{reset_crash: crash})
+    sync(consumer)
+    stop_supervised!(Exporter)
+    Agent.update(ctx.notifications, fn _ -> false end)
+    exporter = exporter(%{ctx | opts: Keyword.put(ctx.opts, :identity, fn -> {:ok, "new-instance"} end)})
+    append(exporter, 20)
+    Agent.update(ctx.notifications, fn _ -> true end)
+    append(exporter, 30)
+    receive_barrier({:reset, 1})
+    receive_barrier({:reset, 1})
+    assert_records([1, 2, 3])
+    {:ok, supervisor} = ExUnit.fetch_test_supervisor()
+    {DurableConsumer, restarted, _, _} = List.keyfind(Supervisor.which_children(supervisor), DurableConsumer, 0)
+    assert restarted != consumer
+    sync(restarted)
+    assert cursor(ctx) == 3
+    refute_received {:reset, _}
+    refute_received {:record, _}
   end
 
   test "unavailable feed calls handle_unavailable once per entry and recovers", ctx do
