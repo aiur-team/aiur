@@ -63,13 +63,21 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Sources do
   end
 
   defp features(readers) do
-    with {:ok, %{owners: owners}} <- readers.features.(), {:ok, states} <- readers.projection.(Map.keys(owners)) do
-      {Enum.map(owners, fn {n, owner} ->
-         %{ticket: n, kind: :feature, slug_or_epic: owner.feature, label: "feature:" <> owner.feature, confirmed: owner.confirmed, projection: states[n]}
-       end), []}
-    else
-      {:error, :projection_state_unavailable} -> {[], [:projection]}
+    case readers.features.() do
+      {:ok, %{owners: owners}} -> feature_states(readers, owners)
       _ -> {[], [:features]}
+    end
+  end
+
+  defp feature_states(readers, owners) do
+    case readers.projection.(Map.keys(owners)) do
+      {:ok, states} ->
+        {Enum.map(owners, fn {n, owner} ->
+           %{ticket: n, kind: :feature, slug_or_epic: owner.feature, label: "feature:" <> owner.feature, confirmed: owner.confirmed, projection: states[n]}
+         end), []}
+
+      _ ->
+        {[], [:projection]}
     end
   end
 

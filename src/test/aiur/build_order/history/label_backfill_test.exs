@@ -40,7 +40,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
 
   setup do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
-    dir = Path.join(System.tmp_dir!(), "label-writes-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "label-writes-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
 
@@ -166,6 +166,12 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     update(ctx.fixture, %{projection: {:error, :projection_state_unavailable}})
     assert %{total: :unknown, writes: %{feature: :unknown}, unknown: [:projection]} = LabelBackfill.plan(server: server)
     assert {:error, {:plan_unknown, [:projection]}} = start(server)
+
+    for reason <- [:projection_not_running, :registry_unavailable] do
+      update(ctx.fixture, %{projection: {:error, reason}})
+      assert %{total: :unknown, writes: %{feature: :unknown}, unknown: [:projection]} = LabelBackfill.plan(server: server)
+    end
+
     update(ctx.fixture, %{owners: %{1 => %{feature: "h", confirmed: true}}, projection: %{1 => :held_backfill}, labels: :unknown})
     assert %{total: :unknown, writes: %{feature: :unknown}, deferred: %{labels_unknown: 1}} = LabelBackfill.plan(server: server)
     assert requests() == []
