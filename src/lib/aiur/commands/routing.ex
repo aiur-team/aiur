@@ -4,8 +4,8 @@ defmodule Aiur.Commands.Routing do
   require Logger
 
   alias Aiur.Commands.Routing.{Policy, Sweep}
-  alias Aiur.Executor.Roster
   alias Aiur.{Config, DecisionPubSub, DecisionStore}
+  alias Aiur.Executor.Roster
 
   @ceiling_ms 30_000
 
