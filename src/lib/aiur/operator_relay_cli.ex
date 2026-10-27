@@ -56,6 +56,9 @@ defmodule Aiur.OperatorRelayCLI do
   defp error_detail({:conflict, {:direct_operator_answer, _action_id}}),
     do: "the operator answered this Command directly; a relayed answer cannot replace it"
 
+  defp error_detail({:answer_invalid, :relay_on_executor_command}),
+    do: "this Command was raised by the Executor; the operator must answer it on a surface they log in to (dashboard, Stream Deck or phone)"
+
   defp error_detail(reason), do: "cannot record answer (#{inspect(reason)})"
 
   defp error(deps, reason, code) do

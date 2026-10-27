@@ -55,8 +55,10 @@ defmodule Aiur.AppServer.Adapter do
 
     callbacks = %{
       on_message: on_message,
+      on_steer_claim: Keyword.get(opts, :on_steer_claim, fn -> :noop end),
       on_provider_delivery: on_provider_delivery,
-      on_safe_checkpoint: on_safe_checkpoint
+      on_safe_checkpoint: on_safe_checkpoint,
+      on_native_reply: Keyword.get(opts, :on_native_reply, fn _refs -> :none end)
     }
 
     tool_executor =
@@ -112,11 +114,15 @@ defmodule Aiur.AppServer.Adapter do
               backend: backend,
               on_message: callbacks.on_message,
               on_safe_checkpoint: callbacks.on_safe_checkpoint,
+              on_native_reply: callbacks.on_native_reply,
+              on_steer_claim: callbacks.on_steer_claim,
               tool_executor: tool_executor,
               timeout_ms: Config.agent_turn_timeout_ms(),
               pending_line: "",
               outstanding_turns: 1,
               pending_operator_requests: %{},
+              held_native_questions: %{},
+              issue: issue,
               current_turn_id: turn_id,
               issue_identifier: Messages.issue_identifier(issue),
               pause_request_id: nil,

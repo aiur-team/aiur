@@ -4,6 +4,7 @@ defmodule Aiur.ControlCLI.EntryPoints do
   alias Aiur.BuildOrder.EstimateCLI
   alias Aiur.BuildOrdersCLI
   alias Aiur.CommandsCLI
+  alias Aiur.ControlCLI.ExecutorRequest
   alias Aiur.ExecutorCommandCLI
   alias Aiur.GitHubCostCLI
   alias Aiur.GitHubUsageCLI
@@ -20,6 +21,16 @@ defmodule Aiur.ControlCLI.EntryPoints do
   @spec operator_relay_answer(keyword()) :: :ok
   def operator_relay_answer(opts) when is_list(opts) do
     guarded("operator-relay-answer", fn -> opts |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
+  @spec executor_ack(keyword()) :: :ok
+  def executor_ack(opts) when is_list(opts) do
+    guarded("executor-ack", fn -> opts |> ExecutorCommandCLI.ack(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
+  @spec command_request(keyword()) :: :ok
+  def command_request(opts) do
+    guarded("command request", fn -> opts |> ExecutorRequest.request(error_fun: &control_error/1) |> exit_marker() end)
   end
 
   @spec executor_answer(keyword()) :: :ok

@@ -49,7 +49,16 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_sweep, 1, &__MODULE__.sweep_scope/1, [:keyword], %{apply: :boolean, json: :boolean}},
     {:commands, 0, :read, [], %{}},
     {:commands, 1, :read, [:keyword],
-     %{filter: {:enum, [:all, :open, :blocking, :resolved]}, blocking: :boolean, json: :boolean, limit: :positive, decision_id: :string, ticket: :string, search: :string, cursor: :string}},
+     %{
+       filter: {:enum, [:all, :open, :blocking, :resolved, :"needs-you", :"with-executor", :"from-executor"]},
+       blocking: :boolean,
+       json: :boolean,
+       limit: :positive,
+       decision_id: :string,
+       ticket: :string,
+       search: :string,
+       cursor: :string
+     }},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},
@@ -101,6 +110,21 @@ defmodule Aiur.ControlCall.Allowlist do
        idempotency_key: :non_empty_string,
        supersede: :boolean
      }},
+    {:command_request, 1, :write, [:keyword],
+     %{
+       question: :non_empty_string,
+       options: :string_list,
+       recommend: :non_empty_string,
+       blocking: :boolean,
+       urgency: {:enum, ["low", "normal", "high", "critical"]},
+       ticket: :non_empty_string,
+       long_context_markdown: :string,
+       short_summary: :string,
+       executor_id: :non_empty_string,
+       idempotency_key: :non_empty_string,
+       json: :boolean
+     }},
+    {:executor_ack, 1, :write, [:keyword], %{decision_id: :non_empty_string, executor_id: :non_empty_string}},
     {:executor_answer, 1, :write, [:keyword],
      %{
        decision_id: :non_empty_string,
@@ -199,6 +223,7 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @rows Enum.map(@agent_rows, fn {function, arity, class, positional, options} -> {{@agent, function, arity}, %{class: class, positional: positional, options: options}} end) ++
           [
+            {{[:Aiur, :ListenModeCli], :run, 2}, %{class: &__MODULE__.listen_mode_scope/1, positional: [:non_empty_string, :string_list], options: %{}}},
             {{@handoff, :report, 0}, %{class: :read, positional: [], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :report, 1}, %{class: :read, positional: [:keyword], options: %{json: :boolean, wait_ms: :non_negative, expected_id: :string}}},
             {{@handoff, :prepare, 0}, %{class: :deny, positional: [], options: %{}}},
@@ -220,6 +245,9 @@ defmodule Aiur.ControlCall.Allowlist do
 
   @spec facade_functions() :: [{atom(), non_neg_integer()}]
   def facade_functions, do: Facade.functions()
+
+  @spec listen_mode_scope(list()) :: :read | :write
+  def listen_mode_scope([_ticket, argv]), do: if(argv in [[], ["--json"]], do: :read, else: :write)
 
   @spec watch_scope(list()) :: :read | :write
   def watch_scope(args), do: if(option(args, :mode) == :full, do: :read, else: :write)

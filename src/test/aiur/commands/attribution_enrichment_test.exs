@@ -4,7 +4,12 @@ defmodule Aiur.Commands.AttributionEnrichmentTest do
   use Aiur.DecisionStoreCase, async: false
 
   defp attribution do
-    [requester: %{kind: :executor, executor_id: "operator"}, origin: :executor_cli, native: %{harness: :codex, native_ref: "request-1", hold: :deferred}, questions: [%{"id" => "scope"}]]
+    [
+      requester: %{kind: :executor, executor_id: "operator"},
+      origin: :executor_cli,
+      native: %{harness: :codex, native_ref: "request-1", hold: :deferred},
+      questions: [%{question_id: "scope", question: "Choose scope?", options: [%{label: "Small"}, %{label: "Large"}]}]
+    ]
   end
 
   test "enrichment accepts the reserved Executor identity using persisted trusted requester", %{dir: dir} do

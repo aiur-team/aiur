@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.Requests do
 
   require Logger
 
-  alias Aiur.Commands.RequestAttributes
+  alias Aiur.Commands.{RequestAttributes, SuggestedResponses}
   alias Aiur.DecisionProjection.AuthorityReclassification
   alias Aiur.DecisionStore.Answers
   alias Aiur.DecisionStore.Audit
@@ -159,8 +159,12 @@ defmodule Aiur.DecisionStore.Requests do
   @spec handle_request(term(), term(), term()) :: term()
   def handle_request(payload, opts, state) do
     with {:ok, requested_version} <- fetch_requested_version(payload),
-         {:ok, decision} <- DecisionValidation.normalize(payload, opts) do
-      evaluate_and_apply(decision, requested_version, state, opts)
+         {:ok, opts} <- RequestAttributes.normalize_opts(opts),
+         {:ok, decision} <- DecisionValidation.normalize(payload, opts),
+         :ok <- SuggestedResponses.validate(decision, opts) do
+      decision
+      |> evaluate_and_apply(requested_version, state, opts)
+      |> SuggestedResponses.warn_once(state, opts)
     else
       {:error, reason} -> {:reply, {:error, reason}, Persistence.journal_failure_state(state, reason)}
     end
@@ -250,7 +254,7 @@ defmodule Aiur.DecisionStore.Requests do
   end
 
   defp identical_expired_retry(decision, requested_version, existing) do
-    expired_unanswered_blocking?(existing) and requested_version == existing.version and
+    decision.ticket.identifier != "executor" and expired_unanswered_blocking?(existing) and requested_version == existing.version and
       decision.content_hash == existing.content_hash
   end
 
@@ -343,7 +347,13 @@ defmodule Aiur.DecisionStore.Requests do
   end
 
   @spec lifecycle_slug(term()) :: term()
+  def lifecycle_slug(:routed), do: "routed"
+  def lifecycle_slug(:escalated), do: "escalated"
+  def lifecycle_slug(:human_needed), do: "human-needed"
+  def lifecycle_slug(:executor_acknowledged), do: "executor-acknowledged"
+  def lifecycle_slug(:native_released), do: "native-released"
   def lifecycle_slug(:request_attributed), do: "request-attributed"
+  def lifecycle_slug(:requester_notified), do: "requester-notified"
   def lifecycle_slug(:answer_recorded), do: "answered"
   def lifecycle_slug(:pending_for_session), do: "pending-for-session"
   def lifecycle_slug(:session_started), do: "session-started"

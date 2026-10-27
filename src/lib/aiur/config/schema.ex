@@ -1,6 +1,11 @@
 defmodule Aiur.Config.Schema do
   @moduledoc false
 
+  # Embed defaults are copied into parent structs at compile time.
+  @nested_schema_sources Path.wildcard(Path.join(__DIR__, "schema/*.ex"))
+  for source <- @nested_schema_sources,
+      do: @external_resource(Path.relative_to(source, File.cwd!(), force: true))
+
   use Ecto.Schema
 
   import Ecto.Changeset
@@ -44,7 +49,7 @@ defmodule Aiur.Config.Schema do
     Workspace
   }
 
-  # Embedded struct defaults must rebuild when their nested schemas change.
+  # Keep the direct module dependencies used by these embed declarations.
   require Agent
   require Decisions
   require Instance
@@ -54,7 +59,6 @@ defmodule Aiur.Config.Schema do
   require Experiments
   require Voice
   require Workspace
-
   @primary_key false
 
   @type t :: %__MODULE__{}
@@ -102,6 +106,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:dashboard_auth, DashboardAuth, on_replace: :update, defaults_to_struct: true)
     embeds_one(:opencode, Opencode, on_replace: :update, defaults_to_struct: true)
     embeds_one(:experiments, Experiments, on_replace: :update, defaults_to_struct: true)
+    # The root default owns the fully-expanded nested Events struct, including export defaults.
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
     # Keep new prewarm defaults present even when a config omits the whole block.
     embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)

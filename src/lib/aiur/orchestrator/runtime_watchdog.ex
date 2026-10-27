@@ -88,6 +88,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # that the worker actually parked.
   @doc false
   @spec maybe_pause_overrunning_entry(State.t(), term(), map(), DateTime.t(), non_neg_integer()) :: State.t()
+  def maybe_pause_overrunning_entry(state, _issue_id, %{native_hold: hold}, _now, _max_seconds) when is_map(hold), do: state
+
   def maybe_pause_overrunning_entry(state, issue_id, running_entry, now, max_seconds) do
     if overrunning_entry?(running_entry, now, max_seconds) do
       identifier = Map.get(running_entry, :identifier, issue_id)
@@ -323,6 +325,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
     AgentTeardown.terminate_running_issue(state, issue_id, false)
   end
+
+  defp maybe_restart_stalled_entry(state, _issue_id, %{native_hold: hold}, _now, _timeout_ms) when is_map(hold), do: state
 
   defp maybe_restart_stalled_entry(state, issue_id, running_entry, now, timeout_ms) do
     elapsed_ms = stall_elapsed_ms(running_entry, now)

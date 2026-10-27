@@ -43,6 +43,59 @@ exit 99
   }
 });
 
+test("stale launch lock takeover stays recoverable when TERM interrupts cleanup", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "aiur-lock-takeover-"));
+  const lock = path.join(root, "node.launch");
+  const interruptTakeover = String.raw`
+set -euo pipefail
+source "$1/instance.sh"
+lock="$2"
+mkdir -p "$lock"
+printf '%s\n' 99999999 >"$lock/owner"
+rm() {
+  command rm "$@"
+  for arg in "$@"; do
+    if [ "$arg" = "$lock/owner" ]; then kill -TERM "$$"; fi
+  done
+}
+mv() {
+  command mv "$@"
+  if [ "$1" = "$lock" ]; then kill -TERM "$$"; fi
+}
+sleep() { :; }
+trap 'exit 0' TERM
+AIUR_LAUNCH_LOCK_TICKS=2 acquire_aiur_launch_lock "$lock"
+exit 99
+`;
+  const retryTakeover = String.raw`
+set -euo pipefail
+source "$1/instance.sh"
+sleep() { :; }
+AIUR_LAUNCH_LOCK_TICKS=2 AIUR_OWNERLESS_LOCK_STALE_SECONDS=0 \
+  acquire_aiur_launch_lock "$2"
+`;
+
+  try {
+    const interrupted = spawnSync(
+      "/bin/bash",
+      ["-c", interruptTakeover, "lock-takeover-test", engineDir, lock],
+      { encoding: "utf8" },
+    );
+    expect(interrupted.status, interrupted.stderr).toBe(0);
+
+    const retry = spawnSync(
+      "/bin/bash",
+      ["-c", retryTakeover, "lock-takeover-retry-test", engineDir, lock],
+      { encoding: "utf8" },
+    );
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.error).toBeUndefined();
+    expect(existsSync(`${lock}.recovery`)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a shutdown request before child assignment is honored after launch", () => {
   const script = String.raw`
 set -euo pipefail

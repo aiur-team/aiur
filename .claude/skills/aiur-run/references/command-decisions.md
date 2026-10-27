@@ -6,6 +6,36 @@ The listener remains the primary command path. As a backstop, sweep decisions
 every `executor-wait` cycle; use [`open-decisions-sweep.sh`](open-decisions-sweep.sh)
 to list open decisions and report new ones or blockers at least 15 minutes old.
 
+Triage Commands currently routed to you with `aiur commands --filter
+with-executor`; this is a triage view, while the listener remains the primary
+arrival path. Read [when a Command becomes yours](../../../../website/docs-app/concepts/commands.md#when-a-command-becomes-yours)
+for the acknowledgement and answer deadlines and how Commands reach the human.
+If the Executor goes offline or stalls, routed Commands escalate within 30 seconds,
+so keep `executor-wait` running.
+Run `"$AIUR_CMD" executor-ack <decision-id>` as soon as you start handling it.
+Reading the record or receiving a wake does not acknowledge it. Ack stops only
+the acknowledgement deadline; answer or explicitly escalate before the answer
+deadline. Repeating ack is safe and does not undo an escalation. See the
+[escalation configuration](../../../../website/docs-app/reference/configuration-daemon.md#decisions).
+
+Need a new decision from the human? Use `aiur command request`, with two or
+three options, recommended first, and explain each consequence:
+
+```bash
+"$AIUR_CMD" command request "Ship the beta today?" \
+  --option ship=Ship --option wait=Wait --recommend ship
+```
+
+Requests default to blocking and go directly to the human. `aiur ask` is a
+deprecated alias; use the canonical command for new requests. An
+`executor.decision.answered` record arrives on `executor-wait` with the
+`decision_id`, not the answer text. Read the answer with
+`aiur commands <decision-id> --json`, then act on the human's choice.
+You cannot answer a Command you raised, including through
+`operator-relay-answer`, or replace an answer recorded directly by the
+operator. Have the human answer your request through an authenticated
+surface such as the dashboard. See [Executor Command requests](../../../../website/docs-app/reference/cli-operations.md#executor-command-requests).
+
 Use contextual judgment for every Command, never a rules table or a hardcoded
 allowlist of command types. Answer directly only when the requested choice is
 already established by recorded facts or an earlier answer, or is an obvious,
@@ -31,8 +61,8 @@ defaults to `aiur-cli`. The expected version prevents a stale listener event
 from overwriting a later answer, while the idempotency key makes event replay
 safe.
 
-When the operator has already answered a human-only Command in this attended
-conversation, record their answer through the opt-in relay path:
+When the operator has already answered a worker-originated human-only Command
+in this attended conversation, record their answer through the opt-in relay path:
 
 ```bash
 "$AIUR_CMD" operator-relay-answer <decision-id> --expected-version <n> \
@@ -119,8 +149,8 @@ a rationale, and an idempotency key. Use a stable `--executor-id` for the run
 when available (the CLI otherwise records `aiur-cli`), so replay stays
 idempotent and stale events cannot overwrite a later answer.
 
-If the human has already answered in the attended conversation, use
-`operator-relay-answer` with the current version, one choice, a verbatim
+If the human has already answered a worker-originated Command in the attended
+conversation, use `operator-relay-answer` with the current version, one choice, a verbatim
 `--quote`, stable `--relayed-by` identity and an idempotency key. The operator
 must first enable `executor.relay_operator_answers`. The distinct
 `operator_relayed` actor and info alert preserve who decided and who recorded.

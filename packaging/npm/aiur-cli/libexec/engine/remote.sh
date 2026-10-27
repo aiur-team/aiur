@@ -32,7 +32,7 @@ ensure_remote_command_allowed() {
   local command="${1:-run}"
 
   case "$command" in
-    --todo | status | usage | agents | accounts | commands | executor-answer | executor-escalate | executor-reclassify | executor-moot | units | queue | epic | feature | build-orders | analytics | github-cost | experiments | capabilities | ticket-usage | github-usage | alerts | executor-sweep | watch | executor-wait | executor-emit | executor-subscribe | executor-unsubscribe | executor-subscriptions | executor-roster | executor-session | executor-fast-forward | executor-claim | executor-release | executor-revoke | set | pause | resume | park | take | release | reset-budget | workspace-recover | message)
+    --todo | status | usage | agents | accounts | command | commands | executor-ack | executor-answer | executor-escalate | executor-reclassify | executor-moot | units | queue | epic | feature | build-orders | analytics | github-cost | experiments | capabilities | ticket-usage | github-usage | alerts | executor-sweep | watch | executor-wait | executor-emit | executor-subscribe | executor-unsubscribe | executor-subscriptions | executor-roster | executor-session | executor-fast-forward | executor-claim | executor-release | executor-revoke | set | pause | resume | park | take | release | reset-budget | workspace-recover | message | listen-mode)
       ;;
     stop | restart)
       echo "aiur: $command is local to the instance's host" >&2
@@ -296,7 +296,7 @@ load_remote_token() {
     token_file)
       case "$reference" in
         "~") path="$HOME" ;;
-        "~/"*) path="$HOME/${reference#~/}" ;;
+        "~/"*) path="$HOME/${reference#\~/}" ;;
         /*) path="$reference" ;;
         *)
           echo "aiur: remote instance '$name' token_file must be absolute or start with ~/" >&2

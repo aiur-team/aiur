@@ -46,6 +46,8 @@ defmodule Aiur.Events.Catalog.GithubSystemEntries do
     {"system.github_webhook.secret_missing", "github-listeners"},
     # aiur/main_watch.ex
     {"system.main.ci.canary", "github-listeners"},
+    # aiur/events/github_ci_poller/repo_wide_failure.ex
+    {"system.main.ci.repo_wide_failure.*", "github-listeners"},
     # aiur/main_watch.ex
     {"system.main.ci.failed", "github-listeners"},
     # aiur/main_watch.ex

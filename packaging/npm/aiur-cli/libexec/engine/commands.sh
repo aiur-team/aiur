@@ -252,12 +252,13 @@ cmd_commands() {
     shift
   done
 
-  case "$filter" in all|open|blocking|resolved) ;; *) echo "aiur: commands --filter accepts all, open, blocking, or resolved" >&2; exit 64 ;; esac
+  case "$filter" in all|open|blocking|resolved|needs-you|with-executor|from-executor) ;; *) echo "aiur: commands --filter accepts all, open, blocking, resolved, needs-you, with-executor, or from-executor" >&2; exit 64 ;; esac
   [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
   [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
   [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
 
   local opts="filter: :$filter"
+  case "$filter" in needs-you|with-executor|from-executor) opts="filter: :\"$filter\"" ;; esac
   [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   [ -n "$limit" ] && opts="$opts, limit: $limit"
@@ -347,4 +348,16 @@ cmd_set() {
       run_control_rpc "Aiur.AgentControlCLI.set_setting(Base.decode64!(\"$encoded_key\"), Base.decode64!(\"$encoded_value\"), caller_cwd: Base.decode64!(\"$encoded_caller_cwd\"), caller_agent_workspace_env: Base.decode64!(\"$encoded_caller_agent_workspace_env\"))"
       ;;
   esac
+}
+
+cmd_listen_mode() {
+  local ticket="${1:-}" encoded_args="" arg
+  [ -n "$ticket" ] || { echo 'aiur: listen-mode requires a ticket' >&2; exit 64; }
+  shift
+  for arg in "$@"; do
+    [ -z "$encoded_args" ] || encoded_args+=", "
+    encoded_args+="Base.decode64!(\"$(encode_control_value "$arg")\")"
+  done
+  export AIUR_CONTROL_RPC_TIMEOUT_SECONDS=70
+  run_control_rpc "Aiur.ListenModeCli.run(Base.decode64!(\"$(encode_control_value "$ticket")\"), [$encoded_args])"
 }

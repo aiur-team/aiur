@@ -31,6 +31,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   alias Aiur.Alerts.ClosedTicket
   alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
+  alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.{ClosedTicketTranscriptArchive, DispatchPolicy, DockerCleanup, Lifecycle, RetryEngine, State, TrackerHealth, TrackerTasks}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
@@ -51,6 +52,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
     DockerCleanup.start_ticket_cleanup(identifier)
     start_terminal_workspace_cleanups([{identifier, identifier, worker_host}])
     clear_session_handle(identifier)
+    clear_listen_mode(identifier)
   end
 
   @doc """
@@ -184,6 +186,21 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   end
 
   def clear_session_handle(_identifier), do: :ok
+
+  @doc false
+  @spec clear_listen_mode(binary() | term()) :: :ok
+  def clear_listen_mode(identifier) when is_binary(identifier) do
+    if TestTicketScope.allowed_identifier?(identifier) do
+      case ModeStore.clear(identifier) do
+        :ok -> :ok
+        {:error, reason} -> Logger.warning("Could not clear listener mode ticket=#{identifier} reason=#{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  def clear_listen_mode(_identifier), do: :ok
 
   @doc false
   @spec start_startup_workspace_cleanup(State.t(), keyword()) :: State.t()
@@ -323,6 +340,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   # process per ticket at once.
   defp terminal_issue_cleanup(%Issue{identifier: identifier}) when is_binary(identifier) do
     clear_session_handle(identifier)
+    clear_listen_mode(identifier)
     [{identifier, identifier, nil}]
   end
 

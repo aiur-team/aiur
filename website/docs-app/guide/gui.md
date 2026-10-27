@@ -30,7 +30,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | --- | --- | --- |
 | **Build** | `/` is the continuous build timeline; `/build` is a live alias. [Continuous build history](/concepts/build-history) describes its sections, views, ticket modal and usage strip. Old Build Order links redirect here: `/build-orders/<root>` opens the home focused on the root's imported feature `bo-<root>`. | none; `aiur agents`, `aiur queue show` and `aiur feature show` cover its parts |
 | **Units** (rollback) | `/units` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
-| **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
+| **Commands** | `/commands` is the durable decision inbox and each decision's detail. **From Executor** filters inbox rows (`?requester=executor`); Executor requests carry a badge. | `aiur commands` |
 | **Analytics** | `/analytics` shows latest-run telemetry, with restart fallback and optional Build Order scope. It loads while background analysis runs; concurrent cold loads share one retained-summary scan. The source line identifies live or retained data and its age. A notice marks periods without analytics capture. | `aiur analytics` |
 | **Streamdeck** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
@@ -45,6 +45,39 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
 
 The operator-facing UI and CLI call these records **Commands**.
+
+The Commands inbox keeps all open Commands visible. Routing chips read **With Executor**,
+**Needs you**, **Needs you and Executor**, or **From Executor**. Older Commands without
+routing facts show **Routing…**. Cards show when they were asked and, after human
+routing, how long they have needed you.
+
+Use **Needs you**, **With Executor**, **From Executor**, or **Resolved** to filter;
+links preserve `route=needs_you|with_executor|from_executor|resolved`. Open and All
+include unrouted Commands. Resolved Commands appear in the history table.
+
+Only Commands routed to you (including those shared with the Executor) count in the
+banner, navigation badge, and Units **Commands** column. Unknown counts display an
+unavailable notice or `—`; partial retained data is labelled partial.
+
+The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
+
+Listener-routed Units rows show a compact mode and unread count; unknown values
+show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
+the selector, effective-mode reason, oldest unread age and observation age.
+
+The conversation header selector offers **Steer · interrupts**,
+**Sync · next turn**, or **Async · on demand**. A different effective mode is
+shown with its reason. Unread counts include the oldest message's age; the
+observation age shows how recently the mode was read.
+
+The selector is hidden under legacy delivery routing and disabled on read-only
+dashboards. Changes wait for confirmation; a concurrent change shows the winning
+mode and preserves your choice. Leaving Async shows a notice: unread bodies
+remain pull-only.
+
+The drawer shows receipts for messages sent during this visit;
+“Accepted” and “Handed to the agent” do not mean the message was read. An unknown
+outcome is shown explicitly.
 
 Open the settings cog in the sticky top bar to pause or resume new agent starts, change the theme, or switch between Gruvbox (the default) and the aiur palette. A global pause leaves existing agents running and observed; pause an individual agent from its row for containment.
 
@@ -119,6 +152,8 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | Experiments | A separate experiment index and specification detail at `/experiments`; shown when the experiments capability is available. |
 
+In the Units table, a unit holding a native question shows “Waiting for your answer” in the blocked tone, elapsed minutes, and a link to its Command.
+
 ### Read fleet and build pressure
 
 Analytics records fleet and build-gate whole-host sources alongside daemon process
@@ -147,7 +182,24 @@ forward, so measuring the gate never perturbs a real build acquisition.
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
-| Command | Commands | Answer or revise. |
+| Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
+
+Command details include an escalation timeline from recorded facts, with the
+cause, absolute time, and relative age. An unavailable timeline is labeled
+explicitly.
+
+Native requests show every question together: choose one answer
+(or several when offered), select Other to write a response where allowed,
+and submit all answers at once.
+
+Suggested responses for single-question
+Commands place the recommended option first and mark it Recommended.
+
+On Command detail, **Replace** asks for confirmation before opening an empty answer form. It is available for an Executor answer until delivery starts. A competing answer shows who answered, when, and their answer.
+
+Delivered and in-flight answers show their status and recorded answer. If an answer or replacement attempt loses a delivery race, its form is disabled and **Send a follow-up message** opens the unit chat.
+
+**Send correction** records new direction; it does not undo work already done. Stale Commands offer a refresh, and withdrawn Commands explain why the answer is no longer needed.
 
 Build ticket modal mutations require writable dashboard access. The CLI covers fleet, Unit and capacity controls plus initial Command answers; Command revision and the ticket-routing preview remain GUI-only today.
 

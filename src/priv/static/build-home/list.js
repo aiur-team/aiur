@@ -63,8 +63,8 @@ function rowHTML(t, D, state) {
   const cell = (cls, html, attrs = '') => '<span class="' + cls + '" role="cell"' + attrs + '>' + html + '</span>';
   return '<div class="lr ' + esc(t.sec) + (dim ? ' dim' : '') + '" role="row" tabindex="0" data-id="' + esc(t.id) + '"' + hue('--h', e.hue) +
     ' aria-label="' + esc('#' + t.num + ' ' + t.title + ', ' + stText(t)) + '">' +
-    cell('c-id', '<span class="lr-ep' + (e.unsorted ? ' un' : '') + '" aria-hidden="true">' + (Object.hasOwn(I, e.icon) ? I[e.icon] : '') + '</span>#' + esc(t.num)) +
-    cell('c-tt', esc(t.title) + (f ? '<i class="lr-f"' + hue('--ft', f.hue) + ' title="' + esc(f.label) + '" role="img" aria-label="' + esc('Feature: ' + f.label) + '"></i>' : '')) +
+    cell('c-id', '<span class="lr-ep' + (e.unsorted ? ' un' : '') + '" aria-hidden="true">' + (D.icons?.[e.icon] || e.svg || (Object.hasOwn(I, e.icon) ? I[e.icon] : '')) + '</span>#' + esc(t.num)) +
+    cell('c-tt', esc(t.title) + (f ? '<span class="lr-f"' + hue('--ft', f.hue) + ' title="' + esc(f.summary || f.label) + '" role="img" aria-label="' + esc('Feature: ' + f.label) + '">' + (D.icons?.[f.icon] || f.svg || '') + '</span>' : '')) +
     cell('c-ep', esc(e.label)) + cell('c-st', '<span class="lst st-' + stClass(t) + '"><u aria-hidden="true"></u>' + esc(stText(t)) + '</span>') +
     cell('c-ag', agentCell(t)) + cell('c-pg', progCell(t)) + cell('c-dp', (ups ? '↑' + ups : '') + (dn ? ' ↓' + dn : ''), ' title="' + esc(deps) + '" aria-label="' + esc(deps) + '"') + '</div>';
 }
@@ -108,13 +108,14 @@ const knownSum = (values, key) => values.every(x => Number.isFinite(x[key])) ? v
 function featureListHTML(D, state, now) {
   const values = Object.entries(D.features).flatMap(([slug, feature]) => {
     const epics = (feature.epics || []).map(key => ({ key, epic: D.epics[key], progress: D.feature_progress?.features?.[key] })).filter(x => x.epic);
-    if (!epics.length) return [{ key: slug, feature, epic: { label: feature.label, feature: slug }, lanes: [], progress: null }];
+    if (!epics.length) return [{ key: slug, feature, epic: { label: feature.label, feature: slug, icon: feature.icon, summary: feature.summary }, lanes: [], progress: null }];
     const sum = key => knownSum(epics.map(x => x.progress || {}), key);
     const closed = sum('closed'), open = sum('open'), ci = sum('ci_wait'), total = sum('total'), unpublished = sum('unpublished');
-    const waves = [...new Set(epics.map(x => x.progress?.wave).filter(x => typeof x === 'string' && x.length))];
+    const metadata = key => epics.map(x => x.epic?.[key] || x.progress?.[key]).find(x => typeof x === 'string' && x.length) || feature[key];
+    const waves = [...new Set(epics.map(x => x.epic?.wave || x.progress?.wave).filter(x => typeof x === 'string' && x.length))];
     const wave = waves.length === 1 ? waves[0] : null;
     const codes = [...new Set(epics.map(x => x.progress?.code).filter(x => typeof x === 'string' && x.length))];
-    return [{ key: slug, feature, epic: { label: feature.label, feature: slug }, lanes: epics, progress: { feature: slug, closed, open, ci_wait: ci, total, unpublished, wave, reason: epics.find(x => x.progress?.reason)?.progress?.reason || null, icon: epics.find(x => x.progress?.icon)?.progress?.icon, summary: epics.find(x => x.progress?.summary)?.progress?.summary, code: codes.length === 1 ? codes[0] : null, root_number: epics.find(x => x.progress?.root_number)?.progress?.root_number, root_title: epics.find(x => x.progress?.root_title)?.progress?.root_title, start_date: epics.find(x => x.progress?.start_date)?.progress?.start_date } }];
+    return [{ key: slug, feature, epic: { label: feature.label, feature: slug, wave, icon: metadata('icon'), summary: metadata('summary') }, lanes: epics, progress: { feature: slug, closed, open, ci_wait: ci, total, unpublished, wave, reason: epics.find(x => x.progress?.reason)?.progress?.reason || null, icon: metadata('icon'), summary: metadata('summary'), code: codes.length === 1 ? codes[0] : null, root_number: epics.find(x => x.progress?.root_number)?.progress?.root_number, root_title: epics.find(x => x.progress?.root_title)?.progress?.root_title, start_date: epics.find(x => x.progress?.start_date)?.progress?.start_date } }];
   });
   const globallyUnknown = D.feature_progress?.reason;
   const aggregate = key => globallyUnknown ? null : knownSum(values.filter(x => x.progress).map(x => x.progress), key);
@@ -144,7 +145,7 @@ function featureListHTML(D, state, now) {
     const label = `${Number.isFinite(c) ? `${c} closed` : 'closed count unknown'}${Number.isFinite(o) ? `, ${o} published open` : ''}${Number.isFinite(u) ? `, ${u} planned not published` : ''}${unknown > 0 ? `, ${unknown} unknown` : ''}`;
     return `<div class="fp-bar ${cls}${unknown > 0 ? ' unknown' : ''}" role="img" aria-label="${esc(reason || label)}">${segments}</div>`;
   };
-  const groupKey = x => typeof x.progress?.wave === 'string' && x.progress.wave.length ? x.progress.wave : `feature:${x.key}`;
+  const groupKey = x => typeof x.epic?.wave === 'string' && x.epic.wave.length ? x.epic.wave : typeof x.progress?.wave === 'string' && x.progress.wave.length ? x.progress.wave : `feature:${x.key}`;
   const grouped = new Map();
   for (const item of values) { const key = groupKey(item); (grouped.get(key) || grouped.set(key, []).get(key)).push(item); }
   const waveOrder = value => { const match = /^(\d+)(.*)$/.exec(value); return match ? [Number(match[1]), match[2]] : [Infinity, value]; };
@@ -158,13 +159,14 @@ function featureListHTML(D, state, now) {
     const membershipKnown = lanes.length > 0 && lanes.every(x => Number.isFinite(x.progress?.total));
     const reason = membershipKnown ? null : (p?.reason || 'planned count unavailable'), c = p?.closed, o = p?.open, u = p?.unpublished, t = p?.total;
     const rowPct = Number.isFinite(c) && Number.isFinite(t) && t > 0 ? Math.floor(c * 100 / t) + '%' : '—';
-    const iconName = p?.icon || 'squares', icon = Object.hasOwn(I, iconName) ? I[iconName] : I.squares;
+    const iconName = epic?.icon || p?.icon || 'squares', icon = D.icons?.[iconName] || (Object.hasOwn(I, iconName) ? I[iconName] : I.squares);
     const published = Number.isFinite(c) && Number.isFinite(o) ? c + o + (Number.isFinite(p?.ci_wait) ? p.ci_wait : 0) : null;
     const note = p && !reason ? published === 0 && Number.isFinite(t) && t > 0
       ? `not published yet — 0 of ${t} planned tickets on GitHub`
       : [u > 0 ? `${u} of ${t} not published yet` : null, p.ci_wait > 0 ? `${p.ci_wait} waiting on CI` : null].filter(Boolean).join(' · ')
       : reason || 'not published yet — 0 of planned tickets on GitHub';
-    const summary = p?.summary ? `<small class="fp-summary">${esc(p.summary)}</small>` : '';
+    const summaryText = epic?.summary || p?.summary;
+    const summary = summaryText ? `<small class="fp-summary">${esc(summaryText)}</small>` : '';
     const code = p?.code ? `<small class="fp-code">${esc(p.code)}</small>` : '';
     const laneText = lanes.filter(x => !(laneCaption(x.epic) === 'Unassigned' && x.progress?.total === 0)).map(x => `${esc(laneCaption(x.epic))}: ${Number.isFinite(x.progress?.closed) ? x.progress.closed : '—'} / ${Number.isFinite(x.progress?.total) ? x.progress.total : '—'}`).join(' · ');
     return `<button type="button" class="fp-row" data-feature="${esc(p?.feature || epic.feature)}" aria-label="Focus ${esc(feature.label)} feature"><span class="fp-icon" role="img" aria-label="${esc(feature.label)}">${icon}</span><span class="fp-name"><b>${esc(feature.label)}</b>${code}${summary}<small class="fp-summary">${laneText}</small></span>${bar(c, Number.isFinite(o) ? o + (Number.isFinite(p?.ci_wait) ? p.ci_wait : 0) : null, u, reason || (!Number.isFinite(p?.ci_wait) ? 'CI state unknown' : null), 'fp-meter', t)}<span class="fp-numbers"><b>${esc(rowPct)}</b><small>${Number.isFinite(c) ? c : '—'} / ${Number.isFinite(t) ? t : '—'}</small></span><span class="fp-note">${esc(note)}</span></button>`;

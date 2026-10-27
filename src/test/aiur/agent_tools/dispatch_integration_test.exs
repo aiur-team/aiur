@@ -95,7 +95,8 @@ defmodule Aiur.AgentTools.DispatchIntegrationTest do
                  "aiur_unblock",
                  "aiur_set_ticket_state",
                  "aiur_set_epic",
-                 "aiur_feature"
+                 "aiur_feature",
+                 "aiur_read_messages"
                ]
              }
            }

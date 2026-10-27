@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.Withdrawals do
   @moduledoc false
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
   alias Aiur.DecisionAnswer
   alias Aiur.DecisionAuthority
@@ -114,7 +115,8 @@ defmodule Aiur.DecisionStore.Withdrawals do
   @spec handle_defer(term(), term(), term()) :: term()
   def handle_defer(decision_id, opts, state) do
     with {:ok, decision} <- Answers.fetch_decision(state, decision_id),
-         {:ok, actor} <- Answers.fetch_actor(opts) do
+         {:ok, actor} <- Answers.fetch_actor(opts),
+         :ok <- if(Policy.deferrable?(decision), do: :ok, else: {:error, {:conflict, :not_deferrable}}) do
       case decision.decision_status do
         :open -> persist_deferral(decision, actor, state)
         :deferred -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}

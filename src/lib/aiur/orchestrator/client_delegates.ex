@@ -48,6 +48,7 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate global_pause_status(server, timeout_ms), to: Aiur.Orchestrator.Client
       defdelegate set_global_pause(on?), to: Aiur.Orchestrator.Client
       defdelegate set_global_pause(on?, source), to: Aiur.Orchestrator.Client
+      defdelegate listener_prompt_context(identifier, opts), to: Aiur.Orchestrator.Client
       defdelegate control_capabilities(identifier), to: Aiur.Orchestrator.Client
       defdelegate control_capabilities(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate set_remote_control(identifier, on?), to: Aiur.Orchestrator.Client
@@ -62,6 +63,7 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate claim_next_checkpoint_queue_item(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate claim_blocker_critical_events_digest(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate claim_next_operator_queue_item(server, identifier), to: Aiur.Orchestrator.Client
+      defdelegate claim_native_reply_item(server, identifier, refs), to: Aiur.Orchestrator.Client
       defdelegate claim_operator_response(server, identifier, command), to: Aiur.Orchestrator.Client
       defdelegate mark_queue_item_consumed(server, item_id), to: Aiur.Orchestrator.Client
       defdelegate restore_queue_item_pending(server, item_id), to: Aiur.Orchestrator.Client
@@ -71,6 +73,8 @@ defmodule Aiur.Orchestrator.ClientDelegates do
       defdelegate restore_delivered_queue_items(server, identifier), to: Aiur.Orchestrator.Client
       defdelegate fail_delivered_queue_items(server, identifier, reason), to: Aiur.Orchestrator.Client
       defdelegate snapshot(), to: Aiur.Orchestrator.Client
+
+      defdelegate claim_next_steer_queue_item(server, identifier), to: Aiur.Orchestrator.Client
 
       defdelegate list_active_identifiers(server \\ Aiur.Orchestrator, timeout \\ 1_000),
         to: Aiur.Orchestrator.Client

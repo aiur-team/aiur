@@ -6,6 +6,27 @@ defmodule VoiceConverse.DraftsTest do
   @draft_id "vd_" <> String.duplicate("a", 22)
   @at "2026-10-26T12:00:00Z"
 
+  test "consult drafts preserve their kind through transcript replay" do
+    assert {:ok, draft, projection} =
+             Drafts.propose_consult(Drafts.new(), "Why?",
+               target: %{id: "target"},
+               at: @at,
+               id_generator: fn -> @draft_id end
+             )
+
+    assert draft.kind == :consult
+    assert %{kind: "consult", text: "Why?"} = record = Drafts.record(draft)
+    assert {:ok, replayed} = Drafts.replay([record])
+    assert {:ok, ^draft} = Drafts.fetch(replayed, @draft_id)
+
+    assert {:ok, _confirmed, projection} =
+             Drafts.confirm(projection, @draft_id, %{source: :client_socket, principal: %{}}, at: @at)
+
+    assert {:ok, unknown, _projection} = Drafts.transition(projection, @draft_id, :unknown, at: @at)
+    assert {:ok, replayed} = Drafts.replay([Drafts.record(unknown)])
+    assert {:ok, ^unknown} = Drafts.fetch(replayed, @draft_id)
+  end
+
   test "propose_instruction creates a redacted proposed draft record" do
     assert {:ok, draft, projection} =
              Drafts.propose_instruction(Drafts.new(), "Bearer secret",
@@ -137,6 +158,7 @@ defmodule VoiceConverse.DraftsTest do
         {:proposed, :discarded},
         {:proposed, :stale},
         {:confirmed, :sent},
+        {:confirmed, :failed},
         {:sent, :delivered},
         {:sent, :failed},
         {:failed, :confirmed}

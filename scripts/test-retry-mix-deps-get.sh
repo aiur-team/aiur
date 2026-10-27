@@ -50,6 +50,29 @@ count=0
 [[ -f "$CALLS" ]] && count="$(cat "$CALLS")"
 count=$((count + 1))
 printf '%s' "$count" >"$CALLS"
+if ((count < 2)); then
+  echo 'Resolving Hex dependencies...'
+  echo 'Resolution completed in 0.058s'
+  echo '** (Mix) request timed out after 60000ms' >&2
+  exit 1
+fi
+echo success
+SH
+chmod +x "$tmp/mix"
+: >"$calls"
+output="$(CALLS="$calls" PATH="$tmp:$PATH" "$script" mix deps.get 2>&1)"
+[[ "$(cat "$calls")" == 2 ]]
+[[ "$output" == *"request timed out after 60000ms"* ]]
+[[ "$output" == *"retrying in"* ]]
+[[ "$output" == *success* ]]
+
+cat >"$tmp/mix" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+count=0
+[[ -f "$CALLS" ]] && count="$(cat "$CALLS")"
+count=$((count + 1))
+printf '%s' "$count" >"$CALLS"
 echo '** (Mix) Unknown package yamerl in lockfile' >&2
 exit 1
 SH

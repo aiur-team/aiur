@@ -23,6 +23,24 @@ defmodule Aiur.ExecutorWakeProjection do
 
   def project(_event), do: :ignore
 
+  defp project("executor.decision.answered" = topic, event, _pr, _head_sha, _last_review_sha) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    {:ok,
+     %{
+       "wake_id" => typed_id(value(event, :id)),
+       "event_id" => typed_id(value(event, :id)),
+       "topic" => topic,
+       "topic_class" => "executor.decision",
+       "decision_id" => value(event, :decision_id),
+       "ticket" => nil,
+       "action" => "answered",
+       "count" => 1,
+       "first_seen_at" => now,
+       "last_seen_at" => now
+     }}
+  end
+
   defp project(topic, event, pr, head_sha, last_review_sha) do
     if is_binary(topic) and not String.starts_with?(topic, "executor.") do
       now = DateTime.utc_now() |> DateTime.to_iso8601()

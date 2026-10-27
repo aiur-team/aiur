@@ -6,7 +6,24 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   alias Aiur.AgentQueueStore
   alias Aiur.CodingAgent
   alias Aiur.Harness.Capabilities, as: HarnessCapabilities
+  alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{ControlLifecycle, State}
+  alias Aiur.Orchestrator.OperatorMessages.Unread
+
+  @doc "Delivery flags shared by dispatch and running transport updates; unknown backends fail closed."
+  @spec backend_control_flags(String.t()) :: map()
+  def backend_control_flags(backend) do
+    if Map.has_key?(CodingAgent.backends(), backend) do
+      %{
+        can_interrupt: CodingAgent.can_interrupt?(backend),
+        safe_checkpoints: CodingAgent.safe_checkpoints(backend),
+        immediate_delivery: CodingAgent.immediate_delivery?(backend),
+        application_confirmation: CodingAgent.control_application_confirmation(backend)
+      }
+    else
+      %{can_interrupt: false, safe_checkpoints: [], immediate_delivery: false, application_confirmation: :unsupported}
+    end
+  end
 
   @type harness_delivery :: %{
           harness_id: String.t(),
@@ -18,7 +35,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   @spec queue_depth_for_issue(State.t(), String.t()) :: non_neg_integer()
   def queue_depth_for_issue(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
-    state.queue_store |> AgentQueueStore.list_pending(issue_identifier) |> length()
+    Unread.queue_summary(state.queue_store, issue_identifier).queue_depth
   end
 
   @spec pending_operator_messages_for_issue(State.t(), String.t()) :: [map()]
@@ -64,9 +81,9 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
       safe_checkpoints: safe_checkpoints,
       status: get_in(running_entry || %{}, [:control, :status]) || :working,
       unit_control: unit_control_capability(running_entry),
-      pending_control: pending_control(state, running_entry),
-      queue_depth: queue_depth_for_issue(state, issue_identifier)
+      pending_control: pending_control(state, running_entry)
     }
+    |> Map.merge(Unread.queue_summary(state.queue_store, issue_identifier))
     |> maybe_put(:latest_control, control_payload(state, running_entry, :latest))
     |> maybe_put(:latest_resume_control, control_payload(state, running_entry, :resume))
     |> maybe_put(:recent_controls, control_history_payload(state, running_entry))
@@ -111,10 +128,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
 
   defp operator_message_status(_item), do: :queued
 
-  # The REPL backend forwards Executor messages straight into the live
-  # process, so it offers :immediate instead of the hold-then-deliver
-  # :checkpoint / :interrupt policies.
-  defp accepted_delivery_policies(_can_interrupt, true), do: [:immediate]
+  # Listener sync waits for Stop; legacy REPL routing retains immediate-only delivery.
+  defp accepted_delivery_policies(_can_interrupt, true) do
+    if Scheduler.routing() == :listener, do: [:immediate, :checkpoint], else: [:immediate]
+  end
+
   defp accepted_delivery_policies(true, false), do: [:checkpoint, :interrupt]
   defp accepted_delivery_policies(false, false), do: [:checkpoint]
 

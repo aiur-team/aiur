@@ -1,6 +1,7 @@
 defmodule Aiur.Config.Schema.Decisions do
   @moduledoc false
 
+  @external_resource Path.relative_to(Path.join(__DIR__, "decisions_escalation.ex"), File.cwd!(), force: true)
   use Ecto.Schema
 
   import Ecto.Changeset
@@ -15,11 +16,18 @@ defmodule Aiur.Config.Schema.Decisions do
 
   @type t :: %__MODULE__{
           escalation: Escalation.t(),
+          native_capture: Aiur.Config.Schema.Decisions.NativeCapture.t(),
+          require_suggested_responses: boolean(),
           supervisor_allowed_kinds: [String.t()],
           supervisor_allow_non_reversible: boolean()
         }
 
   embedded_schema do
+    # @config-reference config-configuration-17 decisions.require_suggested_responses
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail decisions.require_suggested_responses | boolean | false | Require 2–3 options and the recommendation first for `decision.requested` Commands. Default accepts requests with an informational warning; enable only after reviewing warning counts. Native and attention Commands are exempt. |
+    field(:require_suggested_responses, :boolean, default: false)
+    embeds_one(:native_capture, Aiur.Config.Schema.Decisions.NativeCapture, on_replace: :update, defaults_to_struct: true)
     embeds_one(:escalation, Aiur.Config.Schema.Decisions.Escalation, on_replace: :update, defaults_to_struct: true)
     # @config-reference config-configuration-17 decisions.supervisor_allowed_kinds
     # @config-detail decisions.supervisor_allowed_kinds | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
@@ -32,8 +40,9 @@ defmodule Aiur.Config.Schema.Decisions do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:supervisor_allowed_kinds, :supervisor_allow_non_reversible], empty_values: [])
+    |> cast(attrs, [:supervisor_allowed_kinds, :supervisor_allow_non_reversible, :require_suggested_responses], empty_values: [])
     |> cast_embed(:escalation)
+    |> cast_embed(:native_capture)
     |> validate_change(:supervisor_allowed_kinds, &validate_allowed_kinds/2)
     |> update_change(:supervisor_allowed_kinds, &normalize_allowed_kinds/1)
   end

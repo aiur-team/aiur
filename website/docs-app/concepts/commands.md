@@ -1,6 +1,7 @@
 # Commands
 
-A Command is a durable issue an agent flags for the Executor.
+A Command is a durable question raised by a worker or an Executor. Routing
+decides who is asked first; authority decides who may answer.
 
 ## What the Commands page shows
 
@@ -21,7 +22,7 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 | --- | --- |
 | Answer directly | Pick an option or write a bounded response and send it to the agent. |
 | Defer | Leave the Command for a designated Executor agent to investigate and decide. |
-| Revise | Append a corrected action without rewriting the original record. |
+| Send correction | Append a corrected action without rewriting the original record. |
 
 ## Authority and attention signals
 
@@ -96,6 +97,67 @@ is older than 15 minutes.
 
 Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
 
+<span id="routing-and-escalation"></span>
+
+## Who is asked
+
+With `decisions.escalation.enabled` (default `true`), Commands use the live
+Executor roster to choose the first responder (a live Executor is active or idle).
+
+| Command and roster | First responder | Dashboard chip |
+| --- | --- | --- |
+| Worker question the live Executor may answer | Executor | With Executor |
+| Human-required worker question, live Executor | You and the Executor; only you may answer | Needs you and Executor |
+| Worker question, Executor offline or stalled | You | Needs you |
+| Worker question outside the live Executor's answer authority | You | Needs you |
+| Executor's own question | You | From Executor |
+
+**Needs you** filters outstanding Commands routed to you, including those shared
+with the Executor. Cards retain the time they first needed you. **With Executor**
+and **From Executor** distinguish delegated questions from the Executor's own asks.
+
+## When a Command becomes yours
+
+An Executor-only Command moves to you when the Executor explicitly escalates it,
+goes offline, stalls, or misses a deadline.
+
+| Recorded cause | Meaning |
+| --- | --- |
+| `executor_originated` | The Executor asked you. |
+| `authority_human_required` | Only a human may answer. |
+| `executor_not_answerable` | The Executor's authority does not cover this question. |
+| `executor_offline` | No live or stalled Executor remains in the roster. |
+| `executor_stalled` | The roster has no active or idle Executor, or its lookup failed. |
+| `executor_escalated` | The Executor handed the question to you. |
+| `executor_ack_timeout` | The Executor did not acknowledge in time. |
+| `executor_answer_timeout` | The Executor did not answer in time. |
+
+By default, acknowledgement is due five minutes after routing and an answer is
+due fifteen minutes after routing. Acknowledging stops only the first deadline;
+it does not restart the answer clock. High- or critical-urgency blocking Commands
+halve both deadlines (2½ and 7½ minutes).
+
+Offline or stalled Executors trigger
+escalation at the next sweep, within 30 seconds.
+
+Configure `decisions.escalation.executor_ack_ms`,
+`decisions.escalation.executor_answer_ms` and `decisions.escalation.urgent_factor`
+in the [decisions configuration](/reference/configuration-daemon#decisions).
+Disabling `decisions.escalation.enabled` stops routing writes.
+
+Deadlines and first human visibility survive restarts. Routing never re-asks:
+it emits one `human_needed` event per Command, including after a defer. See
+[Message Bus decisions](/concepts/message-bus#commands-and-decisions).
+
+Answers and terminal lifecycle states stop the routing deadlines. Expiry wins:
+an expired Command does not trigger another routing escalation, even though an
+unanswered expired blocker remains answerable as described above.
+
+**Defer to Executor** accepts worker Commands whose authority permits an Executor
+answer. Human-required and Executor-originated Commands cannot defer. An accepted
+defer starts routing deadlines again and preserves first human visibility,
+without another `human_needed` notification.
+
 ## Durability
 
 | Contract | Why it matters |
@@ -132,7 +194,19 @@ Command detail, history and `aiur commands <decision-id>` distinguish it as **an
 
 Enabling the relay gate raises an info alert. Every relay also raises an info alert naming the Command, quote and relayer. Use the dashboard's existing revision or moot actions to correct or withdraw an answer; delivery-state guards still apply.
 
-## Who can replace an answer
+<span id="who-can-replace-an-answer"></span>
+
+## Answering and replacing
+
+The first accepted answer wins. If another responder answers first, the conflict
+shows the accepted answer and its delivery state instead of overwriting it.
+
+Use **Replace** while the answer has not reached the recipient and is not in
+flight. Replacement preserves the prior answer in history and delivers only the
+new answer. A failed send permits replacement again.
+
+After delivery, use **Send correction** to append corrected direction with its
+own delivery tracking. It cannot retract what the agent already received.
 
 Both revise and supersede use the current active answer's precedence:
 **direct operator > operator relayed by an Executor > Executor or supervisor**.
@@ -155,3 +229,51 @@ answer summary, delivery state and whether that caller can replace it.
 Older records and calls without a recorded surface use `rpc`, meaning
 “no surface recorded.” Attribution is separate from authentication:
 `human_required` does not stop a same-user process with the distribution cookie.
+
+Native requests can contain several questions. The dashboard records all answers
+in a single submission; a partial answer leaves the Command open. Multi-select
+questions retain a list of choices, and Other is available when the requester
+allows it.
+
+Command details show recorded escalation causes and timestamps;
+missing audit history is explicitly unavailable rather than an empty timeline.
+
+<span id="held-native-questions"></span>
+
+## Native questions
+
+Codex native capture is opt-in through `decisions.native_capture.codex` (default
+`false`, experimental). It turns the worker's native question into a Command
+using the same routing and authority rules.
+
+This release exposes no Claude
+native-capture gate; Claude questions need the structured Command request path.
+See the [configuration reference](/reference/configuration-daemon#decisions).
+
+Capture never collects secrets through Commands. Secret questions are released
+with an explanation and an alert. Approval requests keep their existing approval
+policy; enabling native capture does not grant approval authority.
+
+With Codex native capture enabled, Aiur holds the native question while its
+Command awaits an answer. Answering the Command returns every question's
+structured answer to that same request. The queue records provider delivery
+through the normal Command delivery path.
+
+An idle timeout, pause, explicit operator interrupt, or turn ending releases
+the hold. Aiur tells the agent the Command ID and that the answer will arrive
+as a readable queued message. Ordinary queue notifications wait while a
+native question is held.
+
+If the session has exited, Aiur records the release without writing to the
+closed session. Releasing a hold leaves the Command open and answerable.
+
+## The Executor asks you
+
+The Executor can create its own Command with
+`aiur command request 'Ship today?' --option yes=Ship --option no=Wait`.
+It appears as **From Executor** and goes directly to you.
+
+Its answer wakes the
+Executor through `aiur executor-wait --json`, never a worker, even when the
+request includes ticket context. See [Asking the human](/concepts/executor#asking-the-human)
+and the [CLI request reference](/reference/cli-operations).

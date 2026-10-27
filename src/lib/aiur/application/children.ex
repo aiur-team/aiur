@@ -3,6 +3,7 @@ defmodule Aiur.Application.Children do
   The one boot-order authority: the supervision child list for a run shape.
   """
 
+  alias Aiur.Application.ExportChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
@@ -256,6 +257,7 @@ defmodule Aiur.Application.Children do
       Aiur.GitHub.Listeners,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.BuildQueue.child(recording?),
+      Aiur.Commands.Routing,
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       # Idle projections still ingest membership changes and periodic snapshots so terminal weights survive dashboard gaps.
@@ -314,7 +316,8 @@ defmodule Aiur.Application.Children do
         dashboard_cache_children(dashboard?) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
-        dashboard_final_children(dashboard?, opts)
+        dashboard_final_children(dashboard?, opts) ++
+        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0))
     )
   end
 

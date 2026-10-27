@@ -9,7 +9,7 @@ defmodule Aiur.DecisionRevisionDispatch do
   for a permanent outcome.
   """
 
-  alias Aiur.Commands.DeliveryTarget
+  alias Aiur.Commands.{DeliveryTarget, NativeAnswer}
   alias Aiur.{Decision, DecisionAnswer, DecisionAttention, DecisionRevision, Issue, Tracker}
 
   @max_message_chars 7_800
@@ -101,7 +101,7 @@ defmodule Aiur.DecisionRevisionDispatch do
     When the revised work is complete, emit `decision.resolved` with the same correlation fields.
     """
 
-    bounded_join(header, response_text(decision, answer), footer)
+    bounded_join(header, NativeAnswer.render(decision, answer) || response_text(decision, answer), footer)
   end
 
   defp send_revision(decision, revision, target, opts) do
@@ -127,7 +127,7 @@ defmodule Aiur.DecisionRevisionDispatch do
       delivery_policy: :interrupt,
       fallback: :queue_next,
       action_id: revision.action_id,
-      correlation: correlation,
+      correlation: NativeAnswer.correlate(decision, revision.answer, correlation),
       retry_failed: retry_failed
     }
 

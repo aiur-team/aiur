@@ -50,6 +50,11 @@ Copies and cross-area moves can change area totals without text churn. Binary
 changes are file counts; symlink blobs are excluded. This report does not enforce
 a CI limit or claim savings.
 
+The `aiur-agent` skill teaches 2–3 suggested responses, recommended first.
+Agents prefer supported native questions when available in their current mode;
+these retain the tool's option rules. Enforcement remains opt-in through
+[`decisions.require_suggested_responses`](/reference/configuration-daemon#decisions).
+
 The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
 credential failure. A budget-held agent requests a typed, expiring pause and is
 resumed automatically; it does not raise a credential attention for a healthy
@@ -71,6 +76,10 @@ These stay with the Executor and are not copied into ticket workspaces.
 
 `aiur-run` runs `aiur executor-sweep` on every pass and follows its findings alongside the status-reported merge policy and local-test evidence; it must never run the human-only `aiur answer` command, which only a human operator may use from an interactive terminal; `aiur-handoff` records that policy and watcher state.
 
+`aiur-run` triages `aiur commands --filter with-executor`, acknowledges with `aiur executor-ack`, and answers or escalates before the answer deadline.
+
+It asks the human through `aiur command request`; `executor-wait` delivers answer identifiers for retrieval with `aiur commands <id> --json`. Executors cannot answer their own requests or overwrite direct operator answers.
+
 For a multi-instance fleet, `aiur-run` uses one Executor with `aiur --instance all executor-wait --as <executor-id> --json`; stop the per-machine Executors so each wake stream has one owner. Handle printed records even when an unreachable instance makes the command exit nonzero.
 
 The hourly dashboard visual check can discover the control URL and credentials from the running daemon outside its tmux session, then reports which sources supplied them without printing credential values.
@@ -78,7 +87,7 @@ The hourly dashboard visual check can discover the control URL and credentials f
 | Skill | Trigger | Covers |
 | --- | --- | --- |
 | [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
-| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Requirements, ticket contracts, dependency graph, and Build Order handoff. |
+| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Requirements, ticket contracts, dependency graph, workstream icons and summaries, and Build Order handoff. |
 | [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Executor sweep findings, per-feature progress at `/?view=list&list=features`, accepted boundary through review and merge. |
 | [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | Inspect a live run | Status board and alert feed. |
 | [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Executor sweep findings, five dashboard surfaces and per-feature progress at `/?view=list&list=features`, feature-work share, bottleneck, and durable findings. |

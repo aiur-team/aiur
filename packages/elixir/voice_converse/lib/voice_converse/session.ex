@@ -3,7 +3,6 @@ defmodule VoiceConverse.Session do
 
   alias VoiceConverse.{
     ClientErrors,
-    Drafts,
     Events,
     ProviderCleanup,
     Session.Runtime,
@@ -16,23 +15,23 @@ defmodule VoiceConverse.Session do
 
   @transport_grace_ms 10_000
   @max_queued_audio 8
-  def start_link(opts) do
-    id = Keyword.fetch!(opts, :conversation_id)
-    instance = Keyword.fetch!(opts, :instance)
-    GenServer.start_link(__MODULE__, opts, name: SessionRegistry.via(instance, id))
-  end
+  def start_link(opts),
+    do:
+      GenServer.start_link(__MODULE__, opts,
+        name: SessionRegistry.via(Keyword.fetch!(opts, :instance), Keyword.fetch!(opts, :conversation_id))
+      )
 
-  def child_spec(opts) do
-    %{
+  def child_spec(opts),
+    do: %{
       id: {__MODULE__, Keyword.fetch!(opts, :conversation_id)},
       start: {__MODULE__, :start_link, [opts]},
       restart: :temporary
     }
-  end
 
   def push_audio(session, audio_b64), do: GenServer.cast(session, {:audio, audio_b64})
   def end_session(session, reason), do: GenServer.call(session, {:end, reason})
   def subscribe(session, subscriber), do: GenServer.call(session, {:subscribe, subscriber})
+  def unsubscribe(session, subscriber), do: GenServer.call(session, {:unsubscribe, subscriber})
   @impl true
   def init(opts) do
     config = Keyword.fetch!(opts, :config)
@@ -50,9 +49,8 @@ defmodule VoiceConverse.Session do
   end
 
   @impl true
-  def handle_continue(:open_provider, state) do
-    {:noreply, open_provider_async(state, :initial)}
-  end
+  def handle_continue(:open_provider, state), do: {:noreply, open_provider_async(state, :initial)}
+  def handle_continue(:consult_failed, state), do: stop_unknown(state)
 
   @impl true
   def handle_cast({:audio, audio_b64}, state) when is_binary(audio_b64) do
@@ -67,6 +65,12 @@ defmodule VoiceConverse.Session do
     {:reply, :ok, state}
   end
 
+  def handle_call({:unsubscribe, subscriber}, _from, state) when is_pid(subscriber),
+    do: {:reply, :ok, remove_subscriber(state, subscriber)}
+
+  def handle_call({action, draft_id, opts}, from, state) when action in [:confirm_draft, :discard_draft],
+    do: VoiceConverse.Session.Confirmation.handle_call(action, from, state, draft_id, opts)
+
   def handle_call(:await_started, _from, %{start_status: :started} = state), do: {:reply, :ok, state}
   def handle_call(:await_started, from, state), do: {:noreply, update_in(state.start_waiters, &[from | &1])}
 
@@ -78,7 +82,8 @@ defmodule VoiceConverse.Session do
   end
 
   @impl true
-  def handle_info(:provider_ready, state), do: {:noreply, transition(state, :listening)}
+  def handle_info(:provider_ready, state),
+    do: {:noreply, state |> Runtime.flush_consult_context() |> transition(:listening)}
 
   def handle_info({:provider_opened, phase, result}, state), do: handle_provider_opened(phase, result, state)
 
@@ -133,7 +138,7 @@ defmodule VoiceConverse.Session do
     end
   end
 
-  def handle_info(_message, state), do: {:noreply, state}
+  def handle_info(message, state), do: VoiceConverse.Session.Consult.handle_info(message, state)
   @impl true
   def terminate(reason, %{finished?: false} = state) when reason not in [:normal, :shutdown] do
     state = close_current_provider(state)
@@ -175,8 +180,7 @@ defmodule VoiceConverse.Session do
   defp handle_provider_opened(:reconnect, _result, state), do: stop_provider_error(state)
 
   defp schedule_limits(state) do
-    duration_ms = state.config.limits.max_session_seconds * 1_000
-    max_timer = state.schedule_after.(duration_ms, :max_duration)
+    max_timer = state.schedule_after.(state.config.limits.max_session_seconds * 1_000, :max_duration)
     state |> Map.put(:max_timer, max_timer) |> reset_idle_timer()
   end
 
@@ -212,6 +216,8 @@ defmodule VoiceConverse.Session do
   end
 
   defp handle_provider_event(%Events.UserTranscript{final?: true, text: text} = event, state) do
+    state = %{state | last_user_at: state.clock.()}
+
     persist_and_broadcast(
       state,
       %{type: "user_turn", turn_id: "user", text: redact(state, text), at: now(state)},
@@ -221,6 +227,7 @@ defmodule VoiceConverse.Session do
   end
 
   defp handle_provider_event(%Events.UserTranscript{} = event, state) do
+    state = %{state | last_user_at: state.clock.()}
     broadcast(state, event)
     {:noreply, reset_idle_timer(state)}
   end
@@ -323,29 +330,20 @@ defmodule VoiceConverse.Session do
     end
   end
 
-  defp handle_tool(state, %Events.ToolCall{name: "propose_instruction", params: params}) do
-    with {:ok, text} <- Tools.proposed_instruction(params),
-         {:ok, draft, drafts} <-
-           Drafts.propose_instruction(state.drafts, text,
-             target: state.draft_target,
-             at: now(state),
-             redactor: state.config.redactor
-           ),
-         record <- Drafts.record(draft),
-         {:ok, state} <- persist(state, record) do
-      broadcast(state, {:draft, record})
-      {Tools.draft_waiting(draft.draft_id), %{state | drafts: drafts}}
-    else
-      {:error, %{} = result} -> {result, state}
-      {:error, reason} -> {Tools.draft_error(reason), state}
-    end
-  end
+  defp handle_tool(state, %Events.ToolCall{name: "propose_instruction", params: params}),
+    do: VoiceConverse.Session.DraftTool.instruction(state, params)
+
+  defp handle_tool(state, %Events.ToolCall{name: "ask_agent", params: params}),
+    do: VoiceConverse.Session.Consult.tool(state, params)
 
   defp handle_tool(state, event), do: {Tools.handle(state, event), state}
 
   defp redact_tool_call(state, %Events.ToolCall{name: "propose_instruction", params: params} = event) do
     %{event | params: Map.update(params, "text", "", &redact_text(state, &1))}
   end
+
+  defp redact_tool_call(state, %Events.ToolCall{name: "ask_agent", params: params} = event),
+    do: %{event | params: VoiceConverse.Session.Consult.redact_question(state, params)}
 
   defp redact_tool_call(_state, event), do: event
 
@@ -374,7 +372,8 @@ defmodule VoiceConverse.Session do
     Runtime.cancel_timer(state.transport_timer)
     duration_s = max(DateTime.diff(state.clock.(), state.started_at), 0)
 
-    with {:ok, state} <-
+    with {:ok, state} <- VoiceConverse.Session.Consult.note_session_end(state),
+         {:ok, state} <-
            persist(state, %{type: "session_ended", reason: to_string(reason), at: now(state), duration_s: duration_s}),
          {:ok, state} <- enqueue_cleanup(state) do
       broadcast(state, {:ended, reason})
@@ -422,6 +421,10 @@ defmodule VoiceConverse.Session do
   end
 
   defp transition(%{state: state} = session, state), do: session
+
+  defp transition(%{consult: %{phase: phase}} = session, state)
+       when phase in [:proposed, :waiting, :fork_waiting, :unknown] and state in [:listening, :thinking, :speaking],
+       do: transition(session, :consulting)
 
   defp transition(session, state) do
     broadcast(session, {:state, state})

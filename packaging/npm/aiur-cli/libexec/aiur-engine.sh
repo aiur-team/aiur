@@ -61,7 +61,7 @@ engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 engine_source="${BASH_SOURCE[0]}"
 # Every other function lives in a sibling module. A missing one fails here, by
 # path, instead of as "command not found" halfway through a run.
-AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage"
+AIUR_ENGINE_MODULES="identity oneshot dotenv run container processes reap instance session remote remote_all node_name control commands command_request executor_commands report_commands test-private-state lifecycle restart restart_rollback handoff upgrade pre_pr history ticket usage"
 for __aiur_engine_module in $AIUR_ENGINE_MODULES; do
   [ -f "$engine_dir/engine/$__aiur_engine_module.sh" ] ||
     die "missing engine module: $engine_dir/engine/$__aiur_engine_module.sh"
@@ -85,8 +85,10 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur restart [--keep-agents] [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status [--handoff [--json]]  show agent status or last handoff
        aiur agents [--json]   show each agent's state + current activity
-       aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur command request <question> [--option id=label]… [--recommend id] [--blocking] [--urgency low|normal|high|critical] [--ticket n] [--context-file path] [--short-summary text] [--executor-id id] [--idempotency-key key] [--json]
+       aiur commands [<decision-id>] [--filter all|open|blocking|resolved|needs-you|with-executor|from-executor] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur operator-relay-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --quote <words> --relayed-by <id> --idempotency-key <key> [--supersede]
+       aiur executor-ack <decision-id> [--executor-id <id>]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur answer <decision-id> (--option <id>|--custom-response <text>) --operator
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
@@ -139,6 +141,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all> | park <ids>  per-agent pause/resume or release a paused reservation
        aiur take <id> | release <id>  mark or release an Executor-owned ticket
+       aiur listen-mode <id> [steer|sync|async] [--expected-version N] [--json]
        aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur message --status <request-id>          inspect a queued message
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
@@ -233,6 +236,7 @@ aiur_engine_main() {
       ;;
     token)
       shift
+      aiur_resolve_identity
       run_local_cli token "$@"
       ;;
     accounts) shift; usage_alias accounts "$@" ;;
@@ -252,9 +256,8 @@ aiur_engine_main() {
     findings)
       run_findings "$@"
       ;;
-    ask | asks)
-      run_asks "$@"
-      ;;
+    ask) run_ask "$@" ;;
+    asks) run_asks "$@" ;;
     # @cli-reference aiur --bg | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | aiur --bg
     --bg)
       dispatch_run "$@"
@@ -276,6 +279,14 @@ aiur_engine_main() {
       shift
       cmd_agents "$@"
       ;;
+    # @cli-reference aiur command request <question> --context-file PATH | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | aiur command request 'Ship?' --context-file release.md
+    # @cli-reference aiur command request <question> --recommend ID | Moves the named supplied option first; omitted by default. | aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes
+    # @cli-reference aiur command request <question> --short-summary TEXT | Adds a concise Command title; omitted by default. | aiur command request 'Ship?' --short-summary 'Beta release'
+    # @cli-reference aiur command request <question> | Creates an Executor-originated Command for the human; requires a running daemon. | aiur command request 'Ship today?' --option yes=Ship --option no=Wait
+    command)
+      shift
+      cmd_command "$@"
+      ;;
     commands)
       shift
       cmd_commands "$@"
@@ -284,6 +295,10 @@ aiur_engine_main() {
     operator-relay-answer)
       shift
       cmd_operator_relay_answer "$@"
+      ;;
+    executor-ack)
+      shift
+      cmd_executor_ack "$@"
       ;;
     executor-answer)
       shift
@@ -404,6 +419,10 @@ aiur_engine_main() {
     workspace-recover)
       shift
       cmd_workspace_recover "$@"
+      ;;
+    listen-mode)
+      shift
+      cmd_listen_mode "$@"
       ;;
     message)
       shift

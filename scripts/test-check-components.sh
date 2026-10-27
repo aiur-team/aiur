@@ -130,8 +130,8 @@ if with_node:
         if any(file.startswith('src/lib/') for file in files):
             components.append(component('daemon', ['src/lib/**']))
         check(name, components, files, code, messages, rules='all', links=links)
-
     imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('self_reference_passes', 'import "a";')
     imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
             ('R-client', 'src/lib/foo.js'))
     imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),
@@ -168,6 +168,7 @@ if with_node:
     imports('relative_symlink_into_src_fails', 'import "./leak/index.js";', 1, ('R-client', 'src/lib/leak/index.js'),
             extra={'src/lib/leak/index.js': ''}, links={'packages/a/src/leak': 'src/lib/leak'})
     imports('non_js_package_dir_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': ''})
+    imports('mix_package_static_js_without_package_json_passes', '', 0, extra={'packages/elixir/voice_converse/mix.exs': '', 'packages/elixir/voice_converse/priv/static/client.js': ''})
     imports('missing_package_json_exits_2', '', 2, ('package.json',), extra={'packages/b/src/x.ts': ''})
     imports('external_resource_into_packages_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
@@ -196,7 +197,6 @@ if with_node:
     imports('streamdeck_external_resource_into_other_package_rejected', '', 1, ('R-reverse-resource',),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@external_resource "../../../packages/a/other.json"'})
-
 declarations = {
     'src/lib/aiur/config/schema.ex': '    embeds_one(:tracker, Tracker)\n    field(:debug, :boolean)\n',
     'src/lib/aiur/env/schema.ex': '    {"AIUR_FIXTURE", type: :string}\n',

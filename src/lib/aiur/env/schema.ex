@@ -45,6 +45,7 @@ defmodule Aiur.Env.Schema do
       required: "Required",
       github_app: "Optional - GitHub App auth. Gives the daemon its own rate-limit budget and a bot identity.",
       webhook: "Optional - Webhooks. Cuts API polling; needs a public URL reaching this daemon.",
+      outbound_events: "Optional - Outbound events. Signs webhook POSTs sent to an external consumer.",
       linear: "Optional - Linear tracker. Use Linear instead of GitHub as the issue tracker.",
       voice: "Optional - Voice. Mic input and spoken replies on dashboard and Stream Deck.",
       dashboard: "Optional - Aiur dashboard. Web UI at :4000; CLI and TUI work without it.",
@@ -161,6 +162,11 @@ defmodule Aiur.Env.Schema do
     # --- Webhooks ---
     {"AIUR_GITHUB_WEBHOOK_SECRET",
      type: :secret, group: :webhook, purpose: "Secret GitHub signs webhook deliveries with; unset rejects every delivery.", fetch: "openssl rand -hex 32 -> paste into repo webhook"},
+    {"AIUR_OUTBOUND_WEBHOOK_SECRET",
+     type: :secret,
+     group: :outbound_events,
+     purpose: "Standard Webhooks secret used to sign outbound event POSTs; required when events.export.enabled is true.",
+     fetch: "openssl rand -base64 32 -> prefix with whsec_"},
 
     # --- Linear tracker ---
     {"LINEAR_API_KEY", type: :secret, group: :linear, purpose: "Linear API key when the tracker is Linear.", fetch: "linear.app/settings/api -> personal API key"},
@@ -215,6 +221,7 @@ defmodule Aiur.Env.Schema do
      purpose: "BEAM distribution cookie; container launches use this or AIUR_COOKIE_FILE and fail if neither exists, while other launches generate one if unset.",
      fetch: "openssl rand -hex 32"},
     {"AIUR_INSTANCE_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance key hashing the project root; set by the launcher."},
+    {"AIUR_PROJECT_ROOT", type: :path, validate: false, example: false, group: :runtime, purpose: "Canonical project root resolved and exported by the launcher."},
     {"AIUR_RELEASE_NODE", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance daemon node name used by CLI control calls; set by the launcher."},
     {"AIUR_NOFILE_SOFT_LIMIT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Effective open-file soft limit; exported by the launcher."},
     {"AIUR_AGENT_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent-queue tempfile path; set by the launcher."},

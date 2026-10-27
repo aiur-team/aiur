@@ -6,13 +6,17 @@ defmodule Aiur.Events.Catalog.Entries do
   alias Aiur.Events.Catalog.{AttentionEntries, Entry, GithubSystemEntries, LegacyEntries, PlannedEntries, SystemEntries, TicketEntries}
 
   # aiur/decision_store/{requests,persistence,audit}.ex
-  @decision_slugs ~w(requested request-attributed answered pending-for-session session-started answer-comment-published expired mooted dismissed
+  @decision_slugs ~w(requested request-attributed native-released routed escalated human-needed executor-acknowledged requester-notified answered pending-for-session session-started answer-comment-published expired mooted dismissed
     deferred executor-escalated authority-reclassified enriched revision-recorded queued dispatch-outcome-unknown revision-dispatched
     revision-no-longer-applicable revision-follow-up-required revision-follow-up-handled handed-off delivered restored consumed failed acknowledged resolved)
   # aiur/executor_wake_projection.ex
   @ci_conclusions ~w(success failure cancelled timed_out action_required neutral skipped stale)
 
   @core [
+    # application/export_children.ex; never export the feed's own failure.
+    %Entry{pattern: "system.events.export_unavailable", class: :ledgered, owner: "event-bus"},
+    Entry.alert("system.events.export_backlog", "event-bus"),
+    Entry.alert("system.events.export_backlog.resolved", "event-bus"),
     # aiur/agent_runner/tool_executor.ex; aiur/agent_tools/emit_event.ex
     %Entry{pattern: "ticket.*.agent.#", class: :logged, owner: "harness-adapters"},
     %Entry{pattern: "ticket.*.agent.custom.#", class: :logged, owner: "harness-adapters"},
@@ -41,8 +45,15 @@ defmodule Aiur.Events.Catalog.Entries do
              end)
 
   # aiur/agent_tools/emit_event.ex; aiur/agent_runner/tool_executor.ex
-  @progress (for suffix <- ~w(progress progress.checkin) do
-               %Entry{pattern: "ticket.*.agent.#{suffix}", class: :logged, export?: true, attrs: [percent: :integer], owner: "harness-adapters"}
+  @progress (for suffix <- ~w(progress progress.checkin progress.phase) do
+               %Entry{
+                 pattern: "ticket.*.agent.#{suffix}",
+                 class: :logged,
+                 export?: true,
+                 refs: [:ticket, :job_id],
+                 attrs: [percent: :integer, progress_source: {:enum, ~w(progress progress.checkin progress.phase)}],
+                 owner: "harness-adapters"
+               }
              end)
 
   @entries @core ++

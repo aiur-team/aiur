@@ -39,6 +39,10 @@ This table lists flags accepted by the release parser and shared launcher. See t
 | `aiur --unfiled` | Includes tickets without an issue identifier in supported listing commands. | `aiur --unfiled` |
 | `aiur --urgency LEVEL` | Sets urgency for a supported command. | `aiur --urgency high` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
+| `aiur command request <question>` | Creates an Executor-originated Command for the human; requires a running daemon. | `aiur command request 'Ship today?' --option yes=Ship --option no=Wait` |
+| `aiur command request <question> --context-file PATH` | Reads up to 20,000 characters of local Markdown context before RPC; omitted by default. | `aiur command request 'Ship?' --context-file release.md` |
+| `aiur command request <question> --recommend ID` | Moves the named supplied option first; omitted by default. | `aiur command request 'Ship?' --option yes=Ship --option no=Wait --recommend yes` |
+| `aiur command request <question> --short-summary TEXT` | Adds a concise Command title; omitted by default. | `aiur command request 'Ship?' --short-summary 'Beta release'` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. `--force` explicitly re-runs setup choices, including recorded declines. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
 | `aiur operator-relay-answer ID --quote TEXT --relayed-by EXECUTOR` | Both flags are required: preserve verbatim operator words and the recording Executor identity. Requires the relay config gate, version, choice and idempotency key. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote 'keep them' --relayed-by attended-executor --idempotency-key palette-1` |
 
@@ -54,7 +58,7 @@ instances:
     token_env: AIUR_TOKEN_NUC
 ```
 
-Use an `AIUR_TOKEN_*` environment variable for write tokens. A `token_file` is intended for read tokens, must be absolute or start with `~/`, and must have mode `0600`. Remote URLs require HTTPS; plain HTTP is accepted only for `127.0.0.0/8`, `::1`, and `localhost`.
+Use an `AIUR_TOKEN_*` environment variable for write tokens. A `token_file` is intended for read tokens, must be absolute or start with `~/` (resolved beneath the current user's home directory), and must have mode `0600`. Remote URLs require HTTPS; plain HTTP is accepted only for `127.0.0.0/8`, `::1`, and `localhost`.
 
 The client refuses commands that need local files, processes, or terminal streaming before it makes an HTTP request:
 

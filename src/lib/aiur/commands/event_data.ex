@@ -1,10 +1,15 @@
 defmodule Aiur.Commands.EventData do
   @moduledoc "Closed, bounded data for additive Command facts outside the v1 request snapshot."
 
+  alias Aiur.Commands.ExecutorDelivery
+  alias Aiur.Commands.RequestContent
+  alias Aiur.Commands.Routing.FactData
   alias Aiur.DecisionEvent.Validation
 
+  @routing_types FactData.types()
+
   @spec fact_types() :: [atom()]
-  def fact_types, do: [:request_attributed]
+  def fact_types, do: [:request_attributed, :native_released, :requester_notified] ++ @routing_types
 
   @spec normalize(atom(), term()) :: {:ok, map()} | {:error, term()}
   def normalize(:request_attributed, raw) when is_map(raw) do
@@ -17,10 +22,36 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
+  def normalize(:native_released, raw) when is_map(raw) do
+    with {:ok, ref} <- Validation.map_required_string(raw, :native_ref, 256),
+         {:ok, reason} <- enum(Validation.get(raw, :reason), [:idle_timeout, :pause, :interrupt, :turn_ended, :session_gone], :reason),
+         {:ok, at} <- release_timestamp(Validation.get(raw, :at)) do
+      {:ok, %{native_ref: ref, reason: reason, at: at}}
+    end
+  end
+
+  def normalize(:requester_notified, raw) when is_map(raw), do: ExecutorDelivery.normalize(raw)
+
+  def normalize(type, raw) when type in @routing_types and is_map(raw), do: FactData.normalize(type, raw)
+
   def normalize(_type, _raw), do: {:error, {:event_data, :invalid}}
 
   @spec to_json_safe(atom(), map()) :: map()
+  def to_json_safe(:requester_notified, data), do: Aiur.JSONSafe.normalize(data)
+  def to_json_safe(type, data) when type in @routing_types, do: Aiur.JSONSafe.normalize(data)
+  def to_json_safe(:native_released, data), do: json_safe(data)
   def to_json_safe(:request_attributed, data), do: json_safe(data)
+
+  defp release_timestamp(%DateTime{} = at), do: {:ok, DateTime.to_iso8601(at)}
+
+  defp release_timestamp(at) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, parsed, _offset} -> {:ok, DateTime.to_iso8601(parsed)}
+      _invalid -> {:error, {:at, :invalid_timestamp}}
+    end
+  end
+
+  defp release_timestamp(_invalid), do: {:error, {:at, :invalid_timestamp}}
 
   defp normalize_requester(nil), do: {:ok, nil}
 
@@ -78,11 +109,16 @@ defmodule Aiur.Commands.EventData do
 
   defp question_ids(_raw), do: {:error, {:question_ids, :invalid_type}}
 
-  # Question content validation belongs to C1-T02; only the container is checked here.
+  # Preserve pre-v2 attribution facts on replay; new questions have a question_id.
   defp questions(nil), do: {:ok, []}
 
   defp questions(raw) when is_list(raw) do
-    if Enum.all?(raw, &is_map/1), do: {:ok, raw}, else: {:error, {:questions, :invalid_type}}
+    cond do
+      raw == [] -> {:ok, []}
+      not Enum.all?(raw, &is_map/1) -> {:error, {:questions, :invalid_type}}
+      Enum.all?(raw, &(not is_nil(Validation.get(&1, :question_id)))) -> RequestContent.normalize_questions(raw)
+      true -> {:ok, raw}
+    end
   end
 
   defp questions(_raw), do: {:error, {:questions, :invalid_type}}

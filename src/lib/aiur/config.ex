@@ -208,7 +208,9 @@ defmodule Aiur.Config do
   defdelegate events_block_state_debounce_seconds(), to: Aiur.Config.TrackerSettings
   defdelegate events_custom_events_per_turn_max(), to: Aiur.Config.TrackerSettings
   defdelegate events_codeowners_refresh_seconds(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export(), to: Aiur.Config.TrackerSettings
   defdelegate events_export_enabled?(), to: Aiur.Config.TrackerSettings
+  defdelegate events_export_webhook_enabled?(), to: Aiur.Config.TrackerSettings
   defdelegate events_export_retention_days(), to: Aiur.Config.TrackerSettings
   defdelegate events_export_retention_max_events(), to: Aiur.Config.TrackerSettings
   defdelegate workspace_root(), to: Aiur.Config.TrackerSettings
@@ -233,6 +235,12 @@ defmodule Aiur.Config do
   defdelegate build_order_funnel_health_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate upgrade_check_enabled?(settings \\ settings_uncached()), to: Aiur.Config.ObservabilitySettings
   defdelegate dashboard_writable?(), to: Aiur.Config.ObservabilitySettings
+  @spec decisions_native_capture?(:codex) :: boolean()
+  def decisions_native_capture?(:codex), do: settings!().decisions.native_capture.codex
+
+  @spec decisions_require_suggested_responses?() :: boolean()
+  def decisions_require_suggested_responses?, do: settings!().decisions.require_suggested_responses
+
   defdelegate decision_escalation(), to: Aiur.Config.ObservabilitySettings
   defdelegate supervisor_decision_policy(), to: Aiur.Config.ObservabilitySettings
   defdelegate observability_refresh_ms(), to: Aiur.Config.ObservabilitySettings

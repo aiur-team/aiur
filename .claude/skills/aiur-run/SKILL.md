@@ -282,6 +282,8 @@ builds; reduce concurrency before that fan-out.
 
 Read now: [Arm monitoring immediately](references/monitoring.md) after launch, including the [Command decision loop](references/command-decisions.md) and [Hourly meta-analysis](references/meta-analysis.md).
 
+Command triage: [deadlines, acknowledgement, and asking the human](references/command-decisions.md).
+
 Read now: [Drive the run](references/driving.md) on every observation, and [Review and merge](references/review-and-merge.md) before review, merge, or closure.
 
 ## 6. Backstop and defects

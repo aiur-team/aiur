@@ -252,6 +252,8 @@ defmodule Aiur.Codex.CodingAgent do
   @impl Aiur.CodingAgent.Backend
   def send_operator_message(session, payload), do: OperatorDelivery.send_operator_message(session, payload)
   @impl Aiur.CodingAgent.Backend
+  def steer(session, payload, expected_turn_id), do: OperatorDelivery.steer(session, payload, expected_turn_id)
+  @impl Aiur.CodingAgent.Backend
   def normalize_event(event), do: EventNormalizer.normalize_event(event)
 
   defp session_policies(workspace, nil), do: Config.codex_runtime_settings(workspace)

@@ -8,12 +8,14 @@
   .aiur-command > .aiur-tabs, .aiur-command__row { margin-inline: -1px; }
   .aiur-command__row {
     display: flex; align-items: center; gap: 14px; padding: 11px 14px 11px 18px;
-    font: 14px/1.5 var(--aiur-font-mono); min-width: 0;
+    font: 14px/normal var(--aiur-font-mono); min-width: 0;
   }
-  .aiur-command__text { font: inherit; overflow-wrap: anywhere; min-width: 0; }
-  .aiur-command__prompt { color: var(--aiur-color-muted); flex: none; }
+  .aiur-command__text { font: inherit; letter-spacing: .01em; overflow-wrap: anywhere; min-width: 0; }
+  .aiur-command__prompt { color: var(--aiur-command-prompt-color, var(--aiur-color-muted)); flex: none; }
+  .aiur-command--accent-prompt { --aiur-command-prompt-color: var(--aiur-color-accent); }
   .aiur-command__prompt[hidden] { display: none; }
   .aiur-command__copy.aiur-button { width: 28px; height: 28px; padding: 5px; border-radius: 7px; flex: none; margin-left: auto; }
+  .aiur-command__copy svg { width: 15px; height: 15px; }
   .aiur-command__copy.is-copied { --aiur-button-fg: var(--aiur-color-accent); --aiur-button-hover-fg: var(--aiur-color-accent); }
   .aiur-command--soon > :not(.aiur-command__soon) { opacity: .42; filter: grayscale(1); }
   .aiur-command__soon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 6px 12px; white-space: nowrap; border-radius: 7px; background: var(--aiur-color-bg); font: 12px/1 var(--aiur-font-mono); pointer-events: none; }

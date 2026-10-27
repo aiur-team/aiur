@@ -199,24 +199,17 @@ depth-reduction pass (below) before accepting the graph. Ticket IDs must not
 encode phase membership — IDs are stable opaque identity; phase truth lives only
 in the graph and projected labels.
 
-Epic/lane labels are the planner's choice, not a fixed vocabulary. The
-prototype's docs/frontend/backend/infra set is an example — choose lanes that
-partition THIS feature's work into legible ownership columns (for example
-plan-graph / runtime / dashboard-ui / accounting / platform), keep the set
-small (3–6), fold a one-ticket lane into its nearest neighbor, and record the
-chosen labels in the pack's label projection. Assign each epic a Heroicon whose
-meaning fits the lane you defined — the dashboard renders epic columns from the
-Heroicons v2 outline set, and an icon name is simply the SVG filename (for
-example `share`, `bolt`, `rectangle-group`, `banknotes`, `server-stack`,
-`sparkles`, `cpu-chip`, `chart-bar`, `circle-stack`, `shield-check`,
-`book-open`). Pick per epic from what those names mean, not from a fixed list,
-and record the chosen icon name for each lane in the pack's lane metadata (the
-README lane index and Executor handoff): the strict `build-order.json` schema
-and the GitHub label projection carry no icon field, so the name lives in pack
-prose only. An unknown or absent name falls back to a generic glyph, so
-rendering never needs a model call. Use one feature collection for the new
-program, appended to the continuous build. Lanes and feature epics organize it; native prerequisites connect it to
-existing collections without making a standalone Build Order root.
+General epics are the repository's cross-cutting areas (for example UI,
+frontend, backend and docs), configured in `build_order.general_epics`.
+Features are product slices, one per workstream (for example Build queue,
+Home page, Refactor kernel and Voice). Give each workstream a distinct
+Heroicons v2 outline `icon`, a one-line `summary` of at most 100 characters,
+and an optional nonnegative integer or short-label `wave` in
+`build-order.json`. General epic icons and feature icons must not overlap on
+any ticket: inspect the target repository's configured general-epic label
+matchers and choose a different feature icon for every matching ticket. The
+validator checks icon names, uniqueness and label-specific overlap. The
+legacy epic names `bug`, `pen`, `server` and `docs` remain valid aliases.
 
 Analyze write surfaces and public contracts, not just file paths. Two tickets
 editing different modules may still conflict on a route, schema, event topic,

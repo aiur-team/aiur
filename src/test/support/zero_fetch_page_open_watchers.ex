@@ -1,12 +1,17 @@
 defmodule Aiur.TestSupport.ZeroFetchPageOpenWatchers do
   @moduledoc false
 
+  import ExUnit.Assertions
+
   @watchers [
     Aiur.MainWatch,
     Aiur.LandingWatch,
+    Aiur.LandingWatch.QuarantineLifter,
+    Aiur.GitHub.ViewStateSweep,
     Aiur.PRLifecycle.HealthScanner,
     Aiur.PRLifecycle.HeadVerdictRouter,
-    Aiur.PRLifecycle.ReworkRequeue
+    Aiur.PRLifecycle.ReworkRequeue,
+    Aiur.AllowedContributors
   ]
 
   @spec suspend((pid() -> any())) :: :ok
@@ -31,8 +36,12 @@ defmodule Aiur.TestSupport.ZeroFetchPageOpenWatchers do
     case Process.whereis(name) do
       pid when is_pid(pid) ->
         case await_idle(pid, name) do
-          :ok -> suspend_pid(pid, on_suspended)
-          :gone -> :ok
+          :ok ->
+            await_inflight_tasks(name)
+            suspend_pid(name, pid, on_suspended)
+
+          :gone ->
+            :ok
         end
 
       nil ->
@@ -40,17 +49,39 @@ defmodule Aiur.TestSupport.ZeroFetchPageOpenWatchers do
     end
   end
 
-  defp suspend_pid(pid, on_suspended) do
+  defp suspend_pid(name, pid, on_suspended) do
     if Process.alive?(pid) do
       try do
         :ok = :sys.suspend(pid)
         on_suspended.(pid)
+        await_inflight_tasks(name)
       catch
         :exit, _ -> :ok
       end
     end
 
     :ok
+  end
+
+  defp await_inflight_tasks(Aiur.LandingWatch.QuarantineLifter) do
+    # Its timer handler starts detached children, so suspending the GenServer
+    # alone cannot wait for a quarantine-file read already in progress.
+    Aiur.TaskSupervisor
+    |> Task.Supervisor.children()
+    |> Enum.filter(&quarantine_lifter_task?/1)
+    |> Enum.map(&{&1, Process.monitor(&1)})
+    |> Enum.each(fn {pid, ref} ->
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 40_000, "quarantine-lifter task did not finish before the GitHub request counter was installed"
+    end)
+  end
+
+  defp await_inflight_tasks(_watcher), do: :ok
+
+  defp quarantine_lifter_task?(pid) do
+    case Process.info(pid, :current_stacktrace) do
+      {:current_stacktrace, stacktrace} -> Enum.any?(stacktrace, &match?({Aiur.LandingWatch.QuarantineLifter, _, _, _}, &1))
+      nil -> false
+    end
   end
 
   defp await_idle(pid, name) when name in [Aiur.MainWatch, Aiur.LandingWatch] do

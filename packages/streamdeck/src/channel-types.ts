@@ -161,6 +161,8 @@ export interface StreamDeckCommand {
   readonly version: number;
   readonly ticket?: { readonly identifier?: string } | null;
   readonly question: string;
+  readonly short_label?: string | null;
+  readonly answerable_on_deck?: boolean;
   readonly context?: { readonly short?: string | null; readonly long?: string | null } | null;
   readonly options: readonly StreamDeckCommandOption[];
   readonly status: string;
@@ -194,6 +196,11 @@ export interface StreamDeckCommandAnswerResult {
   readonly decision: StreamDeckCommand;
 }
 
+export type StreamDeckCommandAnswerError =
+  | { readonly reason: "already_answered"; readonly winner: { readonly actor_kind: string; readonly summary: string | null; readonly accepted_at: string } | null }
+  | { readonly reason: "withdrawn"; readonly status: string }
+  | { readonly reason: "stale" };
+
 export interface StreamDeckChannelEvents {
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
@@ -221,7 +228,7 @@ export interface StreamDeckChannelEvents {
   /** The reply to `answer_command`: the recorded result and the refreshed Command. */
   commandAnswered(result: StreamDeckCommandAnswerResult): void;
   /** An error reply to `commands_page` or `answer_command`. */
-  commandsError(reason: string): void;
+  commandsError(reason: string, outcome?: StreamDeckCommandAnswerError, requestKey?: string): void;
   closed(error: unknown): void;
 }
 

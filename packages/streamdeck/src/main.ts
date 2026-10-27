@@ -363,7 +363,7 @@ export const main = async (): Promise<void> => {
           control: () => undefined,
           commands: (page) => { controller.setCommands(page); if (activeBackend !== null) repaintDetached(activeBackend); },
           commandAnswered: (result) => { controller.commandAnswered(result); if (activeBackend !== null) repaintDetached(activeBackend); },
-          commandsError: (reason) => { controller.commandsError(reason); if (activeBackend !== null) repaintDetached(activeBackend); },
+          commandsError: (reason, outcome, requestKey) => { controller.commandsError(reason, outcome, requestKey); if (activeBackend !== null) repaintDetached(activeBackend); },
           voiceStarted: (session, reason) => voiceLink.started(session, reason),
           voice: (session, kind, text) => { voiceLink.transcript(session, { kind, text }); voiceRepaints.request(); },
           voiceError: (session, reason) => { voiceLink.failed(session, reason); voiceRepaints.request(); },
