@@ -2,10 +2,15 @@ defmodule Aiur.Commands.Answering do
   @moduledoc "Human-surface answer submission, attribution, and replacement precedence."
 
   alias Aiur.Commands.Answering.{Outcome, QuestionAnswers}
+  alias Aiur.Commands.ConflictSummary
   alias Aiur.{Decision, DecisionAnswer, DecisionStore, SecretRedactor}
 
   @type surface :: :dashboard | :streamdeck | :cli | :api | :phone | :watch | :conversation
   @type outcome :: Outcome.t()
+
+  @doc "Winner attribution and replacement availability for a human surface."
+  @spec conflict_summary(Decision.t(), DecisionAnswer.actor()) :: ConflictSummary.t() | nil
+  defdelegate conflict_summary(decision, caller), to: ConflictSummary, as: :for
 
   @doc "Submit an answer with trusted actor, client, and required actor_source options."
   @spec answer(String.t(), map(), keyword()) :: outcome()

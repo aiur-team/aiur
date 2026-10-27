@@ -215,6 +215,7 @@ defmodule Aiur.Env.Schema do
      purpose: "BEAM distribution cookie; container launches use this or AIUR_COOKIE_FILE and fail if neither exists, while other launches generate one if unset.",
      fetch: "openssl rand -hex 32"},
     {"AIUR_INSTANCE_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance key hashing the project root; set by the launcher."},
+    {"AIUR_PROJECT_ROOT", type: :path, validate: false, example: false, group: :runtime, purpose: "Canonical project root resolved and exported by the launcher."},
     {"AIUR_RELEASE_NODE", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance daemon node name used by CLI control calls; set by the launcher."},
     {"AIUR_NOFILE_SOFT_LIMIT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Effective open-file soft limit; exported by the launcher."},
     {"AIUR_AGENT_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent-queue tempfile path; set by the launcher."},

@@ -6,7 +6,7 @@ defmodule Aiur.Events.Catalog.Entries do
   alias Aiur.Events.Catalog.{AttentionEntries, Entry, GithubSystemEntries, LegacyEntries, PlannedEntries, SystemEntries, TicketEntries}
 
   # aiur/decision_store/{requests,persistence,audit}.ex
-  @decision_slugs ~w(requested request-attributed answered pending-for-session session-started answer-comment-published expired mooted dismissed
+  @decision_slugs ~w(requested request-attributed routed escalated human-needed executor-acknowledged answered pending-for-session session-started answer-comment-published expired mooted dismissed
     deferred executor-escalated authority-reclassified enriched revision-recorded queued dispatch-outcome-unknown revision-dispatched
     revision-no-longer-applicable revision-follow-up-required revision-follow-up-handled handed-off delivered restored consumed failed acknowledged resolved)
   # aiur/executor_wake_projection.ex
@@ -15,6 +15,8 @@ defmodule Aiur.Events.Catalog.Entries do
   @core [
     # application/export_children.ex; never export the feed's own failure.
     %Entry{pattern: "system.events.export_unavailable", class: :ledgered, owner: "event-bus"},
+    Entry.alert("system.events.export_backlog", "event-bus"),
+    Entry.alert("system.events.export_backlog.resolved", "event-bus"),
     # aiur/agent_runner/tool_executor.ex; aiur/agent_tools/emit_event.ex
     %Entry{pattern: "ticket.*.agent.#", class: :logged, owner: "harness-adapters"},
     %Entry{pattern: "ticket.*.agent.custom.#", class: :logged, owner: "harness-adapters"},

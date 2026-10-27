@@ -2,7 +2,7 @@
 
 Private, unpublished wire contracts for Aiur clients. No runtime dependencies.
 The v1 schemas use JSON Schema draft 2020-12. They cover capabilities, the
-CLI and HTTP status surfaces, per-ticket usage, per-ticket progress, and ticket spend caps.
+CLI and HTTP status surfaces, per-ticket usage, per-ticket progress, ticket spend caps, and the external event feed.
 Clients ignore unknown IDs and additive fields. A breaking change adds v2 beside v1.
 
 Capability `mode` now accepts any string so merge policy can report `ci=wait local_tests=partial`.
@@ -12,7 +12,7 @@ consumers lose the closed union and must handle unknown modes when switching on 
 `src/index.ts` exports generated `CapabilitiesReport`, `CapabilityEntry`,
 `CapabilityState`, `CapabilityReason`, `CapabilityError`, `AgentsStatus`,
 `FleetStatus`, `TicketStatus`, `TicketCancel`, `TicketUsage`, `TicketProgress`,
-`TicketSpendCap`, and `TicketSpendCapReached` types,
+`TicketSpendCap`, `TicketSpendCapReached`, `EventsFeed`, and `EventsCatalog` types,
 `KNOWN_CAPABILITY_IDS`, `KNOWN_CAPABILITY_ID_PATTERNS`, and `CAPABILITY_REASONS`.
 Harness patterns accept one lowercase `[a-z0-9_]+` segment.
 Run `npm run build` before importing runtime constants from this local package.
@@ -21,6 +21,8 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 
 | Schema and fixture stem | Live producer | Contract |
 | --- | --- | --- |
+| `events.v1` | `GET /api/v1/events` | External event feed (no contract marker) |
+| `events-catalog.v1` | `GET /api/v1/events/catalog` | Export catalog (`v: 1`) |
 | `agents.v1` | `aiur agents --json` | `aiur.agents` |
 | `status.v1` | `GET /api/v1/state` | `aiur.status` |
 | `ticket.v1` | `GET /api/v1/:id` | `aiur.ticket` |
@@ -34,6 +36,10 @@ Schemas are also available through `@aiur/contracts/schemas/*`.
 without adding contract markers to the established endpoint. The golden fixture
 is checked against `PublicProjection.encode/1` by `commands/public_projection_test.exs`.
 Question content remains additive while C1-T02 owns its validation.
+
+`events.v1` preserves the feed response shape without adding contract markers.
+Its records contain sequenced external envelopes and gaps, or one unsequenced
+reset. `events-reset.v1.json` covers the latter response using the same schema.
 
 New consumer contracts follow the same layout: a schema and golden fixture with
 the same `<surface>.vN` stem, a top-level `contract` and `contract_version`, and

@@ -171,6 +171,31 @@ defmodule Aiur.Events.DurableConsumerTest do
     refute_received {:unavailable, _}
   end
 
+  test "repeated catch-up invalidations replace the pending retry instead of multiplying timers", ctx do
+    agent = fake(1..2)
+    FakeDurableSource.fail_next_replay(agent, 100)
+
+    pid =
+      start_supervised!(
+        {DurableConsumer,
+         name: nil, source: {FakeDurableSource, agent}, cursor_path: ctx.cursor_path, handler: {TestHandler, %{test: self(), once: ctx.once, kill_at: nil, fail_at: nil}}, retry_ms: 60_000}
+      )
+
+    first = sync(pid).retry_timer
+    assert is_integer(Process.read_timer(first))
+
+    for _ <- 1..3 do
+      previous = sync(pid).retry_timer
+      send(pid, :catch_up)
+      current = sync(pid).retry_timer
+      assert Process.read_timer(previous) == false
+      assert is_integer(Process.read_timer(current))
+    end
+
+    assert_received {:unavailable, :boom}
+    refute_received {:unavailable, _}
+  end
+
   test "handler error holds the cursor and retries the same record", ctx do
     agent = fake(1..3)
     pid = start(ctx, {FakeDurableSource, agent}, %{fail_at: 2})

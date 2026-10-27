@@ -144,7 +144,6 @@ defmodule AiurWeb.StreamdeckChannel do
     do: {:reply, {:error, %{reason: "invalid_commands_page"}}, socket}
 
   # Records an operator answer given on the device.
-  #
   # Attribution is the load-bearing decision: the operator physically pressing
   # their own deck is the operator answering, so the durable record carries an
   # `%{kind: :operator, id: "streamdeck"}` actor — never an Executor answer with
@@ -162,10 +161,11 @@ defmodule AiurWeb.StreamdeckChannel do
       when is_binary(identifier) and is_binary(decision_id) and decision_id != "" and
              is_binary(idempotency_key) and idempotency_key != "" and is_integer(version) and version > 0 do
     with {:ok, answer} <- build_answer_payload(payload),
-         :ok <- validate_focused_command(socket, decision_id, identifier, version),
+         :ok <- validate_focused_command(socket, decision_id, identifier),
          {:ok, result} <- record_command_answer(decision_id, answer) do
-      {:reply, {:ok, answer_result(result)}, socket}
+      {:reply, {:ok, result}, socket}
     else
+      {:error, %{reason: _reason} = result} -> {:reply, {:error, result}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end

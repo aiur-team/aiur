@@ -188,7 +188,8 @@ defmodule AiurWeb.DashboardLive.CommandAnswersTest do
     _html = render_submit(view, "answer-decision", params)
     html = render(view)
 
-    assert html =~ "changed to version 2"
+    assert html =~ "This Command changed. Refresh to see the latest."
+    assert has_element?(view, "a[href='/commands/#{decision.decision_id}']", "Refresh Command")
     assert html =~ "Use the safer path"
     assert html =~ ~s(phx-submit="answer-decision")
 
