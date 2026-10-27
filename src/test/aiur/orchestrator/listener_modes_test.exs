@@ -66,6 +66,12 @@ defmodule Aiur.Orchestrator.ListenerModesTest do
     assert promoted.running[issue.id].control.version == 8
     assert promoted.running[issue.id].control.status == :paused
     assert promoted.running[issue.id].listener_effective.support.sync.status == :experimental
+
+    anonymous = put_in(state.running[issue.id].identifier, nil)
+    {:noreply, anonymous} = State.handle_session_execution_info(anonymous, issue.id, %{backend: "claude"})
+    refute anonymous.running[issue.id].control.immediate_delivery
+    assert anonymous.running[issue.id].control.generation == 73
+    refute Map.has_key?(anonymous.running[issue.id], :listener_effective)
   end
 
   test "set_mode broadcasts the caller actor and updates the cached view", %{state: state, id: id, issue: issue} do

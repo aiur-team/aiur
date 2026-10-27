@@ -54,18 +54,25 @@ defmodule Aiur.Orchestrator.ListenerModes do
   @spec on_session_execution(State.t(), String.t(), map() | nil) :: State.t()
   def on_session_execution(state, issue_id, previous_entry) do
     entry = Map.fetch!(state.running, issue_id)
-    id = entry.identifier
+    harness = Capabilities.harness_delivery(state, to_string(issue_id), entry)
+    updated = entry |> refresh_view(state, previous_entry, harness) |> refresh_control(harness)
+    put_in(state.running[issue_id], updated)
+  end
+
+  defp refresh_view(%{identifier: id} = entry, state, previous_entry, harness) when is_binary(id) and id != "" do
     record = ModeStore.get(id)
-    result = %{view(state, id, entry, record) | actor: :system}
+    result = %{Effective.compute(record, harness) | actor: :system}
     previous = if previous_entry, do: previous_entry[:listener_effective] || view(state, id, previous_entry, record)
 
     if is_nil(previous) or {previous.effective, previous.effective_reason} != {result.effective, result.effective_reason} do
       AgentPubSub.broadcast_listen_mode(id, event_payload(result))
     end
 
-    updated = entry |> Map.put(:listener_effective, result) |> refresh_control(Capabilities.harness_delivery(state, id, entry))
-    put_in(state.running[issue_id], updated)
+    Map.put(entry, :listener_effective, result)
   end
+
+  # Identifier-less tracker entries can still dispatch and report their running backend.
+  defp refresh_view(entry, _state, _previous_entry, _harness), do: entry
 
   defp refresh_control(entry, %{harness_id: backend}) do
     flags = Capabilities.backend_control_flags(backend)
