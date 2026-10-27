@@ -45,7 +45,9 @@ defmodule AiurWeb.DashboardLive.CommandRoutingTest do
              DecisionStore.record_command_fact(
                executor.decision_id,
                :escalated,
-               %{at: now, cause: :executor_ack_timeout, detail: "Executor did not acknowledge", actor: %{kind: :system, id: "routing"}}, server: store)
+               %{at: now, cause: :executor_ack_timeout, detail: "Executor did not acknowledge", actor: %{kind: :system, id: "routing"}},
+               server: store
+             )
 
     # Navigate through the same filter control after the store fact; no reload.
     view |> element("button[phx-value-filter=needs_you]") |> render_click()

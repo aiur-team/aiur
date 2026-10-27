@@ -264,16 +264,23 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       | open: counts.open + if(open_lifecycle?(decision), do: delta, else: 0),
         blocking: counts.blocking + blocking_delta,
         deferred: counts.deferred + deferred_delta,
-        deferred_blocking: counts.deferred_blocking + deferred_blocking_delta,
-        needs_you_by_ticket: adjust_ticket_count(counts.needs_you_by_ticket, decision, delta),
+        deferred_blocking: counts.deferred_blocking + deferred_blocking_delta
+    }
+    |> adjust_routing_counts(decision, delta)
+  end
+
+  defp adjust_counts(counts, %Decision{}, _delta), do: counts
+
+  defp adjust_routing_counts(counts, decision, delta) do
+    %{
+      counts
+      | needs_you_by_ticket: adjust_ticket_count(counts.needs_you_by_ticket, decision, delta),
         needs_you: counts.needs_you + if(Policy.needs_you?(decision), do: delta, else: 0),
-        needs_you_blocking: counts.needs_you_blocking + if(Policy.needs_you?(decision) and blocking, do: delta, else: 0),
+        needs_you_blocking: counts.needs_you_blocking + if(Policy.needs_you?(decision) and decision.blocking, do: delta, else: 0),
         with_executor: counts.with_executor + if(Policy.matches_route?(decision, :with_executor), do: delta, else: 0),
         from_executor: counts.from_executor + if(Policy.matches_route?(decision, :from_executor), do: delta, else: 0)
     }
   end
-
-  defp adjust_counts(counts, %Decision{}, _delta), do: counts
 
   defp adjust_ticket_count(counts, decision, delta) do
     ticket = ticket_identifier(decision)

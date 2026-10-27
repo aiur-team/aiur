@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   @moduledoc false
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
   alias Aiur.DecisionStore.RetainedIndex
 
@@ -28,7 +29,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
 
   @spec matches?(Decision.t(), map()) :: boolean()
   def matches?(decision, query) do
-    Aiur.Commands.Routing.Policy.matches_route?(decision, Map.get(query, :route)) and
+    Policy.matches_route?(decision, Map.get(query, :route)) and
       lifecycle_match?(decision, Map.get(query, :lifecycle)) and
       ticket_match?(decision, Map.get(query, :ticket)) and
       search_match?(decision, Map.get(query, :search)) and

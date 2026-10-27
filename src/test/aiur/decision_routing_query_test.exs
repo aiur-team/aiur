@@ -42,7 +42,9 @@ defmodule Aiur.DecisionRoutingQueryTest do
              DecisionStore.record_command_fact(
                executor.decision_id,
                :escalated,
-               %{cause: :executor_ack_timeout, at: at, detail: "Executor did not acknowledge", actor: %{kind: :system, id: "routing"}}, server: store)
+               %{cause: :executor_ack_timeout, at: at, detail: "Executor did not acknowledge", actor: %{kind: :system, id: "routing"}},
+               server: store
+             )
 
     assert {:ok, counts} = DecisionQuery.counts(store: store)
     assert counts.needs_you == 3
