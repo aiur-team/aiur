@@ -7,6 +7,9 @@ defmodule Aiur.Commands do
   arities stay together so the public delegation contract is easy to audit.
   """
 
+  @spec public_v2(Aiur.Decision.t()) :: map()
+  defdelegate public_v2(decision), to: Aiur.Commands.Projection
+
   @spec agent_lifecycle(:acknowledged | :resolved, map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   defdelegate agent_lifecycle(type, payload, opts), to: Aiur.DecisionStore
