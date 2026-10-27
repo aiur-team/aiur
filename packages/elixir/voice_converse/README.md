@@ -6,6 +6,20 @@ the host arrives through `VoiceConverse.Config` and the behaviours in `VoiceConv
 CI job `voice-converse-standalone` compiles and tests this package alone and fails on any
 reference to the host application (`scripts/check-voice-converse-isolation.sh`).
 
+## Asking the agent
+
+A host whose `AgentChannel.capabilities/1` reports `ask: true` or a fork exposes `ask_agent`
+to the provider. Questions sent to the agent wait for a checkpoint; answers arrive
+asynchronously. The first question in a
+session waits for client confirmation by default; hosts can set
+`ask_requires_confirm` to `:first_in_session`, `:always`, or `:never` in
+`VoiceConverse.Config`. The channel must subscribe the session to replies and deliver
+the reply using the reference returned by `ask/4`. A host may provide a fork for
+questions classified as history or reasoning; fresh questions require queued asking.
+
+If the send times out, delivery is uncertain: the question remains open until the
+operator clears it, because the agent may still receive it.
+
 ## Standalone WebSocket
 
 When the host includes the optional `websock_adapter` and `bandit` dependencies, it can supervise
