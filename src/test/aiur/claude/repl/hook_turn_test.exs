@@ -79,6 +79,45 @@ defmodule Aiur.Claude.Repl.HookTurnTest do
     end
   end
 
+  test "steer wake types mid-turn while false wake leaves input held", %{tmux: tmux} do
+    identifier = "HT-STEER-#{System.unique_integer([:positive])}"
+    session = hook_session(tmux, identifier)
+    parent = self()
+
+    on_operator = fn ->
+      send(parent, :operator_claimed)
+      {:deliver_text, "native steer", fn _ -> send(parent, :operator_delivered) end, fn reason -> send(parent, {:delivery_failed, reason}) end}
+    end
+
+    task = Task.async(fn -> HookTurn.run(session, "work", poll_interval_ms: 10, on_steer_claim: on_operator, on_operator_message: fn -> flunk("steer must not claim a held sync item") end) end)
+    expect_prompt_submit(tmux)
+    # False-wake behavior is an intentional existing-behavior guard.
+    send(task.pid, {:agent_queue_updated, "test", 1, false})
+    send(task.pid, {:agent_queue_updated, "test", 2, :steer})
+    expect_steer_input(tmux)
+    assert_receive :operator_claimed, 1_000
+    assert_receive :operator_delivered, 1_000
+    HookEvents.dispatch(identifier, %{"hook_event_name" => "Stop", "last_assistant_message" => "done"})
+    assert {:ok, %{result: :completed}} = drain_pane_pid(tmux, task)
+    refute_received :operator_claimed
+    refute_received {:delivery_failed, _}
+  end
+
+  defp expect_steer_input(tmux) do
+    receive do
+      {:tmux_mock_out, "display-message" <> _} ->
+        respond(tmux, "4242\n")
+        expect_steer_input(tmux)
+
+      {:tmux_mock_out, "send-keys -t %50 -l native steer"} ->
+        respond(tmux, "")
+        assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+        respond(tmux, "")
+    after
+      1_000 -> flunk("steer wake did not type into the pane")
+    end
+  end
+
   test "pause_agent mid-turn interrupts (Ctrl+C) and returns {:paused, %{request_id: ^id}}", %{
     tmux: tmux
   } do

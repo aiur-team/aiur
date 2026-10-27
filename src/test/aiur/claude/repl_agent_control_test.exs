@@ -78,6 +78,18 @@ defmodule Aiur.Claude.ReplAgentControlTest do
 
   # ----------------------------------------------------- send_operator_message/2
 
+  test "steer callback submits sanitized native input without interrupting", %{tmux: tmux} do
+    session = %{tmux: tmux, pane_id: "%50"}
+    task = Task.async(fn -> ReplAgent.steer(session, %{kind: :text, body: "try\nthis"}, "active-turn") end)
+    assert_receive {:tmux_mock_out, "send-keys -t %50 -l try this"}, 1_000
+    respond(tmux, "")
+    assert_receive {:tmux_mock_out, "send-keys -t %50 Enter"}, 1_000
+    respond(tmux, "")
+    assert {:ok, request_id} = Task.await(task, 2_000)
+    assert is_integer(request_id)
+    refute_received {:tmux_mock_out, _}
+  end
+
   test "send_operator_message types the text and submits with one Enter", %{tmux: tmux} do
     session = turn_session(tmux, temp_transcript())
 
