@@ -1,29 +1,43 @@
 defmodule Aiur.Events.Outbound.DeliveryTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Events.Outbound.{Delivery, ExportJournal}
+  alias Aiur.Events.Outbound.Delivery
   alias Aiur.JsonStore
+
+  defmodule Source do
+    @behaviour Aiur.Events.DurableConsumer.Source
+
+    def start_link, do: Agent.start_link(fn -> %{records: [], consumers: []} end)
+
+    def append(source, record) do
+      Agent.update(source, fn state ->
+        Enum.each(state.consumers, &send(&1, {:durable_record, record}))
+        %{state | records: state.records ++ [record]}
+      end)
+    end
+
+    @impl true
+    def subscribe(source, consumer), do: Agent.update(source, &%{&1 | consumers: [consumer | &1.consumers]})
+
+    @impl true
+    def replay(source, cursor, limit) do
+      records = Agent.get(source, & &1.records)
+      {:ok, records |> Enum.filter(&(&1["seq"] > cursor)) |> Enum.take(limit)}
+    end
+
+    @impl true
+    def position(record), do: Map.fetch!(record, "seq")
+  end
 
   setup do
     dir = Path.join(System.tmp_dir!(), "outbound-delivery-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
-    {:ok, dir: dir, cursor_path: Path.join(dir, "cursor.json")}
+    {:ok, source} = Source.start_link()
+    {:ok, dir: dir, cursor_path: Path.join(dir, "cursor.json"), source: source}
   end
 
   test "retries the same signed event and advances the cursor only after acknowledgement", ctx do
-    journal =
-      start_supervised!(
-        {ExportJournal,
-         name: nil,
-         exchange: nil,
-         journal_path: Path.join(ctx.dir, "events.ndjson"),
-         cursor_path: ctx.cursor_path,
-         instance: "host/default",
-         normalize_fun: fn %{external: event}, _now -> {:ok, event} end,
-         max_pending_events: 10}
-      )
-
     {:ok, attempts} = Agent.start_link(fn -> 0 end)
     test = self()
 
@@ -37,10 +51,10 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
       start_supervised!(
         {Delivery,
          name: nil,
-         source: {ExportJournal, journal},
+         source: {Source, ctx.source},
          cursor_path: ctx.cursor_path,
-         export: %{webhook_url: "https://consumer.example.test/aiur", subject_id: nil, request_timeout_ms: 1_000, retry_ms: 1},
-         secret: "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+         export: export_config(1),
+         secret: secret(),
          request_fun: request_fun,
          resolve_fun: &resolve_public/2,
          retry_ms: 1,
@@ -48,7 +62,8 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
          jitter_fun: fn _window -> 0 end}
       )
 
-    assert {:ok, 1} = ExportJournal.ingest(journal, %{external: event()})
+    :sys.get_state(delivery)
+    Source.append(ctx.source, record(101, 1))
     assert_receive {:attempt, 1, body}, 1_000
     assert_receive {:attempt, 2, ^body}, 1_000
     assert :sys.get_state(delivery).cursor == 1
@@ -56,18 +71,6 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
   end
 
   test "a permanent 4xx is skipped with attention so the next event can be delivered", ctx do
-    journal =
-      start_supervised!(
-        {ExportJournal,
-         name: nil,
-         exchange: nil,
-         journal_path: Path.join(ctx.dir, "events.ndjson"),
-         cursor_path: ctx.cursor_path,
-         instance: "host/default",
-         normalize_fun: fn %{external: event}, _now -> {:ok, event} end,
-         max_pending_events: 10}
-      )
-
     test = self()
 
     request_fun = fn opts ->
@@ -85,17 +88,18 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
       start_supervised!(
         {Delivery,
          name: nil,
-         source: {ExportJournal, journal},
+         source: {Source, ctx.source},
          cursor_path: ctx.cursor_path,
-         export: %{webhook_url: "https://consumer.example.test/aiur", subject_id: nil, request_timeout_ms: 1_000, retry_ms: 10},
-         secret: "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+         export: export_config(10),
+         secret: secret(),
          request_fun: request_fun,
          resolve_fun: &resolve_public/2,
          alert_fun: alert_fun}
       )
 
-    assert {:ok, 1} = ExportJournal.ingest(journal, %{external: event()})
-    assert {:ok, 2} = ExportJournal.ingest(journal, %{external: %{event() | "id" => 102}})
+    :sys.get_state(delivery)
+    Source.append(ctx.source, record(101, 1))
+    Source.append(ctx.source, record(102, 2))
     assert_receive {:delivered, 101}, 1_000
     assert_receive {:alert, "system.outbound_events.delivery.permanent_failure", _opts}, 1_000
     assert_receive {:delivered, 102}, 1_000
@@ -103,11 +107,14 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
     assert {:ok, %{"cursor" => 2}} = JsonStore.read(ctx.cursor_path)
   end
 
-  defp event do
+  defp record(id, seq), do: event(id, seq) |> Map.put("type", "event")
+
+  defp event(id, seq) do
     %{
       "v" => 1,
       "instance" => "host/default",
-      "id" => 101,
+      "seq" => seq,
+      "id" => id,
       "topic" => "ticket.5695.lifecycle.changed",
       "class" => "live",
       "occurred_at" => "2026-10-25T00:00:00Z",
@@ -119,6 +126,12 @@ defmodule Aiur.Events.Outbound.DeliveryTest do
       "anchor" => nil
     }
   end
+
+  defp export_config(retry_ms) do
+    %{webhook_url: "https://consumer.example.test/aiur", subject_id: nil, request_timeout_ms: 1_000, retry_ms: retry_ms}
+  end
+
+  defp secret, do: "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 
   defp resolve_public("https://consumer.example.test/aiur", false),
     do: {:ok, "https://93.184.216.34/aiur", "consumer.example.test"}

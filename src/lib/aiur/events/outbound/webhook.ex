@@ -1,5 +1,5 @@
 defmodule Aiur.Events.Outbound.Webhook do
-  @moduledoc "Signed Standard Webhooks delivery handler for the outbound event queue."
+  @moduledoc "Signed Standard Webhooks handler for canonical export records."
   # aiur:event-bus-boundary-member
 
   @behaviour Aiur.Events.DurableConsumer.Handler
@@ -32,15 +32,17 @@ defmodule Aiur.Events.Outbound.Webhook do
   end
 
   @impl true
-  def handle_record(%{"event" => event}, state) when is_map(event) do
-    if subscribed?(event, state.subject_id) do
-      deliver(event, state)
-    else
-      {:ok, state}
+  def handle_record(record, state) when is_map(record) do
+    case Event.webhook_event(record) do
+      {:ok, event} ->
+        if subscribed?(event, state.subject_id), do: deliver(event, state), else: {:ok, state}
+
+      :skip ->
+        {:ok, state}
     end
   end
 
-  def handle_record(_record, _state), do: {:error, :invalid_outbound_record}
+  def handle_record(_record, state), do: {:ok, state}
 
   @impl true
   def handle_reset(oldest, state) do
@@ -50,7 +52,7 @@ defmodule Aiur.Events.Outbound.Webhook do
 
   @impl true
   def handle_unavailable(_reason, state) do
-    Logger.warning("outbound webhook delivery queue is temporarily unavailable")
+    Logger.warning("outbound webhook export source is temporarily unavailable")
     {:ok, state}
   end
 

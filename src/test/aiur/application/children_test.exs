@@ -167,13 +167,25 @@ defmodule Aiur.Application.ChildrenTest do
       assert length(headless) < length(interactive)
     end
 
-    test "outbound event children start only when export is enabled" do
+    test "webhook delivery shares the exporter and a Delivery crash cannot restart the Orchestrator" do
       disabled =
         modules(
           AiurApp.child_specs(
             interactive_cli?: false,
             headless?: true,
             dashboard?: false,
+            export_enabled?: false,
+            outbound_events?: false
+          )
+        )
+
+      journal_only =
+        modules(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            export_enabled?: true,
             outbound_events?: false
           )
         )
@@ -184,27 +196,17 @@ defmodule Aiur.Application.ChildrenTest do
             interactive_cli?: false,
             headless?: true,
             dashboard?: false,
+            export_enabled?: true,
             outbound_events?: true
           )
         )
 
-      for child <- [Aiur.Events.Outbound.ExportJournal, Aiur.Events.Outbound.Delivery] do
-        refute child in disabled
-        assert child in enabled
-      end
-
-      {Aiur.Events.Outbound.ExportJournal, journal_opts} =
-        Enum.find(
-          AiurApp.child_specs(
-            interactive_cli?: false,
-            headless?: true,
-            dashboard?: false,
-            outbound_events?: true
-          ),
-          &match?({Aiur.Events.Outbound.ExportJournal, _opts}, &1)
-        )
-
-      assert Keyword.fetch!(journal_opts, :alert_fun) == (&Aiur.Alerts.emit_system/2)
+      refute Aiur.Events.Export.Exporter in disabled
+      refute Aiur.Events.Outbound.Delivery in disabled
+      assert Aiur.Events.Export.Exporter in journal_only
+      refute Aiur.Events.Outbound.Delivery in journal_only
+      assert Aiur.Events.Export.Exporter in enabled
+      assert Aiur.Events.Outbound.Delivery in enabled
 
       {Aiur.Events.Outbound.Delivery, delivery_opts} =
         Enum.find(
@@ -212,6 +214,7 @@ defmodule Aiur.Application.ChildrenTest do
             interactive_cli?: false,
             headless?: true,
             dashboard?: false,
+            export_enabled?: true,
             outbound_events?: true
           ),
           &match?({Aiur.Events.Outbound.Delivery, _opts}, &1)
@@ -219,14 +222,11 @@ defmodule Aiur.Application.ChildrenTest do
 
       assert Keyword.fetch!(delivery_opts, :alert_fun) == (&Aiur.Alerts.emit_system/2)
 
-      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Exchange)) <
-               Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.ExportJournal))
+      assert Enum.find_index(enabled, &(&1 == Aiur.Orchestrator)) <
+               Enum.find_index(enabled, &(&1 == Aiur.Events.Export.Exporter))
 
-      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.ExportJournal)) <
+      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Export.Exporter)) <
                Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.Delivery))
-
-      assert Enum.find_index(enabled, &(&1 == Aiur.Events.Outbound.Delivery)) <
-               Enum.find_index(enabled, &(&1 == Aiur.Events.Publisher))
     end
 
     test "Tailscale Funnel reconciliation is opt-in and starts after the dashboard" do

@@ -167,9 +167,6 @@ defmodule Aiur.Application.Children do
       BuildOrders.child_specs(:early, opts),
       {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
-      # Export admission precedes Publisher so a queue crash restarts and pauses
-      # every producer behind it under the application's :rest_for_one strategy.
-      outbound_event_children(outbound_events?),
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
       Aiur.PostDeployChecklist,
@@ -320,7 +317,10 @@ defmodule Aiur.Application.Children do
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts) ++
-        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0))
+        ExportChildren.child_specs(
+          Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0),
+          webhook_enabled?: outbound_events?
+        )
     )
   end
 
@@ -330,15 +330,6 @@ defmodule Aiur.Application.Children do
       BuildOrders.child_specs(:estimates, opts) ++
       List.wrap(if(dashboard?, do: AiurWeb.Build.IndexSupervisor))
   end
-
-  defp outbound_event_children(true) do
-    [
-      {Aiur.Events.Outbound.ExportJournal, alert_fun: &Aiur.Alerts.emit_system/2},
-      {Aiur.Events.Outbound.Delivery, alert_fun: &Aiur.Alerts.emit_system/2}
-    ]
-  end
-
-  defp outbound_event_children(false), do: []
 
   defp dashboard_cache_children(dashboard?) do
     List.wrap(

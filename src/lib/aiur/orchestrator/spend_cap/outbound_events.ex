@@ -5,13 +5,15 @@ defmodule Aiur.Orchestrator.SpendCap.OutboundEvents do
 
   @spec publish(function(), String.t(), map(), pos_integer(), Aiur.TrackerIdentity.t()) :: term()
   def publish(fun, topic, payload, event_id, identity) when is_function(fun, 4),
-    do: fun.(topic, payload, event_id, identity)
+    do: fun.(topic, payload(payload), event_id, identity)
 
   def publish(fun, topic, payload, event_id, _identity) when is_function(fun, 3),
-    do: fun.(topic, payload, event_id)
+    do: fun.(topic, payload(payload), event_id)
 
   @spec publish(String.t(), map(), pos_integer(), Aiur.TrackerIdentity.t()) :: term()
   def publish(topic, payload, event_id, identity) do
+    payload = payload(payload)
+
     Events.publish_persisted(topic, payload, event_id,
       digest_source: :orchestrator,
       identity: identity,
@@ -20,6 +22,10 @@ defmodule Aiur.Orchestrator.SpendCap.OutboundEvents do
       occurred_at: parse_datetime(payload["reached_at"])
     )
   end
+
+  @doc false
+  @spec payload(map()) :: map()
+  def payload(payload), do: Map.put(payload, :spend_cap_state, payload["state"])
 
   defp parse_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
