@@ -14,6 +14,7 @@ defmodule Aiur.Commands.RollbackTest do
     actor = %{kind: :system, id: "routing"}
 
     fixtures = %{
+      native_released: %{native_ref: "codex:thread:turn:7", reason: :pause, at: at},
       request_attributed: %{requester: %{kind: :executor}, origin: :executor_cli},
       routed: %{policy: :executor_first, state: :with_executor, cause: nil, at: at, actor: actor},
       escalated: %{cause: :executor_ack_timeout, at: at, detail: "Timeout", actor: actor},

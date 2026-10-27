@@ -22,6 +22,8 @@ defmodule Aiur.DecisionStore.CommandFacts do
     end
   end
 
+  defp duplicate?(%{native: %{native_ref: ref, hold: :released}}, :native_released, %{native_ref: ref}), do: true
+
   defp duplicate?(decision, :requester_notified, _data), do: not is_nil(decision.requester_notified_at)
   defp duplicate?(decision, type, data), do: Facts.duplicate?(decision, type, data)
 

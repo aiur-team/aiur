@@ -289,7 +289,7 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
         _ -> nil
       end
 
-    counts = if is_integer(awaiting), do: %{awaiting: awaiting, awaiting_blocking: 0}, else: %{}
+    counts = if is_integer(awaiting), do: %{needs_you: awaiting, needs_you_blocking: 0}, else: %{}
 
     {:ok,
      socket
@@ -318,7 +318,7 @@ defmodule Aiur.BrowserHarness.PaletteProbeLive do
     <main class="app-shell">
       <DashboardShell.dashboard_shell route={RouteRegistry.current_route(:index)} routes={RouteRegistry.routes(%{})}
         tracker_kind="fixture" agent_kind="fixture" nav_collapsed={@nav_collapsed}
-        globally_paused={@paused} writable={@writable} nav_counts={%{commands: @counts[:awaiting]}}>
+        globally_paused={@paused} writable={@writable} nav_counts={%{commands: @counts[:needs_you]}}>
         <:banner><Overview.decisions_banner retained_counts={@counts} /></:banner>
         <button id="probe-patch" phx-click="patch-shell" data-patch={@patch}>Patch shell</button>
         <button id="probe-palette-button" type="button" aria-pressed="true" phx-hook="PaletteToggle" data-probe-patch={to_string(@nav_collapsed)}>Gruvbox palette button</button>

@@ -221,12 +221,12 @@ test('Units tables sort stably, persist in the URL, and keep unknown progress fl
 test('Units keeps its column headings at zero units and names the empty state in both themes', async ({ page }) => {
   await openUnits(page, '/units-fixture?catalog=empty')
 
-  // The table keeps its shape: a real thead with all five headings, over an
+  // The table keeps its shape: a real thead with all six headings, over an
   // empty tbody rather than a table that vanished with its rows. Scoped to the
   // Units card because the Tickets panel below reuses the same table class.
   const table = page.locator('.units-card table.units-table')
   await expect(table).toBeVisible()
-  await expect(table.locator('thead th')).toHaveText(['ID', 'Unit', 'Ticket', 'Latest', 'Command'])
+  await expect(table.locator('thead th')).toHaveText(['ID', 'Unit', 'Ticket', 'Latest', 'Commands', 'Command'])
   await expect(page.locator('#units-rows tr.units-row')).toHaveCount(0)
 
   // The empty state sits below the table, and it is the only one: the
