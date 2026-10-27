@@ -12,6 +12,7 @@
     "src/lib/aiur/handoff/record.ex",
     "src/lib/aiur/instance.ex",
     "src/lib/aiur/instance/**",
+    "src/lib/aiur/machine/**",
     "src/lib/aiur/merge_policy.ex",
     "src/lib/aiur/workflow.ex",
     "src/lib/aiur/workflow_store.ex",
@@ -54,7 +55,7 @@
     "CFG"
   ],
   "dependency_kind": "required",
-  "summary": "Loads workflow settings and applies the configured rules for a run.",
+  "summary": "Loads workflow and machine settings and applies the configured rules for a run.",
   "status": "core",
   "install": {
     "type": "included"
