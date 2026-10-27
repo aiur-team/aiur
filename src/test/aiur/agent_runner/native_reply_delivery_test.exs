@@ -5,7 +5,8 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
 
   alias Aiur.AgentRunner.CheckpointDelivery
   alias Aiur.AppServer.Interrupts
-  alias Aiur.Commands.{Answering, NativeCapture}
+  alias Aiur.Commands.{Answering, NativeAnswer, NativeCapture}
+  alias Aiur.DecisionAnswer
   alias Aiur.DecisionDispatch
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.OperatorMessages.Calls
@@ -162,7 +163,7 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
     d = capture(c, [question("colour", true), question("other", false)])
 
     assert {:ok, answer} =
-             Aiur.DecisionAnswer.normalize(
+             DecisionAnswer.normalize(
                %{expected_version: 1, idempotency_key: "historical", option_id: "o1"},
                decision_id: d.decision_id,
                decision_version: 1,
@@ -173,7 +174,7 @@ defmodule Aiur.AgentRunner.NativeReplyDeliveryTest do
 
     retained = %{d | answer: answer, decision_status: :decided}
     assert DecisionDispatch.render(retained) =~ "Selected option `o1`: red"
-    assert Aiur.Commands.NativeAnswer.correlate(retained, answer, %{action_id: answer.action_id}) == %{action_id: answer.action_id}
+    assert NativeAnswer.correlate(retained, answer, %{action_id: answer.action_id}) == %{action_id: answer.action_id}
   end
 
   defp capture(c, questions \\ [question("colour", false)]) do

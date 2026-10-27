@@ -3,6 +3,8 @@ defmodule Aiur.AppServer.Interrupts do
   Shared pause and Executor-queue interrupt state machine.
   """
 
+  alias Aiur.AppServer.NativeReplies
+
   @spec handle_pause_request(map(), map(), integer() | map()) ::
           {:continue, map()} | {:error, term()}
   def handle_pause_request(_session, %{pause_request_id: request} = state, request)
@@ -34,7 +36,7 @@ defmodule Aiur.AppServer.Interrupts do
   @spec handle_operator_queue_update(map(), map()) :: {:continue, map()} | {:error, term()}
   # An interrupt cancels the outstanding tool request; unrelated messages wait for the turn boundary.
   def handle_operator_queue_update(session, %{held_native_questions: held} = state) when map_size(held) > 0 do
-    {:continue, Aiur.AppServer.NativeReplies.deliver(session, state)}
+    {:continue, NativeReplies.deliver(session, state)}
   end
 
   def handle_operator_queue_update(_session, %{pending_interrupt_request_id: request_id} = state)

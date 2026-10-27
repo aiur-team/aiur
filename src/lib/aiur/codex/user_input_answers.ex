@@ -3,13 +3,15 @@ defmodule Aiur.Codex.UserInputAnswers do
   Auto-answer policies for Codex requestUserInput tool calls.
   """
 
+  alias Aiur.AppServer.Rpc
+
   @non_interactive_tool_input_answer "This is a non-interactive session. Executor input is unavailable."
 
   @doc "Reply to a held JSON-RPC user-input request with all structured answers."
   @spec reply(port() | pid(), term(), map()) :: :ok | {:error, :port_closed}
   def reply(port, request_id, answers) do
     answers = Map.new(answers, fn {id, values} -> {id, %{"answers" => values}} end)
-    Aiur.AppServer.Rpc.send_line(port, %{"id" => request_id, "result" => %{"answers" => answers}})
+    Rpc.send_line(port, %{"id" => request_id, "result" => %{"answers" => answers}})
     :ok
   rescue
     ArgumentError -> {:error, :port_closed}

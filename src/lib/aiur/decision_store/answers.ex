@@ -4,6 +4,7 @@ defmodule Aiur.DecisionStore.Answers do
   require Logger
 
   alias Aiur.Commands.ActorSource
+  alias Aiur.Commands.NativeAnswer
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
@@ -146,7 +147,7 @@ defmodule Aiur.DecisionStore.Answers do
              ticket_comment_pending?: true,
              now: Keyword.get(opts, :now, DateTime.utc_now())
            ),
-         :ok <- Aiur.Commands.NativeAnswer.validate(request, answer),
+         :ok <- NativeAnswer.validate(request, answer),
          :ok <- validate_requester_actor(actor, request),
          :ok <- validate_answer_policy_context(answer, request) do
       {:ok, answer}
