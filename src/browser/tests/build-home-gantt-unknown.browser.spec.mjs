@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
-import { captureStable, openProduct, parityContextOptions, PARITY_VIEWPORTS, PARITY_THRESHOLD } from '../support/design-parity.mjs'
+import { productScreenshot, openProduct, productContextOptions, PRODUCT_VIEWPORTS } from '../support/build-home-product.mjs'
+
+const screenshotThreshold = 0.04
 
 // Advance only until the production column/scroll schedulers and CSS have
 // settled. A paused clock otherwise leaves .scrolling disabling card hit tests.
@@ -24,8 +26,8 @@ async function waitForCard(page, target, exposed = false) {
 
 for (const width of [1440, 390]) for (const theme of ['dark', 'light']) test(`S-5 adopted unknown-value capture: ${width} ${theme}`, async ({ browser }, info) => {
   test.setTimeout(120000)
-  const cell = { ...PARITY_VIEWPORTS.find(v => v.viewport.width === width), theme, palette: 'aiur', dataset: 'live' }
-  const context = await browser.newContext({ ...parityContextOptions(cell), baseURL: info.project.use.baseURL })
+  const cell = { ...PRODUCT_VIEWPORTS.find(v => v.viewport.width === width), theme, palette: 'aiur', dataset: 'live' }
+  const context = await browser.newContext({ ...productContextOptions(cell), baseURL: info.project.use.baseURL })
   try {
     const page = await context.newPage(); await openProduct(page, cell, { query: 'view=gantt', motion: true })
     const markers = await page.evaluate(async () => {
@@ -76,9 +78,9 @@ for (const width of [1440, 390]) for (const theme of ['dark', 'light']) test(`S-
         expect(current.y + current.height).toBeLessThanOrEqual(viewport.height)
         return page.screenshot({ ...opts, fullPage: false, clip: current })
       } }
-      const png = await captureStable(capture, { animations: 'disabled', caret: 'hide', scale: 'device' })
+      const png = await productScreenshot(capture, { animations: 'disabled', caret: 'hide', scale: 'device' })
       await info.attach(`${marker.id}-${width}-${theme}`, { body: png, contentType: 'image/png' })
-      expect(png).toMatchSnapshot(`${marker.id}-${width}-${theme}.png`, { threshold: PARITY_THRESHOLD, maxDiffPixels: 0 })
+      expect(png).toMatchSnapshot(`${marker.id}-${width}-${theme}.png`, { threshold: screenshotThreshold, maxDiffPixels: 0 })
     }
     await info.attach(`s5-semantics-${width}-${theme}`, { body: Buffer.from(JSON.stringify(markers, null, 2)), contentType: 'application/json' })
   } finally { await context.close() }

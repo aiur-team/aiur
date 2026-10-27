@@ -102,6 +102,8 @@ test('B1 skeleton stays past the design timer until a payload arrives', async ({
   await expect(page.locator('.bd-spin')).toHaveCount(1)
   await expect(page.locator('#bd-content')).toHaveCount(0)
   expect((await state(page)).loading).toBe(true)
+  // Moved from the removed loading design-parity spec (#6061).
+  await expect(page.locator('#build-root')).toHaveAttribute('data-build-state', 'loading')
 })
 
 test('B2 unavailable state and error replies remove the spinner', async ({ page }) => {

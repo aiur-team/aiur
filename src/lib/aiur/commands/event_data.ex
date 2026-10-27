@@ -1,6 +1,7 @@
 defmodule Aiur.Commands.EventData do
   @moduledoc "Closed, bounded data for additive Command facts outside the v1 request snapshot."
 
+  alias Aiur.Commands.RequestContent
   alias Aiur.DecisionEvent.Validation
 
   @spec fact_types() :: [atom()]
@@ -78,11 +79,16 @@ defmodule Aiur.Commands.EventData do
 
   defp question_ids(_raw), do: {:error, {:question_ids, :invalid_type}}
 
-  # Question content validation belongs to C1-T02; only the container is checked here.
+  # Preserve pre-v2 attribution facts on replay; new questions have a question_id.
   defp questions(nil), do: {:ok, []}
 
   defp questions(raw) when is_list(raw) do
-    if Enum.all?(raw, &is_map/1), do: {:ok, raw}, else: {:error, {:questions, :invalid_type}}
+    cond do
+      raw == [] -> {:ok, []}
+      not Enum.all?(raw, &is_map/1) -> {:error, {:questions, :invalid_type}}
+      Enum.all?(raw, &(not is_nil(Validation.get(&1, :question_id)))) -> RequestContent.normalize_questions(raw)
+      true -> {:ok, raw}
+    end
   end
 
   defp questions(_raw), do: {:error, {:questions, :invalid_type}}

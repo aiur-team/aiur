@@ -29,6 +29,7 @@
     "Aiur.Commands",
     "Aiur.Commands.Answering",
     "Aiur.Commands.DeliveryTarget",
+    "Aiur.Commands.RequestContent",
     "Aiur.Decision",
     "Aiur.DecisionAnswer",
     "Aiur.DecisionArtifact",

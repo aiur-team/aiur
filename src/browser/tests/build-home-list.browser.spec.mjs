@@ -362,7 +362,18 @@ test('B5 unavailable sections name cause and age; healthy empty queue stays hidd
   await expect(page.locator('.lh[data-sec=plan] em')).toHaveText('unavailable · timed out · read 6 min ago (14:14)')
   await expect(page.locator('.lh[data-sec=nq]')).toHaveAttribute('data-st', 'unavailable')
   await expect(page.locator('.lh[data-sec=hist] em')).toContainText('stale, read 6 min ago (14:14)')
-  await open(page, 'noqueue'); await expect(page.locator('.lh[data-sec=plan]')).toHaveCount(0)
+  const emptyQueue = await page.evaluate(async () => {
+    const { ctx, fx } = await import('/build-home/state.js')
+    ctx.snap.sections.plan = []
+    ctx.snap.sources.queue = { state: 'ok', observed_at: Date.now(), reason: null }
+    ctx.D.plan = []
+    ctx.D.sources = ctx.snap.sources
+    fx.renderList()
+    return { state: ctx.snap.sources.queue.state, plan: ctx.D.plan.length, rows: document.querySelectorAll('.lr[data-sec=plan]').length,
+      header: document.querySelector('.lh[data-sec=plan]')?.outerHTML }
+  })
+  expect(emptyQueue).toMatchObject({ state: 'ok', plan: 0, rows: 0 })
+  expect(emptyQueue.header).toBeUndefined()
 })
 test('B6 table accessibility and forced-colour focus; B7 hostile title stays text', async ({ page }) => {
   for (const dataset of ['live', 'list-edges']) {
@@ -386,4 +397,15 @@ test('history button focus survives live rerenders and falls back when exhausted
     H.more = false; fx.renderList()
   })
   await expect(rows(page).last()).toBeFocused()
+})
+
+test('narrow widths drop the epic column, then the agent column', async ({ page }) => {
+  const hidden = () => Promise.all(['.c-ep', '.c-ag'].map(column =>
+    page.locator('.lr-h ' + column).evaluate(el => getComputedStyle(el).display === 'none')
+  ))
+  expect(await hidden()).toEqual([false, false])
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect.poll(hidden).toEqual([true, false])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(hidden).toEqual([true, true])
 })

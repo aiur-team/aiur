@@ -79,7 +79,7 @@ jobs:
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test CI change classifier
-        run: bash scripts/test-classify-ci-changes.sh && node --test scripts/test-build-home-band-runner.mjs scripts/test-home-parity-signoff.mjs
+        run: bash scripts/test-classify-ci-changes.sh
       - name: Test CI concurrency
         run: node scripts/test-ci-concurrency.mjs && node scripts/test-workflow-check-names.mjs && node scripts/test-ci-events.mjs && python3 scripts/test-run-ci-affected-tests.py && python3 scripts/test-ci-soak.py && python3 scripts/test-ci-soak-browser.py && python3 scripts/test-check-test-time-bombs.py
       - name: Verify live merge rulesets
@@ -301,24 +301,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/run-quarantine
-  home-css:
-    container: {image: mcr.microsoft.com/playwright:v1.61.1-noble}
-    needs: changes
-    if: ${{ !cancelled() && needs.changes.outputs.full_ci == 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    strategy: {fail-fast: false, matrix: {shard: [1, 2, 3, 4]}}
-    steps:
-      - name: Checkout
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Disclose rerun attempt
-        if: ${{ (github.run_attempt > 1) && needs.changes.outputs.docs_only != 'true' }}
-        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
-      - name: Verify home CSS
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        uses: ./.github/actions/verify-home-css
-        with: {shard: "${{ matrix.shard }}"}
   analytics:
     needs: changes
     if: ${{ needs.changes.outputs.full_ci == 'true' }}
@@ -461,7 +443,7 @@ jobs:
     uses: ./.github/workflows/soak.yml
   ci-gate:
     name: ci gate
-    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    needs: [changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -486,7 +468,7 @@ jobs:
         run: python3 scripts/check-ci-gate.py
   nightly-trigger:
     name: nightly trigger
-    needs: [ci-gate, changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, home-css, layout-release, analytics, streamdeck]
+    needs: [ci-gate, changes, workflow-security, pre-handoff, lint, affected-tests, soak, build, coverage-partition, test, dialyzer, browser, layout-release, analytics, streamdeck]
     if: ${{ !cancelled() && github.repository == 'aiur-team/aiur' && github.event_name == 'push' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
