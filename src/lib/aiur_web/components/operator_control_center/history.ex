@@ -18,7 +18,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath}
+  alias Aiur.Commands.Answering
+  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath, DecisionQuestionsForm}
   alias AiurWeb.OperatorControlCenter.TimeFormat
   alias Phoenix.LiveView.JS
 
@@ -244,6 +245,19 @@ defmodule AiurWeb.OperatorControlCenter.History do
   defp decision_choice(%{decision_status: :expired}), do: "N/A"
   defp decision_choice(%{decision_status: :deferred}), do: "Handed to the Executor"
   defp decision_choice(%{decision_status: :dismissed, answer: nil}), do: "Closed without a recorded answer"
+
+  defp decision_choice(%{questions: [_ | _]} = decision) do
+    case DecisionQuestionsForm.questions(decision) do
+      [] ->
+        decision_choice(Map.delete(decision, :questions))
+
+      questions ->
+        case Answering.decode_question_answers(questions, decision.answer) do
+          {:ok, answers} -> quoted(Answering.render_question_answers(questions, answers))
+          {:error, _reason} -> "Answer unavailable"
+        end
+    end
+  end
 
   defp decision_choice(%{answer: %{custom_response: response}}) when is_binary(response) do
     # Blank is not an answer. Quoting it would print an empty pair of quotes,

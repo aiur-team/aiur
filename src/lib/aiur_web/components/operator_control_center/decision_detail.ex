@@ -6,7 +6,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
   alias AiurWeb.OperatorControlCenter.{
     DecisionAction,
     DecisionPath,
-    DecisionRevisionAction
+    DecisionRevisionAction,
+    DecisionTimeline
   }
 
   attr(:decision, :map, required: true)
@@ -36,6 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
 
       <div class="decision-detail-grid single-column">
         <div>
+          <DecisionTimeline.decision_timeline audit_history={Map.get(@decision, :audit_history, :unavailable)} />
           <.detail_block title="Context">
             <p :if={present?(@decision.context.short)} class="context-summary">{@decision.context.short}</p>
             <div class="markdown-source">{@decision.context.long_markdown || "The agent did not provide deeper context for this Command."}</div>
@@ -48,7 +50,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
           <.detail_block :if={@decision.options != []} title="Options">
             <div class="option-list">
               <article
-                :for={option <- @decision.options}
+                :for={option <- DecisionAction.ordered_options(@decision)}
                 class={["option-card", recommended?(@decision, option) && "recommended"]}
               >
                 <header class="option-head">
