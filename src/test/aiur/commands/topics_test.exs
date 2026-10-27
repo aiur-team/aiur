@@ -54,22 +54,16 @@ defmodule Aiur.Commands.TopicsTest do
     GenServer.stop(pid)
   end
 
-  test "executor defer retains the existing rich notification exactly once", %{dir: dir} do
+  test "executor defer is refused without publishing a notification", %{dir: dir} do
     pid = start_store!(dir)
 
     assert {:ok, %{decision: decision}} =
              request(pid, %{question: "Choose deferred scope?", blocking: false}, ticket: %{identifier: "executor"}, requester: %{kind: :executor})
 
-    assert {:ok, %{status: :accepted}} =
+    assert {:error, {:conflict, :not_deferrable}} =
              DecisionStore.defer(decision.decision_id, [expected_version: decision.version, actor: %{kind: :operator, id: "operator"}], pid)
 
-    assert {:ok, [event]} = ExecutorEvents.replay(["executor.decision.deferred"], 0)
-    assert event["decision_id"] == decision.decision_id
-    assert event["title"] == decision.question
-    assert event["options"] == []
-    assert event["issue_identifier"] == "executor"
-    assert event["provenance"] == "operator_dashboard"
-    assert event["renotify"] == false
+    assert {:ok, []} = ExecutorEvents.replay(["executor.decision.deferred"], 0)
     GenServer.stop(pid)
   end
 
