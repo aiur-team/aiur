@@ -127,6 +127,16 @@ test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
     body: readFileSync(assets + '/cards.js', 'utf8'), contentType: 'text/javascript'
   }))
   await open(page, 'unknowns')
+  const revealPlanCard = async id => {
+    await expect.poll(() => page.evaluate(id =>
+      state.ctx.L?.secs.plan.items.some(item => item.t.id === id), id)).toBe(true)
+    await page.evaluate(id => {
+      const item = state.ctx.L.secs.plan.items.find(item => item.t.id === id)
+      state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop + item.y
+      state.fx.update()
+    }, id)
+  }
+  await revealPlanCard('pack:unknowns/alpha')
   const card = page.locator('.bd-card[data-id="pack:unknowns/alpha"]')
   await expect(card).toHaveAttribute('aria-label', /^Not filed yet\./)
   const row = await page.evaluate(() => state.ctx.D.byId['pack:unknowns/alpha'])
@@ -135,6 +145,7 @@ test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
   expect(Number.isFinite(row.cue.promoted)).toBe(true)
   await expect(card.locator('.bd-status')).toContainText('Not filed')
   await expect(card.locator('.bd-q.promo')).toHaveCount(0)
+  await revealPlanCard('607')
   await expect(page.locator('.bd-card[data-id="607"] .bd-q.promo')).toHaveCount(1)
 })
 
