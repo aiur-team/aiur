@@ -3,7 +3,7 @@ defmodule AiurWeb.Endpoint do
   Phoenix endpoint for Aiur's optional observability UI and API.
   """
 
-  alias AiurWeb.Sockets.{LiveView, Streamdeck, Voice}
+  alias AiurWeb.Sockets.{Events, LiveView, Streamdeck, Voice}
 
   use Phoenix.Endpoint, otp_app: :aiur
 
@@ -16,6 +16,7 @@ defmodule AiurWeb.Endpoint do
     max_age: 31_536_000
   ]
 
+  require Events
   require LiveView
   require Streamdeck
   require Voice
@@ -23,7 +24,7 @@ defmodule AiurWeb.Endpoint do
   @before_compile AiurWeb.EndpointCallGuard
 
   LiveView.mount(@session_options)
-  socket("/events", AiurWeb.EventsSocket, websocket: true, longpoll: false)
+  Events.mount(@session_options)
   Streamdeck.mount(@session_options)
   Voice.mount(@session_options)
 
