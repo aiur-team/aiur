@@ -33,7 +33,6 @@
     "harness-adapters",
     "identity",
     "kernel",
-    "listener-modes",
     "signal",
     "tracker",
     "workspace"

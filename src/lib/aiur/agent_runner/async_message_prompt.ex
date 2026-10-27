@@ -1,30 +1,10 @@
 defmodule Aiur.AgentRunner.AsyncMessagePrompt do
   @moduledoc false
 
-  alias Aiur.{Listener, Orchestrator}
-  alias Aiur.Listener.Scheduler
+  alias Aiur.Orchestrator
 
   @spec build(String.t(), keyword()) :: String.t()
-  def build(identifier, opts) do
-    if Scheduler.routing(opts) == :listener do
-      reader = Keyword.get(opts, :listener_prompt_reader, &context/1)
-      render(reader.(identifier))
-    else
-      ""
-    end
-  end
-
-  defp context(identifier) do
-    with {:ok, %{effective: :async}} <- Listener.get_mode(identifier) do
-      count =
-        case Orchestrator.control_capabilities(identifier) do
-          {:ok, %{listener: %{unread_count: count}}} -> count
-          _unavailable -> nil
-        end
-
-      {:ok, %{effective: :async, unread_count: count}}
-    end
-  end
+  def build(identifier, opts), do: render(Orchestrator.listener_prompt_context(identifier, opts))
 
   defp render({:ok, %{effective: :async, unread_count: count}}) do
     """
