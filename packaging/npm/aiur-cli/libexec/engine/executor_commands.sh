@@ -6,6 +6,25 @@ encode_control_value() {
 
 # These are explicit trusted-Executor mutations, deliberately separate from
 # the read-only `commands` catalog. Revisions remain dashboard-owned.
+cmd_executor_ack() {
+  local decision_id="${1:-}" executor_id="aiur-cli" arg
+  [[ "$decision_id" =~ ^dec_[0-9a-f]{16}$ ]] || { echo "aiur: executor-ack expects a decision ID (dec_ followed by 16 lowercase hex characters)" >&2; exit 64; }
+  shift
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-ack --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      *) echo "aiur: executor-ack received an unexpected argument: $arg" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id}"
+  run_control_rpc "Aiur.AgentControlCLI.executor_ack([$opts])"
+}
+
 cmd_executor_answer() {
   local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
