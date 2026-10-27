@@ -1,6 +1,7 @@
 import { S, ctx, fx, onReset } from './state.js';
 import { agentText } from './agents.js';
 import { stText } from './list.js';
+import { isUnfiled, refText, refTitle } from './unfiled.js';
 
 let announceTimer = null;
 let pendingAnnouncements = new Map();
@@ -8,8 +9,8 @@ let pendingAnnouncements = new Map();
 const finite = (value, low = 0, high = Number.MAX_SAFE_INTEGER) => Number.isFinite(value) && value >= low && value <= high;
 const cards = () => [...ctx.R.values(), ...(ctx.L?.band.items ?? []).map(item => item.el)].filter(Boolean);
 function reference(ticket) {
-  if (ticket.id?.startsWith('pack:') && ticket.num === null) return 'Not filed yet';
-  return finite(ticket.num, 1) && Number.isInteger(ticket.num) ? '#' + ticket.num : 'ticket reference unknown';
+  if (isUnfiled(ticket)) return refTitle(ticket);
+  return finite(ticket.num, 1) && Number.isInteger(ticket.num) ? refText(ticket) : 'ticket reference unknown';
 }
 function ticketTitle(ticket) {
   const ref = reference(ticket);
