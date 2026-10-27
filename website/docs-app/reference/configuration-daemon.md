@@ -187,6 +187,8 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 
 ## events
 
+Outbound export is opt-in: `events.export.enabled` remains `false` by default, and unless an operator explicitly enables it, the export journal and delivery worker are not added to the application supervision tree.
+
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-11 -->
 | --- | --- | --- | --- |
 | `events.block_state_debounce_seconds` | integer | 10 | Debounces blocked/unblocked transitions. |
