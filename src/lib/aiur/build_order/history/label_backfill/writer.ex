@@ -1,6 +1,7 @@
 defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
   @moduledoc false
   alias Aiur.BuildOrder.History.LabelBackfill.{Checkpoint, Rules, Sources}
+  alias Aiur.Orchestrator.TicketTransition
 
   @spec process_one(String.t(), map()) :: map()
   def process_one(id, %{unavailable: nil, data: %{run: %{state: :running}}} = state) do
@@ -76,7 +77,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill.Writer do
     result =
       if operation == :ensure,
         do: state.tracker.ensure_labels([item.label]),
-        else: Aiur.Orchestrator.TicketTransition.write_marker(to_string(item.ticket), :add, item.label, writer: :history_label_backfill, tracker: state.tracker)
+        else: TicketTransition.write_marker(to_string(item.ticket), :add, item.label, writer: :history_label_backfill, tracker: state.tracker)
 
     case {operation, Rules.on_result(result, state.clock.())} do
       {:ensure, :written} ->
