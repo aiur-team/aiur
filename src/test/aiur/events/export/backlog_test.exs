@@ -1,5 +1,6 @@
 defmodule Aiur.Events.Export.BacklogTest do
   use ExUnit.Case, async: false
+  alias Aiur.Application.ExportChildren
   alias Aiur.Events.{Catalog, Export}
   alias Aiur.Events.Export.Exporter
 
@@ -42,6 +43,7 @@ defmodule Aiur.Events.Export.BacklogTest do
     assert_received {:raised, %{len: len, threshold: 5}}
     assert len >= 20
     refute_received {:raised, _}
+    refute_received {:cleared, _}
   end
 
   test "does not raise on a single spike or accumulate nonconsecutive spikes", ctx do
@@ -115,7 +117,7 @@ defmodule Aiur.Events.Export.BacklogTest do
       end
     end)
 
-    [{Exporter, callbacks}] = Aiur.Application.ExportChildren.child_specs(true)
+    [{Exporter, callbacks}] = ExportChildren.child_specs(true)
     callbacks[:on_backlog].(:raised, %{len: 20, threshold: 5})
     assert_received {:signal, "system.events.export_backlog", raised}
     assert raised[:needs_attention] == true
