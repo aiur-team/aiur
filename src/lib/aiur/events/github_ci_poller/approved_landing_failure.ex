@@ -1,7 +1,8 @@
 defmodule Aiur.Events.GithubCIPoller.ApprovedLandingFailure do
   @moduledoc false
 
-  alias Aiur.Events.GithubCIPoller.BaseCause
+  alias Aiur.CI.FailureDigest
+  alias Aiur.Events.GithubCIPoller.{BaseCause, RepoWideFailure}
   alias Aiur.GitHub.CIRecoveryStore
 
   @spec landing_state(map(), map()) :: :landing | :not_landing | :changed_head | :unknown
@@ -14,8 +15,33 @@ defmodule Aiur.Events.GithubCIPoller.ApprovedLandingFailure do
     end
   end
 
-  @spec route_or_hold(map(), map(), keyword()) :: {:routed, map()} | {:hold, atom()} | {:attention, atom(), term(), atom()}
+  @spec route_or_hold(map(), map(), keyword()) ::
+          {:routed, map()} | {:hold, atom()} | {:repo_wide_hold, map()} | {:attention, atom(), term(), atom()}
   def route_or_hold(issue, result, opts) do
+    case with_failure_digest(result, opts) do
+      {:ok, result} ->
+        case RepoWideFailure.hold(result, opts) do
+          held when is_map(held) -> {:routed, held}
+          :no_match -> route_by_base_cause(issue, result, opts)
+        end
+
+      {:error, reason} ->
+        {:attention, :evidence_unavailable, reason, :default}
+    end
+  end
+
+  defp with_failure_digest(%{ci_failure_digest: _digest} = result, _opts), do: {:ok, result}
+
+  defp with_failure_digest(%{head_sha: sha} = result, opts) when is_binary(sha) do
+    case Keyword.get(opts, :ci_failure_digest, &FailureDigest.build/2).(sha, opts) do
+      {:ok, digest} -> {:ok, Map.put(result, :ci_failure_digest, digest)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp with_failure_digest(result, _opts), do: {:ok, result}
+
+  defp route_by_base_cause(issue, result, opts) do
     classifications = BaseCause.classify_checks(result, opts)
 
     if classifications != [] and Enum.all?(classifications, &(&1.class == :caused_by_pr)) and not contains_infrastructure_failure?(result) do

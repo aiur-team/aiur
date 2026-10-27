@@ -3,7 +3,7 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   require Logger
   alias Aiur.{AlertFeed, Config, Signal}
   alias Aiur.CI.{FailureDigest, TransientNetworkFailure}
-  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause}
+  alias Aiur.Events.GithubCIPoller.{ApprovedLandingFailure, BaseCause, RepoWideFailure}
   alias Aiur.Events.GithubCIPoller.RecoverySafety, as: Safety
   alias Aiur.GitHub.{CIRecovery, PullRequests}
   alias Aiur.GitHub.CIRecoveryStore, as: Store
@@ -451,22 +451,28 @@ defmodule Aiur.Events.GithubCIPoller.Recovery do
   end
 
   defp base_gate(%{decision: :failed, head_sha: sha} = result, issue, entry, opts) do
-    case BaseCause.classify(result, opts) do
-      :caused_by_pr ->
-        result
-
-      cause ->
-        kind = "base_#{cause}"
-
-        case entry do
-          %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
-          %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
-          _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
-        end
+    case RepoWideFailure.hold(result, opts) do
+      :no_match -> base_cause(result, issue, entry, opts, sha)
+      held -> held
     end
   end
 
   defp base_gate(result, _issue, _entry, _opts), do: result
+
+  defp base_cause(result, issue, entry, opts, sha) do
+    case BaseCause.classify(result, opts) do
+      :caused_by_pr -> result
+      cause -> hold_base_cause(result, issue, entry, opts, sha, "base_#{cause}")
+    end
+  end
+
+  defp hold_base_cause(result, issue, entry, opts, sha, kind) do
+    case entry do
+      %{"hold" => %{"sha" => ^sha, "reason" => "base_unknown"} = hold} when kind == "base_unknown" -> unknown_base(result, hold, opts)
+      %{"hold" => %{"sha" => ^sha, "reason" => ^kind}} -> held(result, kind)
+      _ -> issue |> attention(result, kind, "base #{result[:base_sha] || "unknown"}", opts, "base") |> held(kind)
+    end
+  end
 
   # A cancelled push or expired history can hide the base, so unknown holds one main CI run.
   defp unknown_base(result, hold, opts),
