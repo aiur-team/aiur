@@ -24,7 +24,8 @@ defmodule Aiur.Commands.Routing.Facts do
   def duplicate?(decision, :executor_acknowledged, _data), do: not is_nil(decision.executor_acknowledged_at)
 
   def duplicate?(decision, :escalated, data) do
-    Enum.any?(decision.escalations, &(&1.decision_version == decision.version and &1.cause == data.cause))
+    decision.route_state != :with_executor and
+      Enum.any?(decision.escalations, &(&1.decision_version == decision.version and &1.cause == data.cause))
   end
 
   def duplicate?(_decision, _type, _data), do: false
