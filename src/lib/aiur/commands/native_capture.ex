@@ -131,6 +131,10 @@ defmodule Aiur.Commands.NativeCapture do
     )
   end
 
+  @doc "Releases any native holders before a harness lifecycle boundary."
+  @spec release_held(map(), map(), atom()) :: map()
+  def release_held(session, state, reason), do: Aiur.Commands.NativeCapture.Release.release(session, state, reason)
+
   @spec release_text(String.t()) :: String.t()
   def release_text(decision_id), do: "Your question is recorded as Command #{decision_id}. Stop and end your turn; the answer will arrive as a message."
 

@@ -4,6 +4,7 @@ defmodule Aiur.Codex.Notifications do
   require Logger
 
   alias Aiur.AppServer.{Messages, OperatorDelivery, TurnState}
+  alias Aiur.Commands.NativeCapture
   alias Aiur.Codex.{AccountGeneration, NotificationPolicy, TurnEvents}
 
   @spec handle_account(map(), map(), String.t(), map()) :: {:continue, map()} | term()
@@ -100,6 +101,7 @@ defmodule Aiur.Codex.Notifications do
         {:continue, next_state}
 
       idle_after_turn_started?(state, method, payload) ->
+        state = NativeCapture.release_held(session, state, :turn_ended)
         handle_idle_notification(state, method, payload)
 
       NotificationPolicy.codex_error_method?(method) ->

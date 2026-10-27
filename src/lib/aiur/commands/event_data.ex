@@ -8,7 +8,7 @@ defmodule Aiur.Commands.EventData do
   @routing_types FactData.types()
 
   @spec fact_types() :: [atom()]
-  def fact_types, do: [:request_attributed] ++ @routing_types
+  def fact_types, do: [:request_attributed, :native_released] ++ @routing_types
 
   @spec normalize(atom(), term()) :: {:ok, map()} | {:error, term()}
   def normalize(:request_attributed, raw) when is_map(raw) do
@@ -21,13 +21,33 @@ defmodule Aiur.Commands.EventData do
     end
   end
 
+  def normalize(:native_released, raw) when is_map(raw) do
+    with {:ok, ref} <- Validation.map_required_string(raw, :native_ref, 256),
+         {:ok, reason} <- enum(Validation.get(raw, :reason), [:idle_timeout, :pause, :interrupt, :turn_ended, :session_gone], :reason),
+         {:ok, at} <- release_timestamp(Validation.get(raw, :at)) do
+      {:ok, %{native_ref: ref, reason: reason, at: at}}
+    end
+  end
+
   def normalize(type, raw) when type in @routing_types and is_map(raw), do: FactData.normalize(type, raw)
 
   def normalize(_type, _raw), do: {:error, {:event_data, :invalid}}
 
   @spec to_json_safe(atom(), map()) :: map()
   def to_json_safe(type, data) when type in @routing_types, do: Aiur.JSONSafe.normalize(data)
+  def to_json_safe(:native_released, data), do: json_safe(data)
   def to_json_safe(:request_attributed, data), do: json_safe(data)
+
+  defp release_timestamp(%DateTime{} = at), do: {:ok, DateTime.to_iso8601(at)}
+
+  defp release_timestamp(at) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, parsed, _offset} -> {:ok, DateTime.to_iso8601(parsed)}
+      _invalid -> {:error, {:at, :invalid_timestamp}}
+    end
+  end
+
+  defp release_timestamp(_invalid), do: {:error, {:at, :invalid_timestamp}}
 
   defp normalize_requester(nil), do: {:ok, nil}
 

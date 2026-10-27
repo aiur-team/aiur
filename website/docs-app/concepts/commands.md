@@ -188,3 +188,12 @@ allows it.
 
 Command details show recorded escalation causes and timestamps;
 missing audit history is explicitly unavailable rather than an empty timeline.
+
+## Held native questions
+
+With Codex native capture enabled, Aiur holds the native question while its
+Command awaits an answer. An idle timeout, pause, operator interrupt, or turn
+ending releases that hold. Aiur tells the agent the Command ID and that the
+answer will arrive as a message. If the session has exited, Aiur records the
+release without writing to the closed session. Releasing a hold leaves the
+Command open and answerable.

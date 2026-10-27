@@ -75,5 +75,14 @@ defmodule Aiur.Commands.Projection do
     end
   end
 
+  def apply(decision, %DecisionEvent{type: :native_released, data: data} = event) do
+    with :ok <- TransitionValidation.require_current_version(decision, event.decision_version) do
+      case decision.native do
+        %{native_ref: ref} = native when ref == data.native_ref -> {:ok, %{decision | native: %{native | hold: :released}}}
+        _other -> {:error, :native_ref_mismatch}
+      end
+    end
+  end
+
   def apply(decision, %{type: type} = event) when type in @routing_types, do: Facts.apply(decision, event)
 end

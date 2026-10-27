@@ -128,7 +128,7 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
     assert text == UserInputAnswers.non_interactive_answer()
   end
 
-  test "turn handler tracks two held requests, emits events, skips checkpoints and defers unrelated queue items", c do
+  test "turn handler tracks two held requests, emits events, skips checkpoints and releases before operator interrupts", c do
     enable(c.path)
     owner = self()
 
@@ -154,8 +154,11 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
       end)
 
     assert Map.keys(next.held_native_questions) |> Enum.sort() == ["codex:thread-1:turn-1:0", "codex:thread-1:turn-1:1"]
-    assert {:continue, ^next} = Interrupts.handle_operator_queue_update(session, next)
-    assert frames(c) == []
+    assert {:continue, interrupted} = Interrupts.handle_operator_queue_update(session, next)
+    assert interrupted.held_native_questions == %{}
+    assert [first, second, interrupt] = frames(c)
+    assert Enum.sort([first["id"], second["id"]]) == [0, 1]
+    assert interrupt["method"] == "turn/interrupt"
     refute_received {:checkpoint, _}
   end
 

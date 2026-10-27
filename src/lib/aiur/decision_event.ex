@@ -54,6 +54,7 @@ defmodule Aiur.DecisionEvent do
 
   @type type ::
           :requested
+          | :native_released
           | :request_attributed
           | :routed
           | :escalated

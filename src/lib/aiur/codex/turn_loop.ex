@@ -6,6 +6,7 @@ defmodule Aiur.Codex.TurnLoop do
   require Logger
 
   alias Aiur.AppServer.{Messages, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
+  alias Aiur.Commands.NativeCapture
   alias Aiur.Codex.{Approvals, NotificationPolicy, Notifications, TurnEvents}
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
@@ -25,6 +26,8 @@ defmodule Aiur.Codex.TurnLoop do
       payload
     )
 
+    state = release_completed_turn(session, state, payload)
+
     case TurnState.turn_completion_status(payload) do
       "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
       "failed" -> continue_after_failed_turn(session, state, payload)
@@ -40,6 +43,8 @@ defmodule Aiur.Codex.TurnLoop do
         _method
       ) do
     emit_turn_event(state.on_message, :turn_failed, payload, payload_string, session.port, params)
+
+    state = NativeCapture.release_held(session, state, :turn_ended)
 
     TurnState.fail_pending_operator_requests(
       state.pending_operator_requests,
@@ -64,6 +69,8 @@ defmodule Aiur.Codex.TurnLoop do
       session.port,
       params
     )
+
+    state = NativeCapture.release_held(session, state, :turn_ended)
 
     TurnState.fail_pending_operator_requests(
       state.pending_operator_requests,
@@ -101,6 +108,14 @@ defmodule Aiur.Codex.TurnLoop do
   # failed turns keep the completion path they always had.
   # The late failed completion of a turn the pause already retired belongs to
   # that pause, so it must not pause the resumed turn again.
+  defp release_completed_turn(session, state, payload) do
+    turn_id = get_in(payload, ["params", "turn", "id"]) || get_in(payload, ["turn", "id"])
+    stale? = is_binary(turn_id) and turn_id != state.current_turn_id
+    anonymous_barrier? = is_nil(turn_id) and Map.get(state, :anonymous_completion_consumed?, false)
+
+    if stale? or anonymous_barrier?, do: state, else: NativeCapture.release_held(session, state, :turn_ended)
+  end
+
   defp continue_after_failed_turn(session, state, payload) do
     classification =
       if ProviderTurnLedger.retired?(state, get_in(payload, ["params", "turn", "id"])),
