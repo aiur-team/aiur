@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.HeldReads do
   alias Aiur.AgentQueueStore.Items
   alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.LifecycleFence
+  alias Aiur.Orchestrator.OperatorMessages.Unread
 
   @spec read(GenServer.server(), String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def read(server, identifier, max) do
@@ -26,6 +27,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.HeldReads do
       now = DateTime.utc_now()
       store = Enum.reduce(items, state.queue_store, &consume(&2, &1, now))
       if items != [], do: broadcast(identifier, items, now)
+      Unread.broadcast_change(state.queue_store, store, identifier)
       next = Enum.reduce(items, %{state | queue_store: store}, &LifecycleFence.acknowledge_provider_delivery(&2, &1))
       {:reply, {:ok, %{messages: messages, remaining: length(held) - length(items)}}, next}
     else
