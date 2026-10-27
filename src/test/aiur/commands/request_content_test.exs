@@ -54,7 +54,7 @@ defmodule Aiur.Commands.RequestContentTest do
       {:secret, true, :secret_not_storable},
       {:secret, "true", {:secret, :invalid_type}},
       {:options, nil, {:options, :invalid_type}},
-      {:options, [%{label: "A"}], {:options, :invalid_count}},
+      {:options, [], {:options, :invalid_count}},
       {:options, List.duplicate(%{label: "A"}, 5), {:options, :invalid_count}},
       {:options, [false, false], {:options, :invalid_type}},
       {:options, [%{id: "a", label: "A"}, %{id: "a", label: "B"}], {:id, :duplicate_id}},
@@ -66,7 +66,7 @@ defmodule Aiur.Commands.RequestContentTest do
       assert {:error, {:questions, ^error}} = RequestContent.normalize_questions([Map.put(question(), key, value)])
     end
 
-    for count <- [2, 4] do
+    for count <- [1, 2, 4] do
       assert {:ok, [_q]} = RequestContent.normalize_questions([Map.put(question(), :options, List.duplicate(%{label: "A"}, count))])
     end
   end

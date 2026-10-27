@@ -47,7 +47,7 @@ defmodule Aiur.Commands.RequestContent do
     end
   end
 
-  defp options(raw, index) when is_list(raw) and length(raw) in 2..4 do
+  defp options(raw, index) when is_list(raw) and length(raw) in 1..4 do
     with {:ok, options} <- normalize_list(raw, &normalize_option(&1, index, &2)),
          :ok <- unique_ids(options, :id) do
       {:ok, options}
