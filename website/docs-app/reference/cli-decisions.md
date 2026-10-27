@@ -55,6 +55,7 @@ A timeout leaves the outcome unknown (repeat the show form); an unavailable stor
 `aiur ask` creates `dec_`-prefixed Command IDs instead of `ask_` IDs.
 It keeps the old non-blocking default; add `--blocking` to hold dispatch.
 New requests never fall back to the legacy file store when the daemon is down.
+
 `aiur ask --list` is an alias for `aiur asks`; JSON output contains only legacy
 rows, while plain output points to `aiur commands`. Legacy `ask_` history remains
 readable and is not migrated. Prefer `aiur command request` for new scripts;
