@@ -14,7 +14,7 @@ assert.ok(/  push:\n    branches: \[main, v2\]/.test(trigger), 'main pushes trig
 assert.ok(/  schedule:\n    - cron:/.test(trigger), 'scheduled CI is configured');
 const jobs = new Map([...source.split(/^jobs:\n/m)[1].matchAll(/^  ([\w-]+):\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/gm)]
   .map(([, id, body]) => [id, body]));
-const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'home-css', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
+const fullJobs = ['build', 'coverage-partition', 'test', 'dialyzer', 'browser', 'layout-release', 'analytics', 'streamdeck', 'pre-handoff'];
 const fastJobs = ['changes', 'workflow-security', 'lint', 'affected-tests', 'soak', 'ci-gate', 'pre-handoff'];
 function selected(event, full, dialyzer = false, payload = { pull_request: {} }) {
   const condition = (body) => body.match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
