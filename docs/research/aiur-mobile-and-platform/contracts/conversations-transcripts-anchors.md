@@ -119,3 +119,42 @@ PubSub, page cursor, retention, or anchor-resolution policy.
 Callers must serialize recovering reads with appends. A stale-head rebuild
 may truncate an incomplete final line, so it must never run against an
 in-flight writer batch. The later writer/reader integration owns this ordering.
+
+## §10 — Journal positions and precision
+
+`Anchors.exact(event, entries)` and `decision_source(event, entries)` return
+`{:ok, anchor}` or `:none`. `position(event, entries, sessions)` always returns
+`{:ok, anchor}`, including unanchored results. These pure functions scan one
+conversation's bounded window in linear time. Callers supply `conversation_id`,
+`event_id`, `kind` and `topic` in the event, plus daemon `observed_at`, optional
+`occurred_at`, `source_tool_call_id`, `decision_tool_call_id`, `label` and
+`subject_ref`. Times may be DateTimes or journal ISO 8601 strings.
+
+Anchors are JSON maps with `v: 1`, `anchor_id`, `kind`, `conversation_id`,
+`event: {event_id, topic, observed_at, occurred_at}`, `pos`, `placement`,
+`precision`, `method`, `label` and `subject_ref`. Missing optional metadata
+is null. Supplied labels and subject references are preserved.
+
+Exact matches use `refs.tool_call_id`, placement `at`, precision `exact` and
+method `tool_call`. Command requests (`command_requested`) instead match
+`decision_tool_call_id` with method `decision_source`. Missing or empty tool
+IDs never match missing refs.
+
+Observed placement selects the greatest position whose daemon `observed_at`
+is at or before the event's observation time, including ties. It requires a
+session covering that time (inclusive start/end; a null end is open) and no
+gap spanning it. Gap entries carry inclusive `from`/`to` observation times in
+`meta`; the gap row itself is never a target. Observed anchors use placement
+`after` and method `observed_at`. Otherwise precision is `unanchored`, with
+null position, placement and method. Provider occurrence times never affect
+placement. The deck's `at_or_before/2` membership rule remains unchanged:
+an equal-time entry belongs to the event's group.
+
+`strongest/1` keeps one anchor per event ID, kind and conversation, preferring
+`exact > causal > observed > unanchored`. It preserves first-seen group order
+and the first anchor at equal precision. Causal inference belongs to C3-T03.
+
+`anchor_id/1` hashes the JSON array `[event_id, kind, conversation_id, precision]`
+with SHA-256 and returns `anc_` plus the first 26 lowercase, unpadded Base32
+characters. Position and labels do not affect identity; upgraded precision
+creates a new identity for append-only resolution.
