@@ -199,6 +199,11 @@ if config_env() == :test do
   # Recording cases supervise their own pair against their own state directory.
   config :aiur, :executor_recording?, false
 
+  # An answered decision starts an answer-comment task that outlives its test and
+  # calls GitHub inside unrelated tests (#6463, #6579). nil starts no task; tests
+  # that verify publishing pass their own :answer_comment_publisher.
+  config :aiur, :decision_answer_comment_publisher, nil
+
   # Durable Executor state resolves to `~/.aiur/repo/<owner>/<repo>/executor` in
   # a real run. A case that touches it without TestSupport's per-test root would
   # otherwise write to the developer's own machine-local state.

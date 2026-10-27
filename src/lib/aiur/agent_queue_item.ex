@@ -29,6 +29,7 @@ defmodule Aiur.AgentQueueItem do
           delivered_at: DateTime.t() | nil,
           provider_delivered_at: DateTime.t() | nil,
           provider_turn_id: String.t() | nil,
+          read_at: DateTime.t() | nil,
           consumed_at: DateTime.t() | nil,
           failed_at: DateTime.t() | nil,
           superseded_at: DateTime.t() | nil,
@@ -58,6 +59,7 @@ defmodule Aiur.AgentQueueItem do
     :provider_delivered_at,
     :provider_turn_id,
     :consumed_at,
+    :read_at,
     :failed_at,
     :superseded_at,
     :failure_reason

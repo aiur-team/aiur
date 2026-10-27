@@ -267,7 +267,9 @@ defmodule Aiur.DecisionStore.Answers do
   end
 
   @doc false
-  @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term())) :: :ok
+  @spec schedule_ticket_comment(Decision.t(), (Decision.t() -> term()) | nil) :: :ok
+  def schedule_ticket_comment(_decision, nil), do: :ok
+
   def schedule_ticket_comment(decision, publisher) do
     start_ticket_comment_task(decision, publisher, self())
     :ok
