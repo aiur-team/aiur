@@ -44,6 +44,7 @@ test('active content controls width and each change emits one bubbling layout ev
   expect(await page.evaluate(() => (window as any).layoutChanges.length)).toBe(4);
 });
 
+// These skins share command.html's fixture and browser-facing command component.
 test('hovering an inactive command tab uses the foreground color', async ({ page }) => {
   const prompt = page.getByRole('tab', { name: 'Prompt', exact: true });
   await page.getByRole('tab', { name: 'npm', exact: true }).click();
