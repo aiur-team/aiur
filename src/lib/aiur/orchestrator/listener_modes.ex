@@ -1,12 +1,11 @@
 defmodule Aiur.Orchestrator.ListenerModes do
-  @moduledoc "Serialized mode reads and compare-and-set writes; queue state is unchanged."
+  @moduledoc "Serialized mode control and pending listener delivery updates."
 
   require Logger
-  alias Aiur.AgentPubSub
-  alias Aiur.Listener.{Effective, ModeStore}
-  alias Aiur.Orchestrator.OperatorMessages.Capabilities
+  alias Aiur.{AgentPubSub, AgentQueueStore, TrackerIdentity}
+  alias Aiur.Listener.{Effective, ModeStore, Scheduler}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   alias Aiur.Orchestrator.State
-  alias Aiur.TrackerIdentity
 
   @spec get_mode(State.t(), Aiur.Listener.target()) :: tuple()
   def get_mode(state, target) do
@@ -43,11 +42,22 @@ defmodule Aiur.Orchestrator.ListenerModes do
         AgentPubSub.broadcast_listen_mode(id, event_payload(result))
         key = State.find_running_key_by_identifier(state.running, id)
         next = if key, do: put_in(state.running[key][:listener_effective], result), else: state
-        {:reply, {:ok, result}, next}
+        {:reply, {:ok, result}, mode_view_changed(next, id, result)}
 
       _error ->
         {:reply, reply, state}
     end
+  end
+
+  @doc "Re-stamp pending listener rows after a serialized mode or harness-view change."
+  @spec mode_view_changed(State.t(), String.t(), map()) :: State.t()
+  def mode_view_changed(state, id, view) do
+    store = AgentQueueStore.update_pending_delivery(state.queue_store, id, Scheduler.restamp_fun(view))
+    pending = AgentQueueStore.list_pending(store, id)
+    changed = Enum.find(pending, fn item -> item.delivery != AgentQueueStore.get(state.queue_store, item.id).delivery end)
+    next_state = %{state | queue_store: store}
+    if changed, do: DeliveryPolicy.notify_running_queue_update(next_state, State.find_running_by_identifier(state.running, id), changed)
+    next_state
   end
 
   @doc "Refresh derived listener mode and control flags after a session or dispatch update."
@@ -56,7 +66,12 @@ defmodule Aiur.Orchestrator.ListenerModes do
     entry = Map.fetch!(state.running, issue_id)
     harness = Capabilities.harness_delivery(state, to_string(issue_id), entry)
     updated = entry |> refresh_view(state, previous_entry, harness) |> refresh_control(harness)
-    put_in(state.running[issue_id], updated)
+    next = put_in(state.running[issue_id], updated)
+
+    case updated do
+      %{identifier: id, listener_effective: result} -> mode_view_changed(next, id, result)
+      _identifierless -> next
+    end
   end
 
   defp refresh_view(%{identifier: id} = entry, state, previous_entry, harness) when is_binary(id) and id != "" do
@@ -91,9 +106,16 @@ defmodule Aiur.Orchestrator.ListenerModes do
     end
   end
 
-  defp resolve(state, id) when is_binary(id), do: {:ok, id, State.find_running_by_identifier(state.running, id)}
+  defp resolve(state, id) when is_binary(id) do
+    canonical = Enum.find_value(state.last_polled_issues, fn {key, issue} -> if id in [to_string(key), issue.identifier], do: issue.identifier end)
+    entry = State.find_running_by_identifier(state.running, canonical || id)
+
+    if entry || canonical,
+      do: {:ok, canonical || id, entry},
+      else: {:error, :issue_not_found}
+  end
 
   defp stopped_identity(state, id) do
-    if State.find_running_by_identifier(state.running, id), do: {:error, :ambiguous_identifier}, else: {:ok, id, nil}
+    if State.find_running_by_identifier(state.running, id), do: {:error, :ambiguous_identifier}, else: resolve(state, id)
   end
 end

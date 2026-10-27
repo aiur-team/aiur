@@ -275,6 +275,7 @@ netlify:
 
 # Command escalation policy (defaults; routing consumes these settings).
 # decisions:
+#   native_capture: {codex: false} # experimental; requires native reply and release support
 #   require_suggested_responses: false # opt in after reviewing informational warnings
 #   escalation:
 #     enabled: true

@@ -21,6 +21,7 @@ class CliReferenceTest(unittest.TestCase):
             'src/lib/aiur/experiments_cli.ex',
             'src/lib/aiur/alerts_cli.ex',
             'src/lib/aiur/pr_merge_cli.ex',
+            'src/lib/aiur/listen_mode_cli.ex',
             'analytics/lib/analytics/experiment_stats_cmd.py',
             'website/docs-app/scripts/check-cli-reference.sh',
         ]

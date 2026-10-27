@@ -85,6 +85,12 @@ defmodule Aiur.Orchestrator.ControlCLI.Message do
     case send_message(canonical_identifier(status), text, message_id) do
       {:ok, request_id} ->
         report_message_outcome(status, request_id, await_message_delivery(request_id))
+
+        case Aiur.Listener.receipt(request_id) do
+          {:ok, %{listener_mode: mode}} when mode in [:steer, :sync, :async] -> IO.puts("aiur: accepted under #{mode} listener mode")
+          _ -> :ok
+        end
+
         0
 
       # The daemon did not answer in time, but it may still queue the message

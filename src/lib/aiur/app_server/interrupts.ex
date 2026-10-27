@@ -32,6 +32,11 @@ defmodule Aiur.AppServer.Interrupts do
   end
 
   @spec handle_operator_queue_update(map(), map()) :: {:continue, map()} | {:error, term()}
+  # An interrupt cancels the outstanding tool request; unrelated messages wait for the turn boundary.
+  def handle_operator_queue_update(_session, %{held_native_questions: held} = state) when map_size(held) > 0 do
+    {:continue, state}
+  end
+
   def handle_operator_queue_update(_session, %{pending_interrupt_request_id: request_id} = state)
       when is_integer(request_id) do
     {:continue, state}
