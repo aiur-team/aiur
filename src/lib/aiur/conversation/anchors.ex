@@ -68,12 +68,17 @@ defmodule Aiur.Conversation.Anchors do
             {[key | order], Map.put(selected, key, anchor)}
 
           {:ok, prior} ->
-            best = if Map.fetch!(@precision, anchor["precision"]) > Map.fetch!(@precision, prior["precision"]), do: anchor, else: prior
-            {order, Map.put(selected, key, best)}
+            {order, Map.put(selected, key, stronger(anchor, prior))}
         end
       end)
 
     order |> Enum.reverse() |> Enum.map(&Map.fetch!(selected, &1))
+  end
+
+  defp stronger(anchor, prior) do
+    if Map.fetch!(@precision, anchor["precision"]) > Map.fetch!(@precision, prior["precision"]),
+      do: anchor,
+      else: prior
   end
 
   @doc "Stable precision-specific identity; upgrading precision appends a new journal line."
