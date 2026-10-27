@@ -91,7 +91,8 @@ defmodule Aiur.Application.StartupChecks do
   @spec validate_outbound_export(term(), map()) :: :ok | {:error, [String.t()]}
   def validate_outbound_export({:ok, settings}, env), do: validate_outbound_export(settings, env)
 
-  def validate_outbound_export(%{events: %{export: %{enabled: true}}}, env) when is_map(env) do
+  def validate_outbound_export(%{events: %{export: %{enabled: true, webhook_url: url}}}, env)
+      when is_binary(url) and url != "" and is_map(env) do
     case env["AIUR_OUTBOUND_WEBHOOK_SECRET"] do
       secret when is_binary(secret) ->
         if valid_outbound_secret?(secret),
@@ -99,7 +100,7 @@ defmodule Aiur.Application.StartupChecks do
           else: {:error, ["AIUR_OUTBOUND_WEBHOOK_SECRET must be a whsec_ prefixed base64 encoding of exactly 32 bytes"]}
 
       _missing ->
-        {:error, ["AIUR_OUTBOUND_WEBHOOK_SECRET is required when events.export.enabled is true"]}
+        {:error, ["AIUR_OUTBOUND_WEBHOOK_SECRET is required when events.export.webhook_url is configured"]}
     end
   end
 

@@ -3,16 +3,27 @@ defmodule Aiur.ClientTokensTest do
   import Bitwise
 
   setup do
-    path = Path.join(System.tmp_dir!(), "aiur-client-tokens-#{System.unique_integer([:positive])}.json")
+    root = Path.join(System.tmp_dir!(), "aiur-client-tokens-#{System.unique_integer([:positive])}")
+    path = Path.join(root, "client-tokens.json")
     previous = Application.get_env(:aiur, :client_tokens_path)
     Application.put_env(:aiur, :client_tokens_path, path)
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :client_tokens_path, previous), else: Application.delete_env(:aiur, :client_tokens_path)
-      Aiur.TestCleanup.rm_rf!(path)
+      Aiur.TestCleanup.rm_rf!(root)
     end)
 
     {:ok, path: path}
+  end
+
+  test "uses an existing token directory without changing its permissions", %{path: path} do
+    directory = Path.dirname(path)
+    File.mkdir_p!(directory)
+    File.chmod!(directory, 0o755)
+
+    assert {:ok, token} = Aiur.ClientTokens.create("existing-directory")
+    assert {:ok, "existing-directory", "write"} = Aiur.ClientTokens.authenticate(token)
+    assert (File.stat!(directory).mode &&& 0o777) == 0o755
   end
 
   test "stores only a hash, lists metadata, authenticates, and revokes", %{path: path} do
@@ -21,6 +32,7 @@ defmodule Aiur.ClientTokensTest do
     assert {:ok, "streamdeck", "read"} = Aiur.ClientTokens.authenticate(token)
     refute File.read!(path) =~ token
     assert (File.stat!(path).mode &&& 0o777) == 0o600
+    assert (File.stat!(Path.dirname(path)).mode &&& 0o777) == 0o700
     assert :ok = Aiur.ClientTokens.revoke("streamdeck")
     assert :error = Aiur.ClientTokens.authenticate(token)
   end
@@ -34,6 +46,7 @@ defmodule Aiur.ClientTokensTest do
 
   test "corrupt token records fail closed" do
     path = Application.fetch_env!(:aiur, :client_tokens_path)
+    File.mkdir_p!(Path.dirname(path))
     File.write!(path, Jason.encode!([%{"name" => "incomplete"}]))
 
     assert {:error, :corrupt_store} = Aiur.ClientTokens.list()

@@ -12,7 +12,7 @@ Set a 256-bit signing secret outside the repository:
 printf 'AIUR_OUTBOUND_WEBHOOK_SECRET=whsec_%s\n' "$(openssl rand -base64 32 | tr -d '\n')" >> ~/.aiur/.env
 ```
 
-Then enable the exporter in `.aiur/config`:
+Then enable the external journal and configure webhook delivery in `.aiur/config`:
 
 ```yaml
 events:
@@ -26,7 +26,10 @@ events:
     request_timeout_ms: 15000
 ```
 
-Aiur refuses startup when export is enabled without a correctly formed secret.
+`events.export.enabled: true` can run the local segmented journal without a
+webhook. Setting `webhook_url` additionally starts signed delivery; Aiur refuses
+startup when that delivery is configured without a correctly formed secret.
+
 The URL must use HTTPS and cannot contain userinfo or a fragment. Redirects are
 not followed, so the signed body is sent only to the configured origin.
 

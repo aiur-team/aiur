@@ -187,7 +187,7 @@ write, so the re-queue retries on the next tick instead of silently stranding th
 
 ## events
 
-Outbound export is opt-in: `events.export.enabled` remains `false` by default, and unless an operator explicitly enables it, the export journal and delivery worker are not added to the application supervision tree.
+Outbound export is opt-in: `events.export.enabled` remains `false` by default; enabling it starts the segmented journal, while configuring `events.export.webhook_url` additionally starts signed delivery and its durable queue.
 
 | Key | Type | Default | Controls | <!-- generated-reference:config-configuration-11 -->
 | --- | --- | --- | --- |
@@ -195,11 +195,11 @@ Outbound export is opt-in: `events.export.enabled` remains `false` by default, a
 | `events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval. |
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
 | `events.export.allow_private_destinations` | boolean | false | Allows loopback, private, link-local, CGNAT and ULA webhook destinations. |
-| `events.export.enabled` | boolean | false | Enables signed outbound webhook delivery. |
+| `events.export.enabled` | boolean | false | Enables the external event journal; a configured webhook URL also enables signed delivery. Restart to apply. |
 | `events.export.max_pending_events` | integer | 10000 | Maximum admitted events waiting for acknowledgement. |
 | `events.export.request_timeout_ms` | integer | 15000 | Per-attempt webhook request timeout. |
-| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); older records are trimmed. Read at boot. |
-| `events.export.retention_max_events` | integer | 50000 | Maximum retained records (1000..1000000); the first retention bound reached applies. Read at boot. |
+| `events.export.retention_days` | integer | 7 | Retention age in days (1..90); reserved until retention is installed. Not enforced by the writer. |
+| `events.export.retention_max_events` | integer | 50000 | Maximum retained records (1000..1000000); reserved until retention is installed. Not enforced by the writer. |
 | `events.export.retry_ms` | integer | 5000 | Initial delay for capped exponential delivery retries. |
 | `events.export.subject_id` | string | nil | Delivers only events for this exact ticket or job identifier. |
 | `events.export.webhook_url` | string | nil | HTTPS endpoint receiving outbound event POSTs. |

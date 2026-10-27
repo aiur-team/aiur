@@ -277,6 +277,21 @@ test("token files must be mode 0600", () => {
   }
 });
 
+test("token_file paths beginning with ~/ resolve beneath HOME", () => {
+  const server = startServer({ body: successBody() });
+  try {
+    const setup = setupRemoteLauncher(registry(server.url, "token_file: ~/remote-token"));
+    const tokenFile = path.join(setup.home, "remote-token");
+    writeFileSync(tokenFile, "tilde-secret-token\n", { mode: 0o600 });
+    chmodSync(tokenFile, 0o600);
+    const result = runRemote(setup, ["--instance", "t", "status"]);
+    expect(result.status).toBe(0);
+    expect(server.requests()[0].authorization).toBe("Bearer tilde-secret-token");
+  } finally {
+    server.stop();
+  }
+});
+
 test("authentication and build errors are mapped without exposing the token", () => {
   for (const response of [
     {

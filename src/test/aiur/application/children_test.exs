@@ -167,7 +167,7 @@ defmodule Aiur.Application.ChildrenTest do
       assert length(headless) < length(interactive)
     end
 
-    test "outbound event children start only when export is enabled" do
+    test "outbound webhook children start only when webhook delivery is enabled" do
       disabled =
         modules(
           AiurApp.child_specs(

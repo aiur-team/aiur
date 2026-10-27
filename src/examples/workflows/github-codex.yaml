@@ -221,7 +221,7 @@ compaction:
     token_threshold: 50000
   timeout_ms: 30000
 
-# Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when enabled).
+# Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when webhook_url is set).
 # events:
 #   export:
 #     enabled: false

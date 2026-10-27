@@ -253,12 +253,14 @@ defmodule Aiur.EnvStartupChecksTest do
     assert :ok = StartupChecks.validate_secrets(settings, env)
   end
 
-  test "outbound webhook startup requires one valid 256-bit Standard Webhooks secret only when enabled" do
+  test "outbound webhook startup requires one valid 256-bit Standard Webhooks secret only when a URL is configured" do
     disabled = %{events: %{export: %{enabled: false}}}
-    enabled = %{events: %{export: %{enabled: true}}}
+    journal_only = %{events: %{export: %{enabled: true, webhook_url: nil}}}
+    enabled = %{events: %{export: %{enabled: true, webhook_url: "https://consumer.example.com/events"}}}
     valid = "whsec_" <> Base.encode64(String.duplicate("k", 32))
 
     assert :ok = StartupChecks.validate_outbound_export(disabled, %{})
+    assert :ok = StartupChecks.validate_outbound_export(journal_only, %{})
     assert {:error, [missing]} = StartupChecks.validate_outbound_export(enabled, %{})
     assert missing =~ "AIUR_OUTBOUND_WEBHOOK_SECRET"
 

@@ -30,6 +30,7 @@ defmodule Aiur.Config.EventsExportConfigTest do
     end
 
     assert Config.events_export_enabled?() == false
+    assert Config.events_export_webhook_enabled?() == false
     assert Config.events_export_retention_days() == 7
     assert Config.events_export_retention_max_events() == 50_000
   end
@@ -48,8 +49,26 @@ defmodule Aiur.Config.EventsExportConfigTest do
 
     assert :ok = Aiur.WorkflowStore.force_reload()
     assert Config.events_export_enabled?() == true
+    assert Config.events_export_webhook_enabled?() == true
     assert Config.events_export_retention_days() == 30
     assert Config.events_export_retention_max_events() == 12_000
+  end
+
+  test "journal-only export does not require a webhook destination", %{path: path} do
+    assert {:ok, settings} = Schema.parse(%{"events" => %{"export" => %{"enabled" => true}}})
+    assert settings.events.export.enabled
+    assert settings.events.export.webhook_url == nil
+
+    File.write!(path, """
+    tracker:
+      kind: memory
+    events:
+      export:
+        enabled: true
+    """)
+
+    assert :ok = Aiur.WorkflowStore.force_reload()
+    assert Config.events_export_webhook_enabled?() == false
   end
 
   test "both retention bounds reject out-of-range values and accept endpoints" do

@@ -212,7 +212,7 @@ prompt_file: github-muse.prompt.md
 executor:
   relay_operator_answers: false
 
-# Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when enabled).
+# Signed outbound events (AIUR_OUTBOUND_WEBHOOK_SECRET is required when webhook_url is set).
 # events:
 #   export:
 #     enabled: false

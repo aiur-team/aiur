@@ -3,6 +3,7 @@ defmodule Aiur.Application.Children do
   The one boot-order authority: the supervision child list for a run shape.
   """
 
+  alias Aiur.Application.ExportChildren
   alias Aiur.BuildOrder.Component, as: BuildOrders
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Experiments.Auto
@@ -53,7 +54,7 @@ defmodule Aiur.Application.Children do
       Keyword.get_lazy(opts, :github_tracker?, fn -> AiurConfig.tracker_kind() == "github" end)
 
     main_watch_enabled? = Keyword.get_lazy(opts, :main_watch_enabled?, &Aiur.MainWatch.enabled?/0)
-    outbound_events? = Keyword.get_lazy(opts, :outbound_events?, &AiurConfig.events_export_enabled?/0)
+    outbound_events? = Keyword.get_lazy(opts, :outbound_events?, &AiurConfig.events_export_webhook_enabled?/0)
 
     # Always true for a real run. The unit-test singleton turns it off so the
     # shared app process does not hold a VM-wide inbox and listener that every
@@ -318,7 +319,8 @@ defmodule Aiur.Application.Children do
         dashboard_cache_children(dashboard?) ++
         coordination_children(instance_role, github_tracker?, main_watch_enabled?) ++
         [Aiur.Netlify.Usage] ++
-        dashboard_final_children(dashboard?, opts)
+        dashboard_final_children(dashboard?, opts) ++
+        ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0))
     )
   end
 

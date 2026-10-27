@@ -312,6 +312,21 @@ defmodule Aiur.AgentQueueStore do
     |> sort_items()
   end
 
+  @doc "Replace delivery only for pending operator messages stamped with a listener mode."
+  @spec update_pending_delivery(t(), String.t(), (map() -> map())) :: t()
+  def update_pending_delivery(%__MODULE__{} = store, target, fun)
+      when is_binary(target) and is_function(fun, 1) do
+    store
+    |> TargetIndex.items_for(target)
+    |> Enum.reduce(store, fn
+      %AgentQueueItem{status: :pending, category: :operator_message, delivery: %{listener_mode_at_claim: _}} = item, acc ->
+        Items.put_item(acc, %{item | delivery: fun.(item.delivery)})
+
+      _item, acc ->
+        acc
+    end)
+  end
+
   @spec list_visible_operator_messages(t(), String.t()) :: [AgentQueueItem.t()]
   def list_visible_operator_messages(%__MODULE__{} = store, target_issue_identifier)
       when is_binary(target_issue_identifier) do
@@ -388,7 +403,7 @@ defmodule Aiur.AgentQueueStore do
     pending_ids
     |> Enum.map(&Map.get(store.items, &1))
     |> Enum.reject(&is_nil/1)
-    |> Enum.filter(&(&1.status == :pending))
+    |> Enum.filter(&(&1.status == :pending and not pull_held?(&1)))
     |> sort_items()
     |> List.first()
   end
@@ -396,10 +411,12 @@ defmodule Aiur.AgentQueueStore do
   defp next_pending_item_matching(store, pending_ids, matcher) do
     pending_ids
     |> Enum.map(&Map.get(store.items, &1))
-    |> Enum.filter(&(match?(%AgentQueueItem{status: :pending}, &1) and matcher.(&1)))
+    |> Enum.filter(&(match?(%AgentQueueItem{status: :pending}, &1) and not pull_held?(&1) and matcher.(&1)))
     |> sort_items()
     |> List.first()
   end
+
+  defp pull_held?(item), do: item.delivery[:consume_at] == :pull
 
   defp sort_items(items) do
     Enum.sort_by(items, fn item -> {priority_rank(item.delivery[:priority]), item.sequence} end)

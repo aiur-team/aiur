@@ -12,7 +12,7 @@ defmodule Aiur.Config.Schema.EventsExport do
 
   embedded_schema do
     # @config-reference config-configuration-11 events.export.enabled
-    # @config-detail events.export.enabled | boolean | false | Enables signed outbound webhook delivery. |
+    # @config-detail events.export.enabled | boolean | false | Enables the external event journal; a configured webhook URL also enables signed delivery. Restart to apply. |
     field(:enabled, :boolean, default: false)
     # @config-reference config-configuration-11 events.export.allow_private_destinations
     # @config-detail events.export.allow_private_destinations | boolean | false | Allows loopback, private, link-local, CGNAT and ULA webhook destinations. |
@@ -33,10 +33,10 @@ defmodule Aiur.Config.Schema.EventsExport do
     # @config-detail events.export.request_timeout_ms | integer | 15000 | Per-attempt webhook request timeout. |
     field(:request_timeout_ms, :integer, default: 15_000)
     # @config-reference config-configuration-11 events.export.retention_days
-    # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); older records are trimmed. Read at boot. |
+    # @config-detail events.export.retention_days | integer | 7 | Retention age in days (1..90); reserved until retention is installed. Not enforced by the writer. |
     field(:retention_days, :integer, default: 7)
     # @config-reference config-configuration-11 events.export.retention_max_events
-    # @config-detail events.export.retention_max_events | integer | 50000 | Maximum retained records (1000..1000000); the first retention bound reached applies. Read at boot. |
+    # @config-detail events.export.retention_max_events | integer | 50000 | Maximum retained records (1000..1000000); reserved until retention is installed. Not enforced by the writer. |
     field(:retention_max_events, :integer, default: 50_000)
   end
 
@@ -66,11 +66,6 @@ defmodule Aiur.Config.Schema.EventsExport do
     |> validate_number(:retention_max_events, greater_than_or_equal_to: 1_000, less_than_or_equal_to: 1_000_000)
     |> validate_webhook_url()
     |> validate_change(:subject_id, &validate_subject_id/2)
-    |> require_url_when_enabled()
-  end
-
-  defp require_url_when_enabled(changeset) do
-    if get_field(changeset, :enabled), do: validate_required(changeset, [:webhook_url]), else: changeset
   end
 
   defp validate_webhook_url(changeset) do
