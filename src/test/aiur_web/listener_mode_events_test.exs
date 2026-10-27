@@ -1,10 +1,12 @@
 defmodule AiurWeb.ListenerModeEventsTest do
   use Aiur.TestSupport
   import Phoenix.Component, only: [assign: 2]
+  import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Aiur.{AgentQueue, AgentQueueStore, Listener, Orchestrator}
   alias Aiur.Orchestrator.{ListenerModes, State}
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{DashboardLive, ListenerModeEvents}
+  alias AiurWeb.OperatorControlCenter.ListenerMode
   alias Phoenix.LiveView.Async
 
   defmodule Server do
@@ -128,9 +130,35 @@ defmodule AiurWeb.ListenerModeEventsTest do
     assert Enum.all?(unavailable.assigns.listener_receipts, &(&1.receipt == :unknown))
   end
 
+  test "failed set mode shows the failure state and error text", %{socket: socket} do
+    stop_supervised!(Server)
+    {:noreply, failed} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, socket)
+    assert_error_rendered(failed)
+  end
+
+  test "failed refresh shows the failure state and error text", %{socket: socket} do
+    stop_supervised!(Server)
+    {:noreply, failed} = DashboardLive.handle_event("refresh_listen_mode", %{}, socket)
+    assert_error_rendered(failed)
+  end
+
+  test "stale and offline observations refuse writes on the server", %{socket: socket} do
+    for freshness <- [:stale, :offline] do
+      blocked = assign(socket, listener_view: Map.put(socket.assigns.listener_view, :freshness, freshness))
+      assert {:noreply, ^blocked} = DashboardLive.handle_event("set_listen_mode", %{"mode" => "async", "expected_version" => "0"}, blocked)
+      assert {:ok, %{version: 0, requested: :sync}} = Listener.get_mode("42")
+    end
+  end
+
   test "send result keeps accepted, failed and outcome unknown distinct", %{socket: socket} do
     socket = socket |> ListenerModeEvents.sent({:ok, 12}) |> ListenerModeEvents.sent({:error, :unavailable}) |> ListenerModeEvents.sent({:error, {:outcome_unknown, %{}}})
     assert socket.assigns.listener_receipts == [%{request_id: nil, receipt: :outcome_unknown}, %{request_id: nil, receipt: :failed}, %{request_id: 12, receipt: :accepted}]
+  end
+
+  defp assert_error_rendered(socket) do
+    assert socket.assigns.listener_feedback.state == :error
+    html = render_component(&ListenerMode.listener_mode/1, listener: socket.assigns.listener_view, feedback: socket.assigns.listener_feedback, now: DateTime.utc_now(), writable: true)
+    assert html =~ "could not be confirmed"
   end
 
   defp receipt_tick(socket, token) do

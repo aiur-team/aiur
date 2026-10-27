@@ -61,8 +61,11 @@ unavailable notice or `—`; partial retained data is labelled partial.
 
 The Executor filter applies to each retained inbox page. Its count is labelled as page-scoped, never a total; partial or unavailable data shows an unknown count. Use **Next retained page** to continue, even when the current page has no matches. Status filter counts and Command history retain their existing scope.
 
-The Units row shows listener mode and unread count. Open Chat to
-see the listener selector in the conversation header: **Steer · interrupts**,
+Listener-routed Units rows show a compact mode and unread count; unknown values
+show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
+the selector, effective-mode reason, oldest unread age and observation age.
+
+The conversation header selector offers **Steer · interrupts**,
 **Sync · next turn**, or **Async · on demand**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the
 observation age shows how recently the mode was read.

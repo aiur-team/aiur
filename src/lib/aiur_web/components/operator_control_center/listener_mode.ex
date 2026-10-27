@@ -8,7 +8,6 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
   attr(:writable, :boolean, default: false)
   attr(:now, :any, required: true)
   attr(:feedback, :map, default: %{})
-  attr(:badge, :boolean, default: false)
 
   @spec listener_mode(map()) :: Phoenix.LiveView.Rendered.t()
   def listener_mode(assigns) do
@@ -21,6 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
         <span :if={@listener[:effective] != @listener[:requested]} data-effective-mode={@listener[:effective] || :unavailable}>
           Effective: {mode_label(@listener[:effective])} — {reason(@listener[:effective_reason])}
         </span>
+        <span :if={!is_integer(@listener[:unread_count])} data-unread-count="unknown">Unread unknown</span>
         <span :if={@listener[:effective_reason] && @listener[:effective] == @listener[:requested]}>{reason(@listener[:effective_reason])}</span>
         <span :if={@listener[:status] == :paused}>Agent paused</span>
         <span :if={@listener[:routing] == :legacy}>Legacy routing — mode does not control delivery</span>
@@ -30,7 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
         <span data-observed-at={timestamp(@listener[:observed_at])}>
           {if(@listener[:freshness] in [:stale, :offline], do: "Stale · ", else: "Observed ")}{age(@listener[:observed_at], @now)}
         </span>
-        <form :if={!@badge && @listener[:routing] == :listener} phx-change="set_listen_mode">
+        <form :if={@listener[:routing] == :listener} phx-change="set_listen_mode">
           <input type="hidden" name="expected_version" value={@listener[:version]} />
           <label>Listener mode
             <select name="mode" aria-label="Listener mode" disabled={!@writable || @feedback[:state] == :pending || @listener[:freshness] in [:stale, :offline]}>
@@ -38,7 +38,7 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
             </select>
           </label>
         </form>
-        <p :if={!@badge && !@writable}>Read-only dashboard — listener mode cannot be changed.</p>
+        <p :if={!@writable}>Read-only dashboard — listener mode cannot be changed.</p>
         <p :if={@feedback[:state] == :pending}>Changing listener mode… waiting for confirmation.</p>
         <p :if={@feedback[:state] == :conflict}>Mode changed elsewhere. Current winner: {mode_label(@listener[:requested])}. Your choice: {mode_label(@feedback[:choice])}. Choose again or discard it.</p>
         <p :if={@feedback[:state] == :error}>Listener change could not be confirmed. Refresh the current mode before retrying.</p>
@@ -48,6 +48,18 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
         <span>{if(@listener == :loading, do: "Loading listener mode…", else: "Listener mode unavailable")}</span>
       <% end %>
     </div>
+    """
+  end
+
+  attr(:listener, :any, default: :unavailable)
+
+  @spec listener_badge(map()) :: Phoenix.LiveView.Rendered.t()
+  def listener_badge(assigns) do
+    ~H"""
+    <span :if={is_map(@listener) && @listener[:routing] == :listener} class="u-pill u-listener" data-listener-badge>
+      <span data-requested-mode={@listener[:requested] || :unavailable}>{badge_label(@listener[:requested])}</span>
+      <span data-unread-count={if(is_integer(@listener[:unread_count]), do: @listener[:unread_count], else: :unknown)}> · Unread {if(is_integer(@listener[:unread_count]), do: @listener[:unread_count], else: "?")}</span>
+    </span>
     """
   end
 
@@ -68,6 +80,11 @@ defmodule AiurWeb.OperatorControlCenter.ListenerMode do
   def mode_label(:sync), do: "Sync · next turn"
   def mode_label(:async), do: "Async · on demand"
   def mode_label(_unknown), do: "Unavailable"
+
+  defp badge_label(:steer), do: "Steer"
+  defp badge_label(:sync), do: "Sync"
+  defp badge_label(:async), do: "Async"
+  defp badge_label(_unknown), do: "Unavailable"
 
   defp reason(:not_running), do: "Agent not running"
   defp reason(:harness_unknown), do: "Harness support unknown"

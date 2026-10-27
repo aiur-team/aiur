@@ -12,6 +12,8 @@ defmodule AiurWeb.ListenerModeComponentTest do
     render_component(&ListenerMode.listener_mode/1, Keyword.merge([listener: listener, now: DateTime.utc_now(), writable: true], opts))
   end
 
+  defp render_badge(listener), do: render_component(&ListenerMode.listener_badge/1, listener: listener)
+
   test "unavailable and loading never invent a sync mode" do
     for state <- [:unavailable, :loading] do
       html = render_mode(state)
@@ -26,7 +28,7 @@ defmodule AiurWeb.ListenerModeComponentTest do
     assert html =~ ~s(data-requested-mode="sync")
     assert html =~ "Sync · next turn"
     assert html =~ ~s(name="expected_version" value="0")
-    refute render_mode(view(), badge: true) =~ "<select"
+    refute render_badge(view()) =~ "<select"
     read_only = render_mode(view(), writable: false)
     assert read_only =~ "Read-only dashboard"
     assert read_only =~ "disabled"
@@ -36,6 +38,46 @@ defmodule AiurWeb.ListenerModeComponentTest do
     html = render_mode(view(%{routing: :legacy}))
     assert html =~ "Legacy routing"
     refute html =~ "<select"
+  end
+
+  test "unknown requested and effective modes render Unavailable" do
+    assert ListenerMode.mode_label(nil) == "Unavailable"
+    html = render_mode(view(%{requested: nil, effective: nil}))
+    assert html =~ ">Requested: Unavailable</span>"
+    refute html =~ ">Requested: Sync"
+  end
+
+  test "unknown unread count is explicit in the drawer" do
+    html = render_mode(view(%{unread_count: nil}))
+    assert html =~ ~s(data-unread-count="unknown">Unread unknown</span>)
+    refute html =~ ~s(data-unread-count="0")
+  end
+
+  test "row badges omit detail, live regions and unsupported routing" do
+    for listener <- [:unavailable, :loading, %{}, view(%{routing: :legacy})] do
+      assert String.trim(render_badge(listener)) == ""
+    end
+
+    html = render_badge(view(%{requested: :async, unread_count: 2}))
+    assert html =~ ~s(class="u-pill u-listener")
+    assert html =~ ~s(data-requested-mode="async">Async</span>)
+    assert html =~ ~s(data-unread-count="2")
+    assert html =~ "Unread 2"
+    refute html =~ "role="
+    refute html =~ "Observed"
+    refute html =~ "Effective"
+    refute html =~ "oldest"
+    refute html =~ "on demand"
+    refute html =~ "<select"
+  end
+
+  test "row badge preserves unknown mode and count without inventing defaults" do
+    html = render_badge(view(%{requested: nil, unread_count: nil}))
+    assert html =~ ~s(data-requested-mode="unavailable">Unavailable</span>)
+    assert html =~ ~s(data-unread-count="unknown")
+    assert html =~ "Unread ?"
+    refute html =~ "Sync"
+    refute html =~ "Unread 0"
   end
 
   test "fallback, not running, paused and emulated interruption remain distinct" do
