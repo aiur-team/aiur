@@ -63,7 +63,7 @@ defmodule Aiur.AppServer.NativeSteer do
       case reason do
         {:response_error, error} when is_map(error) -> Map.get(error, "code", :provider_error)
         reason when is_atom(reason) -> reason
-        _ -> :transport_error
+        _ -> :unknown
       end
 
     Logger.info("steer_fallback #{Messages.issue_context(state.issue)} session_id=#{session.thread_id}-#{state.current_turn_id} reason=#{inspect(code)}")
