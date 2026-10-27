@@ -149,6 +149,17 @@ forward, so measuring the gate never perturbs a real build acquisition.
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
 | Command | Commands | Answer, replace an undelivered Executor answer, or send a correction. |
 
+Command details include an escalation timeline from recorded facts, with the
+cause, absolute time, and relative age. An unavailable timeline is labeled
+explicitly.
+
+Native requests show every question together: choose one answer
+(or several when offered), select Other to write a response where allowed,
+and submit all answers at once.
+
+Suggested responses for single-question
+Commands place the recommended option first and mark it Recommended.
+
 On Command detail, **Replace** asks for confirmation before opening an empty answer form. It is available for an Executor answer until delivery starts. A competing answer shows who answered, when, and their answer.
 
 Delivered and in-flight answers show their status and recorded answer. If an answer or replacement attempt loses a delivery race, its form is disabled and **Send a follow-up message** opens the unit chat.

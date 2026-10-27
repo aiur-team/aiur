@@ -11,6 +11,7 @@ defmodule AiurWeb.Routes.DashboardPages do
         get("/ticket-context-dialog-hook.js", AiurWeb.StaticAssetController, :ticket_context_dialog_hook)
         get("/build-order-grid-hook.js", AiurWeb.StaticAssetController, :build_order_grid_hook)
         get("/time-brush-hook.js", AiurWeb.StaticAssetController, :time_brush_hook)
+        get("/decision-questions-validation.js", AiurWeb.StaticAssetController, :decision_questions_validation)
         get("/sortable-table-hook.js", AiurWeb.StaticAssetController, :sortable_table_hook)
         get("/streamdeck-emulator-hook.js", AiurWeb.StaticAssetController, :streamdeck_emulator_hook)
         get("/streamdeck-emulator-knob.js", AiurWeb.StaticAssetController, :streamdeck_emulator_knob)

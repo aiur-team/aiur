@@ -4,7 +4,6 @@ defmodule AiurWeb.Layouts do
   """
 
   use Phoenix.Component
-
   @spec root(map()) :: Phoenix.LiveView.Rendered.t()
   def root(assigns) do
     assigns =
@@ -45,6 +44,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/streamdeck-emulator-knob.js"></script>
         <script defer src="/streamdeck-emulator-hook.js"></script>
         <script defer src="/sortable-table-hook.js"></script>
+        <script defer src="/decision-questions-validation.js"></script>
         <script defer src="/build-home/loader.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
