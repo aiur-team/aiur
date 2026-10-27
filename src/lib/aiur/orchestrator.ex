@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator do
   @moduledoc "Polls the issue tracker and dispatches repository copies to agent-backed workers."
   use GenServer
 
-  alias Aiur.Orchestrator.OperatorMessages.HeldReads
   alias Aiur.Orchestrator.ListenerModes
+  alias Aiur.Orchestrator.OperatorMessages.HeldReads
   require Logger
 
   alias Aiur.{Issue, Signal}

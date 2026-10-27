@@ -2,8 +2,8 @@ defmodule Aiur.Orchestrator.HeldReadsTest do
   use ExUnit.Case, async: true
   alias Aiur.{AgentQueue, AgentQueueStore}
   alias Aiur.Listener.{ModeStore, Receipt}
-  alias Aiur.Orchestrator.OperatorMessages.HeldReads
   alias Aiur.Orchestrator.{LifecycleFence, State}
+  alias Aiur.Orchestrator.OperatorMessages.HeldReads
 
   setup do
     dir = Aiur.TestSupport.tmp_root!("held-reads")
