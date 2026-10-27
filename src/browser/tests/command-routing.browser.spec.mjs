@@ -10,6 +10,11 @@ for (const width of [390, 1280]) {
     await page.goto('/command-answer-control/answerable')
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 
+    await expect.poll(async () => {
+      const response = await page.request.get('/command-answer-join-state')
+      return (await response.json()).state
+    }).toBe('joined')
+    await expect(page.locator('form.decision-answer-form button[type=submit]')).toBeEnabled()
     await page.locator('.decision-card-head').first().click()
     await expect(page).toHaveURL(/\/commands$/)
 

@@ -20,15 +20,17 @@ defmodule Aiur.DecisionRoutingQueryTest do
     both = request(store, "both", now)
     executor = request(store, "executor", now)
     legacy = request(store, "legacy", now)
+    other_ticket = request(store, "other-ticket", now, ticket: %{identifier: "6412", title: "Other unit", url: nil})
+    route(store, other_ticket, :with_executor, now)
     route(store, human, :with_human, now)
     route(store, both, :with_both, now)
     route(store, executor, :with_executor, now)
 
     assert ids(store, "needs_you") == Enum.sort([human.decision_id, both.decision_id])
-    assert ids(store, "with_executor") == [executor.decision_id]
+    assert ids(store, "with_executor") == Enum.sort([executor.decision_id, other_ticket.decision_id])
     assert ids(store, "from_executor") == []
     assert {:ok, counts} = DecisionQuery.counts(store: store)
-    assert {counts.needs_you, counts.needs_you_blocking, counts.open, counts.with_executor} == {2, 2, 4, 1}
+    assert {counts.needs_you, counts.needs_you_blocking, counts.open, counts.with_executor} == {2, 2, 5, 2}
     assert counts.needs_you_by_ticket == %{"6411" => 2}
     assert {:ok, page} = DecisionQuery.list(%{route: "needs_you", limit: 1}, store: store)
     assert length(page.decisions) == 1
@@ -48,7 +50,7 @@ defmodule Aiur.DecisionRoutingQueryTest do
 
     assert {:ok, counts} = DecisionQuery.counts(store: store)
     assert counts.needs_you == 3
-    assert counts.with_executor == 0
+    assert counts.with_executor == 1
 
     assert {:ok, _} =
              DecisionStore.answer(human.decision_id, %{"idempotency_key" => "answer-human", "expected_version" => 1, "custom_response" => "Proceed"}, [actor: %{kind: :operator, id: "test"}], store)
@@ -57,6 +59,25 @@ defmodule Aiur.DecisionRoutingQueryTest do
     assert ids(store, "resolved") == [human.decision_id]
     assert {:ok, counts} = DecisionQuery.counts(store: store)
     assert counts.needs_you == 2
+    assert counts.needs_you_by_ticket == %{"6411" => 2}
+    # Escalate the second ticket independently, then resolve its only Command.
+    assert {:ok, _} =
+             DecisionStore.record_command_fact(other_ticket.decision_id, :escalated, %{cause: :executor_offline, at: at, detail: "Executor offline", actor: %{kind: :system, id: "routing"}},
+               server: store
+             )
+
+    assert {:ok, counts} = DecisionQuery.counts(store: store)
+    assert counts.needs_you_by_ticket == %{"6411" => 2, "6412" => 1}
+
+    assert {:ok, _} =
+             DecisionStore.answer(
+               other_ticket.decision_id,
+               %{"idempotency_key" => "answer-other", "expected_version" => 1, "custom_response" => "Proceed"},
+               [actor: %{kind: :operator, id: "test"}],
+               store
+             )
+
+    assert {:ok, counts} = DecisionQuery.counts(store: store)
     assert counts.needs_you_by_ticket == %{"6411" => 2}
   end
 
