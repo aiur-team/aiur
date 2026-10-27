@@ -4,6 +4,7 @@ defmodule Aiur.ListenerTest do
   alias Aiur.{AgentQueueStore, Listener, Orchestrator, TrackerIdentity}
   alias Aiur.Listener.ModeStore
   alias Aiur.Orchestrator.{ListenerModes, State}
+  alias Aiur.Orchestrator.OperatorMessages.Capabilities
 
   defmodule Server do
     use GenServer
@@ -139,7 +140,7 @@ defmodule Aiur.ListenerTest do
   end
 
   test "regression guard: control capabilities retain exact key set", %{state: state} do
-    keys = Aiur.Orchestrator.OperatorMessages.Capabilities.issue_control_capabilities(state, "42") |> Map.keys() |> Enum.sort()
+    keys = Capabilities.issue_control_capabilities(state, "42") |> Map.keys() |> Enum.sort()
     assert keys == Enum.sort([:accepts_operator_messages, :accepted_delivery_policies, :can_interrupt, :immediate_delivery, :safe_checkpoints, :status, :unit_control, :pending_control, :queue_depth])
   end
 end
