@@ -12,7 +12,9 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     original = :sys.get_state(orchestrator)
     parent = self()
     store = Process.whereis(DecisionStore)
-    dispatcher = :sys.get_state(store).dispatcher
+    store_state = :sys.get_state(store)
+    dispatcher = store_state.dispatcher
+    answer_comment_publisher = store_state.answer_comment_publisher
 
     :sys.replace_state(store, fn state ->
       %{
@@ -21,7 +23,8 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
             result = DecisionDispatch.dispatch(decision, opts)
             send(parent, {:answer_queued, decision.decision_id, result})
             result
-          end
+          end,
+          answer_comment_publisher: fn _decision -> :ok end
       }
     end)
 
@@ -44,7 +47,7 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     end)
 
     on_exit(fn ->
-      :sys.replace_state(store, &%{&1 | dispatcher: dispatcher})
+      :sys.replace_state(store, &%{&1 | dispatcher: dispatcher, answer_comment_publisher: answer_comment_publisher})
       :sys.replace_state(orchestrator, fn _ -> original end)
     end)
 
