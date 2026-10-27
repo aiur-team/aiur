@@ -196,6 +196,9 @@ defmodule Aiur.Orchestrator.Calls do
       when is_boolean(on?) and is_binary(source),
       do: GlobalPause.set_global_pause_call(state, on?, source)
 
+  def handle_call({:operator_message_snapshot, item_id}, _from, state) when is_integer(item_id),
+    do: Aiur.Orchestrator.OperatorMessages.Snapshot.handle_call(state, item_id)
+
   def handle_call({:operator_message_status, item_id}, _from, state)
       when is_integer(item_id),
       do: OM.operator_message_status_call(state, item_id)
