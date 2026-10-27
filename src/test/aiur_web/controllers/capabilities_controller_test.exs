@@ -1,5 +1,5 @@
 defmodule AiurWeb.CapabilitiesControllerTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
   import Plug.Conn
   import Plug.Test
   alias AiurWeb.Router
