@@ -12,6 +12,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 elixir_dir="$repo_root/src"
 mix_env="${MIX_ENV:-prod}"
+. "$repo_root/scripts/lib/layout-assets.sh"
+build_layout_assets "$repo_root"
 
 cd "$elixir_dir"
 
@@ -27,7 +29,7 @@ else
   exit 1
 fi
 
-MIX_ENV="$mix_env" "${mix[@]}" deps.get >&2
+MIX_ENV="$mix_env" bash ../scripts/retry-mix-deps-get.sh "${mix[@]}" deps.get >&2
 MIX_ENV="$mix_env" "${mix[@]}" release aiur --overwrite >&2
 
 release_dir="$elixir_dir/_build/$mix_env/rel/aiur"

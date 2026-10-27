@@ -4,9 +4,15 @@ defmodule Aiur.CommandsFacadeTest do
   alias Aiur.Commands
 
   @renamed %{
+    requester_notified: {Aiur.Commands.ExecutorDelivery, :on_enqueued},
+    public_v2: {Aiur.Commands.Projection, :public_v2},
+    needs_you?: {Aiur.Commands.Routing.Policy, :needs_you?},
+    matches_route?: {Aiur.Commands.Routing.Policy, :matches_route?},
     capability_ids: {Aiur.DecisionStore.CapabilityProvider, :capability_ids},
     capabilities: {Aiur.DecisionStore.CapabilityProvider, :capabilities},
     query_list: {Aiur.DecisionQuery, :list},
+    list_decisions: {Aiur.DecisionStore, :list},
+    decision_stale_topic: {Aiur.DecisionAttentionSignals, :stale_topic},
     query_get: {Aiur.DecisionQuery, :get},
     query_counts: {Aiur.DecisionQuery, :counts},
     default_store: {Aiur.DecisionQuery, :default_store},
@@ -24,6 +30,7 @@ defmodule Aiur.CommandsFacadeTest do
     resolve_attention: {Aiur.DecisionAttention, :resolve},
     classify_supervisor_token: {Aiur.SupervisorToken, :classify},
     errors: {Aiur.SupervisorToken.EnvCheck, :errors},
+    open?: {Aiur.DecisionStore.RetainedIndex, :open?},
     print_projection_status: {Aiur.DecisionStore.ProjectionRecovery, :print_status},
     default_metrics: {Aiur.Commands.Defaults, :default_metrics},
     default_attention: {Aiur.Commands.Defaults, :default_attention},

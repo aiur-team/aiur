@@ -4,9 +4,11 @@ defmodule AiurWeb.Build.Payload do
   All fields defined by PayloadSchema are required unless explicitly optional.
   Unknown values are nil, never a fabricated zero. Unknown keys are rejected.
 
-  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), epics,
-  features, order, counts (whole-index totals or nil), sections (hist/now/plan/nq),
-  history (from/more/total/undated/tz), sources (history/features/queue/agents/index),
+  Snapshot: v, kind, epoch, generation, now; writable, repo (url or nil), optional
+  icons catalog, epics, features, order, counts (whole-index totals or nil), feature_progress
+  (counts keyed by feature-local epic: closed, open, CI-wait, unpublished, and total; observation
+  time; plan version and extras), sections (hist/now/plan/nq),
+  history (from/more/total/undated/tz), sources (history/features/queue/agents/index/open_tickets/estimates),
   usage (authorized/locked/unavailable), daemon (state/heartbeat_at/observed_at).
   Epic flags general/feature/temp/unsorted are optional. Feature to=nil means open.
 
@@ -30,7 +32,9 @@ defmodule AiurWeb.Build.Payload do
   | status | done, failed, not_planned, closed, running, queued, open |
   | pct / est | 0..100 or nil / number of hours or nil |
   | agent | nil or nullable model, name, state and effort |
-  | agent.state | active, error, retries, command, paused, parked, or nil |
+  | agent.state | active, error, retrying, retries, command, paused, parked, merge-queued, ci-red, body-fix, paused-usage-limit, paused-decision, paused-agent, blocked, handed-off, or nil |
+  | agent.pause | usage_limit_exhausted, ci_wait, or nil |
+  | agent.resume_at | usage limit reset milliseconds or nil |
   | agent.effort | none, minimal, low, medium, high, xhigh, max, or nil |
   | override | nil or hours (number), reason (string), by (string or nil), at (ms or nil) |
   | added / deps / children | boolean / blocker identifiers / dependent identifiers |
@@ -41,9 +45,9 @@ defmodule AiurWeb.Build.Payload do
   | cue.failed | nil or positive integer by and positive integer blocks list |
   | pr | nil or positive integer num and open/merged/closed state |
 
-  Epics require key/label strings, numeric hue and icon from
-  bug/pen/server/docs/layers/unsorted; optional general/temp/unsorted are booleans,
-  optional feature is a string. Features require key/label, numeric hue, epic keys
+  Epics require key/label strings, numeric hue and an icon name; optional svg,
+  general/temp/unsorted are booleans, optional feature is a string. Features require key/label,
+  numeric hue, icon, nullable summary/wave, epic keys
   and nullable from/to milliseconds. Required stats is an object or nil when unavailable.
   Stats carries total/done/done_min, pct/pct_min, orig/added, baseline, spark, also
   and reasons (complexity/no_weight/progress/status). Unknown done and percentages
@@ -52,19 +56,22 @@ defmodule AiurWeb.Build.Payload do
 
   History requires nullable from/total/undated, boolean more and string tz.
   Sources each require state (ok/stale/incomplete/unavailable/disabled), nullable
-  observed_at milliseconds and nullable reason text. Daemon requires state
+  observed_at milliseconds and nullable reason text. Open tickets also allow unsupported
+  and require truncated (boolean). Daemon requires state
   (live/stale/offline/unknown) and nullable heartbeat_at/observed_at milliseconds.
 
   Authorized usage requires observed_at (ms or nil), apis and providers. Each
   usage row requires name, nullable logo/mono/tag strings, nullable numeric hue,
   nullable string accounts, nullable session/weekly windows, nullable credits,
-  and boolean none. Windows require nullable 0..100 acc values, nullable reset_at
+  and boolean none. Windows require nullable 0..100 `acc` values representing
+  percent remaining, nullable `reset_at`
   milliseconds and nullable string win. Optional row fields carry lines (tagged
-  windows with tip pairs and nullable hold_until), icon, stale, observed_at and
-  note. Credits require nullable pct, string left and
+  windows with tip pairs and nullable hold_until), icon, stale, observed_at,
+  snapshot_observed_at and note. Credits require nullable pct, string left and
   two-string tip pairs. Unavailable usage requires observed_at and reason.
   Locked usage requires only state/accessible_name/authentication_path/reason.
-  Repo is nil or a url string; writable is boolean.
+  Repo is nil or a url string; writable is boolean. Capacity requires positive max or nil,
+  observed_at milliseconds or nil and nullable stale boolean; it follows the runtime agent cap.
 
   Diff: envelope plus upsert/remove/set. Set replaces whole blocks, never merges
   deeply; history_meta is translated to the socket's history block. Hist upserts
@@ -83,19 +90,29 @@ defmodule AiurWeb.Build.Payload do
 
   @spec snapshot(map(), String.t(), non_neg_integer()) :: map()
   def snapshot(data, epoch, generation) do
-    data |> scrub() |> Map.drop(["index_generation", "v", "kind", "epoch", "generation"]) |> Map.merge(envelope("snapshot", epoch, generation))
+    data
+    |> scrub()
+    |> pack_icons()
+    |> Map.drop(["index_generation", "v", "kind", "epoch", "generation"])
+    |> Map.merge(envelope("snapshot", epoch, generation))
   end
 
   @spec diff(map(), String.t(), non_neg_integer(), map() | nil) :: map()
   def diff(changes, epoch, generation, history) do
     changes = scrub(changes)
     upsert = Enum.reject(changes["upsert"], &outside_window?(&1, history))
-    set = history_set(changes["set"], history)
+    set = changes["set"] |> history_set(history) |> pack_icons()
     envelope("diff", epoch, generation) |> Map.merge(%{"now" => changes["now"], "upsert" => upsert, "remove" => changes["remove"], "set" => set})
   end
 
   @spec earlier(map(), String.t(), non_neg_integer()) :: map()
   def earlier(page, epoch, generation), do: page |> scrub() |> Map.merge(envelope("earlier", epoch, generation))
+
+  @spec ticket(map() | nil, String.t(), non_neg_integer()) :: map()
+  def ticket(row, epoch, generation) do
+    message = envelope("ticket", epoch, generation)
+    if row == nil, do: message, else: Map.put(message, "row", scrub(row))
+  end
 
   @spec error(atom()) :: map()
   def error(reason), do: %{"v" => @version, "kind" => "error", "reason" => Atom.to_string(reason)}
@@ -134,4 +151,77 @@ defmodule AiurWeb.Build.Payload do
   defp history_set(%{"history_meta" => meta} = set, history) when is_map(meta) and is_map(history), do: set |> Map.delete("history_meta") |> Map.put("history", Map.merge(history, meta))
   defp history_set(%{"history_meta" => meta} = set, nil) when is_map(meta), do: Map.delete(set, "history_meta")
   defp history_set(set, _history), do: set
+
+  defp pack_icons(blocks) when is_map(blocks) do
+    {epics, epic_icons} = take_icons(blocks["epics"] || %{})
+    {features, feature_icons} = take_icons(blocks["features"] || %{})
+    icons = Map.merge(epic_icons, feature_icons)
+
+    blocks
+    |> maybe_put("epics", epics, Map.has_key?(blocks, "epics"))
+    |> maybe_put("features", features, Map.has_key?(blocks, "features"))
+    |> compact_progress_metadata()
+    |> maybe_put("icons", icons, map_size(icons) > 0)
+  end
+
+  defp pack_icons(blocks), do: blocks
+
+  defp take_icons(items) when is_map(items) do
+    Enum.reduce(items, {%{}, %{}}, fn
+      {key, %{"svg" => svg, "icon" => icon} = item}, {items, icons} when is_binary(svg) and is_binary(icon) ->
+        {Map.put(items, key, Map.delete(item, "svg")), Map.put(icons, icon, svg)}
+
+      {key, item}, {items, icons} ->
+        {Map.put(items, key, item), icons}
+    end)
+  end
+
+  defp take_icons(items), do: {items, %{}}
+
+  # Feature progress repeats icon metadata already carried by its epic. Keep it
+  # in the internal index, but send one copy over the socket.
+  defp compact_progress_metadata(
+         %{
+           "feature_progress" => %{"features" => progress} = feature_progress,
+           "epics" => epics,
+           "features" => features
+         } = blocks
+       )
+       when is_map(progress) and is_map(epics) and is_map(features) do
+    compacted = Map.new(progress, &compact_progress_entry(&1, epics, features, feature_progress))
+
+    put_in(blocks, ["feature_progress", "features"], compacted)
+  end
+
+  defp compact_progress_metadata(blocks), do: blocks
+
+  defp compact_progress_entry({key, item}, epics, features, feature_progress) when is_map(item) do
+    epic = Map.get(epics, key, %{})
+    feature_key = if is_map(epic), do: Map.get(epic, "feature"), else: nil
+    feature = Map.get(features, feature_key, %{})
+
+    item =
+      item
+      |> drop_matching_fields(epic, ~w(icon summary wave))
+      |> drop_matching_field("feature", epic, "feature")
+      |> drop_matching_field("label", feature, "label")
+      |> drop_matching_field("observed_at", feature_progress, "observed_at")
+      |> drop_matching_field("plan_version", feature_progress, "plan_version")
+
+    {key, item}
+  end
+
+  defp compact_progress_entry(entry, _epics, _features, _feature_progress), do: entry
+
+  defp drop_matching_fields(item, source, fields),
+    do: Enum.reduce(fields, item, &drop_matching_field(&2, &1, source, &1))
+
+  defp drop_matching_field(item, field, source, source_field) do
+    if is_map(source) and Map.has_key?(source, source_field) and Map.get(item, field) == Map.get(source, source_field),
+      do: Map.delete(item, field),
+      else: item
+  end
+
+  defp maybe_put(map, key, value, true), do: Map.put(map, key, value)
+  defp maybe_put(map, _key, _value, false), do: map
 end

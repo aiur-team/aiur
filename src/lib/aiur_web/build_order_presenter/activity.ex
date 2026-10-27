@@ -3,6 +3,7 @@ defmodule AiurWeb.BuildOrderPresenter.Activity do
 
   import AiurWeb.BuildOrderPresenter.Common
 
+  alias Aiur.GitHub.{Config, Labels}
   alias Aiur.OpaqueIdentifier
 
   @safe_stages [:brainstorm, :plan, :work, :review]
@@ -46,6 +47,7 @@ defmodule AiurWeb.BuildOrderPresenter.Activity do
       status: :known,
       kind: kind,
       work_state: execution_work_state(kind, row),
+      labels: safe_labels(Map.get(row, :labels)),
       pause_reason: safe_atom(Map.get(row, :pause_reason)),
       waiting_reason: safe_atom(Map.get(row, :waiting_reason)),
       tracker_paused: boolean_or_unknown(Map.get(row, :tracker_paused)),
@@ -54,6 +56,9 @@ defmodule AiurWeb.BuildOrderPresenter.Activity do
       observed_at: execution_observed_at(row)
     }
   end
+
+  defp safe_labels(labels) when is_list(labels), do: Labels.present_runtime_labels(labels, Config.label_prefix())
+  defp safe_labels(_labels), do: []
 
   defp execution_work_state(:running, row), do: safe_atom(Map.get(row, :work_state))
   defp execution_work_state(:retrying, _row), do: :retrying

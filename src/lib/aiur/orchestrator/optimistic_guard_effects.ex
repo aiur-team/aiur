@@ -72,6 +72,23 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
     state
   end
 
+  def execute(state, {:merged_notice, dep, blocker}, opts) do
+    ledger = Keyword.get(opts, :ledger, OptimisticLedger)
+
+    with {:ok, row} when is_map(row) <- ledger.get(dep),
+         facts when is_map(facts) <- Enum.find(row["blockers"], &(&1["id"] == blocker)),
+         false <- facts["merged_notice_emitted"] == true do
+      TrackerTasks.run(
+        state,
+        {:optimistic_attention, dep},
+        fn -> emit_merged_notice(ledger, dep, blocker, opts) end,
+        fn current, result -> report(current, dep, result) end
+      )
+    else
+      _ -> state
+    end
+  end
+
   def execute(state, {:park, dep, blocker, cause}, opts) do
     ledger = Keyword.get(opts, :ledger, OptimisticLedger)
 
@@ -100,6 +117,13 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
 
   def execute(state, {:resolve, _cause, dep}, opts),
     do: TrackerTasks.run(state, {:optimistic_attention, dep}, fn -> attention(:resolve, dep, %{}, opts) end, fn current, result -> report(current, dep, result) end)
+
+  defp emit_merged_notice(ledger, dep, blocker, opts) do
+    with :ok <- attention(:resolve, dep, %{}, opts),
+         :ok <- attention(:open, dep, %{blocker: blocker, cause: :merged, action: :none, severity: "info"}, opts) do
+      ledger.update_blocker(dep, blocker, %{merged_notice_emitted: true})
+    end
+  end
 
   defp pause_and_finish(state, dep, blocker, cause, facts, opts) do
     {state, paused?} = pause(state, dep, facts, opts)
@@ -205,6 +229,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
     end
   end
 
+  defp attention_key(%{cause: :merged, action: :none}), do: "merged_notice_emitted"
   defp attention_key(%{action: :none}), do: "info_attention_emitted"
   defp attention_key(_), do: "attention_emitted"
 
@@ -218,7 +243,7 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
   end
 
   defp release_records(state, records, observations, opts) do
-    ledger = Keyword.get(opts, :ledger, OptimisticLedger)
+    prefix = Keyword.fetch!(opts, :label_prefix)
 
     eligible =
       for row <- records,
@@ -226,15 +251,128 @@ defmodule Aiur.Orchestrator.OptimisticGuardEffects do
           Enum.any?(row["blockers"], &(&1["park_complete"] == true)),
           issue = get_in(observations, [:dependents, row["ticket"]]),
           is_map(issue),
-          (Keyword.fetch!(opts, :label_prefix) <> ":parked") not in issue.labels,
+          recovery_ready?(row, observations, issue, prefix),
           do: row
 
     Enum.reduce(eligible, state, fn row, current ->
-      case ledger.resume_park(row["ticket"], now(opts)) do
-        :ok -> execute(current, {:resolve, :optimistic_blocker_failed, row["ticket"]}, opts)
-        error -> report(current, row["ticket"], error)
-      end
+      issue = get_in(observations, [:dependents, row["ticket"]])
+      entry = State.find_running_by_identifier(current.running, row["ticket"])
+      live_paused? = optimistic_pause?(entry)
+      target = if live_paused?, do: "in-progress", else: recovery_state(issue, prefix)
+
+      update =
+        Keyword.get(opts, :update_state_fun, fn identifier, state_name, expected -> TicketTransition.write_state(identifier, state_name, writer: :optimistic_guard, expected_state: expected) end)
+
+      update_marker = Keyword.get(opts, :remove_marker_fun, fn identifier, marker -> TicketTransition.write_marker(identifier, :remove, marker, writer: :optimistic_guard) end)
+      write_state? = (prefix <> ":parked") in issue.labels
+
+      key = {:optimistic_recovery, row["ticket"]}
+
+      context = %{
+        row: row,
+        entry: entry,
+        live_paused?: live_paused?,
+        issue: issue,
+        prefix: prefix,
+        target: target,
+        opts: opts,
+        update: update,
+        update_marker: update_marker,
+        write_state?: write_state?
+      }
+
+      schedule_recovery(current, key, context)
     end)
+  end
+
+  defp schedule_recovery(state, key, context) do
+    if TrackerTasks.running?(state, key) do
+      state
+    else
+      TrackerTasks.run(state, key, fn -> perform_recovery(context) end, fn next, result -> apply_recovery_result(next, result, context) end)
+    end
+  end
+
+  defp perform_recovery(%{write_state?: write_state?, issue: issue, prefix: prefix, target: target, update: update, update_marker: update_marker, live_paused?: live_paused?, row: row, opts: opts}) do
+    state_result = if write_state?, do: restore_dispatch_state(issue, target, prefix, update, update_marker), else: :ok
+
+    case state_result do
+      :ok when live_paused? -> :ok
+      :ok -> Keyword.get(opts, :ledger, OptimisticLedger).resume_park(row["ticket"], now(opts))
+      error -> error
+    end
+  end
+
+  defp apply_recovery_result(state, :ok, %{live_paused?: true, entry: entry, issue: issue, prefix: prefix, target: target, row: row, opts: opts}) do
+    case maybe_resume_optimistic_pause(state, entry, issue, prefix, target, opts) do
+      {:ok, resumed} -> finish_live_recovery(resumed, row["ticket"], opts)
+      {:error, error} -> report(state, row["ticket"], error)
+    end
+  end
+
+  defp apply_recovery_result(state, :ok, %{row: row, opts: opts}),
+    do: execute(state, {:resolve, :optimistic_blocker_failed, row["ticket"]}, opts)
+
+  defp apply_recovery_result(state, error, %{row: row}), do: report(state, row["ticket"], error)
+
+  defp recovery_state(issue, prefix) do
+    if issue.state == "rework" or (prefix <> ":rework") in (issue.labels || []), do: "rework", else: "todo"
+  end
+
+  defp recovery_ready?(row, observations, issue, prefix) do
+    marker = prefix <> ":parked"
+    failed = Enum.any?(row["blockers"], fn blocker -> blocker["park_complete"] == true and blocker_recovered?(observations[blocker["id"]]) end)
+    no_other_hold? = not independent_hold?(issue, marker, prefix)
+    marker not in issue.labels or (failed and no_other_hold?)
+  end
+
+  defp blocker_recovered?(%{confirmed?: true, issue_open?: false, state_reason: reason}) when reason in [:completed, "completed"], do: true
+  defp blocker_recovered?(%{confirmed?: true, pr_merged: true}), do: true
+  defp blocker_recovered?(_), do: false
+
+  defp restore_dispatch_state(issue, target, prefix, update, remove_marker) do
+    expected = if is_binary(issue.state), do: issue.state, else: :none
+
+    with :ok <- update.(issue.identifier, target, expected) do
+      remove_marker.(issue.identifier, prefix <> ":parked")
+    end
+  end
+
+  defp optimistic_pause?(%{paused_reason: :optimistic_blocker_failed} = entry), do: State.paused_running_entry?(entry)
+  defp optimistic_pause?(_entry), do: false
+
+  defp maybe_resume_optimistic_pause(state, entry, issue, prefix, target, opts) do
+    refreshed_issue = %{issue | state: target, parked: false, state_labels: [target], labels: Enum.reject(issue.labels || [], &(&1 == prefix <> ":parked"))}
+    refreshed_entry = %{entry | issue: refreshed_issue}
+
+    resume = Keyword.get(opts, :resume_paused_fun)
+
+    case if(is_function(resume, 2), do: resume.(state, refreshed_entry), else: PauseResume.resume_paused_issue(state, refreshed_entry, false)) do
+      {{:ok, :resumed}, next} -> {:ok, next}
+      {error, _next} -> {:error, error}
+    end
+  end
+
+  defp finish_live_recovery(state, ticket, opts) do
+    ledger = Keyword.get(opts, :ledger, OptimisticLedger)
+
+    TrackerTasks.run(
+      state,
+      {:optimistic_recovery_finish, ticket},
+      fn -> ledger.resume_park(ticket, now(opts)) end,
+      fn
+        current, :ok -> execute(current, {:resolve, :optimistic_blocker_failed, ticket}, opts)
+        current, error -> report(current, ticket, error)
+      end
+    )
+  end
+
+  defp independent_hold?(issue, marker, prefix) do
+    labels = issue.labels || []
+
+    Enum.any?(labels, fn label ->
+      label != marker and (label in [prefix <> ":paused", "needs-triage", "human:todo"] or String.starts_with?(label, "epic:"))
+    end) or Map.get(issue, :executor_owner) not in [nil, ""] or Map.get(issue, :paused) == true
   end
 
   defp cause_atom(cause) when is_atom(cause), do: cause

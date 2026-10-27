@@ -1,8 +1,8 @@
 {
   "id": "agent-sandbox",
-  "name": "Agent OS-process safety",
+  "name": "Agent safety",
   "layer": 2,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/agent_build_guard.ex",
     "src/lib/aiur/agent_command_installer.ex",
@@ -11,9 +11,11 @@
     "src/lib/aiur/agent_github_guard.ex",
     "src/lib/aiur/agent_github_guard/**",
     "src/lib/aiur/agent_process_log.ex",
+    "src/lib/aiur/agent_process_log/**",
     "src/lib/aiur/agent_resource_guard.ex",
     "src/lib/aiur/agent_resource_guard/**",
     "src/lib/aiur/agent_scratch.ex",
+    "src/lib/aiur/agent_shell_hook.ex",
     "src/lib/aiur/build_gate.ex",
     "src/lib/aiur/build_gate/**",
     "src/lib/aiur/build_gate_hold_monitor.ex",
@@ -43,5 +45,22 @@
   },
   "prior": [
     "RUN"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Limits agent processes and concurrent builds to protect the host during a run.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "concepts/operating-aiur.md"
+  ],
+  "config": [],
+  "env": [
+    "AIUR_AGENT_IR_SANDBOX",
+    "AIUR_AGENT_WORKSPACE",
+    "PATH"
+  ],
+  "capabilities": [],
+  "goal": "run-agents"
 }

@@ -3,7 +3,7 @@ defmodule Aiur.Codex.Frames do
   Codex-specific request frame builders.
   """
 
-  alias Aiur.Codex.DynamicTool
+  alias Aiur.AgentTools.Catalog
 
   @thread_start_id 2
   @turn_start_id 3
@@ -49,7 +49,7 @@ defmodule Aiur.Codex.Frames do
         "approvalPolicy" => approval_policy,
         "sandbox" => thread_sandbox,
         "cwd" => workspace,
-        "dynamicTools" => DynamicTool.tool_specs()
+        "dynamicTools" => Catalog.specs()
       }
     }
   end
@@ -85,6 +85,19 @@ defmodule Aiur.Codex.Frames do
         "title" => "#{issue.identifier}: #{issue.title}",
         "approvalPolicy" => approval_policy,
         "sandboxPolicy" => turn_sandbox_policy
+      }
+    }
+  end
+
+  @spec turn_steer_frame(map(), integer(), String.t(), String.t()) :: map()
+  def turn_steer_frame(session, request_id, text, expected_turn_id) do
+    %{
+      "method" => "turn/steer",
+      "id" => request_id,
+      "params" => %{
+        "threadId" => session.thread_id,
+        "input" => [%{"type" => "text", "text" => text}],
+        "expectedTurnId" => expected_turn_id
       }
     }
   end

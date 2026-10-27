@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .event_fields import EVENT_FIELDS
+from .optimistic import ticket_optimistic
 from .parse import _in_boot, _parse_timestamp
 
 BOUNDARIES = ("start", "end", "point")
@@ -31,12 +33,14 @@ def _reduce_tickets(records: list[dict], opts: dict) -> tuple[dict, list[dict]]:
 
     tickets: dict[str, dict] = {}
     for ticket, ticket_events in events_by_ticket.items():
+        intervals = _lifecycle_intervals(ticket_events)
         tickets[ticket] = {
             "ticket": ticket,
             "complexity": _dispatch_complexity(ticket_events),
             "pr_facts": next((e["pr_facts"] for e in reversed(ticket_events) if e["event"] == "pr_facts"), None),
             "events": ticket_events,
-            "intervals": _lifecycle_intervals(ticket_events),
+            "intervals": intervals,
+            **ticket_optimistic(ticket_events, intervals),
             "findings": findings_by_ticket.get(ticket, []),
         }
     return tickets, findings
@@ -50,6 +54,7 @@ def _lifecycle_event(record: dict) -> dict | None:
     if not (isinstance(ticket, str) and ticket and isinstance(event, str) and event and boundary in BOUNDARIES):
         return None
     return {
+        **{field: attributes.get(field) for field in EVENT_FIELDS},
         "ticket": ticket,
         "pr_facts": attributes if event == "pr_facts" else None,
         "event": event,
@@ -67,6 +72,7 @@ def _lifecycle_event(record: dict) -> dict | None:
         # Lifecycle attributes carry them; surfacing them here lets the Executor
         # tools and the dashboard report model/provider per ticket.
         **{key: attributes.get(key) for key in ("backend", "model", "effort", "feature", "epic", "tags", "blockers", "start_mode")},
+        **{key: attributes[key] for key in ("start_trigger", "blocker", "sha", "non_ff", "head_start_ms", "waste_ms") if key in attributes},
         "worker_host": attributes.get("worker_host"),
         "timestamp": record["timestamp_iso"],
         "timestamp_ms": record["timestamp_ms"],
@@ -286,12 +292,14 @@ def _rescope_tickets(tickets: dict, boot_id: str) -> tuple[dict, list[dict]]:
         if not events:
             continue
         findings.extend(ticket.get("findings", []))
+        intervals = _lifecycle_intervals(events)
         scoped[ticket_id] = {
             "ticket": ticket["ticket"],
             "complexity": ticket["complexity"],
             "pr_facts": next((e["pr_facts"] for e in reversed(events) if e["event"] == "pr_facts"), None),
             "events": events,
-            "intervals": _lifecycle_intervals(events),
+            "intervals": intervals,
+            **ticket_optimistic(events, intervals),
             "findings": ticket.get("findings", []),
         }
     return scoped, findings

@@ -21,7 +21,7 @@ defmodule Aiur.SystemPriorityTest do
       assert SystemPriority.nice() == nice
     end
 
-    assert {:ok, %{nice: 15, ticks: 30, start: 9}} = SystemPriority.parse_stat(stat(15, utime: 10, stime: 20, start: 9))
+    assert {:ok, %{nice: 15, parent_pid: 20, ticks: 30, start: 9}} = SystemPriority.parse_stat(stat(15, utime: 10, stime: 20, start: 9))
   end
 
   test "unreadable or malformed self stat is unavailable, not nice 0" do
@@ -45,6 +45,7 @@ defmodule Aiur.SystemPriorityTest do
     fields =
       List.duplicate("0", 20)
       |> List.replace_at(0, "R")
+      |> List.replace_at(1, "20")
       |> List.replace_at(11, "#{Keyword.get(opts, :utime, 0)}")
       |> List.replace_at(12, "#{Keyword.get(opts, :stime, 0)}")
       |> List.replace_at(15, "20")

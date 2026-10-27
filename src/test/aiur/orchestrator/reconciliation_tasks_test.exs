@@ -219,7 +219,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     blocker_id = "its-everdred/aiur#dependency-blocker-#{System.unique_integer([:positive])}"
     blocker = %{id: "dependency-blocker", identifier: blocker_id, state: "in-progress"}
     previous = %Issue{id: "dependency-add", identifier: blockee_id, state: "in-progress", blocked_by: []}
-    current = %{previous | blocked_by: [blocker]}
+    current = %{previous | blocked_by: [blocker], labels: ["agent:blocked"]}
     :ok = SubscriptionStore.attach(blockee_id)
     :ok = SubscriptionStore.attach(blocker_id)
 
@@ -292,7 +292,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     blocker_id = "its-everdred/aiur#dependency-blocker-#{System.unique_integer([:positive])}"
     blocker = %{id: "dependency-blocker", identifier: blocker_id, state: "in-progress"}
     previous = %Issue{id: "dependency-flip", identifier: blockee_id, state: "in-progress", blocked_by: []}
-    current = %{previous | blocked_by: [blocker]}
+    current = %{previous | blocked_by: [blocker], labels: ["agent:blocked"]}
     held_topic = "ticket.#{blocker_id}.agent.unblocked"
     parent = self()
 

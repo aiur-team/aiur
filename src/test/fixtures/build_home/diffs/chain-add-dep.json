@@ -1,0 +1,53 @@
+{
+  "v": 1,
+  "kind": "diff",
+  "epoch": "fixture",
+  "generation": 1,
+  "now": 1791408000000,
+  "upsert": [
+    {
+      "id": "9012",
+      "num": 9012,
+      "title": "Chain history 12",
+      "type": "chore",
+      "epic": "docs",
+      "feature": null,
+      "also": [],
+      "cx": 2,
+      "pts": 2,
+      "sec": "hist",
+      "ord": 9012,
+      "start": null,
+      "start_src": "unknown",
+      "end": 1791404400000,
+      "created": 1789349279436,
+      "status": "done",
+      "pct": 100,
+      "agent": {
+        "model": "claude",
+        "state": null,
+        "effort": "high",
+        "name": "Claude"
+      },
+      "est": null,
+      "override": null,
+      "added": false,
+      "deps": [
+        "9011",
+        "615"
+      ],
+      "children": [],
+      "dep_states": {
+        "9011": "cleared",
+        "615": "blocking"
+      },
+      "deps_missing": 0,
+      "wave": null,
+      "qpos": null,
+      "cue": null,
+      "pr": null
+    }
+  ],
+  "remove": [],
+  "set": {}
+}

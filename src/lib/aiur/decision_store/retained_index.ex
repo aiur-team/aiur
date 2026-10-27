@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionStore.RetainedIndex do
   @moduledoc false
 
+  alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
 
   @lifecycle_statuses [:open, :deferred, :expired, :dismissed, :moot, :decided, :acknowledged, :resolved]
@@ -9,12 +10,14 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   @type t :: %{
           all: :gb_sets.set(),
           lifecycle: %{Decision.decision_status() => :gb_sets.set()},
+          recoverable_expired: :gb_sets.set(),
           tickets: %{String.t() => :gb_sets.set()},
           searches: %{String.t() => :gb_sets.set()},
           audit_keys: %{String.t() => {integer(), String.t()}},
           current: %{
             all: :gb_sets.set(),
             lifecycle: %{Decision.decision_status() => :gb_sets.set()},
+            recoverable_expired: :gb_sets.set(),
             tickets: %{String.t() => :gb_sets.set()},
             searches: %{String.t() => :gb_sets.set()},
             keys: %{String.t() => {integer(), String.t()}}
@@ -64,6 +67,13 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   @spec lifecycle(t(), Decision.decision_status(), :audit | :current) :: :gb_sets.set()
   def lifecycle(index, status, order \\ :audit), do: entries(index, order).lifecycle |> Map.fetch!(status)
 
+  @spec recoverable_expired(t(), :audit | :current) :: :gb_sets.set()
+  def recoverable_expired(index, order \\ :audit), do: entries(index, order).recoverable_expired
+
+  @doc "Whether a Decision belongs to the `open` lifecycle that `aiur commands --filter open` lists."
+  @spec open?(Decision.t()) :: boolean()
+  def open?(%Decision{} = decision), do: operator_command?(decision) and open_lifecycle?(decision)
+
   @spec ticket(t(), String.t(), :audit | :current) :: :gb_sets.set()
   def ticket(index, value, order \\ :audit), do: bucket_entries(entries(index, order).tickets, value)
 
@@ -85,7 +95,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   # other.
   def canonical_counts(index) do
     index.counts
-    |> Map.take([:open, :blocking, :deferred])
+    |> Map.take([:open, :blocking, :deferred, :needs_you, :needs_you_blocking, :with_executor, :from_executor, :needs_you_by_ticket])
     |> Map.merge(%{
       total: :gb_sets.size(index.all),
       awaiting: index.counts.open - index.counts.deferred,
@@ -99,11 +109,12 @@ defmodule Aiur.DecisionStore.RetainedIndex do
     %{
       all: :gb_sets.empty(),
       lifecycle: lifecycle,
+      recoverable_expired: :gb_sets.empty(),
       tickets: %{},
       searches: %{},
       audit_keys: %{},
       current: empty_entries(),
-      counts: %{open: 0, blocking: 0, deferred: 0, deferred_blocking: 0}
+      counts: %{open: 0, blocking: 0, deferred: 0, deferred_blocking: 0, needs_you: 0, needs_you_blocking: 0, with_executor: 0, from_executor: 0, needs_you_by_ticket: %{}}
     }
   end
 
@@ -115,6 +126,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       index
       | all: :gb_sets.add(key, index.all),
         lifecycle: Map.update!(index.lifecycle, decision.decision_status, &:gb_sets.add(key, &1)),
+        recoverable_expired: update_recoverable_expired(index.recoverable_expired, decision, key, :add),
         tickets: add_buckets(index.tickets, ticket_buckets, key),
         searches: add_buckets(index.searches, search_buckets, key),
         audit_keys: Map.put(index.audit_keys, decision.decision_id, key),
@@ -132,6 +144,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       index
       | all: :gb_sets.delete_any(key, index.all),
         lifecycle: Map.update!(index.lifecycle, decision.decision_status, &:gb_sets.delete_any(key, &1)),
+        recoverable_expired: update_recoverable_expired(index.recoverable_expired, decision, key, :delete),
         tickets: remove_buckets(index.tickets, ticket_buckets, key),
         searches: remove_buckets(index.searches, search_buckets, key),
         audit_keys: Map.delete(index.audit_keys, decision.decision_id),
@@ -142,10 +155,19 @@ defmodule Aiur.DecisionStore.RetainedIndex do
 
   defp remove(index, _prior), do: index
 
+  defp update_recoverable_expired(set, %Decision{decision_status: :expired, blocking: true, answer: nil}, key, :add),
+    do: :gb_sets.add(key, set)
+
+  defp update_recoverable_expired(set, %Decision{decision_status: :expired, blocking: true, answer: nil}, key, :delete),
+    do: :gb_sets.delete_any(key, set)
+
+  defp update_recoverable_expired(set, _decision, _key, _action), do: set
+
   defp empty_entries do
     %{
       all: :gb_sets.empty(),
       lifecycle: Map.new(@lifecycle_statuses, &{&1, :gb_sets.empty()}),
+      recoverable_expired: :gb_sets.empty(),
       tickets: %{},
       searches: %{},
       keys: %{}
@@ -160,6 +182,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       entries
       | all: :gb_sets.add(key, entries.all),
         lifecycle: Map.update!(entries.lifecycle, decision.decision_status, &:gb_sets.add(key, &1)),
+        recoverable_expired: update_recoverable_expired(entries.recoverable_expired, decision, key, :add),
         tickets: add_buckets(entries.tickets, ticket_buckets, key),
         searches: add_buckets(entries.searches, search_buckets, key),
         keys: Map.put(entries.keys, decision.decision_id, key)
@@ -175,6 +198,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       entries
       | all: :gb_sets.delete_any(key, entries.all),
         lifecycle: Map.update!(entries.lifecycle, decision.decision_status, &:gb_sets.delete_any(key, &1)),
+        recoverable_expired: update_recoverable_expired(entries.recoverable_expired, decision, key, :delete),
         tickets: remove_buckets(entries.tickets, ticket_buckets, key),
         searches: remove_buckets(entries.searches, search_buckets, key),
         keys: Map.delete(entries.keys, decision.decision_id)
@@ -229,22 +253,59 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   defp increment_counts(counts, decision), do: adjust_counts(counts, decision, 1)
   defp decrement_counts(counts, decision), do: adjust_counts(counts, decision, -1)
 
-  defp adjust_counts(counts, %Decision{decision_status: status, blocking: blocking}, delta)
-       when status in [:open, :deferred] do
-    blocking_delta = if blocking, do: delta, else: 0
+  defp adjust_counts(counts, %Decision{decision_status: status, blocking: blocking} = decision, delta)
+       when status in [:open, :deferred, :expired] do
+    blocking_delta = dispatch_blocking_delta(status, blocking, delta)
     deferred_delta = if status == :deferred, do: delta, else: 0
     deferred_blocking_delta = if status == :deferred and blocking, do: delta, else: 0
 
     %{
       counts
-      | open: counts.open + delta,
+      | open: counts.open + if(open_lifecycle?(decision), do: delta, else: 0),
         blocking: counts.blocking + blocking_delta,
         deferred: counts.deferred + deferred_delta,
         deferred_blocking: counts.deferred_blocking + deferred_blocking_delta
     }
+    |> adjust_routing_counts(decision, delta)
   end
 
   defp adjust_counts(counts, %Decision{}, _delta), do: counts
+
+  defp adjust_routing_counts(counts, decision, delta) do
+    %{
+      counts
+      | needs_you_by_ticket: adjust_ticket_count(counts.needs_you_by_ticket, decision, delta),
+        needs_you: counts.needs_you + if(Policy.needs_you?(decision), do: delta, else: 0),
+        needs_you_blocking: counts.needs_you_blocking + if(Policy.needs_you?(decision) and decision.blocking, do: delta, else: 0),
+        with_executor: counts.with_executor + if(Policy.matches_route?(decision, :with_executor), do: delta, else: 0),
+        from_executor: counts.from_executor + if(Policy.matches_route?(decision, :from_executor), do: delta, else: 0)
+    }
+  end
+
+  defp adjust_ticket_count(counts, decision, delta) do
+    ticket = ticket_identifier(decision)
+
+    if Policy.needs_you?(decision) and is_binary(ticket) do
+      case Map.get(counts, ticket, 0) + delta do
+        0 -> Map.delete(counts, ticket)
+        count -> Map.put(counts, ticket, count)
+      end
+    else
+      counts
+    end
+  end
+
+  # The one `open` rule: `aiur status`, `aiur commands --filter open` and the
+  # dashboard Open count all read it, so they cannot disagree (#5109).
+  defp open_lifecycle?(%Decision{decision_status: status, blocking: blocking, answer: answer}),
+    do: status in [:open, :deferred] or recoverable_expiry?(status, blocking, answer)
+
+  defp recoverable_expiry?(:expired, true, nil), do: true
+  defp recoverable_expiry?(_status, _blocking, _answer), do: false
+
+  defp dispatch_blocking_delta(status, true, delta) when status in [:open, :deferred], do: delta
+  defp dispatch_blocking_delta(_status, _blocking, _delta), do: 0
+
   defp first_accepted_key(_decision, [%Decision{} = first | _history]), do: audit_key(first)
   defp first_accepted_key(decision, _history), do: audit_key(decision)
   defp entries(index, :audit), do: index

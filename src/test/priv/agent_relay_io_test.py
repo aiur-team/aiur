@@ -14,6 +14,7 @@ class RelayIOTest(unittest.TestCase):
     connect = harness.RelayTest.connect
     send = harness.RelayTest.send
     read = harness.RelayTest.read
+    read_frame = harness.RelayTest.read_frame
     wait = harness.RelayTest.wait
     assert_group_dead = harness.RelayTest.assert_group_dead
 
@@ -59,8 +60,8 @@ class RelayIOTest(unittest.TestCase):
     def test_stderr_is_delivered_and_journaled_once_without_duplicate_log(self):
         self.start("import os\nos.write(2, b'diagnostic\\nlatest\\n')")
         self.wait(lambda: json.loads((self.directory / 'relay.json').read_text())['exit_status'] == 0)
-        _, stream, _ = self.connect(1)
-        frames = [self.read(stream), self.read(stream)]
+        client, stream, _ = self.connect(1)
+        frames = [self.read_frame(client, stream), self.read_frame(client, stream)]
         self.assertEqual([frame['line'] for frame in frames], ['diagnostic', 'latest'])
         self.assertEqual(self.read(stream), {'op': 'exit', 'status': 0})
         self.assertEqual((self.directory / 'out.journal').read_bytes(), b'diagnostic\nlatest\n')

@@ -1,7 +1,7 @@
 defmodule Aiur.DecisionAttentionSignals do
   @moduledoc false
 
-  alias Aiur.{AlertFeed, Alerts, Decision}
+  alias Aiur.{AlertFeed, Decision, Signal}
 
   @open_statuses [:open, :deferred]
 
@@ -152,7 +152,7 @@ defmodule Aiur.DecisionAttentionSignals do
   end
 
   defp emit(topic, message, decision, reason, needs_attention, severity, opts) do
-    Keyword.get(opts, :alert_fun, &Alerts.emit_system/2).(
+    Keyword.get(opts, :alert_fun, &Signal.alert/2).(
       topic,
       issue: decision.ticket.identifier,
       message: message,
@@ -167,7 +167,9 @@ defmodule Aiur.DecisionAttentionSignals do
   defp merge_results(_first, {:error, _reason} = error), do: error
 
   defp classification_topic(decision), do: attention_topic(decision, "decision-classification")
-  defp stale_topic(decision), do: attention_topic(decision, "decision-stale")
+  @doc false
+  @spec stale_topic(Decision.t()) :: String.t()
+  def stale_topic(decision), do: attention_topic(decision, "decision-stale")
   defp expired_topic(decision), do: attention_topic(decision, "decision-expired-unanswerable")
 
   defp expiry_topic(decision, :stale_blocking), do: stale_topic(decision)

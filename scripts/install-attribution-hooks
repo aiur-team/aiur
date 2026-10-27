@@ -1,0 +1,85 @@
+#!/bin/sh
+set -eu
+
+repo=${1:-.}
+git_dir=$(git -C "$repo" rev-parse --git-dir)
+case "$git_dir" in
+  /*) ;;
+  *) git_dir="$repo/$git_dir" ;;
+esac
+hooks_dir="$git_dir/hooks"
+mkdir -p "$hooks_dir"
+
+preserve_existing_hook() {
+  hook_path=$1
+  marker=$2
+  backup_path="$hook_path.aiur-original"
+  if [ -e "$hook_path" ] && ! grep -q "$marker" "$hook_path"; then
+    if [ -e "$backup_path" ]; then
+      echo "aiur: refusing to replace $hook_path; preserved hook already exists at $backup_path" >&2
+      exit 1
+    fi
+    mv "$hook_path" "$backup_path"
+  fi
+}
+
+commit_hook="$hooks_dir/commit-msg"
+pre_push_hook="$hooks_dir/pre-push"
+preserve_existing_hook "$commit_hook" aiur-attribution-guard
+preserve_existing_hook "$pre_push_hook" aiur-attribution-pre-push
+
+cat > "$commit_hook" <<'AIUR_COMMIT_MSG'
+#!/bin/sh
+# aiur-attribution-guard: strips generated AI attribution, retaining human co-authors.
+tmp="$1.aiur-tmp.$$"
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+awk '
+  {
+    lower = tolower($0)
+    if (lower ~ /^co-authored-by:/ && lower ~ /(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic[.]com)/) next
+    if ((index(lower, "generated with") == 1 || index(lower, "🤖 generated with") == 1) && lower ~ /(claude|codex|opencode)/) next
+    if (index(lower, "https://claude.ai/code/session_") == 1 || lower ~ /^claude code session/) next
+    print
+  }
+' "$1" > "$tmp"
+cat "$tmp" > "$1"
+rm -f "$tmp"
+trap - EXIT HUP INT TERM
+if [ -x "$0.aiur-original" ]; then
+  "$0.aiur-original" "$1"
+fi
+AIUR_COMMIT_MSG
+
+cat > "$pre_push_hook" <<'AIUR_PRE_PUSH'
+#!/bin/sh
+# aiur-attribution-pre-push: refuses commits that still carry AI attribution.
+zero=0000000000000000000000000000000000000000
+updates="$0.aiur-updates.$$"
+trap 'rm -f "$updates"' EXIT HUP INT TERM
+cat > "$updates"
+while read local_ref local_sha remote_ref remote_sha || [ -n "${local_sha:-}" ]; do
+  [ "$local_sha" = "$zero" ] && continue
+  # Skip commits already on a remote ref, so inherited base history is out of scope (#4623, #4899).
+  if [ "$remote_sha" = "$zero" ]; then range="$local_sha --not --remotes"; else range="$remote_sha..$local_sha --not --remotes"; fi
+  for commit in $(git rev-list $range 2>/dev/null); do
+    if git show -s --format=%B "$commit" | awk '
+      {
+        line = tolower($0)
+        if (line ~ /^co-authored-by:/ && line ~ /(claude|anthropic|codex|openai|chatgpt|copilot|gemini|cursor|opencode|deepseek|kimi|noreply@anthropic[.]com)/) found = 1
+        if ((index(line, "generated with") == 1 || index(line, "🤖 generated with") == 1) && line ~ /(claude|codex|opencode)/) found = 1
+        if (index(line, "https://claude.ai/code/session_") == 1 || line ~ /^claude code session/) found = 1
+      }
+      END { exit !found }
+    '; then
+      subject=$(git show -s --format=%s "$commit")
+      echo "aiur: refusing to push commit $commit ($subject): AI attribution remains in the commit message" >&2
+      exit 1
+    fi
+  done
+done < "$updates"
+if [ -x "$0.aiur-original" ]; then
+  "$0.aiur-original" < "$updates"
+fi
+exit 0
+AIUR_PRE_PUSH
+chmod 755 "$commit_hook" "$pre_push_hook"

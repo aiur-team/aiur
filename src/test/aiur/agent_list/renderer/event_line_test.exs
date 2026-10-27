@@ -46,9 +46,12 @@ defmodule Aiur.AgentList.Renderer.EventLineTest do
            ) == "📄 830 ingested 99: pushed"
   end
 
-  test "entry with no ids resolves subject to question mark" do
+  test "ticketless entries name no ticket, even with a selected row" do
     assert EventLine.format_event_line(%{kind: :receive, topic: "branch.push"}, nil, nil) ==
-             "📬 ? received"
+             "📬 received"
+
+    assert EventLine.format_event_line(%{kind: :publish, topic: "system.capabilities.changed"}, "2897", nil) ==
+             "💬 system.capabilities.changed"
   end
 
   test "unknown-kind entries render no line" do
@@ -108,8 +111,9 @@ defmodule Aiur.AgentList.Renderer.EventLineTest do
     assert EventLine.event_subject_id(:receive, %{identifier: "140"}, "99", "rid") == "140"
     assert EventLine.event_subject_id(:read, %{identifier: "140"}, "99", "rid") == "140"
     assert EventLine.event_subject_id(:read, %{}, "99", "rid") == "99"
-    assert EventLine.event_subject_id(:receive, %{}, nil, "rid") == "rid"
-    assert EventLine.event_subject_id(:receive, %{}, nil, nil) == "?"
+    assert EventLine.event_subject_id(:receive, %{}, "99", "rid") == "99"
+    assert EventLine.event_subject_id(:publish, %{}, nil, "rid") == nil
+    assert EventLine.event_subject_id(:receive, %{}, nil, "rid") == nil
   end
 
   test "topic_suffix strips the ticket prefix or returns the topic verbatim" do

@@ -20,11 +20,17 @@ defmodule AiurWeb.StaticAssetController do
   @spec time_brush_hook(Conn.t(), map()) :: Conn.t()
   def time_brush_hook(conn, _params), do: serve(conn, "/time-brush-hook.js", revalidate?: true)
 
+  @spec decision_questions_validation(Plug.Conn.t(), map()) :: Plug.Conn.t()
+  def decision_questions_validation(conn, _params), do: serve(conn, "/decision-questions-validation.js", revalidate?: true)
+
   @spec sortable_table_hook(Conn.t(), map()) :: Conn.t()
   def sortable_table_hook(conn, _params), do: serve(conn, "/sortable-table-hook.js", revalidate?: true)
 
   @spec streamdeck_emulator_hook(Conn.t(), map()) :: Conn.t()
   def streamdeck_emulator_hook(conn, _params), do: serve(conn, "/streamdeck-emulator-hook.js", revalidate?: true)
+
+  @spec streamdeck_emulator_knob(Conn.t(), map()) :: Conn.t()
+  def streamdeck_emulator_knob(conn, _params), do: serve(conn, "/streamdeck-emulator-knob.js", revalidate?: true)
 
   @spec dom_svg_layout_adapter(Conn.t(), map()) :: Conn.t()
   def dom_svg_layout_adapter(conn, _params), do: serve(conn, "/aiur-dom-svg-layout-adapter.js", revalidate?: true)

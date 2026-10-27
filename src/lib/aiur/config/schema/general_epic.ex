@@ -5,19 +5,32 @@ defmodule Aiur.Config.Schema.GeneralEpic do
 
   import Ecto.Changeset
 
-  @icons ~w(bug pen server docs)
+  alias Aiur.Heroicons
+
   @primary_key false
 
   embedded_schema do
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.key
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.general_epics.key | string | required | Lowercase identifier (letters, digits, dash, underscore); starts with a letter or digit. Must be unique; `unsorted` is reserved. |
     field(:key, :string)
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.label
+    # @config-detail build_order.general_epics.label | string | required | Column header text, without control characters. |
     field(:label, :string)
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.labels
+    # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+    # @config-detail build_order.general_epics.labels | array | `[]` | GitHub label matchers, trimmed, downcased and deduplicated. A label may belong to one epic only. `epic:` matchers are refused because they mark parked tickets. |
     field(:labels, {:array, :string}, default: [])
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.hue
+    # @config-detail build_order.general_epics.hue | integer | required | Colour hue, 0–359. |
     field(:hue, :integer)
+    # @config-reference config-configuration-build-order-00 build_order.general_epics.icon
+    # @config-detail build_order.general_epics.icon | string | required | A Heroicons v2 outline name. Legacy `bug`, `pen`, `server` and `docs` aliases keep their existing appearance (`bug-ant`, `paint-brush`, `server-stack`, `book-open`). |
     field(:icon, :string)
   end
 
   @spec icons() :: [String.t()]
-  def icons, do: @icons
+  def icons, do: Heroicons.names() ++ ~w(bug pen server docs)
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(epic, attrs) do
@@ -28,9 +41,13 @@ defmodule Aiur.Config.Schema.GeneralEpic do
     |> validate_exclusion(:key, ["unsorted"], message: "is reserved for the column of tickets with no epic")
     |> validate_change(:label, &validate_label/2)
     |> validate_number(:hue, greater_than_or_equal_to: 0, less_than: 360)
-    |> validate_inclusion(:icon, @icons)
+    |> validate_change(:icon, &validate_icon/2)
     |> validate_change(:labels, &validate_labels/2)
     |> update_change(:labels, &normalize_labels/1)
+  end
+
+  defp validate_icon(:icon, icon) do
+    if Heroicons.valid?(icon), do: [], else: [icon: "is invalid"]
   end
 
   defp validate_label(:label, label) do

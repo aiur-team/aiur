@@ -3,10 +3,12 @@ defmodule AiurWeb.Build.Usage do
   alias Aiur.{Accounts, CodingAgent, ModelAvailability}
   alias Aiur.Accounts.UsageReadings
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
-  alias Aiur.GitHub.Quota, as: GitHubQuota
+  alias Aiur.GitHub.Access
   alias AiurWeb.Build.{Read, UsageAPIs, UsageFacts}
   alias AiurWeb.OperatorControlCenter.{ModelProviders, Money, ProviderMeterSource, ProviderMetersPresenter}
   alias AiurWeb.ProviderMeterWindows
+  alias AiurWeb.RemainingMeter
+  import Aiur.BuildOrder.SourceFreshness, only: [ms: 1]
 
   @order [:claude, :codex, :kimi, :deepseek]
   @logos [:claude, :codex, :kimi, :deepseek]
@@ -34,9 +36,24 @@ defmodule AiurWeb.Build.Usage do
     meters = isolated(fn -> meter_read(source, context, opts) end, %{})
     accounts = isolated(Keyword.get(opts, :accounts_fun, &account_readings/0), %{})
     durable = isolated(fn -> Map.new(families, &{&1, durable(&1, Keyword.get(opts, :durable_path, ModelAvailability.path()))}) end, %{})
-    github = isolated(fn -> {:ok, GitHubQuota.snapshot!(Keyword.get(opts, :github_server, GitHubQuota))} end, {:error, :unavailable})
+    # Prefer the Units page's recent snapshot so this strip never queues behind GitHub observations.
+    {github, github_snapshot_observed_at} = github_snapshot(opts)
     elevenlabs = isolated(fn -> ElevenLabsQuota.snapshot(Keyword.get(opts, :elevenlabs_server, ElevenLabsQuota)) end, %{state: :unconfigured})
-    %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, elevenlabs: elevenlabs}
+    %{families: families, meters: meters, accounts: accounts, durable: durable, github: github, github_snapshot_observed_at: github_snapshot_observed_at, elevenlabs: elevenlabs}
+  end
+
+  defp github_snapshot(opts) do
+    server = Keyword.get(opts, :github_server, Access.quota_server())
+    now_ms = Keyword.get(opts, :github_cache_now_ms, System.monotonic_time(:millisecond))
+
+    case Access.quota_cached_snapshot_at(server, Keyword.get(opts, :github_cache_max_age, 60_000), now_ms) do
+      {:ok, snapshot, _age_ms, observed_at_ms} ->
+        {{:ok, snapshot}, observed_at_ms}
+
+      :miss ->
+        github = isolated(fn -> {:ok, Access.cost_report(server, Keyword.get(opts, :github_timeout, 1_000))} end, {:error, :unavailable})
+        {github, if(match?({:ok, _}, github), do: System.system_time(:millisecond))}
+    end
   end
 
   defp meter_read(source, context, opts) do
@@ -94,14 +111,31 @@ defmodule AiurWeb.Build.Usage do
   def block({:ok, _}, inputs, now) do
     cards = ProviderMetersPresenter.present(%{state: :authorized}, inputs.meters, %{}).cards
     providers = for family <- order_families(inputs.families), card = Enum.find(cards, &(&1.provider == family)), card != nil, do: provider(card, inputs, ms(now))
-    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now))
+    apis = UsageAPIs.rows(inputs.github, inputs.elevenlabs, ms(now), Map.get(inputs, :github_snapshot_observed_at))
     %{state: "authorized", observed_at: latest(Enum.map(providers ++ apis, & &1.observed_at)), apis: apis, providers: providers}
   end
 
   @doc false
   @spec row(String.t()) :: map()
   def row(name),
-    do: %{name: name, logo: nil, mono: nil, hue: nil, tag: nil, accounts: nil, session: nil, weekly: nil, credits: nil, none: false, lines: nil, icon: nil, stale: false, observed_at: nil, note: nil}
+    do: %{
+      name: name,
+      logo: nil,
+      mono: nil,
+      hue: nil,
+      tag: nil,
+      accounts: nil,
+      session: nil,
+      weekly: nil,
+      credits: nil,
+      none: false,
+      lines: nil,
+      icon: nil,
+      stale: false,
+      observed_at: nil,
+      snapshot_observed_at: nil,
+      note: nil
+    }
 
   defp provider(card, inputs, now) do
     logo = if card.provider in @logos, do: Atom.to_string(card.provider)
@@ -123,7 +157,11 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  defp unknown(base, %{percent: percent, observed_at: at}), do: %{base | none: true, note: "Last known #{percent}% (previous boot)", observed_at: ms(at), stale: true}
+  defp unknown(base, %{percent: percent, observed_at: at}) do
+    remaining = RemainingMeter.percent(percent)
+    %{base | none: true, note: "Last known #{remaining}% left (previous boot)", observed_at: ms(at), stale: true}
+  end
+
   defp unknown(base, _), do: %{base | none: true, note: "Awaiting first observation"}
 
   defp provider_windows(base, %{provider: :claude}, accounts, now) when map_size(accounts) >= 2 do
@@ -160,19 +198,21 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  defp window(id, value), do: %{acc: [pct(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
-  defp pct(%{kind: :exact, now: value}), do: value
-  defp pct(_), do: nil
+  defp window(id, value), do: %{acc: [meter_percent(value.meter)], reset_at: ms(value.resets_at), win: duration(value.duration_minutes, id)}
+
+  defp meter_percent(%{kind: :exact, now: remaining_percent}) when is_number(remaining_percent), do: percent(remaining_percent)
+  defp meter_percent(_), do: nil
 
   defp credits(value) do
     amount = get_in(value, [:credits, :amount])
     left = if is_number(amount), do: "$" <> Money.format_amount(to_string(amount)), else: "unknown"
-    %{pct: pct(value.meter), left: left, tip: [["Prepaid credits", left <> " left"]]}
+    remaining = meter_percent(value.meter)
+    %{pct: remaining, left: left, tip: [["Prepaid credits", if(is_number(remaining), do: "#{left} left · #{percent(remaining)}% left", else: "#{left} left")]]}
   end
 
   defp account_window(accounts, names, key, label) do
     values = Enum.map(names, fn name -> Enum.find(get_in(accounts[name], [:reading, :windows]) || [], &(&1.window == key)) || %{} end)
-    %{acc: Enum.map(values, &percent(Map.get(&1, :used_percent))), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
+    %{acc: Enum.map(values, &(Map.get(&1, :used_percent) |> RemainingMeter.percent() |> percent())), reset_at: earliest(Enum.map(values, &ms(Map.get(&1, :resets_at)))), win: label}
   end
 
   defp duration(minutes, _id) when is_integer(minutes) and minutes > 0 do
@@ -191,18 +231,6 @@ defmodule AiurWeb.Build.Usage do
     end
   end
 
-  @doc false
-  @spec ms(term()) :: integer() | nil
-  def ms(%DateTime{} = at), do: DateTime.to_unix(at, :millisecond)
-
-  def ms(at) when is_binary(at) do
-    case DateTime.from_iso8601(at) do
-      {:ok, dt, _} -> ms(dt)
-      _ -> nil
-    end
-  end
-
-  def ms(_), do: nil
   @doc false
   @spec percent(term()) :: integer() | nil
   def percent(value) when is_number(value), do: value |> round() |> max(0) |> min(100)

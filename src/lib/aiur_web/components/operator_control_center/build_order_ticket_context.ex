@@ -47,7 +47,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderTicketContext do
       <:extension>
         <section class="build-order-ticket-context" aria-label="Build Order relationships">
           <nav :if={@selection.back?} class="build-order-context-history" aria-label="Ticket relationship history">
-            <button type="button" class="tool-btn" phx-click={@events.back} data-ticket-context-focus="relationship-back">Back</button>
+            <button type="button" class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn" phx-click={@events.back} data-ticket-context-focus="relationship-back">Back</button>
           </nav>
 
           <div class="build-order-context-grid">

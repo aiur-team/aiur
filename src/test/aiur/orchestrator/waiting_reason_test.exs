@@ -15,6 +15,13 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :awaiting_dispatch
     end
 
+    test "a completed runner parked in a tracker wait reports that wait, not a pending dispatch" do
+      for {tracker_state, reason} <- [{"ci-wait", :waiting_for_ci}, {"human-review", :waiting_for_review}, {"merging", :waiting_for_supervisor}] do
+        assert WaitingReason.for_running(%{tracker_state: tracker_state, pause_reason: nil, work_state: :completed, open_decision_count: 0, stale_for_seconds: 9_999, stall_timeout_seconds: 300}) ==
+                 reason
+      end
+    end
+
     test "an actively working agent with fresh activity is active" do
       assert WaitingReason.for_running(%{
                tracker_state: "in-progress",
@@ -232,6 +239,16 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
                stale_for_seconds: 3601,
                stall_timeout_seconds: 3600
              }) == :unresponsive
+    end
+
+    test "a working agent on a ci-wait ticket past the stall timeout waits for CI, matching the watchdog's ci-wait exemption" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "ci-wait",
+               pause_reason: nil,
+               work_state: :working,
+               stale_for_seconds: 3601,
+               stall_timeout_seconds: 3600
+             }) == :waiting_for_ci
     end
   end
 

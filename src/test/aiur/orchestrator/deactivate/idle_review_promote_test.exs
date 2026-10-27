@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.Deactivate.IdleReviewPromoteTest do
     # scenarios: trusted promotes to rework; untrusted and the bot's own
     # comment do not (no self-trigger loop).
     setup do
+      test_pid = self()
       previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
       previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
 
@@ -27,6 +28,7 @@ defmodule Aiur.Orchestrator.Deactivate.IdleReviewPromoteTest do
       Application.put_env(:aiur, :memory_tracker_recipient, self())
 
       on_exit(fn ->
+        Aiur.TestSupport.stop_test_runners(test_pid)
         restore_application_env(:memory_tracker_recipient, previous_recipient)
         restore_application_env(:memory_tracker_issues, previous_issues)
       end)

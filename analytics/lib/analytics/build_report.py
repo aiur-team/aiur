@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from . import cli, reduce as reducer, render_build, sources
+from .optimistic import optimistic_rollup
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.json:
-        cli.emit_json({"slug": args.slug, "build_order": build_order, "report": render_build.build_report_rows(summary)})
+        cli.emit_json({"slug": args.slug, "build_order": build_order, "report": render_build.build_report_rows(summary),
+                       **({"optimistic": optimistic_rollup(summary)} if optimistic_rollup(summary) else {})})
     else:
         sys.stdout.write(render_build.render_build_report(summary, args.slug))
     return 0
@@ -76,7 +78,7 @@ def _load_or_reduce(files: list[Path], state_node: Path, slug: str, build_order:
     )
     if not touched:
         return None
-    return reducer.build_summary_for(state_node, dataset, slug, build_order)
+    return reducer._rollup_build(dataset, build_order, member_numbers)
 
 
 if __name__ == "__main__":

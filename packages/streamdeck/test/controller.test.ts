@@ -18,7 +18,7 @@ const grid = (count = 10): StreamDeckGrid => ({
 });
 
 describe("physical controller composition", () => {
-  it("focuses the pressed grid agent and controls that same agent in cmd mode", () => {
+  it("focuses the pressed grid agent without changing its state", () => {
     const focus = vi.fn();
     const control = vi.fn();
     const changed = vi.fn();
@@ -28,7 +28,16 @@ describe("physical controller composition", () => {
     controller.handleReport(keyReport(3, false));
     expect(controller.state()).toMatchObject({ mode: "cmd", focusedIdentifier: "agent-6" });
     expect(focus).toHaveBeenCalledWith("agent-6");
+    expect(control).not.toHaveBeenCalled();
+    expect(grid().agents[6]?.bucket).toBe("running");
+  });
 
+  it("keeps pause and resume on the dedicated Pause key", () => {
+    const control = vi.fn();
+    const changed = vi.fn();
+    const controller = createPhysicalController({ grid, channel: () => ({ focus: vi.fn(), control, say: vi.fn(), commandsPage: vi.fn(), answerCommand: vi.fn() }), stateChanged: changed });
+    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(3, false));
     controller.handleReport(keyReport(0, true));
     expect(control).toHaveBeenCalledWith("agent-6", "pause");
     expect(changed).toHaveBeenCalled();
@@ -38,6 +47,7 @@ describe("physical controller composition", () => {
     const pausedController = createPhysicalController({ grid: pausedGrid, channel: () => ({ focus: vi.fn(), control: resume, say: vi.fn(), commandsPage: vi.fn(), answerCommand: vi.fn() }), stateChanged: vi.fn() });
     pausedController.handleReport(keyReport(3, true));
     pausedController.handleReport(keyReport(3, false));
+    expect(resume).not.toHaveBeenCalled();
     pausedController.handleReport(keyReport(0, true));
     expect(resume).toHaveBeenCalledWith("agent-6", "resume");
   });

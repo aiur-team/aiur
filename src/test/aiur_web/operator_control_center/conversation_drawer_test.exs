@@ -68,7 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
       usage_error: Keyword.get(opts, :usage_error, :no_usage_data),
       close_event: Keyword.get(opts, :close_event, "close-conversation"),
       fallback_focus_id: "units-title",
-      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token")
+      origin_id: Keyword.get(opts, :origin_id, "units-conversation-token"),
+      voice_capabilities: Keyword.get(opts, :voice_capabilities, %{})
     })
   end
 
@@ -90,10 +91,12 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     assert html =~ ~s(role="log")
   end
 
-  test "states the reader is not participating and mirrors identity, not participation" do
+  test "explains sending is unavailable while preserving conversation identity" do
     html = render(Presenter.present(row(), snapshot()))
 
-    assert html =~ "not participating"
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
+    assert html =~ "Read-only dashboard — use the TUI to message or pause this agent."
     assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Responsive Units interface"
   end
@@ -216,12 +219,108 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ "Interactive voice chat is not available yet"
   end
 
+  # The client reads these attributes to tell "voice is not configured" from
+  # "voice failed" before the microphone is pressed; no visible copy changes.
+  test "the voice input carries the published voice.stt state and reason" do
+    composer = %{target_key: "1110", writable_target?: true, messages: []}
+    view = Presenter.present(row(), snapshot())
+
+    unconfigured = %{"voice.stt" => %{state: :unavailable, reason: :not_configured}, "voice.tts" => %{state: :unavailable, reason: :not_configured}}
+    html = render(view, composer: composer, writable: true, voice_capabilities: unconfigured)
+    assert html =~ ~s(data-voice-stt-state="unavailable")
+    assert html =~ ~s(data-voice-stt-reason="not_configured")
+
+    html = render(view, composer: composer, writable: true, voice_capabilities: %{"voice.stt" => %{state: :available}})
+    assert html =~ ~s(data-voice-stt-state="available")
+    refute html =~ "data-voice-stt-reason"
+
+    html = render(view, composer: composer, writable: true)
+    refute html =~ "data-voice-stt-state"
+  end
+
+  # Captured verbatim from the drawer before the voice controls moved into
+  # AiurWeb.Components.VoiceInput. The voice controller and the drawer focus hook
+  # bind these exact selectors, classes and labels.
+  @pre_extraction_voice_tools """
+    <div class="agent-voice-tools">
+      <div class="agent-voice-controls">
+        <button
+          class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
+          type="button"
+          aria-label="Dictate message"
+          aria-pressed="false"
+          title="Dictate into the message box"
+          data-voice-mic
+          data-conversation-focus="dictation"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" />
+            <path d="M5.5 10.5a6.5 6.5 0 0 0 13 0M12 17v4M8.5 21h7" />
+          </svg>
+        </button>
+        <button
+          class="aiur-button aiur-button--tool aiur-button--dashboard-tool tool-btn agent-voice-button"
+          type="button"
+          aria-label="Start interactive voice chat"
+          aria-pressed="false"
+          title="Talk to this agent and hear its reply"
+          data-voice-conversation
+          data-conversation-focus="conversation"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="8" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" />
+            <path d="M2.5 19c.5-3.3 2.4-5 5.5-5s5 1.7 5.5 5M13.5 15c1-.8 2.1-1.2 3.5-1.2 2.6 0 4.1 1.4 4.5 4.2M12 6.5l2-1.2M13.5 9.5l2 .8" />
+          </svg>
+        </button>
+        <label class="agent-voice-device-label">
+          <span>Browser microphone</span>
+          <select data-voice-device aria-label="Browser microphone">
+            <option value="">Default microphone</option>
+          </select>
+        </label>
+      </div>
+      <canvas
+        class="agent-voice-waveform"
+        width="360"
+        height="52"
+        aria-label="Microphone waveform"
+        role="img"
+        data-voice-waveform
+      ></canvas>
+      <p class="agent-voice-status" role="status" aria-live="polite" data-voice-status>
+        Press the microphone to dictate. Review the text, then press Send.
+      </p>
+    </div>
+  """
+
+  test "voice tools subtree is identical to the pre-extraction markup (guards C1 extraction)" do
+    composer = %{target_key: "1110", writable_target?: true, messages: []}
+    html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
+
+    rendered = html |> Floki.parse_fragment!() |> Floki.find(".agent-voice-tools") |> normalize_tree()
+    expected = @pre_extraction_voice_tools |> Floki.parse_fragment!() |> normalize_tree()
+
+    assert rendered == expected
+  end
+
+  defp normalize_tree(nodes) when is_list(nodes) do
+    nodes
+    |> Enum.map(&normalize_tree/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_tree({tag, attrs, children}), do: {tag, Enum.sort(attrs), normalize_tree(children)}
+  defp normalize_tree(text) when is_binary(text), do: String.trim(text)
+  defp normalize_tree(_comment), do: ""
+
   test "renders the not-unique-writable-target notice when a composer is present but not writable" do
     composer = %{target_key: "1110", writable_target?: false, messages: []}
     html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
 
     refute html =~ ~s(<textarea)
     refute html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ "You can read this conversation here. Sending is not available."
+    refute html =~ "Read-only mirror"
     assert html =~ "not a unique writable target"
   end
 

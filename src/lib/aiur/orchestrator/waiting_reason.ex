@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   alias Aiur.BuildQueue.Hints
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, QueueSetSlots}
+  alias Aiur.Orchestrator.{CiLifecycle, DispatchPolicy, QueueSetSlots}
   alias Aiur.Workspace.Ownership.Retention
 
   @type t ::
@@ -249,7 +249,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
     cond do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
       Map.get(attrs, :workspace_retained?) -> :workspace_retained
-      Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
+      # A completed runner parked in a tracker wait is not owed another dispatch (#4174).
+      Map.get(attrs, :work_state) == :completed -> if tracker_reason == :active, do: :awaiting_dispatch, else: tracker_reason
       unresponsive?(attrs) -> :unresponsive
       # A duration-capped pause is one consistent state, never re-labelled by
       # whatever the tracker state happens to be. #2310 and #2311 paused for
@@ -310,8 +311,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @doc """
   Classifies a tracker-active row with no live running process.
   An open decision takes precedence, followed by `blocked_by_open?`, which is
-  only ever true for a `todo` issue with an unresolved dependency (see
-  `DispatchPolicy.todo_issue_held_by_dependency?/2`).
+  only ever true for a `todo` or `rework` issue with an unresolved dependency (see
+  `DispatchPolicy.issue_held_by_dependency?/2`).
 
   The fourth argument is a keyword list of idle-reason evidence so #1457 can
   render *why* a row is idle rather than a bare "idle":
@@ -413,20 +414,19 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
-  # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
-  # actual exemption set: only `:paused` and `:deactivated` entries are
-  # skipped by the stall-restart check there, so a `:sleeping` entry is just
-  # as eligible for a stall-triggered kill+retry as a `:working` one — this
-  # must classify it the same way, or the dashboard would keep calling it
-  # merely "paused" right up to the restart.
-  defp unresponsive?(%{
-         work_state: work_state,
-         stale_for_seconds: stale,
-         stall_timeout_seconds: timeout
-       })
+  # Mirrors `RuntimeWatchdog.restart_stalled_issue/5`'s exemption set (ci-wait
+  # tickets, `:paused`, `:deactivated`): a `:sleeping` entry is as eligible for
+  # a stall kill+retry as a `:working` one, so it must classify the same way.
+  defp unresponsive?(
+         %{
+           work_state: work_state,
+           stale_for_seconds: stale,
+           stall_timeout_seconds: timeout
+         } = attrs
+       )
        when work_state in [:working, :sleeping] and is_integer(stale) and is_integer(timeout) and
               timeout > 0,
-       do: stale >= timeout
+       do: stale >= timeout and not CiLifecycle.ci_wait_state?(Map.get(attrs, :tracker_state))
 
   defp unresponsive?(_attrs), do: false
 

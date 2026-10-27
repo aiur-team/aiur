@@ -8,7 +8,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
 
   require Logger
 
-  alias Aiur.{Alerts, CodingAgent, Issue}
+  alias Aiur.{CodingAgent, Issue, Signal}
   alias Aiur.CodingAgent.RouteFailure
 
   @doc "Emits the quota alert, forwarding ledger options such as `:now` for clock-consistent incident replay."
@@ -37,7 +37,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
       "Agent paused: the #{backend} account usage quota is exhausted; retrying cannot help " <>
         "until it resets#{reset_suffix}. Resume the agent after the quota resets.#{backend_suffix}"
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.usage_limit_exhausted",
       issue: issue,
       workspace: workspace,
@@ -75,7 +75,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   @spec maybe_emit_more_tokens_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
   def maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do
     if more_tokens_reason?(reason) do
-      Alerts.emit_system(
+      Signal.alert(
         "ticket.#{issue.identifier}.agent.error.tokens_exhausted",
         issue: issue,
         workspace: workspace,
@@ -96,8 +96,9 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   eleven wasted turns went unnoticed on khala #198, and #2797 is open on
   exactly the `Logger.info`-only pattern. The alert is ticket-scoped and
   needs-attention, so it lands in the alert ledger and the central
-  `alerts.ndjson` and shows on the Executor's alert feed. A run that reached
-  no-op bound keeps its current state except verified rework with no push.
+  `alerts.ndjson` and shows on the Executor's alert feed. A run that reaches
+  the no-op bound without another handoff moves to `human-review` with a reason
+  comment; verified rework with no push still uses its existing failure state.
   """
   @spec emit_noop_turn_bound_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
   def emit_noop_turn_bound_alert(%Issue{} = issue, workspace, worker_host, details) do
@@ -112,7 +113,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
         "No new PR head was detected. Current state: agent:#{issue.state}. " <>
         "Review the agent's result before redispatching."
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.noop_turns_bounded",
       issue: issue,
       workspace: workspace,
@@ -132,7 +133,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     message =
       "Agent stopped after pushing work for #{issue.identifier}; moved the ticket to agent:#{state}."
 
-    Alerts.emit_system(
+    Signal.alert(
       "ticket.#{issue.identifier}.agent.rework_handoff",
       issue: issue,
       workspace: workspace,
@@ -141,6 +142,27 @@ defmodule Aiur.AgentRunner.TurnAlerts do
       reason: message,
       needs_attention: true,
       severity: "info"
+    )
+
+    :ok
+  end
+
+  @doc "Records a stopped rework run kept in rework because review findings are still unanswered (#5746)."
+  @spec emit_rework_findings_open_alert(Issue.t(), Path.t() | nil, String.t() | nil, [map()]) :: :ok
+  def emit_rework_findings_open_alert(%Issue{} = issue, workspace, worker_host, findings) do
+    message =
+      "Agent stopped after pushing work for #{issue.identifier} without answering the latest review's findings; the ticket stays in agent:#{issue.state}. Remaining: " <>
+        Enum.map_join(findings, "; ", &"#{&1.id}. #{&1.ask}")
+
+    Signal.alert(
+      "ticket.#{issue.identifier}.agent.rework_findings_open",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "warning"
     )
 
     :ok

@@ -1,5 +1,6 @@
 defmodule Aiur.AppServer.OperatorDeliveryTest do
   use ExUnit.Case, async: true
+  @moduletag :r7_characterization
 
   alias Aiur.AgentRunner.CheckpointDelivery
   alias Aiur.AppServer.OperatorDelivery

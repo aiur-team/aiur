@@ -7,8 +7,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   @max_operator_message_chars 8_000
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, OperatorWaitLog}
-  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, PauseResume, State}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
+  alias Aiur.AgentQueueStore.TargetIndex
+  alias Aiur.Listener.Scheduler
+  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseResume, State, TicketTransition}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
 
   @doc false
   @spec payload_key(map(), term()) :: String.t() | nil
@@ -78,50 +80,25 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # Deduplicate synchronous CI wakes and asynchronous exchange copies, even
   # after the original item was delivered or consumed.
   defp reject_already_queued_events(%AgentQueueStore{} = queue_store, events) do
-    known_ids =
-      queue_store.items
-      |> Map.values()
-      |> Enum.flat_map(&queued_event_ids/1)
-      |> MapSet.new()
-
     Enum.reject(events, fn event ->
-      case event_id(event) do
-        id when is_integer(id) -> MapSet.member?(known_ids, id)
+      case TargetIndex.event_id(event) do
+        id when is_integer(id) -> AgentQueueStore.queued_event_id?(queue_store, id)
         _ -> false
       end
     end)
   end
-
-  defp queued_event_ids(%{
-         category: :coordination_event,
-         event_type: :events_digest,
-         body: %{events: queued}
-       }) do
-    Enum.flat_map(List.wrap(queued), &event_id_list/1)
-  end
-
-  defp queued_event_ids(_item), do: []
-
-  defp event_id_list(event) do
-    case event_id(event) do
-      id when is_integer(id) -> [id]
-      _ -> []
-    end
-  end
-
-  defp event_id(event) when is_map(event), do: Map.get(event, :id) || Map.get(event, "id")
-
-  defp event_id(_event), do: nil
 
   @spec enqueue_operator_message(State.t(), String.t(), String.t(), map(), :plain | :correlated) ::
           {{:ok, integer() | map()} | {:error, term()}, State.t()}
   def enqueue_operator_message(state, issue_identifier, body, payload, mode \\ :plain) do
     request = %{
       delivery_policy: Map.get(payload, :delivery_policy, :checkpoint),
+      origin: Map.get(payload, :origin, :internal),
+      actor: Map.get(payload, :actor),
       fallback: Map.get(payload, :fallback),
       turn_id: Map.get(payload, :turn_id),
       action_id: if(mode == :correlated, do: Map.get(payload, :action_id)),
-      correlation: if(mode == :correlated, do: Map.get(payload, :correlation)),
+      correlation: message_correlation(payload, mode),
       retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
       message_id: if(mode == :plain, do: payload_key(payload, :message_id)),
       mode: mode
@@ -135,6 +112,10 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
         {error, state}
     end
   end
+
+  defp message_correlation(payload, :correlated), do: Map.get(payload, :correlation)
+  defp message_correlation(%{correlation: %{native_ref: _} = correlation}, :plain), do: correlation
+  defp message_correlation(_payload, :plain), do: nil
 
   defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
     case replay_existing_correlated_message(state, issue_identifier, text, request) do
@@ -236,7 +217,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
          true <- message_resumes_pause?(state, running_entry, request),
          state = remember_resume_input(state, running_entry, reply),
          {{:ok, :resumed}, resumed_state} <-
-           Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
+           TicketTransition.apply_effect(state, {:resume_paused, running_entry, true}) do
       {reply, resumed_state}
     else
       {{:error, _reason} = error, next_state} -> {error, next_state}
@@ -272,6 +253,25 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # A confirmed pause with no recorded reason is a legacy entry; an answer
   # resumed it before #2730 and still does.
   defp message_resumes_pause?(state, entry, request) do
+    if request.delivery_policy == :listener and Scheduler.routing() == :listener do
+      case ListenerModes.get_mode(state, entry.identifier) do
+        {:reply, {:ok, view}, _state} -> listener_resumes_pause?(state, entry, view)
+        {:reply, {:error, _reason}, _state} -> false
+      end
+    else
+      legacy_resumes_pause?(state, entry, request)
+    end
+  end
+
+  @doc false
+  @spec listener_resumes_pause?(State.t(), map(), map()) :: boolean()
+  def listener_resumes_pause?(state, entry, view) do
+    pending = PauseResume.current_pending_pause_reason(state, entry)
+    self_paused? = State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :agent_pause_request and is_nil(pending)
+    view.effective in [:sync, :steer] and (self_paused? or pending == :agent_pause_request) and no_hold?(state, entry)
+  end
+
+  defp legacy_resumes_pause?(state, entry, request) do
     paused? = State.paused_running_entry?(entry)
     (paused? and request.mode == :plain) or self_pause_ends_on_input?(state, entry, paused?)
   end
@@ -294,7 +294,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # transition. The fresh agent task spawned by `reactivate_issue/2`
   # will pick up the queued Executor message when it boots.
   defp enqueue_after_reactivate(state, running_entry, issue_identifier, text, request) do
-    case Aiur.Orchestrator.reactivate_issue(state, running_entry) do
+    case TicketTransition.apply_effect(state, {:reactivate, running_entry}) do
       {{:ok, :reactivated}, next_state} ->
         reactivated_entry = State.find_running_by_identifier(next_state.running, issue_identifier)
 
@@ -313,7 +313,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
          queued_entry when is_map(queued_entry) <-
            State.find_running_by_identifier(queued_state.running, issue_identifier),
          {{:ok, :resumed}, resumed_state} <-
-           Aiur.Orchestrator.resume_paused_issue(queued_state, queued_entry) do
+           TicketTransition.apply_effect(queued_state, {:resume_paused, queued_entry, true}) do
       {queued, resumed_state}
     else
       {:error, reason} -> {{:error, reason}, state}
@@ -338,6 +338,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
 
   defp do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request) do
     capabilities = Capabilities.issue_control_capabilities(state, issue_identifier)
+    capabilities = listener_context(state, issue_identifier, request, capabilities)
 
     case DeliveryPolicy.normalize_delivery_request(request.delivery_policy, request.fallback, capabilities) do
       {:ok, queue_opts} ->
@@ -346,6 +347,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
             issue_identifier,
             text,
             queue_opts
+            |> Keyword.put(:origin, request.origin)
+            |> Keyword.put(:actor, request.actor)
             |> Keyword.put(:turn_id, request.turn_id)
             |> Keyword.put(:action_id, request.action_id)
             |> Keyword.put(:correlation, request.correlation)
@@ -358,9 +361,22 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
     end
   end
 
+  defp listener_context(state, id, %{delivery_policy: :listener, origin: origin}, capabilities) do
+    view =
+      case ListenerModes.get_mode(state, id) do
+        {:reply, {:ok, view}, _state} -> view
+        {:reply, {:error, _reason}, _state} -> nil
+      end
+
+    Map.merge(capabilities, %{listener_view: view, listener_origin: origin})
+  end
+
+  defp listener_context(_state, _id, _request, capabilities), do: capabilities
+
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain} = request) do
     case enqueue_plain(state.queue_store, attrs, request) do
       {:ok, queue_store, item, :accepted} ->
+        Unread.broadcast_change(state.queue_store, queue_store, item.target_issue_identifier)
         record_operator_queued_evidence(item)
         DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
 
@@ -383,6 +399,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
     case AgentQueueStore.enqueue_correlated(state.queue_store, attrs, retry_failed: request.retry_failed) do
       {:ok, queue_store, item, status} ->
         if status in [:accepted, :retried] do
+          Unread.broadcast_change(state.queue_store, queue_store, item.target_issue_identifier)
           record_operator_queued_evidence(item)
           DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
         end

@@ -45,18 +45,13 @@ defmodule Aiur.Events.SubscriptionStore do
   `terminate/2` flushes pending writes and unsubscribes every binding
   from the Exchange so ETS rows don't accumulate.
   """
-
+  # aiur:event-bus-boundary-member
   use GenServer
 
   require Logger
 
-  alias Aiur.Config.Paths
-  alias Aiur.Events.{AgentSubscriptionPolicy, DebugLog, Exchange, IdGenerator, UniversalSubscriptions}
-  alias Aiur.JsonStore
-
-  @state_leaf "subscriptions"
-  @max_stall_attempts 3
-  @stall_base_retry_ms 1_000
+  alias Aiur.Events.{AgentSubscriptionPolicy, Exchange, IdGenerator}
+  alias Aiur.Events.SubscriptionStore.{Persistence, Processing}
 
   @registry Aiur.Events.SubscriptionStoreRegistry
   @supervisor Aiur.Events.SubscriptionStoreSupervisor
@@ -253,7 +248,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @doc false
   # Provided so tests can stub the enqueue call without invoking the
-  # full orchestrator. Default behaviour: route to Aiur.Orchestrator.
+  # full orchestrator. Default behaviour: route to the configured delivery sink.
   @spec set_enqueue_fn((String.t(), map() -> :ok | {:error, term()}) | nil) :: :ok
   def set_enqueue_fn(fun) when is_function(fun, 2) or is_nil(fun) do
     :persistent_term.put({__MODULE__, :enqueue_fn}, fun)
@@ -266,6 +261,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
     state = %{
       identifier: identifier,
+      delivery: Application.fetch_env!(:aiur, Aiur.Events.Delivery),
       path: path,
       subscribed_to: [],
       last_seen_event_id: nil,
@@ -275,9 +271,9 @@ defmodule Aiur.Events.SubscriptionStore do
     }
 
     # Register bindings before attach/1 returns so concurrent events are not lost.
-    state = load_persisted(state)
-    state = prune_unsafe_manual_subscriptions(state)
-    state = register_existing_bindings(state)
+    state = Persistence.load_persisted(state)
+    state = Persistence.prune_unsafe_manual_subscriptions(state)
+    state = Persistence.register_existing_bindings(state)
     :ok = publish_open_attention_count(state)
     {:ok, _} = Registry.register(@registry, {identifier, :subscriptions}, state.subscribed_to)
 
@@ -297,7 +293,7 @@ defmodule Aiur.Events.SubscriptionStore do
         }
 
         new_state = %{state | subscribed_to: state.subscribed_to ++ [entry]}
-        :ok = persist(new_state)
+        :ok = Persistence.persist(new_state)
         :ok = Exchange.subscribe(topic)
         {:reply, :ok, new_state}
 
@@ -320,7 +316,7 @@ defmodule Aiur.Events.SubscriptionStore do
       _entry ->
         updated = Enum.reject(state.subscribed_to, &(&1["topic"] == topic))
         new_state = %{state | subscribed_to: updated}
-        :ok = persist(new_state)
+        :ok = Persistence.persist(new_state)
         :ok = Exchange.unsubscribe(topic)
         {:reply, :ok, new_state}
     end
@@ -334,7 +330,7 @@ defmodule Aiur.Events.SubscriptionStore do
       _entry ->
         updated = Enum.reject(state.subscribed_to, &(&1["topic"] == topic))
         new_state = %{state | subscribed_to: updated}
-        :ok = persist(new_state)
+        :ok = Persistence.persist(new_state)
         :ok = Exchange.unsubscribe(topic)
         {:reply, :ok, new_state}
     end
@@ -348,7 +344,7 @@ defmodule Aiur.Events.SubscriptionStore do
       end
 
     new_state = %{state | last_seen_event_id: new_last}
-    :ok = persist(new_state)
+    :ok = Persistence.persist(new_state)
     {:reply, :ok, new_state}
   end
 
@@ -357,7 +353,7 @@ defmodule Aiur.Events.SubscriptionStore do
       {:reply, :ok, state}
     else
       new_state = %{state | open_attentions: state.open_attentions ++ [slug]}
-      :ok = persist(new_state)
+      :ok = Persistence.persist(new_state)
       :ok = publish_open_attention_count(new_state)
       {:reply, :ok, new_state}
     end
@@ -366,7 +362,7 @@ defmodule Aiur.Events.SubscriptionStore do
   def handle_call({:resolve_attention, slug}, _from, state) do
     if slug in state.open_attentions do
       new_state = %{state | open_attentions: Enum.reject(state.open_attentions, &(&1 == slug))}
-      :ok = persist(new_state)
+      :ok = Persistence.persist(new_state)
       :ok = publish_open_attention_count(new_state)
       {:reply, :ok, new_state}
     else
@@ -379,237 +375,15 @@ defmodule Aiur.Events.SubscriptionStore do
   end
 
   @impl true
-  def handle_info({:event, event}, state) do
-    # A `system.config.base_branch.changed` event is the fleet-wide
-    # announcement that `tracker.base_branch` moved. Reconcile this ticket's
-    # own `base_branch:auto` subscription inline (direct state mutation, never
-    # a self-call, so no deadlock) so a running agent stops listening on the
-    # retired branch's push topic and starts hearing the new one immediately —
-    # without waiting for the next `attach`.
-    state = maybe_reconcile_base_branch(state, event)
-
-    event_id = Map.get(event, :id) || Map.get(event, "id")
-    cursor = state.last_seen_event_id || 0
-
-    cond do
-      not is_integer(event_id) or event_id <= cursor ->
-        Logger.debug("SubscriptionStore(#{state.identifier}): dropping event #{inspect(event_id)} at cursor #{cursor}")
-        {:noreply, state}
-
-      state.stall != nil ->
-        # Ordering: while an earlier event is stalled, hold later events in a
-        # buffer instead of delivering them past the stall. They are not
-        # enqueued or recorded yet, so a restart during the stall replays
-        # them (and the stalled event) exactly once from the publisher log —
-        # no loss, and no duplicate delivery past a held cursor.
-        {:noreply, buffer_event(state, event_id, event)}
-
-      true ->
-        {:noreply, process_new_event(state, event, event_id, cursor)}
-    end
-  end
-
-  def handle_info({:retry_stalled}, %{stall: nil} = state), do: {:noreply, state}
-
-  def handle_info({:retry_stalled}, state) do
-    %{event: event, event_id: event_id, attempt: attempt} = state.stall
-    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
-
-    new_state =
-      case enqueue_event(state, event) do
-        :ok ->
-          Aiur.IssueLog.record_event(state.identifier, :consumed, event)
-          DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
-          resolve_stall(state, event_id)
-
-        {:error, reason} ->
-          if attempt >= @max_stall_attempts or error_kind(reason) == :permanent do
-            emit_dead_letter_alert(state.identifier, event_id, topic, reason, attempt)
-            resolve_stall(state, event_id)
-          else
-            next_attempt = attempt + 1
-            Process.send_after(self(), {:retry_stalled}, @stall_base_retry_ms * next_attempt)
-            %{state | stall: %{state.stall | attempt: next_attempt}}
-          end
-      end
-
-    {:noreply, new_state}
-  end
-
-  def handle_info(_other, state), do: {:noreply, state}
-
-  defp process_new_event(state, event, event_id, cursor) do
-    topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
-
-    case enqueue_event(state, event) do
-      :ok ->
-        Aiur.IssueLog.record_event(state.identifier, :consumed, event)
-        DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
-        advance_cursor_inline(state, event_id)
-
-      {:error, reason} ->
-        case error_kind(reason) do
-          :permanent ->
-            emit_dead_letter_alert(state.identifier, event_id, topic, reason, 1)
-            advance_cursor_inline(state, event_id)
-
-          :transient ->
-            Logger.warning(
-              "SubscriptionStore(#{state.identifier}): enqueue failed for event #{inspect(event_id)} " <>
-                "on topic #{topic}: #{inspect(reason)}; cursor held at #{cursor}, scheduling retry"
-            )
-
-            Process.send_after(self(), {:retry_stalled}, @stall_base_retry_ms)
-            %{state | stall: %{event: event, event_id: event_id, attempt: 1}}
-        end
-    end
-  end
-
-  # Buffer an event received while an earlier event is stalled. We do not
-  # enqueue or record it yet — the cursor is deliberately held, so a restart
-  # during the stall replays it exactly once. `resolve_stall/2` re-delivers
-  # buffered events through the normal path, in order, once the stall lifts.
-  defp buffer_event(state, event_id, event) do
-    %{state | stalled_buffer: state.stalled_buffer ++ [{event_id, event}]}
-  end
-
-  # Drain before returning to the mailbox, where newer events may already wait.
-  defp resolve_stall(state, event_id) do
-    new_state = advance_cursor_inline(%{state | stall: nil, stalled_buffer: []}, event_id)
-
-    state.stalled_buffer
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.reduce(new_state, fn {_id, event}, acc ->
-      {:noreply, next} = handle_info({:event, event}, acc)
-      next
-    end)
-  end
-
-  defp error_kind(:no_orchestrator), do: :transient
-  defp error_kind({:exit, {:timeout, _}}), do: :transient
-  defp error_kind({:exit, _}), do: :transient
-  defp error_kind({:raised, _}), do: :permanent
-  defp error_kind(_), do: :transient
-
-  defp emit_dead_letter_alert(identifier, event_id, topic, reason, attempts) do
-    Logger.warning(
-      "SubscriptionStore(#{identifier}): giving up on event #{inspect(event_id)} " <>
-        "on topic #{topic} after #{attempts} attempt(s): #{inspect(reason)}; " <>
-        "advancing cursor past failed event"
-    )
-
-    _ =
-      Aiur.Alerts.emit_system(
-        "system.subscription_store.event_dead_lettered",
-        reason: "enqueue failed after #{attempts} attempt(s) for event #{inspect(event_id)} on #{topic}: #{inspect(reason)}",
-        needs_attention: true,
-        severity: "warning"
-      )
-  end
-
-  defp advance_cursor_inline(state, event_id) when is_integer(event_id) do
-    new_cursor = max(state.last_seen_event_id || 0, event_id)
-    new_state = %{state | last_seen_event_id: new_cursor}
-    _ = persist(new_state)
-    new_state
-  end
-
-  defp advance_cursor_inline(state, _), do: state
-
-  defp maybe_reconcile_base_branch(state, %{topic: topic}) when is_binary(topic) do
-    if topic == "system.config.base_branch.changed" do
-      reconcile_base_branch_auto(state)
-    else
-      state
-    end
-  end
-
-  defp maybe_reconcile_base_branch(state, _event), do: state
-
-  # Runs entirely inside this GenServer — never calls back into
-  # `SubscriptionStore.remove_subscription/add_subscription` (a self-call would
-  # deadlock). Diffing against the previous list keeps the Exchange bindings
-  # exact and the persisted state authoritative. Any failure leaves the prior
-  # subscriptions untouched so a transient config hiccup cannot break a running
-  # agent's feed.
-  defp reconcile_base_branch_auto(state) do
-    desired = UniversalSubscriptions.reconcile_subscribed_to(state.subscribed_to)
-
-    reconcile_exchange_bindings(state.subscribed_to, desired)
-    new_state = %{state | subscribed_to: desired}
-    _ = persist(new_state)
-    new_state
-  rescue
-    _error -> state
-  catch
-    _kind, _reason -> state
-  end
-
-  defp reconcile_exchange_bindings(previous, desired) do
-    previous_topics = Enum.map(previous, &Map.get(&1, "topic"))
-    desired_topics = Enum.map(desired, &Map.get(&1, "topic"))
-
-    for topic <- previous_topics -- desired_topics do
-      _ = safe_unsubscribe(topic)
-    end
-
-    for topic <- desired_topics -- previous_topics do
-      try do
-        :ok = Exchange.subscribe(topic)
-      rescue
-        error ->
-          Logger.warning(
-            "SubscriptionStore(#{inspect(self())}) failed to subscribe after base reconcile " <>
-              topic <> ": " <> Exception.message(error)
-          )
-      end
-    end
-
-    :ok
-  end
-
-  defp enqueue_event(state, event) do
-    case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do
-      fun when is_function(fun, 2) -> call_enqueue_fn(fun, state.identifier, event)
-      _ -> call_orchestrator_enqueue(state, event)
-    end
-  end
-
-  defp call_enqueue_fn(fun, identifier, event) do
-    case fun.(identifier, event) do
-      :ok -> :ok
-      {:error, _} = err -> err
-      other -> {:error, {:unexpected_return, other}}
-    end
-  rescue
-    e -> {:error, {:raised, e}}
-  end
-
-  defp call_orchestrator_enqueue(state, event) do
-    case Process.whereis(Aiur.Orchestrator) do
-      nil ->
-        {:error, :no_orchestrator}
-
-      pid ->
-        try do
-          case GenServer.call(pid, {:enqueue_event_digest, state.identifier, event, %{subscribed_to: state.subscribed_to}}, 1_000) do
-            :ok -> :ok
-            {:error, _} = err -> err
-            other -> {:error, {:unexpected_return, other}}
-          end
-        catch
-          :exit, reason -> {:error, {:exit, reason}}
-        end
-    end
-  end
+  defdelegate handle_info(message, state), to: Processing
 
   @impl true
   def terminate(_reason, state) do
     for entry <- state.subscribed_to do
-      _ = safe_unsubscribe(entry["topic"])
+      _ = Persistence.safe_unsubscribe(entry["topic"])
     end
 
-    _ = persist(state)
+    _ = Persistence.persist(state)
     :ok
   end
 
@@ -623,112 +397,7 @@ defmodule Aiur.Events.SubscriptionStore do
   which keeps the old behavior instead of dropping subscriptions.
   """
   @spec path_for(String.t()) :: Path.t()
-  def path_for(identifier) when is_binary(identifier) do
-    file_name = "#{Paths.repo_name()}.#{Paths.sanitize(identifier)}.subscriptions.json"
-
-    case Paths.runtime_state_dir() do
-      {:ok, root} ->
-        dir = Path.join(root, @state_leaf)
-        Path.join(dir, file_name)
-
-      {:error, _reason} ->
-        Path.join(Paths.log_root_dir(), file_name)
-    end
-  end
-
-  defp load_persisted(state) do
-    case JsonStore.read(state.path) do
-      {:ok, %{} = data} ->
-        %{
-          state
-          | subscribed_to: Map.get(data, "subscribed_to", []),
-            last_seen_event_id: Map.get(data, "last_seen_event_id"),
-            open_attentions: Map.get(data, "open_attentions", [])
-        }
-
-      {:ok, nil} ->
-        state
-
-      {:error, reason} ->
-        Logger.warning(
-          "SubscriptionStore(#{state.identifier}) corrupt file at #{state.path}: " <>
-            inspect(reason) <> "; starting empty"
-        )
-
-        state
-    end
-  end
-
-  defp register_existing_bindings(state) do
-    for entry <- state.subscribed_to do
-      try do
-        :ok = Exchange.subscribe(entry["topic"])
-      rescue
-        error ->
-          Logger.warning(
-            "SubscriptionStore(#{state.identifier}) failed to re-register " <>
-              entry["topic"] <> ": " <> Exception.message(error)
-          )
-      end
-    end
-
-    state
-  end
-
-  defp prune_unsafe_manual_subscriptions(state) do
-    {unsafe, retained} =
-      Enum.split_with(state.subscribed_to, fn entry ->
-        Map.get(entry, "reason") == "manual:agent" and
-          AgentSubscriptionPolicy.validate(Map.get(entry, "topic", "")) != :ok
-      end)
-
-    case unsafe do
-      [] ->
-        state
-
-      entries ->
-        topics = Enum.map(entries, &Map.get(&1, "topic"))
-        new_state = %{state | subscribed_to: retained}
-
-        Logger.warning(
-          "SubscriptionStore(#{state.identifier}) pruned unsafe manual agent bindings: " <>
-            inspect(topics)
-        )
-
-        if persist(new_state) != :ok do
-          Logger.warning(
-            "SubscriptionStore(#{state.identifier}) could not persist pruned manual agent bindings; " <>
-              "unsafe topics remain excluded in memory and cleanup will retry on attach"
-          )
-        end
-
-        new_state
-    end
-  end
-
-  defp persist(state) do
-    JsonStore.write!(state.path, %{
-      "subscribed_to" => state.subscribed_to,
-      "last_seen_event_id" => state.last_seen_event_id,
-      "open_attentions" => state.open_attentions
-    })
-
-    _ = Registry.update_value(@registry, {state.identifier, :subscriptions}, fn _ -> state.subscribed_to end)
-    :ok
-  rescue
-    error ->
-      Logger.warning("SubscriptionStore(#{state.identifier}) persist failed: " <> Exception.message(error))
-
-      :error
-  end
-
-  defp safe_unsubscribe(topic) do
-    Exchange.unsubscribe(topic)
-  rescue
-    _ -> :ok
-  catch
-    :exit, _ -> :ok
-  end
+  defdelegate path_for(identifier), to: Persistence
 
   defp publish_open_attention_count(state) do
     _ = Registry.update_value(@registry, state.identifier, fn _current -> length(state.open_attentions) end)

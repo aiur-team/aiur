@@ -1,15 +1,19 @@
 {
   "id": "ticket-context",
-  "name": "Ticket details and history for dashboard dialogs",
+  "name": "Ticket details",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/build_order/ticket_detail*.ex",
     "src/lib/aiur/build_order/ticket_history*.ex",
     "src/lib/aiur/ticket_context.ex",
-    "src/lib/aiur_web/build_order/ticket_context_*.ex"
+    "src/lib/aiur_web/build_order/ticket_context_*.ex",
+    "src/lib/aiur_web/build_order/ticket_context_presenter/*.ex"
   ],
   "facades": [
+    "Aiur.BuildOrder.TicketDetail",
+    "Aiur.BuildOrder.TicketDetail.Failure",
+    "Aiur.BuildOrder.TicketDetail.Snapshot",
     "Aiur.BuildOrder.TicketDetail.State",
     "Aiur.BuildOrder.TicketDetailCoordinator",
     "Aiur.BuildOrder.TicketHistory.Snapshot",
@@ -33,7 +37,8 @@
     "tracker"
   ],
   "optional": [
-    "build-orders"
+    "build-orders",
+    "github-access"
   ],
   "owns": {
     "config": [],
@@ -44,5 +49,18 @@
   "prior": [
     "BO",
     "WEB"
-  ]
+  ],
+  "dependency_kind": "optional",
+  "summary": "Shows ticket details and history in dashboard dialogs.",
+  "docs": [
+    "guide/gui.md"
+  ],
+  "install": {
+    "type": "included"
+  },
+  "status": "optional",
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
 }

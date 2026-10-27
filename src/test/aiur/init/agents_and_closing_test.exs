@@ -394,7 +394,7 @@ defmodule Aiur.Init.AgentsAndClosingTest do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
       assert Enum.any?(input_labels(), &(&1 =~ ~r/Press Enter to create/i))
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/workflow and automatic-fallback labels are required/i))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/workflow, runtime-reason, and automatic-fallback labels are required/i))
     end
 
     test "optional stages can be skipped without creating their labels", %{dir: dir, target: target} do
@@ -414,7 +414,7 @@ defmodule Aiur.Init.AgentsAndClosingTest do
 
       created = labels_created()
       assert created != []
-      required = ["flake"] ++ Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
+      required = ["flake"] ++ Labels.state_labels("agent") ++ Labels.reason_modifier_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
       assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
       assert "model:claude" in created

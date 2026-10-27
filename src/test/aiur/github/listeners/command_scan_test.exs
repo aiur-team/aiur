@@ -1,0 +1,417 @@
+defmodule Aiur.GitHub.Listeners.CommandScanTest do
+  use Aiur.TestSupport
+
+  alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Listeners.CommandScan.Scan, as: CommandScan
+  alias Aiur.GitHub.ResourceStore
+
+  setup do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent",
+      pr_watch_enabled: true
+    )
+
+    :ok
+  end
+
+  defp base_state, do: %CommandScan{}
+
+  describe "scan_pr_commands/2" do
+    test "returns state unchanged when pr_watch is disabled" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        pr_watch_enabled: false
+      )
+
+      assert CommandScan.scan_pr_commands(base_state()) == base_state()
+    end
+
+    test "with injected empty comment stream does not advance cursor" do
+      state = %{base_state() | since: "2024-01-01T00:00:00Z"}
+
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, []} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+      ]
+
+      result = CommandScan.scan_pr_commands(state, opts)
+      assert result.since == state.since
+    end
+  end
+
+  describe "scan_pr_commands/2 conditional reads" do
+    defp review_comment(id, created_at) do
+      %{
+        "id" => id,
+        "body" => "/aiur retry",
+        "created_at" => created_at,
+        "updated_at" => created_at,
+        "html_url" => "https://github.com/owner/repo/pull/77#discussion_r#{id}",
+        "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/77",
+        "user" => %{"login" => "its-everdred"}
+      }
+    end
+
+    defp etag_state do
+      %{
+        base_state()
+        | since: "2024-01-01T00:00:00Z",
+          etags: %{command_scan_review: "review-etag", command_scan_issue: "issue-etag"}
+      }
+    end
+
+    test "sends each stream its own stored etag" do
+      test_pid = self()
+
+      opts = [
+        command_scan_review_comment_fetcher: fn opts ->
+          send(test_pid, {:review_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "review-etag"}
+        end,
+        command_scan_issue_comment_fetcher: fn opts ->
+          send(test_pid, {:issue_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "issue-etag"}
+        end
+      ]
+
+      CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert_receive {:review_etag, "review-etag"}, 1000
+      assert_receive {:issue_etag, "issue-etag"}, 1000
+    end
+
+    # The fifth pipe (#2073 U6). These validators used to be keyed by call site
+    # in orchestrator memory, so nothing else could reach them and a restart
+    # threw them away. Keyed by the repository's own identity they survive both.
+    test "records each stream's validator under the repository's resource identity" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, [], "review-etag-1"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [], "issue-etag-1"} end
+      ]
+
+      CommandScan.scan_pr_commands(base_state(), opts)
+
+      review_stream = ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")
+      issue_stream = ResourceStore.key_for_repo(:repo_issue_comment_stream, "owner/repo", "issues/comments")
+
+      assert ResourceStore.change_validator(review_stream) == "review-etag-1"
+      assert ResourceStore.change_validator(issue_stream) == "issue-etag-1"
+      # The list is now deposited as the entry's body, so `etag/1` — which
+      # answers only when a `304` can be served from a held body — answers too.
+      assert ResourceStore.etag(review_stream) == "review-etag-1"
+      assert ResourceStore.etag(issue_stream) == "issue-etag-1"
+      assert ResourceStore.data(review_stream) == []
+      assert ResourceStore.data(issue_stream) == []
+    end
+
+    # These are durable *endpoint* validators: a `304` against one suppresses
+    # the whole stream, so recording one before the commands it covers were
+    # published would let a cycle that died in between hide a command for the
+    # store's full retention window. The publish has to have happened before the
+    # validator exists.
+    test "the stream validator is recorded only after the commands are published" do
+      review_stream = ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")
+
+      :ok = Exchange.subscribe("ticket.77.pr.review_comment")
+      :ok = ResourceStore.subscribe(review_stream)
+
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts ->
+          {:ok, [review_comment(4001, "2024-01-02T00:00:00Z")], "review-etag-1"}
+        end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [], "issue-etag-1"} end
+      ]
+
+      CommandScan.scan_pr_commands(
+        %{base_state() | since: "2024-01-01T00:00:00Z"},
+        opts
+      )
+
+      order =
+        for _step <- 1..2 do
+          receive do
+            {:event, %{topic: "ticket.77.pr.review_comment"}} -> :command_published
+            {:github_resource_changed, %{resource_type: :repo_review_comment_stream}} -> :validator_recorded
+          after
+            2_000 -> :nothing
+          end
+        end
+
+      assert order == [:command_published, :validator_recorded],
+             "a crash between the two would hide the command behind a 304 for the whole retention window: #{inspect(order)}"
+
+      assert ResourceStore.change_validator(review_stream) == "review-etag-1"
+    end
+
+    test "a restart revalidates from the store instead of re-reading both streams in full" do
+      warm = [
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, [], "review-etag-1"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [], "issue-etag-1"} end
+      ]
+
+      CommandScan.scan_pr_commands(base_state(), warm)
+
+      # A fresh orchestrator: `etags` is empty, exactly as it is
+      # on the first tick after a restart.
+      test_pid = self()
+
+      cold = [
+        command_scan_review_comment_fetcher: fn opts ->
+          send(test_pid, {:review_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "review-etag-1"}
+        end,
+        command_scan_issue_comment_fetcher: fn opts ->
+          send(test_pid, {:issue_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "issue-etag-1"}
+        end
+      ]
+
+      assert base_state().etags == %{}
+      CommandScan.scan_pr_commands(base_state(), cold)
+
+      assert_receive {:review_etag, "review-etag-1"}, 1000
+      assert_receive {:issue_etag, "issue-etag-1"}, 1000
+    end
+
+    test "an unavailable store leaves the scan reading unconditionally" do
+      ResourceStore.reset()
+      test_pid = self()
+
+      opts = [
+        command_scan_review_comment_fetcher: fn opts ->
+          send(test_pid, {:review_etag, Keyword.get(opts, :etag)})
+          {:ok, []}
+        end,
+        command_scan_issue_comment_fetcher: fn opts ->
+          send(test_pid, {:issue_etag, Keyword.get(opts, :etag)})
+          {:ok, []}
+        end
+      ]
+
+      CommandScan.scan_pr_commands(base_state(), opts)
+
+      assert_receive {:review_etag, nil}, 1000
+      assert_receive {:issue_etag, nil}, 1000
+    end
+
+    test "a 304 on both streams leaves the cursor and the etags untouched" do
+      state = etag_state()
+
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:not_modified, "review-etag"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(state, opts)
+
+      assert result.since == state.since
+      assert result.etags[:command_scan_review] == "review-etag"
+      assert result.etags[:command_scan_issue] == "issue-etag"
+    end
+
+    test "stores the refreshed etag and still processes comments on a 200" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts ->
+          {:ok, [review_comment(1, "2024-06-15T12:00:00Z")], "review-etag-2"}
+        end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.etags[:command_scan_review] == "review-etag-2"
+      assert result.etags[:command_scan_issue] == "issue-etag"
+      # The cursor only advances if the 200 body actually reached the scan
+      # pipeline: a 304-returns-empty bug here would silently drop commands.
+      assert result.since == "2024-06-15T11:59:59Z"
+    end
+
+    test "a 304 on one stream does not discard the other stream's comments" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:not_modified, "review-etag"} end,
+        command_scan_issue_comment_fetcher: fn _opts ->
+          {:ok,
+           [
+             %{
+               "id" => 9,
+               "body" => "/aiur retry",
+               "created_at" => "2024-06-15T12:00:00Z",
+               "updated_at" => "2024-06-15T12:00:00Z",
+               "html_url" => "https://github.com/owner/repo/pull/77#issuecomment-9",
+               "issue_url" => "https://api.github.com/repos/owner/repo/issues/77",
+               "user" => %{"login" => "its-everdred"}
+             }
+           ], "issue-etag-2"}
+        end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.since == "2024-06-15T11:59:59Z"
+      assert result.etags[:command_scan_issue] == "issue-etag-2"
+    end
+
+    test "a failed stream retains its previous etag rather than clearing it" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:error, :boom} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.etags[:command_scan_review] == "review-etag"
+    end
+
+    test "an unconditional 2-tuple fetcher still works and keeps its etag" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, [review_comment(2, "2024-06-15T12:00:00Z")]} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.etags[:command_scan_review] == "review-etag"
+      assert result.since == "2024-06-15T11:59:59Z"
+    end
+
+    # A `304` against a stream whose list the store holds is answered from that
+    # held list. A cycle that read a command and deposited the list but whose
+    # publish path dropped the command has nothing to lose: the replay runs the
+    # whole list back through the same publish path and the command dedup key
+    # suppresses whatever was already handled.
+    test "a 304 serves the held list, recovering a command the publish path dropped" do
+      review_stream = ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")
+
+      # A prior cycle read this command but the publish path dropped it before
+      # the list was deposited. The list sits in the store beside its validator,
+      # exactly as a normal cycle leaves it.
+      :ok =
+        ResourceStore.put_resource(review_stream, [review_comment(5001, "2024-06-15T12:00:00Z")],
+          etag: "review-etag",
+          source: :poll
+        )
+
+      :ok = Exchange.subscribe("ticket.77.pr.review_comment")
+
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:not_modified, "review-etag"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+      ]
+
+      result = CommandScan.scan_pr_commands(base_state(), opts)
+
+      assert_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 1000
+      # The replayed list is re-deposited and the validator stays answerable, so
+      # the recovery is durable across the next cycle and restart.
+      assert ResourceStore.data(review_stream) == [review_comment(5001, "2024-06-15T12:00:00Z")]
+      assert ResourceStore.etag(review_stream) == "review-etag"
+      # The cursor advances over the replayed comment exactly as it would have
+      # over the original 200 body.
+      assert result.since == "2024-06-15T11:59:59Z"
+    end
+
+    test "a 304 replay does not duplicate a command the last 200 already published" do
+      :ok = Exchange.subscribe("ticket.77.pr.review_comment")
+
+      warm = [
+        command_scan_review_comment_fetcher: fn _opts ->
+          {:ok, [review_comment(5002, "2024-06-15T12:00:00Z")], "review-etag"}
+        end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+      ]
+
+      CommandScan.scan_pr_commands(%{base_state() | since: "2024-06-15T11:00:00Z"}, warm)
+
+      assert_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 1000
+
+      # The stream is unchanged next cycle; the `304` replays the held list and
+      # the command dedup key suppresses the already-published comment.
+      steady = [
+        command_scan_review_comment_fetcher: fn _opts -> {:not_modified, "review-etag"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      CommandScan.scan_pr_commands(etag_state(), steady)
+
+      refute_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 100
+    end
+
+    # The store refuses an oversized stream outright — no body and no validator.
+    # A `304` against the cycle's own validator must then not write an empty
+    # list over it: that would make every later `304` replay "nothing" and hide
+    # new commands for the store's whole retention window.
+    test "a 304 with no held list does not deposit an empty body over the validator" do
+      review_stream = ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")
+
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:not_modified, "review-etag"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert ResourceStore.data(review_stream) == nil
+      assert ResourceStore.change_validator(review_stream) == nil
+      # The cycle's own validator survives, so steady-state change detection is
+      # still free — the degradation for an unanswerable stream.
+      assert result.etags[:command_scan_review] == "review-etag"
+    end
+
+    # The reader's half of the validator/body contract: a `304` against a
+    # durable validator with no body behind it spent a request and learned
+    # nothing, so the validator goes and the next scan reads unconditionally.
+    test "a 304 against a store validator with no held body drops the validator" do
+      review_stream = ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")
+      :ok = ResourceStore.put_etag(review_stream, "stale-etag")
+      test_pid = self()
+
+      opts = [
+        command_scan_review_comment_fetcher: fn opts ->
+          send(test_pid, {:review_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "stale-etag"}
+        end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(base_state(), opts)
+
+      # etag/1 refuses to hand out a validator it cannot serve a body for, so
+      # the read was unconditional; even a misbehaving 304 must not leave the
+      # stale validator in place to repeat an empty answer every cycle.
+      assert_receive {:review_etag, nil}, 1000
+      assert ResourceStore.change_validator(review_stream) == nil
+      assert result.etags[:command_scan_review] == nil
+    end
+  end
+
+  describe "advance_command_scan_since/2" do
+    test "returns input since when newest is nil" do
+      since = "2024-01-01T00:00:00Z"
+      assert CommandScan.advance_command_scan_since(since, nil) == since
+    end
+
+    test "returns nil since when newest is nil and since is nil" do
+      assert CommandScan.advance_command_scan_since(nil, nil) == nil
+    end
+
+    test "returns newest minus 1 second as ISO8601 when given DateTime" do
+      {:ok, dt, _} = DateTime.from_iso8601("2024-06-15T12:00:00Z")
+      result = CommandScan.advance_command_scan_since(nil, dt)
+      {:ok, result_dt, _} = DateTime.from_iso8601(result)
+      expected = DateTime.add(dt, -1, :second)
+      assert DateTime.compare(result_dt, expected) == :eq
+    end
+
+    test "cursor overlap is exactly 1 second (FI-ORC-043)" do
+      {:ok, newest, _} = DateTime.from_iso8601("2024-06-15T12:05:30Z")
+      result = CommandScan.advance_command_scan_since("old", newest)
+      {:ok, result_dt, _} = DateTime.from_iso8601(result)
+      diff = DateTime.diff(newest, result_dt, :second)
+      assert diff == 1
+    end
+  end
+end

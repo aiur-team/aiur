@@ -60,7 +60,7 @@ defmodule Aiur.Orchestrator.Status.SnapshotPublisherTest do
                  Task.yield(task, 25)
       end)
 
-    assert log =~ "Dashboard snapshot timed out"
+    assert log =~ "Dashboard snapshot projection is stale"
     assert log =~ "orchestrator_mailbox_depth="
   end
 

@@ -1,0 +1,27 @@
+name: Run quarantined tests
+description: Run list-selected quarantined tests with a dependency-only build cache
+runs:
+  using: composite
+  steps:
+    - name: Set up Elixir
+      uses: ./.github/actions/setup-elixir
+    - name: Cache _build (dependency apps only)
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        key: ${{ runner.os }}-quarantine-build-deps-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
+        path: src/_build/test/lib
+    - name: Drop first-party beams (always recompile against current source)
+      working-directory: src
+      shell: bash
+      run: rm -rf _build/test/lib/aiur
+    - name: Run quarantined tests
+      working-directory: src
+      shell: bash
+      env:
+        AIUR_RUN_QUARANTINED: "1"
+      run: python3 ../scripts/run-quarantined-tests.py
+    - name: Prune first-party beams before the cache save
+      if: ${{ always() }}
+      working-directory: src
+      shell: bash
+      run: rm -rf _build/test/lib/aiur

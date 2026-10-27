@@ -61,7 +61,7 @@ const answeredCommand = (overrides: Partial<StreamDeckCommand> = {}): StreamDeck
 const page = (items: readonly StreamDeckCommand[]): StreamDeckCommandsPage => ({ items });
 
 describe("Commands answerability", () => {
-  it("answers only open or deferred Commands", () => {
+  it("answers open and deferred Commands, plus expired unanswered blockers", () => {
     expect(isAnswerable("open")).toBe(true);
     expect(isAnswerable("deferred")).toBe(true);
     expect(isAnswerable("decided")).toBe(false);
@@ -69,11 +69,20 @@ describe("Commands answerability", () => {
     expect(isAnswerable("resolved")).toBe(false);
     expect(isAnswerable("dismissed")).toBe(false);
     expect(isAnswerable("expired")).toBe(false);
+    expect(isAnswerable(openCommand({ status: "expired", blocking: true }))).toBe(true);
+    expect(isAnswerable(openCommand({ status: "expired", blocking: false }))).toBe(false);
+    expect(isAnswerable(answeredCommand({ status: "expired", blocking: true }))).toBe(false);
   });
 
   it("treats completed Commands as read-only", () => {
     expect(isAnswered("decided")).toBe(true);
     expect(isAnswered("open")).toBe(false);
+    expect(isAnswered(openCommand({ status: "expired", blocking: true }))).toBe(false);
+  });
+
+  it("fails closed for non-Command values", () => {
+    expect(isAnswerable(null)).toBe(false);
+    expect(isAnswerable(42)).toBe(false);
   });
 });
 
@@ -117,6 +126,7 @@ describe("Commands status labels", () => {
     expect(commandStatusLabel("resolved")).toBe("ANSWERED");
     expect(commandStatusLabel("dismissed")).toBe("CLOSED");
     expect(commandStatusLabel("expired")).toBe("CLOSED");
+    expect(commandStatusLabel(openCommand({ status: "expired", blocking: true }))).toBe("EXPIRED · ANSWER");
     expect(commandStatusLabel("weird")).toBe("WEIRD");
     expect(commandStatusLabel(null)).toBe("UNKNOWN");
   });

@@ -24,14 +24,22 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
         ok(%{})
 
       %{method: :get, url: url} ->
-        if String.ends_with?(url, "/actions/runs/99"),
-          do: ok(%{"head_sha" => "head", "run_attempt" => 1, "status" => "completed", "conclusion" => Agent.get(state, & &1.conclusion)}),
-          else: flunk("unexpected GET #{url}")
+        cond do
+          String.contains?(url, "/actions/runs?head_sha=") ->
+            ok(%{"workflow_runs" => [%{"id" => 99, "name" => "CI", "head_sha" => "head", "run_attempt" => 1}]})
+
+          String.ends_with?(url, "/actions/runs/99") ->
+            ok(%{"head_sha" => "head", "run_attempt" => 1, "name" => "CI", "status" => "completed", "conclusion" => Agent.get(state, & &1.conclusion)})
+
+          true ->
+            flunk("unexpected GET #{url}")
+        end
     end
 
     digest = %FailureDigest{flake_only: true, checks: [%{id: 1, name: "test", url: "https://github.com/owner/repo/actions/runs/99/job/1"}]}
 
     opts = [
+      token: "test-gh-token",
       request_fun: request,
       ci_recovery_path: path,
       ci_failure_digest: fn _, _ -> {:ok, digest} end,
@@ -46,7 +54,8 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
 
   test "cancelled runs are skipped with one neutral attention", ctx do
     Agent.update(ctx.state, &%{&1 | conclusion: "cancelled"})
-    assert %{recovery: "rerun_skipped"} = recover(ctx)
+    assert :ok = CIRecoveryStore.record_cancelled_run("1", 42, "head", 99, ctx.opts)
+    assert %{decision: :failed, recovery: nil} = recover(ctx)
     assert Agent.get(ctx.state, & &1.posts) == []
     assert_received {:attention, "ticket.1.pr.ci_recovery.rerun_skipped", details}
     assert details[:message] =~ "cancelled_run"
@@ -56,14 +65,14 @@ defmodule Aiur.Orchestrator.CiRecoveryPolicyTest do
 
   test "draft PRs are skipped", ctx do
     Agent.update(ctx.state, &%{&1 | draft: true})
-    assert %{recovery: "rerun_skipped"} = recover(ctx)
+    assert %{decision: :failed, recovery: nil} = recover(ctx)
     assert Agent.get(ctx.state, & &1.posts) == []
     assert_received {:attention, "ticket.1.pr.ci_recovery.rerun_skipped", _}
   end
 
   test "changes-requested PRs are skipped", ctx do
     Agent.update(ctx.state, &%{&1 | review: "CHANGES_REQUESTED"})
-    assert %{recovery: "rerun_skipped"} = recover(ctx)
+    assert %{decision: :failed, recovery: nil} = recover(ctx)
     assert Agent.get(ctx.state, & &1.posts) == []
     assert_received {:attention, "ticket.1.pr.ci_recovery.rerun_skipped", _}
   end

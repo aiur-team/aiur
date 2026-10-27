@@ -18,7 +18,9 @@ defmodule Aiur.ProviderMeterWatchTest do
       ProviderMeterRefresh.start_link(
         name: nil,
         observer: fn target -> send(test, {:observed, target}) end,
-        agents_running_fun: fn -> true end,
+        # An idle fleet, so only watchers drive polling: a running fleet keeps
+        # Claude current on its own (#5747).
+        agents_running_fun: fn -> false end,
         interval_fun: fn -> 25 end,
         baseline_delay_ms: :never,
         grace_ms: 0

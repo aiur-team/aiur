@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.ControlRouting.StatusWriteConfirmationsTest do
 
   import Aiur.TestSupport.ControlRoutingFixture
 
-  alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RuntimeWatchdog}
+  alias Aiur.Orchestrator.{Lifecycle, PauseResume, PushRouting, RuntimeWatchdog, TicketTransition}
 
   describe "control-status writes" do
     test "worker completion expires a pending control instead of leaving it applied or pending" do
@@ -203,6 +203,10 @@ defmodule Aiur.Orchestrator.ControlRouting.StatusWriteConfirmationsTest do
       entry =
         running_entry(issue_id,
           started_at: started_at,
+          tracker_label_writer: fn identifier, action, label ->
+            send(self(), {:runtime_label, identifier, action, label})
+            :ok
+          end,
           control: %{
             status: :working,
             can_interrupt: true,
@@ -227,6 +231,7 @@ defmodule Aiur.Orchestrator.ControlRouting.StatusWriteConfirmationsTest do
              }
 
       assert paused.paused_reason == :usage_limit_exhausted
+      assert_receive {:runtime_label, ^issue_id, :add, "agent:paused-usage-limit"}, 1000
       assert %DateTime{} = paused.paused_at
       assert paused.started_at == started_at
     end
@@ -245,11 +250,9 @@ defmodule Aiur.Orchestrator.ControlRouting.StatusWriteConfirmationsTest do
       state = base_state(running: %{issue_id => entry})
 
       assert state ==
-               Orchestrator.transition_control_status(
+               TicketTransition.apply_effects(
                  state,
-                 entry,
-                 :paused,
-                 "duplicate.confirmation"
+                 [{:transition_control, entry, :paused, "duplicate.confirmation"}]
                )
 
       assert {:noreply, ^state} =

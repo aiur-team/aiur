@@ -3,6 +3,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
 
   alias Aiur.RunTelemetry.Cohort
   alias Aiur.RunTelemetry.Dataset.Source
+  alias Aiur.RunTelemetry.EventFields
 
   @default_review_resume_grace_seconds 300
 
@@ -58,6 +59,11 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
           attempt_id: Map.get(attributes, "attempt_id"),
           operation_id: Map.get(attributes, "operation_id"),
           outcome: Map.get(attributes, "outcome"),
+          blocker: Map.get(attributes, "blocker"),
+          non_ff: Map.get(attributes, "non_ff"),
+          start_trigger: Map.get(attributes, "start_trigger"),
+          head_start_ms: Map.get(attributes, "head_start_ms"),
+          waste_ms: Map.get(attributes, "waste_ms"),
           command_class: Map.get(attributes, "command_class"),
           cause: Map.get(attributes, "cause"),
           complexity: normalize_complexity(Map.get(attributes, "complexity")),
@@ -75,6 +81,7 @@ defmodule Aiur.RunTelemetry.Dataset.LifecycleIntervals do
           source_line: record.source_line
         }
         |> Map.merge(Cohort.event_fields(attributes))
+        |> Map.merge(EventFields.take(attributes))
       ]
     else
       _other -> []

@@ -219,11 +219,17 @@ defmodule Aiur.BuildGate.PreflightTest do
       pgid=[0-9]+\n
       holder_pid=[1-9][0-9]*\n
       command_pgid=[1-9][0-9]*\n
+      command_pid_namespace=pid:\[[0-9]+\]\n
       phase=test\n
-      command=test\n
+      command=.+\n
+      command_hash=[0-9a-f]{64}\n
+      command_file_count=0\n
       started_at=[0-9]+\n$/x
 
-    assert File.read!(owner_path) =~ owner_pattern
+    owner = File.read!(owner_path)
+    assert owner =~ owner_pattern
+    assert [_, command_hash] = Regex.run(~r/^command=test, 0 files, sha256=([0-9a-f]{64})$/m, owner)
+    assert owner =~ "command_hash=#{command_hash}\n"
 
     assert {_output, 0} = Task.await(command, 5_000)
     assert File.exists?(slot_path)
@@ -302,22 +308,29 @@ defmodule Aiur.BuildGate.PreflightTest do
 
   test "defers below the memory floor and resumes after MemAvailable recovers", context do
     write_meminfo!(context, 1_024)
+    output_path = Path.join(context.gate_dir, "build-output.log")
 
     command =
       Task.async(fn ->
         run_bash(
-          "mix compile",
+          "mix compile > #{output_path} 2>&1",
           Map.merge(context, %{min_free_memory_mb: 2_048, timeout_seconds: 5})
         )
       end)
 
-    assert Task.yield(command, 250) == nil
+    assert :ok =
+             wait_for_file_contents!(
+               output_path,
+               ~r/aiur_perf memory_hold surface=build available_mb=1024 threshold_mb=2048/
+             )
+
     refute File.exists?(context.started_path)
 
     write_meminfo!(context, 3_072)
 
     assert {output, 0} = Task.await(command, 5_000)
-    assert output =~ "aiur_perf memory_hold surface=build available_mb=1024 threshold_mb=2048"
+    assert File.read!(output_path) =~ "aiur_perf memory_hold surface=build available_mb=1024 threshold_mb=2048"
+    assert output == ""
     assert File.read!(context.log_path) == "compile\n"
   end
 

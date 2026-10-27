@@ -1,9 +1,25 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.TrackerIdentity
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{State, StatusReport}
+  alias AiurWeb.DashboardLive.UnitsPanel
   alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsURL}
-  alias AiurWeb.StreamDeckGrid
+
+  import AiurWeb.OperatorControlCenter.UnitsPresenterFixtures
+
+  test "unpublished daemon snapshot renders Units as loading without zero counts" do
+    catalog = UnitsPresenter.load(%{daemon_starting?: true}, membership_fun: fn -> raise "must not read yet" end)
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert view.status == :loading
+    assert view.message == "The daemon is starting."
+    assert view.total_count == nil
+    assert view.count_status == :loading
+    assert Enum.all?(Map.values(view.counts), &is_nil/1)
+    assert UnitsPanel.units_count_label(view) == "loading units…"
+    assert UnitsPresenter.announcement(view) =~ "Loading Units"
+  end
 
   test "loads typed provider snapshots once and keeps later projection pure" do
     test_pid = self()
@@ -61,8 +77,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     refute_received :activity_read
   end
 
-  test "Units rows preserve internal attempt and context measurements from status snapshots" do
+  test "Units rows preserve internal attempt, context, and usage reset measurements" do
     identity = identity("NODE-usage", "41")
+    issue = %Issue{id: "NODE-usage", identifier: "41", state: "in-progress", tracker_identity: identity}
+
+    # Build the internal row with the orchestrator snapshot builder, so a key it drops never reaches the presenter.
+    entry = %{
+      identifier: "41",
+      issue: issue,
+      paused_reason: :usage_limit_exhausted,
+      control: %{status: :paused},
+      usage_limit_reset_at: "2026-07-17T13:00:00Z",
+      telemetry_attempt_id: "attempt-current",
+      turn_count: 3,
+      context_usage: %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0, session_id: "private-session"}
+    }
+
+    [internal_row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(%State{running: %{issue.id => entry}})).running
 
     catalog =
       UnitsPresenter.load(
@@ -70,19 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
           generated_at: "2026-07-17T12:00:00Z",
           provider_health: %{fleet: :ok, decisions: :ok},
           units_status_snapshot: %{
-            running: [
-              %{
-                tracker_identity: identity,
-                bucket: :running,
-                telemetry_attempt_id: "attempt-current",
-                context_usage: %{
-                  used_tokens: 1200,
-                  window_tokens: 4000,
-                  used_percent: 30.0,
-                  session_id: "private-session"
-                }
-              }
-            ],
+            running: [internal_row],
             retrying: [],
             idle: [],
             snapshot_freshness: %{status: :current, observed_at: "2026-07-17T12:00:00Z", age_seconds: 0}
@@ -96,8 +115,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
     assert [row] = catalog.snapshot.rows
     assert row.telemetry_attempt_id == "attempt-current"
+    assert row.runtime.usage_limit_reset_at == "2026-07-17T13:00:00Z"
     assert row.context_usage == %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0}
     refute Map.has_key?(row.context_usage, :session_id)
+    assert row.turn_count == 3
+    assert row.field_sources.turn_count == :status_report
   end
 
   test "current orchestrator rows prevent a healthy empty membership from reporting Active 0" do
@@ -156,6 +178,22 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert catalog.message == "Fleet data is unavailable."
   end
 
+  test "an unpublished daemon view becomes unavailable after the startup deadline" do
+    catalog = UnitsPresenter.load(%{daemon_starting?: true, startup_elapsed_ms: 600_000})
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert catalog.status == :unavailable
+    assert view.count_status == :unavailable
+    assert is_nil(view.total_count)
+    assert catalog.message == "Fleet data is unavailable."
+  end
+
+  test "a fleet catalog with no successful view is marked loading during startup" do
+    payload = %{units: %{status: :stale, message: "Fleet data is unavailable.", snapshot: %{rows: []}}}
+
+    assert %{units: %{status: :loading, message: "The daemon is starting."}} = UnitsPresenter.starting_catalog(payload)
+  end
+
   test "truncated membership qualifies every catalog count as a lower bound" do
     identities = Enum.map(1..1_001, &identity("NODE-#{&1}", Integer.to_string(&1)))
     retained = identities |> Enum.take(1_000) |> Enum.map(&member/1)
@@ -205,320 +243,5 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert catalog.status == :unavailable
     assert catalog.message == "Fleet data is unavailable."
     assert catalog.snapshot.health.membership == :unknown
-  end
-
-  test "a stale fleet snapshot marks the catalog stale and names the age, not membership health" do
-    alpha = identity("NODE-stale-fleet", "41")
-
-    stale_payload =
-      alpha
-      |> payload()
-      |> put_in([:fleet, :snapshot_freshness], %{status: :stale, reason: :snapshot_timeout, age_seconds: 342, observed_at: "2026-07-17T11:59:18Z"})
-
-    catalog =
-      UnitsPresenter.load(stale_payload,
-        membership_fun: fn -> membership([member(alpha)]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-
-    assert catalog.status == :stale
-    assert catalog.message =~ "Fleet updates are pending"
-    assert catalog.message =~ "5m 42s ago"
-    refute catalog.message =~ "membership is healthy"
-    assert [%{identity: ^alpha}] = catalog.snapshot.rows
-  end
-
-  # The Stream Deck projects a retained `:stale` snapshot unchanged, so the
-  # Units catalog has to admit the same agents from the same snapshot. Before
-  # this, any staleness dropped every status-sourced row and an operator with no
-  # durable membership saw an empty Units page beside a full Stream Deck.
-  test "a briefly stale fleet snapshot shows the same units the Stream Deck projects" do
-    alpha = identity("NODE-parity-alpha", "41")
-    beta = identity("NODE-parity-beta", "42")
-    gamma = identity("NODE-parity-gamma", "43")
-
-    fleet = %{
-      running: [fleet_entry(alpha), fleet_entry(beta)],
-      retrying: [],
-      idle: [fleet_entry(gamma, work_state: :allocated, waiting_reason: :awaiting_dispatch)],
-      snapshot_freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 21, observed_at: "2026-07-17T11:59:39Z"}
-    }
-
-    catalog =
-      UnitsPresenter.load(%{generated_at: "2026-07-17T12:00:00Z", provider_health: %{fleet: :ok, decisions: :ok}, fleet: fleet, decisions: []},
-        membership_fun: fn -> membership([]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-
-    deck = StreamDeckGrid.project(fleet)
-
-    assert deck.total == 3
-    assert length(catalog.snapshot.rows) == deck.total
-    assert Enum.map(catalog.snapshot.rows, & &1.identity) == [alpha, beta, gamma]
-  end
-
-  test "a fleet snapshot stale beyond the shared window stops standing in for membership" do
-    alpha = identity("NODE-aged-alpha", "41")
-
-    fleet = %{
-      running: [fleet_entry(alpha)],
-      retrying: [],
-      idle: [],
-      snapshot_freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 900, observed_at: "2026-07-17T11:45:00Z"}
-    }
-
-    catalog =
-      UnitsPresenter.load(%{generated_at: "2026-07-17T12:00:00Z", provider_health: %{fleet: :ok, decisions: :ok}, fleet: fleet, decisions: []},
-        membership_fun: fn -> membership([]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-
-    assert catalog.snapshot.rows == []
-    assert catalog.status == :stale
-    assert catalog.message =~ "Fleet updates are pending"
-  end
-
-  # The window is exclusive at its boundary, and both surfaces agree there: the
-  # rows stop being a floor at exactly the age the catalog starts calling itself
-  # stale, so neither can be right while the other is wrong.
-  test "the shared staleness window closes at the same age for rows and for catalog status" do
-    alpha = identity("NODE-boundary", "41")
-
-    catalog = fn age_seconds ->
-      fleet = %{
-        running: [fleet_entry(alpha)],
-        retrying: [],
-        idle: [],
-        snapshot_freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: age_seconds, observed_at: "2026-07-17T11:55:00Z"}
-      }
-
-      UnitsPresenter.load(%{generated_at: "2026-07-17T12:00:00Z", provider_health: %{fleet: :ok, decisions: :ok}, fleet: fleet, decisions: []},
-        membership_fun: fn -> membership([]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-    end
-
-    assert length(catalog.(299).snapshot.rows) == 1
-    assert catalog.(299).status == :ready
-    assert catalog.(300).snapshot.rows == []
-    assert catalog.(300).status == :stale
-  end
-
-  # An age-less `:stale` freshness cannot be judged against the window, so it
-  # must not be admitted as a floor and must not read as a healthy catalog.
-  test "a stale fleet view with no age is neither a row floor nor a ready catalog" do
-    alpha = identity("NODE-ageless", "41")
-
-    fleet = %{
-      running: [fleet_entry(alpha)],
-      retrying: [],
-      idle: [],
-      snapshot_freshness: %{status: :stale, reason: :snapshot_timeout, observed_at: "2026-07-17T11:55:00Z"}
-    }
-
-    catalog =
-      UnitsPresenter.load(%{generated_at: "2026-07-17T12:00:00Z", provider_health: %{fleet: :ok, decisions: :ok}, fleet: fleet, decisions: []},
-        membership_fun: fn -> membership([]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-
-    assert catalog.snapshot.rows == []
-    assert catalog.status == :stale
-  end
-
-  test "a fleet snapshot marked stale while still young is not presented as stale" do
-    alpha = identity("NODE-fresh-fleet", "41")
-
-    young_payload =
-      alpha
-      |> payload()
-      |> put_in([:fleet, :snapshot_freshness], %{status: :stale, reason: :snapshot_timeout, age_seconds: 18, observed_at: "2026-07-17T11:59:42Z"})
-
-    catalog =
-      UnitsPresenter.load(young_payload,
-        membership_fun: fn -> membership([member(alpha)]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-
-    assert catalog.status == :ready
-    refute catalog.message
-  end
-
-  test "an unavailable fleet snapshot never reports a healthy membership as the reason" do
-    alpha = identity("NODE-no-fleet", "41")
-
-    unpublished_payload = %{
-      generated_at: "2026-07-17T12:00:00Z",
-      provider_health: %{fleet: :unavailable, decisions: :ok},
-      fleet: %{error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"}, running: [], retrying: [], idle: []},
-      decisions: []
-    }
-
-    catalog =
-      UnitsPresenter.load(unpublished_payload,
-        membership_fun: fn -> membership([member(alpha)]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-
-    assert catalog.status == :stale
-    assert catalog.message == "The fleet is still counting units. Fleet data is unavailable."
-    refute catalog.message =~ "healthy"
-    assert [%{identity: ^alpha}] = catalog.snapshot.rows
-  end
-
-  test "a stale catalog with nothing retained does not claim to be showing a last-known-good catalog" do
-    empty_fleet_payload = %{
-      generated_at: "2026-07-17T12:00:00Z",
-      provider_health: %{fleet: :unavailable, decisions: :ok},
-      fleet: %{error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"}, running: [], retrying: [], idle: []},
-      decisions: []
-    }
-
-    catalog =
-      UnitsPresenter.load(empty_fleet_payload,
-        membership_fun: fn -> membership([]) end,
-        activity_fun: fn -> %{entries: []} end
-      )
-
-    assert catalog.status == :stale
-    assert catalog.snapshot.rows == []
-    assert catalog.message == "No live units. Fleet data is unavailable."
-    refute catalog.message =~ "The fleet is still counting units"
-  end
-
-  test "a reconciling membership is stale without claiming membership is healthy" do
-    alpha = identity("NODE-reconciling", "41")
-
-    reconciling = fn ->
-      alpha |> List.wrap() |> Enum.map(&member/1) |> membership() |> Map.put(:freshness, %{status: :stale})
-    end
-
-    catalog = UnitsPresenter.load(payload(alpha), membership_fun: reconciling, activity_fun: fn -> %{entries: []} end)
-
-    assert catalog.status == :stale
-    assert catalog.message == "The fleet is still counting units."
-    refute catalog.message =~ "healthy"
-  end
-
-  test "selection helpers validate scopes and independently toggle conditions" do
-    selection = UnitsURL.default_selection()
-
-    selection = UnitsPresenter.select_scope(selection, "all")
-    assert selection.scope == :all
-
-    selection = UnitsPresenter.toggle_condition(selection, "paused")
-    selection = UnitsPresenter.toggle_condition(selection, :alert)
-    assert selection.conditions == [:alert, :paused]
-
-    assert UnitsPresenter.toggle_condition(selection, "unknown") == selection
-    assert UnitsPresenter.toggle_condition(selection, :paused).conditions == [:alert]
-    assert UnitsPresenter.select_scope(selection, "invalid").scope == :live
-  end
-
-  test "bulk filter actions select every visible prior filter or none" do
-    assert UnitsPresenter.select_all_filters() == %{
-             scope: :unfinished,
-             conditions: [:active, :alert, :paused, :queued, :finished]
-           }
-
-    assert UnitsPresenter.select_no_filters() == %{scope: :none, conditions: []}
-  end
-
-  test "row tokens are stable opaque server lookup keys" do
-    alpha = identity("NODE-alpha-private", "41")
-    catalog = UnitsPresenter.load(payload(alpha), membership_fun: fn -> membership([member(alpha)]) end, activity_fun: fn -> %{entries: []} end)
-    [row] = catalog.snapshot.rows
-
-    token = UnitsPresenter.row_token(row)
-
-    assert is_binary(token)
-    refute String.contains?(token, "NODE-alpha-private")
-    assert {:ok, ^row} = UnitsPresenter.lookup(catalog, token)
-    assert {:error, :not_found} = UnitsPresenter.lookup(catalog, token <> "changed")
-  end
-
-  defp payload(identity) do
-    %{
-      generated_at: "2026-07-17T12:00:00Z",
-      provider_health: %{fleet: :ok, decisions: :ok},
-      fleet: %{
-        running: [
-          %{
-            tracker_identity: identity,
-            state: "in-progress",
-            title: "Render Units",
-            url: "https://github.com/its-everdred/aiur/issues/41",
-            backend: "codex",
-            agent_family: "codex",
-            requested_model: "gpt-5.6",
-            effort: "high",
-            complexity: 3,
-            labels: ["complexity:3", "build-lane:dashboard-ui"],
-            work_state: :working,
-            waiting_reason: :active,
-            open_decision_count: 2,
-            open_decision_count_health: :available,
-            runtime_seconds: 90,
-            workspace_path: "/private/agent/workspace"
-          }
-        ],
-        retrying: [],
-        idle: []
-      },
-      decisions: [
-        %{
-          lifecycle: :recorded,
-          ticket: %{identifier: "41", url: "https://github.com/its-everdred/aiur/issues/41"}
-        }
-      ]
-    }
-  end
-
-  defp fleet_entry(identity, attrs \\ []) do
-    %{
-      identifier: identity.identifier,
-      tracker_identity: identity,
-      state: "in-progress",
-      title: "Unit #{identity.identifier}",
-      url: "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}",
-      backend: "codex",
-      agent_family: "codex",
-      labels: [],
-      work_state: Keyword.get(attrs, :work_state, :working),
-      waiting_reason: Keyword.get(attrs, :waiting_reason, :active)
-    }
-  end
-
-  defp membership(members) do
-    %{
-      generation: 7,
-      health: :healthy,
-      health_message: "current-run membership is healthy",
-      freshness: %{status: :fresh},
-      members: members,
-      truncated?: false
-    }
-  end
-
-  defp member(identity) do
-    %{
-      identity: identity,
-      lifecycle: :running,
-      terminal?: false,
-      first_observed_at: ~U[2026-07-17 11:00:00Z],
-      last_observed_at: ~U[2026-07-17 12:00:00Z]
-    }
-  end
-
-  defp identity(provider_id, identifier) do
-    %TrackerIdentity{
-      status: :joinable,
-      kind: :github,
-      owner: "its-everdred",
-      repository: "aiur",
-      provider_id: provider_id,
-      identifier: identifier,
-      reason: nil
-    }
   end
 end

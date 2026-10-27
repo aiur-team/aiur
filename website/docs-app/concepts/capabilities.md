@@ -70,7 +70,7 @@ presence does not promise that its feature is installed or enabled.
 | `executor.conversation` | Managed Executor conversation |
 | `executor.background_agents` | Executor background agent observations |
 | `harness.<id>.native_question` | Harness questions; `mode` is `in_band_hold`, `defer_resume`, or `none` |
-| `events.export` | External event export; may include `v` and `retention` |
+| `events.export` | External event feed: `v: 1`, `retention.max_age_s` and `retention.max_records`; disabled → `unavailable/disabled`, no HTTP listener or exporter → `unavailable/not_running`, corrupt journal → `degraded/journal_corrupt` |
 | `listener_modes` | Listener routing modes; unavailable modes retain legacy sends |
 | `voice.stt` | Speech recognition |
 | `voice.tts` | Speech synthesis |
@@ -85,6 +85,15 @@ presence does not promise that its feature is installed or enabled.
 | `tracker.linear` | Linear tracker |
 | `accounting.meters` | Provider usage meters |
 | `merge_policy` | Configured merge policy; `mode` is `ci=<mode> local_tests=<mode>` ([configuration](/reference/merge-policy)) |
+
+`listener_modes` is available only with a valid v1 specification and listener routing
+enabled; its `version` is the selected spec major (1).
+
+Missing specifications report
+`unavailable/not_installed`, failed validation reports `unavailable/spec_invalid`,
+and legacy or unrecognized routing flags report `unavailable/disabled`. Unexpected
+status or read failures report `unknown/unknown`. Sends retain legacy routing when
+listener modes are unavailable.
 
 Per-capability `version` defaults to 1. Registered `route` attributes tell clients
 where to open a feature's dashboard page; do not hard-code those destinations.
@@ -136,6 +145,6 @@ and Executor display identifiers are visible to authenticated clients.
 
 ## Client contracts
 
-The private [`@aiur/contracts` package](https://github.com/aiur-team/aiur/tree/main/packages/aiur-contracts) provides generated TypeScript types, known capability IDs, harness ID patterns, and reason constants.
+The private [`@aiur/contracts` package](https://github.com/aiur-team/aiur/tree/main/packages/aiur-contracts) provides generated TypeScript types and JSON Schemas for capabilities, CLI and HTTP status, ticket usage, and ticket progress, plus known capability IDs, harness ID patterns, and reason constants.
 
 Its [v1 JSON Schema](https://github.com/aiur-team/aiur/blob/main/packages/aiur-contracts/schemas/capabilities.v1.schema.json) validates the daemon's golden report.

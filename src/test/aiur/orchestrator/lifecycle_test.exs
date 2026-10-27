@@ -12,6 +12,14 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert "ticket.*.branch.push" in topics
   end
 
+  test "orchestrator subscribes to agent progress observations" do
+    topics = Lifecycle.orchestrator_topics()
+
+    assert "ticket.*.agent.progress" in topics
+    assert "ticket.*.agent.progress.checkin" in topics
+    assert "ticket.*.agent.progress.phase" in topics
+  end
+
   test "schedule_tick replaces the timer with a new token" do
     old_token = make_ref()
     old_timer = Process.send_after(self(), :superseded_tick, 60_000)
@@ -223,6 +231,18 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert refreshed.queued_demand_hints == %{"3" => 3}
     assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
     assert_receive {:tick, _token}, 1000
+  end
+
+  test "note_queued_demand includes the latest dispatcher hold in its receipt" do
+    state = %State{
+      dispatch_selection_hold: %{reasons: [:build], candidates: 121},
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000,
+      poll_check_in_progress: false,
+      github_poll_delays: %{}
+    }
+
+    assert {:reply, %{queued: true, latest_dispatch_hold: %{reasons: [:build]}}, _refreshed} =
+             Lifecycle.note_queued_demand(state, ["4742"])
   end
 
   test "a refresh publishes the collapsed countdown before its poll runs" do

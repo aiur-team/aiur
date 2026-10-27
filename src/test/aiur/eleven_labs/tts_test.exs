@@ -62,6 +62,12 @@ defmodule Aiur.ElevenLabs.TTSTest do
     owner = self()
 
     request = fn _url, options ->
+      send(owner, :request_started)
+
+      receive do
+        :continue -> :ok
+      end
+
       into = Keyword.fetch!(options, :into)
       request = Req.new()
       response = %Req.Response{status: 200}
@@ -77,7 +83,9 @@ defmodule Aiur.ElevenLabs.TTSTest do
                max_audio_bytes: 3
              )
 
+    assert_receive :request_started, 1000
     monitor = Process.monitor(pid)
+    send(pid, :continue)
     assert_receive {:voice_audio, :error, "Voice reply exceeded its playback limit"}, 1000
     refute_receive {:voice_audio, :chunk, _data}, 100
     refute_receive {:voice_audio, :done}, 100

@@ -84,6 +84,7 @@ export interface PhysicalSurfaceState {
   readonly commandDictation?: boolean;
   /** An answer error from the channel, shown on the Commands strip. */
   readonly commandsError?: string | null;
+  readonly commandFeedback?: { decisionId: string; key: number; title: string; label: string } | null;
 }
 
 const faceColours: Readonly<Record<string, RgbColor>> = {
@@ -395,7 +396,7 @@ export const createPhysicalSurface = () => {
         : state.mode === "commands"
         ? layoutPhysicalKeys(
             state.commandsView === "detail" && state.selectedCommand != null
-              ? detailKeyDescriptors(state.selectedCommand, state.optionOffset ?? 0, state.selectedOption ?? null, state.micHeld === true, state.commandDictation === true)
+              ? detailKeyDescriptors(state.selectedCommand, state.optionOffset ?? 0, state.selectedOption ?? null, state.micHeld === true, state.commandDictation === true, state.commandFeedback)
               : historyKeyDescriptors(state.commandsPage ?? { items: [] }, state.historyOffset ?? 0, null),
           )
         : layoutKeys(descriptorAgents(grid), state.columnOffset);

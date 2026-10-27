@@ -79,6 +79,15 @@ defmodule AiurWeb.BuildLiveURLTest do
     refute_url_push(view)
   end
 
+  test "list mode round trips through server URL state and unknown values default" do
+    {:ok, view, _} = live(build_conn(), "/build")
+    render_hook(view, "build:url", %{"view" => "list", "list" => "epics"})
+    assert_patch(view, "/build?view=list&list=epics")
+    render_hook(view, "build:url", %{"view" => "list", "list" => "bogus"})
+    assert_patch(view, "/build?view=list")
+    assert_push_event(view, "build:url", %{state: %{view: "list", list: "tickets"}})
+  end
+
   defp refute_url_patch(view) do
     render(view)
     %{proxy: {ref, topic, _}} = view

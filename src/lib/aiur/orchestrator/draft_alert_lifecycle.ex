@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.DraftAlertLifecycle do
   @moduledoc false
 
-  alias Aiur.{AlertFeed, Alerts, Config, Issue}
+  alias Aiur.{AlertFeed, Config, Issue, Signal}
   alias Aiur.Orchestrator.State
   require Logger
 
@@ -208,7 +208,7 @@ defmodule Aiur.Orchestrator.DraftAlertLifecycle do
   defp alerts(state), do: Map.get(state.ci_lifecycle, :ci_wait_draft_alerts) || MapSet.new()
   defp put_since(state, since), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_since, since)}
   defp put_alerts(state, alerts), do: %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :ci_wait_draft_alerts, alerts)}
-  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Signal.alert/2)
 
   defp log_failure(topic, reason, state) do
     Logger.warning("Draft CI-wait alert emission failed: topic=#{topic} reason=#{inspect(reason)}")

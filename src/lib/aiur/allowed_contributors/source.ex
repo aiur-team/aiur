@@ -27,7 +27,7 @@ defmodule Aiur.AllowedContributors.Source do
   """
 
   alias Aiur.AllowedContributors.AllowList
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.Access
 
   @path ".github/ALLOWED-CONTRIBUTORS"
   @sha ~r/\A[0-9a-f]{40}\z/
@@ -66,9 +66,9 @@ defmodule Aiur.AllowedContributors.Source do
   def label(nil), do: "file@unavailable"
 
   defp fetch_file(owner, repo, opts) do
-    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request_fun = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
     token = Keyword.fetch!(opts, :token)
-    base = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
+    base = "#{Access.base_url()}/repos/#{owner}/#{repo}"
     get = fn url -> request_fun.(%{method: :get, url: url, token: token, caller: "allowed_contributors"}) end
 
     with {:ok, branch} <- default_branch(get, base),
@@ -138,7 +138,7 @@ defmodule Aiur.AllowedContributors.Source do
   end
 
   defp failure({:ok, %{status: 200}}, stage), do: {:error, {:allowed_contributors, stage, :malformed_response}}
-  defp failure({:ok, %{status: _} = response}, stage), do: {:error, {:allowed_contributors, stage, Errors.github_status_error(response)}}
-  defp failure({:error, reason}, stage), do: {:error, {:allowed_contributors, stage, Errors.classify_error({:error, reason})}}
+  defp failure({:ok, %{status: _} = response}, stage), do: {:error, {:allowed_contributors, stage, Access.github_status_error(response)}}
+  defp failure({:error, reason}, stage), do: {:error, {:allowed_contributors, stage, Access.classify_error({:error, reason})}}
   defp failure(_other, stage), do: {:error, {:allowed_contributors, stage, :invalid_response}}
 end

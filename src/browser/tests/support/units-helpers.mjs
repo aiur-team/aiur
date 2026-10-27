@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test'
 
-export async function openUnits(page, path = '/units') {
+export async function openUnits(page, path = '/units-fixture') {
   await page.goto('/auth/read_only')
   await page.goto('/streamdeck-control/read_only')
   await page.goto(path)
@@ -16,7 +16,7 @@ export async function openUnits(page, path = '/units') {
 export async function openWritableUnits(page) {
   await page.goto('/auth/writable')
   await page.goto('/streamdeck-control/writable')
-  await page.goto('/units')
+  await page.goto('/units-fixture')
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)

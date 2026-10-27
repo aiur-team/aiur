@@ -129,15 +129,25 @@ export default withMermaid(defineConfig({
           items: [
             { text: 'Overview', link: '/' },
             { text: 'Quick start', link: '/guide/quick-start' },
-            { text: 'Accounts by backend', link: '/guide/claude-accounts' }
+            { text: 'Accounts by backend', link: '/guide/claude-accounts' },
+            { text: 'Railway deployments', link: '/guide/railway' }
           ]
         },
         {
           text: 'Interfaces',
           items: [
             { text: 'TUI', link: '/guide/tui' },
-            { text: 'CLI', link: '/reference/cli' },
+            { text: 'CLI', link: '/reference/cli', collapsed: true, items: [
+              { text: 'Launch and setup', link: '/reference/cli-launch' },
+              { text: 'Operations', link: '/reference/cli-operations' },
+              { text: 'Decisions and Executor events', link: '/reference/cli-decisions' },
+              { text: 'Development commands', link: '/reference/cli-development' }
+            ] },
+            { text: 'Build History Commands', link: '/reference/build-history-commands' },
+            { text: 'Plan refresh tool', link: '/reference/plan-refresh' },
             { text: 'GUI', link: '/guide/gui' },
+            { text: 'Dashboard and telemetry', link: '/guide/dashboard-and-telemetry' },
+            { text: 'Outbound events', link: '/guide/outbound-events' },
             { text: 'Stream Deck', link: '/guide/stream-deck' }
           ]
         },
@@ -147,9 +157,13 @@ export default withMermaid(defineConfig({
             { text: 'Executor', link: '/concepts/executor' },
             { text: 'Units', link: '/concepts/units' },
             { text: 'Commands', link: '/concepts/commands' },
+            { text: 'Continuous build history', link: '/concepts/build-history' },
             { text: 'Build Orders', link: '/concepts/build-orders' },
             { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
+            { text: 'Ticket flow: steps 0–8', link: '/concepts/ticket-lifecycle-steps' },
+            { text: 'Agent workspaces', link: '/concepts/workspaces' },
             { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
+            { text: 'Operating with aiurdev', link: '/concepts/operating-with-aiurdev' },
             { text: 'Headroom dispatch', link: '/concepts/headroom-dispatch' },
             { text: 'Capabilities', link: '/concepts/capabilities' },
             { text: 'Experiments', link: '/concepts/experiments' },
@@ -161,6 +175,13 @@ export default withMermaid(defineConfig({
           text: 'APIs',
           items: [
             { text: 'GitHub', link: '/apis/github' },
+            { text: 'GitHub polling', link: '/apis/github-polling' },
+            { text: 'GitHub API budgets', link: '/apis/github-budgets' },
+            { text: 'GitHub per-caller costs', link: '/apis/github-costs' },
+            { text: 'GitHub webhooks', link: '/apis/github-webhooks' },
+            { text: 'GitHub credentials', link: '/apis/github-auth' },
+            { text: 'Shared agent reads', link: '/apis/github-agent-cache' },
+            { text: 'Standalone gh-access', link: '/apis/gh-access' },
             { text: 'CI failure evidence', link: '/apis/ci-failure-evidence' },
             { text: 'ElevenLabs', link: '/apis/elevenlabs' }
           ]
@@ -168,9 +189,20 @@ export default withMermaid(defineConfig({
         {
           text: 'Reference',
           items: [
-            { text: 'Configuration', link: '/reference/configuration' },
+            { text: 'Configuration', link: '/reference/configuration', collapsed: true, items: [
+              { text: 'Daemon', link: '/reference/configuration-daemon' },
+              { text: 'Tracker and polling', link: '/reference/configuration-tracker' },
+              { text: 'Integrations', link: '/reference/configuration-integrations' }
+            ] },
+            { text: 'Configuration: agent', link: '/reference/configuration-agent' },
+            { text: 'Configuration: build_order', link: '/reference/configuration-build-order' },
+            { text: 'Configuration: voice', link: '/reference/configuration-voice' },
+            { text: 'Configuration notes', link: '/reference/configuration-notes' },
             { text: 'Merge Policy', link: '/reference/merge-policy' },
-            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
+            { text: 'PR checks', link: '/reference/pr-checks' },
+            { text: 'Experiment Statistics', link: '/reference/experiment-statistics' },
+            { text: 'Optional Optimizations', link: '/reference/optional-optimizations' },
+            { text: 'Components', link: '/reference/components' }
           ]
         }
       ]

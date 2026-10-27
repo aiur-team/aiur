@@ -67,7 +67,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
 
     assert view.heading.title == "Responsive Units interface"
     assert view.heading.identity_label == "its-everdred/aiur #1110"
-    assert view.participation_notice =~ "not participating"
+    assert view.participation_notice == "You can read this conversation here. Sending is not available."
+    refute view.participation_notice =~ "Read-only mirror"
 
     metadata = Map.new(view.metadata, &{&1.key, &1.value})
     assert metadata.agent == "Codex"

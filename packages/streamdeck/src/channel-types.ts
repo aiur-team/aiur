@@ -151,9 +151,9 @@ export interface StreamDeckCommandAnswer {
 
 /**
  * One Command in the focused agent's history, in the daemon's allowlisted
- * shape. `status` is the durable lifecycle (`open`, `deferred`, `decided`,
- * `acknowledged`, ...); only `open`/`deferred` are answerable, and `answer`
- * lets a completed Command be read back as what was asked and what was decided.
+ * shape. `status` is the durable lifecycle (`open`, `deferred`, `expired`,
+ * `decided`, `acknowledged`, ...). An expired unanswered blocker remains
+ * answerable; `answer` lets a completed Command be read back.
  */
 export interface StreamDeckCommand {
   readonly decision_id: string;
@@ -161,9 +161,12 @@ export interface StreamDeckCommand {
   readonly version: number;
   readonly ticket?: { readonly identifier?: string } | null;
   readonly question: string;
+  readonly short_label?: string | null;
+  readonly answerable_on_deck?: boolean;
   readonly context?: { readonly short?: string | null; readonly long?: string | null } | null;
   readonly options: readonly StreamDeckCommandOption[];
   readonly status: string;
+  readonly blocking?: boolean;
   readonly answer?: StreamDeckCommandAnswer | null;
   readonly created_at?: string;
 }
@@ -193,6 +196,11 @@ export interface StreamDeckCommandAnswerResult {
   readonly decision: StreamDeckCommand;
 }
 
+export type StreamDeckCommandAnswerError =
+  | { readonly reason: "already_answered"; readonly winner: { readonly actor_kind: string; readonly summary: string | null; readonly accepted_at: string } | null }
+  | { readonly reason: "withdrawn"; readonly status: string }
+  | { readonly reason: "stale" };
+
 export interface StreamDeckChannelEvents {
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
@@ -220,7 +228,7 @@ export interface StreamDeckChannelEvents {
   /** The reply to `answer_command`: the recorded result and the refreshed Command. */
   commandAnswered(result: StreamDeckCommandAnswerResult): void;
   /** An error reply to `commands_page` or `answer_command`. */
-  commandsError(reason: string): void;
+  commandsError(reason: string, outcome?: StreamDeckCommandAnswerError, requestKey?: string): void;
   closed(error: unknown): void;
 }
 
@@ -242,8 +250,9 @@ export type FetchLike = (input: string, init?: { method?: string; headers?: Reco
 
 export interface StreamDeckChannelOptions {
   readonly baseUrl: string;
-  readonly username: string;
-  readonly password: string;
+  readonly username?: string;
+  readonly password?: string;
+  readonly token?: string;
   readonly fetch: FetchLike;
   readonly websocket: WebSocketFactory;
   readonly events: StreamDeckChannelEvents;

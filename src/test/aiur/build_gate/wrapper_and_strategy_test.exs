@@ -44,6 +44,29 @@ defmodule Aiur.BuildGate.WrapperAndStrategyTest do
     assert File.read!(context.log_path) == "compile\n"
   end
 
+  @tag @linux_only
+  test "owner metadata summarizes the build phase and counts file arguments", context do
+    task =
+      Task.async(fn ->
+        run_sh(
+          "mix test --max-cases 4 test/aiur/build_gate/status_test.exs test/aiur/build_gate/status_namespace_test.exs",
+          context
+          |> with_command_wrappers!()
+          |> Map.put(:extra_env, [{"FAKE_MIX_SLEEP", "1"}])
+        )
+      end)
+
+    owner_path = Path.join(context.gate_dir, "slot-1.owner")
+    wait_for_file!(owner_path)
+
+    owner = File.read!(owner_path)
+    assert owner =~ "command=test, 2 files, sha256="
+    assert owner =~ "command_file_count=2\n"
+    refute owner =~ "--max-cases"
+
+    assert {_output, 0} = Task.await(task, 5_000)
+  end
+
   test "the lightweight wrapper bypasses the Bash hook for non-build commands", context do
     context =
       context

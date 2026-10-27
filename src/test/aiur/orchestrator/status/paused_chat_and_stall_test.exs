@@ -6,13 +6,19 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
   alias Aiur.AgentPubSub
   alias Aiur.Orchestrator.OperatorMessages
 
+  setup do
+    test_pid = self()
+    on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
+    :ok
+  end
+
   test "chat-send to a paused agent auto-resumes it when a slot is free" do
     orchestrator_name = Module.concat(__MODULE__, :ChatPausedAutoResumeOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
     parent = self()
 
     on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
     end)
 
     # max=2, no active agents, 1 paused — there's a free slot, so chatting
@@ -57,7 +63,7 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
     parent = self()
 
     on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
     end)
 
     :sys.replace_state(pid, fn state ->
@@ -109,7 +115,7 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
     parent = self()
 
     on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
     end)
 
     # max=1, 1 active, 1 paused — no free slot. Chat-send to the paused
@@ -145,7 +151,7 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
     end)
 
     :sys.replace_state(pid, fn state ->
@@ -179,7 +185,7 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
 
     on_exit(fn ->
       if Process.alive?(pid) do
-        Process.exit(pid, :normal)
+        Process.exit(pid, :kill)
       end
     end)
 
@@ -273,7 +279,7 @@ defmodule Aiur.Orchestrator.Status.PausedChatAndStallTest do
     on_exit(fn ->
       Application.delete_env(:aiur, :memory_tracker_issues)
 
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
     end)
 
     :ok = AgentPubSub.subscribe_poll_state()

@@ -18,6 +18,22 @@ defmodule Aiur.GitHub.PollSnapshotsTest do
     assert {:ok, [%{"id" => "PRRT_1", "isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
   end
 
+  test "stores current Executor-sweep PR facts in the existing branch cache" do
+    facts = %{"number" => 77, "updated_at" => "2026-10-15T18:20:00Z", "review_decision" => "APPROVED", "mergeable" => "CONFLICTING"}
+
+    assert :ok = PollSnapshots.put_executor_sweep_pr(@repo, 42, facts)
+    assert {:ok, %{data: stored, source: :poll}} = ResourceStore.fetch(ResourceStore.key(:branch_pull_request, "owner", "repo", 42))
+    assert stored["review_decision"] == "APPROVED"
+    assert stored["mergeable"] == "CONFLICTING"
+
+    assert :unchanged = PollSnapshots.put_executor_sweep_pr(@repo, 42, Map.put(facts, "updated_at", "2026-10-15T18:10:00Z"))
+  end
+
+  test "does not store PR facts without a version marker" do
+    assert :unchanged = PollSnapshots.put_executor_sweep_pr(@repo, 42, %{"number" => 77})
+    assert :miss = ResourceStore.fetch(ResourceStore.key(:branch_pull_request, "owner", "repo", 42))
+  end
+
   test "delivery freshness is bounded independently from store retention" do
     assert :ok = PollSnapshots.put_review_threads(@repo, 77, [thread("PRRT_1", false, "2026-08-21T10:00:00Z")])
     assert :ok = PollSnapshots.merge_review_thread(@repo, 77, thread("PRRT_1", true, "2026-08-21T10:01:00Z"))

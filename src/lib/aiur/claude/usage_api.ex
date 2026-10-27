@@ -21,6 +21,8 @@ defmodule Aiur.Claude.UsageApi do
 
   require Logger
 
+  alias Aiur.Config.UsageCadence
+
   @usage_url "https://api.anthropic.com/api/oauth/usage"
   @oauth_beta "oauth-2025-04-20"
   @timeout_ms 8_000
@@ -161,16 +163,19 @@ defmodule Aiur.Claude.UsageApi do
 
   defp ttl_ms(opts) do
     case Keyword.get(opts, :ttl_ms) do
-      ms when is_integer(ms) and ms > 0 -> ms
-      _unset -> configured_ttl_ms()
+      ms when is_integer(ms) and ms > 0 ->
+        ms
+
+      _unset ->
+        case Keyword.fetch(opts, :settings) do
+          {:ok, settings} -> UsageCadence.poll_interval_ms(settings)
+          :error -> configured_ttl_ms()
+        end
     end
   end
 
   defp configured_ttl_ms do
-    case Aiur.Config.settings() do
-      {:ok, %{polling: %{usage_interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 -> seconds * 1_000
-      _unavailable -> @default_ttl_ms
-    end
+    UsageCadence.poll_interval_ms()
   rescue
     _error -> @default_ttl_ms
   catch

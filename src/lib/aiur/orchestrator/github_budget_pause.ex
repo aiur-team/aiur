@@ -1,10 +1,9 @@
 defmodule Aiur.Orchestrator.GithubBudgetPause do
   @moduledoc false
 
-  alias Aiur.Alerts
-  alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{ControlLifecycle, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, State, TicketTransition}
   alias Aiur.Protocol.MapAccess
+  alias Aiur.Signal
 
   @budget_resources ["core", "graphql"]
   # A shared hold's advertised reset must be bounded to the broker's own
@@ -135,7 +134,7 @@ defmodule Aiur.Orchestrator.GithubBudgetPause do
   @spec emit_escalation_if_needed(map(), pos_integer()) :: :ok
   def emit_escalation_if_needed(entry, generation) when is_map(entry) and is_integer(generation) do
     if escalating_generation?(generation) do
-      Alerts.emit_system("ticket.#{Map.get(entry, :identifier)}.github-budget.escalation",
+      Signal.alert("ticket.#{Map.get(entry, :identifier)}.github-budget.escalation",
         issue: Map.get(entry, :identifier),
         workspace: Map.get(entry, :workspace_path),
         worker_host: Map.get(entry, :worker_host),
@@ -236,7 +235,7 @@ defmodule Aiur.Orchestrator.GithubBudgetPause do
     entry = State.find_running_by_identifier(state.running, identifier)
 
     if State.paused_running_entry?(entry) and not matching_resume_pending?(state, entry) do
-      case Orchestrator.resume_paused_issue(state, entry, false) do
+      case TicketTransition.apply_effect(state, {:resume_paused, entry, false}) do
         {{:ok, :resumed}, next_state} -> next_state
         {{:error, _reason}, next_state} -> next_state
       end

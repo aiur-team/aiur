@@ -60,6 +60,12 @@
   gap: 0.6rem;
 }
 
+.bo-catalog-heading {
+  margin: 0;
+  padding: 0 clamp(1rem, 2.5vw, 1.4rem);
+  font-size: 1.1rem;
+}
+
 /* The catalog card is full-bleed, so its one control re-inserts the padding the
    surface dropped rather than sitting flush against the rounded corner. */
 .bo-catalog-actions {
@@ -385,4 +391,3 @@ th[data-sort-key]:focus-visible {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-

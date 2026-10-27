@@ -83,6 +83,11 @@ defmodule Aiur.GitHub.TrackerTest do
     assert {:ok, ^issue} = GitHubTracker.hydrate_blocked_by(issue)
   end
 
+  test "Tracker cached_blocked_by does not fetch when the cache has no dependency fact" do
+    issue = %Issue{id: "42", identifier: "42", state: "todo"}
+    assert {:error, :cache_miss} = Aiur.Tracker.cached_blocked_by(issue)
+  end
+
   test "fetch_issue_states_by_ids_conditional delegates with the persistent cache" do
     assert {:ok, [issue], %{existing: true, conditional?: true}} =
              GitHubTracker.fetch_issue_states_by_ids_conditional(["42"], %{existing: true})

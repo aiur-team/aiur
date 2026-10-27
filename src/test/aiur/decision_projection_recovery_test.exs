@@ -40,7 +40,7 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
 
   defp request(pid, source) do
     DecisionStore.request(
-      %{"question" => "Deploy?", "blocking" => true, "source_id" => source, "options" => [%{"id" => "ship", "label" => "Ship"}]},
+      %{"question" => "Deploy? #{source}", "blocking" => true, "source_id" => source, "options" => [%{"id" => "ship", "label" => "Ship"}]},
       [ticket: @ticket, source: %{agent_id: "agent-3275", session_id: "session-3275", event_id: nil}],
       pid
     )
@@ -85,7 +85,11 @@ defmodule Aiur.DecisionProjectionRecoveryTest do
     assert {:ok, %{decision: decision}} = request(pid, "before-failure")
     assert_received {:notified, id}
     assert id == decision.decision_id
-    :ok = Exchange.subscribe("ticket.3275.agent.decision.*")
+    # Informational suggestion warnings are independent of journal lifecycle delivery.
+    for event <- ~w(requested enriched deferred) do
+      :ok = Exchange.subscribe("ticket.3275.agent.decision.#{event}")
+    end
+
     broken = break_projection(dir)
     assert {:ok, %{decision: second}} = request(pid, "withheld-request")
 

@@ -1,0 +1,75 @@
+{
+  "attempts": {
+    "current_retry_attempt": 0,
+    "restart_count": 0
+  },
+  "capabilities": {
+    "accepted_delivery_policies": [
+      "checkpoint"
+    ],
+    "accepts_operator_messages": true,
+    "can_interrupt": false,
+    "queue_depth": 1,
+    "safe_checkpoints": [
+      "notification",
+      "tool_result"
+    ]
+  },
+  "contract": "aiur.ticket",
+  "contract_version": 1,
+  "issue_id": "I_5698",
+  "issue_identifier": "5698",
+  "last_error": null,
+  "logs": {
+    "codex_session_logs": []
+  },
+  "queue": {
+    "depth": 1
+  },
+  "recent_events": [
+    {
+      "at": "2026-10-23T12:00:00Z",
+      "event": "notification",
+      "message": "rendered"
+    }
+  ],
+  "retry": null,
+  "running": {
+    "adopted_from": null,
+    "capabilities": {
+      "accepted_delivery_policies": [
+        "checkpoint"
+      ],
+      "accepts_operator_messages": true,
+      "can_interrupt": false,
+      "queue_depth": 1,
+      "safe_checkpoints": [
+        "notification",
+        "tool_result"
+      ]
+    },
+    "ci": null,
+    "last_event": "notification",
+    "last_event_at": "2026-10-23T12:00:00Z",
+    "last_message": "rendered",
+    "live_conversation": null,
+    "open_decision_count": 0,
+    "open_decision_count_health": "unknown",
+    "queue_depth": 1,
+    "review": "not_started",
+    "session_id": "session-5698",
+    "stale_for_seconds": null,
+    "started_at": "2026-10-23T12:00:00Z",
+    "state": "in-progress",
+    "turn_count": 7,
+    "waiting_reason": "active",
+    "worker_host": "worker.example",
+    "workspace_path": "/var/lib/aiur/5698"
+  },
+  "status": "running",
+  "tracked": {},
+  "workspace": {
+    "host": "worker.example",
+    "path": "/var/lib/aiur/5698"
+  }
+}

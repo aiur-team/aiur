@@ -3,9 +3,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.DecisionCard
+  alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionPath}
 
   @filter_specs [
+    {:needs_you, "Needs you"},
+    {:with_executor, "With Executor"},
+    {:from_executor, "From Executor"},
     {:open, "Open"},
     {:blocking, "Blocking"},
     {:resolved, "Resolved"},
@@ -20,6 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   attr(:history, :list, default: [])
   attr(:action_states, :map, default: %{})
   attr(:writable, :boolean, required: true)
+  attr(:live_connected, :boolean, default: true)
   attr(:provider_health, :any, default: :ok)
   attr(:retained_counts, :map, required: true)
   attr(:page, :map, default: %{})
@@ -35,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       |> assign(:visible_decisions, decisions)
       |> assign(:counts, filter_counts(assigns.retained_counts, assigns.history_total))
       |> assign(:filter_specs, @filter_specs)
-      |> assign(:page_health, get_in(assigns.page, [:health, :status]))
+      |> assign(:page_health, page_health(assigns.page))
 
     ~H"""
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
@@ -50,8 +54,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           active={@filter == filter}
           blocking={filter == :blocking}
         />
+        <.link
+          patch={DecisionPath.inbox(@filter, if(@query[:requester] == "executor", do: Map.drop(@query, [:requester, :cursor]), else: Map.put(Map.delete(@query, :cursor), :requester, "executor")))}
+          class={["filter-chip", @query[:requester] == "executor" && "is-active"]}
+          aria-current={@query[:requester] == "executor" && "page"}
+        >From Executor</.link>
       </div>
 
+      <p :if={@query[:requester] == "executor"} class="empty-state compact" role="status" data-requester-count>
+        {requester_count_label(@page)}
+      </p>
       <div class="decision-list">
         <div :if={@provider_health != :ok or @page_health == :unavailable} class="empty-state">
           Commands are unavailable right now. Unit state is still live.
@@ -59,8 +71,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
         <div :if={@page_health == :partial} class="empty-state compact" role="status">
           Showing a partial list of Commands.
         </div>
-        <div :if={@provider_health == :ok and @page_health != :unavailable and @visible_decisions == []} class="empty-state">
-          {empty_message(@filter)}
+        <div :if={@provider_health == :ok and @page_health not in [:unavailable, :partial] and @visible_decisions == []} class="empty-state">
+          {if @query[:requester] == "executor", do: "No Commands from the Executor on this retained page.", else: empty_message(@filter)}
         </div>
         <DecisionCard.decision_card
           :for={decision <- @visible_decisions}
@@ -70,14 +82,29 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
           history={@history}
           action_state={Map.get(@action_states, decision.decision_id, %{})}
           writable={@writable}
+          live_connected={@live_connected}
           filter={@filter}
           query={@query}
         />
       </div>
 
+      <.link
+        :if={@query[:requester] == "executor" and get_in(@page, [:pagination, :next_cursor])}
+        patch={DecisionPath.inbox(@filter, Map.put(@query, :cursor, @page.pagination.next_cursor))}
+        class="aiur-button aiur-button--dashboard aiur-button--ghost"
+      >Next retained page</.link>
     </section>
     """
   end
+
+  defp page_health(%{health: %{status: :unavailable}}), do: :unavailable
+  defp page_health(%{partial_results?: true}), do: :partial
+  defp page_health(page), do: get_in(page, [:health, :status])
+
+  defp requester_count_label(%{requester_page: %{count: count, partial?: false}}) when is_integer(count),
+    do: "#{count} from Executor on this retained page (not a total)."
+
+  defp requester_count_label(_page), do: "Executor count unknown; retained Command data is partial or unavailable."
 
   attr(:filter, :string, required: true)
   attr(:label, :string, required: true)
@@ -105,6 +132,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   # table rendered directly below them, so it uses the retained total.
   defp filter_counts(retained_counts, history_total) do
     %{
+      needs_you: Map.get(retained_counts, :needs_you),
+      with_executor: Map.get(retained_counts, :with_executor),
+      from_executor: Map.get(retained_counts, :from_executor),
       all: Map.get(retained_counts, :total),
       open: Map.get(retained_counts, :open),
       blocking: Map.get(retained_counts, :blocking),
@@ -115,7 +145,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp count_label(count) when is_integer(count), do: count
   defp count_label(_count), do: "—"
 
-  defp filtered(decisions, :open), do: Enum.filter(decisions, &open?/1)
+  defp filtered(decisions, filter) when filter in [:needs_you, :with_executor, :from_executor],
+    do: Enum.filter(decisions, &Aiur.Commands.matches_route?(&1, filter))
+
+  defp filtered(decisions, :open), do: Enum.filter(decisions, & &1.open?)
   defp filtered(decisions, :blocking), do: Enum.filter(decisions, &blocking?/1)
   defp filtered(decisions, :undelivered), do: Enum.filter(decisions, &undelivered?/1)
   defp filtered(decisions, :supervisor), do: Enum.filter(decisions, &supervisor_decision?/1)
@@ -127,8 +160,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp filtered(_decisions, :resolved), do: []
 
   defp filtered(decisions, :superseded), do: Enum.filter(decisions, &Map.get(&1, :superseded?, false))
-  defp filtered(decisions, _filter), do: Enum.filter(decisions, &open?/1)
+  defp filtered(decisions, _filter), do: Enum.filter(decisions, & &1.open?)
 
+  defp empty_message(:needs_you), do: "No Commands need you."
   defp empty_message(:resolved), do: "Resolved Commands are shown in Command history below."
   defp empty_message(_filter), do: "No Commands match this filter."
 
@@ -141,8 +175,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     if is_nil(selected), do: filtered, else: [selected | filtered]
   end
 
-  defp open?(decision), do: decision.decision_status in [:open, :deferred]
-  defp blocking?(decision), do: decision.blocking and open?(decision)
+  defp blocking?(decision), do: decision.blocking and decision.open?
 
   defp undelivered?(decision) do
     not is_nil(decision.answer) and decision.delivery_status not in [:delivered, :consumed]

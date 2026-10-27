@@ -12,7 +12,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   alias Aiur.Events.CommentFilter
   alias Aiur.Events.GithubCommentsPoller.{Publish, Reviews, Validators}
-  alias Aiur.GitHub.{Client, ResourceStore}
+  alias Aiur.GitHub.{Access, Client}
   alias Aiur.Orchestrator.ReadyForReviewTransitions
 
   @type target :: String.t() | integer()
@@ -43,6 +43,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   defp do_poll(targets, since_by_target, etags_by_target, opts) do
     repo = Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
+    opts = prefetch_open_pull_requests(targets, opts)
 
     results =
       targets
@@ -107,6 +108,24 @@ defmodule Aiur.Events.GithubCommentsPoller do
        pr_review_seen_at: pr_review_seen_at,
        pr_draft_observations: pr_draft_observations
      }}
+  end
+
+  defp prefetch_open_pull_requests(targets, opts) do
+    existing = Keyword.get(opts, :open_pull_requests_by_target, %{})
+
+    missing =
+      Enum.reject(targets, fn target ->
+        Map.has_key?(existing, target) or match?({:ok, _pr}, batch_value(opts, target, :open_pull_request))
+      end)
+
+    if missing == [] do
+      opts
+    else
+      case Client.fetch_open_pull_requests_for_branches(missing, opts) do
+        {:ok, fetched} -> Keyword.put(opts, :open_pull_requests_by_target, Map.merge(existing, fetched))
+        {:error, _reason} -> opts
+      end
+    end
   end
 
   defp target_task_results(targets, since_by_target, etags_by_target, repo, opts) do
@@ -195,7 +214,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_issue_comments(target, comments, repo), Validators.newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
-        resource = ResourceStore.key_for_repo(:issue_comments, repo, target)
+        resource = Access.key_for_repo(:issue_comments, repo, target)
         {etag, provenance} = Validators.request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
@@ -366,7 +385,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), Validators.newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
-        resource = ResourceStore.key_for_repo(:pr_issue_comments, repo, pr_number)
+        resource = Access.key_for_repo(:pr_issue_comments, repo, pr_number)
         {etag, provenance} = Validators.request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 

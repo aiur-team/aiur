@@ -1,0 +1,119 @@
+{
+  "agent_totals": {
+    "seconds_running": 42
+  },
+  "analytics": {
+    "available?": false,
+    "experiments_available?": false,
+    "message": "Telemetry analytics are available after a run telemetry run.",
+    "path": null
+  },
+  "capacity": null,
+  "capacity_hold": {
+    "held?": false,
+    "held_for_seconds": 0,
+    "measured": null,
+    "sample_age_seconds": null,
+    "signal": null,
+    "threshold": null
+  },
+  "contract": "aiur.status",
+  "contract_version": 1,
+  "counts": {
+    "idle": 0,
+    "retrying": 0,
+    "running": 1
+  },
+  "daemon_started_at": "2026-10-23T12:00:00Z",
+  "decision_history": {
+    "entries": [],
+    "message": null,
+    "status": "available"
+  },
+  "dispatch_hold": {
+    "detail": null,
+    "held?": false,
+    "held_for_seconds": 0,
+    "reason": null
+  },
+  "generated_at": "2026-10-23T12:00:00Z",
+  "globally_paused": false,
+  "idle": [],
+  "observations": null,
+  "polling": {
+    "checking?": false,
+    "effective_interval_ms": 600000,
+    "idle_backoff": {
+      "active?": true,
+      "factor": 5.0
+    },
+    "next_poll_in_ms": 480000,
+    "poll_interval_ms": 120000
+  },
+  "recent_merges": {
+    "entries": [],
+    "health": "writable",
+    "message": null,
+    "reconciliation": {
+      "pages_fetched": 0,
+      "partial?": false,
+      "status": "complete"
+    },
+    "status": "available"
+  },
+  "retrying": [],
+  "running": [
+    {
+      "adopted_from": null,
+      "capabilities": {
+        "accepted_delivery_policies": [
+          "checkpoint"
+        ],
+        "accepts_operator_messages": true,
+        "can_interrupt": false,
+        "queue_depth": 1,
+        "safe_checkpoints": [
+          "notification",
+          "tool_result"
+        ]
+      },
+      "ci": null,
+      "issue_id": "I_5698",
+      "issue_identifier": "5698",
+      "last_event": "notification",
+      "last_event_at": "2026-10-23T12:00:00Z",
+      "last_message": "rendered",
+      "live_conversation": null,
+      "open_decision_count": 0,
+      "open_decision_count_health": "unknown",
+      "pause_reason": null,
+      "queue_depth": 1,
+      "repl_attach_command": null,
+      "review": "not_started",
+      "runtime_seconds": 0,
+      "session_id": "session-5698",
+      "stale_for_seconds": null,
+      "started_at": "2026-10-23T12:00:00Z",
+      "state": "in-progress",
+      "tag": null,
+      "title": null,
+      "tracker_paused": false,
+      "turn_count": 7,
+      "url": null,
+      "waiting": null,
+      "waiting_reason": "active",
+      "work_state": "working",
+      "worker_host": "worker.example",
+      "workspace_path": "/var/lib/aiur/5698"
+    }
+  ],
+  "snapshot_freshness": {
+    "age_ms": 0,
+    "age_seconds": 0,
+    "freshness_window_ms": 1000,
+    "observed_at": "2026-10-23T12:00:00Z",
+    "orchestrator_mailbox_depth": 0,
+    "reason": null,
+    "status": "current"
+  }
+}

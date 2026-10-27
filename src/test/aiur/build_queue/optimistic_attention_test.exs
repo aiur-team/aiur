@@ -4,8 +4,9 @@ defmodule Aiur.BuildQueue.OptimisticAttentionTest do
   alias Aiur.Orchestrator.OptimisticLedger
 
   defmodule CaptureSink do
+    # The sink is app-global; drop alerts other processes raise while a test runs (#4975).
     def emit_system(topic, opts) do
-      send(Application.fetch_env!(:aiur, :optimistic_attention_test_pid), {:attention, topic, opts})
+      if self() == Application.get_env(:aiur, :optimistic_attention_test_pid), do: send(self(), {:attention, topic, opts})
       :ok
     end
   end
@@ -94,6 +95,16 @@ defmodule Aiur.BuildQueue.OptimisticAttentionTest do
     assert opts[:severity] == "info"
     assert opts[:message] =~ "#10 has repeated conflicting integrations"
     assert opts[:message] =~ "#11 keeps running"
+  end
+
+  test "merged blocker notice asks for a default branch rebase without replacement language" do
+    payload = %{blocker: "10", cause: :merged, action: :none, severity: "info"}
+    assert :ok = Attention.open({:optimistic_blocker_failed, :merged}, "11", payload)
+    assert_received {:attention, "ticket.11.queue.attention.optimistic_blocker_failed", opts}
+    assert opts[:severity] == "info"
+    assert opts[:message] =~ "Blocker #10 merged"
+    assert opts[:message] =~ "Rebase #11 on the default branch"
+    refute opts[:message] =~ "replacement blocker"
   end
 
   test "invalid action and missing failure facts cannot publish" do

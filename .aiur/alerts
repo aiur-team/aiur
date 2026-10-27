@@ -110,7 +110,7 @@ alerts:
   "system.dispatch.decision_store_unavailable.resolved":
     message: DecisionStore reachable; dispatch resumed
   "system.github.budget_broker_degraded":
-    message: GitHub budget broker is degraded
+    message: GitHub budget broker is unavailable
     sound:
       - "~/alerts/advisor/advisor-not-enough-minerals.wav"
   "system.github.budget_broker_retry":

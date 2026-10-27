@@ -86,6 +86,24 @@ defmodule Aiur.AgentRunner.CommentContextTest do
       assert summary =~ "a follow-up comment"
     end
 
+    test "retains PR conversation feedback older than a later issue workpad edit" do
+      issue = %Issue{identifier: "CC-PR-COMMENT", id: "gid-cc-pr-comment"}
+      workpad = %{"id" => 1, "body" => "## Agent Workpad", "updated_at" => "2026-10-20T16:45:00Z", authoritative: false}
+      feedback = %{"id" => 2, "body" => "Blocking: fix the failing tests before merge", "created_at" => "2026-10-20T16:41:00Z", authoritative: true}
+
+      fetchers = %{
+        issue_comments: fn
+          "CC-PR-COMMENT" -> {:ok, [workpad]}
+          7 -> {:ok, [feedback]}
+        end,
+        open_pr: fn _ -> {:ok, %{"number" => 7}} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, []} end
+      }
+
+      assert [%{id: 2, topic: "ticket.CC-PR-COMMENT.issue.commented"}] = CommentContext.events(issue, fetchers)
+    end
+
     # A quota hold leaves CODEOWNER authority *unknown*, which classification
     # reports as `authoritative: nil` rather than `false`. Unknown is not
     # trusted, and the event payload has to stay a boolean so the downstream

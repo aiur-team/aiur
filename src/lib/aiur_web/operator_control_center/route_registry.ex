@@ -3,15 +3,15 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @routes [
     %{
-      id: :units,
-      label: "Units",
-      icon: "◫",
+      id: :build,
+      label: "Build",
+      icon: "",
       description: "",
       path: "/",
       type: :live,
-      owner: :dashboard,
+      owner: :build,
       availability: :available,
-      active_actions: [:index]
+      active_actions: [:build]
     },
     %{
       id: :commands,
@@ -25,17 +25,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:decisions, :decision]
     },
     %{
-      id: :build_order,
-      label: "Build Order",
-      icon: "◌",
-      description: "",
-      path: "/build-orders",
-      type: :live,
-      owner: :build_order,
-      availability: :available,
-      active_actions: [:build_orders, :build_order]
-    },
-    %{
       id: :analytics,
       label: "Analytics",
       icon: "↗",
@@ -45,6 +34,29 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       owner: :analytics,
       availability: :available,
       active_actions: [:analytics]
+    },
+    %{
+      id: :instances,
+      label: "Instances",
+      icon: "▦",
+      description: "Shared instance liveness and lease-store details.",
+      path: "/instances",
+      type: :live,
+      owner: :instances,
+      availability: :available,
+      nav?: false,
+      active_actions: [:instances]
+    },
+    %{
+      id: :experiments,
+      label: "Experiments",
+      icon: "⚗",
+      description: "Frozen experiment evidence.",
+      path: "/experiments",
+      type: :live,
+      owner: :experiments,
+      availability: :available,
+      active_actions: [:experiments, :experiment]
     },
     %{
       id: :streamdeck,
@@ -60,14 +72,28 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
     }
   ]
 
+  @hidden_routes [
+    %{
+      id: :units,
+      label: "Units",
+      icon: "◫",
+      description: "",
+      path: "/units",
+      type: :live,
+      owner: :dashboard,
+      availability: :available,
+      active_actions: [:index]
+    }
+  ]
+
   @spec routes(map()) :: [map()]
   def routes(analytics) when is_map(analytics) do
-    Enum.map(@routes, &resolve_runtime_availability(&1, analytics))
+    Enum.filter(@routes, &(Map.get(&1, :nav?, true) and resolve_runtime_availability(&1, analytics)))
   end
 
   @spec route(atom(), map()) :: {:ok, map()} | :error
   def route(id, analytics) when is_atom(id) and is_map(analytics) do
-    case Enum.find(routes(analytics), &(&1.id == id)) do
+    case Enum.find(@routes, &(&1.id == id and resolve_runtime_availability(&1, analytics))) do
       nil -> :error
       route -> {:ok, route}
     end
@@ -75,7 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   @spec current_route(atom() | nil) :: map()
   def current_route(action) do
-    Enum.find(@routes, &active?(&1, action)) || hd(@routes)
+    Enum.find(@routes ++ @hidden_routes, &active?(&1, action)) || hd(@routes)
   end
 
   @spec active?(map(), atom() | nil) :: boolean()
@@ -98,5 +124,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
 
   def navigation_mode(_current_route, _target_route), do: :navigate
 
-  defp resolve_runtime_availability(route, _analytics), do: route
+  defp resolve_runtime_availability(%{id: :experiments}, runtime), do: Map.get(runtime, :experiments_available?, false) == true
+  defp resolve_runtime_availability(_route, _runtime), do: true
 end

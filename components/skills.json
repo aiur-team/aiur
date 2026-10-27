@@ -1,10 +1,11 @@
 {
   "id": "skills",
-  "name": "`aiur-agent` and Executor skills",
+  "name": "Agent and Executor skills",
   "layer": 5,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     ".claude/skills/**",
+    "packages/nightly-release/**",
     "src/prompts/**"
   ],
   "facades": [
@@ -19,5 +20,18 @@
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "required",
+  "summary": "Provides operating instructions for agents working tickets and Executors running Aiur.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "skills.md"
+  ],
+  "config": [],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
 }

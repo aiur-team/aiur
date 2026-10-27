@@ -73,6 +73,7 @@ defmodule Aiur.RunTelemetry.CohortContextTest do
   test "dispatch cohorts resolve pins and fail open on feature timeout", %{root: _root} do
     issue = %Aiur.Issue{
       identifier: "3794",
+      title: "Fix flaky test",
       selected_backend: "codex",
       selected_model: "test-model",
       labels: ["experiment:x", "bug", "model:high"],
@@ -100,6 +101,7 @@ defmodule Aiur.RunTelemetry.CohortContextTest do
     assert fields.model == "test-model"
     assert fields.effort == "high"
     assert fields.tags == ["experiment:x"]
+    assert fields.work_kind == "test_ci"
     assert fields.blockers == ["3755", "3763"]
     assert fields.feature == nil
     assert fields.epic == nil

@@ -2,6 +2,7 @@ defmodule Aiur.Workspace.RelocatedResourcesTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Init.Templates
+  alias Aiur.TestSupport.IsolatedBuildGateEnv
 
   @tag :tmp_dir
   test "copied build reads changed scaffold resources from the workspace", %{tmp_dir: root} do
@@ -35,9 +36,11 @@ defmodule Aiur.Workspace.RelocatedResourcesTest do
     """)
 
     env = [{"MIX_ENV", "test"}]
+    gate_env = IsolatedBuildGateEnv.prepare(root)
+    assert IsolatedBuildGateEnv.isolated?(gate_env, root)
 
     {output, status} =
-      System.cmd("mix", ["compile"], cd: project, env: env, stderr_to_stdout: true)
+      System.cmd("mix", ["compile"], cd: project, env: env ++ gate_env, stderr_to_stdout: true)
 
     assert status == 0, output
     {_, 0} = System.cmd("cp", ["-a", Path.join(base, "."), workspace])
@@ -47,7 +50,7 @@ defmodule Aiur.Workspace.RelocatedResourcesTest do
     {output, status} =
       System.cmd("mix", ["run", "--no-start", "-e", "IO.puts(ResourceFixture.value())"],
         cd: copied_project,
-        env: env,
+        env: env ++ gate_env,
         stderr_to_stdout: true
       )
 
@@ -60,5 +63,14 @@ defmodule Aiur.Workspace.RelocatedResourcesTest do
       assert Path.type(path) == :relative
       assert File.regular?(path)
     end
+
+    workspace_assets =
+      AiurWeb.StaticAssets.__info__(:attributes)
+      |> Keyword.get_values(:external_resource)
+      |> List.flatten()
+      |> Enum.filter(&String.starts_with?(Path.relative_to(&1, File.cwd!()), "priv/static/"))
+
+    assert length(workspace_assets) > 3
+    assert Enum.all?(workspace_assets, &(Path.type(&1) == :relative))
   end
 end

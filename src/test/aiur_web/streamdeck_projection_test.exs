@@ -8,6 +8,59 @@ defmodule AiurWeb.StreamdeckProjectionTest do
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter
   alias AiurWeb.StreamdeckProjection
 
+  defmodule VoiceProvider do
+    @behaviour Aiur.Voice.Provider
+    @impl true
+    def transcriber, do: nil
+    @impl true
+    def synthesizer, do: nil
+    @impl true
+    def configured?, do: false
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
+  end
+
+  defmodule ConfiguredVoiceProvider do
+    @behaviour Aiur.Voice.Provider
+    @impl true
+    def transcriber, do: nil
+    @impl true
+    def synthesizer, do: nil
+    @impl true
+    def configured?, do: true
+    @impl true
+    def child_specs, do: []
+    @impl true
+    def quota_snapshot, do: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil}
+  end
+
+  setup do
+    previous = Application.fetch_env(:aiur, :voice_provider)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:aiur, :voice_provider, value)
+        :error -> Application.delete_env(:aiur, :voice_provider)
+      end
+    end)
+  end
+
+  test "voice availability follows the voice port" do
+    Application.put_env(:aiur, :voice_provider, VoiceProvider)
+    assert Aiur.Voice.availability() == %{available: false, reason: :unconfigured}
+    assert StreamdeckProjection.voice() == %{available: false, reason: "Aiur has no ElevenLabs API key - transcription is off"}
+
+    Application.put_env(:aiur, :voice_provider, ConfiguredVoiceProvider)
+    assert Aiur.Voice.availability() == %{available: true, reason: nil}
+    assert StreamdeckProjection.voice() == %{available: true, reason: nil}
+
+    Application.put_env(:aiur, :voice_provider, nil)
+    assert Aiur.Voice.availability() == %{available: false, reason: :not_installed}
+    assert StreamdeckProjection.voice() == %{available: false, reason: "Voice isn't installed in this Aiur"}
+  end
+
   @now ~U[2026-08-09 12:00:00Z]
 
   test "account summaries survive older observation times and session events without accepting older polls" do
@@ -63,11 +116,29 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert Map.has_key?(view, "kimi")
 
     assert get_in(view, ["claude", "windows", "session", "used_percent"]) == 30
+    assert get_in(view, ["claude", "windows", "session", "remaining_percent"]) == 70
     assert get_in(view, ["claude", "windows", "weekly", "used_percent"]) == 47
+    assert get_in(view, ["claude", "windows", "weekly", "remaining_percent"]) == 53
+    assert get_in(view, ["codex", "windows", "weekly", "remaining_percent"]) == 25
     assert get_in(view, ["codex", "windows", "session", "used_percent"]) == 50
+    assert get_in(view, ["codex", "windows", "session", "remaining_percent"]) == 50
     assert get_in(view, ["codex", "windows", "weekly", "used_percent"]) == 75
     assert get_in(view, ["kimi", "windows", "session", "used_percent"]) == 10
     assert get_in(view, ["kimi", "windows", "weekly", "used_percent"]) == 20
+    assert get_in(view, ["kimi", "windows", "session", "remaining_percent"]) == 90
+    assert get_in(view, ["kimi", "windows", "weekly", "remaining_percent"]) == 80
+  end
+
+  test "stream deck meter remaining percentages preserve unknown instead of filling or emptying it" do
+    meters = %{codex: observed_meter("primary", 0, 60, "secondary", 50, 10_080)}
+    view = StreamdeckProjection.provider_meters(meters, @now)
+
+    assert get_in(view, ["codex", "windows", "session", "remaining_percent"]) == 100
+    assert get_in(view, ["codex", "windows", "weekly", "remaining_percent"]) == 50
+
+    unknown = ProviderMeterSnapshot.empty(:codex, :app_server, "generation")
+    unknown_view = StreamdeckProjection.provider_meters(%{codex: unknown}, @now)
+    assert get_in(unknown_view, ["codex", "windows", "session", "remaining_percent"]) == nil
   end
 
   test "marks retained readings stale from their observation age without trusting freshness" do

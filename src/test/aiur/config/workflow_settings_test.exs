@@ -1,7 +1,7 @@
 defmodule Aiur.Config.WorkflowSettingsTest do
   use Aiur.TestSupport
   import Aiur.TestSupport.RejectedWorkflow
-  alias Aiur.Config.Schema.{AgentValidation, Codex, StringOrMap}
+  alias Aiur.Config.Schema.{AgentValidation, StringOrMap}
   alias Ecto.Changeset
 
   test "observability.dashboard_writable re-enables dashboard writes" do
@@ -69,7 +69,8 @@ defmodule Aiur.Config.WorkflowSettingsTest do
     assert config.tracker.linear.endpoint == "https://api.linear.app/graphql"
     assert config.tracker.linear.api_key == nil
     assert config.tracker.linear.project_slug == nil
-    assert config.workspace.root == Path.join(System.tmp_dir!(), "aiur_workspaces")
+    default_workspace_root = Path.join(System.tmp_dir!(), "aiur_workspaces")
+    assert config.workspace.root == default_workspace_root
     assert config.workspace.bootstrap_image == nil
     refute config.workspace.bootstrap_image_pull
     assert config.worker.max_concurrent_agents_per_host == nil
@@ -99,7 +100,7 @@ defmodule Aiur.Config.WorkflowSettingsTest do
     assert config.agent.codex.thread_sandbox == "workspace-write"
 
     assert {:ok, canonical_default_workspace_root} =
-             Aiur.PathSafety.canonicalize(Path.join(System.tmp_dir!(), "aiur_workspaces"))
+             Aiur.PathSafety.canonicalize(default_workspace_root)
 
     assert Config.codex_turn_sandbox_policy() == %{
              "type" => "workspaceWrite",
@@ -107,7 +108,7 @@ defmodule Aiur.Config.WorkflowSettingsTest do
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
-             "excludeSlashTmp" => false
+             "excludeSlashTmp" => true
            }
 
     assert config.agent.turn_timeout_ms == 3_600_000

@@ -1,0 +1,71 @@
+/* Dashboard geometry and colors remain stable until DR-2 / DR-6 are approved. */
+@layer aiur.components {
+.aiur-button.aiur-button--dashboard {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--aiur-dashboard-accent-strong, var(--aiur-color-fill));
+  border-radius: 10px;
+  background: var(--aiur-dashboard-accent-strong, var(--aiur-color-fill));
+  color: var(--aiur-dashboard-on-accent, var(--aiur-color-on-fill));
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 650;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.aiur-button.aiur-button--dashboard:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px var(--aiur-dashboard-accent-soft, var(--aiur-color-accent-soft));
+}
+
+.aiur-button.aiur-button--dashboard.aiur-button--ghost {
+  border-color: var(--aiur-dashboard-line, var(--aiur-color-line));
+  background: transparent;
+  color: var(--aiur-dashboard-muted, var(--aiur-color-muted-app));
+}
+
+.aiur-button.aiur-button--dashboard.aiur-button--danger {
+  border-color: var(--aiur-dashboard-blocking, var(--aiur-color-blocking));
+  background: var(--aiur-dashboard-blocking, var(--aiur-color-blocking));
+  color: var(--aiur-dashboard-on-blocking, var(--aiur-color-on-blocking));
+}
+
+.aiur-button.aiur-button--dashboard-tool {
+  font: inherit;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  justify-content: normal;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--aiur-dashboard-line, var(--aiur-color-line));
+  border-radius: 999px;
+  background: var(--aiur-dashboard-pill-bg, var(--aiur-color-pill-bg));
+  color: var(--aiur-dashboard-muted, var(--aiur-color-muted-app));
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.aiur-button.aiur-button--dashboard-tool {
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.aiur-button.aiur-button--dashboard-tool:hover {
+  color: var(--aiur-dashboard-fg, var(--aiur-color-fg));
+  border-color: var(--aiur-dashboard-line-strong, var(--aiur-color-line-strong));
+  background: var(--aiur-dashboard-surface-2, var(--aiur-color-surface-2));
+}
+
+}
+/* Keep existing disabled treatment during the zero-drift dashboard migration. */
+@layer aiur.components {
+  .aiur-button:is(.aiur-button--dashboard, .aiur-button--dashboard-tool):is(:disabled, [aria-disabled="true"]) { opacity: 1; cursor: pointer; }
+}

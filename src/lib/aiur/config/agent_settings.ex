@@ -1,6 +1,7 @@
 defmodule Aiur.Config.AgentSettings do
   @moduledoc false
 
+  alias Aiur.Config.BackendCatalog
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
 
@@ -17,7 +18,11 @@ defmodule Aiur.Config.AgentSettings do
   every route that names a model.
   """
   @spec agent_priority() :: [String.t()]
-  def agent_priority, do: Aiur.Config.settings!().agent.priority || []
+  def agent_priority, do: agent_priority(Aiur.Config.settings!())
+
+  @doc false
+  @spec agent_priority(Schema.t()) :: [String.t()]
+  def agent_priority(settings), do: settings.agent.priority || []
 
   @doc """
   Whether dispatch should route away from a route that is currently inside a
@@ -53,16 +58,21 @@ defmodule Aiur.Config.AgentSettings do
 
   @doc "The backends named by `agent_priority/0`, in order, with the model segment stripped and duplicates collapsed."
   @spec agent_priority_backends() :: [String.t()]
-  def agent_priority_backends do
-    agent_priority() |> Enum.map(&RoutingValue.routing_backend/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
-  end
+  def agent_priority_backends, do: agent_priority_backends(Aiur.Config.settings!())
+
+  @doc false
+  @spec agent_priority_backends(Schema.t()) :: [String.t()]
+  def agent_priority_backends(settings),
+    do: settings |> agent_priority() |> Enum.map(&RoutingValue.routing_backend/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
   @doc "Default backend: the backend of the first `agent.priority` route when present, else the deprecated `agent.kind` field."
-  @spec agent_kind() :: String.t()
+  @spec agent_kind() :: String.t() | BackendCatalog.unavailable()
   def agent_kind do
-    case agent_priority_backends() do
-      [primary | _] -> primary
-      [] -> Aiur.Config.settings!().agent.kind || Aiur.CodingAgent.default_backend()
+    with {:ok, _catalog} <- BackendCatalog.impl() do
+      case agent_priority_backends() do
+        [primary | _] -> primary
+        [] -> Aiur.Config.settings!().agent.kind || BackendCatalog.default_backend()
+      end
     end
   end
 
@@ -80,8 +90,12 @@ defmodule Aiur.Config.AgentSettings do
   backend (`openrouter:a` and `openrouter:b`) and they configure one transport.
   """
   @spec agent_backend_configs() :: map()
-  def agent_backend_configs do
-    Enum.reduce(agent_priority_backends(), Aiur.Config.settings!().agent.backend_configs || %{}, fn backend, acc ->
+  def agent_backend_configs, do: agent_backend_configs(Aiur.Config.settings!())
+
+  @doc false
+  @spec agent_backend_configs(Schema.t()) :: map()
+  def agent_backend_configs(settings) do
+    Enum.reduce(agent_priority_backends(settings), settings.agent.backend_configs || %{}, fn backend, acc ->
       Map.update(acc, backend, %{"enabled" => true}, &Map.put(&1, "enabled", true))
     end)
   end
@@ -114,16 +128,24 @@ defmodule Aiur.Config.AgentSettings do
   target after the primary; otherwise it reads the deprecated
   `agent.rate_limit_fallback` field (`""` disables).
   """
-  @spec rate_limit_fallback_backend() :: String.t() | nil
+  @spec rate_limit_fallback_backend() :: String.t() | nil | BackendCatalog.unavailable()
   def rate_limit_fallback_backend do
-    case agent_priority_backends() do
-      [_primary | rest] -> Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
-      [] -> legacy_rate_limit_fallback()
+    with {:ok, _catalog} <- BackendCatalog.impl() do
+      rate_limit_fallback_backend(Aiur.Config.settings!(), BackendCatalog.rate_limit_fallback_targets())
     end
   end
 
-  defp legacy_rate_limit_fallback do
-    case Aiur.Config.settings!().agent.rate_limit_fallback do
+  @doc false
+  @spec rate_limit_fallback_backend(Schema.t(), [String.t()]) :: String.t() | nil
+  def rate_limit_fallback_backend(settings, fallback_targets) when is_list(fallback_targets) do
+    case agent_priority_backends(settings) do
+      [_primary | rest] -> Enum.find(rest, &(&1 in fallback_targets))
+      [] -> legacy_rate_limit_fallback(settings)
+    end
+  end
+
+  defp legacy_rate_limit_fallback(settings) do
+    case settings.agent.rate_limit_fallback do
       backend when is_binary(backend) and backend != "" -> backend
       _ -> nil
     end
@@ -303,6 +325,12 @@ defmodule Aiur.Config.AgentSettings do
   @spec ci_wait_rewake_minutes() :: pos_integer()
   def ci_wait_rewake_minutes do
     Aiur.Config.settings!().agent.ci_wait_rewake_minutes
+  end
+
+  @doc "Minutes before a green, unreviewed ready PR is re-raised to the Executor."
+  @spec unreviewed_pr_age_limit_minutes() :: pos_integer()
+  def unreviewed_pr_age_limit_minutes do
+    Aiur.Config.settings!().agent.unreviewed_pr_age_limit_minutes
   end
 
   @doc "Whether automatic CI recovery reruns are enabled."

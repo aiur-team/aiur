@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
   import Aiur.OrchestratorStatusSupport
 
   alias Aiur.AgentQueueStore
+  alias Aiur.Issue
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
@@ -17,7 +18,6 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
       )
 
     state = %State{
-      github_comment_issue_updated_at: Map.new(1..1_000, &{"issue-#{&1}", %{payload: String.duplicate("x", 64)}}),
       ci_lifecycle: %{
         %State{}.ci_lifecycle
         | poll_cache: Map.new(1..1_000, &{"MT-#{&1}", %{payload: String.duplicate("c", 64)}})
@@ -31,6 +31,14 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
     assert %{status_observed_at: %DateTime{}} = snapshot_input = StatusReport.snapshot_input(state)
 
     assert %{snapshot_input | status_observed_at: nil} == %State{}
+  end
+
+  test "dashboard source state drops issue descriptions while retaining row facts" do
+    issue = %Issue{id: "issue-large", identifier: "MT-44", title: "Large spec", description: String.duplicate("spec", 50_000), state: "todo"}
+    input = StatusReport.snapshot_input(%State{last_polled_issues: %{issue.id => issue}})
+
+    assert %Issue{description: nil, identifier: "MT-44", title: "Large spec", state: "todo"} = input.last_polled_issues[issue.id]
+    assert [%{identifier: "MT-44", title: "Large spec"}] = StatusReport.snapshot_payload(input).idle
   end
 
   test "dashboard projection retains queue facts for rendered issues" do
@@ -164,6 +172,24 @@ defmodule Aiur.Orchestrator.Status.SnapshotProjectionTest do
     snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
 
     assert [%{identifier: "MT-RETRY-CI", ci_result: %{decision: :pending, pr_number: 1501}}] = snapshot.retrying
+  end
+
+  test "running issue CI projection includes the poll observation time" do
+    identifier = "MT-RUNNING-CI"
+
+    state = %State{
+      running: %{"issue-ci" => running_entry("issue-ci", identifier, :working)},
+      ci_lifecycle: %{
+        %State{}.ci_lifecycle
+        | poll_cache: %{identifier => %{decision: :passed, pr_number: 1601, head_sha: "head-sha"}},
+          ci_observed_at_ms: %{identifier => 1234}
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert [%{identifier: ^identifier, ci_result: %{decision: :passed, head_sha: "head-sha", observed_at_ms: 1234}}] =
+             snapshot.running
   end
 
   test "capacity hold is projected with the measured limiting signal and threshold" do

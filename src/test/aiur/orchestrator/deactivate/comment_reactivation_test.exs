@@ -46,6 +46,8 @@ defmodule Aiur.Orchestrator.Deactivate.CommentReactivationTest do
     end
 
     test "reactivates a :deactivated entry on ticket.<N>.issue.commented when refreshed state is active" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
       test_root = Aiur.TestSupport.tmp_root!("aiur-orch-issue-commented")
 
       issue_id = "issue-issue-commented-1"
@@ -139,6 +141,8 @@ defmodule Aiur.Orchestrator.Deactivate.CommentReactivationTest do
     end
 
     test "reactivates a :deactivated entry on ticket.<N>.pr.review_comment when refreshed state is active" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
       test_root = Aiur.TestSupport.tmp_root!("aiur-orch-pr-review-comment")
 
       issue_id = "issue-pr-review-comment-1"
@@ -242,6 +246,8 @@ defmodule Aiur.Orchestrator.Deactivate.CommentReactivationTest do
     # publisher's durable `{:pr_review, …}` identity, pinned in
     # `test/aiur/events/webhook_poll_reconciliation_test.exs`.
     test "wakes a :deactivated agent:rework entry on a new CHANGES_REQUESTED review on a later head" do
+      test_pid = self()
+      on_exit(fn -> Aiur.TestSupport.stop_test_runners(test_pid) end)
       test_root = Aiur.TestSupport.tmp_root!("aiur-orch-rework-second-review")
 
       issue_id = "issue-rework-second-review"

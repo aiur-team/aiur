@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, Overview, RouteRegistry}
 
   defp shell(opts \\ []) do
-    action = Keyword.get(opts, :action, :index)
+    action = Keyword.get(opts, :action, :build)
     assigns = %{route: RouteRegistry.current_route(action), routes: RouteRegistry.routes(%{}), tracker_kind: "github", agent_kind: "codex", inner_block: []}
 
     render_component(&DashboardShell.dashboard_shell/1, Map.merge(assigns, Map.new(Keyword.delete(opts, :action))))
@@ -17,7 +17,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     doc = shell()
     assert length(Floki.find(doc, "header.ax-top .ax-brand #ax-set #ax-menu[role=menu][inert]")) == 1
     assert Floki.find(doc, "#ax-menu > button") |> Floki.attribute("id") == ["ax-pause", "theme-toggle", "ax-palette"]
-    assert Floki.find(doc, "#route-title[role=heading][aria-level='1']") |> Floki.text() == "Units"
+    assert Floki.find(doc, "#route-title[role=heading][aria-level='1']") |> Floki.text() == "Build"
     assert length(Floki.find(doc, "section.dashboard-shell[aria-labelledby=route-title]")) == 1
     assert length(Floki.find(doc, "nav.sidenav-nav")) == 1
     assert Floki.find(doc, ".shell-nav-mobile, #nav-toggle, .route-context") == []
@@ -45,11 +45,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     paused = shell(globally_paused: true, writable: true)
     assert Floki.attribute(Floki.find(paused, "#ax-pause"), "disabled") == []
     assert Floki.attribute(Floki.find(paused, "#ax-pause"), "aria-checked") == ["true"]
-    assert Floki.text(Floki.find(paused, "#ax-paused.show")) == "All agents paused"
+    assert Floki.text(Floki.find(paused, "#ax-pause")) =~ "Resume new starts"
+    assert Floki.text(Floki.find(paused, "#ax-paused.show")) == "New starts paused"
   end
 
   test "known zero and absent navigation counts remain distinct" do
-    assert shell(nav_counts: %{units: 0}) |> Floki.find("a[href='/'] .snav-c") |> Floki.text() == "0"
+    assert shell(nav_counts: %{build: 0}) |> Floki.find("a[href='/'] .snav-c") |> Floki.text() == "0"
     assert shell() |> Floki.find(".snav-c") == []
     assert shell(nav_counts: %{commands: 0}) |> Floki.find("a[href='/commands'] .snav-c") == []
     doc = shell(nav_counts: %{commands: 3})
@@ -71,6 +72,18 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShellTest do
     assert Floki.text(Floki.find(doc, "a[href='/streamdeck'] .snav-label")) == "Streamdeck"
     assert length(Floki.find(doc, "a[href='/streamdeck'] svg circle")) == 6
     assert Floki.attribute(Floki.find(doc, "a[href='/streamdeck'] svg"), "stroke-linecap") == []
+  end
+
+  test "Experiments link is capability gated and shows the active flask icon" do
+    assert Floki.find(shell(), "a[href='/experiments']") == []
+    routes = RouteRegistry.routes(%{experiments_available?: true})
+    doc = shell(action: :experiment, routes: routes)
+    link = Floki.find(doc, "a[href='/experiments']")
+    assert Floki.text(Floki.find(link, ".snav-label")) == "Experiments"
+    assert Floki.attribute(link, "aria-current") == ["page"]
+    assert Floki.attribute(Floki.find(link, "svg"), "viewbox") == ["0 0 24 24"]
+    assert Floki.attribute(Floki.find(link, "svg path"), "d") == ["M9 3h6M10 3v6l-6 10a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3L14 9V3M7 15h10"]
+    refute Floki.attribute(Floki.find(shell(action: :analytics, routes: routes), "a[href='/experiments']"), "aria-current") == ["page"]
   end
 
   test "back link stays in the top bar when page heads are hidden" do

@@ -1,11 +1,11 @@
 defmodule AiurWeb.VoiceChannel do
   @moduledoc """
   Browser dictation channel: the second producer feeding the shared
-  ElevenLabs transcription path.
+  provider-neutral transcription path.
 
   The browser captures audio with `getUserMedia` (it cannot run the Node
   sidecar's PipeWire capture), pushes raw PCM chunks here, and this channel
-  owns a server-side `Aiur.ElevenLabs.Realtime` session. Transcript frames are
+  owns a server-side `Aiur.Voice` session. Transcript frames are
   streamed back to the browser so the composer shows live partial text and
   settles to finals. Dictation waits for the operator to press Send; the
   separate conversation topic uses the same normal send path after an explicit
@@ -19,8 +19,8 @@ defmodule AiurWeb.VoiceChannel do
 
   require Logger
 
-  alias Aiur.ElevenLabs.{Realtime, TTS}
-  alias AiurWeb.{Endpoint, FinancialDataAccess, VoiceSessionLimiter}
+  alias Aiur.Voice
+  alias AiurWeb.{EndpointConfig, FinancialDataAccess, VoiceJoinPayload, VoiceReasonCode, VoiceSessionLimiter, VoiceTargets}
 
   # An audio chunk larger than this is rejected outright: at 16 kHz mono PCM16,
   # 256 KiB is roughly 8 seconds of audio, well past any single dictation push
@@ -29,11 +29,15 @@ defmodule AiurWeb.VoiceChannel do
   @max_audio_bytes 262_144
   @max_audio_base64_bytes 4 * div(@max_audio_bytes + 2, 3)
   @default_max_session_audio_bytes 9_600_000
+  @voice_not_installed_reason "Voice input isn't installed in this Aiur. Typed messages work as usual."
+  # `voice:dictation` is the alias old browsers join until every client uses
+  # `voice:dictate`.
+  @dictate_topics ["voice:dictate", "voice:dictation"]
 
   @impl true
   def join(
         topic,
-        _payload,
+        payload,
         %{
           assigns: %{
             voice_authority: %{
@@ -43,30 +47,62 @@ defmodule AiurWeb.VoiceChannel do
           }
         } = socket
       )
-      when topic in ["voice:dictation", "voice:conversation"] do
+      when topic in ["voice:conversation" | @dictate_topics] do
     :ok = FinancialDataAccess.subscribe_to_configuration_changes()
 
-    with true <- Endpoint.config(:dashboard_writable) == true,
+    with true <- EndpointConfig.get(:dashboard_writable) == true,
          {:ok, ^generation} <- FinancialDataAccess.current_configuration_generation(),
          {:ok, lease} <- VoiceSessionLimiter.acquire(connection_generation) do
-      join_stt(socket, generation, lease, topic)
+      join_target(socket, generation, lease, topic, payload)
     else
-      false -> {:error, %{reason: "Dashboard writing is disabled."}}
-      {:error, :capacity} -> {:error, %{reason: "Too many dashboard dictation sessions are active. Close another microphone and retry."}}
-      _stale_or_invalid -> {:error, %{reason: "Dashboard authentication changed. Reload and sign in again."}}
+      false -> refuse("Dashboard writing is disabled.", "read_only")
+      {:error, :capacity} -> refuse("Too many dashboard dictation sessions are active. Close another microphone and retry.", "capacity")
+      _stale_or_invalid -> refuse("Dashboard authentication changed. Reload and sign in again.", "auth_changed")
     end
   end
 
-  def join("voice:dictation", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
+  def join(topic, _payload, _socket) when topic in @dictate_topics, do: refuse("unauthorized", "auth_changed")
 
-  def join(_topic, _payload, _socket), do: {:error, %{reason: "invalid_topic"}}
+  def join(_topic, _payload, _socket), do: refuse("invalid_topic", "invalid_payload")
 
-  defp join_stt(socket, generation, lease, topic) do
-    case start_stt(socket) do
-      {:ok, %{pid: pid}} ->
+  # The lease is already held: every refusal past this point releases it.
+  defp join_target(socket, generation, lease, "voice:conversation", _payload),
+    do: join_stt(socket, generation, lease, "voice:conversation", nil)
+
+  defp join_target(socket, generation, lease, topic, payload) do
+    case dictate_target(payload) do
+      {:ok, target} ->
+        join_stt(socket, generation, lease, topic, target)
+
+      {:error, refusal} ->
+        :ok = VoiceSessionLimiter.release(lease)
+        {:error, refusal}
+    end
+  end
+
+  defp dictate_target(payload) do
+    case VoiceJoinPayload.parse(payload) do
+      :legacy ->
+        {:ok, nil}
+
+      {:ok, %{target: target, surface: surface}} ->
+        with :ok <- VoiceTargets.validate(target, surface), do: {:ok, %{target: target, surface: surface}}
+
+      {:error, :invalid_payload} ->
+        refuse("Voice request is invalid.", "invalid_payload")
+    end
+  end
+
+  defp refuse(reason, code), do: {:error, %{reason: reason, reason_code: code}}
+
+  defp join_stt(socket, generation, lease, topic, target) do
+    case start_stt() do
+      {:ok, session} ->
         {:ok,
          socket
-         |> assign(:stt, %{pid: pid})
+         |> assign(:stt, session)
+         |> assign(:voice_target, target && target.target)
+         |> assign(:voice_surface, target && target.surface)
          |> assign(:voice_mode, if(topic == "voice:conversation", do: :conversation, else: :dictation))
          |> assign(:voice_tts, nil)
          |> assign(:voice_tts_spoken?, false)
@@ -74,44 +110,64 @@ defmodule AiurWeb.VoiceChannel do
          |> assign(:voice_audio_bytes, 0)
          |> assign(:voice_lease, lease)}
 
-      {:error, reason} ->
+      {:error, code, reason} ->
         :ok = VoiceSessionLimiter.release(lease)
-        {:error, %{reason: reason}}
+        refuse(reason, code)
     end
   end
 
   @impl true
+  def handle_in("audio", _payload, %{assigns: %{stt: nil}} = socket) do
+    push_error(socket, "error", "Dictation is not active.", "invalid_payload")
+    {:noreply, socket}
+  end
+
   def handle_in("audio", %{"data" => data}, socket) when is_binary(data) do
     case decode_audio(data) do
       {:ok, pcm} ->
         audio_bytes = socket.assigns.voice_audio_bytes + byte_size(pcm)
 
         if audio_bytes <= max_session_audio_bytes() do
-          Realtime.push(socket.assigns.stt.pid, data)
+          Voice.push(socket.assigns.stt, data)
           {:noreply, assign(socket, :voice_audio_bytes, audio_bytes)}
         else
-          push(socket, "error", %{"reason" => "Dictation reached the five-minute limit. Review the text and start again."})
+          push_error(socket, "error", "Dictation reached the five-minute limit. Review the text and start again.", "session_limit")
           {:stop, :normal, socket}
         end
 
-      {:error, reason} ->
-        push(socket, "error", %{"reason" => reason})
+      {:error, code, reason} ->
+        push_error(socket, "error", reason, code)
         {:noreply, socket}
     end
   end
 
   def handle_in("audio", _payload, socket) do
-    push(socket, "error", %{"reason" => "Audio chunk encoding is invalid."})
+    push_error(socket, "error", "Audio chunk encoding is invalid.", "invalid_payload")
     {:noreply, socket}
   end
 
   @impl true
   def handle_in("stop", _payload, socket) do
     case socket.assigns.stt do
-      %{pid: pid} -> Realtime.commit(pid)
+      %{pid: _pid} = session -> Voice.commit(session)
       nil -> push(socket, "stopped", %{"text" => ""})
     end
 
+    {:noreply, socket}
+  end
+
+  def handle_in("cancel", _payload, %{assigns: %{voice_mode: :dictation, stt: %{}}} = socket) do
+    :ok = Voice.stop(socket.assigns.stt)
+    push(socket, "stopped", %{"cancelled" => true})
+
+    {:noreply,
+     socket
+     |> assign(:voice_cancelled?, true)
+     |> release_stt()}
+  end
+
+  def handle_in("cancel", _payload, %{assigns: %{voice_mode: :dictation}} = socket) do
+    push(socket, "stopped", %{"cancelled" => true})
     {:noreply, socket}
   end
 
@@ -138,28 +194,39 @@ defmodule AiurWeb.VoiceChannel do
          |> assign(:voice_lease, lease)}
 
       {:error, reason} ->
-        push(socket, "audio_error", %{"reason" => tts_error(reason)})
+        push_error(socket, "audio_error", tts_error(reason), VoiceReasonCode.tts(reason))
         {:noreply, socket}
     end
   end
 
   def handle_in("speak", _payload, %{assigns: %{voice_mode: :conversation}} = socket) do
-    push(socket, "audio_error", %{"reason" => "A voice reply was already requested for this turn."})
+    push_error(socket, "audio_error", "A voice reply was already requested for this turn.", "invalid_payload")
     {:noreply, socket}
   end
 
   def handle_in(_event, _payload, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_info({:voice_transcript, kind, text}, %{assigns: %{voice_cancelled?: true}} = socket) when kind in [:partial, :final] and is_binary(text) do
+    {:noreply, socket}
+  end
+
   def handle_info({:voice_transcript, kind, text}, socket) when kind in [:partial, :final] and is_binary(text) do
     push(socket, "transcript", %{"kind" => Atom.to_string(kind), "text" => text})
     {:noreply, socket}
   end
 
-  def handle_info({:voice_error, %{message: reason}}, socket) when is_binary(reason) do
-    push(socket, "error", %{"reason" => reason})
+  def handle_info({:voice_error, %{message: reason} = error}, socket) when is_binary(reason) do
+    push_error(socket, "error", reason, VoiceReasonCode.provider(error))
     {:noreply, socket}
   end
+
+  def handle_info({:voice_error, reason}, socket) when is_binary(reason) do
+    push_error(socket, "error", reason, VoiceReasonCode.provider(reason))
+    {:noreply, socket}
+  end
+
+  def handle_info({:voice_closed}, %{assigns: %{voice_cancelled?: true}} = socket), do: {:noreply, socket}
 
   def handle_info({:voice_closed}, socket) do
     push(socket, "stopped", %{})
@@ -177,7 +244,7 @@ defmodule AiurWeb.VoiceChannel do
   end
 
   def handle_info({:voice_audio, :error, reason}, socket) when is_binary(reason) do
-    push(socket, "audio_error", %{"reason" => reason})
+    push_error(socket, "audio_error", reason, VoiceReasonCode.provider(reason))
     {:noreply, socket |> assign(:voice_tts, nil) |> release_voice_lease()}
   end
 
@@ -195,8 +262,8 @@ defmodule AiurWeb.VoiceChannel do
   @impl true
   def terminate(_reason, socket) do
     case socket.assigns[:stt] do
-      %{pid: pid} when is_pid(pid) ->
-        Realtime.stop(pid)
+      %{pid: pid} = session when is_pid(pid) ->
+        Voice.stop(session)
 
       _ ->
         :ok
@@ -232,60 +299,34 @@ defmodule AiurWeb.VoiceChannel do
 
   # --- helpers -------------------------------------------------------------
 
-  # The STT session is injected through the endpoint config so channel tests
-  # drive a fake transcriber; production uses the same
-  # `Aiur.ElevenLabs.Realtime` session as Stream Deck voice input.
-  defp start_stt(socket) do
-    case Endpoint.config(:voice_stt_start_fun) do
-      fun when is_function(fun, 1) ->
-        safe_start(fun, socket)
+  defp push_error(socket, event, reason, code), do: push(socket, event, %{"reason" => reason, "reason_code" => code})
 
-      _ ->
-        start_realtime()
-    end
-  end
+  defp start_stt do
+    case Voice.start_transcription(owner: self()) do
+      {:ok, session} ->
+        {:ok, session}
 
-  defp start_realtime do
-    case Realtime.start(owner: self()) do
-      {:ok, pid} ->
-        {:ok, %{pid: pid}}
+      {:error, :not_installed} ->
+        {:error, "not_installed", @voice_not_installed_reason}
 
       {:error, :unconfigured} ->
-        {:error, "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."}
+        {:error, "unconfigured", "ElevenLabs speech-to-text is not configured. Dictation is unavailable; ask the Executor to run `aiur init` and add an ElevenLabs API key."}
 
       {:error, reason} ->
-        Logger.warning("voice dictation: ElevenLabs realtime session failed to start: #{inspect(reason)}")
-        {:error, "Speech-to-text could not start. Check the daemon log and retry."}
+        Logger.warning("voice dictation: transcription session failed to start: #{inspect(reason)}")
+        {:error, "provider_unavailable", "Speech-to-text could not start. Check the daemon log and retry."}
     end
   rescue
     error ->
-      Logger.warning("voice dictation: ElevenLabs STT setup failed: #{inspect(error)}")
-      {:error, "Speech-to-text is unavailable right now."}
+      Logger.warning("voice dictation: STT setup failed: #{inspect(error)}")
+      {:error, "provider_unavailable", "Speech-to-text is unavailable right now."}
   catch
     _kind, _reason ->
-      {:error, "Speech-to-text is unavailable right now."}
+      {:error, "provider_unavailable", "Speech-to-text is unavailable right now."}
   end
 
-  defp safe_start(fun, socket) do
-    case fun.(socket) do
-      {:ok, %{pid: pid}} when is_pid(pid) ->
-        {:ok, %{pid: pid}}
-
-      {:error, _reason} = error ->
-        error
-
-      _other ->
-        {:error, "Speech-to-text could not start."}
-    end
-  catch
-    _kind, _reason -> {:error, "Speech-to-text could not start."}
-  end
-
-  defp start_tts(socket, text) do
-    case Endpoint.config(:voice_tts_start_fun) do
-      fun when is_function(fun, 2) -> fun.(socket, text)
-      _ -> TTS.start(self(), text)
-    end
+  defp start_tts(text) do
+    Voice.start_speech(self(), text, [])
   catch
     _kind, _reason -> {:error, :unavailable}
   end
@@ -294,7 +335,7 @@ defmodule AiurWeb.VoiceChannel do
     authority = socket.assigns.voice_authority.connection_generation
 
     with {:ok, lease} <- VoiceSessionLimiter.acquire(authority) do
-      case start_tts(socket, text) do
+      case start_tts(text) do
         {:ok, pid} ->
           {:ok, pid, lease}
 
@@ -308,6 +349,8 @@ defmodule AiurWeb.VoiceChannel do
   defp tts_error(:unconfigured),
     do: "ElevenLabs text-to-speech is not configured. Add elevenlabs.voice_id and grant the key Text to Speech permission."
 
+  defp tts_error(:not_installed), do: @voice_not_installed_reason
+
   defp tts_error(:empty_text), do: "There is no agent reply to speak."
   defp tts_error(:text_too_large), do: "This agent reply is too long to speak."
   defp tts_error(:capacity), do: "Too many dashboard voice replies are active. Try again shortly."
@@ -315,17 +358,17 @@ defmodule AiurWeb.VoiceChannel do
 
   defp decode_audio(data) do
     if byte_size(data) > @max_audio_base64_bytes do
-      {:error, "Audio chunk is too large."}
+      {:error, "chunk_too_large", "Audio chunk is too large."}
     else
       case Base.decode64(data) do
         {:ok, pcm} when byte_size(pcm) <= @max_audio_bytes -> {:ok, pcm}
-        {:ok, _pcm} -> {:error, "Audio chunk is too large."}
-        :error -> {:error, "Audio chunk encoding is invalid."}
+        {:ok, _pcm} -> {:error, "chunk_too_large", "Audio chunk is too large."}
+        :error -> {:error, "invalid_payload", "Audio chunk encoding is invalid."}
       end
     end
   end
 
   defp max_session_audio_bytes do
-    Endpoint.config(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
+    EndpointConfig.get(:voice_max_session_audio_bytes) || @default_max_session_audio_bytes
   end
 end

@@ -60,6 +60,16 @@ defmodule AiurWeb.GithubWebhookTest do
   end
 
   describe "POST #{GithubWebhook.path()}" do
+    test "accepts the Cloudflare tunnel Host through to signature verification" do
+      conn =
+        build_conn(@payload, signature: nil)
+        |> then(&%{&1 | host: "hooks.aiur.dev"})
+        |> call()
+
+      assert conn.status == 401
+      assert %{"error" => %{"code" => "invalid_signature"}} = Jason.decode!(conn.resp_body)
+    end
+
     test "accepts a delivery carrying a valid signature" do
       conn = deliver(@payload, signature: github_signature(@secret, @payload))
 

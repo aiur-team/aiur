@@ -18,7 +18,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath}
+  alias Aiur.Commands.Answering
+  alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath, DecisionQuestionsForm}
   alias AiurWeb.OperatorControlCenter.TimeFormat
   alias Phoenix.LiveView.JS
 
@@ -38,6 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:history, :list, default: [])
   attr(:action_state, :map, default: %{})
   attr(:writable, :boolean, default: false)
+  attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
   attr(:time_zone, :string, default: "Etc/UTC")
@@ -74,6 +76,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
               history={@history}
               action_state={@action_state}
               writable={@writable}
+              live_connected={@live_connected}
               filter={@filter}
               query={@query}
               time_zone={@time_zone}
@@ -85,7 +88,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
       <div :if={@has_more} class="history-more">
         <button
           type="button"
-          class="btn ghost"
+          class="aiur-button aiur-button--dashboard aiur-button--ghost btn ghost"
           phx-click="load-more-history"
           phx-disable-with="Loading…"
         >Load more</button>
@@ -100,6 +103,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:history, :list, required: true)
   attr(:action_state, :map, required: true)
   attr(:writable, :boolean, required: true)
+  attr(:live_connected, :boolean, default: true)
   attr(:filter, :atom, required: true)
   attr(:query, :map, required: true)
   attr(:time_zone, :string, default: "Etc/UTC")
@@ -168,6 +172,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
             history={@history}
             action_state={@action_state}
             writable={@writable}
+            live_connected={@live_connected}
             filter={@filter}
             query={@query}
           />
@@ -241,6 +246,19 @@ defmodule AiurWeb.OperatorControlCenter.History do
   defp decision_choice(%{decision_status: :deferred}), do: "Handed to the Executor"
   defp decision_choice(%{decision_status: :dismissed, answer: nil}), do: "Closed without a recorded answer"
 
+  defp decision_choice(%{questions: [_ | _]} = decision) do
+    case DecisionQuestionsForm.questions(decision) do
+      [] ->
+        decision_choice(Map.delete(decision, :questions))
+
+      questions ->
+        case Answering.decode_question_answers(questions, decision.answer) do
+          {:ok, answers} -> quoted(Answering.render_question_answers(questions, answers))
+          {:error, _reason} -> "Answer unavailable"
+        end
+    end
+  end
+
   defp decision_choice(%{answer: %{custom_response: response}}) when is_binary(response) do
     # Blank is not an answer. Quoting it would print an empty pair of quotes,
     # which reads as "they said nothing" rather than "nothing was recorded".
@@ -262,6 +280,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   # an operator answer are different facts about the same green row.
   defp answer_actor_label(%{answer: answer}) when is_map(answer) do
     case map_value(Map.get(answer, :actor), :kind) do
+      kind when kind in [:operator_relayed, "operator_relayed"] -> "answered by operator, relayed by #{map_value(answer, :relayed_by)}"
       kind when kind in [:operator, "operator"] -> "Operator answer"
       kind when kind in [:executor, "executor"] -> "Executor answer"
       kind when kind in [:supervisor, "supervisor"] -> "Supervisor answer"
@@ -273,7 +292,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   defp answer_actor_class(%{answer: answer}) do
     case map_value(Map.get(answer, :actor), :kind) do
-      kind when kind in [:operator, "operator"] -> "chip accent"
+      kind when kind in [:operator, "operator", :operator_relayed, "operator_relayed"] -> "chip accent"
       kind when kind in [:executor, "executor"] -> "chip good"
       _kind -> "chip super"
     end

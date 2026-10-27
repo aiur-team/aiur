@@ -6,9 +6,9 @@ defmodule VoiceConverse.Ports do
   "idle" or "nothing open".
   """
 
-  @deadlines_ms %{brief: 100, details: 300, ask: 300, instruct: 300, answer: 300, fetch: 50}
+  @deadlines_ms %{brief: 100, details: 300, ask: 300, instruct: 300, answer: 300, fetch: 50, token: 50}
 
-  @type op :: :brief | :details | :ask | :instruct | :answer | :fetch
+  @type op :: :brief | :details | :ask | :instruct | :answer | :fetch | :token
 
   @spec deadline_ms(op()) :: pos_integer()
   def deadline_ms(op), do: Map.fetch!(@deadlines_ms, op)

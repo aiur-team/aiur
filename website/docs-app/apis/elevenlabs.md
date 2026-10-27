@@ -28,7 +28,7 @@ Interactive voice chat on the Dashboard sends each finished utterance to the age
 | Permission | Needed for | Why |
 | --- | --- | --- |
 | `Speech to Text` | Dictation | Transcribes operator speech. |
-| `User` | Units meter | Reads account subscription data. |
+| `User` | Usage meter | Reads account subscription data. |
 | `Text to Speech` | Dashboard spoken replies | Renders the agent reply as audio; also needs `elevenlabs.voice_id`. |
 
 Use a restricted key with those permissions. A key that can transcribe but cannot read `User` data makes voice input work while the meter reports an authorization failure.
@@ -44,7 +44,7 @@ Use a restricted key with those permissions. A key that can transcribe but canno
 
 The key is optional. Without it, microphone discovery and level meters remain available, but no audio leaves the machine and transcription stays disabled.
 
-## What the Units meter measures
+## What the usage meter measures
 
 | Figure | Meaning |
 | --- | --- |
@@ -53,7 +53,7 @@ The key is optional. Without it, microphone discovery and level meters remain av
 | Speech-to-text cost | Not represented; ElevenLabs bills transcription per audio-minute. |
 | Zero character limit | Empty track, because there is no denominator for a percentage. |
 
-The Units meter shows only the credit quota bar; the next-invoice amount is not rendered on the strip.
+The meter appears on the Build page usage strip and the Units strip. Both show only the credit quota; the next-invoice amount is not rendered.
 
 The meter can remain unchanged after heavy dictation because it reads the text-to-speech character pool, not audio-minute usage.
 

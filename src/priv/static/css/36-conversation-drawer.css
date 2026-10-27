@@ -413,3 +413,10 @@
   }
 }
 
+
+/* Listener facts wrap within the drawer at phone widths. */
+.listener-mode { display: flex; flex-wrap: wrap; gap: .35rem .7rem; min-width: 0; font-size: .8rem; overflow-wrap: anywhere; }
+.listener-mode form, .listener-mode p { flex-basis: 100%; margin: 0; }
+.listener-mode select { max-width: 100%; min-height: 44px; }
+.conversation-drawer-header { flex-wrap: wrap; }
+.conversation-drawer-header > .listener-mode { flex-basis: 100%; }

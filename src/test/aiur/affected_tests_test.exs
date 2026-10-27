@@ -30,7 +30,9 @@ defmodule Aiur.AffectedTestsTest do
   end
 
   test "forces the full suite for gettext .po/.pot changes" do
-    assert {:full, _} = AffectedTests.select(["priv/gettext/en/LC_MESSAGES/default.po"], all_exist())
+    assert {:full, _} =
+             AffectedTests.select(["priv/gettext/en/LC_MESSAGES/default.po"], all_exist())
+
     assert {:full, _} = AffectedTests.select(["priv/gettext/default.pot"], all_exist())
   end
 
@@ -49,9 +51,9 @@ defmodule Aiur.AffectedTestsTest do
              {:scoped, []}
   end
 
-  test "forces the full suite for shared test support" do
-    assert {:full, _} = AffectedTests.select(["src/test/test_helper.exs"], all_exist())
-    assert {:full, _} = AffectedTests.select(["src/test/support/factory.ex"], all_exist())
+  test "leaves shared support expansion to the Mix selector" do
+    assert {:scoped, []} = AffectedTests.select(["src/test/test_helper.exs"], all_exist())
+    assert {:scoped, []} = AffectedTests.select(["src/test/support/factory.ex"], all_exist())
   end
 
   test "maps xref-dependent sources when a changed module has no sibling test" do
@@ -61,6 +63,74 @@ defmodule Aiur.AffectedTestsTest do
              exists?: exists?,
              dependent_sources: ["src/lib/aiur/caller.ex"]
            ) == {:scoped, ["src/test/aiur/caller_test.exs"]}
+  end
+
+  test "selects tests from a direct xref caller directory" do
+    root = Aiur.TestSupport.tmp_root!("affected-xref-caller-fallback")
+    callee_test = "src/test/aiur/callee/callee_test.exs"
+    caller_test = "src/test/aiur/callers/caller_test.exs"
+    File.mkdir_p!(Path.dirname(Path.join(root, callee_test)))
+    File.mkdir_p!(Path.dirname(Path.join(root, caller_test)))
+    File.write!(Path.join(root, callee_test), "")
+    File.write!(Path.join(root, caller_test), "")
+
+    try do
+      assert {:scoped, tests} =
+               AffectedTests.select(
+                 ["src/lib/aiur/callee/callee.ex"],
+                 base_dir: root,
+                 dependent_sources: ["src/lib/aiur/callers/caller.ex"]
+               )
+
+      assert callee_test in tests
+      assert caller_test in tests
+      assert length(tests) == 2
+    after
+      Aiur.TestCleanup.rm_rf!(root)
+    end
+  end
+
+  test "keeps oversized xref caller-directory expansion in the local selection" do
+    root = Aiur.TestSupport.tmp_root!("affected-xref-caller-cap")
+    File.mkdir_p!(Path.join(root, "src/test/aiur/callee"))
+    File.mkdir_p!(Path.join(root, "src/test/aiur/callers"))
+    File.write!(Path.join(root, "src/test/aiur/callee/callee_test.exs"), "")
+
+    try do
+      Enum.each(1..401, fn index ->
+        File.write!(Path.join(root, "src/test/aiur/callers/fixture_#{index}_test.exs"), "")
+      end)
+
+      assert {:scoped, tests} =
+               AffectedTests.select(
+                 ["src/lib/aiur/callee/callee.ex"],
+                 base_dir: root,
+                 dependent_sources: ["src/lib/aiur/callers/caller.ex"]
+               )
+
+      assert "src/test/aiur/callee/callee_test.exs" in tests
+      assert length(tests) == 402
+    after
+      Aiur.TestCleanup.rm_rf!(root)
+    end
+  end
+
+  test "keeps module-directory selections above 400 files scoped" do
+    root = Aiur.TestSupport.tmp_root!("affected-module-directory-cap")
+    File.mkdir_p!(Path.join(root, "src/test/aiur/build_queue"))
+
+    try do
+      Enum.each(1..401, fn index ->
+        File.write!(Path.join(root, "src/test/aiur/build_queue/fixture_#{index}_test.exs"), "")
+      end)
+
+      assert {:scoped, tests} =
+               AffectedTests.select(["src/lib/aiur/build_queue/read_model.ex"], base_dir: root)
+
+      assert length(tests) == 401
+    after
+      Aiur.TestCleanup.rm_rf!(root)
+    end
   end
 
   test "includes tests found by deleted-reference scanning" do
@@ -131,7 +201,7 @@ defmodule Aiur.AffectedTestsTest do
                "src/test/aiur/github_client_test.exs"
              ]
     after
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end
   end
 
@@ -148,7 +218,7 @@ defmodule Aiur.AffectedTestsTest do
                "src/test/aiur/github_client_test.exs"
              ]
     after
-      File.rm_rf!(root)
+      Aiur.TestCleanup.rm_rf!(root)
     end
   end
 
@@ -160,7 +230,11 @@ defmodule Aiur.AffectedTestsTest do
   end
 
   test "fails closed for unrecognized executable and build files" do
-    for path <- ["scripts/aiurdev", ".claude/skills/aiur-run/scripts/poll.py", "src/assets/app.js"] do
+    for path <- [
+          "scripts/aiurdev",
+          ".claude/skills/aiur-run/scripts/poll.py",
+          "src/assets/app.js"
+        ] do
       assert {:full, reason} = AffectedTests.select([path], all_exist())
       assert reason =~ path
     end
@@ -173,5 +247,13 @@ defmodule Aiur.AffectedTestsTest do
   test ".aiur/ config paths alongside real source changes do not block scoped run" do
     assert AffectedTests.select([".aiur/config", "src/lib/aiur/foo.ex"], all_exist()) ==
              {:scoped, ["src/test/aiur/foo_test.exs"]}
+  end
+
+  test "keeps large deleted-reference selections scoped for local execution" do
+    references = for n <- 1..401, do: "src/test/aiur/ref_#{n}_test.exs"
+    opts = [reference_tests: references] ++ all_exist()
+
+    assert {:scoped, tests} = AffectedTests.select(["src/lib/aiur/foo.ex"], opts)
+    assert length(tests) == 402
   end
 end

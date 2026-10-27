@@ -1,8 +1,8 @@
 {
   "id": "voice-conversation",
-  "name": "Conversational voice assistant (MP-E6, new)",
+  "name": "Conversational voice",
   "layer": 3,
-  "kind": "optional",
+  "kind": "in-app",
   "paths": [],
   "facades": [
     "*"
@@ -18,10 +18,26 @@
     "executor-attention"
   ],
   "owns": {
-    "config": [],
+    "config": [
+      "voice"
+    ],
     "env": [],
     "state": [],
     "capabilities": []
   },
-  "prior": []
+  "prior": [],
+  "dependency_kind": "optional",
+  "summary": "Supports voice conversations with a worker agent or the Executor.",
+  "status": "planned",
+  "install": {
+    "type": "included"
+  },
+  "docs": [],
+  "config": [
+    "voice"
+  ],
+  "env": [],
+  "capabilities": [],
+  "added_by": "MP-E6",
+  "goal": "voice"
 }

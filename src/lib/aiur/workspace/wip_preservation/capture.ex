@@ -20,7 +20,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
 
   require Logger
 
-  alias Aiur.Shell
+  alias Aiur.{AgentSkills, Shell}
   alias Aiur.Workspace.WipPreservation.Command
 
   @patch "tracked.patch"
@@ -48,6 +48,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
          {:ok, branch} <- branch(context),
          base = head || @empty_tree,
          {:ok, tracked} <- git_list(context, ["diff", "--name-only", "-z", "--no-renames", base]),
+         {:ok, added} <- git_list(context, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", base]),
          {:ok, patch_bytes} <- write_patch(context, base, tracked),
          {:ok, archived, skipped} <- select_untracked(context, patch_bytes),
          {:ok, tar?} <- write_untracked(context, archived),
@@ -68,7 +69,7 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
          "untracked_files" => archived,
          "skipped_untracked" => skipped,
          "files" => files,
-         "restore_commands" => restore_commands(workspace, Path.basename(final), files)
+         "restore_commands" => restore_commands(workspace, Path.basename(final), files, added)
        }}
     end
   end
@@ -327,10 +328,11 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
   # gone. Only a bundle brings old commits back; they land on a local
   # `aiur-wip/<save>` branch and fast-forward the current branch when they can.
   # The patch then applies to the current HEAD, with a three-way fallback.
-  defp restore_commands(workspace, save_name, files) do
+  defp restore_commands(workspace, save_name, files, added) do
     [
       "cd #{Shell.escape(workspace)}",
       files["unpushed_bundle"] && bundle_command(files["unpushed_bundle"], "aiur-wip/" <> save_name),
+      files["tracked_patch"] && skill_collision_command(added),
       files["tracked_patch"] && patch_command(files["tracked_patch"]),
       files["untracked_tar"] && "tar -x -f #{Shell.escape(files["untracked_tar"])}"
     ]
@@ -340,6 +342,37 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
   defp bundle_command(bundle, branch) do
     "git fetch --quiet #{Shell.escape(bundle)} HEAD && git branch -f #{Shell.escape(branch)} FETCH_HEAD && " <>
       "{ git merge --ff-only --quiet FETCH_HEAD || echo #{Shell.escape("unpushed commits kept on branch " <> branch)}; }"
+  end
+
+  # A fresh workspace materializes untracked skill links and files, so `git
+  # apply` refuses a patch that adds the same path (#4557). The command removes
+  # such an untracked entry first, the skill root before the path in it, and
+  # never follows a symlink: a path below one is left alone.
+  defp skill_collision_command(added) do
+    roots = Enum.map(AgentSkills.install_paths(), &(String.trim_trailing(&1, "/") <> "/"))
+
+    added
+    |> Enum.flat_map(fn path ->
+      case Enum.find(roots, &String.starts_with?(path, &1)) do
+        nil -> []
+        root -> [root <> (path |> String.replace_prefix(root, "") |> String.split("/") |> hd()), path]
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.map_join(" && ", &clear_untracked_command/1)
+    |> case do
+      "" -> nil
+      command -> command
+    end
+  end
+
+  defp clear_untracked_command(path) do
+    escaped = Shell.escape(path)
+    ancestors = path |> Path.split() |> Enum.drop(-1) |> Enum.scan(&Path.join(&2, &1))
+    guards = Enum.map(ancestors, &"[ -L #{Shell.escape(&1)} ] || ")
+
+    "{ #{guards}! { [ -L #{escaped} ] || [ -f #{escaped} ]; } || " <>
+      "git ls-files --error-unmatch -- #{escaped} >/dev/null 2>&1 || rm -f -- #{escaped}; }"
   end
 
   defp patch_command(patch) do

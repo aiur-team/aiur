@@ -107,7 +107,7 @@ defmodule Aiur.Capabilities.CoreProvidersTest do
       caps = Commands.evaluate(@context, inputs(token: unquote(token)))
       expected = if unquote(token) == "invalid", do: @unknown, else: %{state: :unavailable, reason: :not_configured}
       assert caps["commands.supervisor_api"] == expected
-      refute inspect(caps) =~ "token:"
+      Aiur.TestSupport.refute_leak(caps, "token:")
     end
   end
 

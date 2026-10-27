@@ -1,10 +1,11 @@
 {
   "id": "tracker",
-  "name": "Tracker contract",
+  "name": "Issue tracking",
   "layer": 2,
-  "kind": "required",
+  "kind": "in-app",
   "paths": [
     "src/lib/aiur/code_host.ex",
+    "src/lib/aiur/code_host/**",
     "src/lib/aiur/issue.ex",
     "src/lib/aiur/memory/**",
     "src/lib/aiur/optimistic_start.ex",
@@ -33,5 +34,20 @@
   },
   "prior": [
     "TRK"
-  ]
+  ],
+  "dependency_kind": "required",
+  "summary": "Provides a shared interface for issue trackers and repository hosts.",
+  "status": "core",
+  "install": {
+    "type": "included"
+  },
+  "docs": [
+    "guide/quick-start.md"
+  ],
+  "config": [
+    "tracker"
+  ],
+  "env": [],
+  "capabilities": [],
+  "goal": "run-agents"
 }

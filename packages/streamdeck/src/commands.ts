@@ -30,11 +30,21 @@ export const COMMANDS_CANCEL_SLOT = 6;
 /** Slot of the options paging key, present only when options overflow one page. */
 export const COMMANDS_MORE_SLOT = 7;
 
-/** A Command is answerable only while it is open or deferred to the Executor. */
-export const isAnswerable = (status: unknown): boolean => status === "open" || status === "deferred";
+/** Open/deferred Commands and expired unanswered blockers remain answerable. */
+export const isAnswerable = (command: StreamDeckCommand | unknown): boolean => {
+  if (typeof command === "string") return command === "open" || command === "deferred";
+  if (typeof command !== "object" || command === null) return false;
+  const item = command as StreamDeckCommand;
+  return item.status === "open" || item.status === "deferred" ||
+    (item.status === "expired" && item.blocking === true && item.answer == null);
+};
+
+/** Whether this active Command can be answered using deck controls. */
+export const canAnswerOnDeck = (command: StreamDeckCommand): boolean =>
+  command.answerable_on_deck !== false && isAnswerable(command);
 
 /** Whether a history entry is read-only (already answered, dismissed, ...). */
-export const isAnswered = (status: unknown): boolean => !isAnswerable(status);
+export const isAnswered = (command: unknown): boolean => !isAnswerable(command);
 
 /** The greatest history offset that still shows a full window of items. */
 export const maxHistoryOffset = (count: number): number => Math.max(0, count - HISTORY_PER_PAGE);
@@ -69,7 +79,16 @@ export const optionPageLabel = (offset: number, count: number): string => {
 };
 
 /** The operator-facing status badge for a Command, used on its key and the strip. */
-export const commandStatusLabel = (status: unknown): string => {
+export const commandStatusLabel = (command: unknown): string => {
+  if (
+    typeof command === "object" &&
+    command !== null &&
+    (command as StreamDeckCommand).status === "expired" &&
+    isAnswerable(command)
+  ) {
+    return "EXPIRED · ANSWER";
+  }
+  const status = typeof command === "object" && command !== null ? (command as StreamDeckCommand).status : command;
   if (status === "open") return "OPEN";
   if (status === "deferred") return "DEFERRED";
   if (status === "decided" || status === "acknowledged" || status === "resolved") return "ANSWERED";
@@ -100,14 +119,14 @@ export const commandOutcomeLabel = (command: StreamDeckCommand): string | null =
  * focused event.
  */
 const commandKey = (command: StreamDeckCommand, selected: boolean): AgentInput => {
-  const answerable = isAnswerable(command.status);
+  const answerable = isAnswerable(command);
   return {
     identifier: `command:${command.decision_id}`,
-    title: command.question,
+    title: command.short_label || command.question,
     vendor: "commands",
     icon: answerable ? "question" : "check",
     role: "event",
-    subLabel: commandStatusLabel(command.status),
+    subLabel: commandStatusLabel(command),
     timeLabel: "",
     selected,
     bucket: "queued",
@@ -170,8 +189,13 @@ export function detailKeyDescriptors(
   selectedOption: number | null,
   micHeld: boolean,
   hasDictation: boolean,
+  feedback?: { decisionId: string; key: number; title: string; label: string } | null,
 ): (AgentInput | undefined)[] {
-  const answerable = isAnswerable(command.status);
+  if (command.answerable_on_deck === false && isAnswerable(command)) {
+    return [{ ...commandKey(command, false), title: "Answer on dashboard", subLabel: "DASHBOARD" },
+      ...Array<undefined>(7).fill(undefined)];
+  }
+  const answerable = canAnswerOnDeck(command);
   const count = command.options.length;
   const clamped = clampOptionOffset(optionOffset, count);
 
@@ -248,6 +272,13 @@ export function detailKeyDescriptors(
     };
   }
 
+  if (feedback?.decisionId === command.decision_id) {
+    slots[feedback.key] = {
+      identifier: `command:${command.decision_id}:feedback`, title: feedback.title,
+      subLabel: feedback.label, vendor: "commands", icon: "question", role: "event",
+      bucket: "paused", selected: false, progress_percent: null, priority: false,
+    };
+  }
   return slots;
 }
 
@@ -295,7 +326,7 @@ export async function commandIdempotencyKey(
 
 /** The number of open/deferred Commands in a page — the "current" count. */
 export function activeCommandCount(page: StreamDeckCommandsPage): number {
-  return page.items.reduce((count, item) => (isAnswerable(item.status) ? count + 1 : count), 0);
+  return page.items.reduce((count, item) => (isAnswerable(item) ? count + 1 : count), 0);
 }
 
 /**
@@ -403,7 +434,7 @@ export function detailPanel(
   selectedOption: number | null,
   hasDictation: boolean,
 ): CommandsPanelModel {
-  const answerable = isAnswerable(command.status);
+  const answerable = canAnswerOnDeck(command);
   const recorded = answerable ? null : commandOutcomeLabel(command);
   return {
     view: "detail",
@@ -412,8 +443,8 @@ export function detailPanel(
     total: null,
     page: "",
     title: command.question,
-    description: commandDescription(command, selectedOption),
-    status: commandStatusLabel(command.status),
+    description: command.answerable_on_deck === false && isAnswerable(command) ? "Answer on dashboard" : commandDescription(command, selectedOption),
+    status: commandStatusLabel(command),
     answerable,
     approving: answerable && (selectedOption !== null || hasDictation),
     recorded,

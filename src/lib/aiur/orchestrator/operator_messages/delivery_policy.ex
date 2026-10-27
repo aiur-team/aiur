@@ -3,11 +3,17 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   Normalizes message delivery requests and decides when queued work wakes a running agent.
   """
 
+  alias Aiur.Listener.Scheduler
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{CommentWake, EventTopics, PauseResume, State}
+  alias Aiur.Orchestrator.OperatorMessages.Capabilities
 
   @spec normalize_delivery_request(term(), term(), map()) ::
           {:ok, keyword()} | {:error, atom()}
+  def normalize_delivery_request(:listener, fallback, capabilities) do
+    Scheduler.resolve(Map.get(capabilities, :listener_origin, :internal), Map.get(capabilities, :listener_view), capabilities, fallback)
+  end
+
   # `:auto` lets the caller defer to the backend: the persistent REPL takes
   # Executor messages immediately mid-turn; everything else holds at a safe
   # checkpoint (native codex/headless-claude turn UX).
@@ -121,10 +127,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   # `PauseResume.clear_agent_pause_on_work/2` drops the pause reason. A pending
   # pause request still wins — the pause has not settled yet, so the #2730
   # ordering hazard above is unchanged.
+  defp deliver_now?(_state, _entry, %{delivery: %{consume_at: :pull}}), do: false
+
   defp deliver_now?(state, %{control: %{status: :paused}} = running_entry, item) do
     if input_waiting_self_pause?(running_entry) and
          is_nil(PauseResume.current_pending_pause_reason(state, running_entry)) do
-      wake_now?(running_entry, item)
+      wake_now?(state, running_entry, item)
     else
       false
     end
@@ -133,13 +141,24 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   defp deliver_now?(state, running_entry, item) do
     if PauseResume.current_pending_pause_reason(state, running_entry),
       do: false,
-      else: wake_now?(running_entry, item)
+      else: wake_now?(state, running_entry, item)
   end
 
-  defp wake_now?(running_entry, item) do
-    queue_wake_required?(running_entry) or
-      item.delivery[:interrupt_requested] == true or
-      item.delivery[:immediate] == true
+  @spec wake_now?(State.t(), map(), map()) :: boolean() | :steer
+  defp wake_now?(state, running_entry, item) do
+    cond do
+      queue_wake_required?(running_entry) -> true
+      item.delivery[:interrupt_requested] == true or item.delivery[:immediate] == true -> true
+      item.delivery[:steer_requested] == true and native_steer?(state, running_entry) -> :steer
+      true -> false
+    end
+  end
+
+  defp native_steer?(state, entry) do
+    case Capabilities.harness_delivery(state, entry.identifier, entry) do
+      %{source: :session, primitives: %{mid_turn_inject: :native}} -> not no_active_turn?(entry)
+      _ -> false
+    end
   end
 
   # A self-paused agent waiting on review feedback is included here so the

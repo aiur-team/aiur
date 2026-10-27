@@ -4,7 +4,9 @@ defmodule Aiur.Regression.SharedPrewarmE2ETest do
   alias Aiur.Opencode.{AttachPool, Slot, WarmthReport}
 
   setup do
-    {:ok, pool} = AttachPool.start_link(name: :"AttachPool_#{System.unique_integer([:positive])}")
+    name = :"AttachPool_#{System.unique_integer([:positive])}"
+    pool = start_supervised!({AttachPool, name: name})
+
     Phoenix.PubSub.subscribe(Aiur.PubSub, AttachPool.topic())
     {:ok, pool: pool}
   end

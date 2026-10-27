@@ -8,6 +8,7 @@ defmodule Aiur.Claude.Repl.Command do
   require Logger
 
   alias Aiur.AgentEnvironment
+  alias Aiur.AgentEnvironment.ProviderAuth
   alias Aiur.Claude.Config
   alias Aiur.Claude.HookSettings
   alias Aiur.Claude.RemoteControl
@@ -41,9 +42,11 @@ defmodule Aiur.Claude.Repl.Command do
         opts
         |> Keyword.take([:base_branch])
         |> Keyword.put(:build_gate, true)
+        |> Keyword.put(:local_claude_repl, true)
       )
 
-    ["cd #{shell_escape(workspace)}", environment, "exec #{flags}"]
+    ["cd #{shell_escape(workspace)}", environment, ProviderAuth.shell_prefix(Keyword.get(opts, :provider_auth_file)), "exec #{flags}"]
+    |> Enum.reject(&(&1 == ""))
     |> Enum.join(" && ")
   end
 

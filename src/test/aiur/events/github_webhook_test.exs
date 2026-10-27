@@ -26,7 +26,11 @@ defmodule Aiur.Events.GithubWebhookTest do
       ticket = Integer.to_string(System.unique_integer([:positive]))
 
       assert {:publish, [_triple]} =
-               Normalizer.normalize("issue_comment", issue_comment_delivery(ticket, %{"full_name" => "Owner/Repo"}), repo: @repo)
+               Normalizer.normalize(
+                 "issue_comment",
+                 issue_comment_delivery(ticket, %{"full_name" => "Owner/Repo"}),
+                 repo: @repo
+               )
     end
 
     test "a review comment for an untracked repository never consults the thread resolver" do
@@ -47,7 +51,9 @@ defmodule Aiur.Events.GithubWebhookTest do
       assert %{status: :dropped, reason: {:untracked_repository, "someone-else/other-repo"}} =
                GithubWebhook.handle_delivery("pull_request_review_comment", delivery,
                  repo: @repo,
-                 request_fun: fn _request -> flunk("resolver must not be called for an untracked repository") end
+                 request_fun: fn _request ->
+                   flunk("resolver must not be called for an untracked repository")
+                 end
                )
     end
 
@@ -55,7 +61,11 @@ defmodule Aiur.Events.GithubWebhookTest do
       ticket = Integer.to_string(System.unique_integer([:positive]))
 
       assert %{status: :error, reason: :missing_repository} =
-               GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(ticket), "repository"), repo: @repo)
+               GithubWebhook.handle_delivery(
+                 "issue_comment",
+                 Map.delete(issue_comment_delivery(ticket), "repository"),
+                 repo: @repo
+               )
     end
   end
 
@@ -91,7 +101,11 @@ defmodule Aiur.Events.GithubWebhookTest do
       delivery = %{
         "action" => "submitted",
         "repository" => %{"full_name" => @repo},
-        "review" => %{"id" => 1, "state" => "CHANGES_REQUESTED", "user" => %{"login" => "its-everdred"}}
+        "review" => %{
+          "id" => 1,
+          "state" => "CHANGES_REQUESTED",
+          "user" => %{"login" => "its-everdred"}
+        }
       }
 
       assert %{status: :error, reason: {:malformed_payload, "pull_request"}} =
@@ -167,7 +181,11 @@ defmodule Aiur.Events.GithubWebhookTest do
 
       delivery =
         issue_comment_delivery(ticket)
-        |> put_in(["issue"], %{"number" => 901, "body" => "no keyword here", "pull_request" => %{}})
+        |> put_in(["issue"], %{
+          "number" => 901,
+          "body" => "no keyword here",
+          "pull_request" => %{}
+        })
 
       assert {:drop, {:unresolved_ticket, "issue_comment", "901"}} =
                Normalizer.normalize("issue_comment", delivery, repo: @repo)
@@ -179,14 +197,22 @@ defmodule Aiur.Events.GithubWebhookTest do
       ticket = Integer.to_string(System.unique_integer([:positive]))
 
       assert {:drop, {:non_actionable_review, "APPROVED"}} =
-               Normalizer.normalize("pull_request_review", review_delivery(ticket, "APPROVED", "looks good"), repo: @repo)
+               Normalizer.normalize(
+                 "pull_request_review",
+                 review_delivery(ticket, "APPROVED", "looks good"),
+                 repo: @repo
+               )
     end
 
     test "an empty-bodied COMMENTED container does not wake an agent" do
       ticket = Integer.to_string(System.unique_integer([:positive]))
 
       assert {:drop, {:non_actionable_review, "COMMENTED"}} =
-               Normalizer.normalize("pull_request_review", review_delivery(ticket, "COMMENTED", ""), repo: @repo)
+               Normalizer.normalize(
+                 "pull_request_review",
+                 review_delivery(ticket, "COMMENTED", ""),
+                 repo: @repo
+               )
     end
 
     test "a COMMENTED review with a body wakes an agent" do
@@ -194,12 +220,18 @@ defmodule Aiur.Events.GithubWebhookTest do
       ticket_topic = "ticket.#{ticket}.pr.review_comment"
 
       assert {:publish, [{^ticket_topic, _payload, _opts}]} =
-               Normalizer.normalize("pull_request_review", review_delivery(ticket, "COMMENTED", "one thought"), repo: @repo)
+               Normalizer.normalize(
+                 "pull_request_review",
+                 review_delivery(ticket, "COMMENTED", "one thought"),
+                 repo: @repo
+               )
     end
 
     test "a review on a non-ticket branch is dropped" do
       ticket = Integer.to_string(System.unique_integer([:positive]))
-      delivery = put_in(review_delivery(ticket), ["pull_request", "head", "ref"], "someone/experiment")
+
+      delivery =
+        put_in(review_delivery(ticket), ["pull_request", "head", "ref"], "someone/experiment")
 
       assert {:drop, {:unresolved_ticket, "pull_request", 901}} =
                Normalizer.normalize("pull_request_review", delivery, repo: @repo)
@@ -218,6 +250,8 @@ defmodule Aiur.Events.GithubWebhookTest do
         "pull_request" => %{
           "number" => 901,
           "merged" => true,
+          "commit_messages" => [],
+          "body" => "#### Context\ntext\n## Local tests\nPolicy: partial\nPost-deploy check: open /post-deploy and verify this merge appears\n## Docs\ntext",
           "updated_at" => "2026-06-24T12:00:00Z",
           "head" => %{"ref" => "aiur/#{ticket}-slug", "sha" => "deadbeef"}
         }
@@ -227,8 +261,9 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("pull_request", delivery, repo: @repo)
 
       assert payload.action == "closed"
+      assert payload.post_deploy_checks == ["open /post-deploy and verify this merge appears"]
       assert opts[:bypass_contamination] == true
-      assert opts[:dedup_key] == {@repo, "pr:closed:901", "deadbeef"}
+      assert opts[:dedup_key] == {@repo, "pr:closed:901:#{ticket}", "deadbeef"}
     end
 
     test "closed without merge publishes nothing, matching the firehose" do
@@ -259,12 +294,15 @@ defmodule Aiur.Events.GithubWebhookTest do
     test "a delivery retires the read-cache entries for the issue it carries" do
       ticket = Integer.to_string(System.unique_integer([:positive]))
       request = graphql_request(String.to_integer(ticket))
-      assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      assert {:ok, _response} =
+               ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       assert %{status: :published} =
                GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket), repo: @repo)
 
-      assert {:ok, %{body: "second"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
+      assert {:ok, %{body: "second"}} =
+               ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
 
     test "a delivery for the tracked repo promotes it from configured-unproven to webhook-backed" do
@@ -273,7 +311,10 @@ defmodule Aiur.Events.GithubWebhookTest do
       assert Webhooks.polling_reason(@repo, server: registry) == :configured_unproven
 
       assert %{status: :published} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket), repo: @repo, server: registry)
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket),
+                 repo: @repo,
+                 server: registry
+               )
 
       assert Webhooks.transport(@repo, server: registry) == :webhook
       assert Webhooks.polling_reason(@repo, server: registry) == nil
@@ -283,7 +324,9 @@ defmodule Aiur.Events.GithubWebhookTest do
       registry = start_mode_registry([@repo])
 
       assert %{status: :dropped, reason: {:unsupported_event, "star"}} =
-               GithubWebhook.handle_delivery("star", %{"action" => "created", "repository" => %{"full_name" => @repo}},
+               GithubWebhook.handle_delivery(
+                 "star",
+                 %{"action" => "created", "repository" => %{"full_name" => @repo}},
                  repo: @repo,
                  server: registry
                )
@@ -297,7 +340,9 @@ defmodule Aiur.Events.GithubWebhookTest do
       registry = start_mode_registry([@repo, untracked])
 
       assert %{status: :dropped, reason: {:untracked_repository, ^untracked}} =
-               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(ticket, %{"full_name" => untracked}),
+               GithubWebhook.handle_delivery(
+                 "issue_comment",
+                 issue_comment_delivery(ticket, %{"full_name" => untracked}),
                  repo: @repo,
                  server: registry
                )
@@ -309,10 +354,17 @@ defmodule Aiur.Events.GithubWebhookTest do
     test "a malformed delivery records nothing and does not crash the tail" do
       ticket = Integer.to_string(System.unique_integer([:positive]))
       registry = start_mode_registry([@repo])
-      assert %{status: :error} = GithubWebhook.handle_delivery("issue_comment", "not-a-map", repo: @repo, server: registry)
+
+      assert %{status: :error} =
+               GithubWebhook.handle_delivery("issue_comment", "not-a-map",
+                 repo: @repo,
+                 server: registry
+               )
 
       assert %{status: :error, reason: :missing_repository} =
-               GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(ticket), "repository"),
+               GithubWebhook.handle_delivery(
+                 "issue_comment",
+                 Map.delete(issue_comment_delivery(ticket), "repository"),
                  repo: @repo,
                  server: registry
                )

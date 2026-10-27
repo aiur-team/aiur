@@ -3,7 +3,32 @@ defmodule Aiur.Experiments.Store do
   use GenServer
   require Logger
 
-  alias Aiur.Experiments.{AnalysisInput, Catalog, Checkpoint, Evaluation, Journal, Paths, Persistence, Reader, Registration, Schema, Snapshot, SnapshotPersistence, Spec, WindowData}
+  alias Aiur.Experiments.{
+    AnalysisInput,
+    AnalysisProvenance,
+    AnalysisRecovery,
+    AnalysisRequests,
+    Catalog,
+    Checkpoint,
+    Evaluation,
+    Journal,
+    Paths,
+    Persistence,
+    Reader,
+    Registration,
+    ReportAnalysis,
+    ReportRecords,
+    ReportSubmission,
+    Schema,
+    Snapshot,
+    SnapshotPersistence,
+    Spec,
+    WindowData,
+    WindowEvents
+  }
+
+  alias Aiur.Experiments.Auto.WindowTransition
+  alias Aiur.Tracker.DispatchProvenance
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -16,6 +41,8 @@ defmodule Aiur.Experiments.Store do
     :persistent_term.erase({__MODULE__, :startup_failure})
 
     with :ok <- Aiur.Journal.ensure_directory(Paths.root()), :ok <- Persistence.recover() do
+      DispatchProvenance.register(&AnalysisProvenance.check/1)
+
       {:ok,
        %{
          evaluation: nil,
@@ -33,6 +60,18 @@ defmodule Aiur.Experiments.Store do
   end
 
   @impl true
+  def handle_call({:reconcile_analysis, id}, _from, state), do: {:reply, AnalysisRecovery.reconcile(id), state}
+
+  def handle_call({:analysis_request, id, mode, opts}, _from, state), do: {:reply, AnalysisRequests.request(id, mode, opts), state}
+
+  def handle_call({:fail_analysis_request, id, request_id, reason}, _from, state) do
+    result = with :ok <- AnalysisRecovery.reconcile(id), do: AnalysisRequests.fail(id, request_id, reason)
+    {:reply, result, state}
+  end
+
+  def handle_call({:analysis_request_update, action, id, request_id, value}, _from, state) when action in [:attach_ticket, :fulfill, :cancel, :dispatch],
+    do: {:reply, apply(AnalysisRequests, action, [id, request_id, value]), state}
+
   def handle_call({:create, attrs, opts}, from, state) do
     case create(attrs, opts, state) do
       {:new, spec} -> Evaluation.start(state, from, fn -> prepare_create(spec, opts, state.catalog_context) end, &commit_create(&1, opts, state))
@@ -45,8 +84,51 @@ defmodule Aiur.Experiments.Store do
     {:reply, result, state}
   end
 
+  def handle_call({:abandon, id, reason, actor}, _from, state) do
+    result =
+      if is_binary(reason) and String.trim(reason) != "" do
+        amend(id, %{status: "abandoned"}, actor, {"abandoned", String.trim(reason)}, state)
+      else
+        {:error, [%{path: "reason", message: "must not be empty"}]}
+      end
+
+    {:reply, result, state}
+  end
+
   def handle_call({:annotate, id, annotation, actor}, _from, state) do
     {:reply, annotate(id, annotation, actor), state}
+  end
+
+  def handle_call({:manage_window, id, samples, config, now, truncation}, _from, state) do
+    result =
+      case WindowTransition.prepare(id, samples, config, now, truncation) do
+        {:ok, changes, kind} -> amend(id, changes, "window_manager", kind, state)
+        result -> result
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:window_spec, id}, _from, state), do: {:reply, Reader.spec(id), state}
+
+  def handle_call({:stats, id}, from, state) do
+    Evaluation.start(state, from, fn -> ReportAnalysis.prepare(id, state.catalog_context) end, fn result -> commit_result(result, &ReportAnalysis.commit/1) end)
+  end
+
+  def handle_call({:put_report, id, report}, from, state) do
+    Evaluation.start(state, from, fn -> ReportSubmission.prepare(id, report, state.catalog_context) end, fn result -> commit_result(result, &ReportSubmission.commit/1) end)
+  end
+
+  def handle_call({:put_preregistration, id, attrs}, _from, state) do
+    {:reply, ReportRecords.preregister(id, attrs, DateTime.utc_now()), state}
+  end
+
+  def handle_call({:record_results_read, id}, _from, state) do
+    {:reply, ReportRecords.record_results_read(id, DateTime.utc_now()), state}
+  end
+
+  def handle_call({:events_snapshot, id, snapshot, refresh?}, _from, state) do
+    {:reply, WindowEvents.freeze(id, snapshot, refresh?), state}
   end
 
   def handle_call({:freeze, id, window, opts}, from, state) do
@@ -219,6 +301,9 @@ defmodule Aiur.Experiments.Store do
   end
 
   defp status_transition(status, status), do: :ok
+  defp status_transition("active", "report_due"), do: :ok
+  defp status_transition("report_due", "reported"), do: :ok
+  defp status_transition(from, "cancelled") when from in ~w(draft active), do: :ok
   defp status_transition(_status, "abandoned"), do: :ok
   defp status_transition("draft", "active"), do: :ok
   defp status_transition("active", "concluded"), do: :ok
