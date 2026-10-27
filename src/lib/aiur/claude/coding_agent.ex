@@ -14,6 +14,7 @@ defmodule Aiur.Claude.CodingAgent do
   alias Aiur.AppServer.{Adapter, Rpc, Transport}
   alias Aiur.Claude.{AccountGeneration, NotificationPolicy}
   alias Aiur.Claude.CodingAgent.{Handshake, Methods}
+  alias Aiur.Commands.NativeCapture.Claude, as: NativeCapture
   alias Aiur.Config
   alias Aiur.ProcessTree
 
@@ -222,6 +223,7 @@ defmodule Aiur.Claude.CodingAgent do
   @doc false
   @spec start_turn(session(), String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def start_turn(%{port: port, thread_id: thread_id, workspace: workspace} = session, prompt, issue) do
+    NativeCapture.release_stale(session, issue)
     model = Map.get(session, :model)
 
     params =
