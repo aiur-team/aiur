@@ -153,7 +153,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         </footer>
       </form>
 
-      <div :if={not @replacing? and @decision.answer} class="decision-answer-summary">
+      <div :if={(@disabled? or not @replacing?) and @decision.answer} class="decision-answer-summary">
         <div>
           <span class="decision-answer-label">{if Map.get(@decision, :revision_sequence, 0) > 0, do: "Current revised answer", else: "Recorded answer"}</span>
           <strong>{answer_label(@decision)}</strong>
