@@ -134,7 +134,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
   @impl true
   def handle_call({:enqueue, record}, _from, state) do
-    key = {record["topic_class"], record["ticket"]}
+    key = Storage.pending_key(record)
 
     {pending, next_wake_id} =
       case Map.fetch(state.pending, key) do

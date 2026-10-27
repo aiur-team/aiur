@@ -189,6 +189,10 @@ defmodule Aiur.DecisionStore.Retry do
   def dispatchable?(%Decision{pending_for_session?: true}, _retry_failed?), do: false
 
   def dispatchable?(%Decision{} = decision, retry_failed?) do
+    Aiur.Commands.Requester.dispatch_target(decision) == :worker and worker_dispatchable?(decision, retry_failed?)
+  end
+
+  defp worker_dispatchable?(decision, retry_failed?) do
     case List.last(Decision.active_dispatch_attempts(decision)) do
       nil -> true
       %{status: :failed} when retry_failed? -> true

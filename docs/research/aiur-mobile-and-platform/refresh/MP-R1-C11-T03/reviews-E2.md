@@ -40,3 +40,18 @@ payload construction and facade submission in `streamdeck_channel/command_answer
 answer decoder already accept single-question `option_id` replies. Guard
 placement: `StreamdeckCommands`, called after the channel's focused-agent check.
 The channel keeps its current length. Product and predecessor gates are retained.
+
+## REFRESH-MP-E2-C6-T02-4fbe1095 — closed (2026-10-27)
+
+Source verified on the ticket branch before implementation. Dispatch eligibility
+now lives in `decision_store/retry.ex:184–203`, called by
+`decision_store/dispatch.ex:170–172,290–303`. Additive facts use
+`commands/event_data.ex`, `commands/projection.ex` and
+`decision_store/command_facts.ex`. `executor_listener.ex:222–248` keeps alerts
+and blocking request wakes separate; answered delivery belongs before that path.
+`executor_wake_projection.ex:28–60` excludes all Executor topics; add only
+`executor.decision.answered`. `Commands.Topics.publish/4` journals the typed
+answer envelope with its action under `data`. Inbox enqueue persists pending
+records but coalesces by topic class/ticket: answer records require a distinct
+decision key so two Commands cannot erase each other's wake. Preserve U3's
+ordering/claim behavior. Product and predecessor gates remain unchanged.
