@@ -100,6 +100,9 @@ done
 for path in src/browser/tests/example.browser.spec.mjs src/lib/aiur_web/router.ex src/priv/static/js/app.js; do
   expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
 done
+for path in src/lib/aiur_web/components/units_table.ex src/lib/aiur_web/live/dashboard_live.ex src/lib/aiur_web/controllers/dashboard_controller.ex src/priv/static/js/dashboard.js; do
+  TEST_REVIEW=REVIEW_REQUIRED expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
+done
 for path in .github/workflows/ci.yml scripts/check-ci-gate.py scripts/ci-policy.rb scripts/classify-ci-changes.sh; do
   expect 'browser_smoke=true docs_only=false full_ci=true' pull_request false "[{\"filename\":\"$path\"}]"
 done
@@ -139,10 +142,16 @@ grep -Fq '```text' "$test_dir/summary"
 grep -Fq '### Affected-test selection warning' "$test_dir/summary"
 # Unapproved heads run the fast set unless a full-CI label is present.
 for review in REVIEW_REQUIRED CHANGES_REQUESTED ''; do
-  for path in .github/workflows/ci.yml src/mix.lock scripts/ci-policy.rb src/browser/tests/example.browser.spec.mjs; do
-    TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
+  for path in .github/workflows/ci.yml scripts/ci-policy.rb src/browser/tests/example.browser.spec.mjs; do
+    TEST_REVIEW="$review" expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
     grep -Fxq 'dialyzer=false' "$test_dir/out"
   done
+  for path in src/lib/aiur_web/components/units_table.ex; do
+    TEST_REVIEW="$review" expect 'browser_smoke=true docs_only=false full_ci=false' pull_request false "[{\"filename\":\"$path\"}]"
+    grep -Fxq 'dialyzer=false' "$test_dir/out"
+  done
+  TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/mix.lock"}]'
+  grep -Fxq 'dialyzer=false' "$test_dir/out"
   TEST_REVIEW="$review" expect 'browser_smoke=false docs_only=false full_ci=false' pull_request false '[{"filename":"src/lib/aiur/config.ex"}]'
   grep -Fxq 'dialyzer=false' "$test_dir/out"
   grep -Fq 'fast checks only' "$test_dir/summary"

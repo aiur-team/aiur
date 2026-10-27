@@ -3,6 +3,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
 
   use Phoenix.Component
 
+  alias Aiur.Commands.Answering
+  alias AiurWeb.OperatorControlCenter.DecisionQuestionsForm
+
   attr(:decision, :map, required: true)
   attr(:state, :map, default: %{})
   attr(:writable, :boolean, required: true)
@@ -56,14 +59,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
         <article class="decision-revision-entry original">
           <div>
             <span class="decision-answer-label">Original answer · preserved</span>
-            <strong>{answer_label(@decision.original_answer, @decision.options)}</strong>
+            <strong>{answer_label(@decision.original_answer, @decision)}</strong>
           </div>
           <span class="chip attention">Superseded</span>
         </article>
         <article :for={revision <- @decision.revisions} class="decision-revision-entry">
           <div>
             <span class="decision-answer-label">Revision {revision.sequence}</span>
-            <strong>{answer_label(revision.answer, @decision.options)}</strong>
+            <strong>{answer_label(revision.answer, @decision)}</strong>
             <p>{revision.reason}</p>
           </div>
           <span class={revision_result_chip(revision, @decision.revision_sequence)}>
@@ -168,15 +171,28 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
   defp default_choice(%{options: []}), do: "custom"
   defp default_choice(decision), do: "option:#{decision.options |> List.first() |> Map.fetch!(:id)}"
 
-  defp answer_label(%{selected_option_id: option_id}, options) when is_binary(option_id) do
+  defp answer_label(answer, decision) do
+    case DecisionQuestionsForm.questions(decision) do
+      [] ->
+        legacy_answer_label(answer, decision.options)
+
+      questions ->
+        case Answering.decode_question_answers(questions, answer) do
+          {:ok, answers} -> Answering.render_question_answers(questions, answers)
+          {:error, _reason} -> "Answer unavailable"
+        end
+    end
+  end
+
+  defp legacy_answer_label(%{selected_option_id: option_id}, options) when is_binary(option_id) do
     case Enum.find(options, &(&1.id == option_id)) do
       nil -> "Option #{option_id}"
       option -> option.label
     end
   end
 
-  defp answer_label(%{custom_response: response}, _options), do: response
-  defp answer_label(_answer, _options), do: "Unavailable"
+  defp legacy_answer_label(%{custom_response: response}, _options), do: response
+  defp legacy_answer_label(_answer, _options), do: "Unavailable"
 
   defp pending_follow_up(decision) do
     decision.revision_follow_ups

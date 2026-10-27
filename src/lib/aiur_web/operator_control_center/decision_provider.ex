@@ -26,7 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
         [decision] ->
           {:ok,
            %{
-             decision: DecisionPresenter.attach_latency([decision], snapshots, latency_health) |> hd(),
+             decision: DecisionPresenter.attach_latency([decision], snapshots, latency_health) |> hd() |> Map.put(:audit_history, audit_history(decision_id, store(opts))),
              scope: Map.put(result.scope, :label, "Exact Command detail"),
              health: result.health
            }}
@@ -57,6 +57,23 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
 
   @spec counts(keyword()) :: {:ok, map()}
   def counts(opts \\ []) when is_list(opts), do: Commands.query_counts(store: store(opts))
+
+  defp audit_history(id, store) do
+    case Commands.audit_history(id, store) do
+      {:ok, entries} -> Enum.map(entries, &audit_entry/1)
+      {:error, _reason} -> :unavailable
+    end
+  catch
+    :exit, _reason -> :unavailable
+  end
+
+  # Only display-safe fact fields cross into the dashboard; never forward raw event data.
+  defp audit_entry(%{type: type, occurred_at: at, data: data}) do
+    %{type: type, at: at, cause: Map.get(data, :cause)}
+  end
+
+  defp audit_entry(%{event_type: _type, occurred_at: at}), do: %{type: :unknown, at: at, cause: nil}
+  defp audit_entry(%{created_at: at}), do: %{type: :requested, at: at, cause: nil}
 
   defp store(opts), do: Keyword.get(opts, :decision_store, Commands.default_store())
   defp metrics(opts), do: Keyword.get(opts, :decision_metrics, Commands.default_metrics())

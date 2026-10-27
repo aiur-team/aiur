@@ -167,6 +167,9 @@ defmodule Aiur.Commands do
   defdelegate handle_revision_follow_up(decision_id, action_id, opts, server, timeout),
     to: Aiur.DecisionStore
 
+  @spec audit_history(String.t(), GenServer.server()) :: {:ok, list()} | {:error, term()}
+  defdelegate audit_history(decision_id, server), to: Aiur.DecisionStore
+
   @spec history() :: [map()]
   defdelegate history(), to: Aiur.DecisionHistory, as: :list
 

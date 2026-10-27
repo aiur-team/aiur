@@ -159,7 +159,11 @@ defmodule Aiur.Codex.TurnLoop do
       workspace: Map.get(session, :workspace),
       response_id: Map.get(payload, "id"),
       tool_call_scope: tool_call_scope(state, session),
-      tool_call_thread_id: Map.get(session, :thread_id)
+      tool_call_thread_id: Map.get(session, :thread_id),
+      turn_id: state.current_turn_id,
+      ticket: Map.get(state, :issue, %{identifier: Map.get(state, :issue_identifier)}),
+      session_ref: "#{Map.get(session, :thread_id)}-#{state.current_turn_id}",
+      source: %{session_id: "#{Map.get(session, :thread_id)}-#{state.current_turn_id}"}
     }
 
     case Approvals.maybe_handle_approval_request(
@@ -171,9 +175,13 @@ defmodule Aiur.Codex.TurnLoop do
            metadata,
            state.tool_executor,
            state.auto_approve_requests,
-           execution_context,
+           Map.merge(Map.take(session, [:store]), execution_context),
            pause_latched?(session, state)
          ) do
+      {:held, ref, info} ->
+        Messages.emit_message(on_message, :native_question_held, Map.take(info, [:decision_id, :native_ref, :since]), metadata)
+        {:continue, Map.update(state, :held_native_questions, %{ref => info}, &Map.put(&1, ref, info))}
+
       :input_required ->
         Messages.emit_message(
           on_message,

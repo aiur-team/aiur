@@ -8,7 +8,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
 
   alias Aiur.{AgentEvents, AgentPubSub, AgentQueue, AgentQueueStore, OperatorWaitLog}
   alias Aiur.AgentQueueStore.TargetIndex
-  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, PauseResume, State, TicketTransition}
+  alias Aiur.Listener.Scheduler
+  alias Aiur.Orchestrator.{AutoSubscriptions, CommentWake, LifecycleFence, ListenerModes, PauseResume, State, TicketTransition}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
 
   @doc false
@@ -92,6 +93,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   def enqueue_operator_message(state, issue_identifier, body, payload, mode \\ :plain) do
     request = %{
       delivery_policy: Map.get(payload, :delivery_policy, :checkpoint),
+      origin: Map.get(payload, :origin, :internal),
       fallback: Map.get(payload, :fallback),
       turn_id: Map.get(payload, :turn_id),
       action_id: if(mode == :correlated, do: Map.get(payload, :action_id)),
@@ -246,6 +248,25 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
   # A confirmed pause with no recorded reason is a legacy entry; an answer
   # resumed it before #2730 and still does.
   defp message_resumes_pause?(state, entry, request) do
+    if request.delivery_policy == :listener and Scheduler.routing() == :listener do
+      case ListenerModes.get_mode(state, entry.identifier) do
+        {:reply, {:ok, view}, _state} -> listener_resumes_pause?(state, entry, view)
+        {:reply, {:error, _reason}, _state} -> false
+      end
+    else
+      legacy_resumes_pause?(state, entry, request)
+    end
+  end
+
+  @doc false
+  @spec listener_resumes_pause?(State.t(), map(), map()) :: boolean()
+  def listener_resumes_pause?(state, entry, view) do
+    pending = PauseResume.current_pending_pause_reason(state, entry)
+    self_paused? = State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :agent_pause_request and is_nil(pending)
+    view.effective in [:sync, :steer] and (self_paused? or pending == :agent_pause_request) and no_hold?(state, entry)
+  end
+
+  defp legacy_resumes_pause?(state, entry, request) do
     paused? = State.paused_running_entry?(entry)
     (paused? and request.mode == :plain) or self_pause_ends_on_input?(state, entry, paused?)
   end
@@ -312,6 +333,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
 
   defp do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request) do
     capabilities = Capabilities.issue_control_capabilities(state, issue_identifier)
+    capabilities = listener_context(state, issue_identifier, request, capabilities)
 
     case DeliveryPolicy.normalize_delivery_request(request.delivery_policy, request.fallback, capabilities) do
       {:ok, queue_opts} ->
@@ -331,6 +353,18 @@ defmodule Aiur.Orchestrator.OperatorMessages.Enqueue do
         {error, state}
     end
   end
+
+  defp listener_context(state, id, %{delivery_policy: :listener, origin: origin}, capabilities) do
+    view =
+      case ListenerModes.get_mode(state, id) do
+        {:reply, {:ok, view}, _state} -> view
+        {:reply, {:error, _reason}, _state} -> nil
+      end
+
+    Map.merge(capabilities, %{listener_view: view, listener_origin: origin})
+  end
+
+  defp listener_context(_state, _id, _request, capabilities), do: capabilities
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain} = request) do
     case enqueue_plain(state.queue_store, attrs, request) do

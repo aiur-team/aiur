@@ -36,6 +36,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/streamdeck-emulator-knob.js"></script>
         <script defer src="/assets/streamdeck-emulator-hook.js"></script>
         <script defer src="/assets/sortable-table-hook.js"></script>
+        <script defer src="/decision-questions-validation.js"></script>
         <script defer src="/build-home/loader.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/aiur-style/tokens.css" />

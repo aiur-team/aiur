@@ -6,6 +6,7 @@ defmodule Aiur.Codex.Approvals do
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Messages, ToolCallIdentity, ToolCallLedger}
   alias Aiur.Codex.{Rpc, UserInputAnswers}
+  alias Aiur.Commands.NativeCapture.Codex, as: NativeCapture
 
   # credo:disable-for-this-file Credo.Check.Refactor.FunctionArity
 
@@ -20,7 +21,7 @@ defmodule Aiur.Codex.Approvals do
           boolean(),
           map(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:held, String.t(), map()} | {:error, :port_closed}
   def maybe_handle_approval_request(
         port,
         method,
@@ -34,6 +35,15 @@ defmodule Aiur.Codex.Approvals do
         paused?
       ) do
     case {method, payload, paused?} do
+      {"item/tool/requestUserInput", %{"id" => id, "params" => params}, false} ->
+        case NativeCapture.handle(port, id, params, Map.put(context, :send_response, &send_response/2)) do
+          :unhandled ->
+            maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
+
+          result ->
+            result
+        end
+
       {"item/tool/call", %{"id" => id, "params" => params}, false} ->
         handle_tool_call(port, id, params, payload, payload_string, on_message, metadata, tool_executor, context)
 
@@ -62,7 +72,7 @@ defmodule Aiur.Codex.Approvals do
           (term(), term() -> term()),
           boolean(),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:held, String.t(), map()} | {:error, :port_closed}
   def maybe_handle_approval_request(port, method, %{"id" => id} = payload, payload_string, on_message, metadata, _tool_executor, _auto_approve_requests, true) do
     deny_for_pause(port, method, id, payload, payload_string, on_message, metadata)
   end
@@ -191,7 +201,7 @@ defmodule Aiur.Codex.Approvals do
           map(),
           (term(), term() -> term()),
           boolean()
-        ) :: :approved | :approval_required | :input_required | :unhandled | {:error, :port_closed}
+        ) :: :approved | :approval_required | :input_required | :unhandled | {:held, String.t(), map()} | {:error, :port_closed}
   def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests) do
     # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
     maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)

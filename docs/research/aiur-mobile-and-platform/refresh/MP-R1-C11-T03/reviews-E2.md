@@ -14,7 +14,7 @@ For each named item, read the current owner and rewrite the cited starting point
 | REFRESH-MP-E2-C2-T04-4fbe1095 | `packaging/npm/aiur-cli/libexec/aiur-engine.sh:88-89` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C2-T04-4fbe1095 | `src/lib/aiur/agent_control_cli.ex:354-366` | 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C2-T04-4fbe1095 | `src/lib/aiur/executor_command_cli.ex:8-66` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
-| REFRESH-MP-E2-C4-T02-4fbe1095 | `src/lib/aiur/app_server/turn_loop.ex:9-52` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
+| REFRESH-MP-E2-C4-T02-4fbe1095 (resolved) | `src/lib/aiur/app_server/turn_loop.ex:9-52` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C4-T03-4fbe1095 | `src/lib/aiur/decision_dispatch.ex:36-66` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C5-T00-4fbe1095 | `src/lib/aiur/claude/coding_agent.ex:302-399` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
 | REFRESH-MP-E2-C5-T02-4fbe1095 | `src/lib/aiur/claude/coding_agent.ex:302-383` | 45a290e3053423100a73b534c620fdd12ebe11ad | LINES-CHANGED: source range has no unique byte-identical destination |
@@ -40,3 +40,17 @@ payload construction and facade submission in `streamdeck_channel/command_answer
 answer decoder already accept single-question `option_id` replies. Guard
 placement: `StreamdeckCommands`, called after the channel's focused-agent check.
 The channel keeps its current length. Product and predecessor gates are retained.
+
+## REFRESH-MP-E2-C4-T02-4fbe1095 — closed (2026-10-27)
+
+Reviewed source at `1d096249d`. Shared receive handling now lives in
+`app_server/turn_loop.ex:38–110`: queue updates still call `Interrupts` and
+`state.timeout_ms` still bounds idle receives. Replay and relay acknowledgements
+precede that loop; capture must leave both intact. Loop defaults are built at
+`app_server/adapter.ex:108–129`; approval dispatch is `codex/approvals.ex:35–53`
+with trusted execution context from `codex/turn_loop.ex:167–198`. Holds belong in
+that dispatch, before fallback policy, without safe-checkpoint processing.
+Accounting integration is `token_accounting.ex:114–154`; the stall and duration
+guards belong in `runtime_watchdog.ex:327` and `:92`. C4-T00 findings report
+Q1–Q3 PASS; the capture facade landed in #6550. Product and predecessor gates
+are retained; the capture gate stays disabled pending reply/release support.

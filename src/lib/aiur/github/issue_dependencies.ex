@@ -143,7 +143,6 @@ defmodule Aiur.GitHub.IssueDependencies do
     cond do
       github_rate_limited?(reason) -> {:error, :rate_limited}
       github_http_status?(reason, 403) -> {:error, :permission_denied}
-      github_http_status?(reason, 422) -> {:error, :cycle_detected}
       true -> {:error, reason}
     end
   end
