@@ -23,7 +23,7 @@ defmodule Aiur.ListenerTest do
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(dir) end)
     Aiur.TestSupport.put_runtime_state_dir!(dir)
     entry = %{identifier: "42", session_execution: %{backend: "codex"}}
-    state = %State{running: %{"id" => entry}, queue_store: AgentQueueStore.new()}
+    state = %State{last_polled_issues: %{"stopped" => %{identifier: "stopped"}}, running: %{"id" => entry}, queue_store: AgentQueueStore.new()}
     pid = start_supervised!({Server, state})
     %{pid: pid, state: state, dir: dir}
   end
@@ -132,7 +132,7 @@ defmodule Aiur.ListenerTest do
     assert {:reply, {:error, :ambiguous_identifier}, ^unique} = ListenerModes.get_mode(unique, other)
     assert {:reply, {:error, :ambiguous_identifier}, ^unique} = ListenerModes.set_mode(unique, other, :async, expected_version: 0)
     assert ModeStore.get("42").version == 0
-    stopped = %{state | running: %{}}
+    stopped = %{state | running: %{}, last_polled_issues: %{identity.identifier => %{identifier: identity.identifier}}}
     assert {:reply, {:ok, %{effective: nil, effective_reason: :not_running, requested: :async}}, ^stopped} = ListenerModes.set_mode(stopped, identity, :async, expected_version: 0)
   end
 
