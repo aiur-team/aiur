@@ -45,7 +45,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
       readers: Sources.readers(opts),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       tracker: Keyword.get(opts, :tracker, Aiur.Tracker),
-      core_limit: Keyword.get_lazy(opts, :agent_core_limit, fn -> Access.guard_settings().agent_core_limit_per_hour end),
+      budget_settings: Keyword.get(opts, :budget_settings, &Access.guard_settings/0),
       batch: nil,
       tick_ms: Keyword.get(opts, :tick_ms, 60_000)
     }
@@ -70,7 +70,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfill do
   def handle_call({:start, opts}, _from, state) do
     plan = Sources.plan(state.readers, opts)
     per_hour = Keyword.get(opts, :per_hour, 60)
-    maximum = Rules.max_per_hour(state.core_limit)
+    maximum = Rules.max_per_hour(state.budget_settings.().agent_core_limit_per_hour)
 
     case validate_start(state, plan, opts, per_hour, maximum) do
       :ok -> start_run(state, plan, opts, per_hour)

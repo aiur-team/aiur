@@ -108,7 +108,7 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
       writer: writer,
       sync: fn -> :ok end,
       tick_ms: 3_600_000,
-      agent_core_limit: 250,
+      budget_settings: fn -> %{agent_core_limit_per_hour: 250} end,
       agent_workspace: ""
     ]
 
@@ -144,6 +144,17 @@ defmodule Aiur.BuildOrder.History.LabelBackfillTest do
     assert requests() == [{:ensure, ["feature:h"]}, {:label, "1", "feature:h"}]
     assert_received {:mark, "h", 1, %{written_at: at, seen_at: at}}
     assert at == ctx.now
+  end
+
+  test "start reads the current effective Core ceiling", ctx do
+    update(ctx.fixture, %{budget_limit: 250})
+    settings = fn -> %{agent_core_limit_per_hour: Agent.get(ctx.fixture, & &1.budget_limit)} end
+    server = boot(Keyword.put(ctx.opts, :budget_settings, settings))
+    update(ctx.fixture, %{budget_limit: 4})
+    assert {:error, {:maximum, 2}} = start(server, per_hour: 3)
+    assert requests() == []
+    update(ctx.fixture, %{budget_limit: 0})
+    assert {:error, {:maximum, 125}} = start(server, per_hour: 126)
   end
 
   test "unconfirmed and other projection states stay out; unknown sources never become zero", ctx do
