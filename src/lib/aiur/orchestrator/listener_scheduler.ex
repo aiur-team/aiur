@@ -3,6 +3,7 @@ defmodule Aiur.Listener.Scheduler do
 
   require Logger
   alias Aiur.AgentQueue
+  alias Aiur.Listener.SpecStatus
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
   @type origin :: :agent_chat | :voice_assistant | :http | :tui | :internal
@@ -19,7 +20,7 @@ defmodule Aiur.Listener.Scheduler do
   end
 
   @spec spec_status() :: term()
-  def spec_status, do: Aiur.Listener.SpecStatus.read()
+  def spec_status, do: SpecStatus.read()
 
   @spec resolve(origin(), map() | nil, map(), atom() | nil) :: {:ok, keyword()} | {:error, atom()}
   def resolve(origin, view, capabilities, fallback), do: resolve(origin, view, capabilities, fallback, [])
