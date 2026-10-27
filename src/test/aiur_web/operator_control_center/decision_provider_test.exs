@@ -1,5 +1,5 @@
 defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
   alias Aiur.{DecisionStore, SecretRedactor}
   alias AiurWeb.OperatorControlCenter.{DecisionPresenter, DecisionProvider}
