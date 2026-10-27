@@ -17,7 +17,8 @@ def run(check, repo):
             'Aiur.Orchestrator', 'Aiur.Orchestrator.State', 'Aiur.Config.State']
         provider.update(id='kernel', facades=['Aiur.JSONSafe'])
         (root / 'src/lib/b.ex').write_text('defmodule Aiur.JSONSafe do\nend\n')
-        for name, layer, facade in [('config', 0, 'Aiur.Config'), ('orchestration', 3, 'Aiur.Orchestrator')]:
+        for name, layer, facade in [('config', 0, 'Aiur.Config'), ('identity', 1, 'Aiur.Capabilities.Provider'),
+                                     ('orchestration', 3, 'Aiur.Orchestrator')]:
             component = json.loads(json.dumps(provider))
             component.update(id=name, layer=layer, paths=[f'src/lib/{name}.ex'], facades=[facade])
             manifest['components'].append(component)
@@ -59,7 +60,9 @@ def run(check, repo):
         assert 'src/lib/aiur/events/journal.ex' in marked, 'journal must remain a bus member'
         event_paths = {p for p in bus['paths'] if p.startswith('src/lib/aiur/events/')}
         assert event_paths == {p for p in marked if p.startswith('src/lib/aiur/events/')} | {
-            'src/lib/aiur/events/trust_classifier.ex'}, 'manifest must own every marked event module and trust port'
+            # Registry adapter, outside the bus-core boundary.
+            'src/lib/aiur/events/capability_provider.ex',
+            'src/lib/aiur/events/trust_classifier.ex'}, 'manifest must own every marked event module and boundary adapter'
         assert marked <= set(bus['paths']), 'manifest must own marked members outside events too'
         contract(root)
         directory = root / 'src/lib/aiur/events'
