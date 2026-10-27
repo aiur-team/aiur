@@ -19,6 +19,7 @@ defmodule AiurWeb.Presenter.Entries do
       adopted_from: Map.get(entry, :adopted_from),
       repl_attach_command: Map.get(entry, :repl_attach_command),
       live_conversation: Map.get(entry, :live_conversation),
+      native_hold: Map.get(entry, :native_hold),
       turn_count: Map.get(entry, :turn_count, 0),
       runtime_seconds: Map.get(entry, :runtime_seconds, 0),
       work_state: Map.get(entry, :work_state, :working),
