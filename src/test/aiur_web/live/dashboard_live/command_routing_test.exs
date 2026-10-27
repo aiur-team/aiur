@@ -8,6 +8,7 @@ defmodule AiurWeb.DashboardLive.CommandRoutingTest do
   import AiurWeb.DashboardLiveSupport.Processes
 
   alias Aiur.DecisionStore
+  alias AiurWeb.OperatorControlCenter.{AwaitingCommands, PayloadLoader}
 
   @endpoint AiurWeb.Endpoint
 
@@ -35,7 +36,7 @@ defmodule AiurWeb.DashboardLive.CommandRoutingTest do
     assert html =~ "needs you since 5 min ago"
     assert html =~ "asked 10m ago"
     assert has_element?(view, "#decisions-banner", "2 Commands need you")
-    assert AiurWeb.OperatorControlCenter.AwaitingCommands.nav_counts(AiurWeb.OperatorControlCenter.PayloadLoader.load(:fresh).retained_counts) == %{commands: 2}
+    assert AwaitingCommands.nav_counts(PayloadLoader.load(:fresh).retained_counts) == %{commands: 2}
 
     view |> element("button[phx-value-filter=with_executor]") |> render_click()
     assert_patch(view, "/commands?route=with_executor")
@@ -52,9 +53,9 @@ defmodule AiurWeb.DashboardLive.CommandRoutingTest do
 
     assert eventually(fn -> not has_element?(view, "#decision-#{executor.decision_id}") end, 200)
     assert has_element?(view, "#decisions-banner", "3 Commands need you")
-    payload = AiurWeb.OperatorControlCenter.PayloadLoader.load(:fresh)
+    payload = PayloadLoader.load(:fresh)
     assert payload.units.command_counts.needs_you_by_ticket == %{"6411" => 3}
-    assert AiurWeb.OperatorControlCenter.AwaitingCommands.nav_counts(payload.retained_counts) == %{commands: 3}
+    assert AwaitingCommands.nav_counts(payload.retained_counts) == %{commands: 3}
     # Navigate through the same filter control after the store fact; no reload.
     view |> element("button[phx-value-filter=needs_you]") |> render_click()
     assert has_element?(view, "#decision-#{executor.decision_id}", "Needs you")
