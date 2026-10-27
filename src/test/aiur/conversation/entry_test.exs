@@ -53,6 +53,8 @@ defmodule Aiur.Conversation.EntryTest do
       assert String.ends_with?(last, "z")
       assert byte_size(first) in (cap - 3)..cap
       assert byte_size(last) in (cap - 3)..cap
+      assert binary_part(text, 0, byte_size(first)) == first
+      assert binary_part(text, byte_size(text) - byte_size(last), byte_size(last)) == last
       assert String.to_integer(omitted) == byte_size(text) - byte_size(first) - byte_size(last)
       assert byte_size(entry.body) <= limit
       assert String.valid?(entry.body)

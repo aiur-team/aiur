@@ -26,8 +26,10 @@ defmodule Aiur.Conversation.SessionTest do
   end
 
   test "codec rejects unknown versions and invalid sequences" do
-    assert {:error, :invalid_session} = Session.from_json(%{"v" => 2, "session_seq" => 1})
-    assert {:error, :invalid_session} = Session.from_json(%{"v" => 1, "session_seq" => 0})
+    valid = Session.start_line(%Session{session_seq: 1, harness: "codex", start_reason: "spawn", first_pos: 1})
+    assert {:error, :invalid_session} = Session.from_json(Map.put(valid, "v", 2))
+    assert {:error, :invalid_session} = Session.from_json(Map.put(valid, "session_seq", 0))
+    assert {:error, :invalid_session} = Session.from_json(Map.delete(valid, "v"))
     assert {:error, :invalid_session} = Session.from_json("invalid")
   end
 end
