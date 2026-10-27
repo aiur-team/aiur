@@ -1,8 +1,8 @@
 defmodule Aiur.Listener.ListenerDeliveryTest do
   use ExUnit.Case, async: false
-  alias Aiur.{AgentQueue, AgentQueueStore, Issue, Orchestrator}
+  alias Aiur.{AgentQueue, AgentQueueStore, Issue, Orchestrator, TrackerIdentity}
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{ListenerModes, OperatorMessages, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, ListenerModes, OperatorMessages, State}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
   setup_all do
@@ -156,5 +156,17 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert next.running[id].control.status == :working
     assert Map.get(next.running[id], :paused_reason) == nil
     assert next.running[id].resume_input_id == request
+  end
+
+  test "listener input leaves a pending operator Decision pause intact", %{id: id, state: state} do
+    identity = %TrackerIdentity{status: :joinable, kind: :github, owner: "org", repository: "repo", provider_id: id, identifier: "42", reason: nil}
+    attrs = %{request_id: "pause-decision", issue_id: id, tracker_identity: identity, action: :pause, generation: "listener", expected_status: :working, expected_version: 0, requester: :automatic}
+    {:ok, _, lifecycle} = ControlLifecycle.request(state.control_lifecycle, attrs)
+    entry = Map.put(state.running[id], :pending_pause_reason, %{request_id: "pause-decision", reason: :input_required})
+    state = %{state | control_lifecycle: lifecycle, running: %{id => entry}}
+    assert {:reply, {:ok, request}, next} = OperatorMessages.send_operator_message_call(state, id, %{kind: :text, body: "chat", delivery_policy: :listener, origin: :http})
+    assert next.control_lifecycle == lifecycle
+    assert next.running[id].pending_pause_reason.reason == :input_required
+    assert_received {:agent_queue_updated, ^id, ^request, false}
   end
 end
