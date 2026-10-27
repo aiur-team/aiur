@@ -10,7 +10,7 @@ defmodule VoiceConverse.Drafts do
   @max_open_drafts 5
   @max_text_chars 4_000
   @id_regex ~r/\Avd_[A-Za-z0-9_-]{22}\z/
-  @statuses [:proposed, :confirmed, :sent, :delivered, :failed, :discarded, :stale]
+  @statuses [:proposed, :confirmed, :sent, :delivered, :failed, :discarded, :stale, :unknown]
   @transitions MapSet.new([
                  {:proposed, :confirmed},
                  {:proposed, :discarded},
@@ -28,7 +28,7 @@ defmodule VoiceConverse.Drafts do
 
     @type t :: %__MODULE__{
             draft_id: String.t(),
-            kind: :instruction,
+            kind: :instruction | :consult,
             status: VoiceConverse.Drafts.status(),
             text: String.t(),
             target: map(),
@@ -49,6 +49,15 @@ defmodule VoiceConverse.Drafts do
 
   @spec propose_instruction(t(), term(), keyword()) :: {:ok, Draft.t(), t()} | {:error, term()}
   def propose_instruction(%__MODULE__{} = projection, text, opts \\ []) do
+    propose(projection, :instruction, text, opts)
+  end
+
+  @spec propose_consult(t(), term(), keyword()) :: {:ok, Draft.t(), t()} | {:error, term()}
+  def propose_consult(%__MODULE__{} = projection, text, opts \\ []) do
+    propose(projection, :consult, text, opts)
+  end
+
+  defp propose(projection, kind, text, opts) do
     with :ok <- validate_text(text),
          :ok <- check_open_draft_limit(projection),
          {:ok, draft_id} <- draft_id(Keyword.get(opts, :id_generator, &new_id/0)),
@@ -56,7 +65,7 @@ defmodule VoiceConverse.Drafts do
          :ok <- validate_text(text) do
       draft = %Draft{
         draft_id: draft_id,
-        kind: :instruction,
+        kind: kind,
         status: :proposed,
         text: text,
         target: Keyword.get(opts, :target, %{}),
@@ -103,7 +112,7 @@ defmodule VoiceConverse.Drafts do
 
   defp do_transition(%__MODULE__{} = projection, draft_id, next_status, opts) do
     with {:ok, draft} <- fetch(projection, draft_id),
-         true <- MapSet.member?(@transitions, {draft.status, next_status}) || {:error, :invalid_transition} do
+         true <- allowed?(draft, next_status) || {:error, :invalid_transition} do
       draft = %{draft | status: next_status, at: Keyword.get(opts, :at, now())}
       {:ok, draft, put(projection, draft)}
     else
@@ -111,6 +120,15 @@ defmodule VoiceConverse.Drafts do
       {:error, _reason} = error -> error
     end
   end
+
+  defp allowed?(%Draft{kind: :consult, status: status}, :stale)
+       when status in [:confirmed, :sent, :delivered, :failed, :unknown], do: true
+
+  defp allowed?(%Draft{kind: :consult, status: :confirmed}, :unknown), do: true
+  defp allowed?(%Draft{kind: :consult, status: :delivered}, :failed), do: true
+  defp allowed?(%Draft{kind: :consult, status: :unknown}, :discarded), do: true
+  defp allowed?(%Draft{kind: :consult, status: :failed}, :discarded), do: true
+  defp allowed?(draft, status), do: MapSet.member?(@transitions, {draft.status, status})
 
   @spec fetch(t(), String.t()) :: {:ok, Draft.t()} | {:error, :not_found}
   def fetch(%__MODULE__{drafts: drafts}, draft_id) when is_binary(draft_id) do
@@ -217,6 +235,8 @@ defmodule VoiceConverse.Drafts do
   defp value(_record, _key), do: nil
   defp kind("instruction"), do: {:ok, :instruction}
   defp kind(:instruction), do: {:ok, :instruction}
+  defp kind("consult"), do: {:ok, :consult}
+  defp kind(:consult), do: {:ok, :consult}
   defp kind(_kind), do: :error
   defp status(status) when status in @statuses, do: {:ok, status}
 

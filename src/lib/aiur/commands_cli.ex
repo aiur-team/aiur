@@ -2,16 +2,17 @@ defmodule Aiur.CommandsCLI do
   alias Aiur.Commands
   @moduledoc false
 
+  alias Aiur.CommandsCLI.{Observation, Printer}
   alias Aiur.JSONSafe
   alias AiurWeb.OperatorControlCenter.DecisionProvider
 
-  @filters ~w(all open blocking resolved)a
+  @filters ~w(all open blocking resolved needs-you with-executor from-executor)a
 
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
     case build(opts) do
       {:ok, envelope} ->
-        if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(envelope)), else: print_human(envelope)
+        if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(envelope)), else: Printer.print_human(envelope)
         0
 
       {:error, reason} ->
@@ -46,8 +47,8 @@ defmodule Aiur.CommandsCLI do
            }
            |> maybe_put(:selected_decision, selected.health && source(selected.health)),
          data: %{
-           page: Map.drop(page, [:health]),
-           selected: selected.decision,
+           page: page |> Map.drop([:health]) |> Map.update!(:decisions, &Enum.map(&1, fn row -> Observation.row(row, page, captured_at) end)),
+           selected: Observation.row(selected.decision, %{health: selected.health}, captured_at),
            retained_counts: Map.drop(counts, [:health, :scope]),
            history: history
          },
@@ -75,13 +76,13 @@ defmodule Aiur.CommandsCLI do
 
   defp filter(filter) when is_binary(filter) do
     case Enum.find(@filters, &(Atom.to_string(&1) == filter)) do
-      nil -> {:error, "accepts --filter all, open, blocking, or resolved"}
+      nil -> {:error, "accepts --filter all, open, blocking, resolved, needs-you, with-executor, or from-executor"}
       filter -> {:ok, filter}
     end
   end
 
   defp filter(filter) when filter in @filters, do: {:ok, filter}
-  defp filter(_filter), do: {:error, "accepts --filter all, open, blocking, or resolved"}
+  defp filter(_filter), do: {:error, "accepts --filter all, open, blocking, resolved, needs-you, with-executor, or from-executor"}
 
   defp supported_query?(filter, opts) do
     if filter != :all and (Keyword.has_key?(opts, :ticket) or Keyword.has_key?(opts, :search)) do
@@ -99,6 +100,9 @@ defmodule Aiur.CommandsCLI do
         :blocking -> query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)
         :open -> Map.put(query, "lifecycle", "open")
         :resolved -> Map.put(query, "lifecycle", "historic")
+        :"needs-you" -> Map.merge(query, %{"lifecycle" => "open", "route" => "needs_you"})
+        :"with-executor" -> Map.merge(query, %{"lifecycle" => "open", "route" => "with_executor"})
+        :"from-executor" -> Map.merge(query, %{"lifecycle" => "open", "requester" => "executor"})
         :all -> query |> Map.put("lifecycle", "open") |> maybe_put("ticket", opts[:ticket]) |> maybe_put("search", opts[:search])
       end
 
@@ -109,6 +113,7 @@ defmodule Aiur.CommandsCLI do
     query = request |> Map.drop([:filter, :decision_id]) |> Map.new(fn {key, value} -> {to_string(key), value} end)
 
     case DecisionProvider.list(query, provider_opts(opts)) do
+      {:ok, %{health: %{status: :unavailable}}} -> {:error, "retained data unavailable"}
       {:ok, page} -> {:ok, page}
       {:error, {:invalid_query, reason}} -> {:error, "received an invalid query (#{inspect(reason)})"}
     end
@@ -161,95 +166,4 @@ defmodule Aiur.CommandsCLI do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp print_human(envelope) do
-    IO.puts("Commands captured #{get_in(envelope, ["snapshot", "captured_at"])}")
-    Enum.each(envelope["sources"], fn {name, value} -> IO.puts("#{name}: #{value["state"]}; freshness #{value["freshness"]}") end)
-
-    case get_in(envelope, ["data", "selected"]) do
-      nil -> print_rows(get_in(envelope, ["data", "page", "decisions"]) || [], get_in(envelope, ["snapshot", "captured_at"]))
-      decision -> print_detail(decision, get_in(envelope, ["snapshot", "captured_at"]), get_in(envelope, ["data", "history"]) || [])
-    end
-  end
-
-  defp print_rows([], _captured_at), do: IO.puts("No Commands match this filter.")
-
-  defp print_rows(rows, captured_at) do
-    if IO.ANSI.enabled?() do
-      IO.puts("ID  TICKET  ORIGIN  AGE  URGENCY  BLOCKING  LIFECYCLE  SUPERSEDED  QUESTION")
-
-      Enum.each(rows, fn row ->
-        ticket = get_in(row, ["ticket", "identifier"]) || "-"
-        ticket_title = get_in(row, ["ticket", "title"])
-        origin = get_in(row, ["source", "agent_id"]) || "unknown"
-
-        IO.puts(
-          "#{row["decision_id"]}  #{ticket_label(ticket, ticket_title)}  #{origin}  #{age(row["created_at"], captured_at)}  #{row["urgency"]}  #{row["blocking"]}  #{row["lifecycle"]}  #{row["superseded?"]}  #{row["question"]}"
-        )
-      end)
-    else
-      Enum.each(rows, &print_row(&1, captured_at))
-    end
-  end
-
-  defp print_row(row, captured_at) do
-    IO.puts("Command: #{row["decision_id"]}")
-    IO.puts("Ticket: #{ticket_label(get_in(row, ["ticket", "identifier"]) || "-", get_in(row, ["ticket", "title"]))}")
-    IO.puts("Question: #{row["question"]}")
-    IO.puts("Origin: #{get_in(row, ["source", "agent_id"]) || "unknown"}")
-    IO.puts("Age: #{age(row["created_at"], captured_at)}")
-    IO.puts("Urgency: #{row["urgency"]}; blocking: #{row["blocking"]}; lifecycle: #{row["lifecycle"]}; superseded: #{row["superseded?"]}")
-  end
-
-  defp print_detail(decision, captured_at, history) do
-    IO.puts("#{decision["decision_id"]} · #{decision["lifecycle"]} · blocking #{decision["blocking"]} · superseded #{decision["superseded?"]}")
-    IO.puts(decision["question"])
-    IO.puts("Urgency: #{decision["urgency"]}")
-    IO.puts("Origin: #{get_in(decision, ["source", "agent_id"]) || "unknown"}")
-    IO.puts("Age: #{age(decision["created_at"], captured_at)}")
-    IO.puts("Context: #{get_in(decision, ["context", "short"]) || "none"}")
-    IO.puts("Consequence of delay: #{decision["consequence_of_delay"] || "none"}")
-    IO.puts("Recommendation: #{recommendation(decision["recommendation"])}")
-
-    Enum.each(decision["options"] || [], fn option ->
-      IO.puts("Option #{option["id"]}: #{option["label"]}#{if option["risk"], do: " (#{option["risk"]} risk)", else: ""}")
-      IO.puts("  Description: #{option["description"] || "none"}")
-      IO.puts("  Benefits: #{option["benefits"] || "none"}")
-      IO.puts("  Drawbacks: #{option["drawbacks"] || "none"}")
-    end)
-
-    print_relay(decision["answer"])
-    print_history(Enum.filter(history, &(&1["decision_id"] == decision["decision_id"])))
-  end
-
-  defp age(created_at, captured_at) when is_binary(created_at) and is_binary(captured_at) do
-    with {:ok, created_at, _offset} <- DateTime.from_iso8601(created_at),
-         {:ok, captured_at, _offset} <- DateTime.from_iso8601(captured_at) do
-      "#{max(DateTime.diff(captured_at, created_at), 0)}s"
-    else
-      _invalid -> "unknown"
-    end
-  end
-
-  defp age(_created_at, _captured_at), do: "unknown"
-
-  defp ticket_label(ticket, title) when is_binary(title) and title != "", do: "#{ticket} (#{title})"
-  defp ticket_label(ticket, _title), do: ticket
-
-  defp recommendation(%{"option_id" => option_id, "reason" => reason}), do: "#{option_id}: #{reason || "no rationale"}"
-  defp recommendation(_recommendation), do: "none"
-
-  defp print_relay(%{"relayed_by" => relayer, "operator_quote" => quote, "accepted_at" => at}) when is_binary(relayer) do
-    IO.puts("Answer: answered by operator, relayed by #{relayer} at #{at}")
-    IO.puts("Operator quote: #{quote}")
-  end
-
-  defp print_relay(_answer), do: :ok
-
-  defp print_history([]), do: IO.puts("History: none")
-
-  defp print_history(history) do
-    IO.puts("History:")
-    Enum.each(history, fn entry -> IO.puts("- #{entry["changed_at"] || "unknown"}: #{entry["change"] || "unknown"} · #{get_in(entry, ["actor", "label"]) || "unknown source"}") end)
-  end
 end

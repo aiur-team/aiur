@@ -49,7 +49,16 @@ defmodule Aiur.ControlCall.Allowlist do
     {:executor_sweep, 1, &__MODULE__.sweep_scope/1, [:keyword], %{apply: :boolean, json: :boolean}},
     {:commands, 0, :read, [], %{}},
     {:commands, 1, :read, [:keyword],
-     %{filter: {:enum, [:all, :open, :blocking, :resolved]}, blocking: :boolean, json: :boolean, limit: :positive, decision_id: :string, ticket: :string, search: :string, cursor: :string}},
+     %{
+       filter: {:enum, [:all, :open, :blocking, :resolved, :"needs-you", :"with-executor", :"from-executor"]},
+       blocking: :boolean,
+       json: :boolean,
+       limit: :positive,
+       decision_id: :string,
+       ticket: :string,
+       search: :string,
+       cursor: :string
+     }},
     {:units, 0, :read, [], %{}},
     {:units, 1, :read, [:keyword], %{scope: {:enum, ["live", "unfinished", "all", "none"]}, conditions: :string_list, format: {:enum, ["auto", "table", "records"]}, json: :boolean}},
     {:feature, 1, &__MODULE__.feature_scope/1, [:keyword], @feature_options},

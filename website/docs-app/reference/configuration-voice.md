@@ -20,3 +20,7 @@ Optional settings for the conversational voice assistant; an absent `voice:` blo
 `voice.conversation.llm` and `voice.conversation.cloud_disclosure_accepted` have no default. Aiur loads a config without them, but a voice session refuses to start until both are set, and the error names the missing field.
 
 The `daily_minutes_cap` default is a proposed default you may change. Minutes from crashed sessions always count toward the cap.
+
+Standalone VoiceConverse hosts can set `ask_requires_confirm` in `VoiceConverse.Config` to
+`:first_in_session` (the default), `:always`, or `:never`. This package setting is separate
+from Aiur's `voice.conversation` configuration.

@@ -176,7 +176,9 @@ export class VoiceConverseClient {
     const text = document.createElement("p");
     const confirm = document.createElement("button");
     const discard = document.createElement("button");
-    text.textContent = frame.text;
+    text.textContent = frame.status === "unknown"
+      ? `${frame.text} (delivery is uncertain; the agent may still receive it)`
+      : frame.text;
     confirm.type = discard.type = "button";
     confirm.textContent = "Confirm";
     discard.textContent = "Discard";
@@ -188,7 +190,12 @@ export class VoiceConverseClient {
       discard.disabled = true;
       this.send({ type: "discard_draft", draft_id: frame.draft_id });
     });
-    card.append(text, confirm, discard);
+    if (frame.status === "unknown") {
+      discard.textContent = "Clear";
+      card.append(text, discard);
+    } else {
+      card.append(text, confirm, discard);
+    }
     this.drafts.get(frame.draft_id)?.remove();
     this.drafts.set(frame.draft_id, card);
     this.draftContainer.append(card);
@@ -197,7 +204,10 @@ export class VoiceConverseClient {
   updateDraft(frame) {
     const card = this.drafts.get(frame.draft_id);
     if (!card) return;
-    if (["delivered", "failed", "discarded"].includes(frame.status)) card.remove();
+    if (["confirmed", "sent", "delivered", "failed", "discarded", "stale"].includes(frame.status)) {
+      card.remove();
+      this.drafts.delete(frame.draft_id);
+    }
   }
 
   fail(error) {

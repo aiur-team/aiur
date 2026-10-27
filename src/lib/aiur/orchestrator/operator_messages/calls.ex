@@ -162,6 +162,18 @@ defmodule Aiur.Orchestrator.OperatorMessages.Calls do
     queue_claim_reply(state, queue_store, item)
   end
 
+  @spec claim_native_reply_item_call(State.t(), String.t(), [String.t()]) :: tuple()
+  def claim_native_reply_item_call(state, identifier, refs) do
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn item ->
+        correlation = item.correlation || %{}
+        ref = Map.get(correlation, :native_ref, Map.get(correlation, "native_ref"))
+        item.category == :operator_message and is_binary(ref) and ref in refs
+      end)
+
+    queue_claim_reply(state, store, item)
+  end
+
   @spec claim_operator_response_call(State.t(), String.t(), String.t()) :: tuple()
   def claim_operator_response_call(state, identifier, command) do
     {store, item} =

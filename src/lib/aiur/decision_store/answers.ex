@@ -4,6 +4,7 @@ defmodule Aiur.DecisionStore.Answers do
   require Logger
 
   alias Aiur.Commands.ActorSource
+  alias Aiur.Commands.NativeAnswer
   alias Aiur.Commands.Requester
   alias Aiur.Commands.Routing.Policy
   alias Aiur.Decision
@@ -146,6 +147,7 @@ defmodule Aiur.DecisionStore.Answers do
              ticket_comment_pending?: true,
              now: Keyword.get(opts, :now, DateTime.utc_now())
            ),
+         :ok <- NativeAnswer.validate(request, answer),
          :ok <- validate_requester_actor(actor, request),
          :ok <- validate_answer_policy_context(answer, request) do
       {:ok, answer}
@@ -206,7 +208,15 @@ defmodule Aiur.DecisionStore.Answers do
     state.history
     |> Map.get(decision_id, [])
     |> Enum.find(&(&1.version == version))
+    |> restore_request_attributes(Map.get(state.current, decision_id))
   end
+
+  # Attribution is an append-only fact at the same request version, outside v1 history.
+  defp restore_request_attributes(nil, _current), do: nil
+  defp restore_request_attributes(request, nil), do: request
+
+  defp restore_request_attributes(request, current),
+    do: Map.merge(request, Map.take(current, [:native, :questions, :requester, :origin, :short_label]))
 
   defp evaluate_answer_replay(decision, accepted, replayed, state) do
     cond do

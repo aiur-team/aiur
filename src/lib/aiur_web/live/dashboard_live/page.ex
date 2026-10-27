@@ -37,6 +37,9 @@ defmodule AiurWeb.DashboardLive.Page do
   def page(assigns) do
     assigns =
       assigns
+      |> Map.put_new(:listener_view, :unavailable)
+      |> Map.put_new(:listener_feedback, %{})
+      |> Map.put_new(:listener_receipts, [])
       |> Map.put_new(:selected_decision_health, nil)
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, Commands.unavailable_retained_counts()))
       |> Map.put_new(:decision_page, Commands.fallback_decision_page(assigns.payload))
@@ -248,6 +251,10 @@ defmodule AiurWeb.DashboardLive.Page do
         usage_error={@conversation_usage_error}
         context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
         voice_capabilities={@voice_capabilities}
+        listener={@listener_view}
+        listener_feedback={@listener_feedback}
+        receipts={@listener_receipts}
+        now={@now}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}

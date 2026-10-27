@@ -134,6 +134,32 @@ defmodule Aiur.Commands.NativeCapture.CodexTest do
     assert text == UserInputAnswers.non_interactive_answer()
   end
 
+  test "an answer already queued when the hold starts replies before another notification", c do
+    enable(c.path)
+    owner = self()
+
+    state =
+      TurnLoopTestSupport.base_state(fn _ -> :noop end)
+      |> Map.merge(%{
+        issue: @ticket,
+        issue_identifier: "979",
+        held_native_questions: %{},
+        on_message: fn msg -> send(owner, {:update, msg}) end,
+        on_native_reply: fn [ref] ->
+          {:reply, ref, %{"colour" => ["red"]}, fn metadata -> send(owner, {:delivered, metadata}) end, fn reason -> flunk(inspect(reason)) end}
+        end
+      })
+
+    session = %{port: c.relay, thread_id: "thread-1", workspace: c.dir, store: c.store, metadata: %{}}
+    payload = fixture()
+    assert {:continue, next} = TurnLoop.handle_method(session, state, payload, Jason.encode!(payload), payload["method"])
+    assert next.held_native_questions == %{}
+    assert frames(c) == [%{"id" => 0, "result" => %{"answers" => %{"colour" => %{"answers" => ["red"]}}}}]
+    assert_received {:update, %{event: :native_question_held, native_ref: ref}}
+    assert_received {:update, %{event: :native_question_resolved, native_ref: ^ref, reason: :answered}}
+    assert_received {:delivered, %{provider: :native_reply, native_ref: ^ref}}
+  end
+
   test "turn handler tracks two held requests, emits events, skips checkpoints and releases before operator interrupts", c do
     enable(c.path)
     owner = self()

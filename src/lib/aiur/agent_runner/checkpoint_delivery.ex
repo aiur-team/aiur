@@ -66,6 +66,37 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
+  @doc false
+  @spec native_reply_handler(Issue.t(), GenServer.server(), GenServer.server(), keyword()) :: function()
+  def native_reply_handler(issue, orchestrator, decision_store \\ Commands.default_store(), live_opts \\ []) do
+    fn refs ->
+      case Aiur.Orchestrator.claim_native_reply_item(orchestrator, issue.identifier, refs) do
+        {:ok, item} -> native_delivery(issue, orchestrator, item, decision_store, live_opts, refs)
+        _empty -> :none
+      end
+    end
+  end
+
+  defp native_delivery(issue, orchestrator, item, decision_store, live_opts, refs) do
+    case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
+      :ok ->
+        correlation = item.correlation
+        ref = Map.get(correlation, :native_ref, Map.get(correlation, "native_ref"))
+        answers = Map.get(correlation, :question_answers, Map.get(correlation, "question_answers"))
+        on_success = operator_delivery_success(orchestrator, item, issue, decision_store, live_opts)
+        on_failure = fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end
+        {:reply, ref, answers, on_success, on_failure}
+
+      {:error, {:failed, _reason} = outcome} ->
+        QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
+        native_reply_handler(issue, orchestrator, decision_store, live_opts).(refs)
+
+      {:error, outcome} ->
+        QueueDrain.settle_operator_delivery_failure(orchestrator, item, outcome)
+        :none
+    end
+  end
+
   defp immediate_operator_delivery(issue, orchestrator, item, decision_store, live_opts) do
     case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
       :ok ->
