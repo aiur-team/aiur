@@ -8,7 +8,7 @@ defmodule AiurWeb.DashboardLive.ExecutorRequesterTest do
   import AiurWeb.DashboardLiveSupport.Processes
 
   alias Aiur.DecisionStore
-  alias AiurWeb.OperatorControlCenter.DecisionProvider
+  alias AiurWeb.OperatorControlCenter.{DecisionInbox, DecisionProvider}
 
   @endpoint AiurWeb.Endpoint
 
@@ -94,7 +94,7 @@ defmodule AiurWeb.DashboardLive.ExecutorRequesterTest do
     scan_capped = %{page | health: %{status: :available, partial?: false}}
 
     rendered =
-      render_component(&AiurWeb.OperatorControlCenter.DecisionInbox.decision_inbox/1,
+      render_component(&DecisionInbox.decision_inbox/1,
         decisions: [],
         now: DateTime.utc_now(),
         writable: false,
