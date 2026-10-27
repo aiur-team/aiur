@@ -11,8 +11,9 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   that the counter fires. If that control fails, the zero assertions are unproven.
 
   To exclude unrelated egress, the test suspends MainWatch, LandingWatch,
-  HealthScanner, HeadVerdictRouter, and ReworkRequeue after draining in-flight
-  work. They wake from timers or `pr.merged`, `branch.push`, and
+  QuarantineLifter, ViewStateSweep, AllowedContributors, HealthScanner,
+  HeadVerdictRouter, and ReworkRequeue after draining in-flight work. They wake
+  from timers or `pr.merged`, `branch.push`, and
   `main.ci.failed.resolved` events; `aiur_web` cannot call or message them, so
   suspension cannot hide a page-opened request.
   """
