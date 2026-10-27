@@ -139,9 +139,7 @@ Environment variables are declared once in `Aiur.Env.Schema`, which validates th
 ## Machine settings (`~/.aiur/machine`)
 
 This optional YAML file configures mobile access on the machine independently of
-repository workflows. It never creates or reads `~/.aiur/config`. Missing or empty
-files use the defaults below. The loader is available now; mobile commands and
-transport consumers are introduced separately.
+repository workflows.
 
 | Key | Type | Default | Validation |
 | --- | --- | --- | --- |
@@ -159,6 +157,10 @@ transport consumers are introduced separately.
 | `machine:transport.allow_cleartext_overlay` | boolean | `false` | Allows eligible overlay transport when consumed. |
 | `machine:transport.cleartext_overlay_cidrs` | CIDR array | `["100.64.0.0/10", "fd7a:115c:a1e0::/48"]` | IPv4 or IPv6 prefixes; catch-all `/0` ranges are rejected. |
 
+Missing or empty files use defaults. Machine settings never create or read
+`~/.aiur/config`. The loader is available now; mobile commands and transport
+consumers are introduced separately.
+
 Unknown keys within these sections produce errors naming every offending dotted
 key. Unknown top-level sections are ignored and preserved by partial writes.
 Writes lose YAML comments, replace the file atomically with mode `0600`, and create
@@ -167,6 +169,8 @@ do not prevent reading.
 
 `Aiur.Machine.Settings.load/0` reads and validates the file each time; `get/0`
 caches by modification time, size and inode. Both return `{:ok, settings}` or
-`{:error, reason}`. A failed reload retains the last good settings with its
+`{:error, reason}`.
+
+A failed reload retains the last good settings with its
 `last_error` field set; deleting the file restores defaults. Callers requiring a
 security decision must treat an unreadable file as mobile disabled.
