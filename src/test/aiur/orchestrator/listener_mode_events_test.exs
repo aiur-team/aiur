@@ -83,7 +83,7 @@ defmodule Aiur.Orchestrator.ListenerModeEventsTest do
           assert ModeStore.get(id).requested == :sync
         end)
 
-      assert log =~ "listener_mode_publish issue=#{id}"
+      assert log =~ "issue_identifier=#{id}"
       refute_received {:event, _}
     after
       :persistent_term.put(key, table)
