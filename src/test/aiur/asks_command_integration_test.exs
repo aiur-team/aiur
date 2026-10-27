@@ -1,0 +1,56 @@
+Code.require_file("../support/decision_store_case.ex", __DIR__)
+
+defmodule Aiur.AsksCommandIntegrationTest do
+  use Aiur.DecisionStoreCase, async: false
+  import ExUnit.CaptureIO
+
+  setup %{dir: dir} do
+    previous = Application.get_env(:aiur, :executor_state_dir)
+    Application.put_env(:aiur, :executor_state_dir, Path.join(dir, "executor"))
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :executor_state_dir, previous), else: Application.delete_env(:aiur, :executor_state_dir)
+    end)
+
+    store = start_store!(dir)
+    on_exit(fn -> if Process.alive?(store), do: GenServer.stop(store) end)
+    %{store: store}
+  end
+
+  test "unavailable Command store fails without writing a legacy ask", %{dir: dir} do
+    previous = Application.get_env(:aiur, :repo_base_root)
+    Application.put_env(:aiur, :repo_base_root, Path.join(dir, "legacy"))
+
+    on_exit(fn ->
+      if previous, do: Application.put_env(:aiur, :repo_base_root, previous), else: Application.delete_env(:aiur, :repo_base_root)
+    end)
+
+    output =
+      capture_io(fn ->
+        capture_io(:stderr, fn ->
+          Aiur.AsksCLI.rpc(["ask", "Approve release?"], "caller", decision_store: :absent_ask_store)
+        end)
+      end)
+
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+    assert {:ok, []} = Aiur.Asks.all("owner/no-fallback")
+  end
+
+  test "RPC entry creates an attributed Command and done moots its current version", %{store: store} do
+    output = capture_io(fn -> Aiur.AsksCLI.rpc(["ask", "Approve release?", "--body", "Release context", "--blocking", "--urgency", "high"], "caller-executor", decision_store: store) end)
+    assert [_, id] = Regex.run(~r/Created (dec_[0-9a-f]{16}) \(BLOCKING\)\./, output)
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert {:ok, decision} = DecisionStore.get(id, store)
+    assert decision.question == "Approve release?"
+    assert decision.context.long_context_markdown == "Release context"
+    assert decision.blocking
+    assert decision.urgency == :high
+    assert decision.requester.executor_id == "caller-executor"
+    assert decision.authority == :human_required
+    assert decision.options == []
+    output = capture_io(fn -> Aiur.AsksCLI.rpc(["ask", "--done", id], "caller-executor", decision_store: store) end)
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert {:ok, decision} = DecisionStore.get(id, store)
+    assert decision.decision_status == :moot
+  end
+end

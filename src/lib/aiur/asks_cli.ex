@@ -9,22 +9,59 @@ defmodule Aiur.AsksCLI do
           | {:done, %{id: String.t(), note: String.t() | nil}}
           | {:list, %{status: :open | :all, json: boolean()}}
 
-  @spec run(command(), (iodata() -> :ok), (-> String.t() | nil)) :: non_neg_integer()
-  def run(command, puts \\ &IO.puts/1, repo_fun \\ &GitHubConfig.repo/0) do
+  @spec rpc([String.t()], String.t(), keyword()) :: :ok
+  def rpc(argv, executor_id, deps \\ []) do
+    code =
+      case Aiur.CLI.evaluate(argv) do
+        {:asks, command} -> run(command, &IO.puts/1, &GitHubConfig.repo/0, &execute(&1, &2, executor_id, deps))
+        _ -> write_error(&IO.puts/1, "invalid ask arguments")
+      end
+
+    IO.puts("__AIUR_CONTROL_EXIT__:#{code}")
+  end
+
+  @spec run(command(), (iodata() -> :ok), (-> String.t() | nil), (atom(), keyword() -> non_neg_integer())) :: non_neg_integer()
+  def run(command, puts \\ &IO.puts/1, repo_fun \\ &GitHubConfig.repo/0, rpc_fun \\ &execute(&1, &2, "aiur-cli", []))
+
+  def run({:create, attrs}, puts, _repo_fun, rpc_fun) do
+    params = [question: attrs.title, long_context_markdown: attrs.body, urgency: attrs.urgency, blocking: attrs.blocking, options: []]
+
+    rpc_fun.(
+      :request,
+      Keyword.put(params, :result_fun, fn decision, _status, _source_id, _json ->
+        puts.(["Created ", decision.decision_id, if(attrs.blocking, do: " (BLOCKING)", else: ""), "."])
+        puts.("Deprecated: use aiur command request; Command IDs now use the dec_ prefix.")
+      end)
+    )
+  end
+
+  def run({:done, %{id: "ask_" <> _}} = command, puts, repo_fun, _rpc_fun), do: run_legacy(command, puts, repo_fun)
+
+  def run({:done, %{id: id, note: note}}, puts, _repo_fun, rpc_fun) do
+    params = [decision_id: id, reason_class: "executor_withdrew", error_fun: puts]
+    params = if is_nil(note), do: params, else: Keyword.put(params, :reason, note)
+    rpc_fun.(:moot, params)
+  end
+
+  def run({:list, _} = command, puts, repo_fun, _rpc_fun), do: run_legacy(command, puts, repo_fun)
+
+  defp run_legacy(command, puts, repo_fun) do
     case repo_fun.() do
       repo when is_binary(repo) and repo != "" -> run_for_repo(command, repo, puts)
       _ -> write_error(puts, "could not determine the current repository")
     end
   end
 
-  defp run_for_repo({:create, attrs}, repo, puts) do
-    case Commands.create_ask(repo, attrs) do
-      {:ok, ask} ->
-        puts.(["Created ", ask["id"], if(ask["blocking"], do: " (BLOCKING)", else: ""), "."])
-        0
+  defp execute(:request, params, executor_id, deps) do
+    {result_fun, params} = Keyword.pop!(params, :result_fun)
+    Aiur.ControlCLI.ExecutorRequest.request(Keyword.put(params, :executor_id, executor_id), Keyword.put(deps, :result_fun, result_fun))
+  end
 
-      {:error, reason} ->
-        write_error(puts, reason)
+  defp execute(:moot, params, executor_id, deps) do
+    with {:ok, %{decision: decision}} <- Commands.get(params[:decision_id], store: Keyword.get(deps, :decision_store, Commands.default_store())) do
+      params |> Keyword.merge(expected_version: decision.version, executor_id: executor_id) |> Aiur.ExecutorCommandCLI.moot(Keyword.put(deps, :error_fun, params[:error_fun]))
+    else
+      {:error, reason} -> write_error(params[:error_fun], reason)
     end
   end
 
@@ -49,6 +86,7 @@ defmodule Aiur.AsksCLI do
 
       {:ok, asks} ->
         Enum.each(asks, &puts.(render(&1)))
+        puts.("Legacy asks only. View Executor Commands with aiur commands.")
         0
 
       {:error, reason} ->
