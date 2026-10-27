@@ -1,6 +1,7 @@
 defmodule Aiur.Config.Schema.BuildOrder do
   @moduledoc false
 
+  @external_resource Path.relative_to(Path.join(__DIR__, "general_epic.ex"), File.cwd!(), force: true)
   use Ecto.Schema
 
   import Ecto.Changeset

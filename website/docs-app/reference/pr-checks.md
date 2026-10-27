@@ -11,6 +11,11 @@ The approval check reads `reviewDecision` when the run starts; approval does not
 | Pull request with `ci:full` or a `merge_policy.full_ci_labels` label | The full set, approved or not |
 | Merge group | The full suite once: coverage, tests, Dialyzer, browser smoke, release smoke, analytics, Stream Deck. No soak. |
 
+When a PR selects full CI, `pre-handoff` runs structural guards only; its test
+selection and Dialyzer checks are deferred to the parallel coverage and
+Dialyzer jobs. PRs that do not select full CI still run selected tests and
+applicable Dialyzer checks in `pre-handoff`.
+
 ## Soak
 
 A test that fails 2–3% of the time passes the merge group's single run and
