@@ -257,11 +257,15 @@
 }
 
 /* C:890 */ .ax-ln, .ax-ln:has(.ax-no) {
-  grid-template-columns: 3.6ch minmax(0, 1fr) var(--rsw, 12.5ch);
+  grid-template-columns: 10ch minmax(0, 1fr) var(--rsw, 12.5ch);
 }
 
 /* C:891 */ .ax-ln.t {
-  grid-template-columns: 3.4em 3.6ch minmax(0, 1fr) var(--rsw, 12.5ch);
+  grid-template-columns: 3.4em 10ch minmax(0, 1fr) var(--rsw, 12.5ch);
+}
+
+.ax-pc {
+  white-space: nowrap;
 }
 
 /* C:892 */ .ax-lns {
@@ -290,4 +294,3 @@
 /* C:896 */ .api .ax-r2 {
   grid-template-columns: 24px minmax(0, 1fr);
 }
-

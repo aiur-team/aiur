@@ -22,6 +22,8 @@ export const ticketUsage = read('fixtures/ticket-usage.v1.json');
 export const ticketProgress = read('fixtures/ticket-progress.v1.json');
 export const ticketSpendCap = read('fixtures/ticket-spend-cap.v1.json');
 export const ticketSpendCapReached = read('fixtures/ticket-spend-cap-reached.v1.json');
+export const commandSchema = read('schemas/command.v2.schema.json');
+export const command = read('fixtures/command.v2.json');
 const ajv = new Ajv2020({ allErrors: true });
 for (const schema of [
   reportSchema,
@@ -36,6 +38,7 @@ for (const schema of [
 ]) {
   ajv.addSchema(schema);
 }
+export const validateCommand = ajv.compile(commandSchema);
 export const validateReport = ajv.getSchema(reportSchema.$id);
 export const validateError = ajv.compile(errorSchema);
 export const validateAgents = ajv.getSchema(agentsSchema.$id);
@@ -59,6 +62,7 @@ export const contractCases = [
 ];
 
 for (const [validate, fixture] of [
+  [validateCommand, command],
   [validateReport, report],
   [validateError, error],
   ...contractCases.map(({ validate, fixture }) => [validate, fixture]),
