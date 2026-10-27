@@ -2,7 +2,7 @@ export function createFlowField(canvas, opts = {}) {
     canvas.setAttribute('aria-hidden', 'true');
     const host = opts.host ?? canvas.parentElement;
     const ctx = canvas.getContext('2d');
-    if (!host || !ctx || typeof ResizeObserver === 'undefined') {
+    if (!host || !ctx) {
         const noop = () => { };
         return { redraw: noop, rebuild: noop, destroy: noop, debug: () => ({ obstacles: [] }) };
     }
@@ -30,16 +30,16 @@ export function createFlowField(canvas, opts = {}) {
     let frame = 0;
     let dirty = false;
     let started;
-    const observer = new ResizeObserver(() => schedule(true));
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => schedule(true));
     const mutations = new MutationObserver(() => { collect(); schedule(true); });
     function collect() {
         const next = Array.from(host.querySelectorAll(selector));
         for (const el of keepouts)
             if (!next.includes(el))
-                observer.unobserve(el);
+                observer?.unobserve(el);
         for (const el of next)
             if (!keepouts.includes(el))
-                observer.observe(el);
+                observer?.observe(el);
         keepouts = next;
     }
     function schedule(rebuild = false) {
@@ -200,7 +200,7 @@ export function createFlowField(canvas, opts = {}) {
     const rebuild = () => schedule(true);
     const redraw = () => schedule();
     collect();
-    observer.observe(host);
+    observer?.observe(host);
     mutations.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     document.addEventListener('aiur:themechange', redraw);
     document.addEventListener('aiur:layoutchange', rebuild);
@@ -217,7 +217,7 @@ export function createFlowField(canvas, opts = {}) {
             destroyed = true;
             cancelAnimationFrame(frame);
             frame = 0;
-            observer.disconnect();
+            observer?.disconnect();
             mutations.disconnect();
             document.removeEventListener('aiur:themechange', redraw);
             document.removeEventListener('aiur:layoutchange', rebuild);

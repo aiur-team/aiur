@@ -63,19 +63,25 @@ test('field renders and resizes without ResizeObserver', async ({ page }) => {
     const canvas = document.querySelector('canvas')!;
     const resizeObserver = window.ResizeObserver;
     Object.defineProperty(window, 'ResizeObserver', { value: undefined, configurable: true });
-    const field = createFlowField(canvas);
-    await new Promise(requestAnimationFrame);
-    const initial = canvas.width;
-    const expected = document.querySelector('.hero')!.clientWidth + 100;
-    document.querySelector('.hero')!.style.width = `${expected}px`;
-    window.dispatchEvent(new Event('resize'));
-    await new Promise(requestAnimationFrame);
-    const resized = canvas.width;
-    field.destroy();
-    Object.defineProperty(window, 'ResizeObserver', { value: resizeObserver, configurable: true });
-    return { initial, expected, resized, aria: canvas.getAttribute('aria-hidden') };
+    let field: ReturnType<typeof createFlowField> | undefined;
+    try {
+      field = createFlowField(canvas);
+      await new Promise(requestAnimationFrame);
+      const host = document.querySelector('.hero')!;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const initial = canvas.width;
+      const initialExpected = host.clientWidth * dpr;
+      const expected = (host.clientWidth + 100) * dpr;
+      host.style.width = `${host.clientWidth + 100}px`;
+      window.dispatchEvent(new Event('resize'));
+      await new Promise(requestAnimationFrame);
+      return { initial, initialExpected, expected, resized: canvas.width, aria: canvas.getAttribute('aria-hidden') };
+    } finally {
+      field?.destroy();
+      Object.defineProperty(window, 'ResizeObserver', { value: resizeObserver, configurable: true });
+    }
   });
-  expect(result.initial).toBeGreaterThan(0);
+  expect(result.initial).toBe(result.initialExpected);
   expect(result.resized).toBe(result.expected);
   expect(result.aria).toBe('true');
 });
