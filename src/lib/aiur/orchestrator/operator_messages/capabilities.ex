@@ -6,6 +6,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
   alias Aiur.AgentQueueStore
   alias Aiur.CodingAgent
   alias Aiur.Harness.Capabilities, as: HarnessCapabilities
+  alias Aiur.Listener.Scheduler
   alias Aiur.Orchestrator.{ControlLifecycle, State}
   alias Aiur.Orchestrator.OperatorMessages.Unread
 
@@ -127,10 +128,11 @@ defmodule Aiur.Orchestrator.OperatorMessages.Capabilities do
 
   defp operator_message_status(_item), do: :queued
 
-  # The REPL backend forwards Executor messages straight into the live
-  # process, so it offers :immediate instead of the hold-then-deliver
-  # :checkpoint / :interrupt policies.
-  defp accepted_delivery_policies(_can_interrupt, true), do: [:immediate]
+  # Listener sync waits for Stop; legacy REPL routing retains immediate-only delivery.
+  defp accepted_delivery_policies(_can_interrupt, true) do
+    if Scheduler.routing() == :listener, do: [:immediate, :checkpoint], else: [:immediate]
+  end
+
   defp accepted_delivery_policies(true, false), do: [:checkpoint, :interrupt]
   defp accepted_delivery_policies(false, false), do: [:checkpoint]
 
