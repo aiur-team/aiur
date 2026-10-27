@@ -57,15 +57,22 @@ defmodule Aiur.BuildOrder.CatalogStore do
     labels = labels_by_number(repository)
     memberships = memberships_by_parent(repository)
 
+    issue_roots =
+      issues
+      |> Enum.filter(fn {_number, issue} -> @root_label in issue_body_labels(issue) end)
+      |> Enum.map(&elem(&1, 0))
+
     roots =
       labels
-      |> Enum.filter(fn {_number, issue_labels} -> @root_label in issue_labels end)
-      |> Enum.map(fn {number, _labels} -> number end)
+      |> Map.keys()
+      |> Kernel.++(issue_roots)
+      |> Enum.uniq()
+      |> Enum.filter(fn number -> @root_label in Map.get(labels, number, issue_body_labels(Map.get(issues, number))) end)
       |> Enum.sort()
       |> Enum.map(fn number ->
         root_summary(
           Map.get(issues, number),
-          Map.get(labels, number, []),
+          Map.get(labels, number, issue_body_labels(Map.get(issues, number))),
           Map.get(memberships, number, []),
           issues,
           labels,
@@ -215,9 +222,11 @@ defmodule Aiur.BuildOrder.CatalogStore do
     repository
     |> store_entries(:issue_labels)
     |> Enum.reduce(%{}, fn {{_type, _owner, _repo, id}, entry}, acc ->
-      case positive_number(id) do
-        nil -> acc
-        number -> Map.put(acc, number, label_names(entry.data))
+      with number when not is_nil(number) <- positive_number(id),
+           data when not is_nil(data) <- Map.get(entry, :data) do
+        Map.put(acc, number, label_names(data))
+      else
+        _missing -> acc
       end
     end)
   end
@@ -263,6 +272,9 @@ defmodule Aiur.BuildOrder.CatalogStore do
   defp label_names(nil), do: []
   defp label_names(labels) when is_list(labels), do: labels |> Enum.map(&Map.get(&1, "name")) |> Enum.reject(&is_nil/1)
   defp label_names(_labels), do: []
+
+  defp issue_body_labels(nil), do: []
+  defp issue_body_labels(issue), do: label_names(Map.get(issue, "labels"))
 
   # -- identity -------------------------------------------------------------
 

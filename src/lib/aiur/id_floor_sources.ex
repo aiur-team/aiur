@@ -2,11 +2,12 @@ defmodule Aiur.IdFloorSources do
   @moduledoc "Application-owned cold-boot floor sources for the event ID counter."
 
   alias Aiur.Config.Paths
+  alias Aiur.Events.Export
   alias Aiur.Executor.StatePaths
   alias Aiur.LaunchStateAdoption
 
   @spec floor_files() :: [Path.t()]
-  def floor_files, do: [StatePaths.journal_path()]
+  def floor_files, do: [StatePaths.journal_path()] ++ Export.floor_files()
 
   @spec legacy_counter_files() :: [Path.t()]
   def legacy_counter_files do

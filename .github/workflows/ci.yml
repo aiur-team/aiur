@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions: { contents: read }
+    env: { AIUR_CI_FULL_CI: "${{ needs.changes.outputs.full_ci }}", AIUR_PRE_HANDOFF_EVIDENCE_NOTE: "deferred to the parallel coverage and dialyzer jobs" }
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -58,7 +59,7 @@ jobs:
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/workflow-security
-      - run: bash scripts/test-workflow-security.sh && bash scripts/test-retry-mix-deps-get.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh scripts/retry-mix-deps-get.sh
+      - run: bash scripts/test-workflow-security.sh && bash scripts/test-retry-mix-deps-get.sh && python3 scripts/test-rerun-failed-ci-gate.py && python3 scripts/measure-merge-throughput.py --self-test && python3 scripts/test-hot-list-format.py && python3 scripts/test-shared-list-merges.py && node scripts/test-check-browser-smoke-shards.mjs && bash scripts/test-run-pre-handoff-code-checks.sh && bash scripts/test-pre-handoff-ci-routing.sh && python3 scripts/test-run-quarantined-tests.py && bash -n scripts/run-coverage-partition.sh scripts/prepare-coverage-retry.sh scripts/retry-coverage-tests.sh scripts/retry-mix-deps-get.sh
       - name: Test legacy Stream Deck nightly cleanup
         run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs && node --test packages/nightly-release/test/lib.test.mjs
       - name: Test merge ruleset and standalone GitHub wrapper
