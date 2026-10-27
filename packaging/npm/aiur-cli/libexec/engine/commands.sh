@@ -252,12 +252,13 @@ cmd_commands() {
     shift
   done
 
-  case "$filter" in all|open|blocking|resolved) ;; *) echo "aiur: commands --filter accepts all, open, blocking, or resolved" >&2; exit 64 ;; esac
+  case "$filter" in all|open|blocking|resolved|needs-you|with-executor|from-executor) ;; *) echo "aiur: commands --filter accepts all, open, blocking, resolved, needs-you, with-executor, or from-executor" >&2; exit 64 ;; esac
   [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
   [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
   [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
 
   local opts="filter: :$filter"
+  case "$filter" in needs-you|with-executor|from-executor) opts="filter: :\"$filter\"" ;; esac
   [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
   [ -n "$limit" ] && opts="$opts, limit: $limit"
