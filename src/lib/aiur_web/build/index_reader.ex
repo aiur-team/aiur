@@ -1,7 +1,7 @@
 defmodule AiurWeb.Build.IndexReader do
   @moduledoc false
   alias Aiur.BuildOrder.Index
-  alias AiurWeb.Build.{Freshness, NowRows, PlannedRows}
+  alias AiurWeb.Build.{Freshness, NowRows, PackRead, PlannedRows}
   alias AiurWeb.BuildOrder.PlanningSource.PackLoader
   alias AiurWeb.OperatorControlCenter.PayloadLoader
 
@@ -9,8 +9,8 @@ defmodule AiurWeb.Build.IndexReader do
   def read(dirty, previous, opts) do
     core = Index.read_core_parts(dirty, opts)
     parts = Map.merge(previous, core)
-    packs = read_part(:packs, dirty, parts, fn -> load_packs(opts) end)
-    parts = Map.put(parts, :packs, packs)
+    feature_packs = read_part(:packs, dirty, Map.put(parts, :packs, Map.get(parts, :feature_packs, parts[:packs])), fn -> load_packs(opts) end)
+    parts = Map.put(parts, :feature_packs, feature_packs)
 
     repo =
       case parts[:repository] do
@@ -33,7 +33,8 @@ defmodule AiurWeb.Build.IndexReader do
       end)
 
     nq = read_part(:not_queued, dirty, parts, fn -> context.not_queued end)
-    parts |> Map.put(:planned, planned) |> Map.put(:not_queued, nq)
+    parts = parts |> Map.put(:planned, planned) |> Map.put(:not_queued, nq)
+    Map.put(parts, :packs, fn index -> PackRead.read(index, opts) end)
   end
 
   defp read_part(key, dirty, previous, fun) do

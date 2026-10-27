@@ -1,13 +1,13 @@
+import { isUnfiled, refText, refTitle, queueText, srcTitle } from '../unfiled.js';
 import { ctx } from '../state.js';
 import { rowState, modelInfo } from '../agents.js';
 import { esc } from '../dom.js';
 import { I, MI } from '../icons.js';
 
 export const bodyKind = t => t.agent && t.start != null ? 'conversation' : 'doc';
-const number = t => Number.isFinite(t.num) ? '#' + t.num : '—';
 const close = () => '<button class="bm-ib bm-x" id="bd-tk-close" type="button" aria-label="Close">' + I.x + '</button>';
 const title = t => '<h3 id="bm-title" tabindex="-1" data-dialog-heading><span class="bm-num"' +
-  (Number.isFinite(t.num) ? '' : ' title="Not filed yet"') + '>' + number(t) + '</span>' + esc(t.title) + '</h3>';
+  (' title="' + esc(refTitle(t)) + '"') + '>' + esc(refText(t)) + '</span>' + esc(t.title) + '</h3>';
 const lookup = (map, key) => map && Object.hasOwn(map, key) ? map[key] : null;
 
 function status(t) {
@@ -16,7 +16,7 @@ function status(t) {
     const states = { done: ['Merged', 'done'], failed: ['Failed', 'stuck'], not_planned: ['Not planned', 'idle'], closed: ['Closed', 'idle'] };
     const [label, tone] = lookup(states, t.status) || ['State unknown', 'idle']; return { label, tone };
   }
-  if (t.sec === 'plan') return { label: t.num == null ? 'Planned · not filed' : 'Queued · Q' + (Number.isFinite(t.qpos) ? t.qpos : '?') , tone: 'idle' };
+  if (t.sec === 'plan') return { label: isUnfiled(t) ? 'Planned · not filed' : 'Queued · ' + queueText(t) , tone: 'idle' };
   return { label: t.sec === 'nq' ? 'Not queued' : 'State unknown', tone: 'idle' };
 }
 function agent(t) {
@@ -35,7 +35,7 @@ function repositoryURL() {
 }
 function links(t) {
   const repo = repositoryURL(), filed = Number.isFinite(t.num);
-  const issue = !filed ? '<span class="bm-ib" data-a="none" aria-disabled="true">' + I.docs + '</span>' : repo ?
+  const issue = !filed ? '<a class="bm-ib" href="#" data-a="none" aria-disabled="true" title="' + esc(isUnfiled(t) ? srcTitle(t) : 'Not filed yet') + '" aria-label="' + esc(isUnfiled(t) ? srcTitle(t) : 'Not filed yet') + '">' + I.docs + '</a>' : repo ?
     '<a class="bm-ib" href="' + esc(repo + 'issues/' + t.num) + '" target="_blank" rel="noopener" title="Issue #' + t.num + '" aria-label="Issue #' + t.num + ' on GitHub">' + I.github + '</a>' : '';
   const pr = repo && t.pr && Number.isFinite(t.pr.num) && ['open', 'merged', 'closed'].includes(t.pr.state) ?
     '<a class="bm-pr ' + t.pr.state + '" href="' + esc(repo + 'pull/' + t.pr.num) + '" target="_blank" rel="noopener" title="Pull request · ' + t.pr.state + '">' + I.pr + '#' + t.pr.num + '</a>' : '';

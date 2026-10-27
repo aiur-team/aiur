@@ -121,6 +121,34 @@ test('cards expose complete names and a single roving button stop', async ({ pag
   expect(result.pack).toMatch(/^Not filed yet\. Accessibility pass\./)
 })
 
+test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
+  const assets = test.info().project.metadata.agentAssets
+  if (assets) await page.route('**/build-home/cards.js', route => route.fulfill({
+    body: readFileSync(assets + '/cards.js', 'utf8'), contentType: 'text/javascript'
+  }))
+  await open(page, 'unknowns')
+  const revealPlanCard = async id => {
+    await expect.poll(() => page.evaluate(id =>
+      state.ctx.L?.secs.plan.items.some(item => item.t.id === id), id)).toBe(true)
+    await page.evaluate(id => {
+      const item = state.ctx.L.secs.plan.items.find(item => item.t.id === id)
+      state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop + item.y
+      state.fx.update()
+    }, id)
+  }
+  await revealPlanCard('pack:unknowns/alpha')
+  const card = page.locator('.bd-card[data-id="pack:unknowns/alpha"]')
+  await expect(card).toHaveAttribute('aria-label', /^Not filed yet\./)
+  const row = await page.evaluate(() => state.ctx.D.byId['pack:unknowns/alpha'])
+  expect(row.num).toBeNull()
+  expect(row.src).toMatchObject({ kind: 'pack' })
+  expect(Number.isFinite(row.cue.promoted)).toBe(true)
+  await expect(card.locator('.bd-status')).toContainText('Not filed')
+  await expect(card.locator('.bd-q.promo')).toHaveCount(0)
+  await revealPlanCard('607')
+  await expect(page.locator('.bd-card[data-id="607"] .bd-q.promo')).toHaveCount(1)
+})
+
 test('arrow keys move focus and space uses the board button behavior', async ({ page }) => {
   await open(page)
   const first = page.locator('.bd-card[tabindex="0"]')

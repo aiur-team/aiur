@@ -285,10 +285,10 @@ test('unknown header values, real links, PR absence, pack safety and hostile tex
   await display(page, { ...base, pr: null }); await expect(page.locator('.bm-pr')).toHaveCount(0)
   await page.evaluate(async () => { (await import('/build-home/state.js')).ctx.D.repo = null })
   await display(page, hostile); await expect(page.locator('.bm-links a')).toHaveCount(0)
-  await page.evaluate(async t => (await import('/build-home/modal/frame.js')).openModal({ ...t, id: 'pack:test/item', num: null, sec: 'plan' }), base)
+  await page.evaluate(async t => (await import('/build-home/modal/frame.js')).openModal({ ...t, id: 'pack:test/item', num: null, sec: 'plan', src: {kind:'pack',path:'docs/plan.md',wave:1} }), base)
   await expect(page.locator('.bm-num')).toHaveText('—')
   await expect(page.locator('[data-a="none"]')).toHaveAttribute('aria-disabled', 'true')
-  await expect(page).not.toHaveURL(/ticket=/)
+  await expect.poll(() => new URL(page.url()).searchParams.get('ticket')).toBe('pack:test/item')
 })
 
 test('copy success, fallback and failure reflect the actual clipboard outcome', async ({ page }) => {

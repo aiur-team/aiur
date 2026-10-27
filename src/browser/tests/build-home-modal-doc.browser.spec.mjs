@@ -62,7 +62,7 @@ test('doc cues preserve order, hostile text, unknown facts, dependencies and not
   await pushDoc(page, t.id, { state: 'available', body_html: '<p>Summary</p><h4>Scope</h4><ul><li>Real scope</li></ul>' })
   expect(await page.locator('.bm-body .bm-cue').allTextContents()).toEqual([held, 'Prerequisite #7 failed — this and 2 more are blocked', 'Prerequisite state unknown', 'operator <decision>'])
   expect(await page.locator('.bm-body > p').first().evaluate(el => el.nextElementSibling.textContent)).toBe(held)
-  await expect(page.locator('.bm-facts')).toContainText('Queue—')
+  await expect(page.locator('.bm-facts')).toContainText('QueueQ?')
   await expect(page.locator('.bm-facts')).toContainText('Complexity—')
   await expect(page.locator('.bm-facts')).toContainText('Estimate—')
   await expect(page.locator('.bm-dep')).toHaveText(['#999not loaded', '#998not loaded'])
@@ -162,7 +162,7 @@ test('conversation opens skip body reads; doc close unsubscribes and pack ids ne
   await page.evaluate(async () => {
     window.docCalls = []
     const { ctx } = await import('/build-home/state.js')
-    ;(await import('/build-home/modal/frame.js')).openModal({ ...ctx.D.plan[0], id: 'pack:future/item', num: null, agent: null })
+    ;(await import('/build-home/modal/frame.js')).openModal({ ...ctx.D.plan[0], id: 'pack:future/item', num: null, agent: null, src: {kind:'pack',path:'docs/plan.md',wave:1} })
   })
   await expect(page.locator('.bm-doc')).toBeVisible()
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'ticket-doc'))).toEqual([])
