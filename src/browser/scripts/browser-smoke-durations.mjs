@@ -27,15 +27,12 @@ export const recordedSeconds = {
   // CI run 39616972873 (2026-10-21), jobs 119280971812/119280971969:
   // document functional 43.8s and parity 150.5s suite wall time, rounded up.
   'test:build-home-modal-doc': 44,
-  // Governed local run (2026-10-21): all 13 nav cells passed in 151.44s;
-  // conservative measured 200s wrapper wall bound includes gate wait/startup.
   // Green PR #5016 CI run 39273221105, head 6ed6d40de039efe1efedc30e9948090ec98a0881.
   // Whole-command wall times from completed shard logs, rounded up (not test-time sums).
   // Job 118131038618 (shard 8/9): 0.5s.
   'test:build-home-chains-unit': 1,
   // Job 118131038618 (shard 8/9): 132.3s.
   'test:build-home-chains': 133,
-  // Job 118131038704 (shard 7/9): 126.4s.
   'test:browser-suite -- build-home-composer': 23.3,
   // Job 118131038510 (shard 2/9): 28.7s.
   'test:browser-suite -- build-home-chains-states': 29,

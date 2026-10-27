@@ -64,6 +64,7 @@ test('browser shards have bounded timeouts', () => {
     'node scripts/run-browser-smoke-shard.mjs ${{ inputs.shard }}')
   assert.equal(browserAction.runs.steps.find(step => step.name === 'Report slowest browser smoke suites').if, '${{ always() }}')
   assert.equal(workflow.jobs['home-css'], undefined)
+  assert.ok(!workflow.jobs['nightly-trigger'].needs.includes('home-css'))
   assert.equal(scripts.test, 'npm run test:core')
 })
 
