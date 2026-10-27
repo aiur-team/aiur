@@ -9,6 +9,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
   alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, ToolCallIdentity, ToolCallLedger, Transport, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountGeneration, AccountMeters, CodingAgent, NotificationPolicy}
+  alias Aiur.Claude.CodingAgent.NativeQuestions
   alias Aiur.Commands.NativeCapture
 
   @doc false
@@ -111,7 +112,7 @@ defmodule Aiur.Claude.CodingAgent.Methods do
   end
 
   def handle_method(session, state, %{"method" => "item/tool/requestUserInput", "id" => id, "params" => params}, raw, _method) do
-    NativeCapture.Claude.handle(session, state, id, params, raw)
+    NativeQuestions.handle(session, state, id, params, raw)
   end
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
