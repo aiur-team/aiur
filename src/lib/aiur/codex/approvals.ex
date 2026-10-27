@@ -36,7 +36,7 @@ defmodule Aiur.Codex.Approvals do
       ) do
     case {method, payload, paused?} do
       {"item/tool/requestUserInput", %{"id" => id, "params" => params}, false} ->
-        case NativeCapture.handle(port, id, params, context) do
+        case NativeCapture.handle(port, id, params, Map.put(context, :send_response, &send_response/2)) do
           :unhandled ->
             maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, false)
 

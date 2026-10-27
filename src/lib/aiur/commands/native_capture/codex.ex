@@ -1,7 +1,7 @@
 defmodule Aiur.Commands.NativeCapture.Codex do
   @moduledoc "Gated translation of native user-input requests into held Commands."
 
-  alias Aiur.Codex.{Rpc, UserInputAnswers}
+  alias Aiur.Codex.UserInputAnswers
   alias Aiur.Commands.NativeCapture
   alias Aiur.Config
 
@@ -34,7 +34,7 @@ defmodule Aiur.Commands.NativeCapture.Codex do
           :unhandled
 
         {:release, text} ->
-          release(port, id, answers, text)
+          release(port, id, answers, text, ctx)
 
         {:command, decision} ->
           {:held, ref,
@@ -75,11 +75,11 @@ defmodule Aiur.Commands.NativeCapture.Codex do
 
   defp options(_invalid), do: []
 
-  defp release(port, id, answers, text) do
+  defp release(port, id, answers, text, ctx) do
     answers = Map.new(answers, fn {question_id, _answer} -> {question_id, %{"answers" => [text]}} end)
-    Rpc.send_message(port, %{"id" => id, "result" => %{"answers" => answers}})
-    :approved
-  rescue
-    ArgumentError -> {:error, :port_closed}
+
+    with :ok <- ctx.send_response.(port, %{"id" => id, "result" => %{"answers" => answers}}) do
+      :approved
+    end
   end
 end
