@@ -181,8 +181,6 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, TicketActions.priority(socket, command)}
   end
 
-  def handle_event("command-press", %{"command" => "logs"}, socket), do: {:noreply, enter_logs(socket)}
-
   def handle_event("command-press", %{"command" => "settings"}, socket), do: {:noreply, enter_settings(socket)}
 
   def handle_event("command-press", %{"command" => "commands"}, socket), do: {:noreply, enter_commands(socket)}

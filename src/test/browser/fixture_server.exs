@@ -278,9 +278,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   def streamdeck_resume(identifier), do: {:ok, set_streamdeck_paused(identifier, false)}
 
-  @doc "Drops every recorded operator pause so a spec starts from the seeded fleet."
+  @doc "Restores the seeded fleet and clears recorded operator pauses."
   def reset_streamdeck_pauses do
     ControlFixture.reset()
+    :persistent_term.erase({__MODULE__, :streamdeck_snapshot_identities})
     :persistent_term.put({__MODULE__, :streamdeck_paused}, MapSet.new())
     Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
     :ok

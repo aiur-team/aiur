@@ -9,35 +9,8 @@ defmodule AiurWeb.StreamdeckLive.CommandKeys do
 
   # Without a focused agent there is no real pause or priority state to render.
   # Blank every slot rather than showing a control whose label would be a guess.
-  @spec command_keys(map() | nil, boolean()) :: [map()]
+  @spec command_keys(nil, boolean()) :: [map()]
   def command_keys(nil, _mic_held?), do: List.duplicate(empty_command_key(), 8)
-
-  # The command keys are derived from the agent the orchestrator currently
-  # reports, never from an optimistic local toggle, so a control call that the
-  # orchestrator rejects leaves the key showing the state that actually holds.
-  def command_keys(agent, mic_held?) do
-    writable? = dashboard_writable?()
-
-    [
-      pause_command_key(Map.get(agent, :bucket) == :paused, writable?),
-      # Logs is navigation rather than fleet control, so read-only leaves it
-      # enabled: it changes what the operator sees, never what the fleet does.
-      command_key("logs", "Logs", "SCROLL", icon: "logs", state: "ready"),
-      # Mic is the only press-and-hold command: it carries no click handler, so
-      # the hook drives it from pointer events.
-      mic_command_key(mic_held?, writable?),
-      # Settings is navigation too, and sits beside Mic because it is where the
-      # deck reports what voice input is doing.
-      command_key("settings", "Settings", "OPEN", icon: "settings", state: "ready"),
-      # Commands is navigation to the focused agent's Command history, so
-      # read-only leaves it enabled: it changes what the operator reads, never
-      # what the fleet does.
-      command_key("commands", "Commands", "OPEN", icon: "commands", state: "ready"),
-      empty_command_key(),
-      empty_command_key(),
-      empty_command_key()
-    ]
-  end
 
   @spec ticket_keys(map(), boolean()) :: [map()]
   def ticket_keys(ticket, mic_held?) do
