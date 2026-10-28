@@ -11,12 +11,12 @@ The Claude provider meter shows the account closest to its limit using the Build
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
 | **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
+| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
-The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
+The physical Command ticket page keeps desktop Build status and PR/CI on its keys, leaves missing PRs blank, and uses the strip for the latest shared conversation entry.
 
 | Control state | Behavior |
 | --- | --- |
@@ -27,6 +27,12 @@ The physical Command ticket page shares the desktop Build status and PR/CI, leav
 | Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star and in Grid ranking. |
 
 ## Read the Logs surface
+
+The ticket page strip shows the newest agent message, tool call or operator
+reply across its full width, with an inline role glyph and wrapped text. It uses
+the same conversation source as the desktop modal and restores retained messages
+after a daemon restart. Missing history says “Conversation not retained”; read
+failures say “Conversation unavailable”; stale conversations show their age.
 
 Logs runs from oldest at the far left to newest at the far right.
 
@@ -39,6 +45,9 @@ Logs runs from oldest at the far left to newest at the far right.
 Transcript lines stay beneath the event active when they arrived; agent prose is not promoted into extra event keys.
 
 ### Selection and live typing
+
+On the ticket page, the first chat frame appears immediately. Subsequent live
+messages reveal progressively; historical messages are never typed out again.
 
 | Action | Result |
 | --- | --- |

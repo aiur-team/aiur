@@ -10,12 +10,11 @@ import { createRasterizer } from "./rasterizer.js";
 import { StripRenderer } from "./touchStrip/stripRenderer.js";
 import { summaryModel } from "./touchStrip/summarySegment.js";
 import { providerRows } from "./touchStrip/providerPanel.js";
-import { ticketDetailModel } from "./touchStrip/ticketDetail.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
 import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
-import type { StreamDeckGrid, StreamDeckTicket, TranscriptRow } from "./channel.js";
+import type { StreamDeckGrid, StreamDeckChat, StreamDeckTicket, TranscriptRow } from "./channel.js";
 import { MIC_KEY_INDICES, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY, settingsView, type SettingsView } from "./settings.js";
 import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
 import type { AudioDevice } from "./audio/index.js";
@@ -31,6 +30,7 @@ import type { StreamDeckCommand, StreamDeckCommandsPage } from "./channel.js";
 export type PhysicalMode = "grid" | "cmd" | "logs" | "settings" | "commands";
 export interface PhysicalSurfaceState {
   readonly mode: PhysicalMode;
+  readonly chat?: StreamDeckChat | null;
   readonly ticket?: StreamDeckTicket | null;
   readonly instance?: string;
   readonly focusedIdentifier: string | null;
@@ -408,12 +408,7 @@ export const createPhysicalSurface = () => {
       for (const paint of paints) {
         await keyQueue?.enqueue(paint);
       }
-      // A cmd-mode strip is built even when the focused agent has left the
-      // projection — merged, or paged out. Falling through to the grid strip
-      // put the fleet summary under the four agent command keys, so the strip
-      // and the keys disagreed about which mode the deck was in. With only the
-      // identifier, the panel shows the ticket and an unknown status, which is
-      // the truth.
+      // Keep the focused chat visible even after its ticket leaves the fleet grid.
       const selectedMic = mics.mics.find((slot) => slot?.selected === true);
       const commandsPanel = state.mode === "commands"
         ? state.commandsView === "detail" && state.selectedCommand != null
@@ -422,7 +417,7 @@ export const createPhysicalSurface = () => {
         : null;
       const strip: StripData = state.mode === "cmd" ? {
         mode: "cmd",
-        data: { detail: ticketDetailModel(ticket, state.focusedIdentifier), voice },
+        data: { chat: state.chat?.id === state.focusedIdentifier ? state.chat : null, voice },
       } : state.mode === "settings" ? {
         mode: "settings",
         data: {

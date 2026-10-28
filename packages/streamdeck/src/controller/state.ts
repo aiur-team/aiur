@@ -1,5 +1,5 @@
 /** Types, key slots and wire normalisers shared by the controller and its parts. */
-import { chatKind, rowKindOfRole, type DiffLine, type StreamDeckChannel, type StreamDeckCommand, type StreamDeckCommandsPage, type StreamDeckGrid, type StreamDeckTicket, type TranscriptRow } from "../channel.js";
+import { chatKind, rowKindOfRole, type DiffLine, type StreamDeckChannel, type StreamDeckCommand, type StreamDeckCommandsPage, type StreamDeckGrid, type StreamDeckChat, type StreamDeckTicket, type TranscriptRow } from "../channel.js";
 import {
   COMMANDS_APPROVE_SLOT,
   COMMANDS_CANCEL_SLOT,
@@ -166,6 +166,7 @@ export const toEventKey = (event: Readonly<Record<string, unknown>>): EventKey =
 });
 
 export interface ControllerState {
+  readonly chat?: StreamDeckChat | null;
   readonly ticket?: StreamDeckTicket | null;
   readonly mode: ControllerMode;
   readonly focusedIdentifier: string | null;

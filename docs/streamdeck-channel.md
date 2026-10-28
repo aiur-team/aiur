@@ -38,7 +38,7 @@ use the shared domain sources directly.
 | `AiurWeb.Streamdeck.Deck.TicketPage` | Focused ticket over Build DataSource and TicketControl; shared server status labels | No | Physical cmd ticket page |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
 | `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
-| `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
+| `AiurWeb.Streamdeck.Deck.Chat` | Shared-source live conversation tail and lifecycle | No | Physical ticket strip |
 | `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip`, `AiurWeb.StreamdeckKeyFaceContract` | Deck presentation: paging, LIVE, log windows and key faces | No; the emulator renders them | — |
 | `AiurWeb.StreamdeckAuth`, `AiurWeb.StreamdeckSocket`, `AiurWeb.StreamdeckChannel` | Deck transport | Only for a physical deck | — |
 
@@ -67,8 +67,8 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 | `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
 | `usage` | `{provider_family: meter}` | One entry per provider family, from Build.Usage; semantic session/weekly windows carry `remaining_percent` and `used_percent`. Updates coalesce over 250 ms. |
 | `decisions` | `{count}` | Updated decision summary. |
-| `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
-| `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Pushed on focus and again whenever a new transcript line lands. |
+| `chat` | `{v:1, kind:"chat", id, state, observed_at, latest}` | Newest allowlisted conversation entry from the same source as the desktop modal. |
+| `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Shared allowlisted conversation window on focus and tail updates; event keys retain their existing bus anchors. |
 | `alert` | `{identifier, name, message, severity, needs_attention, timestamp}` | Focused agent alert. |
 | `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
 | `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
@@ -103,12 +103,14 @@ the dashboard's own controls. The channel routes the request through
 `Aiur.AgentChat` and returns the orchestrator result; the device does not
 implement a second pause/resume path.
 
-Transcript traffic is latest-value coalesced in 250 ms windows (four pushes per
-second maximum per joined channel). A dedicated relay is the sole subscription
-to the focused agent, so the channel mailbox is not filled by a transcript
-burst. A burst produces one `transcript` event containing the final line from
-that window; intermediate lines are intentionally discarded because the device
-renders only a small live-log region.
+Ticket chat uses `Build.ConversationSource` in the channel process. Focus reads
+retained history, including after a daemon restart, and subscribes to the live
+conversation handle. Live notifications coalesce on a 250 ms tick; a one-second
+poll catches file appends and generation changes. Reads and pushes are bounded
+to four per second. Refocus, unfocus and termination unsubscribe and cancel the
+timer. `chat.latest` uses the shared Entries allowlist; prompt bodies, raw events
+and tool output are excluded. Missing, unavailable and stale conversations are
+named on the strip; stale state includes the observation age.
 
 ## Commands and answering
 

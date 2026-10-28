@@ -368,15 +368,11 @@ export const main = async (): Promise<void> => {
           fleet: () => undefined,
           grid: (grid) => { liveGrid = grid; controller.gridChanged(); debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
           usage: (usage) => { liveUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (!demoActive) applySource(); },
-          // Deliberately not fed to the strip. The daemon pushes `transcript`
-          // and `logs` together for the same event, and the `logs` frame
-          // carries the whole flattened transcript with its event headers.
-          // Pushing the message-only feed as well re-derived the scroll bounds
-          // from a shorter array, which clamped the operator's jump back to the
-          // top within a flush — the feature worked until the agent next spoke.
+          // Current chat uses the shared source; ignore older daemons' transcript frames.
           transcript: () => undefined,
           logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
           control: () => undefined,
+          chat: (chat) => { if (!demoActive) controller.setChat(chat); },
           ticket: (ticket) => { if (!demoActive) controller.setTicket(ticket); },
           commands: (page) => { controller.setCommands(page); if (activeBackend !== null) repaintDetached(activeBackend); },
           commandAnswered: (result) => { controller.commandAnswered(result); if (activeBackend !== null) repaintDetached(activeBackend); },

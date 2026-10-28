@@ -63,7 +63,7 @@ describe("Build ticket page", () => {
     expect(dictating[6]).toMatchObject({ title: "Cancel" });
   });
 
-  it("paints cmd pages from the correlated ticket even after it leaves the fleet grid", async () => {
+  it("keeps Build status keys while the cmd strip names unavailable chat", async () => {
     const context = createCanvas(800, 100).getContext("2d");
     const fillText = vi.spyOn(Object.getPrototypeOf(context), "fillText");
     const surface = createPhysicalSurface();
@@ -71,14 +71,14 @@ describe("Build ticket page", () => {
     const grid: StreamDeckGrid = { agents: [{ identifier: "401", bucket: "running", title: "Wrong grid title" }], total: 1, windows: 1, max_column_offset: 0 };
     try {
       await surface.repaint(backend, grid, {}, undefined, { mode: "cmd", focusedIdentifier: "401", columnOffset: 0, ticket: ticket() });
-      expect(fillText.mock.calls.map(([value]) => value)).toContain("Ticket from Build");
-      expect(fillText.mock.calls.map(([value]) => value)).toContain("WAITING FOR CI");
+      expect(fillText.mock.calls.map(([value]) => value)).toContain("Conversation unavailable");
+      expect(fillText.mock.calls.map(([value]) => value)).toContain("Waiting for CI");
       fillText.mockClear();
       await surface.repaint(backend, { ...grid, agents: [] }, {}, undefined, { mode: "cmd", focusedIdentifier: "401", columnOffset: 0, ticket: ticket({ title: "Still focused" }) });
-      expect(fillText.mock.calls.map(([value]) => value)).toContain("Still focused");
+      expect(fillText.mock.calls.map(([value]) => value)).toContain("Conversation unavailable");
       fillText.mockClear();
       await surface.repaint(backend, grid, {}, undefined, { mode: "cmd", focusedIdentifier: "402", columnOffset: 0, ticket: ticket() });
-      expect(fillText.mock.calls.map(([value]) => value)).toContain("STATE UNKNOWN");
+      expect(fillText.mock.calls.map(([value]) => value)).toContain("Conversation unavailable");
       expect(fillText.mock.calls.map(([value]) => value)).not.toContain("Ticket from Build");
     } finally {
       fillText.mockRestore();
