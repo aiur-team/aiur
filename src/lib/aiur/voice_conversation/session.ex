@@ -6,7 +6,7 @@ defmodule Aiur.VoiceConversation.Session do
 
   alias Aiur.VoiceConversation
   alias Aiur.VoiceConversation.Handoff
-  alias Elixir.VoiceConverse.Events
+  alias Elixir.VoiceConverse.{Events, Redact, SessionRegistry}
 
   @spec start(pid(), keyword()) :: {:ok, pid(), String.t()} | {:error, term()}
   def start(owner, opts \\ []) do
@@ -29,7 +29,7 @@ defmodule Aiur.VoiceConversation.Session do
     start = Keyword.get(opts, :start_session, &VoiceConversation.start_session/2)
 
     with {:ok, id} <- start.(self(), Keyword.drop(opts, [:instance, :start_session, :deliver])),
-         {:ok, session} <- Elixir.VoiceConverse.SessionRegistry.lookup(instance, id) do
+         {:ok, session} <- SessionRegistry.lookup(instance, id) do
       monitor = Process.monitor(session)
       {:ok, %{owner: owner, id: id, instance: instance, monitor: monitor, turns: [], pending_user: nil, deliver: Keyword.get(opts, :deliver, &Handoff.deliver/3), stopping?: false}}
     else
@@ -91,7 +91,7 @@ defmodule Aiur.VoiceConversation.Session do
         notify(state, {:receipt, receipt})
 
       {:error, _reason} ->
-        Logger.warning("Executor voice handoff failed", session_id: state.id)
+        Logger.warning("Executor voice handoff failed for #{state.id}")
         notify(state, {:handoff_failed, :delivery_failed})
     end
 
@@ -100,13 +100,13 @@ defmodule Aiur.VoiceConversation.Session do
   end
 
   defp record(state, %Events.UserTranscript{text: text, final?: false}),
-    do: %{state | pending_user: Elixir.VoiceConverse.Redact.redact(text)}
+    do: %{state | pending_user: Redact.redact(text)}
 
   defp record(state, %Events.UserTranscript{text: text, final?: true}),
-    do: %{state | pending_user: nil, turns: state.turns ++ [%{role: "user", text: Elixir.VoiceConverse.Redact.redact(text)}]}
+    do: %{state | pending_user: nil, turns: state.turns ++ [%{role: "user", text: Redact.redact(text)}]}
 
   defp record(state, %Events.AgentText{text: text, turn_id: id, final?: true}) do
-    turn = %{role: "agent", text: Elixir.VoiceConverse.Redact.redact(text), turn_id: id}
+    turn = %{role: "agent", text: Redact.redact(text), turn_id: id}
     turns = Enum.reject(state.turns, &(&1[:role] == "agent" and id != nil and &1[:turn_id] == id))
     %{state | turns: turns ++ [turn]}
   end

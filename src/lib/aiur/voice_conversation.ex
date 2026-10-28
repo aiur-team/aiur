@@ -58,9 +58,8 @@ defmodule Aiur.VoiceConversation do
 
   @spec start_session(pid(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def start_session(owner, opts \\ []) when is_pid(owner) do
-    with :ok <- availability() do
-      VoiceConverse.start_session(@instance, :executor, Keyword.put(opts, :client, owner))
-    else
+    case availability() do
+      :ok -> VoiceConverse.start_session(@instance, :executor, Keyword.put(opts, :client, owner))
       {:unavailable, reason} -> {:error, reason}
     end
   end

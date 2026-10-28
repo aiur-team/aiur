@@ -21,19 +21,21 @@ defmodule Aiur.Claude.NativeTranscript do
   def read(_session, _n), do: {:error, :unavailable}
 
   defp read_tail(path, n) do
-    case File.open(path, [:read, :binary], fn file ->
-           with {:ok, size} <- :file.position(file, :eof),
-                offset = max(size - @max_tail_bytes, 0),
-                {:ok, bytes} <- :file.pread(file, offset, @max_tail_bytes) do
-             lines = String.split(bytes, "\n", trim: true)
-             lines = if offset > 0, do: Enum.drop(lines, 1), else: lines
-             {:ok, %{events: lines |> Enum.flat_map(&events/1) |> Enum.take(-n)}}
-           else
-             :eof -> {:ok, %{events: []}}
-             {:error, _reason} -> {:error, :unavailable}
-           end
-         end) do
+    case File.open(path, [:read, :binary], &read_file(&1, n)) do
       {:ok, result} -> result
+      {:error, _reason} -> {:error, :unavailable}
+    end
+  end
+
+  defp read_file(file, n) do
+    with {:ok, size} <- :file.position(file, :eof),
+         offset = max(size - @max_tail_bytes, 0),
+         {:ok, bytes} <- :file.pread(file, offset, @max_tail_bytes) do
+      lines = String.split(bytes, "\n", trim: true)
+      lines = if offset > 0, do: Enum.drop(lines, 1), else: lines
+      {:ok, %{events: lines |> Enum.flat_map(&events/1) |> Enum.take(-n)}}
+    else
+      :eof -> {:ok, %{events: []}}
       {:error, _reason} -> {:error, :unavailable}
     end
   end

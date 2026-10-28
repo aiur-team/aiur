@@ -2,6 +2,7 @@ defmodule Aiur.VoiceConversation.BriefingSource do
   @moduledoc "Read-only prototype briefing; the dedicated Executor briefing source replaces this in #4125."
   @behaviour VoiceConverse.Ports.BriefingSource
 
+  alias Aiur.VoiceConversation.ExecutorTranscript
   alias VoiceConverse.Briefing
 
   @sections [
@@ -111,7 +112,7 @@ defmodule Aiur.VoiceConversation.BriefingSource do
   end
 
   defp read_section("transcript", n) do
-    case Aiur.VoiceConversation.ExecutorTranscript.read(n) do
+    case ExecutorTranscript.read(n) do
       {:ok, snapshot} -> transcript_text(snapshot, n)
       {:error, _reason} -> "Executor transcript unavailable."
     end
