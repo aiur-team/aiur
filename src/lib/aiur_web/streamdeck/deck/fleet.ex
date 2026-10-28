@@ -30,13 +30,13 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
   end
 
   @spec navigation(map()) :: [map()]
-  def navigation(fleet), do: Enum.map(field(fleet, :keys) || [], fn key -> if field(key, :cat) == :capacity, do: %{}, else: key end)
+  def navigation(fleet), do: field(fleet, :keys) || []
 
   defp unavailable(data, opts), do: %{status: "unavailable", keys: [], strip: strip(data, opts)}
 
   defp project(data, opts) do
     sections = field(data, :sections) || %{}
-    counts = Counts.categories(sections)
+    counts = opts |> Keyword.get_lazy(:counts, fn -> Counts.read(window: {:ok, data}) end) |> Counts.categories()
     keys = Enum.map(@categories, &category(&1, counts, sections, field(data, :capacity)))
     %{status: "ok", keys: keys, strip: strip(data, opts)}
   end
