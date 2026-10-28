@@ -451,10 +451,11 @@ export const createPhysicalSurface = () => {
           // it left the summary segment permanently reading "No build order"
           // even while a build order was running.
           summary: summaryModel(
-            grid.agents.filter((agent) => agent.bucket === "running").length,
-            grid.total - grid.agents.filter((agent) => agent.bucket === "running").length,
+            grid.counts?.live ?? null,
+            grid.counts?.queued ?? null,
             grid.build,
             grid.build_status,
+            grid.counts?.status,
           ),
           // One row per provider family the daemon reported, not two fixed
           // slots: a fleet with a third configured provider had a real meter
@@ -467,7 +468,8 @@ export const createPhysicalSurface = () => {
           // plain columnOffset/4 disagrees with it whenever the last window is
           // clamped by maxColumnOffset, lighting the wrong dot after a page.
           pager: pagerModel(grid.total, 8, currentWindow(state.columnOffset, grid.total)),
-          pagerLabel: `${grid.total} Agents`,
+          pagerLabel: grid.counts?.agents != null && grid.counts?.queued != null
+            ? `${grid.counts.agents} agents · ${grid.counts.queued} queued` : "— agents",
         },
       };
       try {

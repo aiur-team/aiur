@@ -10,7 +10,7 @@ The Claude provider meter shows the account closest to its limit using the Build
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Fleet summary with build progress of the focus build lane, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
 | **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |

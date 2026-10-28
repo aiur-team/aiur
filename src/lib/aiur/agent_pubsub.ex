@@ -16,6 +16,10 @@ defmodule Aiur.AgentPubSub do
   @pubsub Aiur.PubSub
   @fleet_refresh_topic "agents:fleet_refresh"
 
+  @doc false
+  @spec dispatch([{pid(), term()}], pid() | :none, term()) :: :ok
+  defdelegate dispatch(entries, from, message), to: FleetRefresh
+
   @spec subscribe_agent(AgentEvents.agent_identifier()) :: :ok | {:error, term()}
   def subscribe_agent(identifier) when is_binary(identifier) do
     topic = AgentEvents.agent_topic(identifier)

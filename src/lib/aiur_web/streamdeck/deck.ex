@@ -1,11 +1,11 @@
 defmodule AiurWeb.Streamdeck.Deck do
   @moduledoc "Deck adapter over shared read models, with isolated section failures."
 
-  alias AiurWeb.Streamdeck.Deck.BuildOrder
+  alias AiurWeb.Streamdeck.Deck.{BuildOrder, Counts}
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
-    %{build_order: read_section(BuildOrder, opts)}
+    %{build_order: read_section(BuildOrder, opts), counts: Counts.read(opts)}
   end
 
   defp read_section(section, opts) do
