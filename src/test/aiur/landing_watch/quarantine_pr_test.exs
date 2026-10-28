@@ -226,7 +226,7 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     assert updated ==
              String.trim_trailing(contents) <>
                "\nAiur.ExampleTest\tfails repeatedly\t#900\t" <>
-               Date.to_iso8601(Date.add(Date.utc_today(), 90)) <> "\n"
+               Date.to_iso8601(Date.add(Date.utc_today(), 14)) <> "\n"
   end
 
   defp opts(parent, responder, list_fun) do

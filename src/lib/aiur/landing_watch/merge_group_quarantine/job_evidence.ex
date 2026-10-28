@@ -2,13 +2,18 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine.JobEvidence do
   @moduledoc false
 
   alias Aiur.GitHub.CIRecovery
-  alias Aiur.LandingWatch.QuarantineAnnotations
+  alias Aiur.LandingWatch.{QuarantineAnnotations, RunnerDegradation}
 
   @spec load(pos_integer(), keyword()) :: {:ok, [map()], map(), boolean()} | {:error, term()}
   def load(run_id, opts) do
-    with {:ok, jobs, jobs_complete?} <- jobs(run_id, opts),
-         {:ok, found, annotations_complete?} <- QuarantineAnnotations.from_jobs_with_completeness(jobs, opts) do
-      {:ok, jobs, found, jobs_complete? and annotations_complete?}
+    with {:ok, jobs, jobs_complete?} <- jobs(run_id, opts) do
+      if RunnerDegradation.degraded?(jobs, opts) do
+        {:ok, jobs, %{tests: [], guards: []}, jobs_complete?}
+      else
+        with {:ok, found, annotations_complete?} <- QuarantineAnnotations.from_jobs_with_completeness(jobs, opts) do
+          {:ok, jobs, found, jobs_complete? and annotations_complete?}
+        end
+      end
     end
   end
 

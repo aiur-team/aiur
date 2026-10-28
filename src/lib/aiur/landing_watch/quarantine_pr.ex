@@ -28,7 +28,7 @@ defmodule Aiur.LandingWatch.QuarantinePR do
           {:ok, map() | :already_quarantined} | {:error, term()}
   def open(%{identity: identity, observations: observations}, ticket, opts)
       when is_binary(identity) and is_list(observations) do
-    opts = Keyword.put_new(opts, :quarantine_expires_on, Date.add(Date.utc_today(), 90))
+    opts = Keyword.put_new(opts, :quarantine_expires_on, Date.add(Date.utc_today(), 14))
 
     with {:ok, {owner, repo}} <- Access.parse_repo(),
          {:ok, token} <- Access.require_token(opts),
