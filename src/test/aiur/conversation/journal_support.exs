@@ -80,7 +80,7 @@ defmodule Aiur.Conversation.TestSupport do
   end
 
   def setup(context) do
-    root = Path.join(System.tmp_dir!(), "conversation-journal-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("conversation-journal")
     previous = Map.new([:conversation_state_dir, :conversation_journal, :conversation_test_control], &{&1, Application.fetch_env(:aiur, &1)})
     {:ok, control} = Agent.start_link(fn -> %{owner: self()} end)
     owner = self()
@@ -103,12 +103,7 @@ defmodule Aiur.Conversation.TestSupport do
     ExUnit.Callbacks.on_exit(fn ->
       for {_, pid, _, _} <- DynamicSupervisor.which_children(Aiur.Conversation.JournalSupervisor), is_pid(pid), do: DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
 
-      for {key, value} <- previous do
-        case value do
-          {:ok, value} -> Application.put_env(:aiur, key, value)
-          :error -> Application.delete_env(:aiur, key)
-        end
-      end
+      Enum.each(previous, &restore_env/1)
 
       :persistent_term.erase({Ingest, :dropped, Ref.conversation_id(ref)})
       Aiur.TestCleanup.rm_rf!(root)
@@ -116,6 +111,9 @@ defmodule Aiur.Conversation.TestSupport do
 
     Map.merge(context, %{root: root, ref: ref, now: now, control: control, dir: Path.join(root, Ref.conversation_id(ref))})
   end
+
+  defp restore_env({key, {:ok, value}}), do: Application.put_env(:aiur, key, value)
+  defp restore_env({key, :error}), do: Application.delete_env(:aiur, key)
 
   def source(id \\ "session-one"), do: %{harness: "codex", role: :executor, provider_session_id: id, aiur_attempt_id: nil, transcript_source: %{kind: :file, locator_hash: nil}, start_reason: :start}
   def event(n), do: %{role: "assistant", msg_id: "message-#{n}", body: "message #{n}", timestamp: Application.fetch_env!(:aiur, :conversation_journal)[:clock].()}

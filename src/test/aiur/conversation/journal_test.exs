@@ -3,7 +3,7 @@ Code.require_file("journal_support.exs", __DIR__)
 defmodule Aiur.Conversation.JournalTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
-  alias Aiur.Conversation.{Ingest, Journal, Ref, Store, TestSupport}
+  alias Aiur.Conversation.{Ingest, Journal, JournalSessions, Ref, Store, TestSupport}
   import TestSupport
   setup context, do: TestSupport.setup(context)
 
@@ -157,7 +157,7 @@ defmodule Aiur.Conversation.JournalTest do
 
   test "dedup evicts only the oldest keys at its bound" do
     initial = %{dedup: MapSet.new(), dedup_order: :queue.new()}
-    remembered = Enum.reduce(1..50_001, initial, &Aiur.Conversation.JournalSessions.remember(&2, "key-#{&1}"))
+    remembered = Enum.reduce(1..50_001, initial, &JournalSessions.remember(&2, "key-#{&1}"))
     refute MapSet.member?(remembered.dedup, "key-1")
     assert MapSet.member?(remembered.dedup, "key-2")
     assert MapSet.member?(remembered.dedup, "key-50001")

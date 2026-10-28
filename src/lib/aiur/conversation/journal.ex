@@ -1,7 +1,8 @@
 defmodule Aiur.Conversation.Journal do
   @moduledoc "Serialized, recoverable writer for one conversation. All disk work stays in this process."
   use GenServer, restart: :transient
-  alias Aiur.Conversation.{Entry, JournalSessions, Ref}
+  alias Aiur.Config.Paths
+  alias Aiur.Conversation.{Entry, Ingest, JournalSessions, Ref}
 
   @spec start_link(Ref.t()) :: GenServer.on_start()
   def start_link(ref), do: GenServer.start_link(__MODULE__, ref, name: via(ref))
@@ -79,7 +80,7 @@ defmodule Aiur.Conversation.Journal do
   def handle_info({:idle, _token}, state), do: {:noreply, state}
 
   defp load(state) do
-    with {:ok, root} <- Aiur.Config.Paths.conversation_state_dir(),
+    with {:ok, root} <- Paths.conversation_state_dir(),
          state = %{state | dir: Path.join(root, state.id)},
          {:ok, head} <- state.store.prepare(state.dir, state.ref),
          {:ok, loaded} <- JournalSessions.load(state, head) do
@@ -93,7 +94,7 @@ defmodule Aiur.Conversation.Journal do
     state = touch(state)
 
     if state.read_only do
-      Aiur.Conversation.Ingest.count_dropped(state.id, length(inputs))
+      Ingest.count_dropped(state.id, length(inputs))
       %{state | failed_since: span_inputs(state.failed_since, inputs, state.clock.())}
     else
       state = %{state | buffer: Enum.reduce(inputs, state.buffer, &:queue.in/2)}
@@ -220,22 +221,22 @@ defmodule Aiur.Conversation.Journal do
   defp gap_entry(reason, from, to), do: %Entry{kind: "gap", role: "system", meta: %{reason: to_string(reason), from: from, to: to}}
 
   defp assign(entries, state) do
-    {entries, state} =
-      Enum.reduce(entries, {[], state}, fn entry, {acc, state} ->
-        key = Entry.dedup_key(entry)
-
-        if entry.kind != "gap" and MapSet.member?(state.dedup, key) do
-          {acc, state}
-        else
-          entry = %{entry | pos: state.next_pos, observed_at: state.clock.(), session_seq: if(state.open_session, do: state.open_session.session_seq)}
-          session = if state.open_session, do: %{state.open_session | last_pos: entry.pos}
-          state = %{state | next_pos: state.next_pos + 1, open_session: session}
-          state = if entry.kind == "gap", do: state, else: JournalSessions.remember(state, key)
-          {[entry | acc], state}
-        end
-      end)
-
+    {entries, state} = Enum.reduce(entries, {[], state}, &assign_entry/2)
     {Enum.reverse(entries), state}
+  end
+
+  defp assign_entry(entry, {acc, state}) do
+    key = Entry.dedup_key(entry)
+
+    if entry.kind != "gap" and MapSet.member?(state.dedup, key) do
+      {acc, state}
+    else
+      entry = %{entry | pos: state.next_pos, observed_at: state.clock.(), session_seq: if(state.open_session, do: state.open_session.session_seq)}
+      session = if state.open_session, do: %{state.open_session | last_pos: entry.pos}
+      state = %{state | next_pos: state.next_pos + 1, open_session: session}
+      state = if entry.kind == "gap", do: state, else: JournalSessions.remember(state, key)
+      {[entry | acc], state}
+    end
   end
 
   defp failure(state, reason) do
@@ -244,7 +245,7 @@ defmodule Aiur.Conversation.Journal do
     state = %{state | outage: true, recover: true, failed_since: span, retries: state.retries + 1}
 
     if corrupt?(reason) do
-      Aiur.Conversation.Ingest.count_dropped(state.id, :queue.len(state.buffer))
+      Ingest.count_dropped(state.id, :queue.len(state.buffer))
       %{state | read_only: true, buffer: :queue.new()}
     else
       retry(state)
@@ -252,7 +253,7 @@ defmodule Aiur.Conversation.Journal do
   end
 
   defp retry(%{retries: retries} = state) when retries > 5 do
-    Aiur.Conversation.Ingest.count_dropped(state.id, :queue.len(state.buffer))
+    Ingest.count_dropped(state.id, :queue.len(state.buffer))
     %{state | buffer: :queue.new()}
   end
 

@@ -15,13 +15,7 @@ defmodule Aiur.Conversation.Ingest do
   @spec append(Ref.t(), source(), [map()]) :: :ok
   def append(ref, source, events) do
     safe(ref, fn ->
-      entries =
-        Enum.flat_map(events, fn event ->
-          case Entry.from_transcript_event(event, subject_kind: source.role) do
-            {:ok, entry} -> [entry]
-            :skip -> []
-          end
-        end)
+      entries = Enum.flat_map(events, &convert(&1, source.role))
 
       if entries != [], do: dispatch(ref, {:append, source, entries}, length(entries))
     end)
@@ -54,22 +48,31 @@ defmodule Aiur.Conversation.Ingest do
   @spec count_dropped(String.t(), non_neg_integer()) :: :ok
   def count_dropped(id, count), do: :counters.add(counter(id), 1, count)
 
+  defp convert(event, role) do
+    case Entry.from_transcript_event(event, subject_kind: role) do
+      {:ok, entry} -> [entry]
+      :skip -> []
+    end
+  end
+
+  defp create_counter(key) do
+    case :persistent_term.get(key, nil) do
+      nil ->
+        counter = :counters.new(1, [:write_concurrency])
+        :persistent_term.put(key, counter)
+        counter
+
+      counter ->
+        counter
+    end
+  end
+
   defp counter(id) do
     key = {__MODULE__, :dropped, id}
 
     case :persistent_term.get(key, nil) do
       nil ->
-        :global.trans({key, self()}, fn ->
-          case :persistent_term.get(key, nil) do
-            nil ->
-              counter = :counters.new(1, [:write_concurrency])
-              :persistent_term.put(key, counter)
-              counter
-
-            counter ->
-              counter
-          end
-        end)
+        :global.trans({key, self()}, fn -> create_counter(key) end)
 
       counter ->
         counter
@@ -77,30 +80,31 @@ defmodule Aiur.Conversation.Ingest do
   end
 
   defp dispatch(ref, message, count) do
-    with {:ok, pid} <- writer(ref) do
-      case Process.info(pid, :message_queue_len) do
-        {:message_queue_len, size} when size > 5000 and count > 0 ->
-          count_dropped(Ref.conversation_id(ref), count)
-          now = DateTime.utc_now()
-          GenServer.cast(pid, {:dropped, now, now})
-
-        nil ->
-          Logger.warning("Conversation #{safe_id(ref)}: journal unavailable")
-
-        _ ->
-          GenServer.cast(pid, message)
-      end
-    else
+    case writer(ref) do
+      {:ok, pid} -> dispatch_to(pid, ref, message, count)
       {:error, _reason} -> Logger.warning("Conversation #{safe_id(ref)}: journal start_failed")
     end
   end
 
-  defp safe_id(ref) do
-    try do
-      Ref.conversation_id(ref)
-    catch
-      _, _ -> "unknown"
+  defp dispatch_to(pid, ref, message, count) do
+    case Process.info(pid, :message_queue_len) do
+      {:message_queue_len, size} when size > 5000 and count > 0 ->
+        count_dropped(Ref.conversation_id(ref), count)
+        now = DateTime.utc_now()
+        GenServer.cast(pid, {:dropped, now, now})
+
+      nil ->
+        Logger.warning("Conversation #{safe_id(ref)}: journal unavailable")
+
+      _ ->
+        GenServer.cast(pid, message)
     end
+  end
+
+  defp safe_id(ref) do
+    Ref.conversation_id(ref)
+  catch
+    _, _ -> "unknown"
   end
 
   defp safe(ref, fun) do
