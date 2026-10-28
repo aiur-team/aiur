@@ -40,6 +40,32 @@ defmodule AiurWeb.StreamdeckLiveChatTest do
     assert_reply(push(socket, "unfocus", %{}), :ok, _reply, 2_000)
   end
 
+  test "emulator refocus, back and terminate release source subscriptions and timers", %{path: path} do
+    handle = Aiur.LiveConversation.Notify.random_handle()
+    running = %{identifier: "1352", issue_id: "node1352", workspace_path: path |> Path.dirname() |> Path.dirname(), live_conversation: %{generation_handle: handle}}
+    EndpointStubs.put(build_conversation_snapshot_fun: fn _, _ -> {:ok, %{running: [running]}} end)
+    File.write!(path, line("subscribed"))
+    {:ok, view, _} = live(build_conn(), "/streamdeck")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    topic = Aiur.LiveConversation.Notify.handle_topic(handle)
+    pid = view.pid
+    assert {^pid, _} = List.keyfind(Registry.lookup(Aiur.PubSub, topic), pid, 0)
+    timer = streamdeck_assigns(view).deck_chat.timer
+    render_hook(view, "key-press", %{"identifier" => "1350"})
+    assert Registry.lookup(Aiur.PubSub, topic) == []
+    assert Process.read_timer(timer) == false
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    timer = streamdeck_assigns(view).deck_chat.timer
+    render_hook(view, "input", %{"kind" => "dial", "index" => 0, "action" => "press"})
+    assert Registry.lookup(Aiur.PubSub, topic) == []
+    assert Process.read_timer(timer) == false
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    timer = streamdeck_assigns(view).deck_chat.timer
+    GenServer.stop(pid, :normal)
+    assert Registry.lookup(Aiur.PubSub, topic) == []
+    assert Process.read_timer(timer) == false
+  end
+
   defp emulator_strip(view), do: view |> streamdeck_assigns() |> Frame.assign_frame() |> Map.fetch!(:frame) |> Map.fetch!(:strip)
 
   defp assert_dom_svg(view, svg) do

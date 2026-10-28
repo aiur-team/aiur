@@ -191,11 +191,6 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   const key = page.locator('#sd-keys .sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
-  // The key the operator pressed and the panel it opens must agree about the
-  // Build state's label and accent, carried through the same renderer.
-  const keyStatus = await key.locator('[data-part="status-label"]').textContent()
-  const keyAccent = await key.locator('[data-part="status-label"]').getAttribute('fill')
-
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   // #1607 deleted the standalone #sd-cmd-view and fills the cmd-mode grid with
@@ -208,11 +203,10 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
   await expect(page.locator('[data-streamdeck-command]')).toHaveCount(8)
   await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')).toBeVisible()
-  await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('CONTROLLING')
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
   const panel = page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')
-  await expect(panel).toContainText(keyStatus)
-  await expect(panel.locator(`text[fill="${keyAccent}"]`)).toContainText(keyStatus)
-  await expect(panel.locator('[data-part="progress-fill"]')).toBeVisible()
+  await expect(panel).toHaveCSS('width', '800px')
+  await expect(panel).toContainText('Conversation unavailable')
 
   await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })

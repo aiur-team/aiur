@@ -150,7 +150,9 @@ the dashboard's own controls. The channel routes the request through
 `Aiur.AgentChat` and returns the orchestrator result; the device does not
 implement a second pause/resume path.
 
-Ticket chat uses `Build.ConversationSource` in the channel process. Physical key selection opens the same subscription; navigation away clears it. `FrameUpdates` includes the masked newest entry in a single 800 px SVG strip, coalesced with other frame changes. Focus reads
+Ticket chat uses `Build.ConversationSource` in its owning channel or LiveView process. Both owners use `FrameUpdates.transition/3` for focus effects and `frame/5` for the same masked, full-width SVG. Navigation away clears the subscription.
+
+Focus reads
 retained history, including after a daemon restart, and subscribes to the live
 conversation handle. Live notifications coalesce on a 250 ms tick; a one-second
 poll catches file appends and generation changes. Reads and pushes are bounded

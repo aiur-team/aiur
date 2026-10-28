@@ -2,6 +2,12 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
   alias Aiur.TestSupport.BuildHome.UsageInputs
   use AiurWeb.StreamdeckLiveCase
 
+  setup do
+    previous = Application.get_env(:aiur, :build_conversation_source)
+    Application.put_env(:aiur, :build_conversation_source, :unavailable)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
+  end
+
   alias Aiur.TestSupport.EndpointStubs
 
   setup %{meter_agent: meter_agent} do
@@ -164,7 +170,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     assert has_element?(view, "[data-streamdeck-region='600']", "MORE AGENTS")
     assert has_element?(view, "[data-streamdeck-region='0']", "AIUR")
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation not retained")
+    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation unavailable")
     refute has_element?(view, "[data-streamdeck-region='600']")
     assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
     assert length(Floki.find(Floki.parse_fragment!(render(view)), "#sd-screen svg")) == 1
@@ -178,7 +184,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert html =~ "Conversation not retained"
+    assert html =~ "Conversation unavailable"
     assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
     refute html =~ "MORE AGENTS"
     refute html =~ "data-pager-page="
@@ -194,7 +200,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
 
     # Backing out of logs restores the shared conversation strip.
     html = render_click(view, "dial-press", %{"action" => "back"})
-    assert html =~ "Conversation not retained"
+    assert html =~ "Conversation unavailable"
 
     # Backing all the way out restores the segment row and its pager dots.
     html = render_click(view, "dial-press", %{"action" => "back"})
@@ -210,7 +216,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     render_hook(view, "key-press", %{"identifier" => "1352"})
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
-    assert html =~ "Conversation not retained"
+    assert html =~ "Conversation unavailable"
     assert streamdeck_assigns(view).deck_chat.ref.id == "1345"
   end
 

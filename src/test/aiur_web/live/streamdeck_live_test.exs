@@ -1,6 +1,12 @@
 defmodule AiurWeb.StreamdeckLiveTest do
   use AiurWeb.StreamdeckLiveCase
 
+  setup do
+    previous = Application.get_env(:aiur, :build_conversation_source)
+    Application.put_env(:aiur, :build_conversation_source, :unavailable)
+    on_exit(fn -> if previous, do: Application.put_env(:aiur, :build_conversation_source, previous), else: Application.delete_env(:aiur, :build_conversation_source) end)
+  end
+
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
@@ -167,12 +173,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     stale = render_hook(view, "key-press", %{"identifier" => "stale"})
     refute stale =~ "is-progress-stale"
-    assert strip(stale) =~ "40%"
-    assert strip(stale) =~ ~s(data-freshness="stale")
+    assert strip(stale) =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).sd_active.progress_freshness == :stale
 
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
     unknown = render_hook(view, "key-press", %{"identifier" => "unknown"})
-    assert strip(unknown) =~ "Unknown"
+    assert strip(unknown) =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).sd_active.progress_percent == nil
     refute strip(unknown) =~ ~s(data-part="progress-fill")
   end
 
@@ -281,7 +288,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
     assert has_element?(view, "#sd-screen[data-mode-view='cmd-strip']")
-    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation not retained")
+    assert has_element?(view, "[data-streamdeck-region='0']", "Conversation unavailable")
     refute has_element?(view, "[data-streamdeck-region='600']")
     assert streamdeck_assigns(view).deck_chat.ref.id == "1352"
     assert streamdeck_assigns(view).sd_active.progress_percent == 50
@@ -305,8 +312,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "key-press", %{"identifier" => "1400"})
 
     assert streamdeck_assigns(view).sd_active.bucket == :alert
-    assert strip(html) =~ "Awaiting command"
-    assert strip(html) =~ ~s(fill="#ff9a90")
+    assert strip(html) =~ "Conversation unavailable"
+    assert streamdeck_assigns(view).sd_active.open_decision_count == 2
   end
 
   test "renders bounded BACK and EVENTS hint arrows in logs mode" do
