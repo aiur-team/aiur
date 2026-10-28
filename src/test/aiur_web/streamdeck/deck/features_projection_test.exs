@@ -8,7 +8,14 @@ defmodule AiurWeb.Streamdeck.Deck.FeaturesProjectionTest do
 
     window = %{
       sources: %{agents: %{state: "ok"}},
-      sections: %{now: [], plan: [%{id: "88", num: 88, title: "Member", sec: "plan", epic: "lane"}], nq: []},
+      sections: %{
+        now: [],
+        plan: [
+          %{id: "1", num: 1, title: "Outsider", sec: "plan", epic: "other", qpos: 0},
+          %{id: "88", num: 88, title: "Member", sec: "plan", epic: "lane", qpos: 1}
+        ],
+        nq: []
+      },
       order: ["lane"],
       features: %{"parent" => %{label: "Parent", epics: ["lane"]}},
       feature_progress: %{
