@@ -14,7 +14,6 @@ import { agentState, progress, modelLabel } from './now-state.js';
 import { colKey, match } from './match.js';
 import { H, loadEarlier } from './history.js';
 import { sectionState, headNote, reasonText, ageText } from './states.js';
-import { writeURL } from './url.js';
 import { timed } from './perf.js';
 export const renderList = timed('renderList', renderListImpl);
 
