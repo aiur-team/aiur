@@ -119,3 +119,13 @@ parked even with an exemption. Missing dispositions are still refused.
 Executor findings follow the same parked intake rule. Promotion requires
 main-fix work or a finding blocking a named PR from merging, with that reason
 in the promotion comment.
+
+Parking is enforced by the installed agent wrapper, independently of the
+credential. Plain `gh`, including Executor and helper processes without that
+wrapper, relies on the skill rule. Each instance adopts the guard when it
+deploys this build.
+
+This is a policy boundary: later label edits, exempt labels, or a direct call
+to the real `gh` can bypass creation-time parking. The guard matches the
+configured fixer label case-sensitively; main-watch fixer classification
+matches it case-insensitively.
