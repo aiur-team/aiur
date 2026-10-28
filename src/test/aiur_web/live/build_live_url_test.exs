@@ -15,6 +15,13 @@ defmodule AiurWeb.BuildLiveURLTest do
     end
   end
 
+  test "fixture dataset query is dropped outside the browser fixture server" do
+    previous = Application.fetch_env(:aiur, :build_fixture_query)
+    Application.delete_env(:aiur, :build_fixture_query)
+    on_exit(fn -> restore_fixture_query(previous) end)
+    assert {:error, {:live_redirect, %{to: "/build"}}} = live(build_conn(), "/build?fixture_dataset=unknowns")
+  end
+
   test "invalid UTF-8 returns 400 (future Plug regression guard)" do
     assert_error_sent(400, fn -> get(build_conn(), "/build?epic=%ff") end)
   end
@@ -99,4 +106,7 @@ defmodule AiurWeb.BuildLiveURLTest do
     %{proxy: {ref, _topic, _}} = view
     refute_received {^ref, {:push_event, "build:url", _}}
   end
+
+  defp restore_fixture_query({:ok, value}), do: Application.put_env(:aiur, :build_fixture_query, value)
+  defp restore_fixture_query(:error), do: Application.delete_env(:aiur, :build_fixture_query)
 end

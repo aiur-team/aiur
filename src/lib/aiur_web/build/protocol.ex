@@ -24,16 +24,8 @@ defmodule AiurWeb.Build.Protocol do
       build_index_generation: nil,
       build_history: nil,
       build_source: DataSource.source(),
-      build_fixture_dataset: fixture_dataset(socket),
       writable: writable?()
     )
-  end
-
-  defp fixture_dataset(socket) do
-    case Phoenix.LiveView.get_connect_params(socket) do
-      %{"build_fixture_dataset" => dataset} when is_binary(dataset) -> dataset
-      _ -> Map.get(socket.assigns, :build_fixture_dataset)
-    end
   end
 
   @spec store(Phoenix.LiveView.Socket.t(), map(), keyword() | nil) :: Phoenix.LiveView.Socket.t()
