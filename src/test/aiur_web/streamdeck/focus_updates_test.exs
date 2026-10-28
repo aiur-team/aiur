@@ -1,5 +1,6 @@
 defmodule AiurWeb.Streamdeck.FocusUpdatesTest do
   use AiurWeb.StreamdeckChannelCase
+  alias AiurWeb.StreamdeckChannel.CommandAnswers
 
   setup do
     owner = self()
@@ -79,7 +80,7 @@ defmodule AiurWeb.Streamdeck.FocusUpdatesTest do
           end
 
         :commands, id ->
-          previous = AiurWeb.StreamdeckChannel.CommandAnswers.commands_projection(id)
+          previous = CommandAnswers.commands_projection(id)
           send(owner, {:initial_focus_read, :commands, self()})
 
           receive do
