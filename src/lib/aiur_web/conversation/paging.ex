@@ -41,8 +41,15 @@ defmodule AiurWeb.Conversation.Paging do
   @spec jump(Phoenix.LiveView.Socket.t(), pos_integer()) :: Phoenix.LiveView.Socket.t()
   def jump(socket, pos) do
     case History.list_entries(socket.assigns.id, opts(socket) ++ [around: pos]) do
-      {:ok, page} -> apply_page(socket, page, :tail) |> refresh_sessions() |> assign(:mode, :command) |> Phoenix.LiveView.push_event("conversation-command", %{pos: pos})
-      {:error, reason} -> assign(socket, state: :unavailable, reason: reason, read_error: reason)
+      {:ok, page} ->
+        apply_page(socket, page, :tail)
+        |> assign(:last_entry, socket.assigns.last_entry)
+        |> refresh_sessions()
+        |> assign(:mode, :command)
+        |> Phoenix.LiveView.push_event("conversation-command", %{pos: pos})
+
+      {:error, reason} ->
+        assign(socket, state: :unavailable, reason: reason, read_error: reason)
     end
   end
 
