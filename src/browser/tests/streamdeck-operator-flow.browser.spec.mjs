@@ -168,7 +168,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await cycleToOpeningWindow(page, keys, openingPage)
 
   // ---------------------------------------------------------------- step 4 --
-  // Selecting a grid key opens the ticket without changing the agent state.
+  // Selecting a ticket opens its controls; pause is a separate explicit action.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   // SD-303 replaces the Command summary and pager with one full-width chat
@@ -179,9 +179,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(chat).toHaveCSS('width', '800px')
   await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
   await expect(chat).toContainText('Conversation unavailable')
-  // Selection must not pause the fleet; only the explicit command does so.
   await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)
-  await keys.locator('[data-streamdeck-command="pause"]').click()
+  await page.locator('[data-streamdeck-command="pause"]').click()
   await expectCommandSurface(keys, CMD_COMMANDS_PAUSED, page)
 
   // Back out and confirm the fleet itself moved — the agent is now bucketed as
@@ -191,7 +190,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(controlled).toHaveAttribute('data-streamdeck-state', 'paused')
   await expect(controlled).toHaveAttribute('data-control-action', 'resume')
 
-  // Reopen the paused ticket, then explicitly resume it through its command.
+  // Select the paused ticket, then explicitly resume it from its controls.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   // Resuming reopens the same full-width conversation strip.
@@ -200,7 +199,9 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
   await expect(chat).toContainText('Conversation unavailable')
   await expectCommandSurface(keys, CMD_COMMANDS_PAUSED, page)
-  await keys.locator('[data-streamdeck-command="pause"]').click()
+  await page.locator('[data-streamdeck-command="pause"]').click()
+  // The resume landed before this render, so the same slot has flipped back to
+  // Pause — the label is reading real state, not a fixed list.
   await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)
 
   // ---------------------------------------------------------------- step 5 --

@@ -52,8 +52,8 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     assert_push("frame", %{strip: [%{label: "Conversation ended ● appended physical"}]}, 2_000)
     timer = :sys.get_state(socket.channel_pid).assigns.deck_chat.timer
     assert_reply(push(socket, "input", %{"kind" => "dial", "index" => 3, "action" => "press"}), :ok, _navigation, 2_000)
-    assert_push("frame", %{strip: [%{x: 0, width: 200} | _] = regions}, 2_000)
-    assert length(regions) > 1
+    assert_push("frame", %{strip: [%{x: 0, width: 600}, %{x: 600, width: 200, label: "Features · page 1 · 0 features"}]}, 2_000)
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.view == :feature
     assert :sys.get_state(socket.channel_pid).assigns.deck_chat == nil
     assert Process.read_timer(timer) == false
   end
