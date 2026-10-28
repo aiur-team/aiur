@@ -159,6 +159,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
+  alias Aiur.BrowserHarness.Fixtures
   alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
   alias Aiur.BrowserHarness.FixtureEndpointStart
   alias Aiur.Experiments
@@ -221,7 +222,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}")
     Application.put_env(:aiur, :conversation_state_dir, conversation_root)
-    Aiur.BrowserHarness.Fixtures.conversation(conversation_root)
+    Fixtures.conversation(conversation_root)
     port = System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
     {:ok, _pid} =

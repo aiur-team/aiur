@@ -2,7 +2,7 @@ Code.require_file("../../aiur/conversation/journal_support.exs", __DIR__)
 
 defmodule AiurWeb.ConversationLiveTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
-  alias Aiur.Conversation.{History, Ingest, Ref, TestSupport}
+  alias Aiur.Conversation.{Entry, HeadTable, History, Ingest, Ref, Store, TestSupport}
   import Aiur.TestSupport.BuildHome.ProtocolCase, except: [source: 1]
   import Aiur.Conversation.TestSupport
 
@@ -99,7 +99,7 @@ defmodule AiurWeb.ConversationLiveTest do
     Ingest.append(ref, source(), [event(1)])
     assert :ok = flush(ref)
     {:ok, view, _} = open(ref)
-    path = Aiur.Conversation.Store.segment_path(dir, 1)
+    path = Store.segment_path(dir, 1)
     bytes = File.read!(path)
     File.write!(path, "broken\n")
     render_click(element(view, "button", "Latest entries"))
@@ -118,9 +118,9 @@ defmodule AiurWeb.ConversationLiveTest do
     {:ok, view, _} = open(ref)
     render_hook(view, "at_bottom", %{"value" => false})
     # Commit first, deliver later: the same boundary used by the journal writer.
-    entry = %Aiur.Conversation.Entry{pos: 101, session_seq: 1, role: "agent", kind: "message", body: "racing entry", observed_at: DateTime.utc_now()}
-    assert {:ok, head} = Aiur.Conversation.Store.append_entries(dir, state(ref).segment_state, [entry])
-    Aiur.Conversation.HeadTable.put(Ref.conversation_id(ref), dir, head)
+    entry = %Entry{pos: 101, session_seq: 1, role: "agent", kind: "message", body: "racing entry", observed_at: DateTime.utc_now()}
+    assert {:ok, head} = Store.append_entries(dir, state(ref).segment_state, [entry])
+    HeadTable.put(Ref.conversation_id(ref), dir, head)
     render_click(element(view, "button", "Load older"))
     send(view.pid, {:entries_appended, Ref.conversation_id(ref), [entry]})
     assert positions(render(view)) == Enum.to_list(1..101)

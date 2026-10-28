@@ -9,7 +9,7 @@ defmodule Aiur.Conversation.History do
   alias Aiur.AgentEventFeed
   alias Aiur.AgentLog
   alias Aiur.AgentLog.PageReader
-  alias Aiur.Conversation.{Anchors, HistoryAnchors, HistoryPage, HistoryReader, Ref}
+  alias Aiur.Conversation.{Anchors, HeadTable, HistoryAnchors, HistoryPage, HistoryReader, Ref}
   alias Aiur.LiveConversation
   alias Aiur.SecretRedactor
 
@@ -58,7 +58,7 @@ defmodule Aiur.Conversation.History do
   @spec degraded?(String.t()) :: boolean()
   def degraded?(id) do
     case HistoryReader.snapshot(id) do
-      {:ok, snapshot} -> Aiur.Conversation.HeadTable.degraded?(id, snapshot.dir)
+      {:ok, snapshot} -> HeadTable.degraded?(id, snapshot.dir)
       {:error, _} -> false
     end
   end

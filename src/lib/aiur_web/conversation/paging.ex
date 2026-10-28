@@ -67,30 +67,17 @@ defmodule AiurWeb.Conversation.Paging do
 
   defp append_fresh(socket, fresh) do
     head = List.last(fresh).pos
-    at_tail? = List.last(socket.assigns.positions, 0) == socket.assigns.live_head
-    socket = refresh_sessions(socket)
+    contiguous? = List.last(socket.assigns.positions, 0) == socket.assigns.live_head and hd(fresh).pos == socket.assigns.live_head + 1
     masked = Enum.map(fresh, &History.mask_for(&1, @opts))
-    # Mask broadcasts with the same principal policy as disk reads.
-    if at_tail? and hd(fresh).pos == socket.assigns.live_head + 1 do
-      positions = Enum.take(socket.assigns.positions ++ Enum.map(masked, & &1.pos), -500)
+    page = %{socket.assigns.page | head_pos: max(head, socket.assigns.page.head_pos), observed_at: DateTime.utc_now()}
+    socket = socket |> refresh_sessions() |> assign(live_head: head, last_entry: List.last(masked), page: page)
+    socket = if contiguous?, do: append_window(socket, masked), else: socket
+    socket |> count_new(length(fresh), contiguous?) |> present()
+  end
 
-      socket
-      |> insert(masked, :tail)
-      |> assign(
-        mode: :append,
-        positions: positions,
-        live_head: head,
-        page: %{socket.assigns.page | head_pos: max(head, socket.assigns.page.head_pos), observed_at: DateTime.utc_now()},
-        last_entry: List.last(masked)
-      )
-      |> count_new(length(fresh))
-      |> present()
-    else
-      socket
-      |> assign(live_head: head, last_entry: List.last(masked), page: %{socket.assigns.page | head_pos: max(head, socket.assigns.page.head_pos), observed_at: DateTime.utc_now()})
-      |> count_new(length(fresh), false)
-      |> present()
-    end
+  defp append_window(socket, entries) do
+    positions = Enum.take(socket.assigns.positions ++ Enum.map(entries, & &1.pos), -500)
+    socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions)
   end
 
   defp count_new(socket, count, at_tail? \\ true), do: assign(socket, :new_below, if(at_tail? and socket.assigns.at_bottom, do: 0, else: socket.assigns.new_below + count))
