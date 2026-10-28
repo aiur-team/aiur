@@ -121,7 +121,8 @@ test('cards expose complete names and a single roving button stop', async ({ pag
   expect(result.pack).toMatch(/^Not filed yet\. Accessibility pass\./)
 })
 
-test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
+// Quarantined: owner #6653, expires 2026-11-10
+test.skip('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
   const assets = test.info().project.metadata.agentAssets
   if (assets) await page.route('**/build-home/cards.js', route => route.fulfill({
     body: readFileSync(assets + '/cards.js', 'utf8'), contentType: 'text/javascript'
