@@ -2,7 +2,8 @@ defmodule Aiur.VoiceConversation do
   @moduledoc "Host configuration and lifecycle seam for the read-only Executor voice prototype."
 
   alias Aiur.Config
-  alias Aiur.VoiceConversation.{BriefingSource, Credentials, Provider}
+  alias Aiur.VoiceConversation.{Credentials, Provider}
+  alias Aiur.VoiceConverse.Host.{BriefingSource, CommandSource}
 
   @instance Aiur.VoiceConversation.Instance
   @limit_keys [:max_session_seconds, :idle_timeout_seconds, :daily_minutes_cap, :context_token_budget]
@@ -22,9 +23,10 @@ defmodule Aiur.VoiceConversation do
   def build_config(settings, transcript_root) do
     VoiceConverse.Config.new(
       name: @instance,
-      provider: provider(settings.agent_id),
+      provider: provider(settings),
       credentials: Credentials,
       briefing_source: BriefingSource,
+      command_source: CommandSource,
       transcript_root: transcript_root,
       llm: settings.llm,
       cloud_disclosure_accepted: settings.cloud_disclosure_accepted,
@@ -47,7 +49,7 @@ defmodule Aiur.VoiceConversation do
   def availability do
     with {:ok, config} <- config(),
          :ok <- VoiceConverse.availability(config),
-         {:ok, :present} <- Credentials.fetch(:elevenlabs_agents, :probe) do
+         {:ok, :present} <- Credentials.fetch(provider_id(config.provider), :probe) do
       :ok
     else
       {:error, :missing} -> {:unavailable, :missing_credentials}
@@ -70,6 +72,12 @@ defmodule Aiur.VoiceConversation do
   @spec end_session(String.t(), atom()) :: :ok | {:error, :not_found}
   def end_session(id, reason \\ :user_end), do: VoiceConverse.end_session(@instance, id, reason)
 
-  defp provider(nil), do: nil
-  defp provider(agent_id), do: {Provider, [agent_id: agent_id]}
+  defp provider(%{provider: :openai_realtime} = settings),
+    do: {Aiur.VoiceConversation.OpenAIProvider, [voice_id: settings.voice_id]}
+
+  defp provider(%{agent_id: nil}), do: nil
+  defp provider(%{agent_id: agent_id}), do: {Provider, [agent_id: agent_id]}
+
+  defp provider_id({module, _opts}), do: module.descriptor().id
+  defp provider_id(module), do: module.descriptor().id
 end
