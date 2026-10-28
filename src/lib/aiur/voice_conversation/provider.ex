@@ -16,6 +16,9 @@ defmodule Aiur.VoiceConversation.Provider do
   Do not claim delivery, execution or confirmation from a spoken acknowledgement.
   """
 
+  @spec prompt() :: String.t()
+  def prompt, do: @prompt
+
   @impl true
   defdelegate descriptor(), to: ElevenLabsAgents
   @impl true

@@ -38,6 +38,18 @@ defmodule Aiur.VoiceConversation.HostTest do
     assert details.parameters["properties"]["section"]["enum"] == ["transcript", "agents", "decisions"]
   end
 
+  test "selects OpenAI without an Agent id and keeps the shared read-only tools" do
+    changeset = Settings.changeset(%Settings{}, %{"provider" => "openai_realtime", "llm" => "gpt-realtime-2.1", "cloud_disclosure_accepted" => true, "voice_id" => "cedar"})
+    assert changeset.valid?
+    settings = Ecto.Changeset.apply_changes(changeset)
+    assert {:ok, config} = VoiceConversation.build_config(settings, "/tmp/voice-transcripts")
+    assert config.provider == {Aiur.VoiceConversation.OpenAIProvider, [voice_id: "cedar"]}
+    assert config.llm == "gpt-realtime-2.1"
+    assert Enum.map(VoiceConverse.Tools.specs(config, :executor), & &1.name) == ["get_status", "get_details", "record_summary", "end_conversation"]
+    assert VoiceConverse.availability(config) == :ok
+    refute Settings.changeset(%Settings{}, %{"provider" => "unknown"}).valid?
+  end
+
   test "an absent Agent id leaves the feature unavailable" do
     assert {:ok, config} = VoiceConversation.build_config(%Settings{}, "/tmp/voice-transcripts")
     assert config.provider == nil

@@ -224,7 +224,8 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 ### Executor voice prototype
 
 Open a conversation drawer and press **Talk to Executor** to start a continuous
-spoken session with the Executor through ElevenLabs Agents. The voice control
+spoken session through the configured ElevenLabs Agents or OpenAI Realtime
+provider. The voice control
 always targets the Executor, regardless of the worker shown in the drawer.
 
 The control shows not configured, connecting, live, ended or failed. Press
@@ -236,13 +237,13 @@ matching wake. **Received** confirms acknowledgment, not approval or execution.
 A missing acknowledgment stays visible; re-rendering the drawer or starting
 another session preserves earlier receipts. A failed handoff shows an error.
 
-The summary separates decisions, open questions and ideas. If the Agent did
+The summary separates decisions, open questions and ideas. If the assistant did
 not record one before ending, the drawer says **unstructured**; the transcript
 is still sent without inventing decisions.
 
 Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
-for configuration and the required ElevenLabs client tools.
+for provider configuration, credentials and ElevenLabs client-tool setup.
 
 ## Authentication and network exposure
 
