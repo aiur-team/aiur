@@ -30,7 +30,7 @@ Bucket 3, MP-N5, chunk C2. Rule module `Aiur.Push.Policy.Rules.Commands` (PROPOS
   subtitle = `<instance label> · #<ticket>` or `· Executor`, destination `target.kind:
   command` with `decision_id`, `ticket`, requester agent, `anchor_id` when E4 supplies it.
 - On a terminal slug for a Command that was pushed to that device (`answered`, `expired`,
-  `mooted`, `resolved`; slugs at `decision_store.ex:2633-2653`) → `command.resolved` with
+  `mooted`, `resolved`; slugs at `decision_store/requests.ex:357-381`) → `command.resolved` with
   `retracts: [nid of the needs_you (and of the reminder, if sent)]`, `urgency: normal`,
   same stream, next `seq` (2, or 3 after a reminder).
 - Never on `DecisionAttention` re-asks or routing epochs (`routed` with only
@@ -64,15 +64,20 @@ Bucket 3, MP-N5, chunk C2. Rule module `Aiur.Push.Policy.Rules.Commands` (PROPOS
 
 ## Verified starting point
 
-Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
+Path refresh at `3b00b8f2cd0bfc9acdffe3b07ee5f1c6ca2ab56a` (2026-10-27).
+See [plan §10](../plan.md#10-notification-policy-starting-point) for the complete
+mapping, topic catalog and integration gates. Historical `base_sha` is retained.
+All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
+`push-relay`; this refresh does not assert they shipped.
 
-- `Aiur.Decision` fields `authority`, `urgency (:low|:normal|:high|:critical)`, `blocking`,
-  `context.short_summary` (`src/lib/aiur/decision.ex:18-42,120-136`).
-- Durable decision topics require the durable path (`events/publisher.ex:57,188-193`).
-- Lifecycle slugs: `lifecycle_slug/1` (`decision_store.ex:2633-2653`): `answered`,
-  `expired`, `mooted`, `dismissed`, `deferred`, `resolved`, … . `dismissed`/`deferred`
-  still accept answers (command contract §6 rule 6) → **not** retraction triggers.
-- Re-ask interval 15 min (`decision_attention.ex:17`).
+- Public Command model: `src/lib/aiur/decision.ex:170-204`; `short_label` validation:
+  `src/lib/aiur/commands/event_data.ex:20`.
+- Catalog `src/lib/aiur/events/catalog/planned_entries.ex:13-28` and producer
+  `src/lib/aiur/commands/topics.ex:11-16` confirm the `.agent.` segment.
+- Lifecycle slugs moved to `src/lib/aiur/decision_store/requests.ex:349-381`;
+  `dismissed`/`deferred` still are not retraction triggers.
+- Re-ask default is `src/lib/aiur/decision_attention.ex:20` (15 min); attention
+  re-asks are excluded. These private sources are evidence, not imports.
 
 ## Chosen design
 
