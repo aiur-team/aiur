@@ -1,14 +1,7 @@
 defmodule AiurWeb.Streamdeck.Render.MeterDetail do
   @moduledoc "Pure account keys and provider summary for a meter detail frame."
-  alias AiurWeb.Streamdeck.Render
   alias AiurWeb.Streamdeck.Render.Svg
   import Svg, only: [element: 2, element: 3, text: 4, field: 2, field: 3]
-
-  @spec frame(map(), map(), integer(), non_neg_integer()) :: map()
-  def frame(detail, summary, now_ms, page \\ 0) do
-    {faces, regions} = compose(detail, summary, now_ms, page)
-    %{keys: Enum.map(faces, fn face -> if face, do: Render.key(face) end), strip: Render.strip(regions)}
-  end
 
   @spec compose(map(), map(), integer(), non_neg_integer()) :: {[map() | nil], [map()]}
   def compose(detail, summary, now_ms, page) do
