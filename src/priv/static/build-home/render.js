@@ -132,7 +132,7 @@ function renderSection(s, keep, keepL, focused) {
     if (!overlaps(it.y, it.h) && it.t.id !== focused) continue;
     const uid = s + ':' + it.t.id; keep.add(uid);
     let el = ctx.R.get(uid);
-    if (el && !el.classList.contains(cardDetail(it))) { el.remove(); el = null; }
+    if (el && !el.classList.contains(cardDetail(it)) && it.t.id !== focused) { el.remove(); el = null; }
     if (!el) { created = true; el = fx.makeCard(it); noanim(el); sec.layer.appendChild(el); ctx.R.set(uid, el); }
     el._it = it; place(el, it);
   }
