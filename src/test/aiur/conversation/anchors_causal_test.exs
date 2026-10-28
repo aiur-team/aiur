@@ -42,6 +42,45 @@ defmodule Aiur.Conversation.AnchorsCausalTest do
     assert :none = Anchors.causal(event, [%{command | body: "gh pr merge https://github.com/aiur-team/aiur/pull/43"}])
   end
 
+  for body <- ["git -C /repo push origin feature", "git -c core.quotepath=false push origin feature", "git -C '/repo with spaces' -c core.quotepath=false push origin feature"] do
+    test "push accepts repository options: #{body}", ctx do
+      assert_causal(ctx.event, %{ctx.command | body: unquote(body)})
+    end
+  end
+
+  for body <- ["gh pr merge --squash 42", "gh pr merge --auto --squash 42", "gh pr merge -R owner/repo 42", "gh pr merge --repo=owner/repo --squash 42"] do
+    test "merge reads positional target after flags: #{body}", ctx do
+      event = %{ctx.event | kind: "pr_merged", payload: %{pr: %{number: 42}}}
+      assert_causal(event, %{ctx.command | body: unquote(body), output: "Merged"})
+    end
+  end
+
+  test "merge body keys come only from its own positional target", ctx do
+    event = %{ctx.event | kind: "pr_merged", payload: %{pr: %{number: 42}}}
+
+    for body <- [
+          "gh pr view https://github.com/o/r/pull/42 && gh pr merge 43",
+          "gh pr merge 43; gh pr view https://github.com/o/r/pull/42",
+          "gh pr merge 43 | echo https://github.com/o/r/pull/42",
+          "gh pr merge 43\ngh pr view https://github.com/o/r/pull/42",
+          "gh pr merge 43 --body 'See https://github.com/o/r/pull/42'"
+        ] do
+      assert :none = Anchors.causal(event, [%{ctx.command | body: body, output: "Merged"}])
+    end
+
+    assert_causal(event, %{ctx.command | body: "gh pr view https://github.com/o/r/pull/43 && gh pr merge https://github.com/o/r/pull/42", output: "Merged"})
+    assert_causal(event, %{ctx.command | body: "gh pr merge 43; gh pr merge 42", output: "Merged"})
+    assert :none = Anchors.causal(event, [%{ctx.command | body: "gh pr view https://github.com/o/r/pull/42 && gh pr merge 43", output: "https://github.com/o/r/pull/42"}])
+    assert :none = Anchors.causal(event, [%{ctx.command | body: "gh pr merge --body 'unfinished", output: "https://github.com/o/r/pull/42"}])
+  end
+
+  test "malformed PR payloads safely return no causal match", ctx do
+    for kind <- ["pr_opened", "pr_merged"], key <- [:pr, :pull_request, "pr", "pull_request"], value <- ["x", [], 42] do
+      event = %{ctx.event | kind: kind, payload: %{key => value}}
+      assert :none = Anchors.causal(event, [%{ctx.command | body: "gh pr create; gh pr merge 42", output: "https://github.com/o/r/pull/42"}])
+    end
+  end
+
   test "only exit zero commands are causal", ctx do
     assert_causal(ctx.event, ctx.command)
     for code <- [1, nil, "0"], do: assert(:none = Anchors.causal(ctx.event, [%{ctx.command | meta: %{exit_code: code}}]))

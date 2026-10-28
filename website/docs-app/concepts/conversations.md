@@ -139,7 +139,12 @@ merges match the PR number in a URL or merge command. The latest matching
 command wins; missing keys fall back to observed placement.
 
 The same event can be observed in a worker conversation and causal in an
-existing Executor conversation.
+existing Executor conversation. Worker events without a matching Executor
+command do not add Executor jump points.
+
+Git `-C`/`-c` options and merge flags are supported. Merge body keys come from
+the merge command's first positional target; a targetless merge can match its
+output URL. PR number matching does not verify repository identity.
 
 Missing tool provenance, unavailable timestamps, events outside a known
 session, and gaps in recording can prevent a position. An approximate anchor

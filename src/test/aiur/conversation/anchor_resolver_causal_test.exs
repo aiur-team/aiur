@@ -34,6 +34,26 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
     assert executor["event"]["event_id"] == 1
   end
 
+  test "unmatched Executor gets no anchor for worker push or PR events", ctx do
+    command(ctx, ctx.worker, "git status", "On branch unrelated")
+    command(ctx, Ref.executor(), "git status", "On branch unrelated")
+
+    for {suffix, payload} <- [
+          {"branch.push", %{sha: "abcdef1234567890", ref: "refs/heads/feature"}},
+          {"pr.opened", %{pr: %{"number" => 42}}},
+          {"pr.merged", %{pr: %{"number" => 42}}}
+        ] do
+      publish(ctx, suffix, payload)
+      assert anchors(Ref.executor()) == []
+    end
+
+    assert Enum.map(anchors(ctx.worker), &{&1["kind"], &1["precision"], &1["pos"]}) == [
+             {"push", "observed", 2},
+             {"pr_opened", "observed", 2},
+             {"pr_merged", "observed", 2}
+           ]
+  end
+
   test "webhook opened PR shape retains its key through the resolver", ctx do
     command(ctx, ctx.worker, "gh pr create --draft", "https://github.com/aiur-team/aiur/pull/42")
     publish(ctx, "pr.opened", %{action: "opened", pr: %{"number" => 42, "head" => %{"sha" => "abc"}}, timestamp: ctx.now})
@@ -45,6 +65,18 @@ defmodule Aiur.Conversation.AnchorResolverCausalTest do
     command(ctx, Ref.executor(), "git push", "1234567..abcdef1 feature -> feature")
     publish(ctx, "branch.push", %{sha: "abcdef1234567890", ref: "refs/heads/feature"}, "late-source")
     assert [%{"precision" => "causal", "pos" => 1}] = anchors(Ref.executor())
+    Ingest.append(Ref.executor(), source(), [%{role: "tool", msg_id: "late-source", body: "push", timestamp: ctx.now, payload: %{tool: "push", tool_call_id: "late-source"}}])
+    assert :ok = flush(Ref.executor())
+    :sys.get_state(ctx.resolver)
+    assert :ok = flush(Ref.executor())
+    assert [%{"precision" => "exact", "pos" => 3}] = anchors(Ref.executor())
+  end
+
+  test "unmatched Executor keeps pending exact provenance without an observed anchor", ctx do
+    command(ctx, ctx.worker, "git push", "1234567..abcdef1 feature -> feature")
+    command(ctx, Ref.executor(), "git status", "On branch unrelated")
+    publish(ctx, "branch.push", %{sha: "abcdef1234567890", ref: "refs/heads/feature"}, "late-source")
+    assert anchors(Ref.executor()) == []
     Ingest.append(Ref.executor(), source(), [%{role: "tool", msg_id: "late-source", body: "push", timestamp: ctx.now, payload: %{tool: "push", tool_call_id: "late-source"}}])
     assert :ok = flush(Ref.executor())
     :sys.get_state(ctx.resolver)

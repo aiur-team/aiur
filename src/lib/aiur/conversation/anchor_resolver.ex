@@ -151,20 +151,24 @@ defmodule Aiur.Conversation.AnchorResolver do
     resolve_executor(state, ref, event)
   end
 
-  defp resolve_anchor(state, ref, event, entries, sessions) do
+  defp resolve_anchor(state, ref, event, entries, sessions, fallback \\ :observed) do
     case Anchors.exact(event, entries) do
       {:ok, anchor} ->
         Ingest.anchor(ref, anchor)
         unsubscribe_if_empty(state, event.conversation_id)
 
       :none ->
-        {:ok, anchor} =
+        result =
           case Anchors.causal(event, entries) do
-            :none -> Anchors.position(event, entries, sessions)
+            :none when fallback == :observed -> Anchors.position(event, entries, sessions)
             result -> result
           end
 
-        Ingest.anchor(ref, anchor)
+        case result do
+          {:ok, anchor} -> Ingest.anchor(ref, anchor)
+          :none -> :ok
+        end
+
         pending(state, ref, event)
     end
   end
@@ -177,7 +181,7 @@ defmodule Aiur.Conversation.AnchorResolver do
       {:ok, [_ | _]} ->
         state = subscribe(state, Ref.conversation_id(ref))
         {entries, sessions} = window(ref)
-        resolve_anchor(state, ref, %{event | conversation_id: Ref.conversation_id(ref)}, entries, sessions)
+        resolve_anchor(state, ref, %{event | conversation_id: Ref.conversation_id(ref)}, entries, sessions, :none)
 
       _ ->
         state

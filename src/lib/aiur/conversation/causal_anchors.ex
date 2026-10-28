@@ -2,10 +2,27 @@ defmodule Aiur.Conversation.CausalAnchors do
   @moduledoc false
 
   @rules %{
-    "push" => {~r/(^|[;&|(]\s*|\s)git\s+push\b/, :push},
+    "push" => {~r/(^|[;&|(]\s*|\s)git\s+(?:(?:-C|-c)\s+(?:"[^"]*"|'[^']*'|[^\s;&|\n]+)\s+)*push\b/, :push},
     "pr_opened" => {~r/\bgh\s+pr\s+create\b/, :opened},
     "pr_merged" => {~r/\bgh\s+pr\s+merge\b/, :merged}
   }
+
+  @merge_flags [
+    admin: :boolean,
+    auto: :boolean,
+    author_email: :string,
+    body: :string,
+    body_file: :string,
+    delete_branch: :boolean,
+    disable_auto: :boolean,
+    match_head_commit: :string,
+    merge: :boolean,
+    rebase: :boolean,
+    repo: :string,
+    squash: :boolean,
+    subject: :string
+  ]
+  @merge_aliases [A: :author_email, b: :body, F: :body_file, d: :delete_branch, m: :merge, r: :rebase, R: :repo, s: :squash, t: :subject]
 
   @spec command(map(), [map()]) :: map() | nil
   def command(event, entries) do
@@ -67,10 +84,37 @@ defmodule Aiur.Conversation.CausalAnchors do
   defp key_match?(kind, event, body, output) do
     pr = field(event, :pr) || field(event, :pull_request) || %{}
     number = field(pr, :number)
-    urls = Regex.scan(~r{/pull/(\d+)\b}, if(kind == :merged, do: output <> "\n" <> body, else: output))
-    keys = if kind == :merged, do: urls ++ Regex.scan(~r/\bgh\s+pr\s+merge\s+#?(\d+)\b/, body), else: urls
+    keys = if kind == :merged, do: merge_keys(body, output), else: url_keys(output)
     is_integer(number) && Enum.any?(keys, fn [_, key] -> String.to_integer(key) == number end)
   end
+
+  defp merge_keys(body, output) do
+    body
+    |> String.split(~r/[;&|\n]/, trim: true)
+    |> Enum.flat_map(&merge_target/1)
+    |> Enum.flat_map(fn
+      :output -> url_keys(output)
+      target -> Regex.scan(~r/^#?(\d+)$/, target) ++ url_keys(target)
+    end)
+  end
+
+  defp merge_target(segment) do
+    case Regex.run(~r/\bgh\s+pr\s+merge\b(.*)/, segment) do
+      [_, args] ->
+        case OptionParser.parse(OptionParser.split(args), strict: @merge_flags, aliases: @merge_aliases) do
+          {_, [], []} -> [:output]
+          {_, [target], []} -> [target]
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  rescue
+    _error in [ArgumentError, RuntimeError] -> []
+  end
+
+  defp url_keys(text), do: Regex.scan(~r{/pull/(\d+)\b}, text)
 
   defp in_window?(value, time) do
     case instant(value) do
@@ -89,5 +133,6 @@ defmodule Aiur.Conversation.CausalAnchors do
   end
 
   defp instant(_), do: nil
-  defp field(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp field(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp field(_, _), do: nil
 end
