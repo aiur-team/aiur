@@ -6,31 +6,32 @@ defmodule AiurWeb.Streamdeck.Render.Settings do
 
   @spec frame(map(), map(), map(), String.t() | nil) :: map()
   def frame(menu, settings, devices, toast) do
-    choices =
-      if is_nil(menu.section) do
-        Enum.map(SettingsMenu.sections(), fn {section, label} -> %{label: label, detail: SettingsMenu.summary(section, settings, devices)} end)
-      else
-        Enum.map(SettingsMenu.choices(menu.section, settings, devices), &Map.put(&1, :detail, if(&1.value == settings[menu.section], do: "Selected", else: "Choose")))
-      end
+    choices = choices(menu, settings, devices)
+    %{keys: keys(menu, choices), strip: strip(menu, choices, toast)}
+  end
 
+  defp choices(%{section: nil}, settings, devices) do
+    Enum.map(SettingsMenu.sections(), fn {section, label} -> %{label: label, detail: SettingsMenu.summary(section, settings, devices)} end)
+  end
+
+  defp choices(menu, settings, devices) do
+    Enum.map(SettingsMenu.choices(menu.section, settings, devices), &Map.put(&1, :detail, if(&1.value == settings[menu.section], do: "Selected", else: "Choose")))
+  end
+
+  defp keys(menu, choices) do
     page = if is_nil(menu.section), do: 0, else: div(menu.cursor, 8)
 
-    keys =
-      Enum.map(0..7, fn physical ->
-        index = page * 8 + rem(physical, 4) * 2 + div(physical, 4)
+    Enum.map(0..7, fn physical ->
+      index = page * 8 + rem(physical, 4) * 2 + div(physical, 4)
+      key(Enum.at(choices, index), index == menu.cursor)
+    end)
+  end
 
-        case Enum.at(choices, index) do
-          nil -> nil
-          item -> key(item, index == menu.cursor)
-        end
-      end)
+  defp strip(menu, choices, toast) do
+    title = title(menu.section)
+    status = toast || status(menu, choices)
 
-    title = if is_nil(menu.section), do: "Settings", else: Enum.find_value(SettingsMenu.sections(), fn {key, name} -> if key == menu.section, do: name end)
-    selected = Enum.at(choices, menu.cursor)
-    label = if selected, do: selected.label, else: "No devices"
-    status = toast || if(is_nil(menu.section), do: "Choose section", else: "#{menu.cursor + 1}/#{length(choices)} · #{label}")
-
-    regions = [
+    Render.strip([
       %{
         x: 0,
         width: 800,
@@ -41,10 +42,16 @@ defmodule AiurWeb.Streamdeck.Render.Settings do
           %{kind: :text_line, text: "Dial 1: scroll / press select · Hold dial 4: back", y: 82, size: 11}
         ]
       }
-    ]
-
-    %{keys: keys, strip: Render.strip(regions)}
+    ])
   end
+
+  defp title(nil), do: "Settings"
+  defp title(section), do: SettingsMenu.sections() |> List.keyfind(section, 0) |> elem(1)
+  defp status(%{section: nil}, _choices), do: "Choose section"
+  defp status(menu, choices), do: "#{menu.cursor + 1}/#{length(choices)} · #{choice_label(Enum.at(choices, menu.cursor))}"
+  defp choice_label(nil), do: "No devices"
+  defp choice_label(choice), do: choice.label
+  defp key(nil, _focused), do: nil
 
   defp key(item, focused) do
     style = Style.state("paused")
