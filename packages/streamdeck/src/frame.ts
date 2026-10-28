@@ -25,6 +25,7 @@ export function offlineFrame(): DeckFrame {
 /** Serializes complete frames; cache state is committed only after device writes. */
 export class FrameRenderer {
   private backend: HidBackend | null = null;
+  private failedBackend: HidBackend | null = null;
   private readonly keys = new KeyCache();
   private readonly panels = new PanelCache();
   private keyHashes: (string | null)[] = [];
@@ -70,8 +71,10 @@ export class FrameRenderer {
       edge += region.width;
     }
     if (edge !== 800) throw new Error("Frame strip must tile 800 pixels");
+    if (backend === this.failedBackend) throw new Error("Frame backend failed; reconnect before repainting");
     if (backend !== this.backend) {
       this.backend = backend;
+      this.failedBackend = null;
       this.invalidate();
     }
     const queue = new KeyWriteQueue(async (report) => {
@@ -97,6 +100,7 @@ export class FrameRenderer {
       this.keyHashes = frame.keys.map((image) => image?.hash ?? null);
       this.stripHashes = hashes;
     } catch (error) {
+      this.failedBackend = backend;
       this.invalidate();
       throw error;
     }

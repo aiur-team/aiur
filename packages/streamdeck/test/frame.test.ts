@@ -68,7 +68,10 @@ describe("daemon frame rasterization", () => {
       device.write.mockImplementationOnce(async () => { if (phase === "key") throw new Error("unplug"); });
       if (phase === "strip") device.sendFeatureReport.mockRejectedValueOnce(new Error("unplug"));
       await expect(apply(renderer, device, frame())).rejects.toThrow("unplug");
-      await apply(renderer, device, frame());
+      const count = device.writes.length;
+      await expect(apply(renderer, device, frame())).rejects.toThrow("reconnect");
+      expect(device.writes).toHaveLength(count);
+      await apply(renderer, { ...device }, frame());
       expect(device.writes.some((r) => r[1] === 7)).toBe(true);
       expect(device.features).toHaveLength(7);
     }
@@ -81,7 +84,7 @@ describe("daemon frame rasterization", () => {
     await expect(apply(renderer, device, frame("blue"))).rejects.toThrow();
     device.write.mockImplementation(async (data: Uint8Array) => { device.writes.push(Buffer.from(data)); });
     device.writes.length = 0;
-    await apply(renderer, device, frame("blue"));
+    await apply(renderer, { ...device }, frame("blue"));
     expect(device.writes.some((r) => r[1] === 12)).toBe(true);
   });
 
