@@ -4,7 +4,8 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
   import AiurWeb.Components.VoiceInput
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    if params["command"] == "true", do: Phoenix.Config.put(AiurWeb.Endpoint, :decision_store, Aiur.BrowserHarness.CommandAnswerFixture.store_name())
     Phoenix.Config.put(AiurWeb.Endpoint, :capabilities_report_fun, fn -> %{capabilities: %{"voice.stt" => %{state: :available}}} end)
     Phoenix.Config.put(AiurWeb.Endpoint, :voice_target_payload_fun, fn -> %{fleet: %{running: [%{issue_identifier: "1110"}]}} end)
 
