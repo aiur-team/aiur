@@ -29,8 +29,8 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
   defp region({x, text}), do: %{x: x, width: 200, label: text, parts: [%{kind: :text_line, text: text, y: 50, size: 12}]}
   defp faces(keys, %{stack: []}), do: keys
 
-  defp faces(keys, %{stack: [{:state, states} | _rest]} = nav) do
-    category = Enum.find(keys, %{}, &(field(&1, :states) == states))
+  defp faces(keys, %{stack: [{:fleet, id} | _rest]} = nav) do
+    category = Enum.find(keys, %{}, &(field(&1, :id) == id))
     Enum.slice(field(category, :tickets) || [], Nav.page(nav) * 8, 8)
   end
 

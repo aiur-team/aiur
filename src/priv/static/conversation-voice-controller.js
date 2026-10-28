@@ -13,7 +13,6 @@
       this.bindElements();
       this.seenReplies = new Set(this.replyElements().map((element) => element.id));
       this.drawWaveform();
-
       if (!window.isSecureContext) {
         this.disable("Microphone access requires HTTPS or localhost. This dashboard origin is not secure.");
       } else if (
@@ -30,7 +29,6 @@
       const mic = this.hook.el.querySelector("[data-voice-mic]");
       const conversation = this.hook.el.querySelector("[data-voice-conversation]");
       const device = this.hook.el.querySelector("[data-voice-device]");
-
       this.mic = mic;
       this.choice.bind();
       if (conversation !== this.conversation) {
@@ -43,7 +41,6 @@
         this.device = device;
         this.device?.addEventListener("change", this.onDeviceChange);
       }
-
       this.input = this.hook.el.querySelector("[data-voice-input]");
       this.send = this.hook.el.querySelector("[data-voice-send]");
       this.canvas = this.hook.el.querySelector("[data-voice-waveform]");
@@ -109,9 +106,7 @@
 
     async refreshDevices() {
       if (!this.device || !navigator.mediaDevices?.enumerateDevices) return;
-
       const selected = window.AiurVoiceCapture.recalledDevice();
-
       try {
         const microphones = await window.AiurVoiceCapture.listMicrophones();
         const options = [{ deviceId: "", label: "Default microphone" }, ...microphones];
@@ -135,7 +130,7 @@
     }
 
     async start(mode = "dictation") {
-      if (this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic || !this.input) return;
+      if (this.starting || this.recording || this.finishing || this.awaitingReply || this.speaking || this.conversationActive || !this.mic || (!this.input && !this.hook.prepareVoiceInput)) return;
       const generation = this.generation + 1;
       this.generation = generation;
       this.starting = true;
@@ -145,6 +140,9 @@
       this.setStatus("Requesting microphone permission…");
 
       try {
+        await this.hook.prepareVoiceInput?.();
+        if (!this.current(generation) || !this.input || this.input.disabled) return;
+        this.limitReached = false;
         if (mode === "conversation") {
           // Browsers generally require audio playback to be unlocked by a user
           // gesture. Create and resume the reply context while this click is
@@ -212,7 +210,7 @@
             if (this.captureMode === "conversation") {
               this.submitConversationTurn();
             } else {
-              this.setStatus("Dictation ready. Review the text, then press Send.");
+              this.setStatus(this.readyCopy());
               this.closeChannel();
             }
             this.syncElements();
@@ -298,7 +296,18 @@
       if (payload.kind === "final") this.baseText = this.joinText(this.baseText, text);
       this.input.value = this.joinText(this.baseText, payload.kind === "final" ? "" : text);
       this.input.dispatchEvent(new Event("input", { bubbles: true }));
-      if (payload.kind === "final" && this.captureMode !== "conversation") this.setStatus("Dictation ready. Review the text, then press Send.");
+      if (this.input.maxLength > 0 && this.input.value.length >= this.input.maxLength) {
+        this.stop();
+        this.limitReached = true;
+        this.setStatus(this.readyCopy());
+        this.syncElements();
+      }
+      if (payload.kind === "final" && this.captureMode !== "conversation") this.setStatus(this.readyCopy());
+    }
+
+    readyCopy() {
+      return this.limitReached ? "Response limit reached. Edit the text before recording your answer." :
+        (this.hook.el.dataset.voiceReadyCopy || "Dictation ready. Review the text, then press Send.");
     }
 
     submitConversationTurn() {

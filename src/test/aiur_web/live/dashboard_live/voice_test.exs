@@ -22,17 +22,17 @@ defmodule AiurWeb.DashboardLive.VoiceTest do
 
     report_fun = fn ->
       stt = Agent.get(reports, & &1)
-      %{capabilities: %{"voice.stt" => stt, "voice.tts" => stt, "streamdeck" => %{state: :available}}}
+      %{capabilities: %{"voice.stt" => stt, "voice.tts" => stt, "voice.conversation" => stt, "streamdeck" => %{state: :available}}}
     end
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, capabilities_report_fun: report_fun)
     {:ok, view, _html} = live(build_conn(), "/units")
-    assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured}
+    assert voice_capabilities(view) == %{"voice.stt" => unconfigured, "voice.tts" => unconfigured, "voice.conversation" => unconfigured}
 
     Agent.update(reports, fn _ -> %{state: :available} end)
     send(view.pid, :elevenlabs_quota_tick)
     _rendered = render(view)
-    assert voice_capabilities(view) == %{"voice.stt" => %{state: :available}, "voice.tts" => %{state: :available}}
+    assert voice_capabilities(view) == %{"voice.stt" => %{state: :available}, "voice.tts" => %{state: :available}, "voice.conversation" => %{state: :available}}
   end
 
   test "an unreadable registry leaves voice capabilities empty rather than guessing" do

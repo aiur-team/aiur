@@ -6,7 +6,7 @@ import type { TranscriptRow } from "../src/channel.js";
 import { MIC_KEY_INDICES, settingsView } from "../src/settings.js";
 import { VOICE_WAVEFORM_COLUMNS } from "../src/voicePanel.js";
 import { createRasterizer } from "../src/rasterizer.js";
-import { KEY_FACE_CONTRACT } from "../src/key-face-contract.js";
+import { LEGACY_STYLE } from "../src/legacy-style.js";
 import type { StreamDeckCommand } from "../src/channel.js";
 
 const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body, tool: null });
@@ -203,7 +203,7 @@ describe("descriptorCommands", () => {
 
   it("wears the shared contract's alert accent rather than a colour of its own", () => {
     const [, , , , key] = layoutPhysicalKeys(descriptorCommands(agent, false, false, 2));
-    expect(key.kind === "agent" && key.style.accent).toBe(KEY_FACE_CONTRACT.states.alert.accent);
+    expect(key.kind === "agent" && key.style.accent).toBe(LEGACY_STYLE.states.alert.accent);
   });
 
   it("ignores a negative or fractional count rather than painting nonsense", () => {

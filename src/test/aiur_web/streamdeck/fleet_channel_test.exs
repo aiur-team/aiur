@@ -44,19 +44,20 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     assert_push("frame", %{keys: [ci | rest]})
     assert ci.svg =~ "CI ticket"
     assert rest == List.duplicate(nil, 7)
-    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:state, ["ci_wait"]}]
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:fleet, "ci_wait"}]
     ref = push(socket, "input", %{"kind" => "key_press", "index" => 0})
     assert_reply(ref, :ok, %{"view" => "fleet"})
     flush_frame(socket)
     assert_push("frame", _selected)
     ref = push(socket, "input", %{"kind" => "dial_turn", "index" => 1, "ticks" => -1})
-    assert_reply(ref, :error, %{reason: "disabled", frame: %{keys: [ci | rest], strip: strip}})
+    assert_reply(ref, :error, %{reason: "disabled"} = reply)
+    refute Map.has_key?(reply, :frame)
+    flush_frame(socket)
+    assert_push("frame", %{keys: [ci | rest], strip: strip})
     assert ci.svg =~ "CI ticket"
     assert rest == List.duplicate(nil, 7)
     assert hd(strip).svg =~ "queue disabled"
     assert Enum.at(strip, 1).svg =~ "Capacity — stale"
-    flush_frame(socket)
-    assert_push("frame", _feedback)
     ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
     assert_reply(ref, :ok, %{"view" => "ticket"})
     flush_frame(socket)

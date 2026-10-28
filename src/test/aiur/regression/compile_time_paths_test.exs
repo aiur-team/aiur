@@ -118,13 +118,6 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur/heroicons.ex" => [
       "@external_resource path"
     ],
-    # The Stream Deck key-face contract is authored once in daemon priv and
-    # mirrored by the sidecar, and embedded into the web emulator at
-    # compile time via File.read!/1. Nothing reads @contract_path at runtime.
-    "aiur_web/streamdeck_key_face_contract.ex" => [
-      "@contract_path Path.expand(\"../../priv/streamdeck/key-face-contract.json\", __DIR__)",
-      "@external_resource Path.relative_to(@contract_path, File.cwd!(), force: true)"
-    ],
     # These schema files use compile-time resources only to invalidate structs
     # whose nested embed defaults are copied into their parents.
     "aiur/config/schema.ex" => [

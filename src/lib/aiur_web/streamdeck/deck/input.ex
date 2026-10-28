@@ -22,7 +22,6 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
     kind = if nav.stack == [], do: nav.view, else: :ticket
 
     case Enum.at(items(nav, sections), Nav.page(nav) * 8 + index) do
-      %{states: states} when kind == :fleet -> {:state, states}
       %{id: id} when is_binary(id) -> {kind, id}
       _empty -> nil
     end
@@ -30,10 +29,6 @@ defmodule AiurWeb.Streamdeck.Deck.Input do
 
   defp target(_nav, _input, _sections), do: nil
   defp items(%{stack: [], view: view}, sections), do: Map.get(sections, view, [])
-
-  defp items(%{stack: [{:state, states} | _rest]}, sections) do
-    sections |> Map.get(:fleet, []) |> Enum.find(%{}, &(&1.states == states)) |> Map.get(:tickets, [])
-  end
 
   defp items(%{stack: [{view, id} | _rest]}, sections) do
     sections |> Map.get(view, []) |> Enum.find(%{}, &(&1.id == id)) |> Map.get(:tickets, [])

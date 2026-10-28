@@ -72,7 +72,7 @@ and jump-point precision.
 | Composer | A writable dashboard sends typed text to the selected agent. |
 | Microphone | Opens a Dictate / Converse chooser without requesting microphone access. Dictate transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
 | Waveform | Confirms the browser is receiving audio. |
-| Spoken conversation | A separate half-duplex control: press, speak, press again; settled text is sent through the ordinary composer and enters the ticket transcript. |
+| Spoken conversation | Legacy **Start interactive voice chat** control: press, speak, press again; settled text is sent automatically through the composer and enters the ticket transcript. Hidden when the assistant conversation capability is available or degraded; the assistant replaces this mode. |
 | Spoken reply | Aiur streams ElevenLabs text-to-speech audio back to the browser when the agent replies. |
 | Converse | Shown disabled with its reason until the assistant conversation capability is available. It is separate from legacy spoken conversation. |
 | Device selection | In the settings popover next to the mic. Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |

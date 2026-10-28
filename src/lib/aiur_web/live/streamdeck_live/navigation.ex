@@ -1,5 +1,5 @@
 defmodule AiurWeb.StreamdeckLive.Navigation do
-  @moduledoc "Adapt legacy emulator events while its existing rendering remains in use."
+  @moduledoc "Adapt legacy browser selection and paging without cycling its non-grid modes."
   import Phoenix.Component, only: [assign: 2, assign: 3]
   alias AiurWeb.Streamdeck.Deck
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
@@ -19,13 +19,17 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   end
 
   defp frame(_socket, "dial-press", params, _sections),
-    do: %{"kind" => "dial_press", "index" => integer(params["index"], 3)}
+    do: %{"kind" => "dial_turn", "index" => integer(params["index"], 3), "ticks" => 0}
 
   defp frame(_socket, "dial-long-press", params, _sections),
     do: %{"kind" => "dial_long_press", "index" => integer(params["index"], 3)}
 
   defp frame(_socket, "dial-turn", params, _sections),
-    do: %{"kind" => "dial_turn", "index" => integer(params["index"], -1), "ticks" => integer(params["ticks"], 0)}
+    do: %{
+      "kind" => "dial_turn",
+      "index" => integer(params["index"], -1),
+      "ticks" => integer(params["ticks"], 0)
+    }
 
   # The legacy hook emits this before dial-press for the same physical press.
   defp frame(_socket, "grid-page", %{"action" => "cycle"}, _sections),
@@ -34,16 +38,25 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   defp frame(socket, "grid-page", params, _sections) do
     ticks =
       cond do
-        Map.has_key?(params, "page") -> integer(params["page"], socket.assigns.grid_page) - socket.assigns.grid_page
-        Map.has_key?(params, "value") -> sign(integer(params["value"], 0) - socket.assigns.grid_dial_value)
-        true -> 1
+        Map.has_key?(params, "page") ->
+          integer(params["page"], socket.assigns.grid_page) - socket.assigns.grid_page
+
+        Map.has_key?(params, "value") ->
+          sign(integer(params["value"], 0) - socket.assigns.grid_dial_value)
+
+        true ->
+          1
       end
 
     %{"kind" => "dial_turn", "index" => 3, "ticks" => max(-32, min(32, ticks))}
   end
 
   defp frame(_socket, "logs-scroll", params, _sections),
-    do: %{"kind" => "dial_turn", "index" => if(params["axis"] == "events", do: 3, else: 0), "ticks" => integer(params["delta"], 0)}
+    do: %{
+      "kind" => "dial_turn",
+      "index" => if(params["axis"] == "events", do: 3, else: 0),
+      "ticks" => integer(params["delta"], 0)
+    }
 
   defp frame(socket, "key-press", params, sections) do
     nav = socket.assigns.deck_nav
@@ -53,6 +66,12 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   end
 
   # Legacy final windows overlap; resolve their identifier before page-of-eight indexing.
+  defp key_nav(nav, "grid-page", %{"action" => "cycle"}, sections) do
+    size = length(Map.get(sections, nav.view, []))
+    page = rem(Nav.page(nav) + 1, max(ceil(size / 8), 1))
+    %{nav | pages: Map.put(nav.pages, nav.view, page)}
+  end
+
   defp key_nav(%{view: :ticket, stack: []} = nav, "key-press", %{"identifier" => id}, sections) do
     case Enum.find_index(sections.ticket, &(&1.id == id)) do
       nil -> nav
