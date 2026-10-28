@@ -4,7 +4,7 @@ defmodule AiurWeb.StreamdeckLive.Input do
   alias AiurWeb.Streamdeck.{Deck, FrameUpdates}
   alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.StreamdeckLive
-  alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Modes, Surface}
+  alias AiurWeb.StreamdeckLive.{ChatFocus, Grid, Surface}
 
   @spec handle(map(), Phoenix.LiveView.Socket.t()) :: {:noreply, Phoenix.LiveView.Socket.t()}
   def handle(%{"kind" => "dial", "index" => index, "action" => "turn", "delta" => delta}, socket)
@@ -57,16 +57,6 @@ defmodule AiurWeb.StreamdeckLive.Input do
         total = if nav.stack == [], do: sizes[nav.view], else: sizes.drill
         dial_value = Surface.dial_value_from_offset(Nav.page(nav) * 4, total)
         socket = Grid.assign_grid(socket, socket.assigns.grid, 0, socket.assigns.usage, dial_value)
-
-        socket =
-          Enum.reduce(effects, socket, fn
-            {:open_ticket, identifier}, socket ->
-              params = %{"identifier" => identifier}
-              socket |> Modes.select_agent_from_params(params) |> Modes.enter_cmd(params)
-
-            _effect, socket ->
-              socket
-          end)
 
         {:noreply, socket}
 
