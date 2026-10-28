@@ -8,7 +8,7 @@ defmodule AiurWeb.Streamdeck.UsageUpdates do
   def schedule(%{assigns: %{usage_flush: nil}} = socket) do
     token = make_ref()
     Process.send_after(self(), {:flush_usage, token}, 250)
-    socket |> assign(:usage_flush, token) |> StreamdeckFleetUpdates.schedule()
+    {:noreply, assign(socket, :usage_flush, token)}
   end
 
   def schedule(socket), do: {:noreply, socket}
@@ -17,7 +17,7 @@ defmodule AiurWeb.Streamdeck.UsageUpdates do
   def flush(%{assigns: %{usage_flush: token}} = socket, token) when is_reference(token) do
     usage = Meters.read()
     Phoenix.Channel.push(socket, "usage", usage)
-    {:noreply, socket |> assign(:deck_usage, usage) |> assign(:usage_flush, nil)}
+    socket |> assign(:deck_usage, usage) |> assign(:usage_flush, nil) |> StreamdeckFleetUpdates.schedule()
   end
 
   def flush(socket, _old_token), do: {:noreply, socket}
