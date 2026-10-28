@@ -165,6 +165,18 @@ The deck socket routes only `streamdeck:fleet` today. There is no
 #4142, #4145 and #5729 describe proposed APIs. A legacy topic called
 `voice:conversation` on `VoiceSocket` is not the proposed `voice:converse`.
 
+Newer reuse target: `packages/elixir/voice_converse/lib/voice_converse.ex`
+already exposes `start_session/3`, `push_audio/3`, `confirm_draft/4` and
+`end_session/3`. Its `Ports.BriefingSource` (`brief/1`, `alive?/1`) and
+`Ports.AgentChannel` (`instruct/4`, `ask/4`) are natural remote host adapters;
+`Ports.Credentials.fetch/2` keeps secrets at the broker. Its standalone
+`Transport.WebSock` and `Wire.decode/1` use a versioned protocol, not the old
+Phoenix topic contract. `Providers.ElevenLabsAgents` delegates to a concrete
+provider, while registry entries alone do not prove an OpenAI implementation.
+No host wiring referencing `VoiceConverse` was found in `src/lib` or
+`src/config`. Reuse this core after checking its host ports; absence of the
+planned Phoenix channel does not mean conversation primitives are missing.
+
 | Placement | Credential and context boundary | Assessment |
 | --- | --- | --- |
 | Local sidecar calls provider | Key or ephemeral provider authorization on client; client becomes orchestrator | Avoid; bypasses daemon voice ownership and duplicates policy |
@@ -192,7 +204,7 @@ to the deck. ElevenLabs STT still needs an assistant/context and reply-synthesis
 path. An OpenAI speech-to-speech choice could put response/turn management in
 the provider session, requiring an adapter that preserves draft confirmation,
 interruption and the canonical target history. This is a design implication,
-not an assertion that either provider adapter is implemented. Negotiate format
+not proof of deck integration. Negotiate format
 and sample rate; `audio/node-playback.ts` currently defaults to 44.1 kHz.
 No latency saving or comparative benchmark is claimed.
 
@@ -295,7 +307,9 @@ Worker-ready slices for the existing owners:
    do not rebuild the redesigned renderer. Test colliding IDs and delayed
    answers. Non-voice read/control work starts now; priority is additive only
    when an explicit server action exists. Docs: channel contract and guide.
-4. **SD-407: brokered voice integration.** Inputs: Kevin's provider/Q4 answer,
+4. **SD-407: brokered voice integration.** Reuse `VoiceConverse` and add remote
+   host ports instead of another session core; choose its versioned transport
+   or the planned Phoenix adapter explicitly. Inputs: Kevin's provider/Q4 answer,
    #4142/#4145 conversation/interruption contract and a device-authority path
    equivalent to #5729, plus slices 1–3. Mobile pairing is not required merely
    to authenticate a deck; adapt bearer-derived deck authority rather than
