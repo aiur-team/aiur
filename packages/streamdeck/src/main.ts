@@ -27,308 +27,38 @@ import { loadInstances } from "./instances.js";
 import { createInstanceSwitcher } from "./instance-switcher.js";
 import { guardChannelEvents } from "./instance-events.js";
 import { parseBrightness } from "./device-path.js";
-import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs, type StreamDeckChannel } from "./channel.js";
+import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckChannel } from "./channel.js";
 import type { HidBackend } from "./backend.js";
-import { preloadVendorMarks } from "./art/vendorMark.js";
-import { advanceDemoGrid, advanceDemoLogs, demoGrid, demoLogs, demoUsage } from "./demo.js";
-import { startRuntime } from "./runtime.js";
-import type { Runtime } from "./runtime.js";
-import { createPhysicalSurface } from "./surface.js";
+import { FrameRenderer, offlineFrame, registerFrameFont, type DeckFrame } from "./frame.js";
+import { createFrameInput } from "./frame-input.js";
+import { startRuntime, type Runtime } from "./runtime.js";
 import { openUsbBackend } from "./usb-backend.js";
-import { createPhysicalController, type ControllerVoice } from "./controller.js";
-import { debug, deviceIsPresent, HID_INTERFACE, openStreamDeckDevice } from "./hid-device.js";
-import { bucketCounts, logLine, micPreferencePath, surfaceState, traceInput } from "./sidecar-wiring.js";
-import {
-  createFilePreferenceStore,
-  createMicPreferences,
-  createNodeSystem,
-  createRelayTranscriber,
-  createVoiceSession,
-  listMicrophones,
-  VOICE_UNCONFIGURED_REASON,
-  type AudioDevice,
-  type RelayTranscriber,
-  type VoiceSession,
-} from "./audio/index.js";
-import { createRepaintCoalescer, createVoiceLink, VOICE_LINK_LOST } from "./voiceHost.js";
-import { VOICE_WAVEFORM_COLUMNS, type VoicePanelInput } from "./voicePanel.js";
-
-/**
- * Frame interval for the live-typing reveal. 40ms with the typewriter's
- * six-characters-per-frame step reads as fast typing rather than as a stutter,
- * and repaints only the one 800x100 strip panel whose bytes actually changed.
- */
-const TYPING_TICK_MS = 40;
+import { deviceIsPresent, HID_INTERFACE, openStreamDeckDevice } from "./hid-device.js";
+import { logLine, micPreferencePath, traceInput } from "./sidecar-wiring.js";
 
 export const main = async (): Promise<void> => {
-  // Decode the provider marks once up front so the first repaint draws them
-  // rather than falling back to lettered tokens on a cold cache.
-  await preloadVendorMarks();
+  registerFrameFont();
+  const offline = offlineFrame();
+  let latestFrame: DeckFrame = offline;
+  const renderer = new FrameRenderer();
   const brightness = parseBrightness(process.env.STREAMDECK_BRIGHTNESS);
   const presentAtStart = process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1" ? false : deviceIsPresent();
-  // Live data from the daemon, kept updated even while the demo is showing, so
-  // toggling back is instant and does not need a reconnect.
-  let liveGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
-  let liveUsage: Readonly<Record<string, unknown>> = {};
-  let liveLogs: StreamDeckLogs = {};
-  // What the surface actually renders.
-  let latestGrid: StreamDeckGrid = liveGrid;
-  let latestUsage: Readonly<Record<string, unknown>> = liveUsage;
-  let logsFeed: StreamDeckLogs = {};
   let activeBackend: HidBackend | null = null;
-  let channel: Awaited<ReturnType<typeof connectStreamDeckChannel>> | null = null;
+  let channel: StreamDeckChannel | null = null;
   let runtime: Runtime | null = null;
-  let repaintChain: Promise<void> = Promise.resolve();
-  const surface = createPhysicalSurface();
-
-  // ---------------------------------------------------------------- voice ---
-  // Wiring only. Every decision below lives in a covered module: session
-  // correlation and repaint coalescing in `voiceHost.ts`, the panel's contents
-  // in `voicePanel.ts`, the key layout in `settings.ts`, and capture, metering
-  // and buffering in `src/audio/`.
-  //
-  // There is no `ELEVENLABS_API_KEY` here, and no second config location for
-  // one. Aiur performs the provider call; this process only streams audio to it.
-  const audioSystem = createNodeSystem();
-  const micPreferences = createMicPreferences(createFilePreferenceStore(micPreferencePath()));
-  let microphones: readonly AudioDevice[] = [];
-  /**
-   * Aiur's answer to "can you transcribe?", from the snapshot.
-   *
-   * Starts false: until a snapshot says otherwise the deck must not promise a
-   * transcription it has no evidence anyone can perform. The meters work
-   * either way, which is what makes the pessimistic default cheap.
-   */
-  let voiceAvailable = false;
-  let voiceReason: string | null = VOICE_UNCONFIGURED_REASON;
-  let relay: RelayTranscriber | null = null;
-  let voiceSession: VoiceSession | null = null;
-
-  const voiceLink = createVoiceLink({ channel: () => channel, relay: () => relay });
-
-  const voiceRepaints = createRepaintCoalescer({
-    repaint: () => {
-      // The Send/Cancel keys depend on the buffer, which only changes on one of
-      // these updates, so the key refresh rides the same coalesced tick rather
-      // than diffing controller state fifty times a second.
-      controller.refreshVoice();
-      if (activeBackend !== null) repaintDetached(activeBackend);
-    },
-    now: () => Date.now(),
-    setTimer: (fn, ms) => void setTimeout(fn, ms).unref(),
-  });
-
-  /**
-   * Rebuilds the capture session.
-   *
-   * A session binds one transcriber and one device id at construction, so
-   * anything that changes either — Aiur reporting a key, the operator picking a
-   * different microphone, a device list arriving — rebuilds rather than mutates.
-   * It is cheap: no process is spawned and no socket opened until `hold()`.
-   */
-  const buildVoiceSession = (): void => {
-    voiceSession?.dispose();
-    relay = createRelayTranscriber({
-      port: voiceLink.port,
-      unavailableReason: voiceAvailable ? null : voiceReason ?? VOICE_UNCONFIGURED_REASON,
-    });
-    voiceSession = createVoiceSession({
-      system: audioSystem,
-      transcriber: relay.transcriber,
-      deviceId: micPreferences.resolve(microphones.map((device) => device.id)),
-      waveformWidth: VOICE_WAVEFORM_COLUMNS,
-      onUpdate: () => voiceRepaints.request(),
-      onError: (reason) => {
-        console.warn(`[streamdeck] voice: ${reason}`);
-        voiceRepaints.request();
-      },
-    });
-  };
-
-  /** Re-enumerates microphones, then rebinds the session to the resolved device. */
-  const refreshMicrophones = (): void => {
-    // `listMicrophones` never rejects — an empty list is its answer for every
-    // failure path, because a box with no microphone is a normal box.
-    void listMicrophones(audioSystem).then((devices) => {
-      microphones = devices;
-      buildVoiceSession();
-      if (activeBackend !== null) repaintDetached(activeBackend);
-    });
-  };
-
-  const voicePort: ControllerVoice = {
-    hold: () => {
-      voiceSession?.hold();
-      voiceRepaints.request();
-    },
-    release: () => {
-      voiceSession?.release();
-      voiceRepaints.request();
-    },
-    message: () => voiceSession?.message() ?? "",
-    hasMessage: () => voiceSession?.hasMessage() === true,
-    clear: () => voiceSession?.clear(),
-    dispose: () => voiceSession?.dispose(),
-    microphones: () => microphones,
-    refresh: refreshMicrophones,
-    selectedDeviceId: () => micPreferences.selectedDeviceId(),
-    select: (deviceId) => {
-      micPreferences.select(deviceId);
-      buildVoiceSession();
-    },
-  };
-
-  /**
-   * The session's readings, all computed locally from captured PCM.
-   *
-   * Nothing here awaits the network: `session.ts` measures the level and folds
-   * the waveform on the capture callback, before the aggregator that reaches
-   * Aiur is even handed the bytes. Only `text` came back over the channel.
-   */
-  const voiceReadings = (): VoicePanelInput | undefined => {
-    if (voiceSession === null) return undefined;
-    return {
-      columns: voiceSession.waveform(),
-      dbfs: voiceSession.level().dbfs,
-      text: voiceSession.text(),
-      holding: voiceSession.holding,
-      unavailableReason: voiceSession.unavailableReason,
-    };
-  };
-
-  /**
-   * Demo mode swaps the daemon's data for fixtures covering every bucket,
-   * footer, badge and meter.
-   *
-   * The sidecar always boots into real data: the demo exists to answer "is the
-   * renderer wrong, or is the fleet just uniform?" while standing at the deck —
-   * a real fleet is frequently all one state, and every agent paused paints
-   * every key grey. It is reachable only by the hidden key chord, never by
-   * configuration, so no unit file or stale environment variable can leave an
-   * operator looking at fixtures and believing they are live. The daemon
-   * channel stays connected throughout, so switching back is immediate.
-   */
-  let demoActive = false;
-  let demoGridState = demoGrid();
-  let demoTick = 0;
-  // The fixture's event timestamps are frozen at the moment the demo starts.
-  // Deriving them from `Date.now()` on every tick changed the payload even when
-  // nothing had happened, which repainted the whole strip a few times a minute.
-  let demoLogsState = demoLogs();
-
-  const applySource = (): void => {
-    if (demoActive) {
-      latestGrid = demoGridState;
-      latestUsage = demoUsage(Date.now());
-      controller.setLogs(demoLogsState);
-    } else {
-      latestGrid = liveGrid;
-      latestUsage = liveUsage;
-      controller.setLogs(liveLogs);
-    }
-    if (activeBackend !== null) repaintDetached(activeBackend);
-  };
-
-  const toggleDemo = (): void => {
-    demoActive = !demoActive;
-    console.info(`[streamdeck] demo mode ${demoActive ? "on" : "off"}`);
-    debug("demo.toggle", { active: demoActive });
-    if (demoActive) {
-      demoGridState = demoGrid();
-      demoLogsState = demoLogs();
-    }
-    applySource();
-  };
-
-  // Ticks the fixture so the deck visibly animates; a frozen screen cannot show
-  // that repaints are still landing. Idle when the demo is off.
-  setInterval(() => {
-    if (!demoActive) return;
-    demoTick += 1;
-    demoGridState = advanceDemoGrid(demoGridState, 3);
-    latestGrid = demoGridState;
-    latestUsage = demoUsage(Date.now());
-    // Every tick, not every fifth: the newest message grows a clause each time,
-    // which is what drives the live-typing reveal. Feeding the logs only
-    // occasionally left the one behaviour that has to be seen moving looking
-    // frozen for ten seconds at a stretch.
-    demoLogsState = advanceDemoLogs(demoLogsState, demoTick);
-    controller.setLogs(demoLogsState);
-    if (activeBackend !== null) repaintDetached(activeBackend);
-  }, 2000).unref();
-
-  // Drives the live-typing reveal. The controller owns the animation state and
-  // reports whether it still owes a frame; this is only the clock, and it costs
-  // nothing when nothing is typing because `tickTyping` returns immediately
-  // outside logs mode.
-  // Every frame it produces changes controller state, which already fires
-  // `stateChanged` and therefore a repaint, so this is only the clock. It costs
-  // nothing when nothing is typing: `tickTyping` returns immediately outside
-  // logs mode and whenever the reveal has finished.
-  setInterval(() => controller.tickTyping(), TYPING_TICK_MS).unref();
-
-  const controller = createPhysicalController({
-    grid: () => latestGrid,
-    channel: () => channel,
-    voice: () => voicePort,
-    // Read live rather than captured: the usage map is replaced on every push,
-    // and it is what bounds the provider scroll.
-    providerCount: () => Object.keys(latestUsage).length,
-    toggleDemo,
-    turnInstance: (ticks) => instances.turn(ticks),
-    switchInstance: () => instances.press(),
-    stateChanged: (state) => {
-      debug("controller.state", {
-        mode: state.mode,
-        focused: state.focusedIdentifier ?? "none",
-        columnOffset: state.columnOffset,
-        micHeld: state.micHeld,
-      });
-      if (activeBackend !== null) repaintDetached(activeBackend);
-    },
-  });
-
-  /** Traces each report's decoded controls before the controller consumes it. */
-  const handleInput = (data: Uint8Array): void => {
-    traceInput(data);
-    controller.handleReport(data);
-  };
-
+  const input = createFrameInput((event) => channel?.input(event));
+  const handleInput = (data: Uint8Array): void => { traceInput(data); input.handleReport(data); };
   const repaint = async (backend: HidBackend): Promise<void> => {
     activeBackend = backend;
-    const state = { ...surfaceState(controller.state(), microphones, voiceReadings(), demoActive ? demoGridState : undefined), instance: instances.label() };
-    const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
-    repaintChain = next.catch(() => undefined);
-    await next;
+    await renderer.apply(backend, latestFrame);
   };
-
-  /**
-   * Repaint without letting a device write take the process down.
-   *
-   * Every caller below fires a repaint from an event handler, so the promise is
-   * unawaited: a rejected write (an unplug mid-frame, a handle invalidated by a
-   * suspend) surfaced as an unhandled rejection and killed the sidecar, which
-   * systemd then restarted into the same failure. A write failure is exactly
-   * what the runtime's close/reopen recovery exists to handle, so hand it there
-   * and keep running.
-   */
-  setInterval(() => {
-    if (activeBackend !== null && controller.state().mode === "cmd") repaintDetached(activeBackend);
-  }, 30_000).unref();
-
-  const repaintDetached = (backend: HidBackend): void => {
-    void repaint(backend).catch((error: unknown) => {
+  const show = (frame: DeckFrame): void => {
+    latestFrame = frame;
+    if (activeBackend !== null) void repaint(activeBackend).catch((error: unknown) => {
       console.warn("[streamdeck] repaint failed; recovering the device", error);
       runtime?.notifyWriteFailure(error);
     });
   };
-
-  // Built once the repaint path exists, since a rebuild repaints. The device
-  // list follows on its own: enumeration spawns `pw-dump`, so it happens here
-  // and whenever the settings surface is opened, not on a timer.
-  buildVoiceSession();
-  refreshMicrophones();
-
   const registry = loadInstances({
     name: "local",
     baseUrl: process.env.AIUR_PHOENIX_URL ?? "http://127.0.0.1:4000",
@@ -338,71 +68,38 @@ export const main = async (): Promise<void> => {
   const instances = createInstanceSwitcher<StreamDeckChannel>({
     targets: registry.targets,
     preferencePath: path.join(path.dirname(micPreferencePath()), "streamdeck-instance.json"),
-    changed: () => { if (activeBackend !== null) repaintDetached(activeBackend); },
+    changed: () => undefined,
     channel: (connected) => { channel = connected; },
-    focusedIdentifier: () => controller.state().focusedIdentifier,
-    disconnect: () => {
-      voiceLink.drop(VOICE_LINK_LOST);
-      voiceSession?.dispose();
-      voiceAvailable = false;
-      voiceReason = VOICE_UNCONFIGURED_REASON;
-      buildVoiceSession();
-    },
-    resetInstance: () => {
-      liveGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
-      liveUsage = {};
-      liveLogs = {};
-      controller.resetInstance();
-      applySource();
-    },
+    disconnect: () => { input.reset(); show(offline); },
+    resetInstance: () => show(offline),
     connect: (target, lifecycle) => connectStreamDeckChannel({
-        baseUrl: target.baseUrl,
-        ...target.auth,
-        fetch: defaultFetch,
-        websocket: defaultWebSocket,
-        events: guardChannelEvents({
-          // Live payloads always land in the live copy; they only reach the
-          // screen when the demo is off, so a toggle back shows current state
-          // rather than whatever was last on the wire before the demo started.
-          snapshot: (snapshot) => { lifecycle.connected(); if (snapshot.grid !== undefined) liveGrid = snapshot.grid; liveUsage = snapshot.usage; controller.gridChanged(); debug("channel.snapshot", { agents: liveGrid.agents.length, total: liveGrid.total, usage: Object.keys(liveUsage), demo: demoActive }); if (!demoActive) applySource(); },
-          fleet: () => undefined,
-          grid: (grid) => { liveGrid = grid; controller.gridChanged(); debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
-          usage: (usage) => { liveUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (!demoActive) applySource(); },
-          // Deliberately not fed to the strip. The daemon pushes `transcript`
-          // and `logs` together for the same event, and the `logs` frame
-          // carries the whole flattened transcript with its event headers.
-          // Pushing the message-only feed as well re-derived the scroll bounds
-          // from a shorter array, which clamped the operator's jump back to the
-          // top within a flush — the feature worked until the agent next spoke.
-          transcript: () => undefined,
-          logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
-          control: () => undefined,
-          ticket: (ticket) => { if (!demoActive) controller.setTicket(ticket); },
-          commands: (page) => { controller.setCommands(page); if (activeBackend !== null) repaintDetached(activeBackend); },
-          commandAnswered: (result) => { controller.commandAnswered(result); if (activeBackend !== null) repaintDetached(activeBackend); },
-          commandsError: (reason, outcome, requestKey) => { controller.commandsError(reason, outcome, requestKey); if (activeBackend !== null) repaintDetached(activeBackend); },
-          voiceStarted: (session, reason) => voiceLink.started(session, reason),
-          voice: (session, kind, text) => { voiceLink.transcript(session, { kind, text }); voiceRepaints.request(); },
-          voiceError: (session, reason) => { voiceLink.failed(session, reason); voiceRepaints.request(); },
-          voiceClosed: (session) => { voiceLink.closed(session); voiceRepaints.request(); },
-          voiceAvailability: (state) => {
-            if (state.available === voiceAvailable && state.reason === voiceReason) return;
-            voiceAvailable = state.available;
-            voiceReason = state.reason;
-            // Rebuilt rather than patched: the transcriber's availability is
-            // fixed at construction, so this is the only way the reason on the
-            // panel can change without a restart.
-            buildVoiceSession();
-          },
-          closed: () => lifecycle.closed(),
-        }, lifecycle.current),
-      }),
+      baseUrl: target.baseUrl,
+      ...target.auth,
+      fetch: defaultFetch,
+      websocket: defaultWebSocket,
+      events: guardChannelEvents({
+        snapshot: () => lifecycle.connected(),
+        frame: show,
+        fleet: () => undefined,
+        grid: () => undefined,
+        usage: () => undefined,
+        transcript: () => undefined,
+        logs: () => undefined,
+        control: () => undefined,
+        commands: () => undefined,
+        commandAnswered: () => undefined,
+        commandsError: () => undefined,
+        voiceStarted: () => undefined,
+        voice: () => undefined,
+        voiceError: () => undefined,
+        voiceClosed: () => undefined,
+        voiceAvailability: () => undefined,
+        closed: () => lifecycle.closed(),
+      }, lifecycle.current),
+    }),
   });
   instances.start();
-
-  if (!presentAtStart) {
-    console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");
-  }
+  if (!presentAtStart) console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");
 
   runtime = await startRuntime({
     spawn,
@@ -426,7 +123,8 @@ export const main = async (): Promise<void> => {
     repaint,
     onBackendClosed: (backend) => {
       if (backend !== null && activeBackend === backend) activeBackend = null;
-      controller.cancel();
+      input.reset();
+      renderer.invalidate();
     },
     registerSignals: (handler) => {
       const shutdown = (): void => {

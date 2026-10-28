@@ -226,6 +226,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       options.events.fleet(fleet.agents ?? []);
       if (fleet.grid !== undefined) options.events.grid(fleet.grid);
     }
+    else if (event === "frame") options.events.frame?.(payload as import("./frame.js").DeckFrame);
     else if (event === "ticket") options.events.ticket?.(payload as StreamDeckTicket);
     else if (event === "usage") options.events.usage(payload as Readonly<Record<string, unknown>>);
     else if (event === "transcript") {
@@ -282,6 +283,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   socket.onclose = () => notifyClosed(new Error("Stream Deck channel closed"));
 
   return {
+    input: (input) => { if (joined && !stopped) send("input", { ...input }); },
     focus: (identifier) => send("focus", { identifier }),
     control: (identifier, action) => send("control", { identifier, action }),
     say: (identifier, text) => send("say", { identifier, text, message_id: randomUUID() }),

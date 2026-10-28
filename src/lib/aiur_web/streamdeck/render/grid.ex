@@ -11,9 +11,11 @@ defmodule AiurWeb.Streamdeck.Render.Grid do
     agents = field(grid, :agents, [])
     max_offset = max(ceil(length(agents) / 2) - 4, 0)
     offset = clamp_offset(field(model, :column_offset, 0), max_offset)
-    faces = Enum.map(0..7, &Enum.at(agents, (offset + rem(&1, 4)) * 2 + div(&1, 4)))
+    page = field(model, :page)
+    start = if is_integer(page) and page >= 0, do: page * 8, else: offset * 2
+    faces = Enum.map(0..7, &Enum.at(agents, start + rem(&1, 4) * 2 + div(&1, 4)))
     providers = model |> field(:usage, %{}) |> Enum.sort_by(fn {name, _meter} -> to_string(name) end)
-    regions = [summary(grid, agents)] ++ provider_regions(providers, field(model, :provider_offset, 0)) ++ [pager(offset, max_offset, length(agents))]
+    regions = [summary(grid, agents)] ++ provider_regions(providers, field(model, :provider_offset, 0)) ++ [pager(div(start, 2), max_offset, length(agents))]
     {faces, regions}
   end
 

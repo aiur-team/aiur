@@ -90,6 +90,18 @@ The order is the same in the browser emulator and on the physical deck.
 
 ## Physical sidecar status
 
+The daemon draws every image. The sidecar rasterizes its SVG frames to JPEG,
+forwards raw input, and shows **Aiur offline** with blank keys when the channel
+is down. On reconnect, the daemon sends a full frame and resets navigation.
+
+The physical entry point currently shows the server grid. The legacy local
+voice, Commands, demo and instance-picker views await their server migrations;
+use the dashboard for those controls. The control and voice sections below
+describe the emulator/legacy surfaces, not the current physical frame client.
+The saved instance is still selected at startup; hardware dial C no longer
+operates the legacy instance picker.
+
+
 The dashboard's `/streamdeck` page emulates the deck without the sidecar; nothing in the dashboard needs it installed.
 
 Download the Linux x64 archive from the rolling [`streamdeck-nightly`](https://github.com/aiur-team/aiur/releases/tag/streamdeck-nightly) pre-release, which is rebuilt in place whenever the sidecar changes. The `/streamdeck` page's setup dialog links the same asset.
@@ -119,13 +131,10 @@ The sidecar prefers `AIUR_CLIENT_TOKEN` when set; otherwise it uses the
 dashboard credentials to mint a short-lived channel token. Neither credential
 enters the WebSocket URL. Create a token with `aiur token create streamdeck`.
 
-Turn **dial 3** to browse registered instances without connecting. Press and
-release it to follow the highlighted instance. Holding **dial 2 + dial 3**
-toggles the demo instead.
-
-The strip names the followed instance and shows
-`connecting`, `connected`, `auth failed`, or `unreachable`; browsing also names
-the candidate. A failed connection stays on that target and never falls back.
+The physical frame client forwards dials to the daemon's navigation reducer.
+It loads the saved instance at startup and retries that target after a channel
+failure. Authentication failures require corrected credentials and a restart.
+The offline strip does not display connection details; consult service logs.
 
 The sidecar reads the CLI's `~/.aiur/remote-instances.yaml` registry at startup:
 
@@ -146,8 +155,8 @@ paths, queries, or fragments.
 
 Each remote sets exactly one `token_file` (absolute
 or `~/`, readable and mode **0600**) or `token_env` (an `AIUR_TOKEN_*` variable).
-Invalid URLs or credentials show an error on the strip and keep the current
-connection.
+Invalid URLs or credentials prevent that connection; the physical strip shows
+**Aiur offline** until a channel supplies a frame.
 
 Tokens are resolved when connecting and never shown on the strip
 or in debug logs.

@@ -3,8 +3,8 @@
 This package ships the deployment artifacts and operator runbook for the
 direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The production
 sidecar opens the device, connects to the authenticated Aiur Phoenix channel,
-renders live fleet/provider state, and routes physical key controls through the
-same AgentChat facade as the browser emulator. It renews its short-lived socket
+rasterizes daemon SVG frames to JPEG, and forwards raw keys, dials and touch
+input to server-owned navigation. It renews its short-lived socket
 token after disconnects and retains hotplug/suspend recovery. When configured,
 `AIUR_CLIENT_TOKEN` is sent as a bearer credential rather than exchanged from
 stored dashboard credentials. Its scope sets the sidecar's API access, and
@@ -44,6 +44,20 @@ mismatch rather than assuming an archive downloaded earlier still matches.
 
 `STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
 sidecar reapplies on open and on resume.
+
+## Image assets
+
+The archive copies `assets/` to `app/assets/`, including
+`JetBrainsMono-Variable.woff2` and its OFL license from `packages/aiur-style/fonts`.
+Startup registers JetBrains Mono with the canvas renderer; keep the font beside
+`offline.svg` and the vendor marks when installing. No system font installation
+is needed. When disconnected, the sidecar blanks the keys and rasterizes the
+bundled **Aiur offline** strip through the same SVG-to-JPEG path.
+
+The physical process now displays the server grid; legacy local demo, voice,
+Commands and instance-picker views remain in source for later migration/cleanup
+and are not active in this frame-only entry point. The saved instance still
+selects the daemon at startup. Use the dashboard for those controls meanwhile.
 
 ## Prerequisites
 

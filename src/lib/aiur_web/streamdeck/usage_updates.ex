@@ -7,7 +7,7 @@ defmodule AiurWeb.Streamdeck.UsageUpdates do
   def schedule(%{assigns: %{usage_flush: nil}} = socket) do
     token = make_ref()
     Process.send_after(self(), {:flush_usage, token}, 250)
-    {:noreply, assign(socket, :usage_flush, token)}
+    socket |> assign(:usage_flush, token) |> AiurWeb.StreamdeckFleetUpdates.schedule()
   end
 
   def schedule(socket), do: {:noreply, socket}

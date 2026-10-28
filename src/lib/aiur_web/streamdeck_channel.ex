@@ -9,8 +9,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav, TicketUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Nav, TicketUpdates}
 
   alias AiurWeb.Streamdeck.UsageUpdates
 
@@ -65,15 +64,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
-  def handle_in("input", input, socket) do
-    if Nav.valid_input?(input) do
-      sections = StreamdeckProjection.grid() |> Deck.navigation()
-      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
-      {:reply, {:ok, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}}, assign(socket, deck_nav: nav, deck_effects: effects)}
-    else
-      {:reply, {:error, %{reason: "invalid_input"}}, socket}
-    end
-  end
+  def handle_in("input", input, socket), do: AiurWeb.Streamdeck.FrameUpdates.input(input, socket)
 
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
@@ -269,7 +260,7 @@ defmodule AiurWeb.StreamdeckChannel do
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
     push(socket, "snapshot", StreamdeckProjection.snapshot())
-    {:noreply, socket}
+    {:noreply, AiurWeb.Streamdeck.FrameUpdates.push(socket)}
   end
 
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}

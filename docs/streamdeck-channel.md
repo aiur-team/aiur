@@ -12,17 +12,12 @@ existing dashboard HTTP Basic credentials on loopback. The response is
 `{token, expires_in_seconds}`. Pass that short-lived token as the Phoenix socket
 parameter (`/streamdeck/websocket?token=…`), then join `streamdeck:fleet`.
 
-The physical sidecar uses each selected instance's own bearer credential from
-`~/.aiur/remote-instances.yaml`; the environment daemon can use
-`AIUR_CLIENT_TOKEN` or Basic credentials. A switch closes the previous channel,
-stops voice capture, and clears its fleet before opening the selected target.
-HTTP 401/403 displays `auth failed` without retrying or falling back; connection
-failures retry the selected target with bounded backoff. Reconnecting to the same
-instance retains its last grid, navigation, logs and Commands page, stops voice,
-and restores the focused agent on the new channel. Client bearer tokens
-are never placed in the WebSocket URL or debug output. See the
-[physical sidecar guide](../website/docs-app/guide/stream-deck.md#physical-sidecar-status)
-for registry and token-file rules.
+The physical sidecar uses the saved instance from `~/.aiur/remote-instances.yaml`
+and its bearer credential, or the local daemon environment credentials. Connection
+failures retry with bounded backoff; authentication failures require corrected
+credentials. Disconnects blank the keys and display **Aiur offline**. A reconnect
+receives a new full frame and starts fresh server navigation. Client bearer tokens
+never appear in the WebSocket URL or debug output.
 
 ## Shared projections vs deck presentation
 
@@ -59,9 +54,12 @@ deck DTOs. Nothing in the dashboard needs the sidecar installed.
 ## Events
 
 Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
+`fleet`, `usage` and `logs` are kept for the emulator until SD-104/SD-105;
+the physical sidecar consumes `frame` images only.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
+| `frame` | `{keys: [{svg, hash, label} or null] × 8, strip: [{x, width, svg, hash}]}` | Full physical image state on join and coalesced input/data changes (250 ms). Hashes skip unchanged images; regions tile 800×100. |
 | `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
 | `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
 | `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
@@ -90,7 +88,18 @@ omitted rather than represented by implementation-specific sentinels.
 
 ### Device input navigation
 
-Send `input` with `{kind, index, ticks?}`. Kinds are `key_press`, `dial_press`,
+Physical devices send `input` with `{kind, index, action, delta?, x?}`:
+`key` carries `down`/`up` (0–7), `dial` carries `down`/`up`, `turn`, `press`
+or `long_press` (0–3), and `touch` carries `tap` with `x` in 0–799.
+Turns carry integer `delta` in -32–32. Keys are numbered across the top row,
+then the bottom row; the server maps those positions to its ordered tickets.
+Dial holds of at least 500 ms send `long_press` on release instead of `press`.
+Releases, dial edges and touch taps are accepted without navigation changes.
+Only key down and classified dial actions enter the reducer. Offline input is
+not replayed after reconnect. The device has no local navigation or repaint
+response to a press; the next server frame supplies the image.
+
+The emulator also accepts `input` with `{kind, index, ticks?}`. Kinds are `key_press`, `dial_press`,
 `dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
 turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
 out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
@@ -113,8 +122,9 @@ and SD-301 respectively.
 `%{id: id, tickets: [...]}` before reducing. Sizes are counts per root view
 plus the current drill count. The current grid supplies tickets and fleet
 categories; Feature/Epic section producers and the new renderer follow in
-SD-202–205. The sidecar switches to this protocol in SD-103; emulator pixels
-switch in SD-104. Existing controls remain during that transition.
+SD-202–205. Physical pixels now use the server grid renderer; additional server views follow
+in the later view tickets. Emulator pixels switch in SD-104. Legacy channel
+controls remain available for emulator clients during that transition.
 
 ## Focus and transcript rate
 
