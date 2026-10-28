@@ -30,7 +30,7 @@ defmodule AiurWeb.StreamdeckLive.Surface do
       Atom.to_string(bucket),
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
-      footer.label,
+      Map.get(agent, :label, footer.label),
       Map.get(agent, :progress_percent),
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
@@ -40,9 +40,17 @@ defmodule AiurWeb.StreamdeckLive.Surface do
       dependency_ready?: footer.ready?,
       dependency: footer.dependency,
       progress_freshness: Map.get(agent, :progress_freshness),
-      style: key_style(Map.get(agent, :progress_percent))
+      style: ticket_style(agent)
     )
   end
+
+  defp ticket_style(%{face: face} = agent) do
+    palette = %{active: :running, idle: :paused, unknown: :paused, queued: :queued, stuck: :stuck}
+    tokens = StreamdeckKeyFaceContract.state!(Map.fetch!(palette, face))
+    "--sd-accent: #{tokens["accent"]}; --sd-glow: #{tokens["glow"]}; --sd-face: #{tokens["face"]}; #{key_style(agent.progress_percent)}"
+  end
+
+  defp ticket_style(agent), do: key_style(Map.get(agent, :progress_percent))
 
   defp key(slot, bucket, ticket, title, label, progress, opts) do
     %{

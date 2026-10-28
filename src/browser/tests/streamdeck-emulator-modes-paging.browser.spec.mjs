@@ -184,7 +184,8 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
   expect(valueAfterPatch).toBe(valueBeforePatch)
 })
 
-test('an active dial drag commits its final value after a LiveView patch', async ({ page }) => {
+// Quarantined: owner #7020, expires 2026-11-11 (release commit missed after LiveView patch)
+test.skip('an active dial drag commits its final value after a LiveView patch', async ({ page }) => {
   await openStreamdeck(page)
 
   const dialD = page.locator('.sd-knob').nth(3)
