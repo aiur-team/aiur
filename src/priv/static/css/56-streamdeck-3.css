@@ -295,9 +295,9 @@
    way. `dashboard_css_theme_test.exs` asserts this list stays complete and
    byte-identical to `:root`. */
 html[data-theme="light"] .sd-device {
-  --fg: #edeef0;
+  --fg: var(--aiur-color-fg-dark);
   --muted: #969aa4;
-  --accent: #2f86ff;
+  --accent: var(--aiur-color-accent-dark);
   --accent-ink: #8fbcff;
   --attention: #e3b341;
   --attention-ink: #f1cf6f;

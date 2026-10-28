@@ -43,18 +43,26 @@ Non-goals: deciding what to send (MP-N5), sealing/sending (C3-T03).
 
 ## Verified starting point
 
+Path refresh at `1080f8a109ca6c2aaff3259e83c5600e9abb36ef` (2026-10-27):
+see [plan §12](../plan.md#12-daemon-push-relay-starting-point) for current paths,
+public facades and the planned-import audit. All `src/lib/aiur/push/**` paths
+in this ticket (including abbreviated filenames) are PROPOSED in `push-relay`;
+the old proposed paths are unchanged, and no source ownership is registered yet.
+Historical refresh notes below retain their original scope; this path audit
+supersedes their daemon locations only, not design or other dependency gates.
+
 Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
 
 - Persist-before-notify precedent: `Aiur.DecisionStore` fsyncs `decisions.ndjson` before
   projecting and publishing (moduledoc; `request/2` at `src/lib/aiur/decision_store.ex:70`).
-- Location: `Aiur.Config.Paths.runtime_state_dir/0` (`src/lib/aiur/config/paths.ex:314`):
+- Location: `Aiur.Config.Paths.runtime_state_dir/0` (`src/lib/aiur/config/paths.ex:329`):
   "Runtime state is what the daemon reads back after a restart … It shares the instance-
   and repository-qualified root"; tests override with the `:runtime_state_dir` app env.
-- Journal helper: MP-R2-C6 names a `Journal` used by the exporter; at `45a290e3` the
-  DecisionStore writes its own ndjson. Reuse whichever shared journal module exists after
-  C3-T00; otherwise a 60-line local writer (open append, write, `:file.sync/1`).
-
-Refreshed against 47140566ffbf8d8ae9b6e031dbedaf0fc3c6ae9f on 2026-10-14 (MP-R1-C11-T02). Verified citations: `src/lib/aiur/decision_store.ex:153`, `src/lib/aiur/config/paths.ex:298`. base_sha retained; other citations need review.
+- Shared journal and retained source now exist: see plan §12. Direct config/kernel
+  imports are not allowed by the push manifest: [CR-N4-PATH-1](../CONTRACT-REQUESTS.md)
+  must resolve the runtime path and writer boundary before those imports are coded.
+- Boot reconciliation uses `Aiur.Commands.list_decisions/0` (`src/lib/aiur/commands.ex:183`),
+  not a direct call into private `Aiur.DecisionStore` (old reconciliation references).
 
 ## Chosen design
 

@@ -34,13 +34,23 @@ defmodule Aiur.Listener.Scheduler do
     end
   end
 
+  @spec async_usable?(map()) :: boolean()
+  def async_usable?(%{support: %{async: %{status: status}}}), do: status in [:proven, :experimental]
+  def async_usable?(_view), do: false
+
   @spec restamp_fun(map()) :: (map() -> map())
   def restamp_fun(view) do
-    fn delivery ->
-      case listener(view) do
-        {:ok, opts} -> Map.merge(Map.delete(delivery, :steer_requested), AgentQueue.operator_message("", "", opts).delivery)
-        {:error, _} -> delivery
-      end
+    usable? = async_usable?(view)
+
+    fn
+      %{consume_at: :pull} = delivery when usable? ->
+        delivery
+
+      delivery ->
+        case listener(view) do
+          {:ok, opts} -> Map.merge(Map.delete(delivery, :steer_requested), AgentQueue.operator_message("", "", opts).delivery)
+          {:error, _} -> delivery
+        end
     end
   end
 

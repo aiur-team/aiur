@@ -87,6 +87,8 @@ defmodule Aiur.ControlCall.Allowlist do
      }},
     {:analytics, 0, :read, [], %{}},
     {:analytics, 1, :read, [:keyword], %{range: {:enum, [:run, :full]}, since: :string, until: :string, build_order: {:regex, ~r/^\d+$/}, json: :boolean}},
+    {:history_label_writes, 1, &__MODULE__.history_label_scope/1, [:keyword],
+     %{action: {:enum, [:plan, :start, :pause, :resume, :status]}, expect: :non_negative, per_hour: :non_negative, epic_labels: :boolean, json: :boolean}},
     {:github_cost, 0, :read, [], %{}},
     {:github_cost, 1, :read, [:keyword], %{budget: {:enum, ["graphql", "core", "all"]}, format: {:enum, [:auto, :table, :records]}, json: :boolean}},
     {:experiments, 0, &__MODULE__.experiment_scope/1, [],
@@ -237,6 +239,15 @@ defmodule Aiur.ControlCall.Allowlist do
             {{@pr_merge, :publish, 1}, %{class: :deny, positional: [:string], options: %{}}}
           ] ++ @test_rows
   @table Map.new(@rows)
+  @spec history_label_scope(list()) :: :read | :write | :deny
+  def history_label_scope([opts]) do
+    case Keyword.get(opts, :action, :status) do
+      action when action in [:plan, :status] -> :read
+      :pause -> :write
+      _ -> :deny
+    end
+  end
+
   @spec fetch([atom()], atom(), non_neg_integer()) :: {:ok, map()} | :error
   def fetch(segments, function, arity), do: Map.fetch(@table, {segments, function, arity})
 

@@ -64,11 +64,13 @@ the change falsifies before writing anything new.
 Add genuinely new pages to the sidebar in `website/docs-app/.vitepress/config.ts`, or nobody can reach them.
 
 The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
-config keys across the index and topic pages; missing entries fail lint.
+workflow and `~/.aiur/machine` keys (prefixed `machine:`) across the index and topic pages; missing entries fail lint.
 `scripts/test-check-config-docs.sh` guards that checker. The lint job and website
 workflow run `website/docs-app/scripts/check-cli-reference.sh` and its self-test.
 `scripts/check-components.py --docs` checks the component row; other rows use review.
 Keep reference topic pages below 400 lines; the file-size gate allows at most 500.
+
+Shared UI belongs in `packages/aiur-style`; consume its tokens, fonts, assets and scripts instead of copying them into a website or dashboard.
 
 ## Layout
 
@@ -494,7 +496,5 @@ environment, the pane layout, gotchas, and `--debug` chat-pane recording.
 
 ## Sibling: `aiur-claude`
 
-Claude support is provided by a sibling repository (a Node-based JSON-RPC
-2.0 app server that adapts Claude Code to the Codex app-server protocol).
-Auth is via the Claude CLI (`claude auth`), not an API key. See that repo's
-README for setup details.
+Claude support is provided by a sibling repository (a Node-based JSON-RPC 2.0 app server that adapts Claude Code to the Codex app-server protocol).
+Auth is via the Claude CLI (`claude auth`), not an API key. See that repo's README for setup details.

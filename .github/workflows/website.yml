@@ -16,6 +16,7 @@ on:
       - "components.json"
       - "components/**"
       - "components.schema.json"
+      - "scripts/check-aiur-style-duplicates.mjs"
       - "scripts/check-docs-prose.mjs"
       - "scripts/carry-reference-edits.py"
       - "scripts/test-reference-carry.py"
@@ -32,6 +33,7 @@ on:
       - "components.json"
       - "components/**"
       - "components.schema.json"
+      - "scripts/check-aiur-style-duplicates.mjs"
       - "scripts/check-docs-prose.mjs"
       - "scripts/carry-reference-edits.py"
       - "scripts/test-reference-carry.py"
@@ -69,6 +71,9 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: website/package-lock.json
+      - name: Guard shared style ownership
+        working-directory: .
+        run: node scripts/check-aiur-style-duplicates.mjs --self-test && node scripts/check-aiur-style-duplicates.mjs
       - name: Install style package
         working-directory: packages/aiur-style
         run: npm ci

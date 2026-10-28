@@ -25,7 +25,7 @@ export const products: Product[] = [
     wordmark: 'AIUR',
     prefix: '/',
     root: '/',
-    logo: '/assets/aiur-logo.png',
+    logo: '/aiur-style/assets/aiur-logo.png',
     blurb: 'Coordinate fleets of coding agents'
   },
   {
@@ -36,7 +36,7 @@ export const products: Product[] = [
     root: '/archon/quick-start',
     // archon.aiur.team serves this same image (site/assets/aiur-logo.png in
     // aiur-team/archon) beside its ARCHON wordmark.
-    logo: '/assets/aiur-logo.png',
+    logo: '/aiur-style/assets/aiur-logo.png',
     blurb: 'Always-on architecture docs'
   },
   {
