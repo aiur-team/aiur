@@ -41,7 +41,13 @@ defmodule AiurPushRelay.Provider.Apns.Jwt do
   end
 
   @impl true
-  def format_status(status), do: %{status | state: :redacted, message: :redacted}
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, _} -> {:state, :redacted}
+      {:message, _} -> {:message, :redacted}
+      other -> other
+    end)
+  end
 
   @impl true
   def handle_call({:token, expired}, _, state) do

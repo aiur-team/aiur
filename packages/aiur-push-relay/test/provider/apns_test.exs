@@ -136,4 +136,15 @@ defmodule AiurPushRelay.Provider.ApnsTest do
     refute third == second
     assert Jwt.token(ctx.jwt, second) == third
   end
+
+  test "JWT status redacts signing material without assuming a current message", ctx do
+    token = Jwt.token(ctx.jwt)
+    status = inspect(:sys.get_status(ctx.jwt), limit: :infinity)
+    assert status =~ "redacted"
+    refute status =~ token
+    refute status =~ "format_status/1 crashed"
+
+    assert Jwt.format_status(%{state: %{token: token}, message: {:token, token}}) ==
+             %{state: :redacted, message: :redacted}
+  end
 end
