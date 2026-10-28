@@ -54,6 +54,16 @@ Planning-only work records these proposed mutations and hands them to the
 Executor. It must not claim that draft tickets have joined the live queue.
 Historical Build Order roots stay readable; a new collection needs no root.
 
+## Non-feature findings
+
+File new non-feature fixes and flakes with `needs-triage` and the instance's
+parked label (`agent:parked`, or `nuc:parked` on NUC), without a dispatch state.
+This applies to Executor findings as well as agent and flake-recorder intake.
+Do not add a feature label merely to bypass triage. Promote only main-fix work
+or a finding that blocks a named PR from merging; write the reason and the PR
+number (when applicable) in the promotion comment. Verify the labels afterward.
+Automatic quarantine PRs continue independently of the parked fix ticket.
+
 ## Filing safeguards
 
 Use `gh issue create --label ...`: the governed agent wrapper and Executor

@@ -1,3 +1,5 @@
+import type { BuildProgressInput } from "./touchStrip/summarySegment.js";
+
 /** Wire types of the `streamdeck:fleet` channel contract; re-exported from `channel.ts`. */
 
 export interface StreamDeckAgentState {
@@ -33,6 +35,8 @@ export interface StreamDeckSnapshot {
 }
 
 export interface StreamDeckGrid {
+  readonly build?: BuildProgressInput | null;
+  readonly build_status?: "ok" | "none" | "unavailable";
   readonly agents: readonly Record<string, unknown>[];
   readonly total: number;
   readonly windows: number;

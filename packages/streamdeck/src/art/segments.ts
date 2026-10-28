@@ -74,10 +74,12 @@ const drawSummary = (context: SKRSContext2D, width: number, model: SegmentConten
   context.fill();
 
   const build = model.model.build;
-  if (build === null) {
+  if (model.model.build_status === "unavailable" || build === null || build.fraction === null) {
     context.font = "700 13px sans-serif";
     context.fillStyle = LABEL;
-    context.fillText("No build order", PAD, VALUE_BASELINE);
+    const label = model.model.build_status === "unavailable" ? "Build unavailable"
+      : build === null ? "No build order" : "Build progress unavailable";
+    context.fillText(label, PAD, VALUE_BASELINE);
     return;
   }
   const percent = Math.round(build.fraction * 100);

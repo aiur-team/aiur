@@ -72,6 +72,12 @@ planned feature total. Unavailable counts show `—` with a reason; incomplete
 history does not appear as zero progress. Each row opens the existing feature
 focus in Tickets view.
 
+Epics counts matching general epics, including feature-owned tickets, so totals
+overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
+tickets. Planned pack tickets without area labels are excluded; incomplete
+history or labels stay unknown. With no matches, see
+[`general_epics`](../reference/configuration-build-order.md#general-epics).
+
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
 button to open the Dependency tree overlay.
@@ -406,3 +412,34 @@ usable cgroup v2 memory limit, dispatch uses the host memory floor.
 ### Post-deploy checks
 
 The `/post-deploy` page lists manual checks from merged PRs. Add `Post-deploy check: <exact steps>` under `## Local tests`; name required operators, such as `(operator: physical Stream Deck)`. Checks stay pending until an Executor marks them done. Run them after rebuilding the runtime.
+
+## Feature supply attention
+
+`system.feature_supply_low` wakes the Executor when free worker slots exceed
+ready feature tickets for 30 continuous minutes. Feature classification uses
+telemetry's `work_kind`; readiness uses the dispatch candidate decision before
+workers are started.
+
+The attention includes free slots, ready features,
+feature todo decline counts, and the five blockers holding the most features,
+with cached PR numbers and states. Missing PR evidence is `unknown`.
+
+Land the blocker PRs through normal review, then promote or publish feature
+work in goal order. Avoid filling the slots with non-feature work. One
+attention opens per episode and resolves after 10 continuous minutes of
+sufficient supply.
+
+Paused or unavailable tracker passes interrupt the timers
+and interval coverage. Restarts restart timers while retaining open attention.
+
+`analytics/run-summary --json` exposes `feature_supply_daily` by UTC date.
+Each row includes `feature_starved_slot_minutes` (elapsed minutes times
+`max(0, free - feature_ready)`), `non_feature_during_starvation_minutes`
+(elapsed minutes with at least one active non-feature turn during starvation),
+and `observed_minutes`.
+
+Text reports print the same totals. Sum rows across
+boots for a daily report. No observations means unavailable, not zero.
+
+The daemon records intervals between successful dispatch observations;
+transitions between polls have poll-cadence precision.

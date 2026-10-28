@@ -95,6 +95,8 @@ defmodule AiurWeb.StreamdeckLive do
 
     socket =
       if connected?(socket) do
+        :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_queue:changed")
+        :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "build_progress")
         socket = AiurWeb.RefreshSubscriptions.fleet(socket, &maybe_subscribe_fixture_fleet/0)
 
         socket
@@ -223,6 +225,8 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed], do: {:noreply, refresh_grid(socket)}
+
   def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh_grid(socket)}
   def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
 

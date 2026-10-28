@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   require Logger
 
-  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, SystemCpu, SystemFileDescriptors, Tracker}
+  alias Aiur.{BuildQueue.Hints, Config, Issue, MergePolicy, RunTelemetry, SystemCpu, SystemFileDescriptors, Tracker}
   alias Aiur.Orchestrator.DispatchPolicy.{Eligibility, Gates, IssueStates, SpendCap}
   alias Aiur.Orchestrator.{OptimisticSlots, QueueSetSlots, Slots, State}
 
@@ -129,12 +129,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     Enum.sort_by(issues, fn
       %Issue{} = issue ->
         {downstream_rank, position} = Hints.sort_key(issue.id)
-        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), priority_rank(issue.priority), downstream_rank, position, issue_created_at_sort_key(issue), issue.identifier || issue.id || ""}
+
+        {if(MergePolicy.fixer_ticket?(issue), do: 0, else: 1), work_kind_rank(issue), priority_rank(issue.priority), downstream_rank, position, issue_created_at_sort_key(issue),
+         issue.identifier || issue.id || ""}
 
       _ ->
-        {1, priority_rank(nil), 0, 0, issue_created_at_sort_key(nil), ""}
+        {1, 1, priority_rank(nil), 0, 0, issue_created_at_sort_key(nil), ""}
     end)
   end
+
+  @spec work_kind_rank(Issue.t()) :: 0..1
+  def work_kind_rank(%Issue{} = issue), do: if(RunTelemetry.work_kind(issue.labels, issue.title) == "feature", do: 0, else: 1)
 
   @spec priority_rank(term()) :: 1..5
   def priority_rank(priority) when is_integer(priority) and priority in 1..4, do: priority
@@ -316,6 +321,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     dispatch_candidate_decision(issue, state, active_states, terminal_states, blocked_ticket_ids) ==
       :dispatch
   end
+
+  @doc "Candidate verdict before the fleet-wide slot check, shared with supply observation."
+  @spec dispatch_candidate_decision(Issue.t(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_candidate_decision(issue, state),
+    do: dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set(), state.blocked_ticket_ids)
 
   defp dispatch_candidate_decision(
          %Issue{} = issue,

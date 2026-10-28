@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   Tracker work executes outside the owner; guarded results apply inside it.
   """
 
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CiLifecycle
@@ -21,6 +22,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.FeatureSupply
   alias Aiur.Orchestrator.FirehosePolling
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.Lifecycle
@@ -176,7 +178,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
          TrackerTasks.start(state, :dispatch_poll, &TrackerHealth.tracker_preflight/0, fn current, result ->
            case result do
              :ok -> current |> HoldsAndAlerts.clear_tracker_preflight_alert() |> start_poll_reads()
-             {:error, reason} -> current |> HoldsAndAlerts.emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
+             {:error, reason} -> current |> FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
            end
          end)}
     end
@@ -211,7 +213,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec start_candidate_poll(State.t(), (map() -> term())) :: State.t()
   def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
-    do: PausedCandidatePoll.start(state, fetch_fun, &Candidates.note_candidate_fetch_success/2, &Candidates.mark_candidate_snapshot_unavailable/2, &monitor_without_candidates/1, &finish_poll_cycle/1)
+    do:
+      PausedCandidatePoll.start(
+        FeatureSupply.unavailable(state),
+        fetch_fun,
+        &Candidates.note_candidate_fetch_success/2,
+        &Candidates.mark_candidate_snapshot_unavailable/2,
+        &monitor_without_candidates/1,
+        &finish_poll_cycle/1
+      )
 
   def start_candidate_poll(%State{} = state, fetch_fun) do
     cache = Candidates.candidate_list_cache(state)
@@ -252,7 +262,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         |> dispatch_fun.()
 
       {:error, reason, state} ->
-        HoldsAndAlerts.emit_tracker_preflight_alert(state, reason)
+        state |> FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason)
     end
   end
 
@@ -279,13 +289,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec dispatch_candidate_poll(State.t(), keyword()) :: State.t()
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
+    SettingsSnapshot.run(fn -> do_dispatch_candidate_poll(state, opts) end)
+  end
+
+  defp do_dispatch_candidate_poll(state, opts) do
     fetch_candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &Candidates.fetch_candidate_issues/1)
     monitor_without_candidates = Keyword.get(opts, :monitor_without_candidates_fun, &monitor_without_candidates/1)
     stranded_reconciliation = Keyword.get(opts, :stranded_reconciliation_fun, &IssueSync.sync_stranded_ticket_reconciliation/2)
 
     case fetch_candidates.(state) do
       {:paused, state} ->
-        monitor_without_candidates.(state)
+        state |> FeatureSupply.unavailable() |> monitor_without_candidates.()
 
       {:ok, issues, state} ->
         {state, issues} = reconcile_merged_tickets(state, issues)
@@ -326,6 +340,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         state =
           state
+          |> FeatureSupply.observe(issues)
           |> HoldsAndAlerts.dispatch_or_hold(issues)
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
@@ -341,7 +356,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         %{state | initial_dispatch_cycle: false}
 
       {:error, reason, state} ->
-        state = monitor_without_candidates.(state)
+        state = state |> FeatureSupply.unavailable() |> monitor_without_candidates.()
         TrackerHealth.log_tracker_fetch_error(reason)
         state
     end
