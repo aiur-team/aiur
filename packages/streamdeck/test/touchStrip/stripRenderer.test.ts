@@ -4,7 +4,6 @@ import { SEGMENT_REGIONS, SegmentIndex } from "../../src/touchStrip/geometry.js"
 import { pagerModel } from "../../src/touchStrip/pagerSegment.js";
 import { providerSegmentModel } from "../../src/touchStrip/providerSegment.js";
 import { summaryModel } from "../../src/touchStrip/summarySegment.js";
-import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
 import type { ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
 import type { GridData, SegmentContent } from "../../src/touchStrip/stripLayout.js";
 import { StripRenderer } from "../../src/touchStrip/stripRenderer.js";
@@ -39,7 +38,7 @@ const gridData = (overrides: Partial<GridData> = {}): { mode: "grid"; data: Grid
 
 const cmdData = (percent = 40) => ({
   mode: "cmd" as const,
-  data: { detail: agentDetailModel({ identifier: "1356", bucket: "running", progress_percent: percent }) },
+  data: { chat: { v: 1 as const, kind: "chat" as const, id: "1356", state: "live" as const, observed_at: null, latest: { id: "l:1", at: null, k: "say" as const, text: String(percent) } } },
 });
 
 describe("StripRenderer", () => {
