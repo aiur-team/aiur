@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.Streamdeck.Deck
+  alias AiurWeb.Streamdeck.{Deck, Render}
   alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, TicketUpdates}
 
   alias AiurWeb.Streamdeck.UsageUpdates
@@ -71,7 +71,7 @@ defmodule AiurWeb.StreamdeckChannel do
       sections = Deck.navigation(grid)
       {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
       socket = assign(socket, deck_nav: nav, deck_effects: effects)
-      frame = AiurWeb.Streamdeck.Render.frame(%{grid: grid, nav: nav})
+      frame = Render.frame(%{grid: grid, nav: nav})
       PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav), "frame" => frame}, effects)
     else
       {:reply, {:error, %{reason: "invalid_input"}}, socket}
