@@ -10,7 +10,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckProjection}
   alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Chat, Input, Nav, Signals, TicketUpdates}
+  alias AiurWeb.Streamdeck.Deck.{Chat, Input, Nav, PriorityInput, Signals, TicketUpdates}
 
   alias AiurWeb.Streamdeck.UsageUpdates
 
@@ -69,7 +69,8 @@ defmodule AiurWeb.StreamdeckChannel do
     if Nav.valid_input?(input) do
       sections = StreamdeckProjection.grid() |> Deck.navigation()
       {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
-      {:reply, {:ok, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}}, assign(socket, deck_nav: nav, deck_effects: effects)}
+      socket = assign(socket, deck_nav: nav, deck_effects: effects)
+      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
     else
       {:reply, {:error, %{reason: "invalid_input"}}, socket}
     end
