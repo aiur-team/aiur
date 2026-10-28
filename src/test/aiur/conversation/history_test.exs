@@ -92,6 +92,59 @@ defmodule Aiur.Conversation.JournalHistoryTest do
     assert {:error, :not_found} = History.list_entries(context.ref, principal: :internal)
   end
 
+  test "traversal cannot read an existing conversation outside the configured root", context do
+    outside = Path.join(Path.dirname(context.root), "outside-#{System.unique_integer([:positive])}")
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(outside) end)
+    fixture(%{context | dir: outside}, [entry(1, body: "outside conversation")])
+    File.mkdir_p!(Path.join(context.root, "conv_.."))
+    malformed = "conv_../../../" <> Path.basename(outside)
+    assert Path.expand(Path.join(context.root, malformed)) == outside
+    head_path = Path.join(outside, "head.json")
+    segment_path = Store.segment_path(outside, 1)
+
+    with_file_trace(fn traced_paths ->
+      # Positive control: the tracer observes actual reads of both readable targets.
+      assert Jason.decode!(File.read!(head_path))["last_pos"] == 1
+      assert {:ok, %{body: "outside conversation"}} = Entry.from_json(String.trim_trailing(File.read!(segment_path)))
+      observed = traced_paths.()
+      assert head_path in observed
+      assert segment_path in observed
+
+      assert {:error, :not_found} = History.list_entries(malformed, principal: :internal)
+      assert {:error, :not_found} = History.list_sessions(malformed)
+      assert {:error, :not_found} = History.list_anchors(malformed, [])
+      observed = traced_paths.()
+      refute head_path in observed
+      refute segment_path in observed
+    end)
+  end
+
+  test "catch-up allows a shifted gap of 5000 but rejects 5001 before reading entries", context do
+    fixture(context, Enum.map(1..5101, &entry/1), 1000)
+    assert {:ok, caught_up, 5101} = History.catch_up(context.ref, 101, principal: :internal)
+    assert positions(caught_up) == Enum.to_list(102..5101)
+    assert {:error, :catch_up_too_far, 5101} = History.catch_up(context.ref, 100, principal: :internal)
+
+    # A rejected gap must not inspect a corrupt segment or return its decode error.
+    path = Store.segment_path(context.dir, 1)
+    bytes = File.read!(path)
+    File.write!(path, String.duplicate("x", byte_size(bytes) - 1) <> "\n")
+    assert {:error, :catch_up_too_far, 5101} = History.catch_up(context.ref, 100, principal: :internal)
+    assert {:error, :catch_up_too_far, 5101} = History.catch_up(context.ref, 0, principal: :internal)
+  end
+
+  test "catch-up reads only its suffix despite corrupt earlier entries and sessions", context do
+    fixture(context, Enum.map(1..5101, &entry/1), 1000)
+
+    for path <- [Store.segment_path(context.dir, 1), Path.join(context.dir, "sessions.jsonl")] do
+      bytes = File.read!(path)
+      File.write!(path, String.duplicate("x", byte_size(bytes) - 1) <> "\n")
+    end
+
+    assert {:ok, entries, 5101} = History.catch_up(context.ref, 5000, principal: :internal)
+    assert positions(entries) == Enum.to_list(5001..5101)
+  end
+
   test "principal is required on pages and catch-up", %{ref: ref} do
     assert_raise ArgumentError, fn -> History.list_entries(ref, []) end
     assert_raise ArgumentError, fn -> History.catch_up(ref, 0) end
@@ -274,6 +327,45 @@ defmodule Aiur.Conversation.JournalHistoryTest do
     assert {:ok, [^exact]} = History.list_anchors(context.ref, kinds: ["progress"], pos_range: {2, 2}, since: DateTime.add(time, -1))
     assert {:ok, []} = History.list_anchors(context.ref, since: DateTime.add(time, 1))
     assert {:ok, []} = History.list_anchors(context.ref, pos_range: {3, 4})
+  end
+
+  defp with_file_trace(fun) do
+    tracer = spawn_link(fn -> collect_file_traces([]) end)
+    patterns = [{File, :read, 1}, {:file, :read_file, 1}, {:file, :open, 2}]
+    Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
+    :erlang.trace(self(), true, [:call, {:tracer, tracer}])
+
+    try do
+      fun.(fn -> file_trace_paths(tracer) end)
+    after
+      :erlang.trace(self(), false, [:call])
+      Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local]))
+      send(tracer, :stop)
+    end
+  end
+
+  defp collect_file_traces(acc) do
+    receive do
+      {:trace, _pid, :call, {_module, _function, [path | _]}} when is_binary(path) or is_list(path) ->
+        collect_file_traces([Path.expand(to_string(path)) | acc])
+
+      {:paths, requester, ref} ->
+        send(requester, {:file_trace_paths, ref, acc})
+        collect_file_traces([])
+
+      :stop ->
+        :ok
+    end
+  end
+
+  defp file_trace_paths(tracer) do
+    pid = self()
+    delivered = :erlang.trace_delivered(pid)
+    receive_barrier({:trace_delivered, ^pid, ^delivered})
+    ref = make_ref()
+    send(tracer, {:paths, pid, ref})
+    receive_barrier({:file_trace_paths, ^ref, paths})
+    paths
   end
 
   defp entry(pos, attrs \\ []) do

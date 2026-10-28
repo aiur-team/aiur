@@ -54,25 +54,30 @@ defmodule Aiur.Conversation.History do
     end
   end
 
-  @doc "Catch up to one fixed head. Pass principal options explicitly; the two-argument form raises without them."
-  @spec catch_up(Ref.t() | String.t(), non_neg_integer(), keyword()) :: {:ok, [map()], non_neg_integer()} | {:error, atom()}
+  @doc "Catch up at most 5,000 positions to a fixed head in one pass. Page with after: when the span is too large."
+  @spec catch_up(Ref.t() | String.t(), non_neg_integer(), keyword()) :: {:ok, [map()], non_neg_integer()} | {:error, :catch_up_too_far, non_neg_integer()} | {:error, atom()}
   def catch_up(ref, last_pos, opts \\ []) do
     principal!(opts)
 
     with {:ok, _, _} <- HistoryPage.options(after: last_pos),
          {:ok, snapshot} <- HistoryReader.snapshot(ref) do
-      catch_pages(snapshot, last_pos, opts, [])
+      catch_entries(snapshot, last_pos, opts)
     end
   end
 
-  defp catch_pages(snapshot, pos, opts, acc) do
-    with {:ok, page} <- HistoryPage.read(snapshot, {:after, pos}, 200, Keyword.drop(opts, [:kinds])) do
-      entries = Enum.map(page.entries, &mask_for(&1, opts))
-      acc = [entries | acc]
+  defp catch_entries(%{head: %{"last_pos" => head}}, last_pos, _opts) when head - last_pos > 5_000,
+    do: {:error, :catch_up_too_far, head}
 
-      if page.next_cursor,
-        do: catch_pages(snapshot, page.next_cursor, opts, acc),
-        else: {:ok, acc |> Enum.reverse() |> List.flatten(), snapshot.head["last_pos"]}
+  defp catch_entries(snapshot, last_pos, opts) do
+    snapshot
+    |> HistoryReader.entries(last_pos + 1, snapshot.head["last_pos"], :forward)
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, entry}, {:ok, entries} -> {:cont, {:ok, [mask_for(entry, opts) | entries]}}
+      _, _ -> {:halt, {:error, :unavailable}}
+    end)
+    |> case do
+      {:ok, entries} -> {:ok, Enum.reverse(entries), snapshot.head["last_pos"]}
+      error -> error
     end
   end
 

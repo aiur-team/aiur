@@ -85,6 +85,35 @@ defmodule Aiur.Conversation.HistoryReader do
     end
   end
 
+  @doc "Reads only the first committed line for the completeness flag."
+  @spec first_entry(map()) :: {:ok, Entry.t() | nil} | {:error, :unavailable}
+  def first_entry(snapshot) do
+    case Enum.find(snapshot.head["segments"], &is_integer(&1["first_pos"])) do
+      nil -> {:ok, nil}
+      segment -> read_first(Store.segment_path(snapshot.dir, segment["n"]), segment["bytes"])
+    end
+  end
+
+  defp read_first(path, committed_bytes) do
+    case :file.open(path, [:read, :binary, :raw]) do
+      {:ok, fd} ->
+        try do
+          first_line(:file.read_line(fd), committed_bytes)
+        after
+          :file.close(fd)
+        end
+
+      _ ->
+        {:error, :unavailable}
+    end
+  end
+
+  defp first_line({:ok, line}, committed_bytes) when byte_size(line) <= committed_bytes do
+    if String.ends_with?(line, "\n"), do: decode_entry({line, 1}), else: {:error, :unavailable}
+  end
+
+  defp first_line(_result, _committed_bytes), do: {:error, :unavailable}
+
   @spec entries(map(), non_neg_integer(), non_neg_integer(), :forward | :backward) :: Enumerable.t()
   def entries(snapshot, from, to, direction) do
     segments = Enum.filter(snapshot.head["segments"], &(is_integer(&1["first_pos"]) and &1["last_pos"] >= from and &1["first_pos"] <= to))

@@ -117,11 +117,11 @@ defmodule Aiur.Conversation.HistoryPage do
   end
 
   defp complete?(snapshot, sessions) do
-    case snapshot |> HistoryReader.entries(1, 1, :forward) |> Enum.take(1) do
-      [] ->
+    case HistoryReader.first_entry(snapshot) do
+      {:ok, nil} ->
         {:ok, not Enum.any?(Enum.take(sessions, 1), &(&1.start_reason == "import"))}
 
-      [{:ok, entry}] ->
+      {:ok, entry} ->
         pre_journal = entry.kind == "gap" and Map.get(entry.meta, "reason", Map.get(entry.meta, :reason)) == "pre_journal"
         {:ok, not pre_journal and not Enum.any?(Enum.take(sessions, 1), &(&1.start_reason == "import"))}
 
