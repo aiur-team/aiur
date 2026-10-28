@@ -27,7 +27,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
 
     (now ++ plan ++ Enum.filter(extra, &filed?/1))
     |> Enum.uniq_by(&field(&1, :num))
-    |> Enum.filter(&matches?(&1, filter))
+    |> Enum.filter(&matches?(&1, filter, sections))
     |> Enum.map(&key/1)
   end
 
@@ -42,21 +42,26 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   defp filed?(row), do: is_integer(field(row, :num)) and field(row, :num) > 0
   defp state(row), do: row |> field(:agent) |> field(:state)
   defp rank(state), do: Enum.find_index(@order, &(&1 == state)) || if(state in @states, do: 8, else: 9)
-  defp matches?(_row, :all), do: true
-  defp matches?(row, {:state, :queued}), do: field(row, :sec) == "plan"
-  defp matches?(row, {:state, states}) when is_list(states), do: Enum.any?(states, &matches?(row, {:state, &1}))
-  defp matches?(row, {:state, :unknown}), do: field(row, :sec) == "now" and state(row) not in ~w(active command error retrying ci_wait usage_limited parked paused)
-  defp matches?(row, {:state, :live}), do: field(row, :sec) == "now"
-  defp matches?(row, {:state, state}), do: field(row, :sec) == "now" and state(row) == state
+  defp matches?(_row, :all, _sections), do: true
+  defp matches?(row, {:state, :queued}, _sections), do: field(row, :sec) == "plan"
+  defp matches?(row, {:state, states}, sections) when is_list(states), do: Enum.any?(states, &matches?(row, {:state, &1}, sections))
+  defp matches?(row, {:state, :unknown}, _sections), do: field(row, :sec) == "now" and state(row) not in ~w(active command error retrying ci_wait usage_limited parked paused)
+  defp matches?(row, {:state, :live}, _sections), do: field(row, :sec) == "now"
+  defp matches?(row, {:state, state}, _sections), do: field(row, :sec) == "now" and state(row) == state
 
-  defp matches?(row, {:epic, key}) do
+  defp matches?(row, {:feature, slug}, sections) do
+    case field(sections, :features) do
+      features when is_map(features) -> field(row, :epic) in (field(Map.get(features, slug), :epics) || [])
+      _ -> field(row, :feature) == slug
+    end
+  end
+
+  defp matches?(row, {:epic, key}, _sections) do
     case field(row, :general_epics) do
       nil -> field(row, :epic) == key
       epics -> key in epics
     end
   end
-
-  defp matches?(row, {:feature, key}), do: field(row, :feature) == key
 
   defp key(row) do
     queued = field(row, :sec) == "plan"

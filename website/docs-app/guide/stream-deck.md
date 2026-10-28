@@ -12,20 +12,41 @@ hold goes back; Dial 1 scrolls, Dial 2 requests ticket priority changes, and
 Dial 3 is reserved for the sidecar's instance switch.
 
 The browser retains the focused controls below. Its grid dial D turns pages
-and presses for the next window; dial A scrolls the shared provider panel.
+and presses to cycle Ticket, Feature, Epic and Fleet; dial A scrolls the shared provider panel.
 The current physical client uses the navigation controls described above.
 
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: scroll browser provider panel. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page tickets; press for next window. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: scroll browser provider panel. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page keys; press to cycle views; hold to go back. |
 | **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Latest conversation entry across the full strip; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 Physical and emulator ticket frames show the latest masked conversation across the strip, with ticket controls on the keys.
+
+### Feature view
+
+The server Feature view uses the Build Features snapshot's closed/total percentage,
+rounded down, with closed, published/open (including CI wait) and unpublished bar layers and a positive, known CI-wait
+badge.
+
+Missing closed or total counts show “—” with the source reason. Missing bar
+counts leave an empty bar while a known closed/total percentage stays visible.
+
+Each key represents a parent feature, summing its epic counts in snapshot order. Dial 4 pages eight keys;
+press a key to drill into the parent feature's tickets, then hold Dial 4 to return
+with the feature page preserved.
+
+The strip names closed/total, unpublished count and
+observation age in minutes for the first visible feature (the selected feature while drilled in).
+
+The browser emulator and physical deck use the same SVG frames, pushed through the
+shared frame updates. Input acknowledgements carry navigation; images arrive in frame events.
+
+The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 
 | Control state | Behavior |
 | --- | --- |
