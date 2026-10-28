@@ -216,6 +216,21 @@ In read-only mode, the `/units` Tickets panel shows the Add an agent action as u
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
 
+### Executor voice prototype
+
+Open a conversation drawer and press **Talk to Executor** to start a continuous
+spoken session with the Executor through ElevenLabs Agents. The voice control
+always targets the Executor, regardless of the worker shown in the drawer.
+
+The control shows not configured, connecting, live, ended or failed. Press
+**End Executor conversation** to queue the transcript and summary. The receipt
+shows the durable event id and timestamp; it confirms queueing, not that the
+Executor has read the message. A failed handoff shows an error.
+
+Use HTTPS or localhost for microphone access. See
+[Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
+for configuration and the required ElevenLabs client tools.
+
 ## Authentication and network exposure
 
 Browser access supports Google sign-in and passkeys. On loopback, Basic Auth remains available as a browser fallback. Machine clients can use individually revocable bearer tokens created with `aiur token create`:
