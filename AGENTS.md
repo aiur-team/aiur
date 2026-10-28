@@ -64,7 +64,7 @@ the change falsifies before writing anything new.
 Add genuinely new pages to the sidebar in `website/docs-app/.vitepress/config.ts`, or nobody can reach them.
 
 The config and CLI rows are machine-checked: `scripts/check-config-docs.py` resolves
-config keys across the index and topic pages; missing entries fail lint.
+workflow and `~/.aiur/machine` keys (prefixed `machine:`) across the index and topic pages; missing entries fail lint.
 `scripts/test-check-config-docs.sh` guards that checker. The lint job and website
 workflow run `website/docs-app/scripts/check-cli-reference.sh` and its self-test.
 `scripts/check-components.py --docs` checks the component row; other rows use review.
