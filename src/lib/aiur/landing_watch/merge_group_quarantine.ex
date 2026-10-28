@@ -256,7 +256,8 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   end
 
   defp record_main_entry(entry, opts) do
-    if MainRunEvidence.degraded?(entry, opts), do: :ok, else: record_healthy_main_entry(entry, opts)
+    jobs_fun = Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2)
+    if MainRunEvidence.degraded?(entry, opts, jobs_fun), do: :ok, else: record_healthy_main_entry(entry, opts)
   end
 
   defp record_healthy_main_entry(entry, opts) do

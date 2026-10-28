@@ -1,7 +1,6 @@
 defmodule Aiur.LandingWatch.MainRunEvidence do
   @moduledoc false
 
-  alias Aiur.GitHub.CIRecovery
   alias Aiur.LandingWatch.RunnerDegradation
 
   @spec rows(map()) :: [map()]
@@ -37,10 +36,10 @@ defmodule Aiur.LandingWatch.MainRunEvidence do
   def run_id(_url), do: nil
 
   @spec degraded?(map(), keyword()) :: boolean()
-  def degraded?(entry, opts) do
+  def degraded?(entry, opts, jobs_fun) do
     case run_id(url(entry, nil)) do
       id when is_integer(id) ->
-        case Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2).(id, opts) do
+        case jobs_fun.(id, opts) do
           {:ok, jobs} -> RunnerDegradation.degraded?(jobs, opts)
           _ -> false
         end
