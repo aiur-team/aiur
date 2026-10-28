@@ -38,7 +38,8 @@
     "workspace"
   ],
   "optional": [
-    "build-orders"
+    "build-orders",
+    "conversations"
   ],
   "owns": {
     "config": [],
