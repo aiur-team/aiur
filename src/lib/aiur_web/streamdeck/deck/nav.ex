@@ -14,7 +14,7 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
   @type t :: %__MODULE__{
           view: :ticket | :feature | :epic | :fleet,
           pages: map(),
-          stack: [{atom(), String.t()}],
+          stack: [{atom(), String.t()} | {:state, [String.t() | atom()]}],
           drill_pages: [non_neg_integer()],
           selected: String.t() | nil,
           scroll: non_neg_integer()
@@ -80,6 +80,9 @@ defmodule AiurWeb.Streamdeck.Deck.Nav do
 
   defp transition(nav, %{"kind" => "key_press", target: {:ticket, id}}) when is_binary(id),
     do: {%{nav | selected: id}, [{:open_ticket, id}]}
+
+  defp transition(nav, %{"kind" => "key_press", target: {:state, states}}) when is_list(states),
+    do: {%{nav | stack: [{:state, states} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}
 
   defp transition(nav, %{"kind" => "key_press", target: {kind, id}}) when kind in [:feature, :epic, :fleet, :meter_detail] and is_binary(id),
     do: {%{nav | stack: [{kind, id} | nav.stack], drill_pages: [0 | nav.drill_pages], scroll: 0}, []}

@@ -65,6 +65,12 @@ Listener-routed Units rows show a compact mode and unread count; unknown values
 show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
 the selector, effective-mode reason, oldest unread age and observation age.
 
+New worker journals recover conversation from the workspace transcript
+when it can be replayed, otherwise from this launch's IssueLog. Recovered
+records belong to an `import` session after a `pre_journal` gap: earlier history
+may still be missing. IssueLog bodies at its 1,000-character cut are marked
+truncated. Existing journals are not imported again.
+
 The conversation header selector offers **Steer · interrupts**,
 **Sync · next turn**, or **Async · on demand**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the
@@ -178,12 +184,36 @@ forward, so measuring the gate never perturbs a real build acquisition.
 See [Conversations](/concepts/conversations) for journal storage, retention,
 secret handling, earlier history and jump-point precision.
 
+### Send a message
+
+On a worker's full conversation page, writable dashboards offer a **Message to
+agent** composer. Its read-only mode indicator shows the effective listener
+mode, or **mode unknown** when it cannot be observed. Legacy routing retains
+the existing send behavior.
+
+**Accepted** means the message was accepted for processing. **Queued** means
+the harness queued it (Sync: next boundary), not that the agent read it.
+**Saved** in Async means the agent reads it when it chooses. The local delivery
+item disappears when the matching operator message enters the journal.
+
+**Failed** shows the reason and restores the message when the draft is empty;
+an existing draft is preserved. **Outcome unknown** means delivery cannot be
+confirmed: check the agent before retrying. A send with an unknown outcome keeps
+the draft; sending the same text again reuses its request ID.
+
+Lost receipts or ten minutes without a journal entry also become unknown; held Async messages
+have no ten-minute expiry.
+
+Delivery observations belong to the browser tab and disappear on reconnect.
+The journal is the durable record. Read-only dashboards show a notice in place
+of the composer.
+
 ## Writable controls
 
 | Writable control | Where | Action |
 | --- | --- | --- |
 | Fleet | Settings cog on Build, Units, Commands, Build Order, Analytics and Streamdeck | Pause or resume new agent starts. |
-| Unit | `/units` | Pause or resume one agent, or send it a message. |
+| Unit | `/units` | Pause or resume one agent, or send it a message. The mic opens an explicit Dictate / Converse choice; Dictate fills editable text for review and Send. Unavailable choices show their reason. Microphone selection is in the adjacent settings popover. |
 | Fleet capacity | `/units` | Adjust capacity. |
 | Ticket | `/units` Tickets panel | Apply routing labels. |
 | Ticket | Build ticket modal | Add a not-queued ticket to the build queue; pause or resume a running agent. |
@@ -224,7 +254,8 @@ Writable requests must also have the expected same-origin `Origin` or `Referer` 
 ### Executor voice prototype
 
 Open a conversation drawer and press **Talk to Executor** to start a continuous
-spoken session with the Executor through ElevenLabs Agents. The voice control
+spoken session through the configured ElevenLabs Agents or OpenAI Realtime
+provider. The voice control
 always targets the Executor, regardless of the worker shown in the drawer.
 
 The control shows not configured, connecting, live, ended or failed. Press
@@ -236,13 +267,13 @@ matching wake. **Received** confirms acknowledgment, not approval or execution.
 A missing acknowledgment stays visible; re-rendering the drawer or starting
 another session preserves earlier receipts. A failed handoff shows an error.
 
-The summary separates decisions, open questions and ideas. If the Agent did
+The summary separates decisions, open questions and ideas. If the assistant did
 not record one before ending, the drawer says **unstructured**; the transcript
 is still sent without inventing decisions.
 
 Use HTTPS or localhost for microphone access. See
 [Executor voice setup](/reference/configuration-voice#executor-voice-prototype-setup)
-for configuration and the required ElevenLabs client tools.
+for provider configuration, credentials and ElevenLabs client-tool setup.
 
 ## Authentication and network exposure
 
@@ -340,6 +371,20 @@ empty samples show zero.
 Sample points come from
 frozen snapshots; if none exist, the page says so and shows only stored group
 summaries. Rolling medians appear only when supplied in the stored analysis.
+
+## Full conversation
+
+`/conversations/:conversation_id` opens the durable conversation as a read-only
+page. It starts with the latest 50 entries. **Load older**, **Jump to start**,
+and **Load newer** browse earlier history; **Latest entries** returns to the
+live tail.
+
+The page keeps up to 500 entries on screen. When you scroll up,
+new entries show a counter that returns you to the latest page.
+
+The status distinguishes live, idle, ended, continuity unknown and unavailable
+history. Journal failures keep the last readable content with a stale marker
+and observation age. Imported history shows **Earlier history is not available**.
 
 ## Read a conversation over HTTP
 

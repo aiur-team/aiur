@@ -44,7 +44,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Serves ticket status, PRs, Commands, conversations, account usage windows and per-deck navigation to Stream Deck clients.",
+  "summary": "Serves Build tickets, Commands, queue controls, account usage windows and dashboard and PR links to Stream Deck clients.",
   "status": "optional",
   "install": {
     "type": "included"

@@ -11,8 +11,8 @@ const CONTROLLED = '1352'
 // The design's cmd slots are Pause / Logs / Mic / Settings. Pause is the only
 // one that relabels from the agent's real state, so asserting both variants is
 // what proves the labels track the fleet rather than being a fixed list.
-const CMD_COMMANDS_RUNNING = ['Pause', 'Logs', 'Mic', 'Settings', 'Commands']
-const CMD_COMMANDS_PAUSED = ['Play', 'Logs', 'Mic', 'Settings', 'Commands']
+const CMD_COMMANDS_RUNNING = ['Pause', 'Priority up', 'Priority down', 'Commands', 'Open PR', 'Dashboard', 'Mic', 'Settings']
+const CMD_COMMANDS_PAUSED = ['Play', 'Priority up', 'Priority down', 'Commands', 'Open PR', 'Dashboard', 'Mic', 'Settings']
 
 async function openStreamdeck(page) {
   await page.goto('/auth/read_only')
@@ -86,17 +86,16 @@ function commandLabels(page) {
   return page.locator('#sd-keys .sd-cmd-key:not(.is-empty) .sd-cmd-label').allInnerTexts()
 }
 
-// The design turns the eight key slots into five commands and three blanks. So
+// Ticket mode fills the eight key slots with actions. So
 // the key grid survives the mode switch and the agent faces do not: assert the
 // slot shape rather than the absence of `#sd-keys`.
 async function expectCommandSurface(keys, expectedLabels, page) {
   await expect(keys).toHaveAttribute('data-mode-view', 'cmd')
-  await expect(keys.locator('.sd-cmd-key:not(.is-empty)')).toHaveCount(5)
-  await expect(keys.locator('.sd-cmd-key.is-empty')).toHaveCount(3)
-  // The three unused slots are inert and hidden from assistive tech, so the
-  // operator cannot press a blank into a command.
-  await expect(keys.locator('.sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(3)
-  await expect(keys.locator('.sd-cmd-key.is-empty button[disabled]')).toHaveCount(3)
+  await expect(keys.locator('.sd-cmd-key:not(.is-empty)')).toHaveCount(8)
+  await expect(keys.locator('.sd-cmd-key.is-empty')).toHaveCount(0)
+  // Every painted slot has an action; unavailable actions are disabled.
+  await expect(keys.locator('.sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(0)
+  await expect(keys.locator('.sd-cmd-key.is-empty button[disabled]')).toHaveCount(0)
   // No agent grid is left behind under the commands.
   await expect(keys).not.toHaveAttribute('data-grid-page', /.*/)
   await expect.poll(() => commandLabels(page)).toEqual(expectedLabels)
@@ -134,8 +133,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   const controlled = page.locator(`#sd-keys [data-streamdeck-identifier="${CONTROLLED}"]`)
 
   // ---------------------------------------------------------------- step 2 --
-  // The grid opens on real, bucketed fleet state: the alert agent leads the
-  // canonical bucket order, and the running agent offers a pause.
+  // Ticket attention order leads with the error, followed by the command.
+  // Control metadata still lets the running agent offer a pause.
   await expect(device).toHaveAttribute('data-mode', 'grid')
   await expect(keys).toHaveAttribute('data-grid-page', '0')
 
@@ -145,8 +144,10 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(pager.locator('[aria-current="page"]')).toHaveAttribute('data-pager-page', '0')
 
   const openingPage = await visibleIdentifiers(page)
-  // The first window holds the head of the canonical bucket order, so every
-  // non-queued bucket is represented by the agent the fixture fleet gave it.
+  await expect(keys.locator('.sd-key:not(.is-empty)').first()).toHaveAttribute('data-streamdeck-identifier', '1338')
+  await expect(keys.locator('[data-streamdeck-identifier="1331"]')).toContainText('Awaiting command')
+  // Build states drive ordering and labels; retained fleet metadata supplies
+  // the control buckets for the same tickets.
   await expect(page.locator('#sd-keys [data-streamdeck-identifier="1331"]')).toHaveClass(/st-alert/)
   await expect(page.locator('#sd-keys [data-streamdeck-identifier="1338"]')).toHaveClass(/st-stuck/)
   await expect(page.locator('#sd-keys [data-streamdeck-identifier="1345"]')).toHaveClass(/st-paused/)
