@@ -78,11 +78,13 @@ test('Dial D transitions from cmd to logs mode', async ({ page }) => {
 // fleet-control command keys and a mic hold does not arm it' above, which
 // asserts the same gating plus the `is-disabled` face and the inert hold.
 
-test('CONTROLLING relabel rides the cmd page and the pager dots return on back', async ({ page }) => {
+test('full-width chat replaces the cmd pager and the pager returns on back', async ({ page }) => {
   await openStreamdeck(page)
 
   const pager = page.locator('[data-streamdeck-region="600"]')
 
+  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
+  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
   await expect(pager).toContainText('MORE AGENTS')
   await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
   expect(await pager.locator('svg > text').first().evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
@@ -91,24 +93,15 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  // The page indicator must not survive into cmd mode: there is no page set on
-  // screen to indicate. The dots go, and the CONTROLLING relabel rides the cmd
-  // page. The dial-D column itself stays — #1607 identifies the controlled
-  // agent there, and `streamdeck-operator-flow.browser.spec.mjs` asserts that
-  // `[data-streamdeck-region="600"] text:nth-child(2)` reads `#<id>` at this exact point in the flow.
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
-  await expect(pager.locator('svg > text').first()).toHaveText('CONTROLLING')
-  await expect(pager.locator('svg > text').nth(1)).toHaveText(`#${identifier}`)
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${identifier}`)
-
-  // The cmd page takes every column left of dial D rather than sharing the
-  // strip with the info segments: it starts at the strip's content edge and
-  // stops where the pager column begins.
-  const cmdBox = await page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]').boundingBox()
-  const pagerBox = await pager.boundingBox()
-  const stripBox = await page.locator('#sd-screen').boundingBox()
-  expect(cmdBox.x + cmdBox.width).toBeLessThanOrEqual(pagerBox.x + 1)
-  expect(cmdBox.width).toBeGreaterThan(stripBox.width * 0.6)
+  // Ticket chat occupies the entire strip. The fleet pager returns only on
+  // the grid; this fixture names its unavailable conversation explicitly.
+  const chat = page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region="0"]')
+  await expect(page.locator('[data-mode-view="cmd-strip"] [data-streamdeck-region]')).toHaveCount(1)
+  await expect(pager).toHaveCount(0)
+  await expect(chat).toHaveCSS('left', '0px')
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
+  await expect(chat).toContainText('Conversation unavailable')
   await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   const dialD = page.locator('.sd-knob').nth(3)
@@ -123,10 +116,14 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   const dialA = page.locator('.sd-knob').first()
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(page.locator('[data-streamdeck-region="600"]')).toHaveAttribute('aria-label', `CONTROLLING #${identifier}`)
+  await expect(pager).toHaveCount(0)
+  await expect(chat).toHaveCSS('width', '800px')
+  await expect(chat).toHaveAttribute('aria-label', 'Conversation unavailable')
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
+  await expect(pager.locator('svg > text').nth(2)).toHaveText('·')
+  await expect(pager.locator('svg > text').nth(3)).toHaveText('›')
   await expect(pager).toContainText('MORE AGENTS')
   await expect(pager).toHaveAttribute('aria-label', /1–8 \/ \d+/)
   await expect(page.locator('[data-streamdeck-region="600"]')).toContainText('MORE AGENTS')
