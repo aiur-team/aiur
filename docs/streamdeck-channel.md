@@ -59,7 +59,7 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 | --- | --- | --- |
 | `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build` and `build_status`. |
 | `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build` and `build_status`. |
-| `usage` | `{provider_family: meter}` | One entry per provider family; redacted provider-meter projection for the touch-strip usage segments. |
+| `usage` | `{provider_family: meter}` | One entry per provider family, from Build.Usage; semantic session/weekly windows carry `remaining_percent` and `used_percent`. Updates coalesce over 250 ms. |
 | `decisions` | `{count}` | Updated decision summary. |
 | `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
 | `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Pushed on focus and again whenever a new transcript line lands. |
@@ -213,3 +213,31 @@ Only transcribed text round-trips. The waveform and the decibel bar are computed
 on the sidecar from the captured PCM and never wait on Aiur, so "is my
 microphone working" is bounded by the 20 ms capture latency rather than by any
 network round trip.
+
+## Server-rendered images
+
+`AiurWeb.Streamdeck.Render` is a pure SVG renderer; transport remains a separate
+consumer. `key/1` draws a projected grid agent. `frame/1` accepts the existing
+`grid` and `usage` snapshot plus optional `column_offset` and `provider_offset`,
+returning exactly eight keys (empty slots are `nil`) and strip regions tiling
+800×100. `strip/1` composes regions from title/bar, meter, count, text and pager
+parts, so later views share the same drawing path.
+
+Key images use physical row order; ranked input agents fill each column top-to-bottom.
+
+The grid provider panels retain the current session-only layout and show remaining quota.
+
+Each image carries `svg`, a 16-character lowercase SHA-256 content `hash`, and a
+plain-text accessible `label`; strip images also carry `x` and `width`. Keys
+have width/height/viewBox 120×120; strip regions have their local width ×100.
+SVGs contain only inline assets, including the DeepSeek base64 PNG, and escaped
+text. There are no external asset references or scripts. The same input gives
+identical bytes and hashes; relative ages must arrive in the input model.
+
+All text uses `JetBrains Mono, monospace`. Consumers register the bundled
+JetBrains Mono font before rasterizing. Wrapping uses a fixed advance of
+0.6 em; key titles occupy at most three lines with a final ellipsis. Unknown
+progress draws only a grey track, measured zero draws a visible fill stub, and
+stale readings retain their value with reduced opacity. Fixture keys target
+4 KiB and 200-wide regions 6 KiB; the original embedded DeepSeek PNG exceeds
+that key target and must be budgeted separately.
