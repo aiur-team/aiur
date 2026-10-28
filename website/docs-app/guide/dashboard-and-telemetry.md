@@ -72,6 +72,12 @@ planned feature total. Unavailable counts show `—` with a reason; incomplete
 history does not appear as zero progress. Each row opens the existing feature
 focus in Tickets view.
 
+Epics counts matching general epics, including feature-owned tickets, so totals
+overlap. Sort is remaining, then name; age is shown. Footer counts unmatched
+tickets. Planned pack tickets without area labels are excluded; incomplete
+history or labels stay unknown. With no matches, see
+[`general_epics`](../reference/configuration-build-order.md#general-epics).
+
 On the build timeline, `?trees=1` enables dependency-chain hover. Lock the chain
 with its lock tab, use Fit to bring the loaded chain into view, or select the eye
 button to open the Dependency tree overlay.
