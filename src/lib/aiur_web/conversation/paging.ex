@@ -38,6 +38,28 @@ defmodule AiurWeb.Conversation.Paging do
 
   def reveal(socket, _pos), do: socket
 
+  @spec jump(Phoenix.LiveView.Socket.t(), pos_integer()) :: Phoenix.LiveView.Socket.t()
+  def jump(socket, pos) do
+    case History.list_entries(socket.assigns.id, opts(socket) ++ [around: pos]) do
+      {:ok, page} -> apply_page(socket, page, :tail) |> refresh_sessions() |> assign(:mode, :command) |> Phoenix.LiveView.push_event("conversation-command", %{pos: pos})
+      {:error, reason} -> assign(socket, state: :unavailable, reason: reason, read_error: reason)
+    end
+  end
+
+  @spec refresh_entries(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  def refresh_entries(socket) do
+    socket.assigns.positions
+    |> Enum.chunk_every(200)
+    |> Enum.reduce(socket, fn positions, acc -> refresh_chunk(acc, positions) end)
+  end
+
+  defp refresh_chunk(socket, positions) do
+    case History.list_entries(socket.assigns.id, principal: socket.assigns.principal, after: hd(positions) - 1, limit: length(positions)) do
+      {:ok, page} -> Enum.reduce(page.entries, socket, &stream_insert(&2, :entries, &1, []))
+      {:error, _reason} -> assign(socket, :commands_error, "Command positions unavailable. Open the Commands list to retry.")
+    end
+  end
+
   defp cursor(socket, :older), do: [before: List.first(socket.assigns.positions, 1)]
   defp cursor(socket, :newer), do: [after: List.last(socket.assigns.positions, 0)]
   defp cursor(_socket, :start), do: [from_start: true]

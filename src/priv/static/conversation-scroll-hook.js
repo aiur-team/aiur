@@ -11,6 +11,10 @@ window.AiurConversationScrollHook = {
     this.el.addEventListener('scroll', this.onScroll)
     this.handleEvent('conversation-start', () => requestAnimationFrame(() => { this.el.scrollTop = 0; this.onScroll() }))
     this.handleEvent('conversation-bottom', () => requestAnimationFrame(() => this.toBottom()))
+    this.handleEvent('conversation-command', ({ pos }) => requestAnimationFrame(() => {
+      this.el.querySelector(`#entry-${pos}`)?.scrollIntoView({ block: 'start' })
+      this.onScroll()
+    }))
     requestAnimationFrame(() => this.toBottom())
   },
   beforeUpdate () {
