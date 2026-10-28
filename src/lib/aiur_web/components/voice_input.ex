@@ -56,7 +56,7 @@ defmodule AiurWeb.Components.VoiceInput do
               {mode.label}
               <span :if={!mode.available} id={"#{@id}-#{mode.id}-reason"}>{mode.reason}</span>
             </button>
-            <a :if={@stt[:reason] in [:not_configured, "not_configured"]} href="https://aiur.team/docs/reference/configuration-integrations#elevenlabs" target="_blank" rel="noopener">Set up voice input</a>
+            <a :if={Enum.any?(@modes, & &1.setup)} href="https://aiur.team/docs/reference/configuration-integrations#elevenlabs" target="_blank" rel="noopener">Set up voice input</a>
           </div>
         </div>
         <button
@@ -101,7 +101,7 @@ defmodule AiurWeb.Components.VoiceInput do
 
   defp mode({id, label, capability}, capabilities) do
     entry = Map.get(capabilities, capability, %{})
-    %{id: id, label: label, available: to_string(entry[:state]) in ["available", "degraded"], reason: reason(entry[:reason], id)}
+    %{id: id, label: label, available: to_string(entry[:state]) in ["available", "degraded"], setup: to_string(entry[:reason]) == "not_configured", reason: reason(entry[:reason], id)}
   end
 
   defp reason(reason, _id) when reason in [:not_installed, "not_installed"], do: "Voice input isn't installed in this Aiur. Typed messages work as usual."

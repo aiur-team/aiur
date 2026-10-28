@@ -70,6 +70,10 @@ defmodule AiurWeb.Components.VoiceInputTest do
     for reason <- [:not_installed, :not_configured] do
       document = render(%{capabilities: %{"voice.stt" => %{state: :unavailable, reason: reason}, "voice.conversation" => %{state: :unavailable, reason: reason}}})
 
+      if reason == :not_configured do
+        assert attr(one(document, "a"), "href") == "https://aiur.team/docs/reference/configuration-integrations#elevenlabs"
+      end
+
       for id <- ["dictate", "converse"] do
         button = one(document, "[data-voice-mode=#{id}]")
         assert attr(button, "aria-disabled") == "true"

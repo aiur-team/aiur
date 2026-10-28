@@ -53,6 +53,8 @@
       }
       const mode = event.target.closest("[data-voice-mode]");
       if (!mode || mode.getAttribute("aria-disabled") === "true" || mode.disabled) return;
+      const c = this.controller;
+      if (mode.dataset.voiceMode === "converse" && (c.starting || c.recording || c.finishing || c.awaitingReply || c.speaking)) return;
       this.close();
       if (mode.dataset.voiceMode === "dictate") this.controller.toggle("dictation");
       // The panel consumer is owned by C3-T02; this event never captures audio.
