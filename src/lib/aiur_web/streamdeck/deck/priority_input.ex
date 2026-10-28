@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
   @moduledoc false
-  alias AiurWeb.Streamdeck.{Deck.Priority, FrameUpdates}
-  alias AiurWeb.StreamdeckProjection
+  alias AiurWeb.Streamdeck.Deck.Priority
+  alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 
   @spec reply(Phoenix.Socket.t(), map(), list()) :: {:reply, {:ok | :error, map()}, Phoenix.Socket.t()}
@@ -17,12 +17,12 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
         end
 
       socket = assign(socket, deck_grid: StreamdeckProjection.grid(), deck_toast: toast)
-      frame = FrameUpdates.frame(socket)
+      {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
       case result do
-        {:ok, :at_edge} -> {:reply, {:ok, Map.merge(navigation, %{"result" => "at_edge", "frame" => frame})}, socket}
-        {:ok, position} -> {:reply, {:ok, Map.merge(navigation, %{"position" => position.position, "queue" => position.queue, "frame" => frame})}, socket}
-        {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason), frame: frame}}, socket}
+        {:ok, :at_edge} -> {:reply, {:ok, Map.put(navigation, "result", "at_edge")}, socket}
+        {:ok, position} -> {:reply, {:ok, Map.merge(navigation, %{"position" => position.position, "queue" => position.queue})}, socket}
+        {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
       end
     else
       {:reply, {:error, %{reason: "unauthorized"}}, socket}
