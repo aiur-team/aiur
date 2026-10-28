@@ -9,8 +9,10 @@ defmodule Aiur.Conversation.IngestTest do
 
   test "cold append returns while initial disk preparation is blocked", %{ref: ref, dir: dir, control: control} do
     actions(control, :prepare, [:blocked])
-    assert :ok = Ingest.append(ref, source(), [event(1)])
+    task = Task.async(fn -> Ingest.append(ref, source(), [event(1)]) end)
     receive_barrier({:store_blocked, :prepare, writer})
+    on_exit(fn -> send(writer, :release_store) end)
+    assert :ok = Task.await(task, :infinity)
     assert :ok = Ingest.append(ref, source(), [event(2)])
     send(writer, :release_store)
     assert :ok = flush(ref)
@@ -24,6 +26,7 @@ defmodule Aiur.Conversation.IngestTest do
     Ingest.append(ref, source(), [event(1)])
     task = Task.async(fn -> flush(ref) end)
     receive_barrier({:store_blocked, :append, writer})
+    on_exit(fn -> send(writer, :release_store) end)
     refute_received {:entries_appended, ^id, _}
     refute_received {:session_changed, ^id, _}
     send(writer, :release_store)
