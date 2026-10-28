@@ -1,6 +1,15 @@
 import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
-import { anchor, dragDialThroughAngles, openStreamdeck } from './support/streamdeck-emulator.mjs'
+import { anchor, dragDialThroughAngles, openStreamdeck as openStreamdeckPage } from './support/streamdeck-emulator.mjs'
+
+// Pointer coordinates must stay fixed after anchoring in this gesture spec.
+async function openStreamdeck(page, mode) {
+  await openStreamdeckPage(page, mode)
+  await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = 'auto'
+    window.scrollTo({ top: window.scrollY, behavior: 'instant' })
+  })
+}
 
 test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) => {
   await openStreamdeck(page)
@@ -100,11 +109,8 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
 test('wheel events adjust every dial, including C, without scrolling the page', async ({ page }) => {
   await openStreamdeck(page)
 
-  // Keep the page scrollable, but finish the anchor helper's smooth scroll
-  // before aiming wheel events. Otherwise the knob can move off the pointer.
+  // Keep native page scrolling observable while checking every dial.
   await page.evaluate(() => {
-    document.documentElement.style.scrollBehavior = 'auto'
-    window.scrollTo({ top: window.scrollY, behavior: 'instant' })
     const spacer = document.createElement('div')
     spacer.style.height = '2000px'
     spacer.setAttribute('aria-hidden', 'true')
