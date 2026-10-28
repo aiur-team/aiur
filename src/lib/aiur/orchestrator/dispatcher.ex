@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   Tracker work executes outside the owner; guarded results apply inside it.
   """
 
+  alias Aiur.Config.SettingsSnapshot
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.CiLifecycle
@@ -288,6 +289,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec dispatch_candidate_poll(State.t(), keyword()) :: State.t()
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
+    SettingsSnapshot.run(fn -> do_dispatch_candidate_poll(state, opts) end)
+  end
+
+  defp do_dispatch_candidate_poll(state, opts) do
     fetch_candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &Candidates.fetch_candidate_issues/1)
     monitor_without_candidates = Keyword.get(opts, :monitor_without_candidates_fun, &monitor_without_candidates/1)
     stranded_reconciliation = Keyword.get(opts, :stranded_reconciliation_fun, &IssueSync.sync_stranded_ticket_reconciliation/2)
