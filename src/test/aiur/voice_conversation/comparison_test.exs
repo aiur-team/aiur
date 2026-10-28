@@ -133,6 +133,7 @@ defmodule Aiur.VoiceConversation.ComparisonTest do
 
   test "provider double records first audio and chosen model beside the real transcript", %{root: root} do
     instance = Module.concat(__MODULE__, "Instance#{System.unique_integer([:positive])}")
+    clock = start_supervised!({Agent, fn -> 1_000 end})
 
     {:ok, config} =
       Config.new(name: instance, transcript_root: root, credentials: StaticCredentials, briefing_source: FakeBriefingSource, provider: FakeProvider, llm: "old", cloud_disclosure_accepted: true)
@@ -147,7 +148,7 @@ defmodule Aiur.VoiceConversation.ComparisonTest do
       deliver: deliver,
       llm: "session-model",
       provider: {FakeProvider, [script: []]},
-      comparison: %{root: root, provider: "openai_realtime", model: "session-model", max_seconds: 30}
+      comparison: %{root: root, provider: "openai_realtime", model: "session-model", max_seconds: 30, clock: fn -> Agent.get(clock, & &1) end}
     ]
 
     assert {:ok, wrapper, id} = Session.start(self(), opts)
@@ -155,8 +156,12 @@ defmodule Aiur.VoiceConversation.ComparisonTest do
     {:ok, core} = SessionRegistry.lookup(instance, id)
     assert :sys.get_state(core).config.llm == "session-model"
     assert :sys.get_state(core).config.limits.max_session_seconds == 30
+    Agent.update(clock, fn _ -> 1_420 end)
     FakeProvider.emit(:sys.get_state(core).provider_ref, %Events.AgentAudio{data_b64: "AAAA", format: :pcm_16000, turn_id: "first"})
     receive_barrier({:executor_voice, %Events.AgentAudio{}})
+    # The forwarded audio reaches this process before record/2 runs; cross the session barrier.
+    :sys.get_state(wrapper)
+    Agent.update(clock, fn _ -> 2_000 end)
     # Drive the actual cap message instead of waiting on wall time.
     send(wrapper, :comparison_cap)
     receive_barrier({:executor_voice, {:comparison_saved, token}})
@@ -166,9 +171,8 @@ defmodule Aiur.VoiceConversation.ComparisonTest do
     assert row["session_id"] == id
     assert row["provider"] == "openai_realtime"
     assert row["model"] == "session-model"
-    assert is_integer(row["first_audio_ms"])
-    assert row["first_audio_ms"] >= 0
-    assert row["seconds"] >= 0
+    assert row["first_audio_ms"] == 420
+    assert row["seconds"] == 1.0
     assert row["status"] == "ended"
     assert {:ok, records, _} = TranscriptStore.read(root, id)
     assert hd(records)["model"] == "session-model"

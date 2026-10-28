@@ -16,21 +16,23 @@ defmodule Aiur.VoiceConversation.Comparison do
 
   @spec reserve(Path.t(), String.t(), String.t(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def reserve(root, provider, model, max_seconds) when is_integer(max_seconds) and max_seconds > 0 do
-    locked(root, fn ->
-      with {:ok, {cap, _dollars}} <- Map.fetch(@budgets, provider),
-           {:ok, rows} <- read(root),
-           remaining when remaining > 0 <- cap - used(rows, provider) do
-        row = new_row(provider, model, min(remaining, max_seconds))
-        with :ok <- write(root, rows ++ [row]), do: {:ok, row}
-      else
-        :error -> {:error, :invalid_provider}
-        remaining when is_number(remaining) -> {:error, :cost_cap}
-        error -> error
-      end
-    end)
+    locked(root, fn -> reserve_locked(root, provider, model, max_seconds) end)
   end
 
   def reserve(_root, _provider, _model, _max_seconds), do: {:error, :invalid_limit}
+
+  defp reserve_locked(root, provider, model, max_seconds) do
+    with {:ok, {cap, _dollars}} <- Map.fetch(@budgets, provider),
+         {:ok, rows} <- read(root),
+         remaining when remaining > 0 <- cap - used(rows, provider) do
+      row = new_row(provider, model, min(remaining, max_seconds))
+      with :ok <- write(root, rows ++ [row]), do: {:ok, row}
+    else
+      :error -> {:error, :invalid_provider}
+      remaining when is_number(remaining) -> {:error, :cost_cap}
+      error -> error
+    end
+  end
 
   @spec finish(Path.t(), String.t(), String.t(), non_neg_integer(), non_neg_integer() | nil) :: :ok | {:error, term()}
   def finish(root, token, session_id, elapsed_ms, first_audio_ms) do
@@ -75,16 +77,20 @@ defmodule Aiur.VoiceConversation.Comparison do
   end
 
   defp update(root, token, fun) do
-    locked(root, fn ->
-      with {:ok, rows} <- read(root),
-           true <- Enum.any?(rows, &(&1["id"] == token)) do
-        write(root, Enum.map(rows, fn row -> if row["id"] == token, do: fun.(row), else: row end))
-      else
-        false -> {:error, :not_found}
-        error -> error
-      end
-    end)
+    locked(root, fn -> update_locked(root, token, fun) end)
   end
+
+  defp update_locked(root, token, fun) do
+    with {:ok, rows} <- read(root),
+         true <- Enum.any?(rows, &(&1["id"] == token)) do
+      write(root, Enum.map(rows, &replace_row(&1, token, fun)))
+    else
+      false -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp replace_row(row, token, fun), do: if(row["id"] == token, do: fun.(row), else: row)
 
   defp read(root) do
     case File.read(Path.join(root, "comparison.json")) do

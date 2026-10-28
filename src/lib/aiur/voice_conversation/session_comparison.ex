@@ -12,7 +12,8 @@ defmodule Aiur.VoiceConversation.SessionComparison do
 
   defp reserve(spec, opts) do
     with {:ok, row} <- Comparison.reserve(spec.root, spec.provider, spec.model, spec.max_seconds) do
-      comparison = %{root: spec.root, token: row["id"], started: System.monotonic_time(:millisecond), first_audio_ms: nil, reserved_seconds: row["reserved_seconds"]}
+      clock = Map.get(spec, :clock, fn -> System.monotonic_time(:millisecond) end)
+      comparison = %{root: spec.root, token: row["id"], started: clock.(), clock: clock, first_audio_ms: nil, reserved_seconds: row["reserved_seconds"]}
       {:ok, comparison, Keyword.put(opts, :max_session_seconds, row["reserved_seconds"])}
     end
   end
@@ -37,5 +38,5 @@ defmodule Aiur.VoiceConversation.SessionComparison do
     :ok
   end
 
-  defp elapsed(comparison), do: max(0, System.monotonic_time(:millisecond) - comparison.started)
+  defp elapsed(comparison), do: max(0, comparison.clock.() - comparison.started)
 end
