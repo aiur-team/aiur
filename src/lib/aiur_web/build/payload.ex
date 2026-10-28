@@ -25,7 +25,6 @@ defmodule AiurWeb.Build.Payload do
   | src / was | pack source (kind, relative path, nonnegative wave or nil) / previous pack id or nil |
   | title | raw UTF-8 string |
   | type | bug, feature, chore, docs |
-  | general_epics | optional list of every label-matched general epic, including feature-owned tickets |
   | epic / feature / also | epic key or nil / feature key or nil / feature keys |
   | cx / pts / ord | 1..5 or nil / nonnegative integer or nil / integer |
   | sec | hist, now, plan, nq |
@@ -88,7 +87,7 @@ defmodule AiurWeb.Build.Payload do
   """
   alias AiurWeb.Build.{PayloadSchema, PayloadValidator}
   @version 1
-  @row_fields PayloadSchema.row() |> Map.delete("general_epics") |> Map.keys() |> Enum.map(&String.to_atom/1)
+  @row_fields PayloadSchema.row() |> Map.keys() |> Enum.map(&String.to_atom/1)
 
   @spec snapshot(map(), String.t(), non_neg_integer()) :: map()
   def snapshot(data, epoch, generation) do
@@ -135,6 +134,9 @@ defmodule AiurWeb.Build.Payload do
   def validate(_message), do: {:error, [{"", :type}]}
 
   @spec scrub(term()) :: term()
+  # Label memberships are Deck-only index metadata, not part of the browser wire schema.
+  def scrub(%{general_epics: _, num: _} = row), do: row |> Map.delete(:general_epics) |> scrub()
+
   def scrub(value) when is_binary(value), do: String.replace_invalid(value)
   def scrub(value) when is_list(value), do: Enum.map(value, &scrub/1)
   def scrub(value) when is_map(value), do: Map.new(value, fn {key, child} -> {scrub_key(key), scrub(child)} end)
