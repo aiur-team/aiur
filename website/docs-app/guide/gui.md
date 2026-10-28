@@ -188,7 +188,9 @@ secret handling, earlier history and jump-point precision.
 
 Open Commands from this agent appear beside their anchored conversation entry,
 with a top link that jumps to the card. A Command with no known position is
-pinned above the history and marked **Position unknown**. The cards use the same
+pinned above the history and marked **Position unknown**.
+
+The cards use the same
 answer controls as the Commands inbox, including multi-question answers and
 conflict outcomes. Answers recorded elsewhere update the card live; they never
 edit the transcript. Read-only dashboards show cards without answer controls.

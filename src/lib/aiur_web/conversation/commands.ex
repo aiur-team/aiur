@@ -2,6 +2,7 @@ defmodule AiurWeb.Conversation.Commands do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2, assign: 3]
   alias Aiur.Conversation.{History, Ref}
+  alias AiurWeb.Conversation.Paging
   alias AiurWeb.EndpointConfig
   alias AiurWeb.OperatorControlCenter.{DecisionEvents, DecisionProvider}
 
@@ -77,7 +78,7 @@ defmodule AiurWeb.Conversation.Commands do
       |> assign(selected_decision: row, selected_decision_id: id)
       |> then(fn s -> DecisionEvents.handle(event, params, s, &reload/1) end)
       |> assign(selected_decision: nil, selected_decision_id: nil)
-      |> AiurWeb.Conversation.Paging.refresh_entries()
+      |> Paging.refresh_entries()
     else
       socket
     end
