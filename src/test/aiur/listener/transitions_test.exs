@@ -47,6 +47,15 @@ defmodule Aiur.Listener.TransitionsTest do
     assert Unread.queue_summary(state.queue_store, ctx.id).listener.unread_count == 0
   end
 
+  test "leaving async notifies an already-running agent about the newly queued notice", ctx do
+    state = held(ctx, 1)
+    entry = %{identifier: ctx.id, issue: ctx.issue, session_execution: nil, pid: self(), control: %{status: :working}}
+    state = %{state | running: %{ctx.id => entry}}
+    assert {:reply, {:ok, _}, state} = switch(state, ctx.id, :sync, 1)
+    item_id = notice(state, ctx.id).id
+    assert_received {:agent_queue_updated, _, ^item_id, true}
+  end
+
   test "same mode version retried after notice delivery never creates another notice", ctx do
     state = held(ctx, 1)
     opts = [expected_version: 1, idempotency_key: "leave", spec_status: :ok]

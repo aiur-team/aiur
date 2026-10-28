@@ -197,28 +197,24 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     refute_received {:agent_queue_updated, _, _, _}
   end
 
-  test "session execution refresh restamps pending delivery and notifies only once", %{id: id, state: state} do
+  test "session execution refresh preserves pull-only messages without notifying", %{id: id, state: state} do
     previous = %{state.running[id] | session_execution: %{backend: "unknown-harness"}}
     {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
     state = %{state | queue_store: store}
     next = ListenerModes.on_session_execution(state, id, previous)
     assert next.running[id].listener_effective.effective == :sync
-    assert AgentQueueStore.get(next.queue_store, item.id).delivery.listener_mode_at_claim == :sync
-    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
-    item_id = item.id
-    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert AgentQueueStore.get(next.queue_store, item.id) == item
+    refute_received {:agent_queue_updated, ^id, _, _}
     assert ListenerModes.on_session_execution(next, id, next.running[id]) == next
     refute_received {:agent_queue_updated, _, _, _}
   end
 
-  test "set_mode restamps a pending row using its actual effective view", %{id: id, state: state} do
+  test "set_mode preserves a previously held row even when its effective view is sync", %{id: id, state: state} do
     {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
     state = %{state | queue_store: store}
     assert {:reply, {:ok, %{effective: :sync}}, next} = ListenerModes.set_mode(state, id, :sync, expected_version: 0)
-    assert AgentQueueStore.get(next.queue_store, item.id).delivery.consume_at == :safe_checkpoint
-    assert AgentQueueStore.get(next.queue_store, item.id).delivery.listener_mode_at_claim == :sync
-    item_id = item.id
-    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert AgentQueueStore.get(next.queue_store, item.id) == item
+    refute_received {:agent_queue_updated, ^id, _, _}
   end
 
   test "listener enqueue preserves an operator pause instead of auto-resuming", %{id: id, state: state} do
@@ -296,13 +292,13 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert {:noreply, ^state} = Orchestrator.handle_info({:listen_mode_changed, "removed-issue", %{}}, state)
   end
 
-  test "mode-change signals re-read the current view instead of applying a stale payload", %{id: id, state: state} do
+  test "mode-change signals re-read the current view while preserving held messages", %{id: id, state: state} do
     {store, item} = AgentQueueStore.enqueue(state.queue_store, AgentQueue.operator_message(id, "held", listener_mode: :async))
     state = %{state | queue_store: store}
     assert {:noreply, next} = Orchestrator.handle_info({:listen_mode_changed, id, %{effective: :async}}, state)
-    assert AgentQueueStore.get(next.queue_store, item.id).delivery.listener_mode_at_claim == :sync
-    item_id = item.id
-    assert_received {:agent_queue_updated, ^id, ^item_id, true}
+    assert {:reply, {:ok, %{effective: :sync}}, _} = ListenerModes.get_mode(next, id)
+    assert AgentQueueStore.get(next.queue_store, item.id) == item
+    refute_received {:agent_queue_updated, ^id, _, _}
   end
 
   test "held enqueue, retry, partial read and restamp emit current unread counts", %{id: id, state: state} do
@@ -321,7 +317,8 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
     assert_received {:transcript_event, %{role: :system, payload: %{listener: %{unread_count: 1, oldest_unread_at: remaining_at}}}}
     assert remaining_at == AgentQueueStore.get(state.queue_store, second).inserted_at
     state = ListenerModes.mode_view_changed(state, id, %{effective: :sync})
-    assert_received {:transcript_event, %{payload: %{listener: %{unread_count: 0, oldest_unread_at: nil}}}}
+    assert AgentQueueStore.get(state.queue_store, second).delivery.consume_at == :pull
+    assert Capabilities.issue_control_capabilities(state, id).listener.unread_count == 1
     assert ListenerModes.mode_view_changed(state, id, %{effective: :sync}) == state
     refute_received {:transcript_event, %{payload: %{listener: _}}}
   end

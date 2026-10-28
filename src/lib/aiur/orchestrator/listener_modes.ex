@@ -5,8 +5,8 @@ defmodule Aiur.Orchestrator.ListenerModes do
   alias Aiur.{AgentPubSub, AgentQueueStore, Events, TrackerIdentity}
   alias Aiur.Events.Catalog
   alias Aiur.Listener.{Effective, ModeStore, Scheduler}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
   alias Aiur.Orchestrator.{ListenerTransitions, State}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
 
   @spec get_mode(State.t(), Aiur.Listener.target()) :: tuple()
   def get_mode(state, target) do
@@ -40,6 +40,10 @@ defmodule Aiur.Orchestrator.ListenerModes do
         _invalid_version -> {:error, :invalid_expected_version}
       end
 
+    finish_set_mode(state, reply)
+  end
+
+  defp finish_set_mode(state, reply) do
     case reply do
       {:ok, id, result, store, backlog} ->
         key = State.find_running_key_by_identifier(state.running, id)
