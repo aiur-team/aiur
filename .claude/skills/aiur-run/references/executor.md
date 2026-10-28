@@ -83,13 +83,14 @@ Classify every discovered finding before creating work:
 
 ## Continuous-build intake
 
-Every authorized new feature, epic, bug batch, or experiment joins the repository's
+Every authorized new feature, epic, feature-scoped bug batch, or experiment joins the repository's
 single continuous build by default. Follow [the intake procedure](continuous-build-intake.md)
 for feature collection and `feature:<slug>` labels,
 native `blocked_by` links where real, queue membership, and placement read-back.
 New features never create standalone Build Order roots; existing roots remain history.
-Only an explicit operator exclusion leaves filed work outside the build: park it
-with `needs-triage`/`human:todo` and the reason. Unfiled deferred findings remain
+Non-feature findings start with `needs-triage` and the instance's parked label;
+follow the intake rule's main-fix or named-PR promotion exception. Explicit
+operator exclusions also stay parked with their reason. Unfiled deferred findings remain
 in the ledger under the convergence policy above.
 
 “Prioritize” means place the work ahead of the previous next-up using priority labels and queue ordering, then report what it displaced. A label alone is not placement. Verify the collection, projected labels, prerequisites, membership, and effective start order before reporting intake complete.
