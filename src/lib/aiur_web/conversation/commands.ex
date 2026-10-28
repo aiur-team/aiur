@@ -1,6 +1,7 @@
 defmodule AiurWeb.Conversation.Commands do
   @moduledoc false
   import Phoenix.Component, only: [assign: 2, assign: 3]
+  alias Aiur.Commands, as: CommandStore
   alias Aiur.Conversation.{History, Ref}
   alias AiurWeb.Conversation.Paging
   alias AiurWeb.EndpointConfig
@@ -11,7 +12,7 @@ defmodule AiurWeb.Conversation.Commands do
 
   @spec subscribe(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def subscribe(socket) do
-    :ok = Aiur.DecisionPubSub.subscribe()
+    :ok = CommandStore.subscribe()
     reload(socket)
   end
 
@@ -84,5 +85,5 @@ defmodule AiurWeb.Conversation.Commands do
     end
   end
 
-  defp options, do: [decision_store: EndpointConfig.get(:decision_store) || Aiur.Commands.default_store()]
+  defp options, do: [decision_store: EndpointConfig.get(:decision_store) || CommandStore.default_store()]
 end
