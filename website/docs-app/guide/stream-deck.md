@@ -25,6 +25,18 @@ The current physical client uses the navigation controls described above.
 | **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
+### Feature view
+
+The server Feature view uses the Build Features snapshot's closed/total percentage,
+rounded down, with closed, published/open (including CI wait) and unpublished bar layers and a positive, known CI-wait
+badge. Missing counts show “—” and an empty bar with the source reason.
+Each key represents a parent feature, summing its epic counts in snapshot order. Dial 4 pages eight keys;
+press a key to drill into the parent feature's tickets, then hold Dial 4 to return
+with the feature page preserved. The strip names closed/total, unpublished count and
+observation age in minutes for the first visible feature (the selected feature while drilled in).
+These frames are returned by the server navigation input protocol; the legacy controls
+above remain until the sidecar and emulator adopt that protocol.
+
 The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 
 | Control state | Behavior |
