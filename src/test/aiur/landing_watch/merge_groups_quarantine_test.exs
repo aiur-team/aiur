@@ -136,7 +136,8 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
 
   test "degraded runner timeouts and partition kill file no flake tickets" do
     parent = self()
-    run = failed_run(513, "pr-55-a", "https://github.com/test-org/test-repo/actions/runs/513", DateTime.to_iso8601(DateTime.utc_now()))
+    run = failed_run(513, "pr-55-a", "https://github.com/test-org/test-repo/actions/runs/513", minutes_ago(2))
+    repeated_run = failed_run(516, "pr-55-a", "https://github.com/test-org/test-repo/actions/runs/516", minutes_ago(1))
     journal = Path.join(System.tmp_dir!(), "mgq-degraded-#{System.unique_integer([:positive])}.json")
     on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
 
@@ -151,8 +152,11 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
       request_fun: fn _request -> {:ok, %{status: 200, body: []}} end,
       jobs_fun: fn _run, _opts -> {:ok, jobs} end,
       job_log_fun: fn
-        %{"id" => 1}, _opts -> {:ok, "** (ExUnit.TimeoutError) test timed out after 60000ms\n" <> "** (ExUnit.TimeoutError) another test timed out after 60000ms"}
-        %{"id" => 2}, _opts -> {:ok, "Error: coverage partition 3 killed at 20m time bound"}
+        %{"id" => 1}, _opts ->
+          {:ok, "** (ExUnit.TimeoutError) test timed out after 60000ms\n** (ExUnit.TimeoutError) another test timed out after 60000ms\n** (ExUnit.TimeoutError) third test timed out after 60000ms"}
+
+        %{"id" => 2}, _opts ->
+          {:ok, "Error: coverage partition 3 killed at 20m time bound"}
       end,
       annotations_fun: fn _id, _opts -> {:ok, [%{"title" => "aiur-test-failure", "message" => "new-failure :: Aiur.ExampleTest :: fails", "path" => "src/test/example_test.exs"}]} end,
       flake_recorder: fn _, _, _, _ ->
@@ -167,7 +171,7 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
       quarantine_pr_fun: fn _candidate, _ticket, _opts -> {:ok, %{number: 901}} end
     ]
 
-    assert :ok = MergeGroupQuarantine.process_completed([run], [], "main", opts)
+    assert :ok = MergeGroupQuarantine.process_completed([run, repeated_run], [], "main", opts)
     refute_received :flake_ticket_recorded
   end
 
