@@ -61,11 +61,30 @@ defmodule Aiur.Listener.TransitionsTest do
     opts = [expected_version: 1, idempotency_key: "leave", spec_status: :ok]
     assert {:reply, {:ok, view}, state} = ListenerModes.set_mode(state, ctx.id, :sync, opts)
     item = notice(state, ctx.id)
-    {store, _} = AgentQueueStore.mark_consumed(state.queue_store, item.id)
+    {store, delivered} = AgentQueueStore.claim_next_deliverable(state.queue_store, ctx.id)
+    assert delivered.id == item.id
+    {store, _} = AgentQueueStore.mark_consumed(store, item.id)
     state = %{state | queue_store: store}
     assert {:reply, {:ok, ^view}, replay} = ListenerModes.set_mode(state, ctx.id, :sync, opts)
     assert replay.queue_store == state.queue_store
     assert Enum.count(replay.queue_store.items) == 2
+  end
+
+  test "a new ticket run can reuse mode versions without colliding with old notices", ctx do
+    state = held(ctx, 1)
+    {:reply, {:ok, _}, state} = switch(state, ctx.id, :sync, 1)
+    old_notice = notice(state, ctx.id)
+    {store, delivered} = AgentQueueStore.claim_next_deliverable(state.queue_store, ctx.id)
+    assert delivered.id == old_notice.id
+    {store, _} = AgentQueueStore.mark_consumed(store, old_notice.id)
+    {:reply, {:ok, %{remaining: 0}}, state} = HeldReads.handle_call(%{state | queue_store: store}, ctx.id, 50)
+    :ok = ModeStore.clear(ctx.id)
+    state = held(%{ctx | state: state}, 2)
+    assert {:reply, {:ok, _}, state} = switch(state, ctx.id, :sync, 1)
+    new_notice = notice(state, ctx.id)
+    assert new_notice.id != old_notice.id
+    assert new_notice.body.text == "2 earlier messages are waiting; read them with aiur_read_messages"
+    assert new_notice.status == :pending
   end
 
   test "re-entering async supersedes only undelivered backlog notices", ctx do

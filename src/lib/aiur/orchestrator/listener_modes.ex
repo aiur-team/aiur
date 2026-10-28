@@ -26,7 +26,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
           {:ok, record} ->
             result = view(state, id, entry, record)
             Logger.info("listener_mode_set issue=#{id} requested=#{result.requested} effective=#{inspect(result.effective)} version=#{result.version} actor=#{result.actor}")
-            {store, backlog} = transition(state.queue_store, id, previous, result, opts)
+            {store, backlog} = transition(state.queue_store, id, previous, Map.merge(record, result), opts)
             {:ok, id, result, store, backlog}
 
           {:error, {:mode_conflict, record}} ->

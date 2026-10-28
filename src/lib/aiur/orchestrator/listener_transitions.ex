@@ -27,7 +27,7 @@ defmodule Aiur.Orchestrator.ListenerTransitions do
           source: :system,
           category: :system_notice,
           event_type: :async_backlog_notice,
-          message_id: "async-backlog:#{identifier}:#{current.version}",
+          message_id: "async-backlog:#{identifier}:#{current.version}:#{current.updated_at}",
           dedupe_key: "async-backlog:#{identifier}"
         })
         |> Map.update!(:delivery, Scheduler.restamp_fun(current))
