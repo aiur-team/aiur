@@ -233,6 +233,8 @@ alerts:
 # llm and cloud_disclosure_accepted have no default: a session refuses to start until both are set.
 # voice:
 #   conversation:
+#     provider: elevenlabs_agents     # or openai_realtime; uses daemon OPENAI_API_KEY, no Agent id
+#     voice_id: marin                 # OpenAI only; optional
 #     llm: <model id>                  # required; the model the assistant reasons with
 #     cloud_disclosure_accepted: true  # required; true = accept that audio and text go to the cloud voice provider
 #     agent_id: <agent id>             # ElevenLabs Agents agent; an account-visible id, not a secret

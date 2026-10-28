@@ -34,6 +34,21 @@ export interface StreamDeckSnapshot {
   readonly voice?: StreamDeckVoiceState;
 }
 
+/** Build ticket projection; unknown evidence remains null. */
+export interface StreamDeckTicket {
+  readonly v: 1;
+  readonly kind: "ticket";
+  readonly id: string;
+  readonly title: string | null;
+  readonly sec: string | null;
+  readonly status: { readonly label: string; readonly tone: string; readonly agent_state: string | null };
+  readonly agent: { readonly model: string | null; readonly name: string | null; readonly effort: string | null; readonly pct: number | null; readonly start: number | null } | null;
+  readonly pr: { readonly num: number; readonly state: string; readonly ci?: string | null } | null;
+  readonly control: { readonly action: string | null; readonly state: string; readonly title: string | null } | null;
+  readonly qpos: number | null;
+  readonly observed_at: number | null;
+}
+
 export interface StreamDeckCounts {
   readonly status: "ok" | "stale" | "unavailable";
   readonly observed_at: number | null;
@@ -220,6 +235,7 @@ export interface StreamDeckChannelEvents {
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
+  ticket?(ticket: StreamDeckTicket): void;
   usage(usage: Readonly<Record<string, unknown>>): void;
   transcript(row: TranscriptRow): void;
   logs(logs: StreamDeckLogs): void;
@@ -260,6 +276,7 @@ export interface WebSocketLike {
 export type WebSocketFactory = (url: string) => WebSocketLike;
 export type FetchLike = (input: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => Promise<{
   ok: boolean;
+  status?: number;
   json(): Promise<unknown>;
 }>;
 
@@ -335,3 +352,5 @@ export interface StreamDeckChannel {
   ): void;
   close(): void;
 }
+
+export class InstanceAuthError extends Error {}

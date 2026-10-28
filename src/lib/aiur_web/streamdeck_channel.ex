@@ -9,6 +9,8 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.Streamdeck.Deck
+  alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, TicketUpdates}
 
   alias AiurWeb.Streamdeck.UsageUpdates
 
@@ -44,12 +46,36 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, focus_token: nil, transcript_relay: nil, voice_session: nil, fleet_flush: nil, usage_flush: nil, fleet_latch: latch)}
+    {:ok,
+     assign(socket,
+       deck_nav: %Nav{},
+       deck_effects: [],
+       focused_agent: nil,
+       focus_token: nil,
+       transcript_relay: nil,
+       voice_session: nil,
+       fleet_flush: nil,
+       usage_flush: nil,
+       fleet_latch: latch,
+       ticket_task: nil,
+       ticket_pending: false
+     )}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
 
   @impl true
+  def handle_in("input", input, socket) do
+    if Nav.valid_input?(input) do
+      sections = StreamdeckProjection.grid() |> Deck.navigation()
+      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
+      socket = assign(socket, deck_nav: nav, deck_effects: effects)
+      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
+    else
+      {:reply, {:error, %{reason: "invalid_input"}}, socket}
+    end
+  end
+
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
     # Relay setup/teardown and projections may wait on other processes. Keep
@@ -266,6 +292,7 @@ defmodule AiurWeb.StreamdeckChannel do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
     socket = assign(socket, transcript_relay: relay)
+    socket = TicketUpdates.refresh(socket)
     push(socket, "logs", logs_projection(identifier))
     push(socket, "commands", commands_projection(identifier))
     {:noreply, socket}
@@ -337,10 +364,14 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, assign(socket, :voice_session, nil)}
   end
 
+  def handle_info({ref, dto}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.complete(socket, dto)}
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{assigns: %{ticket_task: %{task: %Task{ref: ref}}}} = socket), do: {:noreply, TicketUpdates.failed(socket)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def terminate(_reason, socket) do
+    TicketUpdates.stop(socket)
     socket |> assigns() |> Map.get(:transcript_relay) |> stop_child()
     socket |> assigns() |> Map.get(:voice_session) |> voice_pid() |> stop_child()
     :ok

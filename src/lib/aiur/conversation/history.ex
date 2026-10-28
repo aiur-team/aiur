@@ -9,7 +9,7 @@ defmodule Aiur.Conversation.History do
   alias Aiur.AgentEventFeed
   alias Aiur.AgentLog
   alias Aiur.AgentLog.PageReader
-  alias Aiur.Conversation.{Anchors, HistoryAnchors, HistoryPage, HistoryReader, Ref}
+  alias Aiur.Conversation.{Anchors, HeadTable, HistoryAnchors, HistoryPage, HistoryReader, Ref}
   alias Aiur.LiveConversation
   alias Aiur.SecretRedactor
 
@@ -22,6 +22,15 @@ defmodule Aiur.Conversation.History do
           complete_from_start: boolean(),
           observed_at: DateTime.t()
         }
+
+  @spec resolve_worker(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, atom()} | {:error, :ambiguous_subject, [String.t()]}
+  defdelegate resolve_worker(owner, repository, identifier), to: Aiur.Conversation.SubjectIndex, as: :resolve
+
+  @spec resolve_executor() :: {:ok, String.t()} | {:error, atom()}
+  def resolve_executor do
+    ref = Ref.executor()
+    with {:ok, _} <- HistoryReader.snapshot(ref), do: {:ok, Ref.conversation_id(ref)}
+  end
 
   @doc "Pages durable entries by position. A principal is required; only loopback may reveal secrets."
   @spec list_entries(Ref.t() | String.t(), keyword()) :: {:ok, page()} | {:error, atom()}
@@ -54,6 +63,15 @@ defmodule Aiur.Conversation.History do
     with {:ok, snapshot} <- HistoryReader.snapshot(ref) do
       pubsub = Application.get_env(:aiur, :conversation_journal, []) |> Keyword.get(:pubsub, Aiur.PubSub)
       Phoenix.PubSub.subscribe(pubsub, "conversation:" <> snapshot.id)
+    end
+  end
+
+  @doc "Whether the journal has reported an unresolved write failure in this daemon."
+  @spec degraded?(String.t()) :: boolean()
+  def degraded?(id) do
+    case HistoryReader.snapshot(id) do
+      {:ok, snapshot} -> HeadTable.degraded?(id, snapshot.dir)
+      {:error, _} -> false
     end
   end
 

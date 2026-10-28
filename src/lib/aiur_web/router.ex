@@ -159,6 +159,15 @@ defmodule AiurWeb.Router do
     match(:*, "/api/v1/usage/:provider", AiurWeb.UsageApiController, :method_not_allowed)
   end
 
+  scope "/", AiurWeb do
+    pipe_through(:client_token_read)
+    get("/api/v1/conversations/resolve", ConversationApiController, :resolve)
+    get("/api/v1/conversations/:conversation_id/entries", ConversationApiController, :entries)
+    get("/api/v1/conversations/:conversation_id/sessions", ConversationApiController, :sessions)
+    get("/api/v1/conversations/:conversation_id/anchors", ConversationApiController, :anchors)
+    match(:*, "/api/v1/conversations/*path", ConversationApiController, :method_not_allowed_or_not_found)
+  end
+
   # Generic issue reads and the catch-all stay last.
   Api.reads_and_catch_all()
 
