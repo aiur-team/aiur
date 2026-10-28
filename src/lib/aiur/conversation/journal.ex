@@ -12,6 +12,7 @@ defmodule Aiur.Conversation.Journal do
 
   @impl true
   def init(ref) do
+    Process.flag(:trap_exit, true)
     opts = Application.get_env(:aiur, :conversation_journal, [])
     {failed_since, dropped_span} = :persistent_term.get({__MODULE__, Ref.conversation_id(ref), :pending_gaps}, {nil, nil})
 
@@ -85,6 +86,15 @@ defmodule Aiur.Conversation.Journal do
   end
 
   def handle_info({:idle, _token}, state), do: {:noreply, state}
+
+  # Store preparation closes linked command ports; trapping shutdown also delivers their normal exits.
+  def handle_info({:EXIT, port, :normal}, state) when is_port(port), do: {:noreply, state}
+
+  @impl true
+  def terminate(reason, state) do
+    if reason == :shutdown or match?({:shutdown, _}, reason), do: flush(state)
+    :ok
+  end
 
   defp load(state) do
     with {:ok, root} <- Paths.conversation_state_dir(),

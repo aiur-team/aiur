@@ -237,4 +237,25 @@ defmodule Aiur.Conversation.JournalTest do
     assert resumed["start_reason"] == "resume"
     assert resumed["session_seq"] == 2
   end
+
+  test "supervisor shutdown flushes the buffered entry before stopping", %{ref: ref, dir: dir} do
+    Ingest.append(ref, source(), [event(1)])
+    {:ok, pid} = Ingest.writer(ref)
+    assert :queue.len(:sys.get_state(pid).buffer) == 1
+    assert rows(dir) == []
+    assert :ok = DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+    assert [%{"body" => "message 1", "pos" => 1}] = rows(dir)
+  end
+
+  test "idle stop without dropped entries creates no persistent counter", %{ref: ref} do
+    id = Ref.conversation_id(ref)
+    assert :persistent_term.get({Ingest, :dropped, id}, nil) == nil
+    Ingest.append(ref, source(), [event(1)])
+    {:ok, pid} = Ingest.writer(ref)
+    monitor = Process.monitor(pid)
+    {_timer, token} = :sys.get_state(pid).idle
+    send(pid, {:idle, token})
+    receive_barrier({:DOWN, ^monitor, :process, ^pid, :normal})
+    assert :persistent_term.get({Ingest, :dropped, id}, nil) == nil
+  end
 end

@@ -47,6 +47,7 @@ defmodule Aiur.Conversation.Ingest do
 
   @doc false
   @spec count_dropped(String.t(), non_neg_integer()) :: :ok
+  def count_dropped(_id, 0), do: :ok
   def count_dropped(id, count), do: :counters.add(counter(id), 1, count)
 
   defp convert(event, role) do
