@@ -5,6 +5,12 @@ import { stClass, stText } from '../../priv/static/build-home/list.js';
 import { treeStatus } from '../../priv/static/build-home/chains.js';
 import { headerHTML } from '../../priv/static/build-home/modal/header.js';
 const pack = { id: 'pack:demo/A', sec: 'plan', num: null, qpos: null, src: { kind: 'pack', path: 'docs/build-plan.md', wave: null }, title: '<img src=x>', wave: 1 };
+test('modal header uses the server status shared with the deck', () => {
+  const html = headerHTML({ ...pack, display_status: { label: 'Waiting for CI', tone: 'idle' } });
+  assert.match(html, /bm-st idle/);
+  assert.match(html, /Waiting for CI/);
+  assert.doesNotMatch(html, /Planned · not filed/);
+});
 test('filed unknown references and invalid queues remain distinct from unfiled', () => {
   for (const num of [null, undefined, NaN, Infinity, '1<b>']) {
     assert.equal(refText({num}), '#—');

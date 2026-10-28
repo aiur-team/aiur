@@ -8,6 +8,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.{AgentChat, AgentControlCLI, Commands, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, EndpointConfig, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.Streamdeck.Deck.TicketPage
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -252,6 +253,11 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed], do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
 
+  def handle_info({:build_changes, _changes}, socket) do
+    TicketPage.push_focused(socket)
+    {:noreply, socket}
+  end
+
   def handle_info(:fleet_changed, socket), do: AiurWeb.StreamdeckFleetUpdates.schedule(socket)
   def handle_info({:flush_fleet, token}, socket), do: AiurWeb.StreamdeckFleetUpdates.flush(socket, token)
 
@@ -262,6 +268,8 @@ defmodule AiurWeb.StreamdeckChannel do
     previous_socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
     socket = assign(socket, transcript_relay: relay)
+    :ok = TicketPage.subscribe()
+    TicketPage.push_focused(socket)
     push(socket, "logs", logs_projection(identifier))
     push(socket, "commands", commands_projection(identifier))
     {:noreply, socket}

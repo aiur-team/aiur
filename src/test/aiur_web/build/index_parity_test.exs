@@ -112,10 +112,10 @@ defmodule AiurWeb.Build.IndexParityTest do
   end
 
   defp comparable(row) do
-    # Frozen demo ordinals, estimates and display names predate the producer contracts.
+    # Frozen demo ordinals, estimates and display fields predate the producer contracts.
     # History has no failed-PR fact; its demo failure becomes a cause-neutral closure.
     row
-    |> Map.drop(~w(ord est override dep_states deps_missing start_src))
+    |> Map.drop(~w(ord est override dep_states deps_missing start_src display_status))
     |> Map.update!("agent", fn
       nil -> nil
       agent -> Map.delete(agent, "name")

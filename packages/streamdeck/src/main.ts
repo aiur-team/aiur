@@ -292,7 +292,7 @@ export const main = async (): Promise<void> => {
 
   const repaint = async (backend: HidBackend): Promise<void> => {
     activeBackend = backend;
-    const state = surfaceState(controller.state(), microphones, voiceReadings());
+    const state = surfaceState(controller.state(), microphones, voiceReadings(), demoActive ? demoGridState : undefined);
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);
     await next;
@@ -308,6 +308,10 @@ export const main = async (): Promise<void> => {
    * what the runtime's close/reopen recovery exists to handle, so hand it there
    * and keep running.
    */
+  setInterval(() => {
+    if (activeBackend !== null && controller.state().mode === "cmd") repaintDetached(activeBackend);
+  }, 30_000).unref();
+
   const repaintDetached = (backend: HidBackend): void => {
     void repaint(backend).catch((error: unknown) => {
       console.warn("[streamdeck] repaint failed; recovering the device", error);
@@ -361,6 +365,7 @@ export const main = async (): Promise<void> => {
           transcript: () => undefined,
           logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
           control: () => undefined,
+          ticket: (ticket) => { if (!demoActive) controller.setTicket(ticket); },
           commands: (page) => { controller.setCommands(page); if (activeBackend !== null) repaintDetached(activeBackend); },
           commandAnswered: (result) => { controller.commandAnswered(result); if (activeBackend !== null) repaintDetached(activeBackend); },
           commandsError: (reason, outcome, requestKey) => { controller.commandsError(reason, outcome, requestKey); if (activeBackend !== null) repaintDetached(activeBackend); },

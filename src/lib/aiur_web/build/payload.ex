@@ -44,7 +44,8 @@ defmodule AiurWeb.Build.Payload do
   | cue | plan-only held (string or nil), promoted (ms or nil), wait (int or nil) |
   | cue flags | waitAny and blockedChain booleans; optional unknown boolean |
   | cue.failed | nil or positive integer by and positive integer blocks list |
-  | pr | nil or positive integer num and open/merged/closed state |
+  | display_status | optional shared server label and tone for the ticket header |
+  | pr | nil or positive integer num, open/merged/closed state and optional nullable ci stage |
 
   Epics require key/label strings, numeric hue and an icon name; optional svg,
   general/temp/unsorted are booleans, optional feature is a string. Features require key/label,
@@ -87,7 +88,7 @@ defmodule AiurWeb.Build.Payload do
   """
   alias AiurWeb.Build.{PayloadSchema, PayloadValidator}
   @version 1
-  @row_fields PayloadSchema.row() |> Map.keys() |> Enum.map(&String.to_atom/1)
+  @row_fields PayloadSchema.row() |> Map.delete("display_status") |> Map.keys() |> Enum.map(&String.to_atom/1)
 
   @spec snapshot(map(), String.t(), non_neg_integer()) :: map()
   def snapshot(data, epoch, generation) do

@@ -11,10 +11,12 @@ The Claude provider meter names the selected account and shows “worst of N acc
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
 | **Grid** | Initial view | Up to eight agent keys; pressing one only selects/focuses it | Fleet summary with build progress of the focus build lane, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B/C: no action. D: press for Logs. |
+| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B/C: no action. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B/C: no action. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
+
+The physical Command ticket page reads the same Build row and status labels as the desktop ticket header. Missing PR evidence stays blank. After 60 seconds without a fresh ticket DTO, the strip shows its age; fleet and Build changes refresh the focused ticket. Read-only dashboards report disabled controls.
 
 | Control state | Behavior |
 | --- | --- |

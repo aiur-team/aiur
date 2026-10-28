@@ -10,12 +10,12 @@ import { createRasterizer } from "./rasterizer.js";
 import { StripRenderer } from "./touchStrip/stripRenderer.js";
 import { summaryModel } from "./touchStrip/summarySegment.js";
 import { providerRows } from "./touchStrip/providerPanel.js";
-import { agentDetailModel } from "./touchStrip/agentDetail.js";
+import { ticketDetailModel } from "./touchStrip/ticketDetail.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
 import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
-import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
+import type { StreamDeckGrid, StreamDeckTicket, TranscriptRow } from "./channel.js";
 import { MIC_KEY_INDICES, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY, settingsView, type SettingsView } from "./settings.js";
 import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
 import type { AudioDevice } from "./audio/index.js";
@@ -31,6 +31,7 @@ import type { StreamDeckCommand, StreamDeckCommandsPage } from "./channel.js";
 export type PhysicalMode = "grid" | "cmd" | "logs" | "settings" | "commands";
 export interface PhysicalSurfaceState {
   readonly mode: PhysicalMode;
+  readonly ticket?: StreamDeckTicket | null;
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
   /** True while the voice buffer holds settled text; adds the Send/Cancel keys. */
@@ -239,6 +240,7 @@ export const descriptorCommands = (
   hasTranscript: boolean,
   pendingCommands = 0,
   implementQueued = false,
+  ticket: StreamDeckTicket | null = null,
 ): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
   // Only a paused agent offers Resume. Keying this off `bucket === "running"`
@@ -268,8 +270,8 @@ export const descriptorCommands = (
     pending > 0
       ? command("commands", "Commands", "alert", `${pending} PENDING`, "alert")
       : command("commands", "Commands", "alert", "OPEN"),
-    hasTranscript ? command("send", "Send", "send", "TO AGENT") : undefined,
-    hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : undefined,
+    hasTranscript ? command("send", "Send", "send", "TO AGENT") : ticket === null ? undefined : command("status", ticket.status.label, "robot", "STATUS"),
+    hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : ticket?.pr == null ? undefined : command("pr", `#${ticket.pr.num}`, "logs", ticket.pr.ci ?? ticket.pr.state),
     agentless ? command("implement", "Implement", "robot", implementQueued ? "QUEUED" : "QUEUE") : undefined,
   ];
 };
@@ -375,6 +377,7 @@ export const createPhysicalSurface = () => {
       const signature = JSON.stringify({ grid, usage, state, minute: Math.floor(Date.now() / 60_000) });
       if (signature === lastSignature) return;
       lastSignature = signature;
+      const ticket = state.ticket?.id === state.focusedIdentifier ? state.ticket : null;
       const focused = state.focusedIdentifier === null ? null : grid.agents.find((agent) => String(agent.identifier) === state.focusedIdentifier);
       // Events fill the keys in reading order. `layoutKeys` is column-major,
       // which is right for the agent grid (paging moves through columns) but
@@ -390,7 +393,7 @@ export const createPhysicalSurface = () => {
       const visibleGrid = state.mode === "logs"
         ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null, focused))
         : state.mode === "cmd"
-        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier), state.implementQueued === true))
+        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier), state.implementQueued === true, ticket))
         : state.mode === "settings"
         ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
         : state.mode === "commands"
@@ -418,7 +421,7 @@ export const createPhysicalSurface = () => {
         : null;
       const strip: StripData = state.mode === "cmd" ? {
         mode: "cmd",
-        data: { detail: agentDetailModel(focused ?? { identifier: state.focusedIdentifier }), voice },
+        data: { detail: ticketDetailModel(ticket, state.focusedIdentifier), voice },
       } : state.mode === "settings" ? {
         mode: "settings",
         data: {

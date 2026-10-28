@@ -11,6 +11,7 @@ const title = t => '<h3 id="bm-title" tabindex="-1" data-dialog-heading><span cl
 const lookup = (map, key) => map && Object.hasOwn(map, key) ? map[key] : null;
 
 function status(t) {
+  if (t.display_status) return t.display_status;
   if (t.sec === 'now') { const ag = rowState(t); return { label: ag.label, tone: ag.cls || 'idle' }; }
   if (t.sec === 'hist') {
     const states = { done: ['Merged', 'done'], failed: ['Failed', 'stuck'], not_planned: ['Not planned', 'idle'], closed: ['Closed', 'idle'] };
