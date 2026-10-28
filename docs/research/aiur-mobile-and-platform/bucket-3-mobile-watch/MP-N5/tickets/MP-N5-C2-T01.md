@@ -26,14 +26,14 @@ Bucket 3, MP-N5, chunk C2. The foundation the rule tickets plug into:
 2. `Aiur.Push.Policy.Source` behaviour with two implementations (RC-09, PC-7):
    - `ExportFeed`: the MP-R2-C6 `DurableConsumer` named `push_policy`, replaying from its
      persisted `seq` cursor when `events.export.enabled: true`.
-   - `Live`: `Aiur.Events.Exchange.subscribe/2` on the N5 topic patterns when the export
+   - `Live`: `Aiur.Events.subscribe/1,2` on the N5 topic patterns when the export
      journal is off.
 3. `Aiur.Push.Policy.Ledger`: `(device_id, dedup_key)` set persisted at
    `<runtime_state_dir>/push/ledger.ndjson`; a key is written **in the same step** as
    `Outbox.accept/2` (ledger first, then accept; the accept is idempotent on `job_id`, so a
    crash between them yields at most a resend through the outbox, never a second intent).
 4. Reconciliation: at boot, on a `gap`/`reset` record, and every 10 minutes, re-derive
-   "needs you" Commands from `Aiur.DecisionStore.list/1` and progress facts from
+   "needs you" Commands from `Aiur.Commands.list_decisions/0,1,2` and progress facts from
    `Aiur.BuildProgress.facts/1`, feeding them through the same rules; the ledger absorbs
    repeats.
 5. Rule dispatch: `rules :: [module]` implementing `Aiur.Push.Policy.Rule`
@@ -41,30 +41,35 @@ Bucket 3, MP-N5, chunk C2. The foundation the rule tickets plug into:
 
 ## Dependencies and blockers
 
-- C2-T00 (names), MP-N4-C3-T02 (outbox), MP-R2-C6-T04 (DurableConsumer; if MP-R2-C6 is
-  deferred, the `Live` source alone ships and `ExportFeed` waits — recorded in C2-T00).
+- C2-T00 (names), MP-N4-C3-T02 (outbox), MP-R2-C6-T04 (DurableConsumer; MP-R2-C6 has
+  landed; `Live` is the fallback when export is disabled or unavailable).
 - DESIGN-N5 no-UI release.
 
 ## Verified starting point
 
-Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
+Path refresh at `3b00b8f2cd0bfc9acdffe3b07ee5f1c6ca2ab56a` (2026-10-27).
+See [plan §10](../plan.md#10-notification-policy-starting-point) for the complete
+mapping, topic catalog and integration gates. Historical `base_sha` is retained.
+All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
+`push-relay`; this refresh does not assert they shipped.
 
-- `Exchange.subscribe(pattern)` delivers `{:event, event}` to the caller and reaps the
-  binding when the subscriber dies (`src/lib/aiur/events/exchange.ex:60-108`).
-- Ordering: per-publisher FIFO only; ids are not a delivery order (events-and-replay §5,
-  O-1); `journaled` replay only for journaled/exported classes (§6 D-1).
-- `Aiur.DecisionStore.list/1 :: [Decision.t()]` (`decision_store.ex:393`).
-- `runtime_state_dir/0` (`config/paths.ex:243`; test override `:runtime_state_dir`).
-- Re-ask loop `DecisionAttention` every 15 min (`decision_attention.ex:17`) publishes
-  attention events that are **not** subscribed here (rule tickets assert this).
+- Subscribe through public `Aiur.Events.subscribe/1,2` (`src/lib/aiur/events.ex:23-27`),
+  receiving `{:event, event}`; Exchange is private.
+- Use `Aiur.Events.DurableConsumer.start_link/1` and `ExportSource`, not a proposed
+  Consumer `replay/1`. Source `replay/3` and handler reset/gap semantics are in plan §10.
+  Handler behaviour visibility awaits CR-N5-PATH-3.
+- Reconcile Commands with public `Aiur.Commands.list_decisions/0,1,2`
+  (`src/lib/aiur/commands.ex:182-190`). Progress reads/subscription await CR-N5-PATH-2.
+- Runtime directory accessor is now `src/lib/aiur/config/paths.ex:329`;
+  its use awaits CR-N4-PATH-1. Re-asks remain 15 min (`decision_attention.ex:20`).
 
 ## Chosen design
 
 - Topic patterns subscribed (Live): `ticket.*.agent.decision.*`, `executor.decision.*`,
-  `system.build_order.*.progress.*`, `system.queue.*.progress.*`, `ticket.*.pr.merged`,
+  `system.build_order.*.progress`, `system.queue.*.progress`, `ticket.*.pr.merged`,
   `ticket.*.ci.failed`, `ticket.*.agent.retry_exhausted` (exact strings confirmed in
-  C2-T00). The E1 progress-changed signal (RC-10) is subscribed through whatever internal
-  interface MP-E1-C7 exposes (`Aiur.BuildProgress.subscribe/0`, PubSub `"build_progress"`, message `{:build_progress_changed, fact}`, queue-readiness contract §4.0; CR-N5-4 closed in Phase D); the Source adapter hides it.
+  C2-T00). The E1 progress-changed signal (RC-10) is subscribed through the landed
+  interface, pending CR-N5-PATH-2 approval (`Aiur.BuildProgress.subscribe/0`, PubSub `"build_progress"`, message `{:build_progress_changed, fact}`, queue-readiness contract §4.0; CR-N5-4 closed in Phase D); the Source adapter hides it.
 - Dedup on `(instance_id, event id)` inside a 10 000-entry LRU for the live path;
   cursor `seq` for the export path.
 - Ledger retention: Command keys 30 days; progress keys until the scope generation ends;
@@ -82,7 +87,8 @@ Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-
 ## Non-happy paths
 
 - Export enabled but the journal reports `reset` (cursor older than retention) → full
-  reconciliation, cursor moved to head; no replay of the backlog as notifications
+  reconciliation, consumer resumes at `oldest - 1` and replays retained records; policy suppresses
+  historical intents during catch-up (plan §10), with no backlog notifications
   (events-and-replay §7.2 rule 6).
 - Policy crash → supervisor restart; reconciliation at boot covers the gap.
 - DecisionStore unavailable at boot → retry with backoff; Commands are not dropped.

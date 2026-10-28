@@ -22,7 +22,7 @@ researched: 2026-10-06
 Bucket 3, MP-N5, chunk C2. Rule module `Aiur.Push.Policy.Rules.OptIn` (PROPOSED) for the
 three opt-in sources offered in v1 (N5 plan §5.3; D18 off by default):
 
-| Option | Topic (at `45a290e3`) | Intent kind | dedup_key | target |
+| Option | Topic (confirmed at refresh SHA) | Intent kind | dedup_key | target |
 | --- | --- | --- | --- | --- |
 | `pr_merged` | `ticket.*.pr.merged` | `pr.merged` | `pr:<repo>#<n>:merged` | `conversation` (ticket worker) |
 | `optin.agent_retry_exhausted` | `ticket.*.agent.retry_exhausted` | `optin.agent_retry_exhausted` | `rx:<ticket>:<event id>` | `conversation` |
@@ -37,20 +37,27 @@ offered (DESIGN-N5 D-3 proposal); if D-3 = yes, a new ticket adds them.
 
 ## Verified starting point
 
-Refreshed against 4fbe109541ba1e279d3eb315d8455c4d139c92ba on 2026-10-26 (MP-R1-C11-T03). Existing fully qualified source ranges in this starting point were checked for unchanged bytes or unique moved matches. Proposed paths and other repositories remain prospective; abbreviated references and design gates are not waived. base_sha is retained.
+Path refresh at `3b00b8f2cd0bfc9acdffe3b07ee5f1c6ca2ab56a` (2026-10-27).
+See [plan §10](../plan.md#10-notification-policy-starting-point) for the complete
+mapping, topic catalog and integration gates. Historical `base_sha` is retained.
+All `policy/**`, `Aiur.Push.*` and push test paths here are **PROPOSED** under
+`push-relay`; this refresh does not assert they shipped.
 
-- Bindings at `45a290e3`: `{"ticket.*.pr.merged", "pr:auto"}` (`executor_bindings.ex:25`),
-  `{"ticket.*.agent.retry_exhausted", "attention:auto"}` (`:29`),
-  `{"ticket.*.ci.failed", "ci:auto"}` (`:32`); CI events published at
-  `orchestrator/ci_lifecycle.ex:338` (`"ticket.#{target}.ci.#{outcome}"`); merges from the
-  firehose (`events/github_firehose.ex:21`) and webhook normalizer.
-- `pr.merged` from GitHub is `live`-class: lost if the daemon is down (A-R2-1; acceptable).
+- Current topic catalog: `src/lib/aiur/events/catalog/entries.ex:33-40`
+  (merge/CI live-class, exported); `events/catalog/ticket_entries.ex:44`
+  (`ticket.*.agent.retry_exhausted`, ledgered).
+- `src/lib/aiur/executor_bindings.ex` retains these default bindings.
+- CI producer moved to `src/lib/aiur/orchestrator/ci_lifecycle/terminal_event.ex:19-29`;
+  `head_sha`/`pr_number` remain available. Merge producer:
+  `src/lib/aiur/events/github_firehose/pull_request.ex`.
+- Export retains observed events; it cannot recover a merge never observed while down.
 
 ## Chosen design
 
 - The merge may be observed twice (webhook and poller): dedup key per PR (AC-N5-9).
 - CI failure payloads carry `head_sha` and `pr_number`
-  (`Aiur.Orchestrator.CiLifecycle.publish_ci_terminal_event/4`, `ci_lifecycle.ex:333-345`);
+  (`Aiur.Orchestrator.CiLifecycle.TerminalEvent.publish_ci_terminal_event/4`,
+  `orchestrator/ci_lifecycle/terminal_event.ex:19-29`);
   key on `head_sha`, falling back to the event id when it is `nil`. The payload's
   `failure_excerpt` is free text and is **never** copied into a summary.
 - No free text from events goes into summaries except ticket number and PR number (the bus
