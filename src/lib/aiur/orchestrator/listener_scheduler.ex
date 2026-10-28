@@ -3,7 +3,7 @@ defmodule Aiur.Listener.Scheduler do
 
   require Logger
   alias Aiur.{AgentQueue, AgentQueueStore}
-  alias Aiur.Listener.SpecStatus
+  alias Aiur.Listener.{ModeStore, SpecStatus}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
 
   @type origin :: :agent_chat | :voice_assistant | :http | :tui | :internal
@@ -47,7 +47,7 @@ defmodule Aiur.Listener.Scheduler do
   @doc false
   @spec muted_request?(String.t(), atom()) :: boolean()
   def muted_request?(identifier, policy) do
-    policy == :listener and routing() == :listener and Aiur.Listener.ModeStore.get(identifier).requested == :mute
+    policy == :listener and routing() == :listener and ModeStore.get(identifier).requested == :mute
   end
 
   @doc false

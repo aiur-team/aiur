@@ -3,10 +3,9 @@ defmodule Aiur.Listener.ListenerDeliveryTest do
   alias Aiur.{AgentQueue, AgentQueueStore, Issue, Orchestrator, TrackerIdentity}
   alias Aiur.AgentRunner.QueueTurn
   alias Aiur.Listener.ModeStore
-  alias Aiur.Orchestrator.OperatorMessages.Unread
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator.{ControlLifecycle, ListenerModes, OperatorMessages, State}
-  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Enqueue, HeldReads}
+  alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Enqueue, HeldReads, Unread}
 
   setup_all do
     # The optional build artifact is the external boundary; exercise the real scheduler.
