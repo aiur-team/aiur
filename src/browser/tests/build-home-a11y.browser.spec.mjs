@@ -121,24 +121,23 @@ test('cards expose complete names and a single roving button stop', async ({ pag
   expect(result.pack).toMatch(/^Not filed yet\. Accessibility pass\./)
 })
 
-// Quarantined: owner #6653, expires 2026-11-10
-test.skip('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
+test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
   const assets = test.info().project.metadata.agentAssets
   if (assets) await page.route('**/build-home/cards.js', route => route.fulfill({
     body: readFileSync(assets + '/cards.js', 'utf8'), contentType: 'text/javascript'
   }))
   await open(page, 'unknowns')
   const revealPlanCard = async id => {
-    await expect.poll(() => page.evaluate(id =>
-      state.ctx.L?.secs.plan.items.some(item => item.t.id === id), id)).toBe(true)
+    const card = page.locator('.bd-card[data-id="' + id + '"]')
+    await expect.poll(() => page.evaluate(id => state.ctx.L?.secs.plan.items.some(item => item.t.id === id), id)).toBe(true)
     await page.evaluate(id => {
       const item = state.ctx.L.secs.plan.items.find(item => item.t.id === id)
-      state.ctx.vp.scrollTop = state.ctx.secs.plan.el.offsetTop + item.y
-      state.fx.update()
+      state.fx.scrollVP(state.ctx.secs.plan.el.offsetTop + item.y - 70, false)
     }, id)
+    await expect(card).toBeVisible()
+    return card
   }
-  await revealPlanCard('pack:unknowns/alpha')
-  const card = page.locator('.bd-card[data-id="pack:unknowns/alpha"]')
+  const card = await revealPlanCard('pack:unknowns/alpha')
   await expect(card).toHaveAttribute('aria-label', /^Not filed yet\./)
   const row = await page.evaluate(() => state.ctx.D.byId['pack:unknowns/alpha'])
   expect(row.num).toBeNull()
@@ -148,6 +147,31 @@ test.skip('unfiled cards do not inherit queue promotion cues', async ({ page }) 
   await expect(card.locator('.bd-q.promo')).toHaveCount(0)
   await revealPlanCard('607')
   await expect(page.locator('.bd-card[data-id="607"] .bd-q.promo')).toHaveCount(1)
+})
+
+test('unrelated diffs preserve focused card identity and focus', async ({ page }) => {
+  await open(page)
+  const result = await page.evaluate(() => {
+    const { ctx } = state
+    const focused = [...ctx.R.values()].find(card => card.closest('#bd-sec-plan'))
+    if (!focused) throw new Error('fixture must render a planned card')
+    const focusedId = focused.dataset.id
+    const focusedUid = [...ctx.R].find(([, card]) => card === focused)[0]
+    const changed = ctx.D.now[0]
+    const changedBefore = ctx.R.get('now:' + changed.id)
+    focused.focus()
+    const generation = ctx.proto.generation + 1
+    hook.receive({ kind: 'diff', v: 1, epoch: ctx.proto.epoch, generation, now: ctx.snap.now,
+      upsert: [{ ...changed, title: changed.title + ' updated' }], remove: [], set: {} })
+    state.fx.flushLive()
+    return {
+      focusedSame: document.activeElement === focused,
+      focusedConnected: focused.isConnected,
+      focusedSameInRegistry: ctx.R.get(focusedUid) === focused,
+      changedReplaced: ctx.R.get('now:' + changed.id) !== changedBefore,
+    }
+  })
+  expect(result).toEqual({ focusedSame: true, focusedConnected: true, focusedSameInRegistry: true, changedReplaced: true })
 })
 
 test('arrow keys move focus and space uses the board button behavior', async ({ page }) => {
