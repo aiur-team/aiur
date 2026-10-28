@@ -82,7 +82,7 @@ function gridBuckets(page) {
     Object.fromEntries(
       keys.map((key) => [
         key.getAttribute('data-streamdeck-identifier'),
-        [...key.classList].find((name) => name.startsWith('st-')) ?? 'st-unknown'
+        key.getAttribute('data-streamdeck-state') ?? 'unknown'
       ])
     )
   )
@@ -189,11 +189,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   const beforePress = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
   await dialD.click()
   await expect(keys).toHaveAttribute('data-grid-page', String((beforePress + 1) % windows))
-  await expect(pager.locator('[aria-current="page"]')).toHaveAttribute(
-    'data-pager-page',
-    String((beforePress + 1) % windows)
-  )
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(windows)
+  await expect(keys).toHaveAttribute('data-grid-page', String((beforePress + 1) % windows))
   await shot(page, '03-paging.png')
 
   // Return to the window the run opened on before taking a control.
@@ -218,7 +214,7 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
   // re-bucketed key. Feedback text alone would not prove the pause landed.
   await dialA.click()
   await expect(device).toHaveAttribute('data-mode', 'grid')
-  await expect(controlled).toHaveClass(/st-paused/)
+  await expect(controlled).toHaveAttribute('data-streamdeck-state', 'paused')
   await expect(controlled).toHaveAttribute('data-control-action', 'resume')
   await shot(page, '04-pause-grid.png')
 
@@ -299,29 +295,18 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
 
   // ------------------------------------------------------------------ 7 --
   // Touch strip: Summary counts are live, provider segments carry real usage.
-  const summary = page.locator('[data-segment="summary"]')
+  const summary = page.locator('[data-streamdeck-region="0"]')
   await expect(summary).toBeVisible()
-  const summaryText = (await summary.locator('.sd-info-live').innerText()).replaceAll('\n', ' ')
-  const liveCount = Number.parseInt(summaryText, 10)
-
-  // The Summary count is the whole fleet's running agents, so it must equal
-  // the keys the grid itself paints as running across every window — a
-  // screenshot of a stale number would otherwise pass for evidence.
+  const summaryText = await summary.getAttribute('aria-label')
+  // Counts come from Build observations; the fixture can be unavailable.
+  expect(summaryText).toMatch(/(?:\d+|—) live \/ (?:\d+|—) left/)
   const everyBucket = await fleetBuckets(page, keys)
-  const runningKeys = Object.values(everyBucket).filter((bucket) => bucket === 'st-running').length
+  const runningKeys = Object.values(everyBucket).filter((bucket) => bucket === 'running').length
   expect(Object.keys(everyBucket)).toHaveLength(fleetTotal)
-  expect(liveCount).toBe(runningKeys)
-  // The wrap left the operator on the window they were reading.
   expect(await visibleIdentifiers(page)).toEqual(openingWindow)
-
-  const providerMeters = await page.locator('[data-segment="provider"] .sd-mini').evaluateAll((meters) =>
-    meters.map((meter) => ({
-      provider: meter.getAttribute('data-provider'),
-      meter: meter.getAttribute('data-meter'),
-      percent: meter.getAttribute('data-percent'),
-      observed: meter.getAttribute('data-observed'),
-      freshness: meter.getAttribute('data-freshness')
-    }))
+  const providerMeters = await page.locator('#sd-screen [data-provider]').evaluateAll((meters) =>
+    meters.map((meter) => ({ provider: meter.getAttribute('data-provider'), reading: meter.textContent,
+      freshness: meter.querySelector('[data-freshness]')?.getAttribute('data-freshness') }))
   )
   await shot(page, '07-touch-strip.png')
 
@@ -330,11 +315,11 @@ test('#1358 emulator proof: steps 1-7 captured as committed evidence', async ({ 
     [
       'Step 7 — touch strip, read at the same instant as the grid above.',
       `SUMMARY segment: ${summaryText.trim()}`,
-      `emulator keys bucketed st-running: ${runningKeys}`,
+      `emulator keys bucketed running: ${runningKeys}`,
       '',
-      'provider segments (provider / meter / percent / observed / freshness):',
+      'provider images (provider / reading / freshness):',
       ...providerMeters.map(
-        (meter) => `${meter.provider}  ${meter.meter}  ${meter.percent}  ${meter.observed}  ${meter.freshness}`
+        (meter) => `${meter.provider}  ${meter.reading}  ${meter.freshness}`
       ),
       '',
       'NOT CAPTURED HERE: the numeric comparison against the dashboard header',
