@@ -88,6 +88,7 @@ describe("daemon frame rasterization", () => {
     expect(device.writes.some((r) => r[1] === 12)).toBe(true);
   });
 
+  // Future regression guard for cache/output consistency; not proof of the LRU bound.
   it("evicts the least recently used JPEG and suppresses equal encoded bytes", async () => {
     const renderer = new FrameRenderer(1); const device = backend();
     await apply(renderer, device, frame());

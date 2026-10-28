@@ -2,14 +2,14 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render}
   alias AiurWeb.Streamdeck.Deck.{Input, Nav}
-  alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
+  alias AiurWeb.StreamdeckFleetUpdates
   import Phoenix.Socket, only: [assign: 2, assign: 3]
 
   @spec input(term(), Phoenix.Socket.t()) :: {:reply, tuple(), Phoenix.Socket.t()}
   def input(raw, socket) do
     with {:ok, input} <- normalize(raw),
          true <- Nav.valid_input?(input) do
-      sections = StreamdeckProjection.grid() |> Deck.navigation()
+      sections = socket |> grid() |> Deck.navigation()
       {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
       socket = assign(socket, deck_nav: nav, deck_effects: effects)
       {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
@@ -25,13 +25,25 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @spec push(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def push(socket) do
-    grid = StreamdeckProjection.grid()
+    grid = grid(socket)
     sections = Deck.navigation(grid)
     nav = Nav.clamp(socket.assigns.deck_nav, Input.sizes(socket.assigns.deck_nav, sections))
     agents = visible_items(nav, sections, grid.agents)
     model = %{grid: %{grid | agents: agents}, usage: socket.assigns.deck_usage, page: Nav.page(nav), provider_offset: nav.scroll}
     Phoenix.Channel.push(socket, "frame", Render.frame(model))
     assign(socket, :deck_nav, nav)
+  end
+
+  defp grid(socket) do
+    grid = socket.assigns.deck_grid
+    agents = Map.get(grid, :agents, Map.get(grid, "agents", []))
+
+    agents =
+      Enum.map(agents, fn face ->
+        face |> Map.put(:identifier, face[:identifier] || face["identifier"]) |> Map.put(:bucket, face[:bucket] || face["bucket"])
+      end)
+
+    Map.put(grid, :agents, agents)
   end
 
   defp visible_items(%{view: :ticket, stack: []}, _sections, agents), do: agents
