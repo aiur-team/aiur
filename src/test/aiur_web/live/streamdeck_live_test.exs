@@ -221,7 +221,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "data-grid-total"
     refute html =~ ~s(id="sd-logs-view")
 
-    html = render_click(view, "command-press", %{"command" => "logs"})
+    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
 
     assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="logs")

@@ -126,4 +126,26 @@ defmodule AiurWeb.ConversationResolveControllerTest do
 
     assert {:error, :unavailable} = History.resolve_worker("acme", "app", "2")
   end
+
+  test "a transferred issue with a live and a durable conversation is ambiguous", %{root: root} do
+    {:ok, old} = TrackerIdentity.from_github(%{"node_id" => "I_old", "number" => 4}, {"acme", "app"}, {"acme", "app"})
+    {:ok, moved} = TrackerIdentity.from_github(%{"node_id" => "I_moved", "number" => 9}, {"acme", "app"}, {"acme", "app"})
+    {:ok, live} = TrackerIdentity.from_github(%{"node_id" => "I_moved", "number" => 4}, {"acme", "app"}, {"acme", "app"})
+    {:ok, old_ref} = Ref.worker(old)
+    {:ok, moved_ref} = Ref.worker(moved)
+    {:ok, live_ref} = Ref.worker(live)
+    assert Ref.conversation_id(moved_ref) == Ref.conversation_id(live_ref)
+    assert {:ok, _} = Store.prepare(Path.join(root, Ref.conversation_id(old_ref)), old_ref)
+    assert {:ok, _} = Store.prepare(Path.join(root, Ref.conversation_id(moved_ref)), moved_ref)
+    EndpointStubs.put(conversation_units_fun: fn -> %{snapshot: %{rows: [%{identity: live}]}} end)
+
+    conn =
+      conn(:get, "/api/v1/conversations/resolve?subject=worker&owner=acme&repository=app&identifier=4")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
+      |> AiurWeb.Endpoint.call(AiurWeb.Endpoint.init([]))
+
+    assert conn.status == 409
+    expected = Enum.sort([Ref.conversation_id(old_ref), Ref.conversation_id(live_ref)])
+    assert %{"error" => %{"code" => "ambiguous_subject", "conversation_ids" => ^expected}} = Jason.decode!(conn.resp_body)
+  end
 end

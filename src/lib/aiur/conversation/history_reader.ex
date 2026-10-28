@@ -3,6 +3,28 @@ defmodule Aiur.Conversation.HistoryReader do
   alias Aiur.Config.Paths
   alias Aiur.Conversation.{Entry, HeadTable, Ref, Session, Store, StoreFiles}
 
+  @spec worker_identity(String.t()) :: {:ok, Aiur.TrackerIdentity.t()} | {:error, atom()}
+  def worker_identity(id) do
+    with {:ok, snapshot} <- snapshot(id),
+         {:ok, bytes} <- File.read(Path.join(snapshot.dir, "subject.json")),
+         {:ok, %{"v" => 1, "kind" => "worker"} = subject} <- Jason.decode(bytes),
+         identity = %Aiur.TrackerIdentity{
+           status: :joinable,
+           reason: nil,
+           kind: :github,
+           owner: subject["owner"],
+           repository: subject["repository"],
+           identifier: subject["identifier"],
+           provider_id: subject["provider_id"]
+         },
+         {:ok, ref} <- Ref.worker(identity),
+         true <- Ref.conversation_id(ref) == id and subject["conversation_id"] == id do
+      {:ok, identity}
+    else
+      _ -> {:error, :unavailable}
+    end
+  end
+
   @spec snapshot(Ref.t() | String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
   def snapshot(%Ref{} = ref), do: snapshot(Ref.conversation_id(ref))
 
@@ -187,7 +209,7 @@ defmodule Aiur.Conversation.HistoryReader do
   defp merge_session(sessions, ended) do
     case Map.fetch(sessions, ended.session_seq) do
       {:ok, session} ->
-        session = %{session | last_pos: ended.last_pos, ended_at: ended.ended_at, end_reason: ended.end_reason}
+        session = %{session | last_pos: ended.last_pos, ended_at: ended.ended_at, end_reason: ended.end_reason, meta: Map.merge(session.meta, ended.meta)}
         {:cont, {:ok, Map.put(sessions, ended.session_seq, session)}}
 
       :error ->
