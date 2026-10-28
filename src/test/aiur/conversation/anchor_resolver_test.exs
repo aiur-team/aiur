@@ -3,7 +3,8 @@ Code.require_file("journal_support.exs", __DIR__)
 defmodule Aiur.Conversation.AnchorResolverTest do
   use ExUnit.Case, async: false
   import Aiur.TestSupport, only: [receive_barrier: 1]
-  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, ResolverSupervisor, Store, TestSupport}
+  alias Aiur.Conversation.{AnchorResolver, History, Ingest, Ref, ResolverState, ResolverSupervisor, Store, TestSupport}
+  alias Aiur.Application.Children
   alias Aiur.Events.Exchange
   import TestSupport
 
@@ -143,7 +144,7 @@ defmodule Aiur.Conversation.AnchorResolverTest do
     assert Jason.decode!(File.read!(Path.join(ctx.root, "resolver.json"))) == %{"last_event_id" => 9}
     assert {:ok, %{mode: mode}} = File.stat(Path.join(ctx.root, "resolver.json"))
     assert Bitwise.band(mode, 0o777) == 0o600
-    assert {_, %{"last_event_id" => 9}, _} = Aiur.Conversation.ResolverState.load()
+    assert {_, %{"last_event_id" => 9}, _} = ResolverState.load()
   end
 
   test "Command source provenance upgrades and survives resolver restart for History lookup", ctx do
@@ -196,7 +197,7 @@ defmodule Aiur.Conversation.AnchorResolverTest do
   end
 
   test "boot order starts journals before resolver, and resolver immediately after Exchange before producers" do
-    children = Aiur.Application.Children.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+    children = Children.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
 
     modules =
       Enum.map(children, fn
