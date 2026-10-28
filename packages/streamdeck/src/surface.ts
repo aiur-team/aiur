@@ -32,6 +32,7 @@ export type PhysicalMode = "grid" | "cmd" | "logs" | "settings" | "commands";
 export interface PhysicalSurfaceState {
   readonly mode: PhysicalMode;
   readonly ticket?: StreamDeckTicket | null;
+  readonly instance?: string;
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
   /** True while the voice buffer holds settled text; adds the Send/Cancel keys. */
@@ -475,7 +476,7 @@ export const createPhysicalSurface = () => {
         },
       };
       try {
-        for (const paint of stripRenderer.render(strip)) {
+        for (const paint of stripRenderer.render(strip, state.instance)) {
           for (const report of paint.reports) await backend.write(report);
         }
       } catch (error) {
