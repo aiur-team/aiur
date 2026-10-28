@@ -172,7 +172,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_in("commands_page", %{"cursor" => cursor}, %{assigns: %{focused_agent: identifier}} = socket)
       when is_binary(identifier) and is_binary(cursor) and cursor != "" do
     case StreamdeckCommands.history(identifier, cursor, store: command_store(socket)) do
-      {:ok, page} -> {:reply, {:ok, Map.put(page, "identifier", identifier)}, socket}
+      {:ok, page} -> {:reply, {:ok, Map.put(page, "identifier", identifier)}, FocusUpdates.supersede(socket, :commands)}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
@@ -200,7 +200,7 @@ defmodule AiurWeb.StreamdeckChannel do
          :ok <- validate_focused_command(socket, decision_id, identifier),
          :ok <- StreamdeckCommands.validate_deck_answer(decision_id, store: command_store(socket)),
          {:ok, result} <- record_command_answer(decision_id, answer) do
-      {:reply, {:ok, result}, socket}
+      {:reply, {:ok, result}, FocusUpdates.supersede(socket, :commands)}
     else
       {:error, %{reason: _reason} = result} -> {:reply, {:error, result}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
@@ -320,7 +320,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
     if focused_command?(socket, decision_id, identifier) do
       push(socket, "commands", commands_projection(identifier))
-      {:noreply, socket}
+      {:noreply, FocusUpdates.supersede(socket, :commands)}
     else
       {:noreply, socket}
     end
@@ -332,7 +332,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info({:streamdeck_transcript, identifier, event}, %{assigns: %{focused_agent: identifier}} = socket) do
     push(socket, "transcript", StreamdeckProjection.transcript(identifier, event))
     push(socket, "logs", logs_projection(identifier))
-    {:noreply, socket}
+    {:noreply, FocusUpdates.supersede(socket, :logs)}
   end
 
   def handle_info({:streamdeck_alert, identifier, event}, %{assigns: %{focused_agent: identifier}} = socket) do

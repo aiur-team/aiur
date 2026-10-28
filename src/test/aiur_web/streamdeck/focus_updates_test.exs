@@ -57,4 +57,56 @@ defmodule AiurWeb.Streamdeck.FocusUpdatesTest do
     assert_push("commands", %{"identifier" => "AIUR-2", "items" => []}, 1_500)
     assert :sys.get_state(socket.channel_pid).assigns.focus_task == nil
   end
+
+  test "live projection data cannot be overwritten by delayed initial data for the same focus" do
+    owner = self()
+    identifier = write_transcript("FOCUS-FRESH", "old history", "freshness-turn")
+    decision = command_decision(identifier)
+    store = start_supervised!(%{id: :focus_commands, start: {FakeDecisionStore, :start_link, [decision, owner]}})
+
+    put_endpoint_config(
+      decision_store: store,
+      streamdeck_focus_load_fun: fn
+        :logs, id ->
+          previous = id |> AiurWeb.StreamdeckLogs.load() |> AiurWeb.StreamdeckLogs.wire()
+          send(owner, {:initial_focus_read, :logs, self()})
+
+          receive do
+            :release_logs -> previous
+          end
+
+        :commands, id ->
+          previous = AiurWeb.StreamdeckChannel.CommandAnswers.commands_projection(id)
+          send(owner, {:initial_focus_read, :commands, self()})
+
+          receive do
+            :release_commands -> previous
+          end
+      end
+    )
+
+    socket = joined_socket()
+    assert_reply(push(socket, "focus", %{"identifier" => identifier}), :ok, %{"focused" => ^identifier}, 1_500)
+    assert_receive {:initial_focus_read, :logs, reader}, 1_500
+    on_exit(fn -> Process.exit(reader, :kill) end)
+    monitor = Process.monitor(reader)
+    path = Aiur.IssueLog.transcript_path(identifier)
+    File.write!(path, String.replace(File.read!(path), "old history", "new history"))
+    send(socket.channel_pid, {:streamdeck_transcript, identifier, AgentEvents.transcript_event(:assistant, "new history")})
+    assert_push("logs", fresh_logs, 1_500)
+    assert Enum.any?(fresh_logs["transcript"], &(&1["body"] == "new history"))
+    send(reader, :release_logs)
+    assert_receive {:initial_focus_read, :commands, ^reader}, 1_500
+    :sys.get_state(socket.channel_pid)
+    refute_push("logs", _, 50)
+
+    :sys.replace_state(store, fn state -> %{state | decision: %{state.decision | question: "Fresh command", version: state.decision.version + 1}} end)
+    send(socket.channel_pid, {:decision_changed, decision.decision_id, 2})
+    assert_push("commands", fresh_commands, 1_500)
+    assert Enum.any?(fresh_commands["items"], &(&1["question"] == "Fresh command"))
+    send(reader, :release_commands)
+    assert_receive {:DOWN, ^monitor, :process, ^reader, :normal}, 1_500
+    :sys.get_state(socket.channel_pid)
+    refute_push("commands", _, 50)
+  end
 end

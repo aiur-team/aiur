@@ -19,11 +19,11 @@ defmodule AiurWeb.Streamdeck.FocusUpdates do
         load.(:commands, id)
       end)
 
-    assign(socket, focus_task: %{task: task, id: id, token: token})
+    assign(socket, focus_task: %{task: task, id: id, token: token, logs: true, commands: true})
   end
 
   @spec logs(Phoenix.Socket.t(), String.t(), reference(), map()) :: Phoenix.Socket.t()
-  def logs(%{assigns: %{focused_agent: id, focus_token: token, focus_task: %{id: id, token: token}}} = socket, id, token, payload) do
+  def logs(%{assigns: %{focused_agent: id, focus_token: token, focus_task: %{id: id, token: token, logs: true}}} = socket, id, token, payload) do
     Phoenix.Channel.push(socket, "logs", payload)
     socket
   end
@@ -31,11 +31,17 @@ defmodule AiurWeb.Streamdeck.FocusUpdates do
   def logs(socket, _id, _token, _payload), do: socket
 
   @spec complete(Phoenix.Socket.t(), map()) :: Phoenix.Socket.t()
-  def complete(%{assigns: %{focus_task: %{task: task, id: id, token: token}}} = socket, payload) do
+  def complete(%{assigns: %{focus_task: %{task: task, id: id, token: token, commands: pending}}} = socket, payload) do
     Process.demonitor(task.ref, [:flush])
-    if socket.assigns.focused_agent == id and socket.assigns.focus_token == token, do: Phoenix.Channel.push(socket, "commands", payload)
+    if pending and socket.assigns.focused_agent == id and socket.assigns.focus_token == token, do: Phoenix.Channel.push(socket, "commands", payload)
     assign(socket, focus_task: nil)
   end
+
+  @spec supersede(Phoenix.Socket.t(), :logs | :commands) :: Phoenix.Socket.t()
+  def supersede(%{assigns: %{focus_task: task}} = socket, kind) when is_map(task) and kind in [:logs, :commands],
+    do: assign(socket, focus_task: Map.put(task, kind, false))
+
+  def supersede(socket, _kind), do: socket
 
   @spec failed(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def failed(socket), do: complete(socket, %{"identifier" => socket.assigns.focus_task.id, "unavailable" => true})
