@@ -15,6 +15,17 @@ The browser retains the focused controls below. Its grid dial D turns pages
 and presses for the next window; dial A scrolls the shared provider panel.
 The current physical client uses the navigation controls described above.
 
+## Read provider accounts
+
+In the server navigation model, a Fleet provider meter key opens one key per
+account, sorted by name, with 5h and weekly remaining percentages and reset
+countdowns. Missing windows show “—” with a hatched bar. Stale values stay
+visible, dimmed and labelled “stale”. The touch strip names the provider and
+its summary account; hold dial 4 to return. Account keys are read-only.
+
+This entry depends on the Fleet summary layout; the current sidecar controls
+below remain in use until that layout is connected.
+
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |

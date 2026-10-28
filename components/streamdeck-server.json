@@ -19,6 +19,7 @@
   ],
   "facade_pending": "MP-R1-C1-T02",
   "requires": [
+    "accounting",
     "commands",
     "conversations",
     "identity",
@@ -43,7 +44,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Renders shared Stream Deck frames with Build ticket states, PR checks, Commands, conversations, queue controls and links.",
+  "summary": "Renders shared Stream Deck frames with Build tickets, PR checks, Commands, conversations, account windows and queue controls.",
   "status": "optional",
   "install": {
     "type": "included"
