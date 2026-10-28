@@ -88,9 +88,17 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsEventsTest do
     send_frame(provider, "{")
     send_frame(provider, %{"type" => "audio"})
     :sys.get_state(provider)
-    assert_received {:counted, [:voice_converse, :provider, :unknown_event], %{count: 1}, %{type: "future_event"}}
-    assert_received {:counted, [:voice_converse, :provider, :malformed_event], %{count: 1}, %{}}
-    assert_received {:counted, [:voice_converse, :provider, :malformed_event], %{count: 1}, %{}}
+    assert_received {:counted, [:voice_converse, :provider, :unknown_event], measurements, metadata}
+    assert measurements == %{count: 1}
+    assert metadata == %{type: "future_event"}
+
+    for _ <- 1..2 do
+      assert_received {:counted, [:voice_converse, :provider, :malformed_event], measurements, metadata}
+      assert measurements == %{count: 1}
+      assert metadata == %{}
+    end
+
+    refute_received {:counted, _, _, _}
     assert take_events(provider) == []
   end
 
@@ -104,25 +112,27 @@ defmodule VoiceConverse.Provider.ElevenLabsAgentsEventsTest do
     :ok = facade.tool_result(provider, "call-1", %{text: "Started", is_error: false})
     :sys.get_state(provider)
 
-    assert_received {:sent,
-                     %{
-                       "type" => "client_tool_result",
-                       "tool_call_id" => "call-1",
-                       "result" => "Started",
-                       "is_error" => false
-                     }}
+    assert_received {:sent, success}
+
+    assert success == %{
+             "type" => "client_tool_result",
+             "tool_call_id" => "call-1",
+             "result" => "Started",
+             "is_error" => false
+           }
 
     send_frame(provider, put_in(frame, ["client_tool_call", "tool_call_id"], "error-call"))
     :ok = facade.tool_result(provider, "error-call", %{text: "Unknown tool", is_error: true})
     :sys.get_state(provider)
 
-    assert_received {:sent,
-                     %{
-                       "type" => "client_tool_result",
-                       "tool_call_id" => "error-call",
-                       "result" => "Unknown tool",
-                       "is_error" => true
-                     }}
+    assert_received {:sent, error}
+
+    assert error == %{
+             "type" => "client_tool_result",
+             "tool_call_id" => "error-call",
+             "result" => "Unknown tool",
+             "is_error" => true
+           }
 
     :ok = facade.tool_result(provider, "call-1", %{text: "duplicate", is_error: false})
     send_frame(provider, put_in(frame, ["client_tool_call", "expects_response"], false))
