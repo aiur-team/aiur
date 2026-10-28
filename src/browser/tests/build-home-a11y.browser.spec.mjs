@@ -151,25 +151,30 @@ test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
 
 test('live detail-tier changes preserve an unchanged focused plan card', async ({ page }) => {
   await open(page)
-  const result = await page.evaluate(() => {
+  const id = await page.evaluate(() => {
     const { ctx } = state
     const item = ctx.L.secs.plan.items[0]
     if (!item) throw new Error('fixture must contain a planned row')
     state.fx.scrollVP(ctx.secs.plan.el.offsetTop + item.y - 70, false)
-    state.fx.update()
-    const id = item.t.id
+    return item.t.id
+  })
+  await page.waitForFunction(() => !state.ctx.snapping && !state.ctx.content.classList.contains('scrolling'))
+  const result = await page.evaluate(id => {
+    const { ctx } = state
     const focused = ctx.R.get('plan:' + id)
     const changed = ctx.D.plan.find(row => row.id !== id)
     if (!focused || !changed) throw new Error('fixture must render two planned rows')
     focused.focus()
     // Force the prior global detail marker to differ; the next live relayout recomputes it.
     ctx.L.det = null
+    const before = performance.getEntriesByName('build-home-live-pass').length
     hook.receive({ kind: 'diff', v: 1, epoch: ctx.proto.epoch, generation: ctx.proto.generation + 1,
       now: ctx.snap.now, upsert: [{ ...changed, title: changed.title + ' unrelated update' }], remove: [], set: {} })
     state.fx.flushLive()
-    return { sameElement: ctx.R.get('plan:' + id) === focused, connected: focused.isConnected, focused: document.activeElement === focused }
-  })
-  expect(result).toEqual({ sameElement: true, connected: true, focused: true })
+    return { sameElement: ctx.R.get('plan:' + id) === focused, connected: focused.isConnected,
+      focused: document.activeElement === focused, passes: performance.getEntriesByName('build-home-live-pass').length - before }
+  }, id)
+  expect(result).toEqual({ sameElement: true, connected: true, focused: true, passes: 1 })
 })
 
 test('arrow keys move focus and space uses the board button behavior', async ({ page }) => {
