@@ -185,7 +185,7 @@ defmodule AiurWeb.StreamdeckLiveStripTest do
     # Descending into logs swaps the strip to this ticket's three-shape
     # transcript window, but #1662/#1707 keep the pager segment so dial D stays
     # labelled with the agent being read. Both hold at once.
-    html = render_click(view, "command-press", %{"command" => "logs"})
+    html = render_click(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
     assert html =~ ~s(class="sd-strip-logs")
     refute html =~ "MORE AGENTS"
     assert html =~ ~s(data-pager-focus="#1352")

@@ -14,7 +14,7 @@ Code.require_file("../support/browser_harness/models_panel_live.ex", __DIR__)
 
 for file <- ~w(
       route_shell_live graph_live ticket_context_live units_live_data units_live voice_input_live
-      support voice_provider build_order_source meters_live experiments index_live
+      support voice_provider build_order_source meters_live experiments index_live streamdeck_ticket
     ) do
   Code.require_file("fixture/#{file}.exs", __DIR__)
 end
@@ -188,6 +188,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
     Application.put_env(:aiur, :build_data_source, FixtureSource)
+    Application.put_env(:aiur, :build_fixture_query, true)
     Application.put_env(:aiur, :build_conversation_source, Aiur.TestSupport.BuildHome.FixtureConversationSource)
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     endpoint_overrides = AiurWeb.EndpointConfig.overrides_table()
@@ -278,9 +279,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   def streamdeck_resume(identifier), do: {:ok, set_streamdeck_paused(identifier, false)}
 
-  @doc "Drops every recorded operator pause so a spec starts from the seeded fleet."
+  @doc "Restores the seeded fleet and clears recorded operator pauses."
   def reset_streamdeck_pauses do
     ControlFixture.reset()
+    :persistent_term.erase({__MODULE__, :streamdeck_snapshot_identities})
     :persistent_term.put({__MODULE__, :streamdeck_paused}, MapSet.new())
     Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
     :ok
@@ -452,6 +454,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
+        streamdeck_build_source: Aiur.BrowserHarness.StreamdeckTicket,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_usage_load_fun: &__MODULE__.streamdeck_usage_inputs/2,
         agent_chat_capabilities_fun: &__MODULE__.build_capabilities/1,
