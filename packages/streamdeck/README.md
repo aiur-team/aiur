@@ -55,7 +55,7 @@ is needed. When disconnected, the sidecar blanks the keys and rasterizes the
 bundled **Aiur offline** strip through the same SVG-to-JPEG path.
 
 The physical process now displays the server grid; legacy local demo, voice,
-Commands and instance-picker views remain in source for later migration/cleanup
+Commands, browser links and instance-picker views remain in source for migration/cleanup
 and are not active in this frame-only entry point. The saved instance still
 selects the daemon at startup. Use the dashboard for those controls meanwhile.
 

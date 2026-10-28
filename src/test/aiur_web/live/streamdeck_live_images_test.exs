@@ -99,7 +99,7 @@ defmodule AiurWeb.StreamdeckLiveImagesTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_grid_images(view, html)
-    assert has_element?(view, "button[data-streamdeck-command='logs'] > svg")
+    assert has_element?(view, "button[data-streamdeck-command='priority_up'] > svg")
 
     for mode <- [:logs, :settings, :commands] do
       html = if mode == :logs, do: render_hook(view, "input", %{"kind" => "dial", "index" => 3, "action" => "press"}), else: render_click(view, "command-press", %{"command" => to_string(mode)})

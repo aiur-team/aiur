@@ -218,6 +218,17 @@
         // than relying on the server to refuse one the client still sent.
         if (key.disabled) return;
 
+        var target = key.getAttribute("data-streamdeck-url");
+        if (target) {
+          var openLink = function () {
+            var url = new URL(target, window.location.href);
+            if (url.protocol === "http:" || url.protocol === "https:") window.open(url.href, "_blank", "noopener,noreferrer");
+          };
+          key.addEventListener("click", openLink);
+          self._commandHandlers.push({ el: key, handler: openLink });
+          return;
+        }
+
         if (command === "mic") {
           self._micKey = key;
           // preventDefault keeps a press-and-hold from turning into a synthesized

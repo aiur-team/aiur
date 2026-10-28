@@ -28,6 +28,7 @@ defmodule AiurWeb.StreamdeckLive do
   alias AiurWeb.Streamdeck.FrameUpdates
   alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
+  alias AiurWeb.StreamdeckLive.TicketActions
   alias AiurWeb.StreamdeckLogs
 
   alias AiurWeb.OperatorControlCenter.{
@@ -72,6 +73,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:sd_mode, :grid)
       |> assign(:sd_active, nil)
       |> assign(:transcript_relay, nil)
+      |> assign(:sd_ticket, nil)
       |> assign(:commands, %{"items" => [], "unavailable" => false})
       |> assign(:commands_view, :history)
       |> assign(:commands_selection, nil)
@@ -184,6 +186,10 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", %{"command" => "logs"}, socket),
     do: {:noreply, enter_logs(socket)}
+
+  def handle_event("command-press", %{"command" => command}, socket) when command in ["priority_up", "priority_down"] do
+    {:noreply, TicketActions.priority(socket, command)}
+  end
 
   def handle_event("command-press", %{"command" => "settings"}, socket),
     do: {:noreply, enter_settings(socket)}

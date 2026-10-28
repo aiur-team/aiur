@@ -9,7 +9,9 @@ defmodule AiurWeb.Streamdeck.Render.Views do
     "logs" => "≡",
     "mic" => "●",
     "settings" => "⚙",
-    "commands" => "?"
+    "commands" => "?",
+    "up" => "↑",
+    "down" => "↓"
   }
   @microphone "Microphone selection lives on the machine running the sidecar. The browser emulator has no access to those devices, so there is nothing to choose here."
   @voice "Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key."
@@ -33,14 +35,7 @@ defmodule AiurWeb.Streamdeck.Render.Views do
         nil
 
       key ->
-        card(key.label, key.label, key.sub,
-          glyph: @glyphs[key.icon],
-          command: key.command,
-          state: key.state,
-          disabled: key.disabled?,
-          hold: key.mic?,
-          icon: key.icon
-        )
+        card(key.label, key.label, key.sub, glyph: @glyphs[key.icon], command: key.command, state: key.state, disabled: key.disabled?, hold: key.mic?, icon: key.icon, url: Map.get(key, :url))
     end)
   end
 

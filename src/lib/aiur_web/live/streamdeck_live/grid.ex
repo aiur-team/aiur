@@ -23,7 +23,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
   }
 
   alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav}
+  alias AiurWeb.Streamdeck.Deck.{Input, Nav, TicketPage}
   alias Phoenix.LiveView.Socket
 
   @spec refresh_grid(Socket.t()) :: Socket.t()
@@ -91,6 +91,7 @@ defmodule AiurWeb.StreamdeckLive.Grid do
     |> assign(:grid_dial_value, dial_value)
     |> assign(:selected_identifier, selected_identifier)
     |> assign(:sd_active, sd_active)
+    |> assign(:sd_ticket, if(sd_active, do: TicketPage.read(to_string(sd_active.identifier))))
     |> refresh_knobs()
   end
 

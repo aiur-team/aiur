@@ -64,7 +64,7 @@ the physical sidecar consumes `frame` images only.
 | `frame` | `{keys: [{svg, hash, label} or null] × 8, strip: [{x, width, svg, hash}]}` | Full physical image state on join and coalesced input/data changes (250 ms). Hashes skip unchanged images; regions tile 800×100. |
 | `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
 | `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
-| `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
+| `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, links, actions, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
 | `usage` | `{provider_family: meter}` | One entry per provider family, from Build.Usage; semantic session/weekly windows carry `remaining_percent` and `used_percent`. Updates coalesce over 250 ms. |
 | `decisions` | `{count}` | Updated decision summary. |
 | `transcript` | `{identifier, role, body, sequence, timestamp}` | Latest sampled line for the focused agent. |
@@ -80,6 +80,8 @@ identity, progress fields and `eta_seconds: null`. Unknown percent and completed
 counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and carry a stale label. Build changes share the channel’s 250 ms fleet coalescing.
 
 `ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the physical strip renders its age after 60 seconds. A missing ticket becomes an explicit unknown frame for that focused id.
+
+`links` contains server-built `modal` and nullable `pr` URLs. `actions.pause`, `priority_up` and `priority_down` are `enabled` or `disabled`; queue edges, read-only dashboards and tickets outside editable list queues disable priority. Send `priority` with `{identifier, direction: "up" | "down"}` for the focused ticket; replies reuse the queue read-back/error shape. The physical client opens HTTP(S) URLs with injected `xdg-open`; the emulator uses links with `target="_blank"`.
 
 Ticket reads run in one background task per channel, coalesce refreshes, and discard results from an old focus so Commands and unfocus stay responsive.
 

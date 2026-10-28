@@ -285,6 +285,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   return {
     input: (input) => { if (joined && !stopped) send("input", { ...input }); },
     focus: (identifier) => send("focus", { identifier }),
+    priority: (identifier, direction) => send("priority", { identifier, direction }),
     control: (identifier, action) => send("control", { identifier, action }),
     say: (identifier, text) => send("say", { identifier, text, message_id: randomUUID() }),
     voiceStart: () => send("voice_start", {}),

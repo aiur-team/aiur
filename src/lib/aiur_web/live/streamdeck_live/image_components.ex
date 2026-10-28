@@ -56,7 +56,7 @@ defmodule AiurWeb.StreamdeckLive.ImageComponents do
         <.key :for={{{image, face}, index} <- @slots} image={image} index={index} class={key_class(@mode, face)} disabled={value(face, :disabled, false)}
           data-streamdeck-identifier={if @mode == :grid, do: value(face, :identifier), else: if(@mode == :cmd, do: @selected_identifier)}
           data-streamdeck-state={value(face, :bucket)} data-control-action={control_action(value(face, :bucket))}
-          data-streamdeck-command={value(face, :command)} data-streamdeck-icon={value(face, :icon)}
+          data-streamdeck-url={value(face, :url)} data-streamdeck-command={value(face, :command)} data-streamdeck-icon={value(face, :icon)}
           data-command-state={value(face, :state)} data-command-hold={value(face, :hold) && "true"}
           data-command-label={value(face, :title)} data-command-sub={value(face, :sub)}
           data-log-event-index={value(face, :event_index)} aria-current={if @mode == :logs, do: to_string(value(face, :selected, false))}

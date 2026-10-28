@@ -43,7 +43,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Renders Stream Deck frames and serves ticket status, PR checks, Commands, conversations, queue priority moves and deck navigation.",
+  "summary": "Renders Stream Deck frames; serves ticket status, PR checks, Commands, conversations, queue controls and dashboard links.",
   "status": "optional",
   "install": {
     "type": "included"

@@ -28,13 +28,16 @@ defmodule AiurWeb.StreamdeckLive.Frame do
       active: assigns.sd_active,
       logs: assigns.logs,
       strip_entries: AiurWeb.StreamdeckStrip.entries(assigns.logs.transcript_visible),
-      command_keys: CommandKeys.command_keys(assigns.sd_active, assigns.mic_held?),
+      command_keys: command_keys(assigns),
       commands_view: assigns.commands_view,
       commands_option: assigns.commands_option,
       commands_panel: CommandKeys.commands_panel(assigns),
       decision_keys: decision_keys(assigns)
     }
   end
+
+  defp command_keys(%{sd_ticket: ticket, mic_held?: held}) when is_map(ticket), do: CommandKeys.ticket_keys(ticket, held)
+  defp command_keys(_assigns), do: CommandKeys.command_keys(nil, false)
 
   defp decision_keys(%{
          commands_view: :detail,
