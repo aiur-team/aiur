@@ -2,7 +2,7 @@ defmodule Aiur.VoiceConverse.Host.CommandSource do
   @moduledoc "Read-only worker Commands. Answer delivery is not part of this host adapter."
   @behaviour VoiceConverse.Ports.CommandSource
 
-  alias Aiur.DecisionStore
+  alias Aiur.Commands
   alias Aiur.VoiceConverse.Host.Worker
 
   @impl true
@@ -12,8 +12,8 @@ defmodule Aiur.VoiceConverse.Host.CommandSource do
   def open(%Worker{identity: identity}, opts) do
     commands =
       opts
-      |> Keyword.get(:decision_store, DecisionStore)
-      |> DecisionStore.list(2_000)
+      |> Keyword.get(:decision_store, Commands.default_store())
+      |> Commands.list_decisions(2_000)
       |> Enum.filter(&(&1.ticket.identifier == identity.identifier and &1.decision_status in [:open, :deferred]))
       |> Enum.map(&%{id: &1.decision_id, version: &1.version, question: &1.question, options: &1.options})
 
