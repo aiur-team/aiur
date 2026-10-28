@@ -42,6 +42,11 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@queue_guard_path Path.expand(\"../../../priv/github_merge_queue_push_guard.sh\", __DIR__)",
       "@external_resource @queue_guard_path"
     ],
+    # Ticket status JSON is embedded during compilation; runtime reads the compiled map.
+    "aiur/build_order/ticket_status.ex" => [
+      "@taxonomy_path Path.expand(\"../../../priv/static/build-home/ticket-status.json\", __DIR__)",
+      "@external_resource @taxonomy_path"
+    ],
     "aiur/github/access/wrapper.ex" => [
       "@broker_root Path.expand(\"../../../../priv/github_budget\", __DIR__)",
       "for path <- @broker_paths, do: @external_resource(path)",

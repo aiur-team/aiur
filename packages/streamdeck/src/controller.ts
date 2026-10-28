@@ -1,3 +1,4 @@
+import type { StreamDeckTicket } from "./channel.js";
 import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import {
@@ -120,7 +121,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         // until the next flush.
         if (state.focusedIdentifier !== null && identifier !== state.focusedIdentifier) forgetLogs();
         options.channel()?.focus(identifier);
-        publish({ ...state, mode: "cmd", focusedIdentifier: identifier });
+        publish({ ...state, mode: "cmd", focusedIdentifier: identifier, ticket: null });
       }
       return;
     }
@@ -149,9 +150,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         enterSettings();
       } else if (index === CMD_COMMANDS) {
         enterCommands();
-      } else if (index === CMD_SEND) {
+      } else if (index === CMD_SEND && state.hasTranscript) {
         sendTranscript(identifier);
-      } else if (index === CMD_CANCEL) {
+      } else if (index === CMD_CANCEL && state.hasTranscript) {
         cancelTranscript();
       } else if (index === CMD_IMPLEMENT && agentLess(agent)) {
         // The deck asks; the daemon dispatches. `implement` applies the
@@ -329,6 +330,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       publish({ ...initialState });
     },
     handleReport,
+    setTicket: (ticket: StreamDeckTicket): void => {
+      if (ticket.id === state.focusedIdentifier) publish({ ...state, ticket });
+    },
     setLogs: logs.setLogs,
     tickTyping: logs.tickTyping,
     /**
