@@ -84,12 +84,15 @@ voice:
 
 No ElevenLabs Agent id or client-tool setup is needed for OpenAI. `llm` is sent
 as the Realtime model; `voice_id` is optional. Restart after changing provider.
+
 The adapter converts 16 kHz mic PCM to 24 kHz and emits tagged 24 kHz output;
 the browser and transcript/summary handoff are shared. Input transcription uses
-`gpt-4o-mini-transcribe`. Server VAD handles turns and cancellation; barge-in
+`gpt-4o-mini-transcribe`.
+
+Server VAD handles turns and cancellation; barge-in
 clears playback and conservatively removes the whole interrupted audio item
 from model context because the browser does not report how much was heard.
-OpenAI setup does not change the ElevenLabs Agent's model or voice.
+
 
 The prototype's time caps are not dollar limits. Live evaluation has a combined
 USD 25 budget across both providers; check account usage before and after each
