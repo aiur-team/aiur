@@ -24,9 +24,16 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   def devices(payload, socket) do
     if valid_devices?(payload) do
       SettingsSnapshot.devices(Map.take(payload, ~w(mics speakers instances)), socket.assigns.deck_settings_path)
-      migrate(payload["legacy_mic_id"], socket)
-      push(socket)
-      reply(socket, {:ok, %{}})
+
+      case migrate(payload["legacy_mic_id"], socket) do
+        {:error, _reason} ->
+          {:error, reason, socket} = not_saved(socket)
+          reply(socket, {:error, %{reason: reason}})
+
+        _result ->
+          push(socket)
+          reply(socket, {:ok, %{}})
+      end
     else
       {:reply, {:error, %{reason: "invalid_devices"}}, socket}
     end
@@ -78,9 +85,13 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
         {:ok, socket}
 
       {:error, _reason} ->
-        nav = socket.assigns.deck_nav
-        {:error, "not_saved", assign(socket, deck_toast: "Not saved", deck_nav: %{nav | settings: %{nav.settings | notice: "Not saved"}})}
+        not_saved(socket)
     end
+  end
+
+  defp not_saved(socket) do
+    nav = socket.assigns.deck_nav
+    {:error, "not_saved", assign(socket, deck_toast: "Not saved", deck_nav: %{nav | settings: %{nav.settings | notice: "Not saved"}})}
   end
 
   defp reply(socket, result) do
