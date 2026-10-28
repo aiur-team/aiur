@@ -65,6 +65,12 @@ Listener-routed Units rows show a compact mode and unread count; unknown values
 show **Unavailable** or **Unread ?**. Legacy rows omit the badge. Open Chat for
 the selector, effective-mode reason, oldest unread age and observation age.
 
+New worker journals recover conversation from the workspace transcript
+when it can be replayed, otherwise from this launch's IssueLog. Recovered
+records belong to an `import` session after a `pre_journal` gap: earlier history
+may still be missing. IssueLog bodies at its 1,000-character cut are marked
+truncated. Existing journals are not imported again.
+
 The conversation header selector offers **Steer · interrupts**,
 **Sync · next turn**, or **Async · on demand**. A different effective mode is
 shown with its reason. Unread counts include the oldest message's age; the

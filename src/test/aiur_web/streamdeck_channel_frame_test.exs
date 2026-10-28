@@ -114,10 +114,15 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
   test "usage and fleet changes refresh frames and stale flushes are ignored" do
     socket = joined_socket()
     assert_push("frame", _initial)
-    send(socket.channel_pid, {:provider_meter_changed, %ProviderMeterSnapshot{}})
-    state = :sys.get_state(socket.channel_pid)
-    assert is_reference(state.assigns.usage_flush)
-    assert state.assigns.fleet_flush == nil
+    # Inspect the handler result before its 250 ms timer can run on a slow host.
+    state =
+      :sys.replace_state(socket.channel_pid, fn current ->
+        {:noreply, scheduled} = AiurWeb.StreamdeckChannel.handle_info({:provider_meter_changed, %ProviderMeterSnapshot{}}, current)
+        assert is_reference(scheduled.assigns.usage_flush)
+        assert scheduled.assigns.fleet_flush == nil
+        scheduled
+      end)
+
     send(socket.channel_pid, {:flush_usage, state.assigns.usage_flush})
     state = :sys.get_state(socket.channel_pid)
     assert is_reference(state.assigns.fleet_flush)

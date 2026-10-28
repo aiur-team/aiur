@@ -1,3 +1,4 @@
+import { openTicketLink, ticketAction } from "./controller/ticket-actions.js";
 import type { StreamDeckTicket } from "./channel.js";
 import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
@@ -134,6 +135,26 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       return;
     }
     if (state.mode === "cmd") {
+      const ticket = state.ticket;
+      if (ticket?.actions && ticket.id === state.focusedIdentifier) {
+        const action = ticketAction(index, state.hasTranscript);
+        if (action === "priority_up" || action === "priority_down") {
+          if (ticket.actions[action] === "enabled") options.channel()?.priority?.(ticket.id, action === "priority_up" ? "up" : "down");
+        } else if (action === "pr" || action === "modal") {
+          openTicketLink(ticket.links?.[action], options.spawn, options.openError);
+        } else if (action === "pause") {
+          if (agentLess(focusedAgent()) && ticket.agent === null && ticket.title !== null && ticket.actions.mic !== "disabled") {
+            options.channel()?.control(ticket.id, "implement");
+            publish({ ...state, implementQueued: true });
+          }
+          if (ticket.actions.pause === "enabled" && (ticket.control?.action === "pause" || ticket.control?.action === "resume")) options.channel()?.control(ticket.id, ticket.control.action);
+        } else if (action === "commands") enterCommands();
+        else if (action === "mic" && ticket.actions.mic !== "disabled") holdMic();
+        else if (action === "settings") enterSettings();
+        else if (action === "send") sendTranscript(ticket.id);
+        else if (action === "cancel") cancelTranscript();
+        return;
+      }
       const agent = focusedAgent();
       const identifier = state.focusedIdentifier;
       if (identifier === null || agent === undefined) return;
@@ -277,7 +298,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     // surfaces, so each mode listens to exactly one index.
     for (const input of decoded) {
       if (input.type !== "key" || input.pressed) continue;
-      if (state.mode === "cmd" && input.index === CMD_MIC) releaseMic();
+      if (state.mode === "cmd" && input.index === (state.ticket?.actions ? 6 : CMD_MIC)) releaseMic();
       else if (state.mode === "settings" && input.index === SETTINGS_TEST_MIC) releaseMic();
       else if (state.mode === "commands" && input.index === COMMANDS_MIC) releaseMic();
     }
