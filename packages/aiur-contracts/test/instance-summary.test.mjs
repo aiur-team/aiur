@@ -34,7 +34,7 @@ test('summary reasons accept only bounded lowercase codes', () => {
     invalid.agents.active.reason = reason;
     assert.equal(validate(invalid), false, JSON.stringify(reason));
   }
-  for (const reason of [null, 'a'.repeat(64), 'not_running']) {
+  for (const reason of [null, 'code_'.repeat(12) + 'code', 'not_running']) {
     const valid = structuredClone(fixture);
     valid.agents.active.reason = reason;
     assert.equal(validate(valid), true, JSON.stringify(validate.errors));

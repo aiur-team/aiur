@@ -41,7 +41,8 @@ defmodule Aiur.InstanceSummary.Guard do
         raise ArgumentError, "instance summary contains a forbidden key"
       end
 
-      if to_string(key) == "reason", do: ValueGuard.reason!(value), else: walk!(value)
+      if to_string(key) == "reason", do: ValueGuard.reason!(value)
+      walk!(value)
     end)
 
     if Map.has_key?(map, :status) or Map.has_key?(map, "status"), do: validate_fact!(map)

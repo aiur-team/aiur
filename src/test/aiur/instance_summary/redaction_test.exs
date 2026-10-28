@@ -45,7 +45,7 @@ defmodule Aiur.InstanceSummary.RedactionTest do
   end
 
   test "reason paths and other non-code reasons are rejected" do
-    for reason <- ["/home/operator/private", "offline/path", "Offline", "offline host", "", String.duplicate("a", 65)] do
+    for reason <- ["/home/operator/private", "offline/path", "Offline", "offline host", "", String.duplicate("a", 65), "ghp_" <> String.duplicate("a", 36), String.duplicate("a", 64)] do
       error = assert_raise ArgumentError, fn -> summary(Fact.unknown(reason)) end
       assert Exception.message(error) == "instance summary contains a forbidden value"
     end
@@ -57,7 +57,8 @@ defmodule Aiur.InstanceSummary.RedactionTest do
     assert result.instance_id == instance_id
     assert result.contract == "aiur.instance_summary"
     assert result.executor.reason == "not_running"
-    assert summary(Fact.unknown(String.duplicate("a", 64))).executor.reason == String.duplicate("a", 64)
+    code = String.duplicate("code_", 12) <> "code"
+    assert summary(Fact.unknown(code)).executor.reason == code
     assert {:ok, _, _} = DateTime.from_iso8601(result.observed_at)
   end
 end
