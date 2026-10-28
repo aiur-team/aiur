@@ -211,11 +211,13 @@ for (const settleBeforeDiff of [true, false]) {
 test('board diffs preserve dependency and queue focus without taking focus from the header', async ({ page }) => {
   const t = await display(page, { sec: 'nq', deps: ['999'] })
   const dep = page.locator('.bm-dep[data-goto="999"]')
+  const depHandle = await dep.elementHandle()
   const button = page.getByRole('button', { name: 'Add to queue' })
   await dep.focus()
   const unrelated = await page.evaluate(async () => (await import('/build-home/state.js')).ctx.D.plan[0])
   await upsert(page, [{ ...unrelated, title: unrelated.title + ' unrelated update' }])
   await expect(dep).toBeFocused()
+  expect(await depHandle.evaluate(el => el.isConnected && document.activeElement === el)).toBe(true)
   await upsert(page, [{ ...t, title: t.title + ' updated' }])
   await expect(dep).toBeFocused()
   await page.keyboard.press('Tab'); await expect(button).toBeFocused()

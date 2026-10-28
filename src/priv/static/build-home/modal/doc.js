@@ -140,9 +140,12 @@ export function applyQueueAdd(msg) {
   repaint();
 }
 export function syncDoc(msg) {
+  const relevant = view && MS.t?.id === view.id ? new Set([view.id, ...(MS.t.deps || []), ...(ctx.D.children?.[view.id] || [])]) : new Set();
+  const changed = [...(msg.upsert || []), ...(msg.remove || []).map(id => ({ id }))];
+  const affectsDoc = !!view && changed.some(row => relevant.has(row.id) || row.deps?.includes(view.id));
   for (const row of msg.upsert || []) if (row.sec !== 'nq') adds.delete(row.id);
   for (const id of msg.remove || []) adds.delete(id);
-  repaint();
+  if (affectsDoc) repaint();
 }
 export function reconnectDoc() {
   for (const [id, state] of adds) if (state.pending) adds.set(id, { ok: false, reason: 'outcome_unknown' });

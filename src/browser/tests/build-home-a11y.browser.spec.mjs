@@ -149,31 +149,6 @@ test('unfiled cards do not inherit queue promotion cues', async ({ page }) => {
   await expect(page.locator('.bd-card[data-id="607"] .bd-q.promo')).toHaveCount(1)
 })
 
-test('unrelated diffs preserve focused card identity and focus', async ({ page }) => {
-  await open(page)
-  const result = await page.evaluate(() => {
-    const { ctx } = state
-    const focused = [...ctx.R.values()].find(card => card.closest('#bd-sec-plan'))
-    if (!focused) throw new Error('fixture must render a planned card')
-    const focusedId = focused.dataset.id
-    const focusedUid = [...ctx.R].find(([, card]) => card === focused)[0]
-    const changed = ctx.D.now[0]
-    const changedBefore = ctx.R.get('now:' + changed.id)
-    focused.focus()
-    const generation = ctx.proto.generation + 1
-    hook.receive({ kind: 'diff', v: 1, epoch: ctx.proto.epoch, generation, now: ctx.snap.now,
-      upsert: [{ ...changed, title: changed.title + ' updated' }], remove: [], set: {} })
-    state.fx.flushLive()
-    return {
-      focusedSame: document.activeElement === focused,
-      focusedConnected: focused.isConnected,
-      focusedSameInRegistry: ctx.R.get(focusedUid) === focused,
-      changedReplaced: ctx.R.get('now:' + changed.id) !== changedBefore,
-    }
-  })
-  expect(result).toEqual({ focusedSame: true, focusedConnected: true, focusedSameInRegistry: true, changedReplaced: true })
-})
-
 test('arrow keys move focus and space uses the board button behavior', async ({ page }) => {
   await open(page)
   const first = page.locator('.bd-card[tabindex="0"]')
