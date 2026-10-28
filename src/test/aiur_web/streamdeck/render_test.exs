@@ -21,7 +21,16 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     refute image.svg =~ "<script"
     assert image.label =~ "#51<& Running 40%"
 
-    [region] = Render.strip([%{x: 0, width: 200, label: "\"<script>", parts: [%{kind: :text_line, text: "<script>&\""}]}])
+    [region] =
+      Render.strip([
+        %{
+          x: 0,
+          width: 200,
+          label: "\"<script>",
+          parts: [%{kind: :text_line, text: "<script>&\""}]
+        }
+      ])
+
     assert xpath(parse(region.svg), "//text/text()") == ["<script>&\""]
     refute region.svg =~ "<script"
 
@@ -40,7 +49,12 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     assert Enum.all?(lines, &(String.length(&1) <= budget))
     assert List.last(lines) |> String.ends_with?("…")
     assert Svg.wrap("one two three", 7, 3) == ["one two", "three"]
-    assert Svg.wrap(String.duplicate("界", 60), budget, 3) == [String.duplicate("界", 12), String.duplicate("界", 12), String.duplicate("界", 11) <> "…"]
+
+    assert Svg.wrap(String.duplicate("界", 60), budget, 3) == [
+             String.duplicate("界", 12),
+             String.duplicate("界", 12),
+             String.duplicate("界", 11) <> "…"
+           ]
   end
 
   test "unknown progress has only a grey track; measured zero has a visible fill and complete is brighter" do
@@ -74,13 +88,28 @@ defmodule AiurWeb.Streamdeck.RenderTest do
     assert Enum.at(frame.keys, 0).label == "#5181 Running 40% — Fix strip squeeze"
     assert Enum.at(frame.keys, 4).label =~ "#5182 Unstarted"
     assert Enum.map([1, 2, 3, 5, 6, 7], &Enum.at(frame.keys, &1)) == List.duplicate(nil, 6)
-    assert Enum.map(frame.strip, &{&1.x, &1.width}) == [{0, 200}, {200, 200}, {400, 200}, {600, 200}]
+
+    assert Enum.map(frame.strip, &{&1.x, &1.width}) == [
+             {0, 200},
+             {200, 200},
+             {400, 200},
+             {600, 200}
+           ]
+
     assert hd(frame.strip).label == "1 live / 1 left; Build 41%"
-    assert xpath(parse(hd(frame.strip).svg), "//rect[@data-part=\"progress-fill\"]/@width") == ["73.8"]
+
+    assert xpath(parse(hd(frame.strip).svg), "//rect[@data-part=\"progress-fill\"]/@width") == [
+             "73.8"
+           ]
+
     assert Enum.at(frame.strip, 1).svg =~ "Session 75% left"
     assert Enum.at(frame.strip, 1).svg =~ "35s old stale"
     refute Enum.at(frame.strip, 1).svg =~ "Weekly"
-    assert xpath(parse(Enum.at(frame.strip, 1).svg), ~s|//rect[@data-part="progress-fill"]/@width|) == ["135.0"]
+
+    assert xpath(
+             parse(Enum.at(frame.strip, 1).svg),
+             ~s|//rect[@data-part="progress-fill"]/@width|
+           ) == ["135.0"]
 
     for image <- Enum.reject(frame.keys, &is_nil/1) do
       xml = parse(image.svg)
@@ -102,7 +131,11 @@ defmodule AiurWeb.Streamdeck.RenderTest do
       refute image.svg =~ ~r/href=["'](?:https?:|\/)/
       refute image.svg =~ "<script"
       assert image.svg =~ "JetBrains Mono, monospace"
-      assert image.hash == :crypto.hash(:sha256, image.svg) |> Base.encode16(case: :lower) |> binary_part(0, 16)
+
+      assert image.hash ==
+               :crypto.hash(:sha256, image.svg)
+               |> Base.encode16(case: :lower)
+               |> binary_part(0, 16)
     end
 
     assert Render.frame(model) == frame
@@ -132,36 +165,102 @@ defmodule AiurWeb.Streamdeck.RenderTest do
 
   test "pages agents by columns and providers alphabetically with the same primitives" do
     agents = for id <- 1..12, do: face(%{identifier: "##{id}"})
-    model = %{grid: %{agents: agents}, column_offset: 99, usage: %{d: nil, a: nil, c: nil, b: nil}, provider_offset: 99}
+
+    model = %{
+      grid: %{agents: agents},
+      column_offset: 99,
+      usage: %{d: nil, a: nil, c: nil, b: nil},
+      provider_offset: 99
+    }
+
     frame = Render.frame(model)
     assert hd(frame.keys).label =~ "#5 Running"
     assert List.last(frame.keys).label =~ "#12 Running"
     assert Enum.map(frame.keys, &hd(String.split(&1.label))) == ~w(#5 #7 #9 #11 #6 #8 #10 #12)
     assert Enum.map(frame.strip, &{&1.x, &1.width}) == [{0, 200}, {200, 400}, {600, 200}]
     xml = parse(Enum.at(frame.strip, 1).svg)
-    assert xpath(xml, "//text/text()") == ["b Unknown", "c Unknown", "d Unknown", "Providers 2–4 / 4"]
+
+    assert xpath(xml, "//text/text()") == [
+             "Providers 2–4 / 4",
+             "b Unknown",
+             "c Unknown",
+             "d Unknown"
+           ]
+
     assert List.last(frame.strip).label == "5–12 / 12"
-    assert xpath(parse(List.last(frame.strip).svg), "//text/text()") == ["MORE AGENTS", "5–12 / 12", "‹", "·"]
+
+    assert xpath(parse(List.last(frame.strip).svg), "//text/text()") == [
+             "MORE AGENTS",
+             "5–12 / 12",
+             "‹",
+             "·"
+           ]
+
     assert Render.frame(%{grid: %{agents: []}}).keys == List.duplicate(nil, 8)
 
-    meter = %{state: :observed, freshness: :fresh, age_seconds: 35, windows: %{session: %{used_percent: 25}}}
+    meter = %{
+      state: :observed,
+      freshness: :fresh,
+      age_seconds: 35,
+      windows: %{session: %{used_percent: 25}}
+    }
+
     observed = Render.frame(%{usage: %{a: meter, b: meter, c: meter}}).strip |> Enum.at(1)
     observed_xml = parse(observed.svg)
     assert xpath(observed_xml, ~s|//text[@text-anchor="end"]/@y|) == ["16", "42", "68"]
-    assert xpath(observed_xml, ~s|//text[@text-anchor="end"]/text()|) == List.duplicate("35s old", 3)
+
+    assert xpath(observed_xml, ~s|//text[@text-anchor="end"]/text()|) ==
+             List.duplicate("35s old", 3)
   end
 
   defp face(extra) do
-    Map.merge(%{identifier: "#5181", title: "Fix strip squeeze", bucket: :running, icon: "runtime", vendor: "claude", progress_percent: 40, progress_freshness: "fresh"}, extra)
+    Map.merge(
+      %{
+        identifier: "#5181",
+        title: "Fix strip squeeze",
+        bucket: :running,
+        icon: "runtime",
+        vendor: "claude",
+        progress_percent: 40,
+        progress_freshness: "fresh"
+      },
+      extra
+    )
   end
 
   defp model do
     # The real SD-101 adapter output is merged into StreamdeckFleet.grid/1.
     grid =
-      AiurWeb.StreamDeckGrid.project(%{running: [%{identifier: "#5181", title: "Fix strip squeeze", backend: :claude, progress_percent: 40}], idle: [%{identifier: "#5182", title: "Next ticket"}]})
+      AiurWeb.StreamDeckGrid.project(%{
+        running: [
+          %{
+            identifier: "#5181",
+            title: "Fix strip squeeze",
+            backend: :claude,
+            progress_percent: 40
+          }
+        ],
+        idle: [%{identifier: "#5182", title: "Next ticket"}]
+      })
 
-    grid = Map.merge(grid, %{build: %{queue_id: "a", name: "X", completed: nil, resolved: 9, total: 22, percent: 41}, build_status: "ok"})
-    %{grid: grid, usage: %{claude: %{state: :observed, freshness: :stale, age_seconds: 35, windows: %{session: %{used_percent: 25}}}, codex: %{state: :unknown}}}
+    grid =
+      Map.merge(grid, %{
+        build: %{queue_id: "a", name: "X", completed: nil, resolved: 9, total: 22, percent: 41},
+        build_status: "ok"
+      })
+
+    %{
+      grid: grid,
+      usage: %{
+        claude: %{
+          state: :observed,
+          freshness: :stale,
+          age_seconds: 35,
+          windows: %{session: %{used_percent: 25}}
+        },
+        codex: %{state: :unknown}
+      }
+    }
   end
 
   defp wire(model), do: model |> Jason.encode!() |> Jason.decode!()

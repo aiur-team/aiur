@@ -56,8 +56,7 @@ test('tail, older anchor, start and bounded DOM use the durable journal at deskt
   }
 })
 
-// Quarantined: owner #7015, expires 2026-11-11 (scrollTop read races the Load older prepend)
-test.skip('live entries follow at bottom and preserve the scrolled-up viewport with a counter', async ({ page }) => {
+test('live entries follow at bottom and preserve the scrolled-up viewport with a counter', async ({ page }) => {
   await open(page)
   const scroll = page.locator('#conversation-scroll')
   await page.request.get('/conversation-fixture/append')

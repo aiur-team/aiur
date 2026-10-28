@@ -47,7 +47,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Renders Stream Deck frames and owns per-instance settings, device choices, alerts, Build tickets and queue controls.",
+  "summary": "Renders shared Stream Deck frames and owns per-instance settings, audio choices, alerts, tickets and queue controls.",
   "status": "optional",
   "install": {
     "type": "included"

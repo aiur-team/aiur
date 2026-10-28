@@ -2,10 +2,12 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.BuildOrder.Index
   alias Aiur.TestSupport.EndpointStubs
+  alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.Deck.Tickets
+  alias AiurWeb.Streamdeck.FrameUpdates
   alias AiurWeb.Streamdeck.Render
   alias AiurWeb.StreamdeckFleet
-  alias AiurWeb.StreamdeckLive.{Components, Surface}
+  alias AiurWeb.StreamdeckLive.ImageComponents
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   test "shared Build window drives snapshot, emulator keys, raw key input and index refresh" do
@@ -27,9 +29,10 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
     assert grid.counts.live == 0
     assert_received :window_read
     refute_received :window_read
-    html = render_component(&Components.grid_keys/1, grid: grid, grid_page: 0, grid_column_offset: 0, grid_dial_value: 0, selected_identifier: nil, keys: Surface.key_descriptors(grid.agents, 0))
+    {_nav, model, frame} = FrameUpdates.frame(%Nav{}, grid, %{})
+    html = render_component(&ImageComponents.keys/1, frame: frame, model: model, grid: grid, page: 0, dial_value: 0, selected_identifier: nil, mode: :grid, logs: %{}, commands_view: :history)
     assert html =~ "Waiting for CI"
-    refute html =~ ~s(role="progressbar")
+    refute html =~ ~s(data-part="progress-fill")
 
     socket = joined_socket()
     assert_reply(push(socket, "input", %{"kind" => "key_press", "index" => 0}), :ok)

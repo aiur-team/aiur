@@ -1,7 +1,7 @@
 import type { HidBackend } from "./backend.js";
 import { BLACK, buildKeyFillReport, DEFAULT_FILL_INDEX_BASE, type RgbColor } from "./keys/keyFill.js";
 import { layoutKeys, layoutPhysicalKeys, type AgentInput, type KeyDescriptor } from "./keys.js";
-import type { BucketId } from "./key-face-contract.js";
+import type { BucketId } from "./legacy-style.js";
 import { KeyRenderer } from "./keys/keyRenderer.js";
 import { KeyWriteQueue } from "./keys/writeQueue.js";
 import { createKeyReportWriter } from "./keys/keyWriter.js";

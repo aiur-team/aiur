@@ -128,6 +128,7 @@ defmodule AiurWeb.DashboardLive.Page do
           <p>{Commands.selected_decision_error_message(@selected_decision_status, @selected_decision_id)}</p>
         </div>
         <DecisionInbox.decision_inbox
+          voice_capabilities={@voice_capabilities}
           decisions={Enum.reject(@decision_page.decisions, &(&1.decision_id == @selected_decision_id))}
           selected_decision={CommandHistory.inbox_selected_decision(@selected_decision, @history_rows)}
           selected_decision_id={@selected_decision_id}
@@ -143,6 +144,7 @@ defmodule AiurWeb.DashboardLive.Page do
           history_total={@history_total}
         />
         <History.history
+          voice_capabilities={@voice_capabilities}
           rows={@history_rows}
           loaded={MapSet.size(@history_ids)}
           total={@history_total}

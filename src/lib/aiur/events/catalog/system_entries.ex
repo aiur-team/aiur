@@ -34,6 +34,7 @@ defmodule Aiur.Events.Catalog.SystemEntries do
     {"system.config.operator_relay.enabled", "config"},
     # aiur/workflow_store/reload_rejection.ex
     {"system.config.reload_rejected", "config"},
+    {"system.conversation.subject_index.unreadable", "conversations"},
     # aiur/conversation/journal.ex
     {"system.conversation.journal.degraded", "conversations"},
     # aiur/conversation/journal.ex

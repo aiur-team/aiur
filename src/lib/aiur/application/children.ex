@@ -129,6 +129,8 @@ defmodule Aiur.Application.Children do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      # Channels and browser mounts need cached settings before HTTP starts.
+      AiurWeb.Streamdeck.Deck.SettingsSnapshot,
       Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
       Aiur.DecisionDispatchTasks,
@@ -165,7 +167,11 @@ defmodule Aiur.Application.Children do
       Aiur.TicketContext.child_specs(:early, opts),
       BuildOrders.child_specs(:early, opts),
       {Aiur.Events.IdGenerator, floor_files: &Aiur.IdFloorSources.floor_files/0, legacy_counter_files: &Aiur.IdFloorSources.legacy_counter_files/0},
+      Aiur.Conversation.HeadTable,
+      {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+      {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
+      Aiur.Conversation.ResolverSupervisor,
       # Subscribe before the orchestrator's immediate first poll so a merge
       # observed during startup also reaches the durable checklist.
       Aiur.PostDeployChecklist,
@@ -305,11 +311,6 @@ defmodule Aiur.Application.Children do
     |> Kernel.++(
       cli_children ++
         [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
-        [
-          Aiur.Conversation.HeadTable,
-          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
-          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor}
-        ] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,

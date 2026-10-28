@@ -280,6 +280,8 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket |> assign(:deck_usage, snapshot["usage"]) |> assign(:deck_grid, snapshot["grid"]) |> FrameUpdates.push()}
   end
 
+  def handle_info({:streamdeck_settings_changed, path}, %{assigns: %{deck_settings_path: path}} = socket), do: SettingsUpdates.changed(socket)
+
   def handle_info(:streamdeck_auth_expired, socket), do: {:stop, :normal, socket}
 
   def handle_info({FinancialDataAccess, :configuration_changed, generation}, %{assigns: %{streamdeck_generation: generation}} = socket),

@@ -32,9 +32,10 @@ use the shared domain sources directly.
 | `AiurWeb.Streamdeck.Deck` | Guarded deck sections over shared read models; focus lane from `BuildQueue.show/0` | No | Emulator |
 | `AiurWeb.Streamdeck.Deck.TicketPage` | Focused ticket over Build DataSource and TicketControl; shared server status labels | No | Physical cmd ticket page |
 | `AiurWeb.StreamdeckCommands` | Command history and answer DTOs; actor `streamdeck` | No | Emulator |
+| `AiurWeb.Streamdeck.FrameUpdates`, `AiurWeb.Streamdeck.Render` | Shared navigation-to-frame adapter and SVG images | No | Emulator keys and strip |
 | `AiurWeb.StreamDeckGrid` | Key ranking for the grid | No | `GET /api/v1/streamdeck/grid`, emulator, `AiurWeb.StreamdeckFleet` |
 | `AiurWeb.StreamdeckTranscriptRelay` | Throttled live transcript push | No | Emulator |
-| `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip`, `AiurWeb.StreamdeckKeyFaceContract` | Deck presentation: paging, LIVE, log windows and key faces | No; the emulator renders them | — |
+| `AiurWeb.StreamdeckLogs`, `AiurWeb.StreamdeckStrip` | Deck presentation projections: paging, LIVE and structured log windows | No; the emulator renders them | — |
 | `AiurWeb.StreamdeckAuth`, `AiurWeb.StreamdeckSocket`, `AiurWeb.StreamdeckChannel` | Deck transport | Only for a physical deck | — |
 
 `StreamdeckProjection.voice/0` reads availability from the shared `Aiur.Voice`
@@ -42,10 +43,12 @@ port. Command answers retain the operator actor `%{kind: :operator, id: "streamd
 `StreamDeckGrid.dependency_ready?/2` remains an internal grid helper with no
 external caller.
 
-The canonical visual contract is `src/priv/streamdeck/key-face-contract.json`;
-the parity vectors also live in `src/priv/streamdeck/`. The sidecar keeps
-byte-checked mirrors in `packages/streamdeck/src/`. Edit the canonical files,
-then copy them to the mirrors.
+The channel and browser emulator use `FrameUpdates.frame/5` and
+`Render.frame/1` to produce the same SVG bytes for the same view state.
+The emulator inserts those trusted images into accessible key buttons and
+absolutely positioned strip regions; it has no separate face drawing code.
+Renderer-owned colours replace the deleted key-face parity contract and mirrors.
+Settings section and choice state live on `Nav`; `FrameUpdates.frame/5` builds their model for the shared `Render.Views` / `Render.compose` path.
 
 New dashboard, phone or watch surfaces should read `Aiur.DecisionStore`, the
 orchestrator snapshot or `Aiur.Conversation.Anchors` directly, rather than the
@@ -75,6 +78,7 @@ the physical sidecar consumes `frame` images and applies daemon `settings`.
 The sidecar sends `devices` on join and inventory changes with
 `{mics: [{id, label}], speakers: [{id, label}], instances: [name], legacy_mic_id?}`.
 Only instance names cross this boundary; connection credentials stay on the PC.
+Inventory is retained while its reporting connection is alive; after disconnect, both surfaces show unavailable inventory instead of inventing an empty device count.
 `legacy_mic_id` migrates the old sidecar preference when daemon settings are absent.
 The `settings_set` event carries a patch of the settings fields. The daemon
 validates it and atomically saves the per-instance private file before pushing
@@ -85,11 +89,11 @@ validates it and atomically saves the per-instance private file before pushing
 `unavailable` (queue model could not be read). `grid.build` is null unless
 status is `ok`; then it carries the lowest `{set_rank, queue_id}` lane’s
 identity, progress fields and `eta_seconds: null`. Unknown percent and completed
-counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and are dimmed. Build changes share the channel’s 250 ms fleet coalescing.
+counts stay null. `grid.counts` carries `status`, `observed_at`, `agents`, `live`, `queued`, `not_queued` and `by_state` from the Build index. Unavailable counts are null; stale readings retain their values and carry a stale label. Build changes share the channel’s 250 ms fleet coalescing.
 
 `ticket.status` carries the shared Build `{label, tone, agent_state}`. The server and desktop modal consume one canonical ticket-status taxonomy asset. `pr` is null without evidence, otherwise `{num, state, ci?}`; open PR/CI facts come from ProgressStore and merged history wins. Unknown fields remain null. `control` uses TicketControl and is disabled on read-only dashboards. `observed_at` is the DTO observation time in epoch milliseconds; the physical strip renders its age after 60 seconds. A missing ticket becomes an explicit unknown frame for that focused id.
 
-`links` contains server-built `modal` and nullable `pr` URLs. `actions.pause`, `priority_up` and `priority_down` are `enabled` or `disabled`; queue edges, read-only dashboards and tickets outside editable list queues disable priority. Send `priority` with `{identifier, direction: "up" | "down"}` for the focused ticket; replies reuse the queue read-back/error shape. The physical client opens HTTP(S) URLs with injected `xdg-open`; the emulator uses links with `target="_blank"`.
+`links` contains server-built `modal` and nullable `pr` URLs. `actions.pause`, `priority_up` and `priority_down` are `enabled` or `disabled`; queue edges, read-only dashboards and tickets outside editable list queues disable priority. Send `priority` with `{identifier, direction: "up" | "down"}` for the focused ticket; replies acknowledge the mutation or return an error; feedback arrives as a coalesced frame push. The physical client opens HTTP(S) URLs with injected `xdg-open`; the emulator uses links with `target="_blank"`.
 
 Ticket reads run in one background task per channel, coalesce refreshes, and discard results from an old focus so Commands and unfocus stay responsive.
 
@@ -115,11 +119,7 @@ The emulator also accepts `input` with `{kind, index, ticks?}`. Kinds are `key_p
 `dial_long_press`, and `dial_turn`. Key indexes are 0–7, dial indexes 0–3;
 turns require integer `ticks` in -32–32. Unknown kinds, malformed frames and
 out-of-range values reply `error` with `{reason: "invalid_input"}`. Accepted
-navigation replies `ok` with `{view, page}` (zero-based page). Queue moves
-include read-back `position`, `queue` and a feedback `frame`, or an error
-`reason` and feedback frame on refusal. Physical clients also receive the
-coalesced `frame` push. Each connection starts at `ticket`, page 0; reconnects
-reset navigation.
+navigation replies `ok` with `{view, page}` (zero-based page), including queue moves; refusals return an error `reason`. Replies never contain a frame. Images arrive only as coalesced `frame` pushes, with at most one pending refresh. Connections use the saved default view at page 0; reconnects reset transient navigation.
 
 Dial 4 press cycles Ticket → Feature → Epic → Fleet → Ticket, preserving
 root pages and clearing drills. Turning it moves one eight-key page per tick,

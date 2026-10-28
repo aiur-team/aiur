@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state; the physical sidecar status below lists its current controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same daemon-rendered images for the same navigation state and data. The browser also retains its Command, Logs, Settings and Commands controls, drawn by that shared renderer.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -12,17 +12,18 @@ opens Settings at the root. Dial 1 scrolls and dial 2 changes ticket priority.
 
 After selecting a ticket, hold dial 3 for 500 ms to dictate; release stops
 capture, and a short tap sends the settled transcript. Choose instances in Settings.
+The browser retains its focused controls below, with dial A scrolling the provider panel.
 
 ## Drive the deck modes
 
-The legacy modes below retain their controls; Settings lists the physical entry.
+Settings uses the same sections and choices on both surfaces; PC device choices need sidecar inventory.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel replace links while dictating | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: no action. D: press for Logs. |
-| **Settings** | Hold dial 4 at the root | Mic, Speaker, View, Sort, Brightness, Sleep, Instance, Alerts | Current section and choice; save errors | Dial 1: scroll/press to select. Hold dial 4: back. |
-| **Logs** | Press dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: no action. D: scroll event keys. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents, queued tickets, build progress and provider meters | A: browser provider panel. B: physical provider panel. D: page tickets; press for next window. |
+| **Command** | Press an agent key | Pause/Resume, Priority up/down, Commands, Open PR, Dashboard, Mic, Settings; Send/Cancel while dictating | Ticket status, PR/CI and age; voice panel while dictating | A: Grid. D: Logs. |
+| **Settings** | Hold dial 4 at the root or press Settings | Mic, Speaker, View, Sort, Brightness, Sleep, Instance, Alerts | Current section, choice, save errors and inventory availability | Dial 1: scroll/press select. Hold dial 4: back. |
+| **Logs** | Press dial D | Up to seven event keys plus LIVE | A structured transcript window | A: scroll transcript; press for Command. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 The legacy Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
@@ -48,7 +49,7 @@ Logs runs from oldest at the far left to newest at the far right.
 | --- | --- |
 | Ticket opened | Leftmost origin; owns transcript lines before the first event. |
 | Event key | One ticket event: progress, phase, comment, CI, PR, decision, or attention. |
-| LIVE | Rightmost current view; uses the selected agent's lane, provider, ticket, and progress face. |
+| LIVE | Rightmost current view; opens the newest transcript row and uses green selection ink. |
 
 Transcript lines stay beneath the event active when they arrived; agent prose is not promoted into extra event keys.
 
@@ -71,7 +72,7 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | Tool call | Glyph gutter; muted after completion. |
 | Shell command | `$` prefix. |
 | Operator message | Coloured bar. |
-| File edit | Unified diff with tinted added and removed rows. |
+| File edit | File path, addition/deletion counts and changed lines. |
 
 ### Progress bars
 
@@ -81,7 +82,7 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | Unknown | No reading has arrived | Ticket keys show no bar; other progress surfaces use a neutral grey track. |
 | 0% | A real zero reading | Short solid stub, so "just started" never looks like "no reading". |
 
-A bar that drops to an empty track and back is a bug; report it.
+Stale readings retain their values with a dimmed bar.
 
 ## Ticket view
 
@@ -91,7 +92,7 @@ A bar that drops to an empty track and back is a bug; report it.
 | Ties | Ticket number ascending within each state group. |
 | Queued backlog | Filed Build `plan` rows follow agents, in queue position order; duplicates appear once. |
 | Slot order | Column-major: 1/2, then 3/4, then 5/6, then 7/8. |
-| Paging | Moves by columns so each pair stays together. |
+| Paging | Shared server pages hold eight keys; the last page leaves unused slots empty. |
 
 The default Ticket view reads the same Now and planned rows as the Build page.
 If that read fails, the key area shows “Tickets unavailable” until it recovers.
@@ -180,7 +181,6 @@ The sidecar remembers its last connection in `streamdeck-instance.json` under
 `$XDG_CONFIG_HOME/aiur` (or `~/.config/aiur`); the daemon's Settings page chooses
 which instance to follow. Restart the sidecar after editing the registry.
 
-The browser
 The browser emulator shows its current instance name only; open the other dashboard's
 `/streamdeck` page to change instances there.
 
@@ -200,7 +200,7 @@ uses dial 3 after selecting a ticket.
 | Pause/Play | First | Pauses or resumes the selected agent; physical tickets without an agent offer Implement here. |
 | Priority up/down | Second/third | Moves a ticket one place in a list queue; disabled at edges or outside a list queue. |
 | Mic | Seventh | Press-and-hold; live only while held. |
-| Settings | Eighth | Opens the legacy microphone picker; the server-rendered deck opens Settings by holding dial 4 at the root. |
+| Settings | Eighth | Opens shared Settings; hold dial 4 at the root to open it from the physical grid. |
 | Commands | Fourth | Opens the agent's Command history; always present, so its absence can never be mistaken for "no Commands". |
 | Open PR / Dashboard | Fifth/sixth | Opens the configured PR or Build ticket modal on the sidecar host; browser emulator uses a new tab. |
 | Send | Fifth, once dictation has text | Delivers the accumulated text to the agent. |
@@ -208,7 +208,7 @@ uses dial 3 after selecting a ticket.
 
 Dial D opens Logs. A missing PR disables Open PR. Link keys accept only HTTP(S) URLs. Rebuild the sidecar after updating Aiur to use the ticket action layout.
 
-The emulator shows a text pane because the microphones are attached to the machine running the sidecar, which a browser tab cannot see.
+The browser shares Settings and its reported PC inventory; microphone capture runs on the sidecar.
 
 ### Dictate to an agent
 
@@ -247,8 +247,8 @@ Hold dial 4 at the root to open Settings.
 | Chosen device absent | Shows “missing”, uses the first available device and keeps the saved id for reconnection. |
 | Save failure | Shows “not saved” and keeps the previous file and settings. |
 
-There is no standalone microphone-test key. The emulator explains the settings
-entry point; its browser cannot enumerate the PC's audio devices.
+There is no standalone microphone-test key. The browser uses the daemon's latest
+sidecar inventory; unavailable inventory is shown explicitly.
 
 ### Voice replies are out of scope
 

@@ -1,21 +1,5 @@
 defmodule AiurWeb.StreamdeckLive do
-  @moduledoc """
-  Browser emulator for the Stream Deck control surface.
-
-  The view renders the same orchestrator snapshot projection used by the
-  Stream Deck API and subscribes to the fleet topics so browser state follows
-  the dashboard. Key presses use the existing AgentChat control facade; the
-  orchestrator remains the authority for the resulting pause/resume state.
-
-  Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`
-  and projects the durable classified feed (`AgentEventFeed`) through
-  `StreamdeckLogs`. That projection is one newest-first document read at two
-  granularities: the eight keys are the event index (LIVE first, then a
-  scrolling window of event rows) and the touch strip is the transcript text at
-  the selected event's offset. Selecting a key positions the strip; scrolling
-  the strip reselects the event under the cursor. The production path reads the
-  real feed; `streamdeck_logs_fun` exists only as a test seam.
-  """
+  @moduledoc "Browser emulator over shared deck navigation, projections and SVG images."
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
@@ -25,7 +9,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
   alias AiurWeb.Streamdeck.Deck.Nav
-  alias AiurWeb.StreamdeckLive.{Components, ScreenComponents, Surface}
+  alias AiurWeb.Streamdeck.FrameUpdates
+  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Settings, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLive.TicketActions
   alias AiurWeb.StreamdeckLogs
@@ -42,13 +27,6 @@ defmodule AiurWeb.StreamdeckLive do
   @durable_feed_retry_attempts 2
   @durable_feed_retry_ms 50
 
-  # The fleet-control commands. Pause is a single key whose direction the server
-  # resolves from orchestrator state, so the client never names the action — it
-  # only names the key it pressed.
-  #
-  # Prioritize was the second one and is gone: the agent view's four slots are
-  # pause, logs, mic and settings. Orchestrator priority is untouched and stays
-  # reachable from the dashboard's own controls.
   @control_commands ~w(pause)
 
   # The rolling `streamdeck-nightly` pre-release replaces this fixed-name asset
@@ -98,7 +76,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:os, detect_os(user_agent(socket)))
       |> refresh_grid()
 
-    socket = assign(socket, :logs, load_logs(socket.assigns.selected_identifier))
+    socket = socket |> Settings.mount(connected?(socket)) |> assign(:logs, load_logs(socket.assigns.selected_identifier))
 
     socket =
       if connected?(socket) do
@@ -118,16 +96,23 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   @impl true
-  def handle_event("toggle-global-pause", _params, socket), do: {:noreply, DashboardShell.toggle_pause(socket)}
+  def handle_event("input", raw, socket), do: Input.handle(raw, socket)
+
+  @impl true
+  def handle_event("toggle-global-pause", _params, socket),
+    do: {:noreply, DashboardShell.toggle_pause(socket)}
+
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
 
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
     do: {:noreply, NavState.restore(socket, collapsed)}
 
-  def handle_event("open-streamdeck-install", _params, socket), do: {:noreply, assign(socket, :install_modal?, true)}
+  def handle_event("open-streamdeck-install", _params, socket),
+    do: {:noreply, assign(socket, :install_modal?, true)}
 
-  def handle_event("close-streamdeck-install", _params, socket), do: {:noreply, assign(socket, :install_modal?, false)}
+  def handle_event("close-streamdeck-install", _params, socket),
+    do: {:noreply, assign(socket, :install_modal?, false)}
 
   def handle_event("grid-page", %{"page" => page}, socket) do
     socket = Navigation.route(socket, "grid-page", %{"page" => page})
@@ -158,11 +143,17 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("logs-scroll", %{"axis" => axis, "delta" => delta}, socket)
       when axis in ["events", "transcript"] do
-    {:noreply, socket |> Navigation.route("logs-scroll", %{"axis" => axis, "delta" => delta}) |> update_logs(axis, parse_integer(delta, 0))}
+    {:noreply,
+     socket
+     |> Navigation.route("logs-scroll", %{"axis" => axis, "delta" => delta})
+     |> update_logs(axis, parse_integer(delta, 0))}
   end
 
   def handle_event("log-key-select", %{"index" => index}, socket) do
-    {:noreply, socket |> assign(:logs, StreamdeckLogs.select_event(socket.assigns.logs, parse_integer(index, 0))) |> refresh_knobs()}
+    {:noreply,
+     socket
+     |> assign(:logs, StreamdeckLogs.select_event(socket.assigns.logs, parse_integer(index, 0)))
+     |> refresh_knobs()}
   end
 
   def handle_event("key-press", params, socket) do
@@ -177,15 +168,21 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
+  def handle_event("command-press", %{"command" => "logs"}, socket),
+    do: {:noreply, enter_logs(socket)}
+
   def handle_event("command-press", %{"command" => command}, socket) when command in ["priority_up", "priority_down"] do
     {:noreply, TicketActions.priority(socket, command)}
   end
 
-  def handle_event("command-press", %{"command" => "settings"}, socket), do: {:noreply, enter_settings(socket)}
+  def handle_event("command-press", %{"command" => "settings"}, socket),
+    do: {:noreply, enter_settings(socket)}
 
-  def handle_event("command-press", %{"command" => "commands"}, socket), do: {:noreply, enter_commands(socket)}
+  def handle_event("command-press", %{"command" => "commands"}, socket),
+    do: {:noreply, enter_commands(socket)}
 
-  def handle_event("command-press", %{"command" => command}, socket) when command in @control_commands do
+  def handle_event("command-press", %{"command" => command}, socket)
+      when command in @control_commands do
     if dashboard_writable?() do
       {:noreply, invoke_command(socket, command)}
     else
@@ -195,7 +192,14 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", _params, socket), do: {:noreply, socket}
 
-  def handle_event("dial-press", %{"action" => "back"} = params, socket), do: {:noreply, socket |> Navigation.route("dial-press", params) |> back()}
+  def handle_event(event, params, %{assigns: %{deck_nav: %{surface: :settings}}} = socket)
+      when event in ["dial-press", "dial-long-press", "dial-turn"],
+      do: Settings.event(event, params, socket)
+
+  def handle_event("dial-long-press", params, socket), do: Settings.event("dial-long-press", params, socket)
+
+  def handle_event("dial-press", %{"action" => "back"} = params, socket),
+    do: {:noreply, socket |> Navigation.route("dial-press", params) |> back()}
 
   # Dial D (cycle-window) is the focused window's paging knob: in logs it opens
   # the log surface, and on the Commands page it pages the history window
@@ -210,8 +214,9 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
-  def handle_event(event, params, socket) when event in ["dial-press", "dial-long-press", "dial-turn"],
-    do: {:noreply, Navigation.route(socket, event, params)}
+  def handle_event(event, params, socket)
+      when event in ["dial-press", "dial-long-press", "dial-turn"],
+      do: {:noreply, Navigation.route(socket, event, params)}
 
   # Selecting a Commands key reads: on the history view it opens one Command's
   # detail, and on the detail view it selects an option for reading. Selecting
@@ -242,12 +247,20 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info({event, _fact}, socket) when event in [:build_queue_changed, :build_progress_changed, :build_changes], do: {:noreply, refresh_grid(socket)}
+  def handle_info({:streamdeck_settings_changed, path}, socket) do
+    if socket.assigns.deck_settings_path == path, do: {:noreply, Settings.refresh(socket)}, else: {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({event, _fact}, socket)
+      when event in [:build_queue_changed, :build_progress_changed, :build_changes],
+      do: {:noreply, refresh_grid(socket)}
 
   def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh_grid(socket)}
   def handle_info(:fleet_changed, socket), do: {:noreply, DashboardShell.refresh_pause(socket)}
 
-  def handle_info({:status_changed, %{identifier: _identifier}}, socket), do: {:noreply, refresh_grid(socket)}
+  def handle_info({:status_changed, %{identifier: _identifier}}, socket),
+    do: {:noreply, refresh_grid(socket)}
 
   def handle_info(:streamdeck_fixture_fleet_changed, socket) do
     {:noreply, refresh_grid(socket)}
@@ -257,7 +270,8 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, refresh_meters(socket)}
   end
 
-  def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
+  def handle_info({:streamdeck_transcript, identifier, _event}, socket)
+      when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
       {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
     else
@@ -273,7 +287,8 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
-  def handle_info({:streamdeck_control, identifier, _payload}, socket) when is_binary(identifier) do
+  def handle_info({:streamdeck_control, identifier, _payload}, socket)
+      when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
       {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
     else
@@ -334,20 +349,16 @@ defmodule AiurWeb.StreamdeckLive do
 
   @impl true
   def render(assigns) do
+    assigns = Frame.assign_frame(assigns)
+
     ~H"""
-    <DashboardShell.dashboard_shell
-      route={@current_route}
-      routes={RouteRegistry.routes(AiurWeb.Presenter.analytics_navigation())}
-      tracker_kind={@tracker_kind}
-      agent_kind={@agent_kind}
-      nav_collapsed={@nav_collapsed}
+    <DashboardShell.dashboard_shell route={@current_route} routes={RouteRegistry.routes(AiurWeb.Presenter.analytics_navigation())}
+      tracker_kind={@tracker_kind} agent_kind={@agent_kind} nav_collapsed={@nav_collapsed}
       nav_counts={@nav_counts} pause_state={DashboardShell.pause_state(assigns)}
     >
       <:banner>
         <Overview.decisions_banner retained_counts={@retained_counts} navigate />
       </:banner>
-
-      {Components.key_face_css()}
 
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
         <div :if={@control_feedback} id="sd-control-status" class="streamdeck-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</div>
@@ -355,48 +366,9 @@ defmodule AiurWeb.StreamdeckLive do
           <Components.brand />
           <p id="sd-instance" class="streamdeck-status">Instance: {@streamdeck_instance}</p>
 
-          <%= if @sd_mode == :grid do %>
-          <Components.grid_keys grid={@grid} grid_page={@grid_page} grid_column_offset={@grid_column_offset} grid_dial_value={@grid_dial_value} selected_identifier={@selected_identifier} keys={@keys} />
-
-          <% end %>
-
-          <%= if @sd_mode == :cmd do %>
-          <Components.cmd_keys ticket={@sd_ticket} sd_active={@sd_active} mic_held?={@mic_held?} selected_identifier={@selected_identifier} />
-          <% end %>
-
-          <%!-- The settings pane is deliberately empty of choices. Microphone
-                enumeration happens on the machine running the sidecar, through
-                PipeWire or PulseAudio, and the browser has no view of that
-                machine's devices. Inventing a picker here would render a list
-                that could not be true. --%>
-          <%= if @sd_mode == :settings do %>
-          <Components.settings_view />
-          <% end %>
-
-          <%= if @sd_mode == :logs do %>
-          <Components.logs_view sd_active={@sd_active} logs={@logs} />
-          <% end %>
-
-          <%!-- The Commands page mirrors the physical deck's history-first
-                surface. The browser emulator can read history and options but
-                cannot hold a microphone or approve from the browser: like
-                Settings, the physical-only parts are stated rather than faked. --%>
-          <%= if @sd_mode == :commands do %>
-          <Components.commands_view sd_active={@sd_active} commands={@commands} commands_view={@commands_view} commands_selection={@commands_selection} commands_option={@commands_option} commands_offset={@commands_offset} />
-          <% end %>
-
-          <ScreenComponents.screen
-            sd_mode={@sd_mode}
-            screen={@screen}
-            logs={@logs}
-            sd_active={@sd_active}
-            commands={@commands}
-            commands_view={@commands_view}
-            commands_selection={@commands_selection}
-            commands_option={@commands_option}
-            commands_offset={@commands_offset}
-            commands_page_index={@commands_page_index}
-          />
+          <ImageComponents.keys frame={@frame} model={@frame_model} grid={@grid} page={@frame_page} dial_value={@frame_dial_value}
+            selected_identifier={@selected_identifier} mode={@sd_mode} logs={@logs} commands_view={@commands_view} />
+          <ImageComponents.strip regions={@frame.strip} data-transcript-offset={@logs.transcript_offset} data-transcript-max-offset={@logs.transcript_max_offset} data-mode-view={"#{@sd_mode}-strip"} />
 
           <Components.knobs knobs={@knobs} />
         </div>
@@ -405,6 +377,28 @@ defmodule AiurWeb.StreamdeckLive do
       <Components.install_modal install_modal?={@install_modal?} streamdeck_package={@streamdeck_package} os={@os} />
     </DashboardShell.dashboard_shell>
     """
+  end
+
+  @doc false
+  @spec reduce_input(map(), Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
+  def reduce_input(raw, socket) do
+    case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
+      {:ok, nav, effects} ->
+        socket = assign(socket, deck_nav: nav, deck_effects: effects)
+
+        {:noreply,
+         assign_grid(
+           socket,
+           socket.assigns.grid,
+           0,
+           socket.assigns.usage,
+           socket.assigns.grid_dial_value
+         )}
+
+      _unchanged ->
+        {:noreply, socket}
+    end
   end
 
   defp control_feedback(nil), do: ""
@@ -419,7 +413,12 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp schedule_durable_feed_refresh(socket, identifier, attempts)
        when is_binary(identifier) and is_integer(attempts) and attempts > 0 do
-    Process.send_after(self(), {:refresh_streamdeck_durable_feed, identifier, attempts - 1}, @durable_feed_retry_ms)
+    Process.send_after(
+      self(),
+      {:refresh_streamdeck_durable_feed, identifier, attempts - 1},
+      @durable_feed_retry_ms
+    )
+
     socket
   end
 
@@ -459,9 +458,15 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp detect_os(user_agent) when is_binary(user_agent) do
     cond do
-      String.contains?(user_agent, "Windows") -> :windows
-      String.contains?(user_agent, "Macintosh") or String.contains?(user_agent, "Mac OS") or String.contains?(user_agent, "Darwin") -> :mac
-      true -> :linux
+      String.contains?(user_agent, "Windows") ->
+        :windows
+
+      String.contains?(user_agent, "Macintosh") or String.contains?(user_agent, "Mac OS") or
+          String.contains?(user_agent, "Darwin") ->
+        :mac
+
+      true ->
+        :linux
     end
   end
 
