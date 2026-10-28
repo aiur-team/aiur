@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator.Dispatcher.HoldsAndAlerts
   alias Aiur.Orchestrator.Dispatcher.Launch
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.FeatureSupply
   alias Aiur.Orchestrator.FirehosePolling
   alias Aiur.Orchestrator.IssueSync
   alias Aiur.Orchestrator.Lifecycle
@@ -176,7 +177,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
          TrackerTasks.start(state, :dispatch_poll, &TrackerHealth.tracker_preflight/0, fn current, result ->
            case result do
              :ok -> current |> HoldsAndAlerts.clear_tracker_preflight_alert() |> start_poll_reads()
-             {:error, reason} -> current |> Aiur.Orchestrator.FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
+             {:error, reason} -> current |> FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
            end
          end)}
     end
@@ -213,7 +214,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def start_candidate_poll(%State{globally_paused: true} = state, fetch_fun),
     do:
       PausedCandidatePoll.start(
-        Aiur.Orchestrator.FeatureSupply.unavailable(state),
+        FeatureSupply.unavailable(state),
         fetch_fun,
         &Candidates.note_candidate_fetch_success/2,
         &Candidates.mark_candidate_snapshot_unavailable/2,
@@ -260,7 +261,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         |> dispatch_fun.()
 
       {:error, reason, state} ->
-        state |> Aiur.Orchestrator.FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason)
+        state |> FeatureSupply.unavailable() |> HoldsAndAlerts.emit_tracker_preflight_alert(reason)
     end
   end
 
@@ -293,7 +294,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case fetch_candidates.(state) do
       {:paused, state} ->
-        state |> Aiur.Orchestrator.FeatureSupply.unavailable() |> monitor_without_candidates.()
+        state |> FeatureSupply.unavailable() |> monitor_without_candidates.()
 
       {:ok, issues, state} ->
         {state, issues} = reconcile_merged_tickets(state, issues)
@@ -334,7 +335,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         state =
           state
-          |> Aiur.Orchestrator.FeatureSupply.observe(issues)
+          |> FeatureSupply.observe(issues)
           |> HoldsAndAlerts.dispatch_or_hold(issues)
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
@@ -350,7 +351,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         %{state | initial_dispatch_cycle: false}
 
       {:error, reason, state} ->
-        state = state |> Aiur.Orchestrator.FeatureSupply.unavailable() |> monitor_without_candidates.()
+        state = state |> FeatureSupply.unavailable() |> monitor_without_candidates.()
         TrackerHealth.log_tracker_fetch_error(reason)
         state
     end
