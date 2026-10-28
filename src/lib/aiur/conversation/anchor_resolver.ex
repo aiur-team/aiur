@@ -6,6 +6,8 @@ defmodule Aiur.Conversation.AnchorResolver do
 
   @patterns ["ticket.*.agent.#", "ticket.*.pr.#", "ticket.*.ci.#", "ticket.*.branch.push", "ticket.*.issue.commented", "executor.#"]
 
+  @queue_limit 1_000
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
@@ -33,6 +35,7 @@ defmodule Aiur.Conversation.AnchorResolver do
      %{
        root: root,
        cursor: cursor,
+       saved_cursor: cursor,
        decisions: decisions,
        pubsub: Keyword.get(opts, :pubsub, Keyword.get(journal_opts, :pubsub, Aiur.PubSub)),
        send_after: timer,
@@ -42,6 +45,7 @@ defmodule Aiur.Conversation.AnchorResolver do
        refill_at: monotonic.(),
        monotonic: monotonic,
        queued: :queue.new(),
+       queued_count: 0,
        drain_timer: nil
      }}
   end
@@ -54,7 +58,21 @@ defmodule Aiur.Conversation.AnchorResolver do
   def handle_cast({:anchor_persisted, anchor}, state), do: {:noreply, %{state | decisions: ResolverState.remember(state.decisions, anchor)}}
 
   @impl true
-  def handle_info({:event, event}, state), do: {:noreply, drain(%{state | queued: :queue.in(event, state.queued)})}
+  def handle_info({:event, raw}, state) do
+    topic = field(raw, :topic)
+    observation = field(raw, :ticket_observation) || %{}
+    state = remember_cursor(state, field(observation, :event_id))
+
+    with kind when not is_nil(kind) <- JumpPoints.kind_for(topic),
+         {:ok, ref} <- subject(topic, observation),
+         event_id when is_integer(event_id) and event_id > 0 <- field(observation, :event_id) do
+      {:noreply, enqueue(state, {ref, event(raw, observation, ref, kind, event_id)})}
+    else
+      nil -> {:noreply, count(state, :ignored_kind)}
+      _ -> {:noreply, count(state, :unjoinable)}
+    end
+  end
+
   def handle_info(:drain, state), do: {:noreply, drain(%{state | drain_timer: nil})}
 
   def handle_info({:entries_appended, id, entries}, state) do
@@ -81,12 +99,27 @@ defmodule Aiur.Conversation.AnchorResolver do
   end
 
   def handle_info(:save_cursor, state) do
-    result = ResolverState.save(state.root, state.cursor)
+    state = save_cursor(state)
     state.send_after.(self(), :save_cursor, 5_000)
-    {:noreply, if(result == :ok, do: state, else: count(state, :cursor_failed))}
+    {:noreply, state}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp save_cursor(%{cursor: cursor, saved_cursor: cursor} = state), do: state
+
+  defp save_cursor(state) do
+    case ResolverState.save(state.root, state.cursor) do
+      :ok -> %{state | saved_cursor: state.cursor}
+      _ -> count(state, :cursor_failed)
+    end
+  end
+
+  defp enqueue(%{queued_count: @queue_limit} = state, _event), do: count(state, :burst_dropped)
+
+  defp enqueue(state, event) do
+    drain(%{state | queued: :queue.in(event, state.queued), queued_count: state.queued_count + 1})
+  end
 
   defp drain(state) do
     now = state.monotonic.()
@@ -100,7 +133,7 @@ defmodule Aiur.Conversation.AnchorResolver do
   defp consume(state) do
     case :queue.out(state.queued) do
       {:empty, _} -> state
-      {{:value, event}, rest} -> resolve(event, %{state | queued: rest, tokens: state.tokens - 1}) |> consume()
+      {{:value, {ref, event}}, rest} -> resolve(ref, event, %{state | queued: rest, queued_count: state.queued_count - 1, tokens: state.tokens - 1}) |> consume()
     end
   end
 
@@ -110,23 +143,11 @@ defmodule Aiur.Conversation.AnchorResolver do
 
   defp schedule_drain(state), do: state
 
-  defp resolve(raw, state) do
-    topic = field(raw, :topic)
-    observation = field(raw, :ticket_observation) || %{}
-    state = remember_cursor(state, field(observation, :event_id))
-
-    with kind when not is_nil(kind) <- JumpPoints.kind_for(topic),
-         {:ok, ref} <- subject(topic, observation),
-         event_id when is_integer(event_id) and event_id > 0 <- field(observation, :event_id) do
-      event = event(raw, observation, ref, kind, event_id)
-      # Subscribe before reading: racing appends are in the snapshot or mailbox.
-      state = subscribe(state, event.conversation_id)
-      {entries, sessions} = window(ref)
-      resolve_anchor(state, ref, event, entries, sessions)
-    else
-      nil -> count(state, :ignored_kind)
-      _ -> count(state, :unjoinable)
-    end
+  defp resolve(ref, event, state) do
+    # Subscribe before reading: racing appends are in the snapshot or mailbox.
+    state = subscribe(state, event.conversation_id)
+    {entries, sessions} = window(ref)
+    resolve_anchor(state, ref, event, entries, sessions)
   end
 
   defp resolve_anchor(state, ref, event, entries, sessions) do

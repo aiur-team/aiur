@@ -335,6 +335,55 @@ defmodule Aiur.Conversation.AnchorResolverTest do
     assert [%{"event" => %{"event_id" => 33}}] = anchors(ctx)
   end
 
+  test "ignored events bypass tokens and queue overflow counts only eligible events", ctx do
+    for id <- 1..40, do: publish(ctx, bus(ctx, id, "agent.custom.ignore"))
+    raw = bus(ctx, 41, "agent.progress")
+    for _ <- 1..40, do: publish(ctx, %{raw | ticket_observation: %{raw.ticket_observation | status: :unattributed}})
+    assert AnchorResolver.stats(ctx.resolver) == %{ignored_kind: 40, unjoinable: 40}
+    for id <- 42..1_081, do: publish(ctx, bus(ctx, id, "branch.push"))
+    assert :ok = flush(ctx.ref)
+    assert Enum.map(anchors(ctx), & &1["event"]["event_id"]) == Enum.to_list(42..61)
+    state = :sys.get_state(ctx.resolver)
+    assert :queue.len(state.queued) == 1_000
+    assert state.queued_count == 1_000
+    assert AnchorResolver.stats(ctx.resolver) == %{ignored_kind: 40, unjoinable: 40, burst_dropped: 20}
+    Agent.update(ctx.control, &Map.put(&1, :monotonic, 1_000))
+    send(ctx.resolver, :drain)
+    state = :sys.get_state(ctx.resolver)
+    assert :queue.len(state.queued) == 980
+    assert state.queued_count == 980
+    assert :ok = flush(ctx.ref)
+    assert Enum.map(anchors(ctx), & &1["event"]["event_id"]) == Enum.to_list(42..81)
+  end
+
+  test "idle cursor ticks do not write before or after a saved cursor", ctx do
+    path = Path.join(ctx.root, "resolver.json")
+
+    for _ <- 1..2 do
+      send(ctx.resolver, :save_cursor)
+      :sys.get_state(ctx.resolver)
+      refute File.exists?(path)
+    end
+
+    publish(ctx, bus(ctx, 90, "branch.push"))
+    send(ctx.resolver, :save_cursor)
+    :sys.get_state(ctx.resolver)
+    assert Jason.decode!(File.read!(path)) == %{"last_event_id" => 90}
+    # A redundant atomic write would recreate the path after this rename.
+    File.rename!(path, path <> ".saved")
+
+    for _ <- 1..2 do
+      send(ctx.resolver, :save_cursor)
+      :sys.get_state(ctx.resolver)
+      refute File.exists?(path)
+    end
+
+    publish(ctx, bus(ctx, 91, "branch.push"))
+    send(ctx.resolver, :save_cursor)
+    :sys.get_state(ctx.resolver)
+    assert Jason.decode!(File.read!(path)) == %{"last_event_id" => 91}
+  end
+
   defp append_message(ctx) do
     Ingest.append(ctx.ref, %{source() | role: :worker}, [event(1)])
     assert :ok = flush(ctx.ref)
@@ -355,5 +404,9 @@ defmodule Aiur.Conversation.AnchorResolverTest do
   end
 
   defp anchors(ctx), do: ctx.dir |> Path.join("anchors.jsonl") |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
-  defp subscribe(ctx), do: Phoenix.PubSub.subscribe(ctx.pubsub, "conversation:" <> Ref.conversation_id(ctx.ref))
+
+  defp subscribe(ctx) do
+    topic = "conversation:" <> Ref.conversation_id(ctx.ref)
+    Phoenix.PubSub.subscribe(ctx.pubsub, topic)
+  end
 end
