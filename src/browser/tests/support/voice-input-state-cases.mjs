@@ -23,7 +23,7 @@ async function open(page) {
     window.AudioWorkletNode = class {}
     window.AiurVoiceCapture.Capture = class {
       async start() {}
-      stop() {}
+      stop() { window.__captureStops = (window.__captureStops || 0) + 1 }
     }
     window.AiurVoiceSocket = class {
       connect() {}
@@ -114,7 +114,7 @@ test('channel errors and finishing timeout keep captured text', async ({ page })
   await listen(page)
   await page.evaluate(() => {
     window.__emit('transcript', { kind: 'partial', text: 'keep my words' })
-    window.__emit('error', { reason_code: 'provider_quota', reason: 'wrong text' })
+    window.__emit('error', { reason_code: 'provider_quota', reason: 'wrong text', message: 'wrong message' })
   })
   await state(page, 'error', 'ElevenLabs quota exhausted')
   await expect(page.locator(input)).toHaveValue('keep my words')
@@ -137,10 +137,21 @@ test('capability patches preserve active capture and disable next activation whi
   await page.locator(root).getByRole('button', { name: 'Choose voice input' }).click()
   await expect(page.locator(root).getByRole('menuitem', { name: 'Dictate message' })).toHaveAttribute('aria-disabled', 'true')
   await expect(page.locator(root).getByRole('link', { name: 'Set up voice input' })).toHaveAttribute('href', 'https://aiur.team/docs/apis/elevenlabs#configure-the-key')
+  await page.locator(root).getByRole('button', { name: 'Choose voice input' }).press('Escape')
   await page.locator(input).fill('typed while unavailable')
   await page.locator('#standalone-voice [data-voice-send]').click()
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'typed while unavailable')
   await state(page, 'unavailable', 'Voice input is not configured.')
   await page.getByRole('button', { name: 'Enable voice', exact: true }).click()
   await state(page, 'idle', 'Press the microphone to dictate. Review the text, then press Send.')
+})
+
+
+test('a server stop during listening releases capture and enters ready', async ({ page }) => {
+  await open(page)
+  await listen(page)
+  await page.evaluate(() => window.__emit('stopped', {}))
+  await state(page, 'ready', 'Dictation ready. Review the text, then press Send.')
+  expect(await page.evaluate(() => window.__captureStops)).toBe(1)
+  await expect(page.locator(input)).toBeEditable()
 })

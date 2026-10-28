@@ -147,7 +147,7 @@
     const code = Object.hasOwn(reasons, detail.reason_code) ? detail.reason_code : "unknown";
     controller.reasonCode = detail.reason_code ? code : null;
     const copy = code === "target_not_found" ? reasons[code][controller.choice.context().target.kind] || reasons.unknown : reasons[code];
-    const message = detail.message || states[next] || copy;
+    const message = ["unavailable", "listening"].includes(next) && detail.message ? detail.message : states[next] || copy;
     controller.setStatus(message, ["unavailable", "permission_denied", "no_device", "error"].includes(next));
     controller.syncElements();
   }
