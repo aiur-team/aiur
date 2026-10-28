@@ -25,6 +25,7 @@ defmodule AiurWeb.DashboardLive.AgentLogTest do
       snapshot_timeout_ms: 100,
       control_center_cache: false,
       dashboard_writable: true,
+      capabilities_report_fun: fn -> %{capabilities: %{"voice.stt" => %{state: :available}}} end,
       units_membership_fun: fn -> membership end,
       units_activity_fun: fn -> units_activity(identity) end,
       agent_chat_send_fun: fn selected, text ->
@@ -44,6 +45,7 @@ defmodule AiurWeb.DashboardLive.AgentLogTest do
       render_hook(view, "show-agent-log", %{"unit" => token})
 
     assert html =~ ~s(phx-submit="send-operator-message")
+    assert has_element?(view, "form[phx-hook=VoiceInput] [data-voice-mode=dictate][aria-disabled=false]")
 
     render_submit(view, "send-operator-message", %{"message" => "typed hello"})
     assert_receive {:typed_agent_message, ^identity, "typed hello"}, 1000

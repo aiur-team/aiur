@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-async function openVoice(page) {
+async function openVoice(page, query = '') {
   await page.addInitScript(() => {
     window.__micRequests = 0
     window.__trackStops = 0
@@ -32,7 +32,7 @@ async function openVoice(page) {
   })
   await page.goto('/auth/writable')
   await page.goto('/streamdeck-control/writable')
-  await page.goto('/voice-input-fixture')
+  await page.goto(`/voice-input-fixture${query}`)
   await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
@@ -115,4 +115,24 @@ test('the component hook attribute contains the caller-owned composer', async ({
   await expect(form.locator('[data-voice-input]')).toHaveValue('hello browser')
   await expect(page.locator('#standalone-input')).toHaveValue('')
   await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
+})
+
+test('modal dictation fills the message box and waits for Send', async ({ page }) => {
+  await openVoice(page, '?modal=true')
+  const form = await dictate(page, '#agent-log-composer-1110')
+  await expect(form.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+  await form.getByRole('button', { name: 'Stop dictation' }).click()
+  await expect(form.getByLabel('Message agent', { exact: true })).toHaveValue('hello browser')
+  await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', '')
+  await expect(page.locator('#standalone-input')).toHaveValue('')
+  await form.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.locator('[data-voice-fixture]')).toHaveAttribute('data-sent', 'hello browser')
+})
+
+test('closing the agent log modal releases its recording', async ({ page }) => {
+  await openVoice(page, '?modal=true')
+  await dictate(page, '#agent-log-composer-1110')
+  await page.getByRole('dialog', { name: '1110', exact: true }).getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.locator('#agent-log-composer-1110')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => window.__trackStops)).toBe(1)
 })

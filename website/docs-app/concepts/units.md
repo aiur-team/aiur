@@ -79,6 +79,12 @@ and jump-point precision.
 
 Dictation never sends a message automatically, and the browser never receives the API key.
 
+The writable agent log modal composer has the same Dictate / Converse chooser,
+microphone settings, waveform and status line. Dictate fills its message box
+and waits for **Send**. Closing the modal stops microphone capture. Read-only
+or ambiguous agent targets have no voice controls; the modal has no legacy
+interactive voice chat button.
+
 The Build ticket modal uses the same press-to-start, press-to-stop dictation control. It remains disabled while availability is checked and, when voice is unavailable, its tooltip explains why; recording is visibly marked and failures appear in the composer status line.
 
 Configure `elevenlabs.voice_id` and grant the key **Text to Speech** permission before using spoken conversation; voice cloning and barge-in are not part of this mode.
