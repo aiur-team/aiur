@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.MeterFramesTest do
   use AiurWeb.StreamdeckChannelCase
   alias Aiur.TestSupport.BuildHome.UsageInputs, as: I
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{Meters, Nav}
   alias AiurWeb.Streamdeck.FrameUpdates
 
   test "shared frame composition retains account navigation and leaves focused surfaces available" do
@@ -10,7 +10,7 @@ defmodule AiurWeb.Streamdeck.MeterFramesTest do
     entry = update_in(entry, [:reading, :windows], &Enum.map(&1, fn window -> %{window | resets_at: DateTime.add(now, 7200)} end))
     inputs = I.inputs(%{families: [:claude], accounts: %{"personal" => entry}})
     put_endpoint_config(streamdeck_usage_load_fun: fn _, _ -> inputs end)
-    usage = AiurWeb.Streamdeck.Deck.Meters.read()
+    usage = Meters.read()
     grid = Map.put(StreamdeckProjection.grid(), :meter_usage, usage)
     nav = Enum.reduce(1..3, %Nav{}, fn _, nav -> transition(nav, grid, "press") end)
     {:ok, nav, []} = FrameUpdates.transition(nav, %{"kind" => "dial", "index" => 3, "action" => "turn", "delta" => 1}, grid)
