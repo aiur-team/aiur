@@ -61,6 +61,19 @@ defmodule Aiur.Conversation.History do
   @spec anchor_for_decision(String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
   defdelegate anchor_for_decision(id), to: Aiur.Conversation.AnchorResolver
 
+  @doc "The strongest durable Command request position, or none when its position is unknown."
+  @spec command_anchor(String.t()) :: {:ok, %{conversation_id: String.t(), pos: pos_integer(), precision: String.t()}} | :none
+  def command_anchor(id) do
+    case anchor_for_decision(id) do
+      {:ok, %{"conversation_id" => conversation, "pos" => pos, "precision" => precision}}
+      when is_binary(conversation) and is_integer(pos) and pos > 0 and precision in ["observed", "causal", "exact"] ->
+        {:ok, %{conversation_id: conversation, pos: pos, precision: precision}}
+
+      _ ->
+        :none
+    end
+  end
+
   @doc "Subscribe first, catch up, then discard live entries at or below the returned head. Live entries are raw."
   @spec subscribe(Ref.t() | String.t()) :: :ok | {:error, atom()}
   def subscribe(ref) do

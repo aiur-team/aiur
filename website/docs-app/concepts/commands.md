@@ -7,6 +7,10 @@ decides who is asked first; authority decides who may answer.
 
 The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 
+A Command's **Open in conversation** link carries its agent's recorded request
+position, including after the Command is answered. An observed position is marked
+**approximate**; when no position is known, the detail shows **Conversation position unknown**.
+
 <img src="/images/dashboard/commands-dark.png" alt="Desktop Commands decision inbox populated with synthetic decisions">
 
 | Field | Meaning |

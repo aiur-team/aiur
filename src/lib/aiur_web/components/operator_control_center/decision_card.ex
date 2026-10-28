@@ -112,6 +112,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
         <DecisionDetail.decision_detail
           :if={@selected}
           decision={@decision}
+          conversation_link={AiurWeb.OperatorControlCenter.DecisionConversation.link(@decision.decision_id)}
           history={@history}
           action_state={@action_state}
           writable={@writable}

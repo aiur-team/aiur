@@ -169,6 +169,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
         <div phx-mounted={JS.focus(to: "#decision-detail-#{@decision.decision_id}")}>
           <DecisionDetail.decision_detail
             decision={@decision}
+            conversation_link={AiurWeb.OperatorControlCenter.DecisionConversation.link(@decision.decision_id)}
             history={@history}
             action_state={@action_state}
             writable={@writable}
