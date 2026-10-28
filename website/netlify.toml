@@ -28,3 +28,49 @@
   from = "/docs/guide/executor-control-center"
   to = "/docs/guide/gui"
   status = 301
+
+# Preserve externally linked brand asset URLs after consolidating the files.
+[[redirects]]
+  from = "/favicon.ico"
+  to = "/aiur-style/assets/favicon.ico"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-16x16.png"
+  to = "/aiur-style/assets/favicon-16x16.png"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-32x32.png"
+  to = "/aiur-style/assets/favicon-32x32.png"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-48x48.png"
+  to = "/aiur-style/assets/favicon.ico"
+  status = 301
+
+[[redirects]]
+  from = "/favicon-96x96.png"
+  to = "/aiur-style/assets/favicon.ico"
+  status = 301
+
+[[redirects]]
+  from = "/apple-touch-icon.png"
+  to = "/aiur-style/assets/apple-touch-icon.png"
+  status = 301
+
+[[redirects]]
+  from = "/android-chrome-192x192.png"
+  to = "/aiur-style/assets/android-chrome-192x192.png"
+  status = 301
+
+[[redirects]]
+  from = "/android-chrome-512x512.png"
+  to = "/aiur-style/assets/android-chrome-512x512.png"
+  status = 301
+
+[[redirects]]
+  from = "/assets/aiur-logo.png"
+  to = "/aiur-style/assets/aiur-logo.png"
+  status = 301
