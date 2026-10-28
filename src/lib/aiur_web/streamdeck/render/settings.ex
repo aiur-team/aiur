@@ -16,7 +16,7 @@ defmodule AiurWeb.Streamdeck.Render.Settings do
 
     Enum.map(0..7, fn physical ->
       index = page * 8 + rem(physical, 4) * 2 + div(physical, 4)
-      face(Enum.at(choices, index), index == menu.cursor, menu.section, index)
+      face(Enum.at(choices, index), index == menu.cursor)
     end)
   end
 
@@ -42,7 +42,7 @@ defmodule AiurWeb.Streamdeck.Render.Settings do
   defp items(%{menu: %{section: nil}} = context) do
     Enum.map(SettingsMenu.sections(), fn {section, label} ->
       detail = if context.status == :ok, do: SettingsMenu.summary(section, context.values, context.devices), else: "Unavailable"
-      %{label: label, detail: detail, section: section, disabled: context.status != :ok}
+      %{label: label, detail: detail, disabled: context.status != :ok}
     end)
   end
 
@@ -65,18 +65,16 @@ defmodule AiurWeb.Streamdeck.Render.Settings do
   end
 
   defp status(context, choices), do: "#{context.menu.cursor + 1}/#{length(choices)} · #{Enum.at(choices, context.menu.cursor).label}"
-  defp face(nil, _selected, _section, _index), do: nil
+  defp face(nil, _selected), do: nil
 
-  defp face(item, selected, section, index) do
+  defp face(item, selected) do
     %{
       kind: :card,
       title: item.label,
       label: "#{item.label} · #{item.detail}",
       sub: item.detail,
       selected: selected,
-      disabled: Map.get(item, :disabled, false),
-      settings_section: Map.get(item, :section, section),
-      settings_choice: index
+      disabled: Map.get(item, :disabled, false)
     }
   end
 end
