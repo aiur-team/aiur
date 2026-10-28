@@ -30,10 +30,10 @@ defmodule AiurWeb.Streamdeck.FleetChannelTest do
     ref = push(socket, "input", %{"kind" => "dial_press", "index" => 3})
     assert_reply(ref, :ok, %{"view" => "fleet", "frame" => %{keys: keys, strip: strip}})
     assert length(keys) == 8
-    assert Enum.at(keys, 3).svg =~ "Waiting for CI"
+    assert Enum.at(keys, 5).svg =~ "Waiting for CI"
     assert List.last(keys).svg =~ "1 / —"
     assert hd(strip).svg =~ "stale"
-    ref = push(socket, "input", %{"kind" => "key_press", "index" => 3})
+    ref = push(socket, "input", %{"kind" => "key", "index" => 5, "action" => "down"})
     assert_reply(ref, :ok, %{"frame" => %{keys: [ci | rest]}})
     assert ci.svg =~ "CI ticket"
     assert rest == List.duplicate(nil, 7)

@@ -1,22 +1,50 @@
 defmodule AiurWeb.Conversation.Components do
-  @moduledoc "Conversation chronology shell; rich entry rendering is added separately."
+  @moduledoc "Conversation chronology entries, session dividers and state presentation."
   use Phoenix.Component
-  alias AiurWeb.Conversation.Presenter
+  alias AiurWeb.Conversation.{EntryContent, Presenter}
 
   attr(:entry, :map, required: true)
-  attr(:sessions, :list, required: true)
+  attr(:sessions, :list, default: [])
+  attr(:can_reveal, :boolean, default: false)
   @spec entry(map()) :: Phoenix.LiveView.Rendered.t()
   def entry(assigns) do
     ~H"""
-    <div data-pos={@entry.pos}>
-      <p :for={session <- @sessions} :if={session.first_pos == @entry.pos} class="conversation-divider">
-        Session {session.session_seq} · {session.start_reason}
-      </p>
+    <div data-pos={@entry.pos} class="conversation-entry">
+      <.session_divider :for={session <- @sessions} :if={session.first_pos == @entry.pos} session={session} />
       <article aria-label={"Entry #{@entry.pos}"}>
         <small>#{@entry.pos} · {@entry.role} · {@entry.kind}</small>
-        <p class="conversation-body">{@entry.body || @entry.output || ""}</p>
+        <span :if={Map.get(@entry, :redacted, false)} class="conversation-masked">masked</span>
+        <button :if={Map.get(@entry, :redacted, false) && @can_reveal} phx-click="reveal_entry" phx-value-pos={@entry.pos}>Show raw</button>
+        <EntryContent.content entry={@entry} />
+        <.truncation_marker :if={@entry.body_truncated} text={@entry.body} />
+        <.truncation_marker :if={@entry.output_truncated} text={@entry.output} />
       </article>
     </div>
+    """
+  end
+
+  attr(:entry, :map, required: true)
+  @spec gap(map()) :: Phoenix.LiveView.Rendered.t()
+  def gap(assigns), do: EntryContent.gap(assigns)
+
+  attr(:session, :map, required: true)
+  @spec session_divider(map()) :: Phoenix.LiveView.Rendered.t()
+  def session_divider(assigns) do
+    ~H"""
+    <p class="conversation-divider">
+      Session {@session.session_seq} · {EntryContent.session_reason(@session.start_reason)}
+      · <time datetime={@session.started_at}>{@session.started_at || "Time unknown"}</time>
+    </p>
+    """
+  end
+
+  attr(:text, :any, default: nil)
+  @spec truncation_marker(map()) :: Phoenix.LiveView.Rendered.t()
+  def truncation_marker(assigns) do
+    assigns = assign(assigns, :bytes, EntryContent.omitted_bytes(assigns.text))
+
+    ~H"""
+    <p class="conversation-truncation" role="note">Middle of this output not stored ({@bytes} bytes)</p>
     """
   end
 

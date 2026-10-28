@@ -15,7 +15,7 @@ defmodule AiurWeb.Streamdeck.Deck do
   @spec navigation(map()) :: map()
   def navigation(grid) do
     tickets = Enum.map(Map.get(grid, :agents, []), &Map.put(&1, :id, to_string(&1.identifier)))
-    fleet = Map.get(grid, :fleet, %{keys: []})
+    fleet = Map.get(grid, :fleet, Map.get(grid, "fleet", %{keys: []}))
 
     %{
       ticket: tickets,

@@ -30,7 +30,13 @@ defmodule AiurWeb.Streamdeck.Deck.Fleet do
   end
 
   @spec navigation(map()) :: [map()]
-  def navigation(fleet), do: field(fleet, :keys) || []
+  def navigation(fleet), do: Enum.map(field(fleet, :keys) || [], &navigation_key/1)
+
+  defp navigation_key(key) do
+    states = Enum.find_value(@categories, [], fn {cat, _title, states} -> if Atom.to_string(cat) == to_string(field(key, :cat)), do: states end)
+    tickets = Enum.map(field(key, :tickets) || [], &Map.put(&1, :id, field(&1, :id)))
+    key |> Map.put(:id, field(key, :id)) |> Map.put(:states, states) |> Map.put(:tickets, tickets)
+  end
 
   defp unavailable(data, opts), do: %{status: "unavailable", keys: [], strip: strip(data, opts)}
 
