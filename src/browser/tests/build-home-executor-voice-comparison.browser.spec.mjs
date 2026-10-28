@@ -3,7 +3,7 @@ import {openWritableUnits} from './support/units-helpers.mjs'
 
 for (const width of [1280, 390]) {
   test(`Executor comparison controls remain usable at ${width}px`, async ({page}) => {
-    await page.setViewportSize({width, height: 900})
+    await page.setViewportSize({width, height: 720})
     await openWritableUnits(page)
     await page.getByRole('button', {name: 'Open chat for its-everdred/aiur #1110'}).click()
     const drawer = page.getByRole('dialog', {name: 'Responsive Units interface'})
@@ -20,6 +20,11 @@ for (const width of [1280, 390]) {
     await expect(drawer.getByRole('columnheader', {name: 'ElevenLabs', exact: true})).toBeVisible()
     await expect(drawer.getByRole('columnheader', {name: 'OpenAI', exact: true})).toBeVisible()
     await expect(drawer.getByText('Comparison usage unavailable.', {exact: true})).toBeVisible()
+    await drawer.getByRole('button', {name: 'Choose voice input'}).click()
+    await expect(drawer.getByRole('menuitem', {name: 'Dictate message'})).toBeVisible()
+    await page.keyboard.press('Escape')
+    await drawer.getByLabel('Message agent').fill('Comparison drawer remains usable')
+    await expect(drawer.getByRole('button', {name: 'Send', exact: true})).toBeEnabled()
     const box = await provider.boundingBox()
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(width)

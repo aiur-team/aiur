@@ -66,7 +66,12 @@ defmodule VoiceConverse.Session.Start do
 
   defp session_config(config, opts) do
     seconds = Keyword.get(opts, :max_session_seconds, config.limits.max_session_seconds)
-    %{config | llm: Keyword.get(opts, :llm, config.llm), limits: %{config.limits | max_session_seconds: min(seconds, config.limits.max_session_seconds)}}
+
+    %{
+      config
+      | llm: Keyword.get(opts, :llm, config.llm),
+        limits: %{config.limits | max_session_seconds: min(seconds, config.limits.max_session_seconds)}
+    }
   end
 
   defp target_alive?(%Config{briefing_source: source}, target) do
