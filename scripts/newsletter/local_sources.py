@@ -32,6 +32,18 @@ def envelope_source(envelope, name, now):
     return source(state, observed, reason)
 
 
+def feature_share_lines(text):
+    lines = []
+    in_section = False
+    for line in text.splitlines():
+        match = re.search(r"feature[_ -](?:work[_ -])?share", line, re.I)
+        if line.startswith("#"):
+            in_section = bool(match)
+        if line.strip() and (match or in_section):
+            lines.append(line)
+    return lines
+
+
 def read_meta(root, start, end):
     directory = root / "meta"
     if not directory.is_dir():
@@ -52,8 +64,7 @@ def read_meta(root, start, end):
         rows.append({"timestamp": stamp,
                      "bottleneck": bottleneck[1].strip() if bottleneck and bottleneck.lastindex else
                      bottleneck[0].strip() if bottleneck else None,
-                     "feature_share": [line for line in text.splitlines()
-                                       if re.search(r"feature[_ -](?:work[_ -])?share", line, re.I)]})
+                     "feature_share": feature_share_lines(text)})
     return rows
 
 

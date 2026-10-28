@@ -194,13 +194,15 @@ class CollectorTest(unittest.TestCase):
             root = Path(tmp)
             (root / "meta").mkdir()
             path = root / "meta" / (NOW.strftime("%Y%m%dT%H%M%SZ") + "-hourly.md")
-            path.write_text("## Bottleneck\n\nBuild gate is full.\n\nFeature share: 90%\n")
+            path.write_text("## Bottleneck\n\nBuild gate is full.\n\n## Feature share\n- 24 h: 90%\n## Other\nFull log omitted.\n")
             old = NOW - timedelta(days=2)
             (path.parent / (old.strftime("%Y-%m-%dT%H%MZ") + "-hourly.md")).write_text("Old log")
             result = collect.collect("owner/repo", root, NOW, FakeGitHub(), daemon)
         self.assertEqual(len(result["meta"]), 1)
         self.assertEqual(result["meta"][0]["timestamp"], STAMP)
         self.assertEqual(result["meta"][0]["bottleneck"], "Build gate is full.")
+        self.assertEqual(result["meta"][0]["feature_share"], ["## Feature share", "- 24 h: 90%"])
+
 
 
 if __name__ == "__main__":
