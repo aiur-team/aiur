@@ -1,6 +1,7 @@
 defmodule Aiur.LandingWatch.FlakeRecorder do
   @moduledoc "Creates durable, deduplicated issue evidence for tests that fail only in one merge group."
 
+  alias Aiur.Config.TrackerSettings
   alias Aiur.GitHub.{Access, AgentMarker, Config}
   alias Aiur.LandingWatch.Journal
 
@@ -42,6 +43,9 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
 
   defp record_issue_and_emit(identity, evidence, owner, repo, token, opts) do
     case find_or_create(owner, repo, token, identity, evidence, opts) do
+      {:ok, :already_quarantined} ->
+        notify_issue_recorded(:already_quarantined, opts)
+
       {:ok, issue} ->
         case emit(evidence, issue, opts) do
           :ok -> notify_issue_recorded(issue, opts)
@@ -63,6 +67,19 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
   defp find_or_create(owner, repo, token, identity, evidence, opts) do
     request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
 
+    with {:ok, issues} <- open_flake_issues(request, token, owner, repo, identity),
+         {:ok, skip} <- matching_skip(identity, opts) do
+      case {Enum.find(issues, &matching_issue?(&1, identity)), skip} do
+        {%{"number" => number}, _} when is_integer(number) -> comment_existing(number, evidence, request, token, owner, repo)
+        {nil, {:ticket, number}} -> comment_if_open_flake(number, evidence, request, token, owner, repo)
+        {nil, true} -> {:ok, :already_quarantined}
+        {nil, false} -> create_issue(identity, evidence, request, token, owner, repo)
+        _ -> {:error, :invalid_flake_issue}
+      end
+    end
+  end
+
+  defp open_flake_issues(request, token, owner, repo, identity) do
     query =
       URI.encode_query(%{
         "q" => "repo:#{owner}/#{repo} is:issue is:open in:title,body \"#{identity}\"",
@@ -72,27 +89,76 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     url = "#{Access.base_url()}/search/issues?#{query}"
 
     case request.(%{method: :get, url: url, token: token, caller: "landing_watch_flake_search"}) do
-      {:ok, %{status: 200, body: %{"items" => issues}}} when is_list(issues) ->
-        resolve_issue(issues, identity, evidence, request, token, owner, repo)
-
-      {:ok, response} ->
-        {:error, Access.github_status_error(response)}
-
-      {:error, _} = error ->
-        error
+      {:ok, %{status: 200, body: %{"items" => issues}}} when is_list(issues) -> {:ok, issues}
+      {:ok, response} -> {:error, Access.github_status_error(response)}
+      {:error, _} = error -> error
     end
   end
 
-  defp resolve_issue(issues, identity, evidence, request, token, owner, repo) do
-    case Enum.find(issues, &matching_issue?(&1, identity)) do
-      %{"number" => number} when is_integer(number) ->
-        comment_existing(number, evidence, request, token, owner, repo)
+  defp matching_skip("BrowserSpec :: " <> rest, opts) do
+    case Regex.run(~r/\A(.+\.spec\.mjs) :: (.+) :: (\d+)\z/, rest, capture: :all_but_first) do
+      [spec, title, _line] -> browser_skip(spec, title, opts)
+      _ -> {:ok, false}
+    end
+  end
 
-      nil ->
-        create_issue(identity, evidence, request, token, owner, repo)
+  defp matching_skip(_identity, _opts), do: {:ok, false}
 
-      _ ->
-        {:error, :invalid_flake_issue}
+  defp browser_skip(spec, title, opts) do
+    case Keyword.get(opts, :browser_spec_source_fun, &read_browser_spec/2).(spec, opts) do
+      {:ok, source} when is_binary(source) -> {:ok, skipped_ticket(source, title)}
+      {:error, :enoent} -> {:ok, false}
+      {:error, {:github, :http, %{status: 404}}} -> {:ok, false}
+      {:error, reason} -> {:error, {:browser_spec_unavailable, reason}}
+    end
+  end
+
+  defp skipped_ticket(source, title) do
+    lines = String.split(source, "\n")
+
+    lines
+    |> Enum.with_index()
+    |> Enum.find_value(false, &skipped_ticket_at(&1, lines, title))
+  end
+
+  defp skipped_ticket_at({line, index}, lines, title) do
+    if Regex.match?(~r/\btest\.skip\s*\(\s*["']#{Regex.escape(title)}["']/, line),
+      do: owner_ticket(Enum.at(lines, index - 1, "")),
+      else: false
+  end
+
+  defp owner_ticket(line) do
+    case Regex.run(~r/Quarantined: owner #(\d+)/, line, capture: :all_but_first) do
+      [ticket] -> {:ticket, String.to_integer(ticket)}
+      _ -> true
+    end
+  end
+
+  defp read_browser_spec(spec, opts) do
+    with {:ok, {owner, repo}} <- Access.parse_repo(),
+         {:ok, token} <- Access.require_token(opts) do
+      base = Keyword.get_lazy(opts, :base_branch, &TrackerSettings.base_branch/0)
+      encoded_path = spec |> String.split("/") |> Enum.map_join("/", &URI.encode/1)
+      url = "#{Access.base_url()}/repos/#{owner}/#{repo}/contents/#{encoded_path}?" <> URI.encode_query(%{"ref" => base})
+      request = Keyword.get(opts, :request_fun, &Access.default_request_fun/1)
+
+      case Access.fetch_json_map(request, token, url, caller: "landing_watch_browser_spec") do
+        {:ok, %{"encoding" => "base64", "content" => encoded}} when is_binary(encoded) ->
+          decode_browser_spec(encoded)
+
+        {:ok, _} ->
+          {:error, :invalid_browser_spec_response}
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp decode_browser_spec(encoded) do
+    case Base.decode64(String.replace(encoded, ~r/\s/, "")) do
+      {:ok, source} -> {:ok, source}
+      :error -> {:error, :invalid_browser_spec_encoding}
     end
   end
 
@@ -100,6 +166,27 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     with :ok <- add_flake_label(number, request, token, owner, repo),
          :ok <- comment(number, evidence, request, token, owner, repo) do
       {:ok, number}
+    end
+  end
+
+  defp comment_if_open_flake(number, evidence, request, token, owner, repo) do
+    url = "#{Access.base_url()}/repos/#{owner}/#{repo}/issues/#{number}"
+
+    case request.(%{method: :get, url: url, token: token, caller: "landing_watch_flake_ticket"}) do
+      {:ok, %{status: 200, body: %{"state" => "open", "labels" => labels}}} when is_list(labels) ->
+        if Enum.any?(labels, &(&1["name"] == "flake")), do: comment_existing(number, evidence, request, token, owner, repo), else: {:ok, :already_quarantined}
+
+      {:ok, %{status: 200, body: %{"state" => "open"}}} ->
+        {:error, :invalid_flake_issue_labels}
+
+      {:ok, %{status: 200}} ->
+        {:ok, :already_quarantined}
+
+      {:ok, response} ->
+        {:error, Access.github_status_error(response)}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -125,8 +212,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     title = Map.get(issue, "title", "")
     body = Map.get(issue, "body", "")
 
-    title == "Flaky test: " <> identity or String.contains?(body, marker(identity)) or
-      String.contains?(body, "Failing test: " <> identity)
+    title == "Flaky test: " <> identity or String.contains?(body, marker(identity)) or String.contains?(body, "Failing test: " <> identity)
   end
 
   defp create_issue(identity, evidence, request, token, owner, repo) do
@@ -177,7 +263,7 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
       "Job: #{failure.job}",
       "Failing test: #{failure.module} :: #{failure.name}",
       cascade_line(failure),
-      "Error excerpt: #{failure.excerpt}",
+      "Error excerpt: #{error_excerpt(failure)}",
       "PRs that passed this test in another merge group containing the PR: #{Enum.map_join(passed_prs, ", ", &"##{&1}")}"
     ]
     |> Enum.reject(&is_nil/1)
@@ -188,6 +274,9 @@ defmodule Aiur.LandingWatch.FlakeRecorder do
     do: "Likely cascade modules (not quarantined): #{Enum.join(modules, ", ")}"
 
   defp cascade_line(_failure), do: nil
+
+  defp error_excerpt(%{excerpt: excerpt}) when is_binary(excerpt) and byte_size(excerpt) > 0, do: excerpt
+  defp error_excerpt(_failure), do: "No error excerpt was available in the GitHub check annotation."
 
   defp marker(identity), do: "<!-- aiur-flake-key: #{marker_hash(identity)} -->"
   defp marker_hash(identity), do: Base.encode16(:crypto.hash(:sha256, identity), case: :lower)

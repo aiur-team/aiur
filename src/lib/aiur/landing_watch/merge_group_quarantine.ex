@@ -408,14 +408,15 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   end
 
   defp file_ticket_then_quarantine(candidate, latest, opts) do
-    remember = fn ticket -> Journal.put_flake_ticket(candidate.identity, ticket, opts) end
+    skip_claim = "quarantine-skip :: #{candidate.identity} :: #{latest["run_url"]}"
+    remember = fn ticket -> if ticket == :already_quarantined, do: Journal.claim_flake(skip_claim, opts) |> claim_result(), else: Journal.put_flake_ticket(candidate.identity, ticket, opts) end
     recorder = Keyword.get(opts, :flake_recorder, &FlakeRecorder.record/4)
 
     with :ok <- recorder.(failure(latest), run(latest), [], Keyword.put(opts, :issue_recorded_fun, remember)),
          {:ok, state} <- Journal.state(opts) do
-      case get_in(state, ["flake_tickets", candidate.identity]) do
-        ticket when is_integer(ticket) -> open_quarantine(candidate, ticket, opts)
-        # A recorder claim left without a ticket is retried, bounded, rather than re-read every poll.
+      case {get_in(state, ["flake_tickets", candidate.identity]), Map.has_key?(Map.get(state, "flakes", %{}), skip_claim)} do
+        {ticket, _} when is_integer(ticket) -> open_quarantine(candidate, ticket, opts)
+        {_, true} -> :ok
         _ -> {:error, :flake_ticket_unconfirmed}
       end
     end
