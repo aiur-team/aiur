@@ -36,11 +36,15 @@ defmodule Aiur.Listener.Scheduler do
 
   @spec restamp_fun(map()) :: (map() -> map())
   def restamp_fun(view) do
-    fn delivery ->
-      case listener(view) do
-        {:ok, opts} -> Map.merge(Map.delete(delivery, :steer_requested), AgentQueue.operator_message("", "", opts).delivery)
-        {:error, _} -> delivery
-      end
+    fn
+      %{consume_at: :pull} = delivery ->
+        delivery
+
+      delivery ->
+        case listener(view) do
+          {:ok, opts} -> Map.merge(Map.delete(delivery, :steer_requested), AgentQueue.operator_message("", "", opts).delivery)
+          {:error, _} -> delivery
+        end
     end
   end
 

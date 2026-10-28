@@ -84,6 +84,8 @@ Listener mode writes are stored for the ticket run, including stopped tickets, a
 
 When a send receipt carries a listener mode, `aiur message` also prints `accepted under <mode> listener mode`; legacy sends retain their existing output.
 
+With listener routing enabled, leaving `async` queues one notice with the unread count. Earlier message bodies stay pull-only through `aiur_read_messages`; they are never replayed automatically. An empty backlog adds no notice. Returning to `async` supersedes an undelivered backlog notice.
+
 Use `--idempotency-key KEY` on `listen-mode` to retry an uncertain write with the same mode and `--expected-version`. A write timeout reports `outcome unknown` and the key; it does not prove failure. `--actor executor` is permitted for a worker's mode.
 
 The authenticated HTTP equivalent is `GET /api/v1/:issue_identifier/listen-mode` or `POST` to the same path with `{mode, expected_version, idempotency_key, actor}` (`actor` defaults to `human`).

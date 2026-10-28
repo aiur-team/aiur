@@ -323,7 +323,8 @@ defmodule Aiur.AgentQueueStore do
     store
     |> TargetIndex.items_for(target)
     |> Enum.reduce(store, fn
-      %AgentQueueItem{status: :pending, category: :operator_message, delivery: %{listener_mode_at_claim: _}} = item, acc ->
+      %AgentQueueItem{status: :pending, category: category, delivery: %{listener_mode_at_claim: _}} = item, acc
+      when category == :operator_message or (category == :system_notice and item.event_type == :async_backlog_notice) ->
         Items.put_item(acc, %{item | delivery: fun.(item.delivery)})
 
       _item, acc ->

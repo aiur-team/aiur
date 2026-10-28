@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
   alias Aiur.Events.Catalog
   alias Aiur.Listener.{Effective, ModeStore, Scheduler}
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy, Unread}
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{ListenerTransitions, State}
 
   @spec get_mode(State.t(), Aiur.Listener.target()) :: tuple()
   def get_mode(state, target) do
@@ -20,12 +20,14 @@ defmodule Aiur.Orchestrator.ListenerModes do
       with version when is_integer(version) and version >= 0 <- opts[:expected_version],
            {:ok, id, entry} <- resolve(state, target) do
         meta = %{actor: Keyword.get(opts, :actor, :human), idempotency_key: opts[:idempotency_key]}
+        previous = ModeStore.get(id)
 
         case ModeStore.put(id, mode, version, meta) do
           {:ok, record} ->
             result = view(state, id, entry, record)
             Logger.info("listener_mode_set issue=#{id} requested=#{result.requested} effective=#{inspect(result.effective)} version=#{result.version} actor=#{result.actor}")
-            {:ok, id, result}
+            {store, backlog} = transition(state.queue_store, id, previous, result, opts)
+            {:ok, id, result, store, backlog}
 
           {:error, {:mode_conflict, record}} ->
             {:error, {:mode_conflict, view(state, id, entry, record)}}
@@ -39,15 +41,29 @@ defmodule Aiur.Orchestrator.ListenerModes do
       end
 
     case reply do
-      {:ok, id, result} ->
+      {:ok, id, result, store, backlog} ->
         key = State.find_running_key_by_identifier(state.running, id)
-        broadcast(id, result, if(key, do: state.running[key]))
-        next = if key, do: put_in(state.running[key][:listener_effective], result), else: state
-        {:reply, {:ok, result}, mode_view_changed(next, id, result)}
+        broadcast(id, if(backlog, do: Map.put(result, :backlog, backlog), else: result), if(key, do: state.running[key]))
+        next = %{state | queue_store: store}
+        next = if key, do: put_in(next.running[key][:listener_effective], result), else: next
+        next = mode_view_changed(next, id, result)
+        if backlog, do: notify_notice(next, id)
+        {:reply, {:ok, result}, next}
 
       _error ->
         {:reply, reply, state}
     end
+  end
+
+  defp transition(store, id, previous, result, opts) do
+    if Scheduler.routing(opts) == :listener,
+      do: ListenerTransitions.on_change(store, id, previous, result),
+      else: {store, nil}
+  end
+
+  defp notify_notice(state, id) do
+    item = Enum.find(AgentQueueStore.list_pending(state.queue_store, id), &(&1.event_type == :async_backlog_notice))
+    if item, do: DeliveryPolicy.notify_running_queue_update(state, State.find_running_by_identifier(state.running, id), item)
   end
 
   @doc "Re-stamp pending listener rows after a serialized mode or harness-view change."
@@ -119,7 +135,7 @@ defmodule Aiur.Orchestrator.ListenerModes do
     :exit, reason -> Logger.warning("listener_mode_publish #{context} exit=#{inspect(reason)}")
   end
 
-  defp event_payload(result), do: Map.take(result, [:requested, :effective, :effective_reason, :version, :actor])
+  defp event_payload(result), do: Map.take(result, [:requested, :effective, :effective_reason, :version, :actor, :backlog])
 
   defp view(state, id, entry, record), do: compute(record, Capabilities.harness_delivery(state, id, entry), entry)
 
