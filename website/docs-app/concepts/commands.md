@@ -27,8 +27,9 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 On writable Command cards and detail pages, open the microphone menu and choose
 **Dictate** to speak a custom response. This selects **Custom response** and
 appends to any text already there. Review and edit the text, then use the existing
-answer button to record it; dictation never submits an answer. Capture stops at
-the 4,000-character limit and keeps the full transcript for editing. If voice is
+answer button to record it; dictation never submits an answer.
+
+Capture stops at the 4,000-character limit and keeps the full transcript for editing. If voice is
 unavailable, you can still type. Structured multi-question forms use their own
 answer fields and do not offer this custom-response microphone.
 
