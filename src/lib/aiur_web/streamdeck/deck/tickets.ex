@@ -25,7 +25,7 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
 
     (now ++ plan)
     |> Enum.uniq_by(&field(&1, :num))
-    |> Enum.filter(&matches?(&1, filter))
+    |> Enum.filter(&matches?(&1, filter, sections))
     |> Enum.map(&key/1)
   end
 
@@ -40,10 +40,18 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   defp filed?(row), do: is_integer(field(row, :num)) and field(row, :num) > 0
   defp state(row), do: row |> field(:agent) |> field(:state)
   defp rank(state), do: Enum.find_index(@order, &(&1 == state)) || if(state in @states, do: 8, else: 9)
-  defp matches?(_row, :all), do: true
-  defp matches?(row, {:state, :queued}), do: field(row, :sec) == "plan"
-  defp matches?(row, {:state, state}), do: field(row, :sec) == "now" and state(row) == state
-  defp matches?(row, {kind, key}) when kind in [:feature, :epic], do: field(row, kind) == key
+  defp matches?(_row, :all, _sections), do: true
+  defp matches?(row, {:state, :queued}, _sections), do: field(row, :sec) == "plan"
+  defp matches?(row, {:state, state}, _sections), do: field(row, :sec) == "now" and state(row) == state
+
+  defp matches?(row, {:feature, slug}, sections) do
+    case field(sections, :features) do
+      features when is_map(features) -> field(row, :epic) in (field(Map.get(features, slug), :epics) || [])
+      _ -> field(row, :feature) == slug
+    end
+  end
+
+  defp matches?(row, {:epic, key}, _sections), do: field(row, :epic) == key
 
   defp key(row) do
     queued = field(row, :sec) == "plan"

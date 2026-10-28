@@ -4,6 +4,7 @@ defmodule AiurWeb.Streamdeck.Render do
 
   `frame/1` consumes the SD-101 projection (`grid` plus `usage`) and optional
   `column_offset` / `provider_offset` integers. It also accepts the grid itself.
+  Pass a `Deck.Nav` in `:nav` for feature pages and their ticket drill-in.
   Both atom and wire string keys are supported. No reads or clock access occur.
 
   `strip/1` accepts region maps with `x`, `width`, `label`, and `parts`. Parts
@@ -11,14 +12,16 @@ defmodule AiurWeb.Streamdeck.Render do
   Coordinates inside a region are local. The same parts compose every group.
   """
 
-  alias AiurWeb.Streamdeck.Render.{Grid, Key, Parts, Svg}
+  alias AiurWeb.Streamdeck.Render.{Feature, FeatureGrid, Grid, Key, Parts, Svg}
   import Svg, only: [field: 2, field: 3]
 
   @type image :: %{svg: String.t(), hash: String.t(), label: String.t()}
   @type region_image :: %{x: non_neg_integer(), width: pos_integer(), svg: String.t(), hash: String.t(), label: String.t()}
 
   @spec key(map()) :: image()
-  def key(face), do: Key.render(face)
+  def key(face) do
+    if field(face, :kind) in [:feature, "feature"], do: Feature.render(face), else: Key.render(face)
+  end
 
   @spec strip([map()]) :: [region_image()]
   def strip(regions) do
@@ -41,7 +44,12 @@ defmodule AiurWeb.Streamdeck.Render do
 
   @spec frame(map()) :: %{keys: [image() | nil], strip: [region_image()]}
   def frame(model) do
-    {faces, regions} = Grid.compose(model)
+    {faces, regions} =
+      case field(model, :nav) do
+        %AiurWeb.Streamdeck.Deck.Nav{view: :feature} = nav -> FeatureGrid.compose(model, nav)
+        _ -> Grid.compose(model)
+      end
+
     %{keys: Enum.map(faces, fn face -> if face, do: key(face) end), strip: strip(regions)}
   end
 end

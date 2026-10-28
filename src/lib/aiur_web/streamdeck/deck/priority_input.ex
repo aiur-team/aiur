@@ -15,7 +15,7 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
           {:error, reason} -> Priority.message(reason)
         end
 
-      frame = Render.frame(%{grid: StreamdeckProjection.grid(), toast: toast})
+      frame = Render.frame(%{grid: StreamdeckProjection.grid(), nav: socket.assigns[:deck_nav], toast: toast})
 
       case result do
         {:ok, :at_edge} -> {:reply, {:ok, Map.merge(navigation, %{"result" => "at_edge", "frame" => frame})}, socket}
