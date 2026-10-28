@@ -24,8 +24,9 @@ defmodule Aiur.Machine.Store do
     else
       {:error, :enoent} -> {:error, :identity_unavailable, :missing}
       {:error, :bad_owner} -> {:error, :identity_unavailable, :bad_owner}
-      {:error, reason} when reason in [:eacces, :eperm, :unreadable, :unsafe_path] -> {:error, :identity_unavailable, :unreadable}
-      {:error, _reason} -> {:error, :identity_unavailable, :corrupt}
+      {:error, %Jason.DecodeError{}} -> {:error, :identity_unavailable, :corrupt}
+      {:error, :corrupt} -> {:error, :identity_unavailable, :corrupt}
+      {:error, _reason} -> {:error, :identity_unavailable, :unreadable}
     end
   end
 

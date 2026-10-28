@@ -71,6 +71,8 @@ defmodule Aiur.Machine.StoreIdentityTest do
     File.write!(Path.join(root, "target"), "secret")
     File.ln_s!(Path.join(root, "target"), p.identity)
     assert Store.identity() == {:error, :identity_unavailable, :unreadable}
+    Application.put_env(:aiur, :machine_state_dir, Path.join(root, String.duplicate("x", 5000)))
+    assert Store.identity() == {:error, :identity_unavailable, :unreadable}
   end
 
   test "initialization creates private keys and store and is idempotent", %{paths: p} do
