@@ -373,3 +373,15 @@ A plugged-in deck can keep requesting channel tokens while its configured creden
 A stolen or unattended deck carries the write authority of its configured token, so treat it like a logged-in session. Answers remain version-checked regardless: the deck answers the exact Command version it read, and a stale press is rejected as a conflict — never recorded as a second decision.
 
 Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.
+
+### Fleet view
+
+Cycle dial D to Fleet for eight summary keys: active, needs command,
+error/retrying, waiting for CI, usage limited, parked/paused, queued backlog,
+and capacity. Counts use the same filed tickets as the Ticket view. Unrecognized
+states remain on Active with a visible unknown sub-count, such as `12 · 1?`.
+Press a category to list its tickets; hold dial D to return.
+
+The strip shows daemon state and heartbeat age, capacity (including staleness),
+and global pause state. Unknown capacity shows `—`; a stale daemon stays
+labelled stale. Fleet only displays global pause.

@@ -27,6 +27,11 @@ defmodule AiurWeb.Streamdeck.Deck.PriorityInput do
     end
   end
 
+  def reply(%{assigns: %{deck_nav: %{view: :fleet} = nav}} = socket, navigation, _effects) do
+    frame = Render.frame(%{grid: socket.assigns.deck_frame_grid, nav: nav})
+    {:reply, {:ok, Map.put(navigation, "frame", frame)}, socket}
+  end
+
   def reply(socket, navigation, _effects), do: {:reply, {:ok, navigation}, socket}
   defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp reason_text(reason), do: inspect(reason)

@@ -2,6 +2,27 @@ defmodule AiurWeb.Streamdeck.Deck.Counts do
   @moduledoc "Stream Deck counts from the same index window as the Build page."
   alias AiurWeb.{Build.Index, EndpointConfig}
 
+  @doc "Fleet categories over the exact filed, deduplicated Ticket view population."
+  @spec categories(map()) :: map()
+  def categories(sections) do
+    keys = AiurWeb.Streamdeck.Deck.Tickets.keys(sections)
+    by_state = Enum.frequencies_by(keys, & &1.state)
+    known = ~w(active command error retrying ci_wait usage_limited parked paused)
+    unknown = Enum.count(keys, &(&1.state != :queued and &1.state not in known))
+
+    %{
+      active: Map.get(by_state, "active", 0) + unknown,
+      unknown: unknown,
+      command: Map.get(by_state, "command", 0),
+      error: Map.get(by_state, "error", 0) + Map.get(by_state, "retrying", 0),
+      ci_wait: Map.get(by_state, "ci_wait", 0),
+      usage_limited: Map.get(by_state, "usage_limited", 0),
+      paused: Map.get(by_state, "parked", 0) + Map.get(by_state, "paused", 0),
+      queued: Map.get(by_state, :queued, 0),
+      live: Enum.count(keys, &(&1.state != :queued))
+    }
+  end
+
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     result = Keyword.get_lazy(opts, :window, fn -> window(opts) end)
