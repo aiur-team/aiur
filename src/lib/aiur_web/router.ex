@@ -160,7 +160,7 @@ defmodule AiurWeb.Router do
   end
 
   scope "/", AiurWeb do
-    pipe_through(:dashboard_auth)
+    pipe_through(:client_token_read)
     get("/api/v1/conversations/resolve", ConversationApiController, :resolve)
     get("/api/v1/conversations/:conversation_id/entries", ConversationApiController, :entries)
     get("/api/v1/conversations/:conversation_id/sessions", ConversationApiController, :sessions)

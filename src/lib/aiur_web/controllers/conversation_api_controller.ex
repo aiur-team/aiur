@@ -3,8 +3,9 @@ defmodule AiurWeb.ConversationApiController do
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.Conversation.{History, Ref, Session}
-  alias AiurWeb.OperatorControlCenter.UnitsPresenter
-  alias AiurWeb.ConversationApiParams
+  alias AiurWeb.OperatorControlCenter.PayloadLoader
+  alias Aiur.Executor.HarnessSession
+  alias AiurWeb.{ConversationApiParams, EndpointConfig}
   alias Plug.Conn
 
   plug(:no_store)
@@ -40,15 +41,25 @@ defmodule AiurWeb.ConversationApiController do
   @spec resolve(Conn.t(), map()) :: Conn.t()
   def resolve(conn, params) do
     case ConversationApiParams.subject(params) do
-      {:ok, :executor} -> resolved(conn, History.resolve_executor(), "executor")
+      {:ok, :executor} -> resolved(conn, resolve_executor(), "executor")
       {:ok, {owner, repository, identifier}} -> resolved(conn, resolve_worker(owner, repository, identifier), "worker")
       error -> failure(conn, error)
     end
   end
 
+  defp resolve_executor do
+    session = EndpointConfig.get(:conversation_executor_session_fun, &HarnessSession.current/0)
+
+    case session.() do
+      %{"state" => "live"} -> History.resolve_executor()
+      _ -> {:error, :not_found}
+    end
+  end
+
   defp resolve_worker(owner, repository, identifier) do
     # The current Units projection can carry a newer display locator than subject.json.
-    catalog = UnitsPresenter.load(%{})
+    units = EndpointConfig.get(:conversation_units_fun, fn -> Map.get(PayloadLoader.load(:cached), :units, %{}) end)
+    catalog = units.()
     rows = get_in(catalog, [:snapshot, :rows]) || []
 
     current =
@@ -96,6 +107,7 @@ defmodule AiurWeb.ConversationApiController do
   end
 
   defp principal(%{assigns: %{device_id: id}}) when is_binary(id), do: {:device, id}
+  defp principal(%{assigns: %{token_name: _name}}), do: {:operator, :basic_auth}
   defp principal(%{remote_ip: {127, _, _, _}}), do: {:operator, :loopback}
   defp principal(%{remote_ip: {0, 0, 0, 0, 0, 0, 0, 1}}), do: {:operator, :loopback}
   defp principal(_conn), do: {:operator, :basic_auth}

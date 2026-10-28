@@ -343,7 +343,8 @@ summaries. Rolling medians appear only when supplied in the stored analysis.
 
 ## Read a conversation over HTTP
 
-These read-only routes use dashboard authentication, including when
+These read-only routes use dashboard authentication or a read client token,
+including when
 `dashboard_writable` is false. Responses set `Cache-Control: no-store`:
 
 - `GET /api/v1/conversations/resolve?subject=executor`
@@ -374,5 +375,7 @@ Sessions contain no local source paths.
 
 Conversation text can contain secrets. Body and output are masked by default;
 `reveal=true` is honored only for an authenticated operator connecting from
-loopback. Device principals always remain masked. Treat revealed content as
-sensitive. Write verbs return 405; sends continue through the listener path.
+loopback. Device principals and client tokens always remain masked. Basic Auth is refused
+on public binds. Treat revealed content as sensitive.
+
+Write verbs return 405; sends continue through the listener path.

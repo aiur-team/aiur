@@ -11,6 +11,12 @@ defmodule AiurWeb.ConversationApiControllerTest do
 
   setup context do
     Aiur.TestSupport.start_owned_endpoint!()
+
+    Aiur.TestSupport.EndpointStubs.put(
+      conversation_executor_session_fun: fn -> %{"state" => "unknown"} end,
+      conversation_units_fun: fn -> %{snapshot: %{rows: []}} end
+    )
+
     TestSupport.setup(context)
   end
 
@@ -68,6 +74,8 @@ defmodule AiurWeb.ConversationApiControllerTest do
   test "executor resolution requires a stored conversation", %{ref: ref, dir: dir} do
     assert_error(request("/resolve?subject=executor"), 404, "subject_not_found")
     assert {:ok, _} = Store.prepare(dir, ref)
+    assert_error(request("/resolve?subject=executor"), 404, "subject_not_found")
+    Aiur.TestSupport.EndpointStubs.put(conversation_executor_session_fun: fn -> %{"state" => "live"} end)
     response = request("/resolve?subject=executor")
     assert response.status == 200
     assert Jason.decode!(response.resp_body) == %{"conversation_id" => Ref.conversation_id(ref), "subject" => "executor"}
@@ -80,6 +88,13 @@ defmodule AiurWeb.ConversationApiControllerTest do
     response = request("/resolve?subject=worker&owner=O&repository=R&identifier=7")
     assert response.status == 200
     assert Jason.decode!(response.resp_body)["conversation_id"] == Ref.conversation_id(ref)
+    {:worker, identity} = ref.subject
+    current = %{identity | identifier: "8"}
+    Aiur.TestSupport.EndpointStubs.put(conversation_units_fun: fn -> %{snapshot: %{rows: [%{identity: current}]}} end)
+    renamed = request("/resolve?subject=worker&owner=o&repository=r&identifier=8")
+    assert renamed.status == 200
+    assert Jason.decode!(renamed.resp_body)["conversation_id"] == Ref.conversation_id(ref)
+    assert_error(request("/resolve?subject=worker&owner=elsewhere&repository=r&identifier=8"), 404, "subject_not_found")
     :ets.delete_all_objects(:aiur_conversation_subjects)
     assert request("/resolve?subject=worker&owner=o&repository=r&identifier=7").status == 200
     other = worker("node-two")
@@ -126,6 +141,31 @@ defmodule AiurWeb.ConversationApiControllerTest do
     assert hd(Jason.decode!(device.resp_body)["entries"])["redacted"] == true
   end
 
+  test "public binds reject Basic and read bearer tokens remain masked on loopback", %{root: root, ref: ref} do
+    path = Path.join(root, "client-tokens.json")
+    previous = Application.fetch_env(:aiur, :client_tokens_path)
+    Application.put_env(:aiur, :client_tokens_path, path)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:aiur, :client_tokens_path, value)
+        :error -> Application.delete_env(:aiur, :client_tokens_path)
+      end
+    end)
+
+    {:ok, bearer} = Aiur.ClientTokens.create("conversation-reader", "read")
+    token = "ghp_" <> String.duplicate("b", 36)
+    Ingest.append(ref, source(), [Map.put(event(1), :body, token)])
+    assert :ok = flush(ref)
+    Aiur.TestSupport.EndpointStubs.put(public_bind: true)
+    suffix = "/#{Ref.conversation_id(ref)}/entries?reveal=true"
+    assert request(suffix).status == 401
+    response = request(suffix, :get, bearer)
+    assert response.status == 200
+    refute response.resp_body =~ token
+    assert hd(Jason.decode!(response.resp_body)["entries"])["redacted"] == true
+  end
+
   defp worker(provider_id) do
     {:ok, identity} = Aiur.TrackerIdentity.from_github(%{"node_id" => provider_id, "number" => 7}, {"o", "r"}, {"o", "r"})
     {:ok, ref} = Ref.worker(identity)
@@ -136,7 +176,14 @@ defmodule AiurWeb.ConversationApiControllerTest do
     conn = conn(method, "/api/v1/conversations" <> suffix)
     conn = %{conn | secret_key_base: String.duplicate("s", 64), remote_ip: ip}
     conn = conn |> Plug.Session.call(@session) |> put_private(:aiur_dashboard_credentials, {"operator", "secret"})
-    conn = if auth?, do: put_req_header(conn, "authorization", "Basic " <> Base.encode64("operator:secret")), else: conn
+
+    conn =
+      case auth? do
+        true -> put_req_header(conn, "authorization", "Basic " <> Base.encode64("operator:secret"))
+        false -> conn
+        token when is_binary(token) -> put_req_header(conn, "authorization", "Bearer " <> token)
+      end
+
     conn |> fetch_query_params() |> Router.call(Router.init([]))
   end
 

@@ -53,6 +53,7 @@
     "conversations",
     "dashboard-ui",
     "experiments-page",
+    "executor-attention",
     "github-listeners",
     "pairing-discovery",
     "streamdeck-server",
