@@ -63,16 +63,20 @@ defmodule Aiur.Orchestrator.FeatureSupplyTest do
     assert interval.observed_minutes == 1.5
     assert interval.interval_end_ms - interval.interval_start_ms == 90_000
     observed |> observe(features(), 120_000) |> observe(features(), 180_000)
-    assert_received {:supply_record, :feature_supply, %{feature_starved_slot_minutes: 0.0, non_feature_during_starvation_minutes: 0}}
+    assert_received {:supply_record, :feature_supply, %{feature_starved_slot_minutes: starved, non_feature_during_starvation_minutes: overlap}}
+    assert starved == 0
+    assert overlap == 0
   end
 
   test "todo declines rank only holding dependencies with cached PR evidence" do
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, ProgressStore)
+    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, ProgressStore) end)
     start_supervised!({ProgressStore, seed: fn -> %{passed_heads: %{}} end})
     ProgressStore.record("blocker-1", %{pr_number: 42, stage: :pr_opened})
     :sys.get_state(ProgressStore)
     held = for n <- 1..7, do: %{feature("held-#{n}") | blocked_by: [%{id: "blocker-#{n}", identifier: "repo##{n}", state: "human-review"}]}
     extra = %{feature("extra") | blocked_by: [%{id: "blocker-1", identifier: "repo#1", state: "human-review"}, %{id: "closed", state: "done"}]}
-    paused = %{feature("paused") | labels: ["feature:test", "agent:paused"]}
+    paused = %{feature("paused") | labels: ["feature:test", "agent:paused"], paused: true}
     sample = FeatureSupplySnapshot.build(state(), [feature("ready"), issue("not-feature"), paused, extra | held])
     assert sample.feature_ready == 1
     assert sample.declines == %{"dependency" => 8, "paused" => 1}
@@ -87,7 +91,9 @@ defmodule Aiur.Orchestrator.FeatureSupplyTest do
     :ok = Exchange.subscribe("system.feature_supply_low")
     low = FeatureSupply.observe(state(), [feature("1")], now_ms: 0) |> FeatureSupply.observe([feature("1")], now_ms: @hold)
     assert low.feature_supply.active
-    assert_received {:event, %{"topic" => "system.feature_supply_low", "free" => 3, "feature_ready" => 1, "reason" => reason}}
+    assert_received {:event, %{"topic" => "system.feature_supply_low", "reason" => reason} = event}
+    assert event[:free] == 3
+    assert event[:feature_ready] == 1
     assert reason =~ "free=3, feature_ready=1"
     assert {"system.feature_supply_low", "dispatch:auto"} in Aiur.ExecutorBindings.defaults()
     assert {"system.feature_supply_low.resolved", "dispatch:auto"} in Aiur.ExecutorBindings.defaults()
@@ -153,7 +159,7 @@ defmodule Aiur.Orchestrator.FeatureSupplyTest do
 
     for {ref, job} <- paused.tracker_tasks do
       Task.shutdown(job.task, :brutal_kill)
-      Process.cancel_timer(job.timer)
+      if is_reference(job.timer), do: Process.cancel_timer(job.timer)
       Process.demonitor(ref, [:flush])
     end
   end

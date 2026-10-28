@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.FeatureSupplyGitHubTest do
     stub_github(fn _ -> flunk("supply observations must never read GitHub") end)
     state = %State{max_concurrent_agents: 3, effective_concurrent_agents: 3}
     feature = %{candidate("14") | labels: ["feature:test"]}
-    paused = %{candidate("15") | labels: ["feature:test", "sym:paused"]}
+    paused = %{candidate("15") | labels: ["feature:test", "sym:paused"], paused: true}
     decision = %{candidate("16") | labels: ["feature:test"]}
     state = %{state | blocked_ticket_ids: MapSet.new([decision.id])}
     sample = FeatureSupplySnapshot.build(state, [feature, paused, decision])
