@@ -5,7 +5,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
-  alias Aiur.ExecutorWakeInbox.{Recovery, Storage}
+  alias Aiur.ExecutorWakeInbox.{Recovery, Storage, VoiceReceipt}
   alias Aiur.Journal
 
   @default_debounce_ms 2_000
@@ -85,6 +85,11 @@ defmodule Aiur.ExecutorWakeInbox do
   @doc "The shared cursor: the highest wake id an owner has acknowledged."
   @spec cursor(GenServer.server()) :: non_neg_integer()
   def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
+
+  @doc "Acknowledgement evidence for exact voice handoff event ids, never inferred from event-id ordering."
+  @spec voice_receipts([pos_integer()], GenServer.server()) :: {:ok, [map()]} | {:error, term()}
+  def voice_receipts(event_ids, server \\ __MODULE__) when is_list(event_ids),
+    do: GenServer.call(server, {:voice_receipts, event_ids})
 
   @doc "The cursor and unread count for operator status surfaces."
   @spec stats(GenServer.server()) :: {:ok, %{cursor: non_neg_integer(), pending_count: non_neg_integer()}} | {:error, term()}
@@ -188,6 +193,13 @@ defmodule Aiur.ExecutorWakeInbox do
   def handle_call(:cursor, _from, state) do
     state = Storage.refresh_cursor(state)
     {:reply, state.cursor, state}
+  end
+
+  def handle_call({:voice_receipts, event_ids}, _from, state) do
+    case VoiceReceipt.read(state, event_ids) do
+      {:ok, receipts, state} -> {:reply, {:ok, receipts}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
   end
 
   def handle_call(:stats, _from, state) do

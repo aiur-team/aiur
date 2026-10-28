@@ -110,6 +110,17 @@ defmodule Aiur.CodingAgent do
   @spec transcript_module(backend()) :: module()
   def transcript_module(backend), do: fetch_backend!(backend).transcript
 
+  @doc "Reads bounded native transcript context through the backend's declared reader."
+  @spec read_native_transcript(map(), pos_integer()) :: {:ok, map()} | {:error, :unavailable}
+  def read_native_transcript(%{"state" => "live", "harness" => backend} = session, n) do
+    case get_in(backends(), [backend, :native_transcript]) do
+      nil -> {:error, :unavailable}
+      reader -> reader.read(session, n)
+    end
+  end
+
+  def read_native_transcript(_session, _n), do: {:error, :unavailable}
+
   @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt

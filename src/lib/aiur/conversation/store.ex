@@ -158,6 +158,8 @@ defmodule Aiur.Conversation.Store do
     %{state | "last_pos" => segment["last_pos"], "segments" => segments}
   end
 
-  defp write_head(dir, head),
+  @doc false
+  @spec write_head(Path.t(), map()) :: :ok | {:error, term()}
+  def write_head(dir, head),
     do: Fs.atomic_write(Path.join(dir, "head.json"), Jason.encode!(head), fsync: true, mode: 0o600)
 end
