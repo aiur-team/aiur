@@ -219,7 +219,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         strategy: :one_for_one
       )
 
-    conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{System.pid()}")
+    conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}")
     Application.put_env(:aiur, :conversation_state_dir, conversation_root)
     Aiur.BrowserHarness.Fixtures.conversation(conversation_root)
     port = System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
