@@ -136,8 +136,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
       released_at: monotonic_since(release[:released_at_ms], now),
       hold_since: monotonic_since(hold[:held_since_ms], now),
       hold_cause: hold[:detail] || hold[:signal],
-      workspace_retention: retained(row.identifier),
-      workspace_wait: workspace_wait(state, row.issue_id, row.identifier)
+      workspace_retention: if(row.waiting_reason == :workspace_retained, do: retained(row.identifier)),
+      workspace_wait: if(row.waiting_reason == :workspace_ownership_waiting, do: workspace_wait(state, row.issue_id, row.identifier))
     }
   end
 
