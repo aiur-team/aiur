@@ -2,6 +2,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
   alias AiurWeb.Streamdeck.{Deck, Render, SettingsUpdates}
   alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput, Settings, SettingsMenu, SettingsSnapshot}
+  alias AiurWeb.Streamdeck.Render.Chat, as: ChatRender
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
 
@@ -11,6 +12,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
     case transition(socket.assigns.deck_nav, raw, grid(socket)) do
       {:ok, nav, effects} ->
+        dispatch(effects)
         socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
         {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
 
@@ -31,11 +33,11 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @doc "Apply raw deck input to channel or browser navigation using the same mapping."
   @spec transition(Nav.t(), term(), map()) :: {:ok, Nav.t(), [Nav.effect()]} | :noop | :error
-  def transition(nav, raw, grid) do
+  def transition(previous, raw, grid) do
     with {:ok, input} <- normalize(raw), true <- Nav.valid_input?(input) do
       grid = prepare_grid(grid)
       snapshot = Map.get(grid, :settings_snapshot, SettingsSnapshot.unavailable())
-      nav = SettingsMenu.clamp(nav, snapshot)
+      nav = SettingsMenu.clamp(previous, snapshot)
 
       {nav, effects} =
         case SettingsMenu.reduce(nav, input, snapshot) do
@@ -43,12 +45,27 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
           result -> result
         end
 
+      effects = transition_effects(previous, nav, input, effects)
+
       {:ok, nav, effects}
     else
       :noop -> :noop
       _invalid -> :error
     end
   end
+
+  defp transition_effects(%{surface: :settings}, nav, _input, effects) do
+    if nav.surface == :cmd and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: effects
+  end
+
+  defp transition_effects(previous, _nav, input, effects), do: focus_effects(previous, input, effects)
+
+  defp focus_effects(nav, %{"kind" => "dial_press", "index" => 0}, effects) do
+    if nav.surface in [:logs, :settings, :commands] and is_binary(nav.selected), do: [{:open_ticket, nav.selected} | effects], else: [:close_ticket | effects]
+  end
+
+  defp focus_effects(_nav, %{"kind" => kind, "index" => 3}, effects) when kind in ["dial_press", "dial_long_press", "dial_turn"], do: [:close_ticket | effects]
+  defp focus_effects(_nav, _input, effects), do: effects
 
   @spec push(Phoenix.Socket.t()) :: Phoenix.Socket.t()
   def push(socket) do
@@ -67,7 +84,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
         grid(socket),
         socket.assigns[:deck_usage] || %{},
         &Render.frame/1,
-        %{toast: socket.assigns[:deck_toast]}
+        %{toast: socket.assigns[:deck_toast], chat: socket.assigns[:deck_chat_view]}
       )
 
     {nav, images}
@@ -98,7 +115,19 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
         context
       )
 
-    {nav, model, renderer.(model)}
+    images = renderer.(model)
+    images = if context[:chat] && not is_binary(context[:toast]), do: Map.put(images, :strip, ChatRender.strip(context.chat, System.system_time(:millisecond))), else: images
+    {nav, model, images}
+  end
+
+  @doc "Deliver shared focus effects in the owning channel or LiveView process."
+  @spec dispatch([Nav.effect()]) :: :ok
+  def dispatch(effects) do
+    Enum.each(effects, fn
+      {:open_ticket, id} -> send(self(), {:streamdeck_frame_focus, id})
+      :close_ticket -> send(self(), :streamdeck_frame_unfocus)
+      _ -> :ok
+    end)
   end
 
   defp grid(socket) do

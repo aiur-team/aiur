@@ -30,6 +30,7 @@ import {
   type ControllerCore,
 } from "./controller/state.js";
 
+import { createTicketChat } from "./controller/ticket-chat.js";
 import { createCommands } from "./controller/commands.js";
 import { createGridLogs } from "./controller/grid-logs.js";
 import { createVoiceSettings } from "./controller/voice-settings.js";
@@ -68,6 +69,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   };
   const voicePart = createVoiceSettings(core);
   const { stopVoice, leaveVoice, enterSettings, transcriptPresent, commandDictationPresent, sendTranscript, cancelTranscript, pressSettingsKey, holdMic, releaseMic } = voicePart;
+  const chat = createTicketChat(core);
   const logs = createGridLogs(core, voicePart);
   const { forgetLogs, setGridOffset, setLogsOffsets, enterLogs } = logs;
   const commands = createCommands(core, voicePart);
@@ -118,7 +120,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         // until the next flush.
         if (state.focusedIdentifier !== null && identifier !== state.focusedIdentifier) forgetLogs();
         options.channel()?.focus(identifier);
-        publish({ ...state, mode: "cmd", focusedIdentifier: identifier, ticket: null });
+        publish({ ...state, mode: "cmd", focusedIdentifier: identifier, ticket: null, chat: null });
       }
       return;
     }
@@ -349,8 +351,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     setTicket: (ticket: StreamDeckTicket): void => {
       if (ticket.id === state.focusedIdentifier) publish({ ...state, ticket });
     },
+    setChat: chat.setChat,
     setLogs: logs.setLogs,
-    tickTyping: logs.tickTyping,
+    tickTyping: (): boolean => chat.tickTyping() || logs.tickTyping(),
     /**
      * Re-reads whether the voice buffer holds text.
      *

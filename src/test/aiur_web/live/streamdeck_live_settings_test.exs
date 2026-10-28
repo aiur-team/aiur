@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckLiveSettingsTest do
   use AiurWeb.StreamdeckLiveCase
 
+  alias Aiur.LiveConversation.Notify
   alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.Streamdeck.Deck.{Settings, SettingsSnapshot}
   alias AiurWeb.Streamdeck.{FrameUpdates, Render}
@@ -16,10 +17,29 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
   end
 
   test "browser settings keys share the physical model and persist dial-selected brightness", %{path: path} do
+    root = Path.dirname(path)
+    Aiur.TestSupport.write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/aiur", workspace_root: root)
+    chat_log = Path.join([root, "owner", "aiur", "1352", "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(chat_log))
+    File.write!(chat_log, conversation_line("Settings lifecycle"))
+    handle = Notify.random_handle()
+    running = %{identifier: "1352", issue_id: "node1352", workspace_path: chat_log |> Path.dirname() |> Path.dirname(), live_conversation: %{generation_handle: handle}}
+    EndpointStubs.put(build_conversation_snapshot_fun: fn _, _ -> {:ok, %{running: [running]}} end)
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    html = dial(view, 3, "long_press")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    chat = streamdeck_assigns(view).deck_chat
+    assert chat.ref.id == "1352"
+    topic = Notify.handle_topic(handle)
+    pid = view.pid
+    assert {^pid, _} = List.keyfind(Registry.lookup(Aiur.PubSub, topic), pid, 0)
+    html = render_click(view, "command-press", %{"command" => "settings"})
     assert_shared_images(view, html)
-    assert :sys.get_state(view.pid).socket.assigns.deck_nav.surface == :settings
+    assert streamdeck_assigns(view).deck_nav.surface == :settings
+    assert streamdeck_assigns(view).deck_nav.settings.return_surface == :cmd
+    assert streamdeck_assigns(view).deck_chat == nil
+    assert streamdeck_assigns(view).deck_chat_view == nil
+    assert Registry.lookup(Aiur.PubSub, topic) == []
+    assert Process.read_timer(chat.timer) == false
 
     for invalid <- [%{"kind" => "key", "index" => "bad", "action" => "down"}, %{"kind" => "key", "action" => "down"}] do
       render_hook(view, "input", invalid)
@@ -35,11 +55,28 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     assert_shared_images(view, html)
     assert {:ok, saved} = Settings.read(path)
     assert saved["brightness"] == 30
+    assert streamdeck_assigns(view).deck_chat == nil
+    assert streamdeck_assigns(view).deck_chat_view == nil
+    assert Registry.lookup(Aiur.PubSub, topic) == []
     {:ok, second, _html} = live(build_conn(), "/streamdeck")
     assert :sys.get_state(second.pid).socket.assigns.grid.settings_snapshot.settings["brightness"] == 30
     dial(view, 3, "long_press")
     dial(view, 3, "long_press")
-    assert :sys.get_state(view.pid).socket.assigns.deck_nav.surface == :grid
+    assert :sys.get_state(view.pid).socket.assigns.deck_nav.surface == :cmd
+    reopened = streamdeck_assigns(view).deck_chat
+    assert reopened.ref.id == "1352"
+    assert {^pid, _} = List.keyfind(Registry.lookup(Aiur.PubSub, topic), pid, 0)
+    dial(view, 3, "long_press")
+    assert streamdeck_assigns(view).deck_nav.surface == :settings
+    assert streamdeck_assigns(view).deck_chat == nil
+    assert streamdeck_assigns(view).deck_chat_view == nil
+    assert Registry.lookup(Aiur.PubSub, topic) == []
+    assert Process.read_timer(reopened.timer) == false
+    view |> element("#sd-keys button[data-streamdeck-key='2']") |> render_click()
+    dial(view, 0, "turn", 3)
+    dial(view, 0, "press")
+    assert streamdeck_assigns(view).deck_chat == nil
+    assert Registry.lookup(Aiur.PubSub, topic) == []
   end
 
   test "browser uses reported PC inventory and shows unavailable when its owner disconnects", %{path: path} do
@@ -122,6 +159,10 @@ defmodule AiurWeb.StreamdeckLiveSettingsTest do
     after
       File.chmod!(Path.dirname(path), 0o700)
     end
+  end
+
+  defp conversation_line(text) do
+    Jason.encode!(%{event: "notification", timestamp: DateTime.to_iso8601(DateTime.utc_now()), raw: Jason.encode!(%{method: "item/completed", params: %{item: %{type: "agentMessage", text: text}}})}) <> "\n"
   end
 
   defp dial(view, index, action, delta \\ 0), do: render_hook(view, "input", %{"kind" => "dial", "index" => index, "action" => action, "delta" => delta})

@@ -14,6 +14,7 @@ defmodule AiurWeb.StreamdeckLive.Frame do
     {nav, model, frame} =
       FrameUpdates.frame(assigns.deck_nav, assigns.grid, assigns.usage, renderer, %{
         toast: assigns[:deck_toast],
+        chat: if(assigns.sd_mode == :cmd, do: assigns[:deck_chat_view]),
         view_context: context(assigns)
       })
 

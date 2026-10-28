@@ -2,23 +2,29 @@ defmodule AiurWeb.StreamdeckLive.Navigation do
   @moduledoc "Adapt legacy browser selection and paging without cycling its non-grid modes."
   import Phoenix.Component, only: [assign: 2, assign: 3]
   alias AiurWeb.Streamdeck.Deck
-  alias AiurWeb.Streamdeck.Deck.{Input, Nav}
+  alias AiurWeb.Streamdeck.Deck.Nav
   alias AiurWeb.Streamdeck.FrameUpdates
-  alias AiurWeb.StreamdeckLive.Settings
+  alias AiurWeb.StreamdeckLive.{ChatFocus, Settings}
   alias Phoenix.LiveView.Socket
 
   @spec route(Socket.t(), String.t(), map()) :: Socket.t()
   def route(socket, event, params) do
-    sections = socket.assigns |> Settings.refresh_assigns() |> Map.fetch!(:grid) |> FrameUpdates.prepare_grid() |> Deck.navigation()
+    grid = socket.assigns |> Settings.refresh_assigns() |> Map.fetch!(:grid) |> FrameUpdates.prepare_grid()
+    sections = Deck.navigation(grid)
     nav = key_nav(socket.assigns.deck_nav, event, params, sections)
     socket = assign(socket, :deck_nav, nav)
     frame = frame(socket, event, params, sections)
 
-    case Input.reduce(nav, frame, sections) do
-      {%Nav{} = nav, effects} -> assign(socket, deck_nav: nav, deck_effects: effects)
-      {:error, _reason} -> socket
+    case FrameUpdates.transition(nav, frame, grid) do
+      {:ok, nav, effects} ->
+        socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
+
+      _ ->
+        socket
     end
   end
+
+  defp frame(_socket, "dial-press", %{"action" => "back"}, _sections), do: %{"kind" => "dial_press", "index" => 0}
 
   defp frame(_socket, "dial-press", params, _sections),
     do: %{"kind" => "dial_turn", "index" => integer(params["index"], 3), "ticks" => 0}

@@ -6,8 +6,7 @@ defmodule Aiur.Config.Paths do
   within filesystem boundaries.
   """
 
-  alias Aiur.PathSafety
-
+  alias Aiur.{Config.VoiceConversationPaths, PathSafety}
   @repo_cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
 
   @doc false
@@ -70,6 +69,8 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @spec voice_conversation_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def voice_conversation_state_dir, do: VoiceConversationPaths.voice_conversation_state_dir()
   @doc "Resolves the build queue directory beneath the instance- and project-qualified state root."
   @spec build_queue_dir() :: {:ok, Path.t()} | {:error, atom()}
   def build_queue_dir do

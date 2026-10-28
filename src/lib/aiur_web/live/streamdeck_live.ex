@@ -1,5 +1,5 @@
 defmodule AiurWeb.StreamdeckLive do
-  @moduledoc "Browser emulator over shared deck navigation, projections and SVG images."
+  @moduledoc "Browser emulator over shared deck frames, settings and owner-process conversation tails."
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
@@ -8,9 +8,9 @@ defmodule AiurWeb.StreamdeckLive do
   import AiurWeb.StreamdeckLive.Modes
 
   alias Aiur.BuildOrder.Index, as: BuildIndex
-  alias AiurWeb.Streamdeck.Deck.Nav
+  alias AiurWeb.Streamdeck.Deck.{Chat, Nav}
   alias AiurWeb.Streamdeck.FrameUpdates
-  alias AiurWeb.StreamdeckLive.{Components, Frame, ImageComponents, Input, Settings, Surface}
+  alias AiurWeb.StreamdeckLive.{ChatFocus, Components, Frame, ImageComponents, Input, Settings, Surface}
   alias AiurWeb.StreamdeckLive.Navigation
   alias AiurWeb.StreamdeckLive.TicketActions
   alias AiurWeb.StreamdeckLogs
@@ -44,6 +44,7 @@ defmodule AiurWeb.StreamdeckLive do
   def mount(_params, _session, socket) do
     socket =
       socket
+      |> Chat.init()
       |> DashboardShell.mount()
       |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
@@ -326,10 +327,15 @@ defmodule AiurWeb.StreamdeckLive do
   # `:decision_metrics_changed` rides the same channel. Without this clause an
   # unrelated Command action anywhere in the fleet takes down the Stream Deck,
   # which is a control surface the operator runs the fleet from.
+  def handle_info({:deck_chat_tick, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_changed, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+  def handle_info({:live_conversation_restarted, _, _} = message, socket), do: {:noreply, Chat.info(socket, message)}
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def terminate(_reason, socket) do
+    Chat.clear(socket)
     # The transcript relay is `start_link`ed to this LiveView, so a normal exit
     # does not kill it through the link alone. Stop it explicitly so focus
     # changes across repeated visits do not leak one subscribed relay per visit.
@@ -385,7 +391,7 @@ defmodule AiurWeb.StreamdeckLive do
   def reduce_input(raw, socket) do
     case FrameUpdates.transition(socket.assigns.deck_nav, raw, socket.assigns.grid) do
       {:ok, nav, effects} ->
-        socket = assign(socket, deck_nav: nav, deck_effects: effects)
+        socket = socket |> assign(deck_nav: nav, deck_effects: effects) |> ChatFocus.apply(effects)
 
         {:noreply,
          assign_grid(
