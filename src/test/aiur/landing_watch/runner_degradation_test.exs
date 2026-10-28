@@ -68,43 +68,21 @@ defmodule Aiur.LandingWatch.RunnerDegradationTest do
   end
 
   test "production compile median uses recent successful same-job steps through the bounded Actions caller" do
-    request = fn %{url: url, caller: caller} ->
-      uri = URI.parse(url)
-      assert caller == "landing_watch_runner_degradation"
+    actions_read = fn path, opts ->
+      assert opts[:caller] == "landing_watch_runner_degradation"
 
-      cond do
-        String.ends_with?(uri.path, "/actions/jobs/1/logs") ->
-          {:ok, %{status: 200, body: ""}}
-
-        String.ends_with?(uri.path, "/actions/runs") ->
-          assert uri.query =~ "event=push"
-          assert uri.query =~ "per_page=5"
-          {:ok, %{status: 200, body: %{"workflow_runs" => [%{"id" => 9, "conclusion" => "success"}]}}}
-
-        String.ends_with?(uri.path, "/actions/runs/9/jobs") ->
-          {:ok,
-           %{
-             status: 200,
-             body: %{
-               "jobs" => [
-                 %{
-                   "name" => "test",
-                   "steps" => [
-                     %{
-                       "name" => "Compile",
-                       "conclusion" => "success",
-                       "started_at" => "2026-10-27T10:00:00Z",
-                       "completed_at" => "2026-10-27T10:00:50Z"
-                     }
-                   ]
-                 }
-               ]
-             }
-           }}
-
-        true ->
-          flunk("unexpected Actions read #{url}")
+      if String.contains?(path, "/actions/runs?") do
+        assert path =~ "event=push"
+        assert path =~ "per_page=5"
+        {:ok, %{"workflow_runs" => [%{"id" => 9, "conclusion" => "success"}]}}
+      else
+        flunk("unexpected Actions read #{path}")
       end
+    end
+
+    actions_jobs = fn 9, opts ->
+      assert opts[:caller] == "landing_watch_runner_degradation"
+      {:ok, [%{"name" => "test", "steps" => [%{"name" => "Compile", "conclusion" => "success", "started_at" => "2026-10-27T10:00:00Z", "completed_at" => "2026-10-27T10:00:50Z"}]}]}
     end
 
     job = %{
@@ -114,7 +92,7 @@ defmodule Aiur.LandingWatch.RunnerDegradationTest do
       "steps" => [%{"name" => "Compile", "started_at" => "2026-10-27T10:00:00Z", "completed_at" => "2026-10-27T10:03:00Z"}]
     }
 
-    assert RunnerDegradation.degraded?([job], token: "test-token", request_fun: request)
+    assert RunnerDegradation.degraded?([job], actions_read_fun: actions_read, actions_jobs_fun: actions_jobs)
   end
 
   defp failed_job, do: [%{"id" => 1, "name" => "test", "conclusion" => "failure"}]

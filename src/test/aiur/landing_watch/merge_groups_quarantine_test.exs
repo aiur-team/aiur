@@ -105,9 +105,17 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     healthy = main_entry(515)
 
     degraded_log = "** (ExUnit.TimeoutError) first\n** (ExUnit.TimeoutError) second\n** (ExUnit.TimeoutError) third"
-    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", main_opts(degraded_path, degraded, degraded_log))
+    degraded_opts = Keyword.put(main_opts(degraded_path, degraded, degraded_log), :alert_emitter, fn name, _opts -> send(parent, {:runner_degraded, name}) end)
+    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", degraded_opts)
     assert {:ok, degraded_state} = Journal.state(journal_path: degraded_path)
     assert Map.get(degraded_state, "failure_observations", []) == []
+    assert Map.has_key?(degraded_state["flakes"], "quarantine-base-scan :: main-sha-514")
+
+    green_opts = Keyword.put(degraded_opts, :jobs_fun, fn _, _ -> {:ok, [%{"id" => 10, "name" => "test", "conclusion" => "success"}]} end)
+    assert :ok = MergeGroupQuarantine.process_completed([], [], "main", green_opts)
+    assert_received {:runner_degraded, "system.pr.landing.runner_degraded"}
+    refute_received {:runner_degraded, _}
+    refute_received {:healthy_flake_candidate, _}
 
     assert :ok = MergeGroupQuarantine.process_completed([], [], "main", main_opts(healthy_path, healthy, "** (ExUnit.AssertionError) one test failed", parent))
     assert {:ok, healthy_state} = Journal.state(journal_path: healthy_path)
@@ -130,7 +138,7 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
     parent = self()
     run = failed_run(513, "pr-55-a", "https://github.com/test-org/test-repo/actions/runs/513", DateTime.to_iso8601(DateTime.utc_now()))
     journal = Path.join(System.tmp_dir!(), "mgq-degraded-#{System.unique_integer([:positive])}.json")
-    on_exit(fn -> File.rm(journal) end)
+    on_exit(fn -> Aiur.TestCleanup.rm_rf!(journal) end)
 
     jobs = [
       %{"check_run_id" => 1, "id" => 1, "name" => "test", "conclusion" => "failure"},
@@ -139,6 +147,8 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
 
     opts = [
       journal_path: journal,
+      token: "test-token",
+      request_fun: fn _request -> {:ok, %{status: 200, body: []}} end,
       jobs_fun: fn _run, _opts -> {:ok, jobs} end,
       job_log_fun: fn
         %{"id" => 1}, _opts -> {:ok, "** (ExUnit.TimeoutError) test timed out after 60000ms\n" <> "** (ExUnit.TimeoutError) another test timed out after 60000ms"}
@@ -150,7 +160,11 @@ defmodule Aiur.LandingWatch.MergeGroupsQuarantineTest do
         :ok
       end,
       main_history_fun: fn -> [] end,
-      live_observations_fun: fn _fallback, _opts -> {:ok, []} end
+      live_observations_fun: fn _fallback, _opts -> {:ok, []} end,
+      changed_paths_fun: fn _pr, _opts -> {:ok, []} end,
+      commit_paths_fun: fn _sha, _opts -> {:ok, []} end,
+      quarantine_list_fun: fn -> {:ok, ""} end,
+      quarantine_pr_fun: fn _candidate, _ticket, _opts -> {:ok, %{number: 901}} end
     ]
 
     assert :ok = MergeGroupQuarantine.process_completed([run], [], "main", opts)

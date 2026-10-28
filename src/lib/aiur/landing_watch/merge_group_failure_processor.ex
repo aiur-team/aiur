@@ -37,6 +37,22 @@ defmodule Aiur.LandingWatch.MergeGroupFailureProcessor do
     end)
   end
 
+  @spec emit_runner_degraded(pos_integer() | nil, keyword()) :: :ok
+  def emit_runner_degraded(run_id, opts) do
+    message = "Main run #{run_id || "unknown"} was skipped as a degraded runner."
+
+    Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2).(
+      "system.pr.landing.runner_degraded",
+      central: true,
+      durable: true,
+      needs_attention: false,
+      message: message,
+      reason: "runner_degraded"
+    )
+
+    :ok
+  end
+
   defp prepare_failure_evidence(opts, base) do
     case MergeGroupFailureEvidence.recent_main_paths(base, opts) do
       {:ok, paths} ->

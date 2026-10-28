@@ -35,6 +35,16 @@ defmodule Aiur.LandingWatch.MainRunEvidence do
 
   def run_id(_url), do: nil
 
+  @spec run_time(map()) :: {:ok, integer()} | {:error, atom()}
+  def run_time(%{"created_at" => timestamp}) when is_binary(timestamp) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, date, _offset} -> {:ok, DateTime.to_unix(date, :millisecond)}
+      _ -> {:error, :invalid_merge_group_timestamp}
+    end
+  end
+
+  def run_time(_), do: {:error, :missing_merge_group_timestamp}
+
   @spec degraded?(map(), keyword(), (pos_integer(), keyword() -> term())) :: boolean()
   def degraded?(entry, opts, jobs_fun) do
     case run_id(url(entry, nil)) do

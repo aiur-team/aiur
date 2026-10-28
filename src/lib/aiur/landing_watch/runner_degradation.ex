@@ -1,7 +1,6 @@
 defmodule Aiur.LandingWatch.RunnerDegradation do
   @moduledoc "Classifies merge-group runs whose failures indicate a degraded runner."
 
-  alias Aiur.GitHub.CIRecovery
   alias Aiur.LandingWatch.MergeGroupFailureEvidence
 
   # Three independent test timeouts indicate runner contention; one slow test is inconclusive.
@@ -69,7 +68,7 @@ defmodule Aiur.LandingWatch.RunnerDegradation do
     base = Keyword.get(opts, :base_branch, "main")
     url = "/actions/runs?branch=#{URI.encode_www_form(base)}&event=push&status=completed&per_page=#{@compile_history_runs}"
 
-    case CIRecovery.read(url, Keyword.put(opts, :caller, "landing_watch_runner_degradation")) do
+    case Keyword.get(opts, :actions_read_fun, &unavailable_read/2).(url, Keyword.put(opts, :caller, "landing_watch_runner_degradation")) do
       {:ok, %{"workflow_runs" => runs}} -> median_for_runs(runs, job_name, step_name, opts)
       _ -> {:error, :compile_history_unavailable}
     end
@@ -89,7 +88,9 @@ defmodule Aiur.LandingWatch.RunnerDegradation do
   end
 
   defp recent_job_steps(run_id, job_name, step_name, opts) do
-    case cache(opts, {:jobs, run_id}, fn -> CIRecovery.jobs(run_id, Keyword.put(opts, :caller, "landing_watch_runner_degradation")) end) do
+    jobs_fun = Keyword.get(opts, :actions_jobs_fun, &unavailable_jobs/2)
+
+    case cache(opts, {:jobs, run_id}, fn -> jobs_fun.(run_id, Keyword.put(opts, :caller, "landing_watch_runner_degradation")) end) do
       {:ok, jobs} ->
         jobs
         |> Enum.filter(&(&1["name"] == job_name))
@@ -115,6 +116,9 @@ defmodule Aiur.LandingWatch.RunnerDegradation do
   end
 
   defp step_duration_seconds(_), do: nil
+
+  defp unavailable_read(_path, _opts), do: {:error, :actions_read_unavailable}
+  defp unavailable_jobs(_run_id, _opts), do: {:error, :actions_jobs_unavailable}
 
   defp cache(opts, key, fun) do
     case Keyword.get(opts, :runner_degradation_cache) do

@@ -8,6 +8,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     FlakeRecorder,
     Journal,
     MainRunEvidence,
+    MergeGroupFailureProcessor,
     MergeGroupQuarantine.JobEvidence,
     MergeGroupQuarantineBlame,
     MergeGroupRequeue,
@@ -30,6 +31,12 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
     try do
       opts = Keyword.put(opts, :runner_degradation_cache, cache)
+
+      opts =
+        opts
+        |> Keyword.put_new(:actions_read_fun, &CIRecovery.read/2)
+        |> Keyword.put_new(:actions_jobs_fun, &CIRecovery.jobs/2)
+
       history = Keyword.get(opts, :main_history_fun, &main_history/0).()
       group_opts = opts |> Keyword.put(:changed_paths_cache, cache) |> Keyword.put(:red_on_main, QuarantineEvidence.red_on_main(history))
       group = runs |> Enum.filter(&eligible_run?/1) |> first_error(&claim_and_process_run(&1, base, group_opts))
@@ -69,7 +76,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   end
 
   defp eligible_run?(%{"conclusion" => "failure", "id" => id} = run) when is_integer(id) do
-    case run_time(run) do
+    case MainRunEvidence.run_time(run) do
       {:ok, at_ms} -> recent?(at_ms, System.system_time(:millisecond))
       _ -> false
     end
@@ -104,7 +111,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp process_run(run, base, opts) do
     with prs when prs != [] <- run_prs(run, base),
-         {:ok, at_ms} <- run_time(run),
+         {:ok, at_ms} <- MainRunEvidence.run_time(run),
          {:ok, jobs, found, evidence_complete?} <- JobEvidence.load(run["id"], opts),
          pr_caused? = MergeGroupQuarantineBlame.pr_caused_failure?(run, prs, jobs, base, cached_paths_opts(opts)),
          :ok <- record_guards(found.guards, run, opts) do
@@ -257,7 +264,20 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp record_main_entry(entry, opts) do
     jobs_fun = Keyword.get(opts, :jobs_fun, &CIRecovery.jobs/2)
-    if MainRunEvidence.degraded?(entry, opts, jobs_fun), do: :ok, else: record_healthy_main_entry(entry, opts)
+
+    if MainRunEvidence.degraded?(entry, opts, jobs_fun),
+      do: record_degraded_main_entry(entry, opts),
+      else: record_healthy_main_entry(entry, opts)
+  end
+
+  defp record_degraded_main_entry(entry, opts) do
+    claim = main_claim(entry)
+
+    case Journal.claim_flake(claim, opts) do
+      {:ok, :already_claimed} -> :ok
+      {:ok, :new} -> MergeGroupFailureProcessor.emit_runner_degraded(MainRunEvidence.run_id(MainRunEvidence.url(entry, nil)), opts)
+      {:error, _} = error -> error
+    end
   end
 
   defp record_healthy_main_entry(entry, opts) do
@@ -476,13 +496,4 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   end
 
   defp pr_numbers(branch), do: Regex.scan(~r/pr-(\d+)-/, branch, capture: :all_but_first) |> List.flatten() |> Enum.map(&String.to_integer/1) |> Enum.uniq()
-
-  defp run_time(%{"created_at" => timestamp}) when is_binary(timestamp) do
-    case DateTime.from_iso8601(timestamp) do
-      {:ok, date, _offset} -> {:ok, DateTime.to_unix(date, :millisecond)}
-      _ -> {:error, :invalid_merge_group_timestamp}
-    end
-  end
-
-  defp run_time(_), do: {:error, :missing_merge_group_timestamp}
 end
