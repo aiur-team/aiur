@@ -305,6 +305,10 @@ defmodule Aiur.Application.Children do
     |> Kernel.++(
       cli_children ++
         [Aiur.BackgroundCpu, Aiur.PRLifecycle.HeadVerdictRouter] ++
+        [
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor}
+        ] ++
         Aiur.Experiments.children(recording?) ++
         Auto.child_specs(
           recording?: recording?,
@@ -318,11 +322,7 @@ defmodule Aiur.Application.Children do
         [Aiur.Netlify.Usage] ++
         dashboard_final_children(dashboard?, opts) ++
         ExportChildren.child_specs(Keyword.get_lazy(opts, :export_enabled?, &AiurConfig.events_export_enabled?/0)) ++
-        BuildOrders.child_specs(:label_backfill, opts) ++
-        [
-          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
-          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor}
-        ]
+        BuildOrders.child_specs(:label_backfill, opts)
     )
   end
 

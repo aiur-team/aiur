@@ -77,10 +77,7 @@ defmodule Aiur.Conversation.Journal do
 
   def handle_info({:idle, token}, %{idle: {_timer, token}} = state) do
     state = cancel_flush(state) |> flush()
-    Ingest.count_dropped(state.id, :queue.len(state.buffer))
-    # Keep detected losses across idle eviction without retaining a process per conversation.
-    if state.failed_since || state.dropped_span,
-      do: :persistent_term.put({__MODULE__, state.id, :pending_gaps}, {state.failed_since, state.dropped_span})
+    retain_losses(state)
 
     {:stop, :normal, state}
   end
@@ -92,8 +89,15 @@ defmodule Aiur.Conversation.Journal do
 
   @impl true
   def terminate(reason, state) do
-    if reason == :shutdown or match?({:shutdown, _}, reason), do: flush(state)
+    if reason == :shutdown or match?({:shutdown, _}, reason), do: state |> flush() |> retain_losses()
     :ok
+  end
+
+  defp retain_losses(state) do
+    Ingest.count_dropped(state.id, :queue.len(state.buffer))
+    # Preserve detected losses when this writer stops within the same BEAM run.
+    if state.failed_since || state.dropped_span,
+      do: :persistent_term.put({__MODULE__, state.id, :pending_gaps}, {state.failed_since, state.dropped_span})
   end
 
   defp load(state) do

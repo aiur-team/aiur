@@ -160,6 +160,8 @@ defmodule Aiur.BuildOrder.ComponentTest do
     Aiur.LauncherWatchdog,
     Aiur.BackgroundCpu,
     Aiur.PRLifecycle.HeadVerdictRouter,
+    {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
+    {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]},
     Aiur.Experiments.Store,
     Aiur.Experiments.Capture,
     Aiur.Experiments.Checkpointer,
@@ -198,13 +200,7 @@ defmodule Aiur.BuildOrder.ComponentTest do
   end
 
   test "future regression guard: full application child specs retain their order and options" do
-    expected =
-      @foreground ++
-        [
-          Aiur.BuildOrder.History.LabelBackfill,
-          {Registry, [keys: :unique, name: Aiur.Conversation.Registry]},
-          {DynamicSupervisor, [strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor]}
-        ]
+    expected = @foreground ++ [Aiur.BuildOrder.History.LabelBackfill]
 
     assert Aiur.Application.child_specs(@opts) == expected
 

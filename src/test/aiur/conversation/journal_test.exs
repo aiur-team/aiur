@@ -258,4 +258,21 @@ defmodule Aiur.Conversation.JournalTest do
     receive_barrier({:DOWN, ^monitor, :process, ^pid, :normal})
     assert :persistent_term.get({Ingest, :dropped, id}, nil) == nil
   end
+
+  test "failed shutdown flush retains both loss spans and counts buffered drops", %{ref: ref, dir: dir, control: control, now: now} do
+    actions(control, :append, List.duplicate({:error, :enospc}, 2))
+    Ingest.append(ref, source(), [event(1)])
+    {:ok, pid} = Ingest.writer(ref)
+    GenServer.cast(pid, {:dropped, now, now})
+    assert {:error, :degraded} = flush(ref)
+    assert :ok = DynamicSupervisor.terminate_child(Aiur.Conversation.JournalSupervisor, pid)
+    assert Ingest.dropped_count(ref) == 1
+    actions(control, :append, [])
+    Ingest.append(ref, source(), [event(2)])
+    assert :ok = flush(ref)
+    assert [outage, pressure, entry] = rows(dir)
+    assert outage["meta"] == %{"reason" => "source_unreadable", "from" => DateTime.to_iso8601(now), "to" => DateTime.to_iso8601(now)}
+    assert pressure["meta"] == %{"reason" => "backpressure", "from" => DateTime.to_iso8601(now), "to" => DateTime.to_iso8601(now)}
+    assert entry["body"] == "message 2"
+  end
 end
