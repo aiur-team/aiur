@@ -213,8 +213,10 @@ test('board diffs preserve dependency and queue focus without taking focus from 
   const dep = page.locator('.bm-dep[data-goto="999"]')
   const button = page.getByRole('button', { name: 'Add to queue' })
   await dep.focus()
+  await dep.evaluate(element => { window.focusedDependency = element })
   const unrelated = await page.evaluate(async () => (await import('/build-home/state.js')).ctx.D.plan[0])
   await upsert(page, [{ ...unrelated, title: unrelated.title + ' unrelated update' }])
+  expect(await page.evaluate(() => document.querySelector('.bm-dep[data-goto="999"]') === window.focusedDependency)).toBe(true)
   await expect(dep).toBeFocused()
   await upsert(page, [{ ...t, title: t.title + ' updated' }])
   await expect(dep).toBeFocused()
@@ -227,6 +229,23 @@ test('board diffs preserve dependency and queue focus without taking focus from 
   await upsert(page, [{ ...t, title: t.title + ' header update' }])
   await expect(page.locator('[data-a="link"]')).toBeFocused()
   expect(await page.evaluate(() => window.docCalls.filter(c => c.event === 'queue-add').length)).toBe(1)
+})
+
+test('clearing another ticket queue state does not repaint the open modal', async ({ page }) => {
+  const queued = await display(page, { sec: 'nq' })
+  const add = page.getByRole('button', { name: 'Add to queue' })
+  await add.click()
+  await result(page, queued.id, { ok: false, reason: 'closed' })
+  await page.keyboard.press('Escape')
+
+  await display(page, { deps: ['999'] })
+  const dep = page.locator('.bm-dep[data-goto="999"]')
+  await dep.focus()
+  await dep.evaluate(element => { window.focusedDependency = element })
+  await upsert(page, [{ ...queued, sec: 'plan', qpos: 1, wave: 1 }])
+
+  expect(await page.evaluate(() => document.querySelector('.bm-dep[data-goto="999"]') === window.focusedDependency)).toBe(true)
+  await expect(dep).toBeFocused()
 })
 
 // Unknown observations must never acquire a plausible freshness age.
