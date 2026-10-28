@@ -30,9 +30,11 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
           {:error, reason, socket} = not_saved(socket)
           reply(socket, {:error, %{reason: reason}})
 
+        {:ok, _snapshot} ->
+          socket |> imported() |> devices_reply()
+
         _result ->
-          push(socket)
-          reply(socket, {:ok, %{}})
+          devices_reply(socket)
       end
     else
       {:reply, {:error, %{reason: "invalid_devices"}}, socket}
@@ -92,6 +94,16 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
   defp not_saved(socket) do
     nav = socket.assigns.deck_nav
     {:error, "not_saved", assign(socket, deck_toast: "Not saved", deck_nav: %{nav | settings: %{nav.settings | notice: "Not saved"}})}
+  end
+
+  defp imported(socket) do
+    nav = socket.assigns.deck_nav
+    assign(socket, deck_toast: nil, deck_nav: %{nav | settings: %{nav.settings | notice: "Saved"}})
+  end
+
+  defp devices_reply(socket) do
+    push(socket)
+    reply(socket, {:ok, %{}})
   end
 
   defp reply(socket, result) do

@@ -29,5 +29,7 @@ defmodule AiurWeb.StreamdeckChannelSettingsMigrationTest do
     assert_reply(ref, :ok, %{}, 1_000)
     assert SettingsSnapshot.read(path).settings["mic_id"] == "saved"
     assert Jason.decode!(File.read!(path))["mic_id"] == "saved"
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.settings.notice == "Saved"
+    assert :sys.get_state(socket.channel_pid).assigns.deck_toast == nil
   end
 end
