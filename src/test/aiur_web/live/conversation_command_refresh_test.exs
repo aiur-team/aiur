@@ -140,6 +140,23 @@ defmodule AiurWeb.ConversationCommandRefreshTest do
     refute has_element?(view, "#entry-1", ctx.secret)
   end
 
+  test "a jump to a loaded position preserves visible reveals and checks permission", ctx do
+    row = request(ctx)
+    anchor(ctx, row, 2, "exact")
+    {:ok, view, _} = open(ctx)
+    reveal(view)
+
+    options = reads(view, fn -> render_click(element(view, "button[phx-value-id='#{row.decision_id}']")) end)
+    assert Enum.map(options, &{&1[:around], &1[:limit], Keyword.get(&1, :reveal, false)}) == [{2, 50, false}, {1, 1, true}]
+    assert has_element?(view, "#entry-1", ctx.secret)
+    refute has_element?(view, "#entry-2", ctx.secret)
+    assert has_element?(view, "#entry-2[data-jump-target=true]")
+
+    Phoenix.Config.put(Endpoint, :dashboard_writable, false)
+    render_click(element(view, "button[phx-value-id='#{row.decision_id}']"))
+    refute has_element?(view, "#entry-1", ctx.secret)
+  end
+
   test "an anchor upgrade refreshes old and new positions and retains raw text", ctx do
     row = request(ctx)
     anchor(ctx, row, 1, "observed")

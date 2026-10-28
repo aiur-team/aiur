@@ -83,7 +83,7 @@ defmodule AiurWeb.Conversation.Paging do
     assign(socket,
       page: page,
       positions: positions,
-      revealed_positions: revealed_positions(socket, positions, reset?),
+      revealed_positions: revealed_positions(socket, positions),
       last_entry: last,
       live_head: live_head,
       mode: direction,
@@ -92,10 +92,12 @@ defmodule AiurWeb.Conversation.Paging do
       read_error: nil,
       degraded: History.degraded?(socket.assigns.id)
     )
+    |> restore_reveals(reset?)
   end
 
-  defp revealed_positions(_socket, _positions, true), do: MapSet.new()
-  defp revealed_positions(socket, positions, false), do: MapSet.intersection(socket.assigns.revealed_positions, MapSet.new(positions))
+  defp revealed_positions(socket, positions), do: MapSet.intersection(socket.assigns.revealed_positions, MapSet.new(positions))
+  defp restore_reveals(socket, true), do: refresh_positions(socket, MapSet.to_list(socket.assigns.revealed_positions))
+  defp restore_reveals(socket, false), do: socket
 
   defp insert(socket, entries, :older), do: Enum.reduce(entries, socket, &stream_insert(&2, :entries, &1, at: 0, limit: 500))
   defp insert(socket, entries, _direction), do: Enum.reduce(entries, socket, &stream_insert(&2, :entries, &1, at: -1, limit: -500))
@@ -122,7 +124,7 @@ defmodule AiurWeb.Conversation.Paging do
 
   defp append_window(socket, entries) do
     positions = Enum.take(socket.assigns.positions ++ Enum.map(entries, & &1.pos), -500)
-    socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions, revealed_positions: revealed_positions(socket, positions, false))
+    socket |> insert(entries, :tail) |> assign(mode: :append, positions: positions, revealed_positions: revealed_positions(socket, positions))
   end
 
   defp count_new(socket, count, at_tail?), do: assign(socket, :new_below, if(at_tail? and socket.assigns.at_bottom, do: 0, else: socket.assigns.new_below + count))
