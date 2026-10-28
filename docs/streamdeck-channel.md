@@ -137,8 +137,10 @@ conversation handle. Live notifications coalesce on a 250 ms tick; a one-second
 poll catches file appends and generation changes. Reads and pushes are bounded
 to four per second. Refocus, unfocus and termination unsubscribe and cancel the
 timer. `chat.latest` uses the shared Entries allowlist; prompt bodies, raw events
-and tool output are excluded. Missing, unavailable and stale conversations are
-named on the strip; stale state includes the observation age.
+and tool output are excluded. Remote-device masking removes secrets and URLs
+from conversation text before either chat or Logs rows reach the device.
+Missing, unavailable and stale conversations are named on the strip; stale state
+includes the observation age.
 
 ## Commands and answering
 

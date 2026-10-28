@@ -2,6 +2,7 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   @moduledoc "Channel-owned conversation tail, subscriptions and bounded refresh."
   import Phoenix.Socket, only: [assign: 2]
   import Phoenix.Channel, only: [push: 3]
+  alias Aiur.SecretRedactor
   alias AiurWeb.Build.{ConversationPayload, ConversationSource, Payload}
   alias AiurWeb.Streamdeck.Deck.ChatLogs
 
@@ -68,15 +69,25 @@ defmodule AiurWeb.Streamdeck.Deck.Chat do
   defp read_update(socket, state) do
     with {:ok, view, reset?} <- tail(state),
          :ok <- Payload.validate(%{v: 1, kind: "conversation-append", id: state.ref.id, entries: view.entries, gap: false}) do
+      incoming = Enum.map(view.entries, &mask_entry/1)
       entries = if reset?, do: [], else: state.entries
-      entries = (entries ++ view.entries) |> Enum.reverse() |> Enum.uniq_by(& &1.id) |> Enum.take(100) |> Enum.reverse()
+      entries = (entries ++ incoming) |> Enum.reverse() |> Enum.uniq_by(& &1.id) |> Enum.take(100) |> Enum.reverse()
       ChatLogs.push(socket, state.ref.id, entries)
-      latest = List.last(view.entries) || if(reset?, do: nil, else: state.latest)
+      latest = List.last(incoming) || if(reset?, do: nil, else: state.latest)
       last = view[:last] || if(reset?, do: nil, else: state.last)
       socket |> assign(deck_chat: %{state | last: last, latest: latest, entries: entries}) |> push_view(view, latest)
     else
       _ -> unavailable(socket)
     end
+  end
+
+  defp mask_entry(entry) do
+    Enum.reduce([:text, :arg, :res], entry, fn field, masked ->
+      case Map.get(masked, field) do
+        text when is_binary(text) -> Map.put(masked, field, text |> SecretRedactor.redact() |> SecretRedactor.redact_urls())
+        _ -> masked
+      end
+    end)
   end
 
   defp tail(state) do

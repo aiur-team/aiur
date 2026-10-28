@@ -28,6 +28,27 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
   end
 
+  test "retained tool arguments and assistant text are masked before chat and Logs pushes", %{workspace: workspace} do
+    token = "ghp_" <> String.duplicate("a", 36)
+    url = "https://capability.example.test/session/private"
+    command = "curl -H \"Authorization: Bearer #{token}\" #{url}"
+    masked_command = "curl -H \"Authorization: Bearer [REDACTED:ghp]\" [REDACTED:url]"
+    tool = %{method: "item/completed", params: %{item: %{type: "commandExecution", command: command, exitCode: 2, aggregatedOutput: "private output"}}}
+    retained = line("reply #{token} #{url}") <> Jason.encode!(%{event: "notification", timestamp: DateTime.to_iso8601(DateTime.utc_now()), raw: Jason.encode!(tool)}) <> "\n"
+    path = Path.join(workspace, "logs/agent.ndjson")
+    File.write!(path, retained)
+    socket = joined_socket()
+    assert_reply(push(socket, "focus", %{"identifier" => "7"}), :ok, %{"focused" => "7"})
+    assert_push("chat", %{"latest" => %{"k" => "tool", "arg" => ^masked_command, "res" => "✗ exit 2"}}, 2_000)
+    assert_push("logs", %{"transcript" => rows}, 2_000)
+    assert Enum.any?(rows, &(&1["body"] == masked_command <> " · ✗ exit 2"))
+    assert Enum.any?(rows, &(&1["body"] == "reply [REDACTED:ghp] [REDACTED:url]"))
+    refute Jason.encode!(rows) =~ token
+    refute Jason.encode!(rows) =~ url
+    assert File.read!(path) == retained
+    assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
+  end
+
   test "missing retained logs have a named state" do
     socket = joined_socket()
     assert_reply(push(socket, "focus", %{"identifier" => "7"}), :ok, %{"focused" => "7"})
@@ -95,6 +116,24 @@ defmodule AiurWeb.StreamdeckChannelChatTest do
     assert_push("chat", %{"latest" => %{"text" => "last"}}, 1_000)
     assert_receive {:chat_tail, ^pid, "cursor-1"}, 1_000
     refute_push("chat", _, 150)
+    assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
+  end
+
+  test "remote masking covers agent, operator and system text and tool results" do
+    token = "ghp_" <> String.duplicate("b", 36)
+    url = "https://capability.example.test/result/private"
+    entries = Enum.map(~w(say op sys), &%{id: &1, at: nil, k: &1, text: "#{&1} #{token} #{url}"})
+    entries = entries ++ [%{id: "tool", at: nil, k: "tool", name: "bash", arg: "token #{token}", res: "result #{url}"}]
+    agent = start_supervised!({Agent, fn -> {:ok, %{state: :live, observed_at: DateTime.utc_now(), entries: entries, last: "tool"}} end})
+    source({Source, agent: agent, handle: Notify.random_handle(), observer: self()})
+    socket = joined_socket()
+    assert_reply(push(socket, "focus", %{"identifier" => "7"}), :ok, %{"focused" => "7"})
+    assert_push("chat", %{"latest" => %{"k" => "tool", "arg" => "token [REDACTED:ghp]", "res" => "result [REDACTED:url]"}}, 2_000)
+    assert_push("logs", %{"transcript" => rows}, 2_000)
+    for kind <- ~w(say op sys), do: assert(Enum.any?(rows, &(&1["body"] == "#{kind} [REDACTED:ghp] [REDACTED:url]")))
+    assert Enum.any?(rows, &(&1["body"] == "token [REDACTED:ghp] · result [REDACTED:url]"))
+    refute Jason.encode!(rows) =~ token
+    refute Jason.encode!(rows) =~ url
     assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
   end
 
