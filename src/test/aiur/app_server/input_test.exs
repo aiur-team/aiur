@@ -111,6 +111,7 @@ defmodule Aiur.AppServer.InputTest do
         command: "#{codex_binary} app-server",
         codex_approval_policy: "never"
       )
+
       File.write!(Workflow.workflow_file_path(), "\ndecisions: {native_capture: {codex: false}}\n", [:append])
       assert :ok = WorkflowStore.force_reload()
 
