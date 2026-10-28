@@ -19,11 +19,13 @@ defmodule AiurWeb.StreamdeckFleet do
   end
 
   @spec grid(term()) :: map()
-  def grid({status, snapshot, freshness}) when status in [:current, :stale] and is_map(snapshot),
+  def grid(snapshot), do: Map.merge(project_grid(snapshot), AiurWeb.Streamdeck.Deck.read().build_order)
+
+  defp project_grid({status, snapshot, freshness}) when status in [:current, :stale] and is_map(snapshot),
     do: snapshot |> StreamDeckGrid.project() |> Map.put(:snapshot_freshness, freshness)
 
-  def grid(snapshot) when is_map(snapshot), do: StreamDeckGrid.project(snapshot)
-  def grid(_unavailable), do: StreamDeckGrid.project(%{})
+  defp project_grid(snapshot) when is_map(snapshot), do: StreamDeckGrid.project(snapshot)
+  defp project_grid(_unavailable), do: StreamDeckGrid.project(%{})
 
   defp agents(%{agents: agents}) when is_list(agents), do: StreamdeckProjection.fleet_agents(agents)
   defp agents({_status, snapshot, _freshness}), do: agents(snapshot)

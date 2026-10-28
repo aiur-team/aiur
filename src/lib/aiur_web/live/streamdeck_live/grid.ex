@@ -192,10 +192,13 @@ defmodule AiurWeb.StreamdeckLive.Grid do
           end
       end
 
-    case snapshot do
-      %{} = snapshot -> StreamDeckGrid.project(snapshot)
-      _ -> empty_grid()
-    end
+    grid =
+      case snapshot do
+        %{} = snapshot -> StreamDeckGrid.project(snapshot)
+        _ -> empty_grid()
+      end
+
+    Map.merge(grid, AiurWeb.Streamdeck.Deck.read().build_order)
   end
 
   defp empty_grid do

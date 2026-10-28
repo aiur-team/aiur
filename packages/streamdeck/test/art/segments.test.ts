@@ -52,6 +52,13 @@ describe("resetLabel", () => {
 });
 
 describe("summary panel", () => {
+  it("distinguishes unavailable queue reads from absent lanes and unknown percent", () => {
+    const unavailable: SegmentContent = { kind: "summary", model: { live: 1, remaining: 2, build: null, build_status: "unavailable" } };
+    expect(drew(render(unavailable).ink, "Build unavailable")).toBeDefined();
+    expect(drew(render({ ...unavailable, model: { ...unavailable.model, build_status: "none" } }).ink, "No build order")).toBeDefined();
+    expect(drew(render(summary({ completed: null, total: 22, fraction: null, etaLabel: null })).ink, "Build progress unavailable")).toBeDefined();
+  });
+
   it("paints the live count and the build bar", () => {
     const { ink, inked } = render(summary({ completed: 13, total: 32, fraction: 0.4, etaLabel: "58m" }));
     expect(drew(ink, "Summary")).toBeDefined();
