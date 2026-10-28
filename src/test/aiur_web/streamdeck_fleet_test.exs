@@ -32,6 +32,7 @@ defmodule AiurWeb.StreamdeckFleetTest do
     freshness = %{status: :stale, age_ms: 90_000, reason: :snapshot_timeout}
     retained = {:stale, snapshot, freshness}
     assert %{"agents" => [%{"identifier" => "3875", "model" => "gpt-5.5", "status" => "running"}]} = StreamdeckFleet.fleet(retained)
+    Aiur.TestSupport.EndpointStubs.put(streamdeck_build_window_fun: fn _, _, _ -> {:error, :offline} end)
     grid = StreamdeckFleet.grid(retained)
     assert grid.agents == []
     assert grid.tickets_status == "unavailable"

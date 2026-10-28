@@ -5,7 +5,7 @@ defmodule AiurWeb.Streamdeck.Deck do
 
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
-    opts = Keyword.put_new_lazy(opts, :window, fn -> Tickets.window(opts) end)
+    opts = Keyword.put_new_lazy(opts, :window, fn -> Counts.window(opts) end)
     %{build_order: read_section(BuildOrder, opts), counts: Counts.read(opts), tickets: Tickets.read(opts)}
   end
 

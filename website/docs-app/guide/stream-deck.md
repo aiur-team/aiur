@@ -88,7 +88,8 @@ A bar that drops to an empty track and back is a bug; report it.
 | Paging | Moves by columns so each pair stays together. |
 
 The default Ticket view reads the same Now and planned rows as the Build page.
-Labels match Build, including “Waiting for CI”, “Awaiting command” and “State unknown”.
+Agent-state labels match Build, including “Waiting for CI”, “Awaiting command” and “State unknown”.
+
 Missing progress draws no bar and never becomes 0%. Tickets without an agent appear
 only when queued; pressing a key opens that ticket’s deck page.
 The order is the same in the browser emulator and on the physical deck.

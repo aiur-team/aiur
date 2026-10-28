@@ -1,7 +1,7 @@
 defmodule AiurWeb.Streamdeck.Deck.Tickets do
   @moduledoc "Ticket keys from the Build window, ordered by attention then queue position."
   alias Aiur.BuildOrder.TicketStatus
-  alias AiurWeb.{Build.Index, EndpointConfig}
+  alias AiurWeb.Streamdeck.Deck.Counts
 
   @order ~w(error command retrying active ci_wait usage_limited parked paused)
   @models %{"claude" => "Claude", "codex" => "Codex", "deepseek" => "DeepSeek", "kimi" => "Kimi"}
@@ -9,21 +9,11 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
   @external_resource @taxonomy_path
   @states @taxonomy_path |> File.read!() |> Jason.decode!() |> Map.fetch!("agent") |> Map.keys()
 
-  @spec window(keyword()) :: {:ok, map()} | {:error, term()}
-  def window(opts \\ []) do
-    read = EndpointConfig.get(:streamdeck_build_window_fun) || (&read_window/3)
-    read.(Keyword.get(opts, :index, Index), "Etc/UTC", 5_000)
-  rescue
-    _ -> {:error, :unavailable}
-  catch
-    :exit, _ -> {:error, :unavailable}
-  end
-
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     case Keyword.fetch(opts, :window) do
       {:ok, result} -> project(result)
-      :error -> project(window(opts))
+      :error -> project(Counts.window(opts))
     end
   end
 
@@ -39,10 +29,6 @@ defmodule AiurWeb.Streamdeck.Deck.Tickets do
     |> Enum.uniq_by(&field(&1, :num))
     |> Enum.filter(&matches?(&1, filter))
     |> Enum.map(&key/1)
-  end
-
-  defp read_window(server, zone, timeout) do
-    with :ok <- Index.subscribe(server), do: Index.window(server, zone, timeout)
   end
 
   defp project({:ok, window}) do
