@@ -19,6 +19,7 @@ defmodule Aiur.Commands.RollbackTest do
       routed: %{policy: :executor_first, state: :with_executor, cause: nil, at: at, actor: actor},
       escalated: %{cause: :executor_ack_timeout, at: at, detail: "Timeout", actor: actor},
       human_needed: %{cause: :executor_ack_timeout, at: at, short_label: "Choose", requester_kind: :worker, blocking: false, urgency: :normal},
+      override_implemented: %{action_id: "action-1", head_sha: "head-1", pr_number: 77, at: at},
       requester_notified: %{action_id: "action-1", at: at, channel: :wake_inbox},
       executor_acknowledged: %{executor_id: "executor", via: :explicit, at: at}
     }
