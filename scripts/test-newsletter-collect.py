@@ -17,6 +17,7 @@ import collect
 from classification import classify
 from github import GitHub
 from local_sources import iso
+from allocation_sources import allocation_evidence
 
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 STAMP = iso(NOW)
@@ -56,6 +57,50 @@ def daemon(args):
 
 
 class CollectorTest(unittest.TestCase):
+    def test_allocation_evidence_is_unavailable_without_telemetry_and_keeps_reader_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = allocation_evidence(root, NOW, {}, telemetry_root=root / "missing")
+        self.assertEqual(set(result), {"pc", "nuc"})
+        for machine in ("pc", "nuc"):
+            self.assertEqual(set(result[machine]), {"turns", "intake", "feature_supply"})
+            for section in result[machine].values():
+                self.assertEqual(section["state"], "unavailable")
+                self.assertIs(section["complete"], False)
+                self.assertIsNone(section["records"])
+
+    def test_allocation_evidence_matches_metric_reader_record_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log_dir = root / "telemetry"
+            log_dir.mkdir()
+            rows = [
+                {"kind": "run_context", "timestamp": iso(NOW - timedelta(days=7, minutes=1)), "attributes": {}},
+                {"kind": "lifecycle", "timestamp": iso(NOW - timedelta(minutes=2)),
+                 "attributes": {"ticket": "42", "attempt_id": "attempt", "operation_id": "turn:1",
+                                "event": "implement", "boundary": "start"}},
+                {"kind": "lifecycle", "timestamp": iso(NOW - timedelta(minutes=1)),
+                 "attributes": {"ticket": "42", "attempt_id": "attempt", "operation_id": "turn:1",
+                                "event": "implement", "boundary": "end"}},
+                {"kind": "feature_supply", "timestamp": iso(NOW),
+                 "attributes": {"event": "interval", "event_key": "supply:1",
+                                "interval_start_ms": int((NOW - timedelta(days=1)).timestamp() * 1000),
+                                "interval_end_ms": int(NOW.timestamp() * 1000),
+                                "feature_starved_slot_minutes": 1440.0,
+                                "non_feature_during_starvation_minutes": 0.0, "observed_minutes": 1440.0}},
+            ]
+            (log_dir / "telemetry.ndjson").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            result = allocation_evidence(root, NOW, {42: {"labels": ["feature:newsletter"], "title": "Newsletter"}}, telemetry_root=log_dir)
+        block = result["pc"]["turns"]
+        self.assertEqual((block["state"], block["complete"]), ("available", True))
+        row = block["records"][0]
+        self.assertEqual(set(row), {"attempt_id", "number", "phase", "started_at", "ended_at", "labels", "title"})
+        self.assertEqual((row["number"], row["phase"], row["labels"]), (42, "implement", ["feature:newsletter"]))
+        self.assertEqual(result["pc"]["intake"]["state"], "unavailable")
+        supply = result["pc"]["feature_supply"]
+        self.assertEqual((supply["state"], supply["complete"]), ("available", True))
+        self.assertEqual(set(supply["records"][0]), {"event_id", "kind", "attributes"})
+
     def test_schema_real_sources_and_cross_machine_deduplication(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

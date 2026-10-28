@@ -168,6 +168,11 @@ incomplete reads unavailable. See [GitHub budgets](/apis/github-budgets).
 Meta summaries read timestamped `meta/*.md` files and Executor action records
 read `executor/*/history.ndjson`.
 
+Snapshots also include `allocation_evidence` blocks for `pc` and `nuc`, with
+turn, intake, and feature-supply sections. Sections include records only when
+the source can prove complete window coverage; missing intake history and
+unreachable machine telemetry remain unavailable rather than zero.
+
 Missing sources remain `null` with reasons;
 stale daemon observations cannot produce current allocation counts. Units are
 deduplicated by repository and issue number across daemons.
