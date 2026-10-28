@@ -28,7 +28,7 @@ window.AiurConversationScrollHook = {
       const mode = this.el.dataset.mode
       const firstChanged = this.firstPos !== this.el.querySelector('[data-pos]')?.dataset.pos
       if (mode === 'start' && firstChanged) this.el.scrollTop = 0
-      else if (mode === 'older' && this.anchor?.isConnected) this.el.scrollTop += this.anchor.getBoundingClientRect().top - this.anchorTop
+      else if (Number(this.el.querySelector('[data-pos]')?.dataset.pos) < Number(this.firstPos) && this.anchor?.isConnected) this.el.scrollTop += this.anchor.getBoundingClientRect().top - this.anchorTop
       else if (this.wasBottom && (mode === 'tail' || this.head !== this.el.dataset.head)) this.toBottom()
       this.onScroll()
     })
