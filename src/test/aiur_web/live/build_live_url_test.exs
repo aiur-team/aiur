@@ -1,6 +1,6 @@
 defmodule AiurWeb.BuildLiveURLTest do
   use Aiur.TestSupport.BuildHome.ProtocolCase
-  alias AiurWeb.Build.URLState
+  alias AiurWeb.Build.{Read, URLState}
 
   test "initial container has URL state and mount does not push" do
     {:ok, view, html} = live(build_conn(), "/build?view=gantt")
@@ -15,10 +15,16 @@ defmodule AiurWeb.BuildLiveURLTest do
     end
   end
 
-  test "fixture dataset query is dropped outside the browser fixture server" do
+  test "fixture session dataset is ignored outside the browser fixture server" do
     previous = Application.fetch_env(:aiur, :build_fixture_query)
     Application.delete_env(:aiur, :build_fixture_query)
     on_exit(fn -> restore_fixture_query(previous) end)
+
+    conn = build_conn() |> Plug.Test.init_test_session(%{"fixture_dataset" => "unknowns"})
+    {:ok, view, _html} = live(conn, "/build")
+    socket = :sys.get_state(view.pid).socket
+    refute socket.assigns[:build_fixture_dataset]
+    refute Keyword.has_key?(Read.source_opts(socket), :dataset)
     assert {:error, {:live_redirect, %{to: "/build"}}} = live(build_conn(), "/build?fixture_dataset=unknowns")
   end
 

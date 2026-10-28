@@ -8,7 +8,6 @@ import { boardAudit, canonicalBoardOverlaps, contrastRatio } from './support/bui
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
 
-// These tests share the board's axe, keyboard, contrast, and live-update contracts.
 test.use({ httpCredentials: dashboardCredentials, timezoneId: 'America/Los_Angeles', viewport: { width: 1440, height: 900 } })
 
 async function open(page, dataset = 'live', view = 'graph', mode = 'read_only') {
