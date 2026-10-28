@@ -185,3 +185,18 @@ it("labels invalid local startup as unreachable without exposing the URL or conn
   expect(options.disconnect).not.toHaveBeenCalled();
   switcher.close();
 });
+
+it("follows a daemon setting without bouncing through conflicting saved targets", async () => {
+  const options = setup();
+  const switcher = createInstanceSwitcher(options);
+  switcher.start(); await switcher.idle();
+  switcher.select("unknown"); switcher.select("local");
+  expect(options.connect).toHaveBeenCalledTimes(1);
+  switcher.select("remote"); await switcher.idle();
+  expect(options.connect.mock.calls[1]![0]).toMatchObject({ name: "remote" });
+  switcher.select("local"); await switcher.idle();
+  expect(options.connect).toHaveBeenCalledTimes(2);
+  switcher.resetSelectionChain(); switcher.select("local"); await switcher.idle();
+  expect(options.connect.mock.calls[2]![0]).toMatchObject({ name: "local" });
+  switcher.close();
+});

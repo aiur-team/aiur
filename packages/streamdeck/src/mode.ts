@@ -180,9 +180,6 @@ export const transitionMode = (state: StreamDeckModeState, action: ModeAction): 
     return { state: { ...state, mode: "grid", activeAgentId: null, micHeld: false }, effects: [] };
   }
 
-  // Both surfaces hold a microphone: `mic` in cmd and `TestMic` in settings.
-  // They are the same press-and-hold gesture against the same capture, so they
-  // are the same transition rather than two that can drift apart.
   if (action.type === "mic.down" && holdsMic(state.mode)) {
     return { state: { ...state, micHeld: true }, effects: [] };
   }
@@ -203,5 +200,5 @@ const newestChatIndex = (bounds: StreamDeckEventProjection | undefined): number 
 const isMicRelease = (action: ModeAction): action is Extract<ModeAction, { type: "mic.up" | "mic.leave" | "mic.cancel" }> =>
   action.type === "mic.up" || action.type === "mic.leave" || action.type === "mic.cancel";
 
-/** The two modes with a hold-to-talk key on them. */
-const holdsMic = (mode: StreamDeckMode): boolean => mode === "cmd" || mode === "settings";
+/** Only the command mode has a hold-to-talk key. */
+const holdsMic = (mode: StreamDeckMode): boolean => mode === "cmd";

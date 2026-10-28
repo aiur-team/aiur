@@ -21,9 +21,8 @@ const grid = (count = 10): StreamDeckGrid => ({
 /**
  * The voice half of the command surface, driven entirely through real HID
  * reports: key 2 is the mic, key 3 opens settings, keys 4 and 5 are Send and
- * Cancel, and on the settings surface key 2 is TestMic — the same slot as the
- * command surface's mic — keys 0, 1, 3, 4, 5 and 6 are the microphones, and 7
- * pages.
+ * Cancel; the settings surface selects microphones without capturing.
+ * Keys 0 through 6 select microphones, and key 7 pages.
  */
 describe("voice keys", () => {
   const fakeVoice = (over: Partial<ControllerVoice> = {}) => {
@@ -157,42 +156,25 @@ describe("voice keys", () => {
     expect(voice.select).not.toHaveBeenCalled();
   });
 
-  it("holds TestMic on key 2 and releases it on key 2 up", () => {
+  it("selects the third microphone on key 2 without capturing", () => {
     const voice = fakeVoice();
+    voice.setDevices(Array.from({ length: 7 }, (_, index) => ({ id: `m${index}`, label: `Mic ${index}` })));
     const controller = inSettings(voice);
     controller.handleReport(keyReport(2, true));
-    expect(voice.hold).toHaveBeenCalledOnce();
-    expect(controller.state().micHeld).toBe(true);
     controller.handleReport(keyReport(2, false));
-    expect(voice.release).toHaveBeenCalledOnce();
-    expect(controller.state().micHeld).toBe(false);
-  });
-
-  /**
-   * The move is only real if both halves moved together: key 2 must capture and
-   * key 6 — TestMic's old home — must now select the sixth microphone.
-   */
-  it("captures on key 2 and selects the sixth microphone on key 6", () => {
-    const voice = fakeVoice();
-    voice.setDevices(Array.from({ length: 6 }, (_, index) => ({ id: `m${index}`, label: `Mic ${index}` })));
-    const controller = inSettings(voice);
-
-    controller.handleReport(keyReport(2, true));
-    expect(voice.hold).toHaveBeenCalledOnce();
-    expect(voice.select).not.toHaveBeenCalled();
-    controller.handleReport(keyReport(2, false));
-
+    expect(voice.select).toHaveBeenCalledWith("m2");
+    expect(voice.hold).not.toHaveBeenCalled();
+    expect(voice.release).not.toHaveBeenCalled();
+    expect(controller.state()).toMatchObject({ selectedMicId: "m2", micHeld: false });
     controller.handleReport(keyReport(6, true));
-    expect(voice.select).toHaveBeenCalledWith("m5");
-    expect(controller.state()).toMatchObject({ selectedMicId: "m5", micHeld: false });
-    expect(voice.hold).toHaveBeenCalledOnce();
+    expect(voice.select).toHaveBeenCalledWith("m6");
   });
 
   it("pages the microphone list with key 7, wrapping past the last page", () => {
     const voice = fakeVoice();
     voice.setDevices(Array.from({ length: 15 }, (_, index) => ({ id: `m${index}`, label: `Mic ${index}` })));
     const controller = inSettings(voice);
-    for (const expected of [6, 12, 0]) {
+    for (const expected of [7, 14, 0]) {
       controller.handleReport(keyReport(7, true));
       controller.handleReport(keyReport(7, false));
       expect(controller.state().micOffset).toBe(expected);

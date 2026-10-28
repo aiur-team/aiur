@@ -74,7 +74,7 @@ export type SegmentContent =
    * continuous signal.
    */
   | { readonly kind: "voice"; readonly data: VoicePanelData }
-  /** The settings surface's readout when TestMic is not held. */
+  /** The legacy microphone picker's readout. */
   | {
       readonly kind: "settings";
       /** Label of the microphone capture will open, or an empty string. */
@@ -231,18 +231,8 @@ export function composeStrip(input: StripData): readonly StripPanel[] {
       ];
     }
     case "settings": {
-      const { selectedLabel, deviceCount, pageLabel, voice } = input.data;
-      // TestMic only. Unlike cmd there is no buffer to read back here — the
-      // whole point of the key is "does this microphone hear me *now*".
-      return [
-        {
-          region: STRIP_REGION,
-          content:
-            voice !== undefined && voice.holding
-              ? { kind: "voice", data: voice }
-              : { kind: "settings", selectedLabel, deviceCount, pageLabel },
-        },
-      ];
+      const { selectedLabel, deviceCount, pageLabel } = input.data;
+      return [{ region: STRIP_REGION, content: { kind: "settings", selectedLabel, deviceCount, pageLabel } }];
     }
     case "commands": {
       const { panel, voice } = input.data;

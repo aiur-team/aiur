@@ -8,7 +8,7 @@ import {
   OPTIONS_PER_PAGE,
 } from "../commands.js";
 import { agentIndexForKey } from "../keys.js";
-import { SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY } from "../settings.js";
+import { SETTINGS_NEXT_PAGE_KEY } from "../settings.js";
 import type { AudioDevice } from "../audio/index.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs" | "settings" | "commands";
@@ -28,11 +28,7 @@ export const CMD_CANCEL = 6;
  * so a press can never mean something the key does not say. */
 export const CMD_IMPLEMENT = 7;
 
-/* Settings-mode key indices. TestMic shares `CMD_MIC`'s slot so hold-to-talk is
- * under the same finger on both surfaces; the microphones fill what is left, in
- * the order `MIC_KEY_INDICES` gives. Those come from `settings.ts` so this
- * handler and the face `surface.ts` paints read one mapping, not two. */
-export const SETTINGS_TEST_MIC = SETTINGS_TEST_MIC_KEY;
+/* Paging shares the mapping used by the settings face painter. */
 export const SETTINGS_NEXT_PAGE = SETTINGS_NEXT_PAGE_KEY;
 
 /* Commands-mode key indices. Option slots and the mic/approve/cancel/paging

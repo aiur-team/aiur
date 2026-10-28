@@ -97,8 +97,7 @@ export const COMMAND_ICONS: Readonly<Record<string, string>> = Object.freeze({
   /** Commit the answer: a check inside a ring, distinct from a plain dial. */
   approve: '<circle cx="12" cy="12" r="8.5"/><path d="m8 12.5 3 3 5.5-6"/>',
   /**
-   * Five bars of rising and falling level: TestMic answers "does this
-   * microphone hear me", so its glyph is the meter rather than a second mic.
+   * Five bars of rising and falling audio level.
    */
   test: '<path d="M3.5 10v4M8 6.5v11M12 3.5v17M16 6.5v11M20.5 10v4"/>',
   /**

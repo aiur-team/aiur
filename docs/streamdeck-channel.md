@@ -55,11 +55,12 @@ deck DTOs. Nothing in the dashboard needs the sidecar installed.
 
 Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 `fleet`, `usage` and `logs` are kept for the emulator until SD-104/SD-105;
-the physical sidecar consumes `frame` images only.
+the physical sidecar consumes `frame` images and applies daemon `settings`.
 
 | Event | Payload | Meaning |
 | --- | --- | --- |
 | `frame` | `{keys: [{svg, hash, label} or null] × 8, strip: [{x, width, svg, hash}]}` | Full physical image state on join and coalesced input/data changes (250 ms). Hashes skip unchanged images; regions tile 800×100. |
+| `settings` | `{mic_id, speaker_id, default_view, default_sort, brightness, dim_after_seconds, instance, alerts}` | Daemon-owned settings on join and after a successful save. Null brightness uses the sidecar environment default. |
 | `snapshot` | `{version, fleet, grid, usage, decisions, voice}` | Complete state after join; `grid` includes `build`, `build_status` and `counts`. |
 | `fleet` | `{agents, grid}` | Complete replacement after fleet or build changes; `grid` includes `build`, `build_status` and `counts`. |
 | `ticket` | {v:1, kind:"ticket", id, title, sec, status, agent, pr, control, links, actions, qpos, observed_at} | Focused Build ticket on focus, Build changes and coalesced fleet refresh. |
@@ -70,6 +71,15 @@ the physical sidecar consumes `frame` images only.
 | `alert` | `{identifier, name, message, severity, needs_attention, timestamp}` | Focused agent alert. |
 | `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
 | `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
+
+The sidecar sends `devices` on join and inventory changes with
+`{mics: [{id, label}], speakers: [{id, label}], instances: [name], legacy_mic_id?}`.
+Only instance names cross this boundary; connection credentials stay on the PC.
+`legacy_mic_id` migrates the old sidecar preference when daemon settings are absent.
+The `settings_set` event carries a patch of the settings fields. The daemon
+validates it and atomically saves the per-instance private file before pushing
+`settings`. Failed writes reply with an error, retain the old settings and show
+“not saved”. Brightness is clamped to 0–100; a zero idle timeout never dims.
 
 `grid.build_status` is `ok`, `none` (no lane with a positive total), or
 `unavailable` (queue model could not be read). `grid.build` is null unless

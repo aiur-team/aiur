@@ -217,7 +217,7 @@ export const drawVoicePanel = (context: SKRSContext2D, width: number, content: S
 
 /**
  * The settings readout: which microphone is in use, how many were found, and
- * what the two non-microphone keys do.
+ * how to select it.
  *
  * A machine with no microphone is a normal state, not a fault — `pw-dump` and
  * `pactl` are both absent on a headless box, and `listMicrophones` returns an
@@ -242,7 +242,7 @@ export const drawSettingsPanel = (context: SKRSContext2D, width: number, content
   drawHint(context, "BACK", PAD, HEIGHT - 6, true, false);
   context.font = "700 9px monospace";
   context.fillStyle = none ? LABEL : ACCENT_LIVE;
-  const hint = "HOLD TESTMIC TO CHECK LEVELS";
+  const hint = "PRESS A MICROPHONE TO SELECT";
   context.fillText(hint, width - PAD - context.measureText(hint).width, HEIGHT - 6);
 };
 

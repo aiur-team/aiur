@@ -253,7 +253,7 @@ describe("settings panel", () => {
     expect(drew(ink, "MICROPHONE")).toBeDefined();
     expect(drew(ink, "Yeti X Analog Stereo")).toBeDefined();
     expect(drew(ink, "3 found · page 1/1")).toBeDefined();
-    expect(drew(ink, "HOLD TESTMIC TO CHECK LEVELS")?.fill).toBe(ACCENT_LIVE);
+    expect(drew(ink, "PRESS A MICROPHONE TO SELECT")?.fill).toBe(ACCENT_LIVE);
   });
 
   // A headless box has no microphone and that is not a fault, so the panel says
@@ -262,7 +262,7 @@ describe("settings panel", () => {
     const { ink } = render(settings({ selectedLabel: "", deviceCount: 0 }), 800);
     expect(drew(ink, "No microphones")).toBeDefined();
     expect(drew(ink, "Attach a microphone, then reopen settings")).toBeDefined();
-    expect(drew(ink, "HOLD TESTMIC TO CHECK LEVELS")?.fill).toBe(LABEL);
+    expect(drew(ink, "PRESS A MICROPHONE TO SELECT")?.fill).toBe(LABEL);
   });
 
   it("clips a long device name rather than running it off the panel", () => {

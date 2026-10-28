@@ -186,14 +186,8 @@ describe("composeStrip", () => {
       expect(settings({ selectedLabel: "", deviceCount: 0 })[0].content).toMatchObject({ deviceCount: 0 });
     });
 
-    it("shows the voice readout while TestMic is held", () => {
-      expect(settings({ voice: voice({ holding: true }) })[0].content).toMatchObject({ kind: "voice" });
-    });
-
-    // Unlike cmd there is no buffer to read back here: TestMic answers "does
-    // this microphone hear me *now*", so the readout goes with the key.
-    it("returns to the settings readout the moment TestMic is released", () => {
-      expect(settings({ voice: voice({ holding: false, text: "leftovers" }) })[0].content.kind).toBe("settings");
+    it("keeps the settings readout even when voice state is present", () => {
+      expect(settings({ voice: voice({ holding: true }) })[0].content).toMatchObject({ kind: "settings", selectedLabel: "Yeti X" });
     });
   });
 

@@ -161,8 +161,10 @@ defmodule AiurWeb.StreamdeckChannelFrameTest do
 
     for input <- [%{"kind" => "dial", "index" => 3, "action" => "long_press"}, %{"kind" => "dial", "index" => 0, "action" => "turn", "delta" => 1}] do
       ref = push(socket, "input", input)
-      assert_reply(ref, :ok, %{"view" => "ticket", "page" => 0})
+      assert_reply(ref, :ok, %{})
     end
+
+    assert :sys.get_state(socket.channel_pid).assigns.settings_menu == %{section: nil, cursor: 1}
   end
 
   defp put_rows(rows) do

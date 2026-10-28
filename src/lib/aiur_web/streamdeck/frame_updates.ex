@@ -1,6 +1,6 @@
 defmodule AiurWeb.Streamdeck.FrameUpdates do
   @moduledoc false
-  alias AiurWeb.Streamdeck.{Deck, Render}
+  alias AiurWeb.Streamdeck.{Deck, Render, SettingsUpdates}
   alias AiurWeb.Streamdeck.Deck.{Input, Nav, PriorityInput}
   alias AiurWeb.{StreamdeckFleetUpdates, StreamdeckProjection}
   import Phoenix.Socket, only: [assign: 2]
@@ -9,18 +9,22 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
   def input(raw, socket) do
     with {:ok, input} <- normalize(raw),
          true <- Nav.valid_input?(input) do
-      sections = socket |> grid() |> Deck.navigation()
-      {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
-      socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
-      {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
-      PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
+      case SettingsUpdates.input(input, socket) do
+        :pass -> navigation_input(input, socket)
+        reply -> reply
+      end
     else
-      :noop ->
-        {:reply, {:ok, %{}}, socket}
-
-      _invalid ->
-        {:reply, {:error, %{reason: "invalid_input"}}, socket}
+      :noop -> {:reply, {:ok, %{}}, socket}
+      _invalid -> {:reply, {:error, %{reason: "invalid_input"}}, socket}
     end
+  end
+
+  defp navigation_input(input, socket) do
+    sections = socket |> grid() |> Deck.navigation()
+    {nav, effects} = Input.reduce(socket.assigns.deck_nav, input, sections)
+    socket = assign(socket, deck_nav: nav, deck_effects: effects, deck_toast: nil)
+    {:noreply, socket} = StreamdeckFleetUpdates.schedule(socket)
+    PriorityInput.reply(socket, %{"view" => Atom.to_string(nav.view), "page" => Nav.page(nav)}, effects)
   end
 
   @spec push(Phoenix.Socket.t()) :: Phoenix.Socket.t()
@@ -32,6 +36,8 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
 
   @spec frame(Phoenix.Socket.t()) :: map()
   def frame(socket), do: socket |> render() |> elem(1)
+
+  defp render(%{assigns: %{settings_menu: menu}} = socket) when not is_nil(menu), do: {socket.assigns.deck_nav, SettingsUpdates.frame(socket)}
 
   defp render(socket) do
     grid = grid(socket)
@@ -51,6 +57,7 @@ defmodule AiurWeb.Streamdeck.FrameUpdates do
         face |> Map.put(:identifier, face[:identifier] || face["identifier"]) |> Map.put(:bucket, face[:bucket] || face["bucket"])
       end)
 
+    agents = if socket.assigns[:deck_settings], do: SettingsUpdates.sort(agents, socket.assigns.deck_settings), else: agents
     Map.put(grid, :agents, agents)
   end
 

@@ -22,6 +22,7 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
     const saved: unknown = JSON.parse(readFileSync(options.preferencePath, "utf8"));
     chosen = options.targets.find((target) => target.name === saved) ?? chosen;
   } catch { /* A missing/corrupt preference leaves local selected. */ }
+  let selectionChain = new Set([chosen.name]);
   let highlighted = options.targets.indexOf(chosen);
   let state: InstanceState = "unreachable";
   let message = "";
@@ -80,6 +81,12 @@ export const createInstanceSwitcher = <T extends Connection>(options: {
   };
   return {
     start: () => connect(chosen),
+    resetSelectionChain: () => { selectionChain = new Set([chosen.name]); },
+    select: (name: string) => {
+      if (selectionChain.has(name)) return;
+      const target = options.targets.find((item) => item.name === name);
+      if (target !== undefined && target !== chosen) { selectionChain.add(name); connect(target); }
+    },
     turn: (ticks: number) => {
       highlighted = ((highlighted + ticks) % options.targets.length + options.targets.length) % options.targets.length;
       message = "";

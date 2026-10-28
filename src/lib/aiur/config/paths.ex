@@ -1,24 +1,9 @@
 defmodule Aiur.Config.Paths do
   @moduledoc """
-  Canonical path-resolution helpers shared across modules that persist
-  per-issue or repo-scoped state.
-
-  Single source of truth for conversation storage (`conversation_state_dir/0`) and:
-
-    * `log_root_dir/0` — the per-launch directory under which
-      `<repo>.<id>.log` and other run logs live. Respects
-      `Application.get_env(:aiur, :log_file)` (set by the `--logs-root` CLI
-      flag), falls back to `<cwd>/log`. The launcher makes a new one on every
-      daemon launch, so state that must survive a restart belongs in
-      `runtime_state_dir/0` or `decision_state_dir/0` instead.
-    * `repo_name/0` — the sanitized identifier used to prefix per-issue
-      files. Comes from the configured project identity source; failure-safe.
-    * `sanitize/1` — replaces shell/path-unsafe characters with `_` so
-      values from external sources (label slugs, repo names) can't escape
-      filesystem boundaries.
-
-  Consumers: `Aiur.IssueLog`, `Aiur.LogFile`, and the durable stores that
-  adopt their per-launch files through `Aiur.LaunchStateAdoption`.
+  Canonical path helpers for per-issue and repo-scoped state. Persistent state
+  belongs under runtime_state_dir/0 or decision_state_dir/0; log_root_dir/0
+  belongs to one launch. repo_name/0 and sanitize/1 keep tracker identifiers
+  within filesystem boundaries.
   """
 
   alias Aiur.PathSafety
@@ -29,6 +14,19 @@ defmodule Aiur.Config.Paths do
   @spec dashboard_secret_root() :: Path.t()
   def dashboard_secret_root do
     Application.get_env(:aiur, :dashboard_secret_root, Path.join(System.user_home!(), ".aiur"))
+  end
+
+  @doc "Per-instance Stream Deck preferences; independent of the current launch."
+  @spec streamdeck_settings_path() :: Path.t()
+  def streamdeck_settings_path do
+    key =
+      case Aiur.Identity.instance_key() do
+        {:ok, key} -> key
+        {:error, :instance_key_missing} -> "default"
+        {:error, :instance_key_invalid} -> raise ArgumentError, "invalid instance key for deck settings"
+      end
+
+    Path.join([dashboard_secret_root(), "instances", key, "streamdeck-settings.json"])
   end
 
   @doc "Returns the per-launch log directory, defaulting to `<cwd>/log`; it does not survive a restart."

@@ -42,8 +42,8 @@ touches nothing. The download URL is therefore stable, but its contents are
 not: compare the manifest's `commit` to the daemon revision when diagnosing a
 mismatch rather than assuming an archive downloaded earlier still matches.
 
-`STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
-sidecar reapplies on open and on resume.
+`STREAMDECK_BRIGHTNESS` (0–100, default 80) supplies brightness until a value
+is saved in Settings. The sidecar reapplies the effective value on open and resume.
 
 ## Image assets
 

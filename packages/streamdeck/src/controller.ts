@@ -20,7 +20,6 @@ import {
   CMD_SEND,
   CMD_CANCEL,
   CMD_IMPLEMENT,
-  SETTINGS_TEST_MIC,
   COMMANDS_MIC,
   type ControllerState,
   type PhysicalControllerOptions,
@@ -77,9 +76,6 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   const back = (): void => {
     if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptRows: [], micHeld: false });
     else if (state.mode === "settings") {
-      // Leaving settings must stop TestMic. Without this a hold that ended by
-      // pressing dial A rather than by lifting the key leaves `parec` running
-      // with nothing on screen to say so.
       stopVoice();
       publish({ ...state, mode: "cmd", micHeld: false });
     } else if (state.mode === "commands") {
@@ -299,7 +295,6 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     for (const input of decoded) {
       if (input.type !== "key" || input.pressed) continue;
       if (state.mode === "cmd" && input.index === (state.ticket?.actions ? 6 : CMD_MIC)) releaseMic();
-      else if (state.mode === "settings" && input.index === SETTINGS_TEST_MIC) releaseMic();
       else if (state.mode === "commands" && input.index === COMMANDS_MIC) releaseMic();
     }
     const edges = risingEdges(decoded, pressed);

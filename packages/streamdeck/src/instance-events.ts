@@ -4,6 +4,6 @@ import type { StreamDeckChannelEvents } from "./channel-types.js";
 export const guardChannelEvents = (events: StreamDeckChannelEvents, current: () => boolean): StreamDeckChannelEvents =>
   new Proxy(events, {
     get: (target, key: keyof StreamDeckChannelEvents) => (...args: never[]) => {
-      if (current()) (target[key] as (...args: never[]) => void)(...args);
+      if (current()) (target[key] as ((...args: never[]) => void) | undefined)?.(...args);
     },
   });

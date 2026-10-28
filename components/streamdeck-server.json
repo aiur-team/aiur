@@ -34,7 +34,9 @@
   "owns": {
     "config": [],
     "env": [],
-    "state": [],
+    "state": [
+      "streamdeck_settings_path"
+    ],
     "capabilities": [
       "streamdeck"
     ]
@@ -43,7 +45,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Renders Stream Deck frames with Build ticket keys, PR checks, Commands, conversations, queue controls and dashboard links.",
+  "summary": "Renders Stream Deck frames and owns per-instance settings, device choices, alerts, Build tickets and queue controls.",
   "status": "optional",
   "install": {
     "type": "included"

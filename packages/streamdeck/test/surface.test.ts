@@ -267,29 +267,19 @@ describe("descriptorSettings", () => {
   const titles = (descriptors: ReturnType<typeof descriptorSettings>): (string | null | undefined)[] =>
     descriptors.map((descriptor) => (descriptor === undefined ? undefined : descriptor.title));
 
-  it("puts TestMic on key 2 and the six microphones on the keys around it", () => {
-    const descriptors = descriptorSettings(view(9), false);
+  it("fills seven microphone keys without a standalone test key", () => {
+    const descriptors = descriptorSettings(view(9));
     expect(descriptors).toHaveLength(8);
-    expect(titles(descriptors)).toEqual(["Mic 0", "Mic 1", "TestMic", "Mic 2", "Mic 3", "Mic 4", "Mic 5", "More"]);
+    expect(titles(descriptors)).toEqual(["Mic 0", "Mic 1", "Mic 2", "Mic 3", "Mic 4", "Mic 5", "Mic 6", "More"]);
     expect(descriptors[7]?.subLabel).toBe("1/2");
   });
 
-  /**
-   * Key 2 is the slot the command surface paints Mic on, so hold-to-talk is
-   * under the same finger on both surfaces.
-   */
-  it("paints TestMic in the same key slot the command surface paints Mic in", () => {
-    const command = descriptorCommands({ identifier: "agent-0", bucket: "running" }, false, false);
-    expect(command[2]?.title).toBe("Mic");
-    expect(descriptorSettings(view(9), false)[2]?.title).toBe("TestMic");
-  });
-
   it("leaves key 7 empty when every microphone fits on one page", () => {
-    expect(descriptorSettings(view(2), false)[7]).toBeUndefined();
-    expect(titles(descriptorSettings(view(2), false))).toEqual([
+    expect(descriptorSettings(view(2))[7]).toBeUndefined();
+    expect(titles(descriptorSettings(view(2)))).toEqual([
       "Mic 0",
       "Mic 1",
-      "TestMic",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -304,33 +294,26 @@ describe("descriptorSettings", () => {
    * second way of saying "this one is active" would make neither definitive.
    */
   it("marks the selected microphone with the log surface's selection idiom", () => {
-    const descriptors = descriptorSettings(view(3, "m1"), false);
+    const descriptors = descriptorSettings(view(3, "m1"));
     expect(descriptors[1]).toMatchObject({ role: "event", selected: true, subLabel: "IN USE" });
     expect(descriptors[0]).toMatchObject({ role: "event", selected: false, subLabel: "MIC" });
-    // Slot 2 of the page is key 3, not key 2.
-    expect(descriptors[3]).toMatchObject({ identifier: "mic:m2", role: "event", subLabel: "MIC" });
+    expect(descriptors[2]).toMatchObject({ identifier: "mic:m2", role: "event", subLabel: "MIC" });
   });
 
   it("paints the same idiom the log keys do, all the way to the pixels", () => {
     const rasterizer = createRasterizer();
     const [plain, selected] = [false, true].map((flag) => {
-      const [descriptor] = layoutPhysicalKeys(descriptorSettings(view(1, flag ? "m0" : null), false));
+      const [descriptor] = layoutPhysicalKeys(descriptorSettings(view(1, flag ? "m0" : null)));
       return rasterizer.key(descriptor);
     });
     expect(Buffer.from(plain).equals(Buffer.from(selected))).toBe(false);
   });
 
-  it("shows TestMic as live only while it is held", () => {
-    expect(descriptorSettings(view(1), false)[2]?.subLabel).toBe("HOLD");
-    expect(descriptorSettings(view(1), true)[2]?.subLabel).toBe("LIVE");
-  });
-
-  // A headless box is a normal box: six blank keys and no paging arrow, rather
+  // A headless box is a normal box: seven blank keys and no paging arrow, rather
   // than something that looks broken.
-  it("renders a machine with no microphone as empty keys plus TestMic", () => {
-    const descriptors = descriptorSettings(view(0), false);
+  it("renders a machine with no microphone as empty keys", () => {
+    const descriptors = descriptorSettings(view(0));
     expect(MIC_KEY_INDICES.every((key) => descriptors[key] === undefined)).toBe(true);
-    expect(descriptors[2]?.title).toBe("TestMic");
     expect(descriptors[7]).toBeUndefined();
   });
 });

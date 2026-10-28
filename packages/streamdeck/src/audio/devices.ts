@@ -53,7 +53,7 @@ const stringProp = (props: Readonly<Record<string, unknown>>, key: string): stri
 };
 
 /** Parses `pw-dump` output; returns null when it is unusable so we can fall back. */
-function parsePipeWire(raw: string): AudioDevice[] | null {
+function parsePipeWire(raw: string, mediaClass: string): AudioDevice[] | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -66,7 +66,7 @@ function parsePipeWire(raw: string): AudioDevice[] | null {
   for (const node of parsed as PipeWireNode[]) {
     const props = node.info?.props;
     if (props === undefined) continue;
-    if (stringProp(props, "media.class") !== SOURCE_CLASS) continue;
+    if (stringProp(props, "media.class") !== mediaClass) continue;
 
     const id = stringProp(props, "node.name");
     if (id === "") continue;
@@ -81,11 +81,11 @@ function parsePipeWire(raw: string): AudioDevice[] | null {
  * state. Monitors are not distinguishable by class here, so they are stripped
  * by the `.monitor` name suffix that PulseAudio guarantees them.
  */
-function parsePulseShort(raw: string): AudioDevice[] {
+function parsePulseShort(raw: string, stripMonitors: boolean): AudioDevice[] {
   const devices: AudioDevice[] = [];
   for (const line of raw.split("\n")) {
     const id = line.split("\t")[1]?.trim() ?? "";
-    if (id === "" || id.endsWith(".monitor")) continue;
+    if (id === "" || (stripMonitors && id.endsWith(".monitor"))) continue;
     devices.push({ id, label: id });
   }
   return devices;
@@ -98,9 +98,9 @@ function parsePulseShort(raw: string): AudioDevice[] {
  * every failure path returns one rather than throwing. The settings pane says
  * "no microphones" instead of the sidecar failing to start.
  */
-export async function listMicrophones(system: SystemPort): Promise<AudioDevice[]> {
+async function listDevices(system: SystemPort, mediaClass: string, kind: "sources" | "sinks"): Promise<AudioDevice[]> {
   try {
-    const devices = parsePipeWire(await system.run(PW_DUMP, []));
+    const devices = parsePipeWire(await system.run(PW_DUMP, []), mediaClass);
     // A PipeWire host with zero capture nodes is a real answer, so an empty
     // array is returned as-is; only unparseable output falls through.
     if (devices !== null) return devices;
@@ -109,8 +109,14 @@ export async function listMicrophones(system: SystemPort): Promise<AudioDevice[]
   }
 
   try {
-    return parsePulseShort(await system.run(PACTL, ["list", "sources", "short"]));
+    return parsePulseShort(await system.run(PACTL, ["list", kind, "short"]), kind === "sources");
   } catch {
     return [];
   }
 }
+
+/** Hardware microphones, with monitor loopbacks excluded. */
+export const listMicrophones = (system: SystemPort): Promise<AudioDevice[]> => listDevices(system, SOURCE_CLASS, "sources");
+
+/** Hardware playback sinks, using the same host discovery port. */
+export const listSpeakers = (system: SystemPort): Promise<AudioDevice[]> => listDevices(system, "Audio/Sink", "sinks");

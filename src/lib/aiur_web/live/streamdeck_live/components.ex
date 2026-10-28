@@ -161,7 +161,7 @@ defmodule AiurWeb.StreamdeckLive.Components do
   def settings_view(assigns) do
     ~H"""
           <div id="sd-settings-view" class="sd-settings-view" data-mode-view="settings" role="group" aria-label="Settings">
-            <p class="sd-settings-line" data-settings-line="microphone">Microphone selection lives on the machine running the sidecar. The browser emulator has no access to those devices, so there is nothing to choose here.</p>
+            <p class="sd-settings-line" data-settings-line="microphone">Deck settings are stored by the daemon. On the physical deck, hold dial 4 at the root to open Mic, Speaker, View, Sort, Brightness, Sleep, Instance and Alerts. Device inventory comes from the sidecar; this browser pane does not enumerate audio devices.</p>
             <p class="sd-settings-line" data-settings-line="voice">Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key.</p>
           </div>
     """

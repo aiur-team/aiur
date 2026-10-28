@@ -1,7 +1,6 @@
 /** Voice capture and the settings surface: mic hold, Send/Cancel, microphone keys. */
 import { micAtSlot, micSlotForKey, nextMicPage } from "../settings.js";
 import {
-  SETTINGS_TEST_MIC,
   SETTINGS_NEXT_PAGE,
   type ControllerVoice,
   type ControllerCore,
@@ -82,17 +81,13 @@ export const createVoiceSettings = (core: ControllerCore) => {
       publish({ ...core.state, selectedMicId: port?.selectedDeviceId() ?? null });
       return;
     }
-    if (index === SETTINGS_TEST_MIC) {
-      holdMic();
-      return;
-    }
     if (index === SETTINGS_NEXT_PAGE) {
       const count = port?.microphones().length ?? 0;
       publish({ ...core.state, micOffset: nextMicPage(core.state.micOffset, count) });
     }
   };
 
-  /** Key-down on the mic or TestMic key: one gesture, one capture. */
+  /** Key-down on the mic key: one gesture, one capture. */
   const holdMic = (): void => {
     voice()?.hold();
     publish({ ...core.state, micHeld: true });

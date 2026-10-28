@@ -114,10 +114,10 @@ describe("Stream Deck mode state", () => {
     expect(transitionMode(state, { type: "command.press", command: "settings" })).toEqual({ state, effects: [] });
   });
 
-  it("holds and releases TestMic on the settings surface", () => {
+  it("ignores microphone gestures on the settings surface", () => {
     const settings = transitionMode(commandState(), { type: "command.press", command: "settings" }).state;
     const held = transitionMode(settings, { type: "mic.down" }).state;
-    expect(held.micHeld).toBe(true);
+    expect(held.micHeld).toBe(false);
     expect(transitionMode(held, { type: "mic.up" }).state.micHeld).toBe(false);
   });
 

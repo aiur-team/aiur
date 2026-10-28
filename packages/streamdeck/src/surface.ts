@@ -16,7 +16,7 @@ import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
 import type { StreamDeckGrid, StreamDeckTicket, TranscriptRow } from "./channel.js";
-import { MIC_KEY_INDICES, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY, settingsView, type SettingsView } from "./settings.js";
+import { MIC_KEY_INDICES, SETTINGS_NEXT_PAGE_KEY, settingsView, type SettingsView } from "./settings.js";
 import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
 import type { AudioDevice } from "./audio/index.js";
 import {
@@ -288,12 +288,7 @@ export const agentLess = (agent: Readonly<Record<string, unknown>> | null | unde
   agent !== null && agent !== undefined && agent.bucket === "queued";
 
 /**
- * The settings surface's eight keys: TestMic, paging, and six microphones.
- *
- * TestMic sits on {@link SETTINGS_TEST_MIC_KEY} — the key the command surface
- * paints Mic on — so hold-to-talk is under the same finger on both surfaces.
- * The microphones therefore fill the keys {@link MIC_KEY_INDICES} names rather
- * than a plain 0..5 run, and that one list is what the press handler reads too.
+ * The legacy microphone picker has seven device keys and one paging key.
  *
  * The selected microphone reuses the **log surface's** selection idiom rather
  * than inventing a second one — `role: "event"` is what paints the brighter
@@ -302,7 +297,7 @@ export const agentLess = (agent: Readonly<Record<string, unknown>> | null | unde
  * deck with two different ways to say "this one is active" is a deck where
  * neither reads as definitive.
  */
-export const descriptorSettings = (view: SettingsView, micHeld: boolean): (AgentInput | undefined)[] => {
+export const descriptorSettings = (view: SettingsView): (AgentInput | undefined)[] => {
   const keys: (AgentInput | undefined)[] = Array.from({ length: 8 }, () => undefined);
 
   view.mics.forEach((slot, index) => {
@@ -323,7 +318,6 @@ export const descriptorSettings = (view: SettingsView, micHeld: boolean): (Agent
     };
   });
 
-  keys[SETTINGS_TEST_MIC_KEY] = commandKey("settings", "test", "TestMic", "test", micHeld ? "LIVE" : "HOLD");
   // Paging is present only when there is a page to go to. An inert arrow on a
   // machine with one microphone is a key that teaches the operator that keys
   // on this surface sometimes do nothing.
@@ -395,7 +389,7 @@ export const createPhysicalSurface = () => {
         : state.mode === "cmd"
         ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier), state.implementQueued === true, ticket))
         : state.mode === "settings"
-        ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
+        ? layoutPhysicalKeys(descriptorSettings(mics))
         : state.mode === "commands"
         ? layoutPhysicalKeys(
             state.commandsView === "detail" && state.selectedCommand != null
