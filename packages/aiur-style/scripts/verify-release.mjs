@@ -31,13 +31,23 @@ function verifyRelease(tag, root) {
 async function selfTest() {
   const { test } = await import('node:test');
   const assert = await import('node:assert/strict');
-  test('workflow only runs PR dry-runs without publishing credentials', () => {
+  test('workflow confines OIDC publishing to release tags and verifies before publishing', () => {
     const workflow = readFileSync(resolve(packageRoot, '../../.github/workflows/aiur-style-release.yml'), 'utf8');
-    assert.match(workflow, /^  pull_request:/m);
-    assert.doesNotMatch(workflow, /^  (push|workflow_dispatch):|id-token:/m);
-    const publishes = workflow.split('\n').filter(line => /\bnpm publish\b/.test(line));
-    assert.equal(publishes.length, 1);
-    assert.match(publishes[0], /--dry-run\b/);
+    const [prJob, publishJob] = workflow.split('  publish:\n');
+    assert.match(workflow, /tags: \['aiur-style-v\*'\]/);
+    assert.match(prJob, /if: \$\{\{ github.event_name == 'pull_request' \}\}/);
+    assert.doesNotMatch(prJob, /id-token:|--provenance/);
+    assert.match(prJob, /npm publish .*--dry-run/);
+    assert.ok(publishJob, 'missing real publish job');
+    assert.match(publishJob, /if: \$\{\{ github.event_name == 'push' && startsWith\(github.ref, 'refs\/tags\/aiur-style-v'\) \}\}/);
+    assert.match(publishJob, /id-token: write/);
+    assert.match(publishJob, /node-version: '24'/);
+    assert.match(publishJob, /registry-url: 'https:\/\/registry.npmjs.org'/);
+    assert.match(publishJob, /npm publish .*--ignore-scripts --provenance --access public/);
+    assert.match(publishJob, /run: node packages\/aiur-style\/scripts\/verify-release.mjs$/m);
+    assert.ok(publishJob.indexOf('verify-release.mjs') < publishJob.indexOf('run: npm publish'));
+    assert.match(publishJob, /node --test packages\/aiur-style\/test\/pack.test.mjs/);
+    assert.doesNotMatch(workflow, /secrets\.(NPM|NODE_AUTH)_TOKEN/);
   });
   const cases = [
     ['accepts matching tag and changelog and runs check-dist', 'aiur-style-v0.1.0', '## [0.1.0] - 2026-10-01', 0, 0, /Release verified: 0\.1\.0/],
