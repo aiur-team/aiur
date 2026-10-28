@@ -43,7 +43,7 @@
     "SD"
   ],
   "dependency_kind": "optional",
-  "summary": "Serves Build ticket status, pull requests and checks, Commands, conversations and per-deck navigation to connected Stream Deck clients.",
+  "summary": "Renders Stream Deck frames and serves ticket status, Commands, conversations and per-deck navigation to clients.",
   "status": "optional",
   "install": {
     "type": "included"
