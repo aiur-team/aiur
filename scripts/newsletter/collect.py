@@ -22,7 +22,7 @@ def ticket(node):
     lane = next((label for label in labels if label.startswith(("build-lane:", "feature:"))), None)
     return {"number": node["number"], "title": node["title"], "state": node["state"].lower(),
             "state_reason": node.get("stateReason"), "labels": labels, "lane": lane,
-            "class": classify(" ".join(labels) + " " + node["title"] if labels else node["title"]),
+            "class": classify(labels, node["title"]),
             "mobile": any(re.search(r"(?:^|[:-])(mobile|watch)(?:$|[:-])", label) for label in labels),
             "paused": any(label.split(":")[-1] in ("paused", "parked") for label in labels),
             "machine": "nuc" if any(label.startswith("nuc:") for label in labels) else "pc",
@@ -72,15 +72,15 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
         for pr in merged.values():
             issue = closing_issue(pr)
             related = ticket(closing[issue]) if closing is not None and issue in closing else None
-            # Use the shared title classifier; its "other" bucket corresponds
-            # to feature-share's "unclassified" bucket for issue-less PRs.
-            category = classify(" ".join(related["labels"]) + " " + pr["title"]
-                                if related and related["labels"] else pr["title"])
+            category = related["class"] if related else classify([], pr["title"])
             if related is None and issue is not None:
                 category = None
             merges.append({"number": pr["number"], "merged_at": pr["mergedAt"],
                            "merge_sha": (pr.get("mergeCommit") or {}).get("oid"), "closing_issue": issue,
-                           "class": category, "mobile": related["mobile"] if related else None,
+                           "class": category, "title": pr["title"],
+                           "issue_labels": related["labels"] if related else None,
+                           "issue_title": related["title"] if related else None,
+                           "mobile": related["mobile"] if related else None,
                            "machine": related["machine"] if related else None})
 
     units = {}
@@ -123,7 +123,7 @@ def collect(repo, state_dir, now, github=None, run=command, instances=()):
                 for i in range(len(instances) + 1))
     allocation_nodes = read("github_allocation", lambda: gh.issues(units)) if fresh else None
     if allocation_nodes is not None:
-        counts = {life: {kind: 0 for kind in ("feature", "test_ci", "other")}
+        counts = {life: {kind: 0 for kind in ("feature", "test_ci", "tooling", "other")}
                   for life in ("running", "waiting", "paused")}
         for number, lifecycle in units.items():
             row = ticket(allocation_nodes[number])
