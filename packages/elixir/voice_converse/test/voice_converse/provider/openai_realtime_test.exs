@@ -175,20 +175,45 @@ defmodule VoiceConverse.Provider.OpenAIRealtimeTest do
     end
 
     :sys.get_state(pid)
+    refute_received {:voice_conversation, ^pid, %Events.ToolCall{}}
+    frame(pid, %{type: "response.done", response: %{status: "completed"}})
     assert_receive {:voice_conversation, ^pid, %Events.ToolCall{call_id: "a", name: "get_status", params: %{}}}
     assert_receive {:voice_conversation, ^pid, %Events.ToolCall{call_id: "b"}}
     refute_received {:voice_conversation, ^pid, %Events.ToolCall{}}
-    for id <- ["a", "b"], do: Provider.tool_result(pid, id, %{text: "ok", is_error: false})
+    Provider.tool_result(pid, "a", %{text: "ok", is_error: false})
     :sys.get_state(pid)
     assert_receive {:wire, %{"item" => %{"type" => "function_call_output", "call_id" => "a", "output" => result}}}
     assert Jason.decode!(result) == %{"text" => "ok", "is_error" => false}
-    assert_receive {:wire, %{"item" => %{"call_id" => "b"}}}
     refute_received {:wire, %{"type" => "response.create"}}
-    frame(pid, %{type: "response.done", response: %{status: "completed"}})
+    Provider.tool_result(pid, "b", %{text: "ok", is_error: false})
+    :sys.get_state(pid)
+    assert_receive {:wire, %{"item" => %{"call_id" => "b"}}}
     assert_receive {:wire, %{"type" => "response.create"}}
     Provider.tool_result(pid, "a", %{text: "duplicate", is_error: false})
     :sys.get_state(pid)
     refute_received {:wire, _}
+    Provider.close(pid)
+  end
+
+  test "cancelled and incomplete responses cannot execute tools even with valid completed arguments" do
+    {pid, _} = start()
+    ready(pid)
+
+    for {status, arguments} <- [{"cancelled", "{}"}, {"incomplete", "{"}] do
+      frame(pid, %{type: "response.created"})
+
+      frame(pid, %{
+        type: "response.function_call_arguments.done",
+        call_id: status,
+        name: "end_conversation",
+        arguments: arguments
+      })
+
+      frame(pid, %{type: "response.done", response: %{status: status}})
+      refute_received {:voice_conversation, ^pid, %Events.ToolCall{}}
+      refute_received {:voice_conversation, ^pid, %Events.Error{}}
+    end
+
     Provider.close(pid)
   end
 
@@ -229,6 +254,8 @@ defmodule VoiceConverse.Provider.OpenAIRealtimeTest do
 
         :tool ->
           frame(pid, %{type: "response.function_call_arguments.done", call_id: "a", name: "get_status", arguments: "[]"})
+
+          frame(pid, %{type: "response.done", response: %{status: "completed"}})
 
         :overflow ->
           Provider.push_audio(pid, String.duplicate("a", 426_669))

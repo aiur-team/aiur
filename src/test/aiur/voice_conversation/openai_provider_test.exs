@@ -1,6 +1,8 @@
 defmodule Aiur.VoiceConversation.OpenAIProviderTest do
   use Aiur.TestSupport
-  alias Aiur.VoiceConversation.OpenAIProvider
+  alias Aiur.VoiceConversation.{OpenAIProvider, Session}
+  alias VoiceConverse.{Config, Events}
+  alias VoiceConverse.Testing.FakeBriefingSource
 
   defmodule Credentials do
     def fetch({_owner, :test}, :probe), do: {:ok, :present}
@@ -58,10 +60,10 @@ defmodule Aiur.VoiceConversation.OpenAIProviderTest do
     observer = self()
 
     {:ok, config} =
-      VoiceConverse.Config.new(
+      Config.new(
         name: instance,
         credentials: Credentials,
-        briefing_source: VoiceConverse.Testing.FakeBriefingSource,
+        briefing_source: FakeBriefingSource,
         transcript_root: root,
         provider: {SessionProvider, [observer: observer]},
         llm: "gpt-realtime-2.1",
@@ -72,19 +74,21 @@ defmodule Aiur.VoiceConversation.OpenAIProviderTest do
     start_supervised!(VoiceConverse.child_spec(config))
     start = fn owner, _opts -> VoiceConverse.start_session(instance, %{id: "executor"}, client: owner) end
     :ok = Aiur.ExecutorEvents.subscribe("executor.voice.session_ended")
-    {:ok, monitor, id} = Aiur.VoiceConversation.Session.start(self(), instance: instance, start_session: start)
+    {:ok, monitor, id} = Session.start(self(), instance: instance, start_session: start)
     ref = Process.monitor(monitor)
     receive_barrier({:provider_wire, provider, %{"type" => "session.update"}})
     send_frame(provider, %{type: "session.updated"})
     send_frame(provider, %{type: "conversation.item.input_audio_transcription.completed", transcript: "Ship it; who deploys? Try blue."})
-    receive_barrier({:executor_voice, %VoiceConverse.Events.UserTranscript{final?: true}})
+    receive_barrier({:executor_voice, %Events.UserTranscript{final?: true}})
     send_frame(provider, %{type: "response.output_audio_transcript.done", item_id: "turn", transcript: "Recorded."})
-    receive_barrier({:executor_voice, %VoiceConverse.Events.AgentText{final?: true}})
+    receive_barrier({:executor_voice, %Events.AgentText{final?: true}})
     summary = %{decisions: ["Ship it"], open_questions: ["Who deploys?"], ideas: ["Try blue"]}
     send_frame(provider, %{type: "response.function_call_arguments.done", call_id: "summary", name: "record_summary", arguments: Jason.encode!(summary)})
+    send_frame(provider, %{type: "response.done", response: %{status: "completed"}})
     receive_barrier({:executor_voice, {:summary_recorded, recorded}})
     assert recorded == summary
     send_frame(provider, %{type: "response.function_call_arguments.done", call_id: "end", name: "end_conversation", arguments: "{}"})
+    send_frame(provider, %{type: "response.done", response: %{status: "completed"}})
     receive_barrier({:executor_voice, {:receipt, %{id: event_id, summary_status: "structured"}}})
     receive_barrier({:DOWN, ^ref, :process, ^monitor, :normal})
     assert {:ok, events} = Aiur.ExecutorEvents.replay(["executor.voice.session_ended"], 0)

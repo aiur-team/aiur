@@ -63,6 +63,7 @@ defmodule VoiceConverse.Provider.OpenAIRealtime do
       tail: <<>>,
       turn: nil,
       pending: MapSet.new(),
+      tool_buffer: [],
       seen: MapSet.new(),
       responding?: false,
       continuation?: false
@@ -179,28 +180,34 @@ defmodule VoiceConverse.Provider.OpenAIRealtime do
   defp frame(%{"type" => "response.done", "response" => %{"status" => "failed"}}, state),
     do: fail(state, :provider_error)
 
-  defp frame(%{"type" => "response.done"}, state) do
-    {state, frames} = continuation(%{state | responding?: false})
-    transmit(state, frames)
+  defp frame(%{"type" => "response.done", "response" => %{"status" => "completed"}}, state) do
+    case completed_tools(state) do
+      {:ok, state} ->
+        {state, frames} = continuation(%{state | responding?: false, tool_buffer: []})
+        transmit(state, frames)
+
+      :invalid ->
+        fail(state, :provider_error)
+    end
+  end
+
+  defp frame(%{"type" => "response.done"}, state),
+    do: {:noreply, %{state | responding?: false, tool_buffer: []}}
+
+  defp frame(%{"type" => "response.function_call_arguments.done"} = frame, state) do
+    # Arguments-done also fires for cancelled/incomplete responses, possibly with
+    # partial JSON. Parse and execute only after a successful response.done.
+    if length(state.tool_buffer) < 32 and MapSet.size(state.seen) < 512 do
+      {:noreply, %{state | tool_buffer: [frame | state.tool_buffer]}}
+    else
+      fail(state, :provider_error)
+    end
   end
 
   defp frame(frame, state) do
     case Protocol.decode(frame) do
       %Events.Error{code: code} ->
         fail(state, code)
-
-      %Events.ToolCall{call_id: id} = event ->
-        cond do
-          MapSet.member?(state.seen, id) ->
-            {:noreply, state}
-
-          MapSet.size(state.seen) >= 512 ->
-            fail(state, :provider_error)
-
-          true ->
-            emit(state, event)
-            {:noreply, %{state | pending: MapSet.put(state.pending, id), seen: MapSet.put(state.seen, id)}}
-        end
 
       %Events.AgentAudio{turn_id: id} = event ->
         emit(state, event)
@@ -215,6 +222,25 @@ defmodule VoiceConverse.Provider.OpenAIRealtime do
       event ->
         emit(state, event)
         {:noreply, state}
+    end
+  end
+
+  defp completed_tools(state) do
+    tools = state.tool_buffer |> Enum.reverse() |> Enum.map(&Protocol.decode/1)
+
+    if Enum.all?(tools, &match?(%Events.ToolCall{}, &1)) do
+      {:ok, Enum.reduce(tools, state, &deliver_tool/2)}
+    else
+      :invalid
+    end
+  end
+
+  defp deliver_tool(%Events.ToolCall{call_id: id} = event, state) do
+    if MapSet.member?(state.seen, id) do
+      state
+    else
+      emit(state, event)
+      %{state | pending: MapSet.put(state.pending, id), seen: MapSet.put(state.seen, id)}
     end
   end
 
