@@ -259,10 +259,9 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
     File.rm(journal)
   end
 
-  test "comments on an open flake for the same browser test and reports missing excerpt explicitly" do
+  test "comments on the real-shaped hand-filed open flake when its test.skip exists on base" do
     parent = self()
     journal = temp_path("flake-browser-duplicate")
-    identity = "BrowserSpec :: src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs :: an active dial drag commits its final value after a LiveView patch :: 187"
 
     failure = %{
       module: "BrowserSpec",
@@ -272,10 +271,18 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
     }
 
     request = fn
+      %{method: :get, url: "https://api.github.com/repos/test-org/test-repo/contents/src/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs?ref=main"} ->
+        send(parent, :base_spec_read)
+        source = "// Quarantined: owner #7020\ntest.skip('an active dial drag commits its final value after a LiveView patch', async () => {})"
+        {:ok, %{status: 200, body: %{"encoding" => "base64", "content" => Base.encode64(source)}}}
+
+      %{method: :get, url: "https://api.github.com/repos/test-org/test-repo/issues/7020"} ->
+        {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "flake"}]}}}
+
       %{method: :get, url: url} ->
         query = URI.decode_query(URI.parse(url).query || "")
         assert query["q"] =~ "is:open"
-        {:ok, %{status: 200, body: %{"items" => [%{"number" => 7020, "title" => "Flaky test: #{identity}", "body" => "prior skip"}]}}}
+        {:ok, %{status: 200, body: %{"items" => [%{"number" => 7020, "title" => "Flake: streamdeck dial drag (modes-paging spec:187)", "body" => "hand-filed issue"}]}}}
 
       %{method: :post, url: url, body: %{"labels" => ["flake"]}} ->
         if String.ends_with?(url, "/issues/7020/labels"), do: {:ok, %{status: 200, body: []}}, else: flunk("unexpected label update #{url}")
@@ -290,6 +297,7 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
     end
 
     assert :ok = FlakeRecorder.record(failure, %{"id" => 40_735_796_217}, [], token: "test-gh-token", request_fun: request, journal_path: journal, alert_emitter: fn _, _ -> :ok end)
+    assert_received :base_spec_read
     assert_received {:commented, comment}
     assert comment =~ "Run ID: 40735796217"
     assert comment =~ "No error excerpt was available"
@@ -310,7 +318,6 @@ defmodule Aiur.LandingWatch.FlakeRecorderTest do
                token: "test-gh-token",
                request_fun: request,
                journal_path: journal,
-               repo_root: "/repo",
                browser_spec_source_fun: fn _spec, _opts -> {:ok, "test.skip('skips only this test', async () => {})"} end,
                alert_emitter: fn _, _ -> flunk("existing skip must not publish a new flake") end
              )

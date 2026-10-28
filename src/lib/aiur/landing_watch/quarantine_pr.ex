@@ -111,9 +111,25 @@ defmodule Aiur.LandingWatch.QuarantinePR do
   defp listed?(contents, identity) do
     [module, name] = String.split(identity, " :: ", parts: 2)
 
-    contents
-    |> String.split("\n")
-    |> Enum.any?(&String.starts_with?(&1, module <> "\t" <> name <> "\t"))
+    case {module, String.split(name, " :: ", parts: 3)} do
+      {"BrowserSpec", [spec, title, source_line]} ->
+        contents
+        |> String.split("\n")
+        |> Enum.any?(&browser_entry_covers?(&1, spec, title, source_line))
+
+      _ ->
+        contents
+        |> String.split("\n")
+        |> Enum.any?(&String.starts_with?(&1, module <> "\t" <> name <> "\t"))
+    end
+  end
+
+  defp browser_entry_covers?(line, spec, title, source_line) do
+    case String.split(line, "\t") do
+      ["BrowserSpec", ^spec, "#" <> _ticket] -> true
+      ["BrowserSpec", ^spec, ^title, ^source_line, "#" <> _ticket] -> true
+      _ -> false
+    end
   end
 
   # An earlier attempt that already committed the entry is reused, so a retry after an

@@ -75,6 +75,15 @@ defmodule Aiur.LandingWatch.QuarantinePRTest do
     refute contents =~ "\t#7020\nBrowserSpec\tsrc/browser/tests/streamdeck-emulator-modes-paging.browser.spec.mjs\t#7020"
   end
 
+  test "same per-test row is already listed and legacy whole-spec row covers it" do
+    identity = "BrowserSpec :: src/browser/tests/example.browser.spec.mjs :: skips one test :: 187"
+    per_test = "BrowserSpec\tsrc/browser/tests/example.browser.spec.mjs\tskips one test\t187\t#7020\n"
+    whole_spec = "BrowserSpec\tsrc/browser/tests/example.browser.spec.mjs\t#7027\n"
+
+    assert {:error, :already_quarantined} = QuarantinePR.entry(identity, 7020, per_test, nil)
+    assert {:error, :already_quarantined} = QuarantinePR.entry(identity, 7020, whole_spec, nil)
+  end
+
   test "a retry after a partial attempt moves the existing branch and reuses the open PR" do
     parent = self()
 

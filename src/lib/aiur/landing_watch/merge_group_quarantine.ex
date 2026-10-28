@@ -387,7 +387,7 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
     else
       case QuarantinePR.already_quarantined?(candidate.identity, opts) do
         {:ok, true} ->
-          Journal.claim_flake(skip_claim, opts) |> claim_result()
+          claim_skip(skip_claim, opts)
 
         # An unreadable list falls back to filing; QuarantinePR.open re-checks it before publishing.
         unknown ->
@@ -403,21 +403,31 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
   defp file_if_eligible(candidate, latest, rows, base, skip_claim, opts) do
     case FlakeFilingGate.decide(failure(latest), run(latest), latest["at_ms"], rows, base, opts) do
       :file -> file_ticket_then_quarantine(candidate, latest, opts)
-      {:skip, _reason} -> Journal.claim_flake(skip_claim, opts) |> claim_result()
+      {:skip, _reason} -> claim_skip(skip_claim, opts)
     end
   end
 
   defp file_ticket_then_quarantine(candidate, latest, opts) do
-    remember = fn ticket -> Journal.put_flake_ticket(candidate.identity, ticket, opts) end
+    skip_claim = "quarantine-skip :: #{candidate.identity} :: #{latest["run_url"]}"
+
+    remember = fn
+      :already_quarantined -> claim_skip(skip_claim, opts)
+      ticket -> Journal.put_flake_ticket(candidate.identity, ticket, opts)
+    end
+
     recorder = Keyword.get(opts, :flake_recorder, &FlakeRecorder.record/4)
 
     with :ok <- recorder.(failure(latest), run(latest), [], Keyword.put(opts, :issue_recorded_fun, remember)),
          {:ok, state} <- Journal.state(opts) do
-      case get_in(state, ["flake_tickets", candidate.identity]) do
-        ticket when is_integer(ticket) -> open_quarantine(candidate, ticket, opts)
-        # A recorder claim left without a ticket is retried, bounded, rather than re-read every poll.
-        _ -> {:error, :flake_ticket_unconfirmed}
-      end
+      open_recorded_ticket(state, candidate, skip_claim, opts)
+    end
+  end
+
+  defp open_recorded_ticket(state, candidate, skip_claim, opts) do
+    case get_in(state, ["flake_tickets", candidate.identity]) do
+      ticket when is_integer(ticket) -> open_quarantine(candidate, ticket, opts)
+      # A recorder claim left without a ticket is retried, bounded, rather than re-read every poll.
+      _ -> if(Map.has_key?(Map.get(state, "flakes", %{}), skip_claim), do: :ok, else: {:error, :flake_ticket_unconfirmed})
     end
   end
 
@@ -488,6 +498,13 @@ defmodule Aiur.LandingWatch.MergeGroupQuarantine do
 
   defp claim_result({:ok, _}), do: :ok
   defp claim_result(error), do: error
+
+  defp claim_skip(claim, opts) do
+    case Journal.claim_flake(claim, opts) do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
+    end
+  end
 
   defp run_prs(run, base) do
     prefix = "gh-readonly-queue/#{base}/"

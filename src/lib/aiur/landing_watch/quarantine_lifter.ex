@@ -197,11 +197,15 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
 
   defp list_tickets(contents) do
     for line <- String.split(contents, "\n"),
-        fields when length(fields) in [3, 4] <- [String.split(line, "\t")],
-        "#" <> number <- [Enum.at(fields, 2)],
+        fields <- [String.split(line, "\t")],
+        "#" <> number <- [ticket_field(fields)],
         {ticket, ""} <- [Integer.parse(number)],
         do: ticket
   end
+
+  defp ticket_field(["BrowserSpec", _spec, _title, _line, ticket]), do: ticket
+  defp ticket_field([_module, _name, ticket | _rest]), do: ticket
+  defp ticket_field(_fields), do: nil
 
   defp issue_state(ticket, opts) do
     with {:ok, context} <- context(hd(@list_paths), opts) do
@@ -329,6 +333,7 @@ defmodule Aiur.LandingWatch.QuarantineLifter do
     case String.split(line, "\t") do
       [_module, _name, ^target] -> true
       [_module, _name, ^target, _expires] -> true
+      ["BrowserSpec", _spec, _title, _line, ^target] -> true
       _ -> false
     end
   end
