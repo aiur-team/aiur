@@ -8,6 +8,16 @@ defmodule Aiur.VoiceConversation.SessionTest do
   setup do
     root = Aiur.TestSupport.tmp_root!("executor-voice-session")
     instance = Module.concat(__MODULE__, "Instance#{System.unique_integer([:positive])}")
+    credentials_key = {StaticCredentials, :secrets}
+    previous_credentials = :persistent_term.get(credentials_key, :missing)
+
+    on_exit(fn ->
+      case previous_credentials do
+        :missing -> :persistent_term.erase(credentials_key)
+        previous -> :persistent_term.put(credentials_key, previous)
+      end
+    end)
+
     StaticCredentials.put(%{fake: "test"})
 
     {:ok, config} =
@@ -51,7 +61,7 @@ defmodule Aiur.VoiceConversation.SessionTest do
 
   test "browser disconnect still hands off its last partial user transcript", %{opts: opts, instance: instance} do
     owner =
-      spawn(fn ->
+      spawn_link(fn ->
         receive do
           :stop -> :ok
         end
