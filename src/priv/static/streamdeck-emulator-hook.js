@@ -132,9 +132,18 @@
       this._knobs = [];
     },
 
-    _handleDialStep(index, delta) {
+    _handleDialStep(index, delta, onReply) {
       if (!delta) return;
-      this.pushEvent("input", { kind: "dial", index: index, action: "turn", delta: delta > 0 ? 1 : -1 });
+      this.pushEvent("input", { kind: "dial", index: index, action: "turn", delta: delta > 0 ? 1 : -1 }, onReply);
+    },
+
+    _handleDialRelease(index, delta) {
+      if (index === 3) {
+        if (delta) this._handleDialStep(index, delta, () => this._syncPageKnob());
+        else this._syncPageKnob();
+      } else {
+        this._handleDialStep(index, delta);
+      }
     },
 
     _syncPageKnob() {
@@ -143,7 +152,7 @@
       if (!keys || !knob) return null;
       var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
       if (!Number.isFinite(value)) return null;
-      knob._setLogicalValue(value);
+      if (!knob.isDragging) knob._setLogicalValue(value);
       return value;
     },
 
