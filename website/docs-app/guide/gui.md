@@ -361,11 +361,15 @@ Entries default to the last 50 positions in ascending order. Choose one of
 `tail=true`, `from_start=true`, `before=POS`, `after=POS`, or `around=POS`,
 with `limit=1..200` and optional comma-separated `kinds`. Follow `prev_cursor`
 with `before` or `next_cursor` with `after`; null means that direction is
-complete. Pages include sessions, `head_pos`, `complete_from_start`, and
+complete.
+
+Pages include sessions, `head_pos`, `complete_from_start`, and
 `observed_at`. An existing empty conversation returns an empty page with
 `head_pos: 0`; an unknown ID returns `404 conversation_not_found`. Unreadable
 storage returns `503 conversation_unavailable`; invalid cursors or limits
-return 422. Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive).
+return 422.
+
+Anchors accept `kinds`, `pos_from` and `pos_to` (inclusive).
 Sessions contain no local source paths.
 
 Conversation text can contain secrets. Body and output are masked by default;
