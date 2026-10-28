@@ -76,6 +76,15 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsProjectionTest do
       assert grid.agents == []
       assert grid.total == 0
       assert grid.tickets_status == "unavailable"
+      frame = Render.frame(%{grid: grid})
+      [status | rest] = frame.keys
+      assert status.svg =~ "Tickets unavailable"
+      assert status.label =~ "Unavailable"
+      refute status.svg =~ "progress-track"
+      assert Enum.all?(rest, &is_nil/1)
+      assert hd(frame.strip).label =~ "Tickets unavailable"
+      refute hd(frame.strip).label =~ "0 live"
+      assert List.last(frame.strip).label == "Tickets unavailable"
     end
   end
 end

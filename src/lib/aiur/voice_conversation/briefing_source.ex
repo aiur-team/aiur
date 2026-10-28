@@ -1,5 +1,5 @@
 defmodule Aiur.VoiceConversation.BriefingSource do
-  @moduledoc "Read-only prototype briefing; the dedicated Executor briefing source replaces this in #4125."
+  @moduledoc "Read-only Executor prototype briefing, delegated by the Aiur voice host."
   @behaviour VoiceConverse.Ports.BriefingSource
 
   alias Aiur.VoiceConversation.ExecutorTranscript
@@ -28,7 +28,7 @@ defmodule Aiur.VoiceConversation.BriefingSource do
      %Briefing{
        summary: %{value: "Read-only Executor voice briefing.", observed_at: now, max_age_s: 30},
        extra: extra,
-       gaps: ["Prototype snapshot; no instruction delivery. Dedicated Executor briefing pending #4125."]
+       gaps: ["Prototype snapshot; no instruction delivery. Dedicated Executor briefing pending."]
      }}
   end
 

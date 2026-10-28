@@ -69,6 +69,17 @@ defmodule AiurWeb.Streamdeck.Deck.TicketsTest do
     assert Tickets.keys(wire) == Tickets.keys(sections)
   end
 
+  test "queue positions do not replace Now state labels and update backlog labels" do
+    [now, queued] = Tickets.keys(%{now: [row(10, "ci_wait")], plan: [queued(30, 2)]})
+
+    for key <- [now, queued] do
+      image = key |> Map.put(:queue_position, 0) |> Render.key()
+      expected = if key.state == :queued, do: "Queued #1", else: key.label
+      assert image.label =~ expected
+      assert image.svg =~ expected
+    end
+  end
+
   defp row(num, state), do: %{id: to_string(num), num: num, sec: "now", title: "Ticket #{num}", feature: "deck", epic: "ui", pct: nil, agent: %{state: state, model: "codex", name: nil}}
   defp queued(num, pos), do: row(num, nil) |> Map.merge(%{sec: "plan", qpos: pos, agent: nil})
 end

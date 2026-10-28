@@ -71,9 +71,10 @@ defmodule AiurWeb.StreamdeckLive.Components do
   @spec grid_keys(map()) :: Phoenix.LiveView.Rendered.t()
   def grid_keys(assigns) do
     ~H"""
-          <div id="sd-keys" class="sd-keys" role="group" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
+          <div id="sd-keys" class="sd-keys" role="group" data-mode-view="grid" aria-label="Agent keys" data-grid-total={if @grid[:tickets_status] != "unavailable", do: @grid.total} data-tickets-status={@grid[:tickets_status]} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
+            <div :if={@grid[:tickets_status] == "unavailable"} class="sd-key" role="status">Tickets unavailable</div>
             <button
-              :for={key <- @keys}
+              :for={key <- if @grid[:tickets_status] == "unavailable", do: [], else: @keys}
               type="button"
               class={["sd-key", "sd-agent-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
               disabled={key.empty?}

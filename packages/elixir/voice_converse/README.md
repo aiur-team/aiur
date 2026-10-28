@@ -57,3 +57,16 @@ a session is started.
 is echo-cancelled and resampled to 16 kHz PCM. The client and the socket exchange versioned v1
 frames defined by `VoiceConverse.Wire` and the JSON Schema in
 `packages/aiur-contracts/schemas/voice-converse.v1.schema.json`.
+
+### OpenAI Realtime prototype
+
+`VoiceConverse.Providers.OpenAIRealtime` implements the provider behaviour and is
+registered as `:openai_realtime`. Set `providers.preference: [:openai_realtime]`
+for registry resolution, and set `provider: VoiceConverse.Providers.OpenAIRealtime`
+when building the session config. The
+credentials port probes `:openai` and fetches the session credential at connect.
+An explicit `llm` Realtime model is required; optional `voice_id` defaults to
+`marin`. Tools are registered from the session specification. The adapter uses
+the GA websocket protocol, converts 16 kHz PCM input to 24 kHz and tags output as
+`:pcm_24000`. Barge-in removes the entire interrupted item from model context
+until clients supply playback offsets. Tests use transport doubles only.

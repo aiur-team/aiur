@@ -6,7 +6,8 @@ defmodule AiurWeb.Streamdeck.Deck do
   @spec read(keyword()) :: map()
   def read(opts \\ []) do
     opts = Keyword.put_new_lazy(opts, :window, fn -> Counts.window(opts) end)
-    %{build_order: read_section(BuildOrder, opts), counts: Counts.read(opts), tickets: Tickets.read(opts)}
+    {positions, build_order} = Map.pop(read_section(BuildOrder, opts), :queue_positions, %{})
+    %{build_order: build_order, queue_positions: positions, counts: Counts.read(opts), tickets: Tickets.read(opts)}
   end
 
   @doc "Navigation sections use ordered items with an id and optional child tickets."

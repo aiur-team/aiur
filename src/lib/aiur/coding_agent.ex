@@ -36,6 +36,18 @@ defmodule Aiur.CodingAgent do
           :noop
           | {:deliver_text, String.t(), (map() -> any()), (term() -> any())}
 
+  @doc false
+  @spec with_snapshot((-> result)) :: result when result: var
+  defdelegate with_snapshot(fun), to: ProvidersView
+
+  @doc false
+  @spec snapshot_classifications([Aiur.Issue.t()]) :: map()
+  defdelegate snapshot_classifications(issues), to: Aiur.CodingAgent.LabelClassification, as: :prepare
+
+  @doc false
+  @spec with_classification_cache(map(), (-> result)) :: result when result: var
+  defdelegate with_classification_cache(cache, fun), to: Aiur.CodingAgent.LabelClassification, as: :with_cache
+
   # Registry views and provider descriptors.
   defdelegate backends(), to: ProvidersView
   defdelegate child_specs(), to: ProvidersView

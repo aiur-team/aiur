@@ -17,12 +17,13 @@ it("carries Build labels from the wire grid through physical descriptors and pai
     { identifier: "1", title: "CI ticket", bucket: "paused", face: "idle", label: "Waiting for CI", progress_percent: null },
     { identifier: "2", title: "Unknown ticket", bucket: "paused", face: "unknown", label: "State unknown", progress_percent: null },
     { identifier: "3", title: "Retry ticket", bucket: "paused", face: "queued", label: "Retrying", progress_percent: 40 },
-  ], total: 3, windows: 1, max_column_offset: 0 };
+    { identifier: "4", title: "Active ticket", bucket: "paused", face: "active", label: "Active", progress_percent: null },
+  ], total: 4, windows: 1, max_column_offset: 0 };
   await createPhysicalSurface().repaint(backend, grid);
   const descriptors = render.mock.lastCall![0];
-  for (const [slot, label] of [[0, "Waiting for CI"], [4, "State unknown"], [1, "Retrying"]] as const) {
+  for (const [slot, label] of [[0, "Waiting for CI"], [4, "State unknown"], [1, "Retrying"], [5, "Active"]] as const) {
     const descriptor = descriptors[slot]!;
-    const accent = label === "Retrying" ? "#9096a4" : "#c2c6cf";
+    const accent = label === "Active" ? "#9fd0ff" : label === "Retrying" ? "#9096a4" : "#c2c6cf";
     expect(descriptor).toMatchObject({ style: { accent } });
     expect(descriptor).toMatchObject({ kind: "agent", stateLabel: label, style: { label } });
     const canvas = createCanvas(120, 120);

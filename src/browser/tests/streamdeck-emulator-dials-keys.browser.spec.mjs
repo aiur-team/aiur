@@ -230,7 +230,7 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
 test('agent key face matches the design geometry and single-colour progress contract', async ({ page }) => {
   await openStreamdeck(page)
 
-  const key = page.locator('.sd-agent-key:not(.is-empty)').first()
+  const key = page.locator('[data-streamdeck-identifier="1352"]')
   const geometry = await key.evaluate((element) => {
     const face = element.querySelector('.sd-key-face')
     const icon = element.querySelector('.sd-ag-ic')

@@ -60,6 +60,7 @@ export interface StreamDeckCounts {
 }
 
 export interface StreamDeckGrid {
+  readonly tickets_status?: string;
   readonly counts?: StreamDeckCounts;
   readonly build?: BuildProgressInput | null;
   readonly build_status?: "ok" | "none" | "unavailable";

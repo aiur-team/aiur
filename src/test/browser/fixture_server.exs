@@ -5,7 +5,9 @@ for file <- ~w(earlier_control scale unfiled_fixture fixture_source fixture_conv
 
 Code.require_file("../support/build_home/usage_fixtures.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixtures.ex", __DIR__)
+Code.require_file("../support/browser_harness/conversation_fixture.ex", __DIR__)
 Code.require_file("../support/test_cleanup.ex", __DIR__)
+Code.require_file("../support/streamdeck_build_fixture.ex", __DIR__)
 Code.require_file("../support/browser_harness/fixture_controls.ex", __DIR__)
 Code.require_file("../support/browser_harness/build_control.ex", __DIR__)
 Code.require_file("../support/browser_harness/palette_layout.ex", __DIR__)
@@ -40,6 +42,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
   end
 
   scope "/" do
+    post("/conversation-fixture/reset", Aiur.BrowserHarness.ConversationFixture, :reset)
+    get("/conversation-fixture/append", Aiur.BrowserHarness.ConversationFixture, :append)
     get("/health", Aiur.BrowserHarness.FixtureAssets, :health)
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
@@ -157,8 +161,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint}
-  alias Aiur.BrowserHarness.FixtureEndpointStart
+  alias Aiur.BrowserHarness.{ExperimentsFixture, FixtureEndpoint, FixtureEndpointStart, Fixtures}
   alias Aiur.Experiments
   alias Aiur.IssueLog
   alias Aiur.TestSupport.BuildHome.{ControlFixture, FixtureSource, TicketDocs}
@@ -181,7 +184,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   def run do
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
-
+    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
     Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.yaml", __DIR__))
@@ -205,6 +208,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
             {Aiur.CurrentRunProjections, idle_without_subscribers?: true},
             id: Aiur.CurrentRunProjections
           ),
+          Aiur.Conversation.HeadTable,
+          {Registry, keys: :unique, name: Aiur.Conversation.Registry},
+          {DynamicSupervisor, strategy: :one_for_one, name: Aiur.Conversation.JournalSupervisor},
           {Task.Supervisor, name: Aiur.TaskSupervisor},
           {Registry, keys: :duplicate, name: FixtureSource.Streams},
           {AiurWeb.Endpoint, []},
@@ -214,6 +220,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         strategy: :one_for_one
       )
 
+    conversation_root = Path.join(System.tmp_dir!(), "conversation-browser-#{Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)}")
+    Application.put_env(:aiur, :conversation_state_dir, conversation_root)
+    Fixtures.conversation(conversation_root)
     port = System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
     {:ok, _pid} =
@@ -299,9 +308,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot(identifiers)
 
       _ ->
-        # The canonical bucket order puts the alert agent first, so the LiveView
-        # initially focuses 1331; seed its durable feed so the production
-        # AgentEventFeed path has real content to project in logs mode.
+        # Ticket attention order puts the error first; seed its durable feed
+        # so the production AgentEventFeed path has real content in logs mode.
+        write_feed_if_missing("1338")
         write_feed_if_missing("1331")
         # The operator flow drives one agent through cmd and logs, so the
         # running agent it controls needs a durable feed of its own.
@@ -445,6 +454,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
+        streamdeck_build_window_fun: fn _, _, _ -> Aiur.TestSupport.StreamdeckBuildFixture.window(streamdeck_snapshot()) end,
         streamdeck_usage_load_fun: &__MODULE__.streamdeck_usage_inputs/2,
         agent_chat_capabilities_fun: &__MODULE__.build_capabilities/1,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,

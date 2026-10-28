@@ -18,7 +18,7 @@ renderer adopt this model.
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
-| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one only selects/focuses it | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
+| **Ticket (Grid)** | Initial view | Up to eight ticket keys; pressing one opens its ticket deck page | Live agents and queued tickets, the same counts as the Build page; focus build progress, provider meters, page | A: no action. B: scroll physical provider panel. C: browse instances; release after press to connect (physical). D: page agents; press for next window. |
 | **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Ticket page: Build status, progress, open PR/CI stage and stale age; voice panel while dictating | A: Grid. B: no action. C: physical instance switcher. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B: no action. C: physical instance switcher. D: scroll event keys. |
@@ -32,7 +32,12 @@ The physical Command ticket page shares the desktop Build status and PR/CI, leav
 | Agent key | Selects the agent only; it never pauses or resumes it. Use the dedicated Pause/Play key in Command mode for that. |
 | Read-only Dashboard | Pause and Mic are disabled; Logs and Settings stay available because they change what you see, not what the fleet does. |
 | Mic | **Mic is press-and-hold, not a click**; capture stops on release, cancellation, or mode change. |
-| Priority | There is no prioritize key; the microphone took the fourth slot. Priority stays a Dashboard control and shows on the deck as a star. |
+| Priority | Dial 2 moves the selected ticket earlier (left) or later (right) in its list build queue. Server-rendered keys show `Queued #k`. The orchestrator priority star is separate. |
+
+Multiple detents in one frame produce one move. The strip reports “not in a queue”,
+“plan order is fixed”, “queue disabled”, or “outcome unknown”; unknown outcomes are
+never retried. Physical dial routing requires the server-input sidecar update
+(SD-103).
 
 ## Read the Logs surface
 
@@ -88,6 +93,7 @@ A bar that drops to an empty track and back is a bug; report it.
 | Paging | Moves by columns so each pair stays together. |
 
 The default Ticket view reads the same Now and planned rows as the Build page.
+If that read fails, the key area shows “Tickets unavailable” until it recovers.
 Agent-state labels match Build, including “Waiting for CI”, “Awaiting command” and “State unknown”.
 
 Missing progress draws no bar and never becomes 0%. Tickets without an agent appear

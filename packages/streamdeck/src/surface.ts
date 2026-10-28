@@ -405,6 +405,8 @@ export const createPhysicalSurface = () => {
               ? detailKeyDescriptors(state.selectedCommand, state.optionOffset ?? 0, state.selectedOption ?? null, state.micHeld === true, state.commandDictation === true, state.commandFeedback)
               : historyKeyDescriptors(state.commandsPage ?? { items: [] }, state.historyOffset ?? 0, null),
           )
+        : grid.tickets_status === "unavailable"
+        ? layoutPhysicalKeys([commandKey("status", "unavailable", "Tickets unavailable", "alert", "UNAVAILABLE", "paused")])
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {

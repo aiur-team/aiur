@@ -22,8 +22,6 @@ defmodule Aiur.CodingAgent.Routing do
 
   @type backend :: String.t()
 
-  @complexity_label ~r/^complexity:(\d+)$/
-
   @doc """
   Resolve the backend for an issue: a `model:<backend>` override label
   wins, then the `complexity:` label mapped through `agent.routing`,
@@ -348,7 +346,7 @@ defmodule Aiur.CodingAgent.Routing do
   """
   @spec model_label_status(Issue.t(), keyword()) :: {String.t(), ModelLabel.cause(), [backend()]} | nil
   def model_label_status(%Issue{} = issue, opts \\ []) do
-    known = ProvidersView.dispatchable_backends(Config.agent_backend_configs())
+    known = ProvidersView.snapshot_dispatchable_backends(Config.agent_backend_configs())
 
     issue
     |> Issue.label_names()
@@ -366,7 +364,7 @@ defmodule Aiur.CodingAgent.Routing do
   # backend, as `{backend, variant | nil}`. Unknown backends are skipped.
   @spec override(Issue.t(), keyword()) :: {backend(), String.t() | nil} | nil
   defp override(%Issue{} = issue, opts) do
-    known = ProvidersView.dispatchable_backends(Config.agent_backend_configs())
+    known = ProvidersView.snapshot_dispatchable_backends(Config.agent_backend_configs())
 
     issue
     |> Issue.label_names()
@@ -448,24 +446,7 @@ defmodule Aiur.CodingAgent.Routing do
   well-formed complexity label is present.
   """
   @spec complexity_level(Issue.t()) :: pos_integer() | nil
-  def complexity_level(%Issue{} = issue) do
-    issue
-    |> Issue.label_names()
-    |> Enum.flat_map(fn
-      label when is_binary(label) ->
-        case Regex.run(@complexity_label, label) do
-          [_, n] -> [String.to_integer(n)]
-          _ -> []
-        end
-
-      _label ->
-        []
-    end)
-    |> case do
-      [] -> nil
-      levels -> Enum.max(levels)
-    end
-  end
+  defdelegate complexity_level(issue), to: Aiur.CodingAgent.LabelClassification
 
   @doc """
   Whether an issue carries a `model:<alias>` label that forces remote
