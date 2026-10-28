@@ -16,7 +16,7 @@ The Claude provider meter names the selected account and shows “worst of N acc
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B/C: no action. D: scroll event keys. |
 | **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
-The physical Command ticket page reads the same Build row and status labels as the desktop ticket header. Missing PR evidence stays blank. After 60 seconds without a fresh ticket DTO, the strip shows its age; fleet and Build changes refresh the focused ticket. Read-only dashboards report disabled controls.
+The physical Command ticket page shares the desktop Build status and PR/CI, leaves missing PRs blank, and shows the DTO age after 60 seconds without a refresh.
 
 | Control state | Behavior |
 | --- | --- |
