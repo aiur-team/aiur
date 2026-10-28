@@ -287,7 +287,10 @@ test('stale body with no observation renders unknown age and retains content', a
 test('board updates preserve focused body links', async ({ page }) => {
   const t = await display(page)
   await pushDoc(page, t.id, { state: 'available', body_html: '<p><a href="https://example.com">Body link</a></p>' })
-  await page.locator('.bm-body a').focus()
-  await page.evaluate(async () => (await import('/build-home/state.js')).fx.modalSync({ upsert: [], remove: [], set: {} }))
-  await expect(page.locator('.bm-body a')).toBeFocused()
+  const link = page.locator('.bm-body a')
+  await link.focus()
+  await link.evaluate(element => { window.focusedBodyLink = element })
+  await upsert(page, [{ ...t, title: t.title + ' updated' }])
+  expect(await page.evaluate(() => document.querySelector('.bm-body a') === window.focusedBodyLink)).toBe(false)
+  await expect(link).toBeFocused()
 })
