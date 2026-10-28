@@ -7,9 +7,7 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
   @spec compose(map(), Nav.t()) :: {[map() | nil], [map()]}
   def compose(grid, nav) do
     fleet = field(grid, :fleet) || %{}
-    faces = faces(FleetModel.navigation(fleet), nav)
-    agents = field(grid, :agents) || []
-    faces = if nav.stack == [], do: faces, else: Enum.map(faces, &ticket_face(&1, agents))
+    faces = faces(FleetModel.navigation(fleet), nav) |> ticket_faces(grid, nav)
     faces = if field(fleet, :status) == "unavailable", do: [%{title: "Fleet unavailable", label: "Unavailable", face: :unknown, bucket: :paused}], else: faces
     strip = field(fleet, :strip) || %{}
     age = field(strip, :heartbeat_age_s)
@@ -17,6 +15,13 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
     capacity = "Capacity #{field(strip, :capacity_max) || "—"}#{if field(strip, :capacity_stale), do: " stale", else: ""}"
     regions = [{0, daemon}, {200, capacity}, {400, pause(field(strip, :global_pause))}, {600, "Fleet · #{Nav.page(nav) + 1}"}]
     {Enum.map(0..7, &Enum.at(faces, rem(&1, 4) * 2 + div(&1, 4))), Enum.map(regions, &region/1)}
+  end
+
+  defp ticket_faces(faces, _grid, %{stack: []}), do: faces
+
+  defp ticket_faces(faces, grid, _nav) do
+    agents = field(grid, :agents) || []
+    Enum.map(faces, &ticket_face(&1, agents))
   end
 
   defp ticket_face(face, agents), do: Enum.find(agents, &(field(&1, :identifier) == field(face, :id))) || face
