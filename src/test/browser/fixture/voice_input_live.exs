@@ -5,6 +5,7 @@ defmodule Aiur.BrowserHarness.VoiceInputLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    Phoenix.Config.put(AiurWeb.Endpoint, :capabilities_report_fun, fn -> %{capabilities: %{"voice.stt" => %{state: :available}}} end)
     Phoenix.Config.put(AiurWeb.Endpoint, :voice_target_payload_fun, fn -> %{fleet: %{running: [%{issue_identifier: "1110"}]}} end)
 
     {:ok, assign(socket, draft: "", patch: 0, sent: "", visible: true, capabilities: %{"voice.stt" => %{state: :available}})}

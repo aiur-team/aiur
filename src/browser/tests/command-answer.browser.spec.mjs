@@ -89,6 +89,8 @@ async function openCommand(page) {
     }
   })
   await openFixture(page, 'writable')
+  await page.goto('/voice-input-fixture')
+  await expect(page.locator('#standalone-voice')).toBeVisible()
   await page.goto('/command-answer-control/answerable')
   const form = page.locator('.decision-answer-form')
   await expect(form.getByRole('button', { name: 'Decision', exact: true })).toBeEnabled()
