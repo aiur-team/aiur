@@ -3,9 +3,9 @@ defmodule AiurWeb.ConversationApiController do
   use Phoenix.Controller, formats: [:json]
 
   alias Aiur.Conversation.{History, Ref, Session}
-  alias AiurWeb.OperatorControlCenter.PayloadLoader
   alias Aiur.Executor.HarnessSession
   alias AiurWeb.{ConversationApiParams, EndpointConfig}
+  alias AiurWeb.OperatorControlCenter.PayloadLoader
   alias Plug.Conn
 
   plug(:no_store)

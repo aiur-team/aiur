@@ -6,13 +6,14 @@ defmodule AiurWeb.ConversationApiControllerTest do
   import Plug.Test
   import Aiur.Conversation.TestSupport
   alias Aiur.Conversation.{Ingest, Ref, Store, TestSupport}
+  alias Aiur.TestSupport.EndpointStubs
   alias AiurWeb.{ConversationApiController, Router}
   @session Plug.Session.init(store: :cookie, key: "_conversation_test", signing_salt: "test")
 
   setup context do
     Aiur.TestSupport.start_owned_endpoint!()
 
-    Aiur.TestSupport.EndpointStubs.put(
+    EndpointStubs.put(
       conversation_executor_session_fun: fn -> %{"state" => "unknown"} end,
       conversation_units_fun: fn -> %{snapshot: %{rows: []}} end
     )
@@ -75,7 +76,7 @@ defmodule AiurWeb.ConversationApiControllerTest do
     assert_error(request("/resolve?subject=executor"), 404, "subject_not_found")
     assert {:ok, _} = Store.prepare(dir, ref)
     assert_error(request("/resolve?subject=executor"), 404, "subject_not_found")
-    Aiur.TestSupport.EndpointStubs.put(conversation_executor_session_fun: fn -> %{"state" => "live"} end)
+    EndpointStubs.put(conversation_executor_session_fun: fn -> %{"state" => "live"} end)
     response = request("/resolve?subject=executor")
     assert response.status == 200
     assert Jason.decode!(response.resp_body) == %{"conversation_id" => Ref.conversation_id(ref), "subject" => "executor"}
@@ -90,7 +91,7 @@ defmodule AiurWeb.ConversationApiControllerTest do
     assert Jason.decode!(response.resp_body)["conversation_id"] == Ref.conversation_id(ref)
     {:worker, identity} = ref.subject
     current = %{identity | identifier: "8"}
-    Aiur.TestSupport.EndpointStubs.put(conversation_units_fun: fn -> %{snapshot: %{rows: [%{identity: current}]}} end)
+    EndpointStubs.put(conversation_units_fun: fn -> %{snapshot: %{rows: [%{identity: current}]}} end)
     renamed = request("/resolve?subject=worker&owner=o&repository=r&identifier=8")
     assert renamed.status == 200
     assert Jason.decode!(renamed.resp_body)["conversation_id"] == Ref.conversation_id(ref)
@@ -157,7 +158,7 @@ defmodule AiurWeb.ConversationApiControllerTest do
     token = "ghp_" <> String.duplicate("b", 36)
     Ingest.append(ref, source(), [Map.put(event(1), :body, token)])
     assert :ok = flush(ref)
-    Aiur.TestSupport.EndpointStubs.put(public_bind: true)
+    EndpointStubs.put(public_bind: true)
     suffix = "/#{Ref.conversation_id(ref)}/entries?reveal=true"
     assert request(suffix).status == 401
     response = request(suffix, :get, bearer)
