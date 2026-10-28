@@ -4,6 +4,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
   alias Aiur.BuildOrder.Index
   alias Aiur.Config.Schema.GeneralEpic
   alias AiurWeb.Streamdeck.Deck
+  alias AiurWeb.Build.Payload
   alias AiurWeb.Streamdeck.Deck.{Epics, Input, Nav}
   alias AiurWeb.Streamdeck.Render
 
@@ -53,7 +54,7 @@ defmodule AiurWeb.Streamdeck.Deck.EpicsTest do
     assert index.all["1"].epic == "f-deck"
     assert index.all["1"].general_epics == ["ui"]
     assert index.all["2"].general_epics == ["ui", "docs"]
-    refute Map.has_key?(AiurWeb.Build.Payload.scrub(index.all["1"]), "general_epics")
+    refute Map.has_key?(Payload.scrub(index.all["1"]), "general_epics")
     section = index |> Index.base() |> Index.window("Etc/UTC", now()) |> then(&Epics.read(window: {:ok, &1}))
     sections = Deck.navigation(%{epics: section.keys})
     ui_index = Enum.find_index(sections.epic, &(&1.id == "ui"))
