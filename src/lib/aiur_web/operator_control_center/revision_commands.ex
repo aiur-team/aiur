@@ -252,10 +252,10 @@ defmodule AiurWeb.OperatorControlCenter.RevisionCommands do
   defp revision_notice(%{status: :duplicate}),
     do: "This durable revision was already recorded. Canonical state was refreshed."
 
-  defp revision_notice(%{revision_result: :dispatched}),
+  defp revision_notice(%{decision: %{revision_result: :dispatched}}),
     do: "Revision recorded and corrective follow-up queued."
 
-  defp revision_notice(%{revision_result: :no_longer_applicable}),
+  defp revision_notice(%{decision: %{revision_result: :no_longer_applicable}}),
     do: "Revision recorded; the target is no longer active and Executor follow-up is required."
 
   defp revision_notice(_accepted), do: "Revision recorded; corrective follow-up is pending."
