@@ -8,6 +8,7 @@ defmodule Aiur.Conversation.SubjectIndex do
   alias Aiur.TrackerIdentity
 
   @table :aiur_conversation_subjects
+  @unreadable_subject_topic "system.conversation.subject_index.unreadable"
 
   @spec put(Path.t(), Ref.t()) :: :ok
   def put(dir, %Ref{subject: {:worker, identity}} = ref) do
@@ -121,8 +122,16 @@ defmodule Aiur.Conversation.SubjectIndex do
 
   defp index_subject(_dir, _subject), do: {:error, :invalid_subject}
 
-  defp log_bad_count(count) when count > 0,
-    do: Logger.warning("Conversation subject index skipped #{count} unreadable subject.json file(s)")
+  defp log_bad_count(count) when count > 0 do
+    Logger.warning("Conversation subject index skipped #{count} unreadable subject.json file(s)")
+    alert_bad_count(count)
+  end
 
   defp log_bad_count(_count), do: :ok
+
+  defp alert_bad_count(count) do
+    emit = Application.get_env(:aiur, :conversation_subject_index_alert_fun, &Aiur.Alerts.emit_system/2)
+    message = "Skipped #{count} unreadable conversation subject.json file(s)"
+    emit.(@unreadable_subject_topic, message: message, reason: message, needs_attention: true, severity: "warning")
+  end
 end

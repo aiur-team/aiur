@@ -32,6 +32,9 @@ defmodule Aiur.Conversation.History do
     with {:ok, _} <- HistoryReader.snapshot(ref), do: {:ok, Ref.conversation_id(ref)}
   end
 
+  @spec snapshot(Ref.t() | String.t()) :: {:ok, map()} | {:error, :not_found | :unavailable}
+  def snapshot(ref), do: HistoryReader.snapshot(ref)
+
   @doc "Pages durable entries by position. A principal is required; only loopback may reveal secrets."
   @spec list_entries(Ref.t() | String.t(), keyword()) :: {:ok, page()} | {:error, atom()}
   def list_entries(ref, opts) do

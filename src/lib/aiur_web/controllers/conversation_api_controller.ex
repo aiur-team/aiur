@@ -72,10 +72,14 @@ defmodule AiurWeb.ConversationApiController do
           {:ok, ref} <- [Ref.worker(identity)],
           do: Ref.conversation_id(ref)
 
-    case unique_subject(current) do
-      {:ok, _id} = live_match -> live_match
-      {:error, :ambiguous_subject, _ids} = ambiguous -> ambiguous
-      {:error, :not_found} -> History.resolve_worker(owner, repository, identifier)
+    current = Enum.reject(current, fn id -> History.snapshot(id) == {:error, :not_found} end)
+
+    case History.resolve_worker(owner, repository, identifier) do
+      {:ok, id} -> unique_subject([id | current])
+      {:error, :ambiguous_subject, ids} -> unique_subject(ids ++ current)
+      {:error, :not_found} -> unique_subject(current)
+      {:error, :unavailable} -> unique_subject(current)
+      error -> error
     end
   end
 

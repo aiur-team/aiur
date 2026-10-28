@@ -35,6 +35,20 @@ defmodule AiurWeb.ConversationResolveControllerTest do
     File.mkdir_p!(corrupt)
 
     test_pid = self()
+    previous_alert_fun = Application.get_env(:aiur, :conversation_subject_index_alert_fun)
+
+    Application.put_env(:aiur, :conversation_subject_index_alert_fun, fn topic, opts ->
+      send(test_pid, {:subject_index_alert, topic, opts})
+      :ok
+    end)
+
+    on_exit(fn ->
+      if previous_alert_fun do
+        Application.put_env(:aiur, :conversation_subject_index_alert_fun, previous_alert_fun)
+      else
+        Application.delete_env(:aiur, :conversation_subject_index_alert_fun)
+      end
+    end)
 
     log =
       capture_log(fn ->
@@ -52,6 +66,9 @@ defmodule AiurWeb.ConversationResolveControllerTest do
 
     assert_received {:resolved_worker, %{"conversation_id" => ^conversation_id, "subject" => "worker"}}
     assert log =~ "skipped 1 unreadable subject.json file(s)"
+    assert_received {:subject_index_alert, "system.conversation.subject_index.unreadable", alert_opts}
+    assert alert_opts[:message] == "Skipped 1 unreadable conversation subject.json file(s)"
+    refute alert_opts[:message] =~ root
 
     second_corrupt = Path.join(root, "conv_yyyyyyyyyyyyyyyyyyyyyyyyyy")
     File.mkdir_p!(second_corrupt)
@@ -70,6 +87,23 @@ defmodule AiurWeb.ConversationResolveControllerTest do
       end)
 
     refute second_log =~ "skipped"
+    refute_received {:subject_index_alert, "system.conversation.subject_index.unreadable", _}
+  end
+
+  test "a queued live worker without a conversation still returns subject_not_found" do
+    {:ok, identity} = TrackerIdentity.from_github(%{"node_id" => "I_queued", "number" => 3}, {"acme", "app"}, {"acme", "app"})
+    EndpointStubs.put(conversation_units_fun: fn -> %{snapshot: %{rows: [%{identity: identity}]}} end)
+
+    conn =
+      conn(
+        :get,
+        "/api/v1/conversations/resolve?subject=worker&owner=acme&repository=app&identifier=3"
+      )
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
+      |> AiurWeb.Endpoint.call(AiurWeb.Endpoint.init([]))
+
+    assert conn.status == 404
+    assert %{"error" => %{"code" => "subject_not_found"}} = Jason.decode!(conn.resp_body)
   end
 
   test "a live worker resolves even when the durable index cannot be read", %{root: root} do
