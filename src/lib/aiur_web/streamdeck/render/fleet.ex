@@ -28,7 +28,8 @@ defmodule AiurWeb.Streamdeck.Render.Fleet do
 
   defp ticket_face(face, agents), do: Enum.find(agents, &(field(&1, :identifier) == field(face, :id))) || face
 
-  defp unavailable?(fleet, nav), do: field(fleet, :status) == "unavailable" and nav.stack == [] and Nav.page(nav) == 0
+  defp unavailable?(fleet, %{stack: []} = nav), do: field(fleet, :status) == "unavailable" and Nav.page(nav) == 0
+  defp unavailable?(fleet, _nav), do: field(fleet, :status) == "unavailable"
 
   defp region({x, text}), do: %{x: x, width: 200, label: text, parts: [%{kind: :text_line, text: text, y: 50, size: 12}]}
   defp faces(keys, %{stack: []} = nav), do: Enum.slice(keys, Nav.page(nav) * 8, 8)

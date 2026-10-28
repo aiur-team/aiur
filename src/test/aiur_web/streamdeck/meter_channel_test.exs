@@ -78,14 +78,39 @@ defmodule AiurWeb.Streamdeck.MeterChannelTest do
     assert meter.svg =~ "claude usage"
   end
 
+  test "unavailable Fleet stays explicit when a category drill loses its source" do
+    data = %{
+      sources: %{agents: %{state: "ok"}},
+      sections: %{now: [%{num: 17, id: "17", sec: "now", title: "CI source", agent: %{state: "ci_wait"}}], plan: [], nq: []},
+      capacity: %{max: 4, stale: false},
+      daemon: %{state: "live", heartbeat_at: System.system_time(:millisecond)}
+    }
+
+    window = start_supervised!({Agent, fn -> {:ok, data} end})
+    put_endpoint_config(streamdeck_build_window_fun: fn _, _, _ -> Agent.get(window, & &1) end)
+    socket = joined_socket()
+    open_fleet(socket)
+    assert %{"frame" => %{keys: [ci | _]}} = request(socket, "input", %{"kind" => "key_press", "index" => 3})
+    assert ci.svg =~ "CI source"
+    assert :sys.get_state(socket.channel_pid).assigns.deck_nav.stack == [{:state, ["ci_wait"]}]
+    Agent.update(window, fn _ -> {:error, :offline} end)
+    assert %{"frame" => %{keys: [unavailable | _]}} = request(socket, "input", %{"kind" => "dial_turn", "index" => 0, "ticks" => 1})
+    assert :sys.get_state(socket.channel_pid).assigns.deck_frame_grid.fleet.status == "unavailable"
+    assert unavailable.svg =~ "Fleet unavailable"
+  end
+
   defp open_detail(socket) do
-    for view <- ["feature", "epic", "fleet"] do
-      assert %{"view" => ^view} = request(socket, "input", %{"kind" => "dial_press", "index" => 3})
-    end
+    open_fleet(socket)
 
     assert %{"page" => 1, "frame" => %{keys: [meter | _]}} = request(socket, "input", %{"kind" => "dial_turn", "index" => 3, "ticks" => 1})
     assert meter.svg =~ "claude usage"
     request(socket, "input", %{"kind" => "key_press", "index" => 0})
+  end
+
+  defp open_fleet(socket) do
+    for view <- ["feature", "epic", "fleet"] do
+      assert %{"view" => ^view} = request(socket, "input", %{"kind" => "dial_press", "index" => 3})
+    end
   end
 
   defp request(socket, event, payload, status \\ :ok) do
