@@ -388,7 +388,6 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   defp assigns(%{assigns: assigns}) when is_map(assigns), do: assigns
-  defp assigns(_socket), do: %{}
 
   defp voice_pid(%{pid: pid}), do: pid
   defp voice_pid(_session), do: nil

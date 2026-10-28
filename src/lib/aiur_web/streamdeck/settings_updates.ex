@@ -45,7 +45,7 @@ defmodule AiurWeb.Streamdeck.SettingsUpdates do
     case Settings.set(patch, socket.assigns.deck_settings_path) do
       {:ok, settings} ->
         nav = socket.assigns.deck_nav
-        nav = if is_map(patch) and Map.has_key?(patch, "default_view"), do: %{nav | view: String.to_existing_atom(settings["default_view"]), stack: [], drill_pages: [], scroll: 0}, else: nav
+        nav = if Map.has_key?(patch, "default_view"), do: %{nav | view: String.to_existing_atom(settings["default_view"]), stack: [], drill_pages: [], scroll: 0}, else: nav
         socket = assign(socket, deck_settings: settings, settings_toast: "Saved", deck_nav: nav)
         push(socket)
         {:reply, {:ok, settings}, FrameUpdates.push(socket)}
