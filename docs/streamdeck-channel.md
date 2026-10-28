@@ -134,9 +134,11 @@ filed, deduplicated population as `Tickets.keys/2`. `grid.fleet` contains the
 eight summary keys and daemon/capacity/global-pause strip metadata. Unknown
 states remain visible in Active; unavailable counts stay explicitly unavailable.
 
-Physical pixels use the server renderer, including Fleet. Feature/Epic section
-producers follow in SD-203–204. Emulator pixels switch in SD-104; legacy channel
-controls remain available for emulator clients during that transition.
+Physical and emulator pixels use the shared server renderer, including Fleet.
+In the emulator grid, dial D press cycles Ticket → Feature → Epic → Fleet;
+turn, drag, wheel or arrow keys page the current view with clamped bounds.
+The focused command/log controls retain their mode-specific actions.
+The emulator no longer uses the legacy grid-page cycle for dial D press.
 
 ## Focus and transcript rate
 
